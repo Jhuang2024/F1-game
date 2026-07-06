@@ -356,28 +356,43 @@ namespace LocalFormulaRacing
         public void ShowRaceWeekend(GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
             Clear();
-            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Weekend background", new Color(0.015f, 0.02f, 0.025f, 1f));
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Weekend background", new Color(0.012f, 0.015f, 0.018f, 1f));
             CalendarEventData current = career.CurrentEvent();
             if (current == null)
             {
-                current = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : new CalendarEventData { displayName = "Prototype GP", round = 1 };
+                current = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : new CalendarEventData { displayName = "Prototype GP", round = 1, weatherProfile = "clear" };
             }
             TeamData team = data.FindTeam(career.Save.playerTeamId);
-            Text title = UiFactory.CreateText(background, "Weekend title", current.displayName, 42, Color.white, TextAnchor.UpperLeft);
+            Text title = UiFactory.CreateText(background, "Weekend title", current.displayName.ToUpper(), 42, Color.white, TextAnchor.UpperLeft);
             title.GetComponent<RectTransform>().anchoredPosition = new Vector2(80f, -52f);
 
-            RectTransform left = UiFactory.CreateBand(background, "Weekend actions", new Vector2(0.06f, 0.16f), new Vector2(0.35f, 0.76f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
-            UiFactory.AddVerticalLayout(left, 14, new RectOffset(22, 22, 22, 22));
-            UiFactory.CreateText(left, "Weekend meta", "Season " + career.Save.currentSeason + " Round " + career.Save.currentRound + "\n" +
-                career.Save.playerDriverName + "\n" +
-                (team == null ? career.Save.playerTeamId : team.name) + "\n" +
-                "Contract target P" + career.Save.contractTargetPosition,
-                21, new Color(0.82f, 0.89f, 0.92f), TextAnchor.UpperLeft);
-            UiFactory.CreateButton(left, "Start Weekend: Qualifying", bootstrap.StartCareerQualifying);
+            RectTransform main = UiFactory.CreateRect(background, "Weekend main layout", new Vector2(0.06f, 0.14f), new Vector2(0.94f, 0.82f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(main, 24, new RectOffset(0, 0, 0, 0));
+
+            // Left: Session Info & Weather
+            RectTransform left = UiFactory.CreateBand(main, "Weekend actions", new Vector2(0f, 0f), new Vector2(0.35f, 1f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
+            left.sizeDelta = new Vector2(440f, 0f);
+            UiFactory.AddVerticalLayout(left, 12, new RectOffset(22, 22, 22, 22));
+            UiFactory.CreateText(left, "Weekend title", "ROUND " + career.Save.currentRound, 24, new Color(0.95f, 0.04f, 0.035f), TextAnchor.MiddleLeft);
+
+            string profile = current.weatherProfile.ToLower();
+            float trackTemp = profile.Contains("hot") ? 44f : (profile.Contains("wet") ? 19f : (profile.Contains("cloud") ? 25f : 31f));
+            UiFactory.CreateText(left, "Weekend meta",
+                "Track: " + current.displayName + "\n" +
+                "Condition: " + WeatherProfileText(profile).ToUpper() + "\n" +
+                "Track Temp: " + trackTemp.ToString("0") + "°C\n" +
+                "Air Temp: " + (trackTemp - 7f).ToString("0") + "°C\n" +
+                "Team: " + (team == null ? "INDEPENDENT" : team.shortName.ToUpper()),
+                19, new Color(0.86f, 0.92f, 0.96f), TextAnchor.UpperLeft);
+
+            UiFactory.CreateBand(left, "Spacer", Vector2.zero, Vector2.zero, Vector2.zero, new Vector2(0f, 20f), new Color(0, 0, 0, 0));
+            UiFactory.CreateButton(left, "Go to Qualifying", bootstrap.ShowQualifyingTyreSelect);
+            UiFactory.CreateButton(left, "Go to Race", bootstrap.StartCareerRace);
             UiFactory.CreateButton(left, "Sim Qualifying", bootstrap.StartCareerSimQualifying);
             UiFactory.CreateButton(left, "Back", () => ShowCareerHub(data, career, settings));
 
-            RectTransform right = UiFactory.CreateBand(background, "Weekend grid", new Vector2(0.42f, 0.16f), new Vector2(0.9f, 0.76f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
+            // Right: Grid / Standings
+            RectTransform right = UiFactory.CreateBand(main, "Weekend grid", new Vector2(0f, 0f), new Vector2(0.65f, 1f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
             List<QualifyingResultEntry> currentGrid = career.HasQualifyingForCurrentRound() ? career.Save.lastQualifyingResults : null;
             Text grid = UiFactory.CreateText(right, "Grid", BuildQualifyingText(currentGrid), 17, Color.white, TextAnchor.UpperLeft);
             RectTransform gridRect = grid.GetComponent<RectTransform>();
@@ -399,22 +414,48 @@ namespace LocalFormulaRacing
             CalendarEventData current = career.CurrentEvent();
             if (current == null)
             {
-                current = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : new CalendarEventData { displayName = "Prototype GP", weatherProfile = "clear" };
+                current = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : new CalendarEventData { displayName = "Prototype GP", weatherProfile = "clear_hot" };
             }
 
-            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Qualifying tyre background", new Color(0.015f, 0.02f, 0.025f, 1f));
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Qualifying tyre background", new Color(0.012f, 0.015f, 0.018f, 1f));
             UiFactory.CreateBand(background, "Qualifying tyre accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -8f), Vector2.zero, new Color(0.95f, 0.04f, 0.035f, 1f));
 
-            Text title = UiFactory.CreateText(background, "Qualifying tyre title", (simulate ? "Sim Qualifying" : "Q" + Mathf.Clamp(phase, 1, 3)) + " Tyre Selection", 44, Color.white, TextAnchor.UpperLeft);
+            Text title = UiFactory.CreateText(background, "Qualifying tyre title", (simulate ? "Sim Qualifying" : "Q" + Mathf.Clamp(phase, 1, 3)) + " Pre-Session Briefing", 44, Color.white, TextAnchor.UpperLeft);
             title.GetComponent<RectTransform>().anchoredPosition = new Vector2(80f, -54f);
 
-            RectTransform panel = UiFactory.CreateBand(background, "Qualifying tyre panel", new Vector2(0.12f, 0.18f), new Vector2(0.78f, 0.78f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
-            UiFactory.AddVerticalLayout(panel, 14, new RectOffset(28, 28, 26, 26));
-            UiFactory.CreateText(panel, "Qualifying tyre event", current.displayName + "\nSession weather: " + WeatherProfileText(current.weatherProfile) + "\nSelected compound: " + settings.Current.tyreCompound, 23, new Color(0.84f, 0.91f, 0.95f), TextAnchor.UpperLeft);
-            UiFactory.CreateText(panel, "Qualifying tyre guidance", "Weather is shown for information only. Choose the compound you want to run for this qualifying segment.", 18, new Color(0.72f, 0.82f, 0.87f), TextAnchor.UpperLeft);
+            RectTransform main = UiFactory.CreateRect(background, "Qualifying main layout", new Vector2(0.08f, 0.12f), new Vector2(0.92f, 0.82f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(main, 24, new RectOffset(0, 0, 0, 0));
 
-            RectTransform tyreButtons = UiFactory.CreateRect(panel, "Qualifying tyre buttons", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            tyreButtons.sizeDelta = new Vector2(780f, 78f);
+            RectTransform left = UiFactory.CreateBand(main, "Weather forecast", new Vector2(0f, 0f), new Vector2(0.35f, 1f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
+            left.sizeDelta = new Vector2(420f, 0f);
+            UiFactory.AddVerticalLayout(left, 12, new RectOffset(24, 24, 24, 24));
+            UiFactory.CreateText(left, "Condition title", "TRACK CONDITIONS", 22, new Color(0.95f, 0.04f, 0.035f), TextAnchor.MiddleLeft);
+
+            string profile = current.weatherProfile.ToLower();
+            string condition = WeatherProfileText(profile);
+            float trackTemp = profile.Contains("hot") ? 42f : (profile.Contains("wet") ? 18f : (profile.Contains("cloud") ? 26f : 32f));
+            float airTemp = trackTemp - 8f;
+
+            UiFactory.CreateText(left, "Current weather", "Condition: " + condition.ToUpper() + "\nTrack Temp: " + trackTemp.ToString("0") + "°C\nAir Temp: " + airTemp.ToString("0") + "°C\nHumidity: " + (profile.Contains("wet") ? "88%" : "42%"), 19, Color.white, TextAnchor.MiddleLeft);
+            UiFactory.CreateBand(left, "Weather spacer", Vector2.zero, Vector2.zero, Vector2.zero, new Vector2(0f, 20f), new Color(0, 0, 0, 0));
+            UiFactory.CreateText(left, "Forecast title", "SESSION FORECAST", 20, new Color(0.72f, 0.82f, 0.86f), TextAnchor.MiddleLeft);
+            string forecast = profile.Contains("mixed") ? "Expect variable rain intensity throughout the session." : (profile.Contains("wet") ? "Steady rain expected to continue." : "Dry track expected for the duration.");
+            Text forecastText = UiFactory.CreateText(left, "Forecast text", forecast, 17, new Color(0.82f, 0.9f, 0.94f), TextAnchor.UpperLeft);
+            forecastText.verticalOverflow = VerticalWrapMode.Overflow;
+
+            RectTransform right = UiFactory.CreateBand(main, "Tyre Selection", new Vector2(0f, 0f), new Vector2(0.65f, 1f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
+            UiFactory.AddVerticalLayout(right, 14, new RectOffset(28, 28, 24, 24));
+            UiFactory.CreateText(right, "Tyre title", "TYRE SELECTION", 22, new Color(0.95f, 0.04f, 0.035f), TextAnchor.MiddleLeft);
+
+            string currentCompound = settings.Current.tyreCompound;
+            string tyreGuidance = GetTyreGuidance(currentCompound, profile);
+            UiFactory.CreateText(right, "Selected tyre", "Compound: " + currentCompound.ToUpper(), 19, Color.white, TextAnchor.MiddleLeft);
+            Text guidanceText = UiFactory.CreateText(right, "Tyre guidance", tyreGuidance, 17, new Color(0.82f, 0.9f, 0.94f), TextAnchor.UpperLeft);
+            guidanceText.verticalOverflow = VerticalWrapMode.Overflow;
+            guidanceText.GetComponent<RectTransform>().sizeDelta = new Vector2(0f, 80f);
+
+            RectTransform tyreButtons = UiFactory.CreateRect(right, "Tyre buttons container", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            tyreButtons.sizeDelta = new Vector2(0f, 72f);
             UiFactory.AddHorizontalLayout(tyreButtons, 10, new RectOffset(0, 0, 0, 0));
             CreateQualifyingTyreButton(tyreButtons, data, career, settings, phase, "Soft", simulate);
             CreateQualifyingTyreButton(tyreButtons, data, career, settings, phase, "Medium", simulate);
@@ -422,7 +463,8 @@ namespace LocalFormulaRacing
             CreateQualifyingTyreButton(tyreButtons, data, career, settings, phase, "Intermediate", simulate);
             CreateQualifyingTyreButton(tyreButtons, data, career, settings, phase, "Wet", simulate);
 
-            UiFactory.CreateButton(panel, simulate ? "Sim Qualifying" : "Start Q" + Mathf.Clamp(phase, 1, 3), () =>
+            UiFactory.CreateBand(right, "Action spacer", Vector2.zero, Vector2.zero, Vector2.zero, new Vector2(0f, 32f), new Color(0, 0, 0, 0));
+            UiFactory.CreateButton(right, simulate ? "Execute Simulation" : "Start Session", () =>
             {
                 if (simulate)
                 {
@@ -433,7 +475,18 @@ namespace LocalFormulaRacing
                     bootstrap.BeginCareerQualifying();
                 }
             });
-            UiFactory.CreateButton(panel, "Back to Weekend", bootstrap.ShowRaceWeekend);
+            UiFactory.CreateButton(right, "Back to Weekend", bootstrap.ShowRaceWeekend);
+        }
+
+        string GetTyreGuidance(string compound, string weatherProfile)
+        {
+            bool isWet = weatherProfile.Contains("wet") || weatherProfile.Contains("mixed");
+            if (compound == "Soft") return "Maximum grip for qualifying pace. Very high degradation. Recommended only for dry, cool tracks.";
+            if (compound == "Medium") return "Balanced performance and durability. Good operating window for most dry conditions.";
+            if (compound == "Hard") return "Highest durability but lower peak grip. Best for hot track surfaces and long stints.";
+            if (compound == "Intermediate") return isWet ? "Optimal for damp tracks or light rain. Clears moderate water volume." : "Informational: Overheats quickly on dry asphalt.";
+            if (compound == "Wet") return isWet ? "Required for heavy rain. Prevents aquaplaning in deep standing water." : "Informational: Massive performance loss on dry tracks.";
+            return "";
         }
 
         void CreateQualifyingTyreButton(RectTransform parent, GameDataRepository data, CareerManager career, GameSettingsStore settings, int phase, string tyreName, bool simulate)
