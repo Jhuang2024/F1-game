@@ -7,6 +7,7 @@ namespace LocalFormulaRacing
     {
         VehicleController vehicle;
         AudioSource engineSource;
+        AudioSource scrubSource;
         int lastGear;
         bool enabledAudio;
 
@@ -21,9 +22,18 @@ namespace LocalFormulaRacing
             engineSource.minDistance = 8f;
             engineSource.maxDistance = 95f;
             engineSource.volume = volume;
+
+            scrubSource = gameObject.AddComponent<AudioSource>();
+            scrubSource.clip = CreateScrubLoop();
+            scrubSource.loop = true;
+            scrubSource.spatialBlend = 1f;
+            scrubSource.minDistance = 6f;
+            scrubSource.maxDistance = 60f;
+            scrubSource.volume = 0f;
             if (enabledAudio)
             {
                 engineSource.Play();
+                scrubSource.Play();
             }
         }
 
@@ -44,6 +54,35 @@ namespace LocalFormulaRacing
             }
 
             lastGear = vehicle.CurrentGear;
+
+            // Tyre scrub when sliding, low rumble when riding kerbs.
+            if (scrubSource != null)
+            {
+                scrubSource.mute = !enabledAudio;
+                float slip = Mathf.Clamp01(vehicle.OversteerAmount + vehicle.UndersteerAmount * 0.5f);
+                float scrub = slip * Mathf.Clamp01(speed01 * 2.2f) * 0.28f;
+                float kerb = vehicle.IsOnKerb && speed01 > 0.1f ? 0.22f : 0f;
+                float target = Mathf.Max(scrub, kerb);
+                scrubSource.volume = Mathf.MoveTowards(scrubSource.volume, target, Time.deltaTime * 1.8f);
+                scrubSource.pitch = vehicle.IsOnKerb ? 0.55f : Mathf.Lerp(0.85f, 1.25f, slip);
+            }
+        }
+
+        AudioClip CreateScrubLoop()
+        {
+            int sampleRate = 44100;
+            int sampleCount = sampleRate;
+            float[] samples = new float[sampleCount];
+            float smoothed = 0f;
+            for (int i = 0; i < sampleCount; i++)
+            {
+                smoothed = Mathf.Lerp(smoothed, Random.Range(-1f, 1f), 0.4f);
+                samples[i] = smoothed * 0.5f;
+            }
+
+            AudioClip clip = AudioClip.Create("tyre scrub loop", sampleCount, 1, sampleRate, false);
+            clip.SetData(samples, 0);
+            return clip;
         }
 
         AudioClip CreateEngineLoop()

@@ -6,8 +6,41 @@ using UnityEngine.UI;
 
 namespace LocalFormulaRacing
 {
+    // One-shot fade-in used for screen transitions; removes itself when done so
+    // repeated activations (e.g. the pause overlay) stay cheap.
+    public class UiFadeIn : MonoBehaviour
+    {
+        CanvasGroup group;
+        float elapsed;
+        const float Duration = 0.18f;
+
+        void Awake()
+        {
+            group = GetComponent<CanvasGroup>();
+            if (group == null)
+            {
+                group = gameObject.AddComponent<CanvasGroup>();
+            }
+
+            group.alpha = 0f;
+        }
+
+        void Update()
+        {
+            elapsed += Time.unscaledDeltaTime;
+            group.alpha = Mathf.Clamp01(elapsed / Duration);
+            if (elapsed >= Duration)
+            {
+                Destroy(this);
+            }
+        }
+    }
+
     public static class UiFactory
     {
+        // Set from settings; screens fade in briefly when enabled.
+        public static bool AnimationsEnabled = true;
+
         // Shared dark-motorsport theme so every screen reads as one product.
         public static readonly Color Accent = new Color(0.95f, 0.08f, 0.06f, 1f);
         public static readonly Color AccentCyan = new Color(0.2f, 0.72f, 1f, 1f);
@@ -93,6 +126,11 @@ namespace LocalFormulaRacing
             rect.offsetMax = Vector2.zero;
             Image image = panelObject.AddComponent<Image>();
             image.color = color;
+            if (AnimationsEnabled)
+            {
+                panelObject.AddComponent<UiFadeIn>();
+            }
+
             return rect;
         }
 

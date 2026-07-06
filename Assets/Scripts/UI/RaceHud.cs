@@ -70,6 +70,17 @@ namespace LocalFormulaRacing
         bool watchedFinalLap;
         bool watchedPitWindow;
 
+        // Track progress strip (minimap-lite): start/finish marker plus live dots.
+        RectTransform progressStrip;
+        Image playerProgressDot;
+        readonly List<Image> aiProgressDots = new List<Image>();
+        const float ProgressStripWidth = 520f;
+
+        // Lights-out "GO" moment.
+        Text goFlash;
+        float goFlashTimer;
+        bool lightsWereVisible;
+
         // Debug overlay (F1).
         GameObject debugPanel;
         Text debugText;
@@ -203,22 +214,32 @@ namespace LocalFormulaRacing
             engineerRect.offsetMax = new Vector2(-18f, -8f);
             engineerPanel.SetActive(false);
 
-            RectTransform startBand = UiFactory.CreateBand(transform, "Race start lights", new Vector2(0.5f, 0.83f), new Vector2(0.5f, 0.83f), new Vector2(-178f, -34f), new Vector2(178f, 34f), new Color(0.004f, 0.005f, 0.006f, 0.88f));
+            RectTransform startBand = UiFactory.CreateBand(transform, "Race start lights", new Vector2(0.5f, 0.83f), new Vector2(0.5f, 0.83f), new Vector2(-224f, -44f), new Vector2(224f, 44f), new Color(0.004f, 0.005f, 0.006f, 0.92f));
             startLightPanel = startBand.gameObject;
+            UiFactory.CreateBand(startBand, "Start lights rule", new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 3f), UiFactory.Accent);
             HorizontalLayoutGroup lightLayout = startBand.gameObject.AddComponent<HorizontalLayoutGroup>();
-            lightLayout.spacing = 14f;
-            lightLayout.padding = new RectOffset(18, 18, 12, 12);
+            lightLayout.spacing = 18f;
+            lightLayout.padding = new RectOffset(24, 24, 14, 14);
             lightLayout.childAlignment = TextAnchor.MiddleCenter;
             lightLayout.childControlWidth = false;
             lightLayout.childControlHeight = false;
             for (int i = 0; i < startLightImages.Length; i++)
             {
                 RectTransform light = UiFactory.CreateBand(startBand, "Start light " + (i + 1), Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, new Color(0.09f, 0.01f, 0.012f, 1f));
-                light.sizeDelta = new Vector2(42f, 42f);
+                light.sizeDelta = new Vector2(58f, 58f);
                 startLightImages[i] = light.GetComponent<Image>();
             }
 
             startLightPanel.SetActive(false);
+
+            goFlash = UiFactory.CreateText(transform, "Lights out flash", "", 52, new Color(0.35f, 1f, 0.45f), TextAnchor.MiddleCenter);
+            RectTransform goRect = goFlash.GetComponent<RectTransform>();
+            goRect.anchorMin = new Vector2(0.5f, 0.83f);
+            goRect.anchorMax = new Vector2(0.5f, 0.83f);
+            goRect.sizeDelta = new Vector2(560f, 80f);
+            goRect.anchoredPosition = Vector2.zero;
+
+            BuildProgressStrip();
 
             RectTransform feedbackBand = UiFactory.CreateBand(transform, "Qualifying feedback", new Vector2(0.5f, 0.52f), new Vector2(0.5f, 0.52f), new Vector2(-330f, -62f), new Vector2(330f, 62f), new Color(0.006f, 0.009f, 0.012f, 0.82f));
             qualifyingFeedbackPanel = feedbackBand.gameObject;
@@ -231,7 +252,10 @@ namespace LocalFormulaRacing
             qualifyingFeedbackPanel.SetActive(false);
 
             RectTransform hintBand = UiFactory.CreateBand(transform, "HUD hint panel", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-286f, 144f), new Vector2(286f, 174f), new Color(0.006f, 0.009f, 0.012f, 0.44f));
-            hint = UiFactory.CreateText(hintBand, "Hint", "Esc pause   Space DRS   R ERS (hold: reset car)   C camera   P pit   F1 debug", 14, new Color(0.78f, 0.86f, 0.9f), TextAnchor.MiddleCenter);
+            string hintText = race != null && race.IsTimeTrial
+                ? "Esc pause   R ERS (hold: reset car)   C camera   F1 debug   F2 next track"
+                : "Esc pause   Space DRS   R ERS (hold: reset car)   C camera   P pit   F1 debug";
+            hint = UiFactory.CreateText(hintBand, "Hint", hintText, 14, new Color(0.78f, 0.86f, 0.9f), TextAnchor.MiddleCenter);
             RectTransform hintRect = hint.GetComponent<RectTransform>();
             hintRect.anchorMin = Vector2.zero;
             hintRect.anchorMax = Vector2.one;
@@ -256,6 +280,74 @@ namespace LocalFormulaRacing
             notificationGroup.alpha = 0f;
             notificationGroup.blocksRaycasts = false;
             notificationGroup.interactable = false;
+        }
+
+        void BuildProgressStrip()
+        {
+            progressStrip = UiFactory.CreateBand(transform, "Track progress strip", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(-ProgressStripWidth * 0.5f - 12f, -152f), new Vector2(ProgressStripWidth * 0.5f + 12f, -132f), new Color(0.006f, 0.009f, 0.012f, 0.7f));
+
+            // Start/finish marker at the left edge of the strip.
+            UiFactory.CreateBand(progressStrip, "Start finish marker", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(10f, 3f), new Vector2(13f, -3f), Color.white);
+
+            for (int i = 0; i < TowerRowCount - 1; i++)
+            {
+                Image dot = CreateProgressDot("AI dot " + i, 6f, new Color(0.75f, 0.82f, 0.86f, 0.85f));
+                aiProgressDots.Add(dot);
+            }
+
+            playerProgressDot = CreateProgressDot("Player dot", 11f, UiFactory.Accent);
+        }
+
+        Image CreateProgressDot(string name, float size, Color color)
+        {
+            RectTransform dot = UiFactory.CreateBand(progressStrip, name, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, Vector2.zero, color);
+            dot.sizeDelta = new Vector2(size, size);
+            dot.anchoredPosition = new Vector2(12f, 0f);
+            return dot.GetComponent<Image>();
+        }
+
+        void UpdateProgressStrip()
+        {
+            if (progressStrip == null || race.Track == null)
+            {
+                return;
+            }
+
+            int aiIndex = 0;
+            for (int i = 0; i < race.Participants.Count; i++)
+            {
+                RaceParticipant entry = race.Participants[i];
+                if (entry == null || entry.lapTracker == null)
+                {
+                    continue;
+                }
+
+                float x = 12f + entry.lapTracker.CurrentProgress.normalized * ProgressStripWidth;
+                if (entry == player)
+                {
+                    playerProgressDot.rectTransform.anchoredPosition = new Vector2(x, 0f);
+                }
+                else if (aiIndex < aiProgressDots.Count)
+                {
+                    Image dot = aiProgressDots[aiIndex];
+                    if (!dot.gameObject.activeSelf)
+                    {
+                        dot.gameObject.SetActive(true);
+                    }
+
+                    dot.rectTransform.anchoredPosition = new Vector2(x, 0f);
+                    dot.color = entry.retired ? new Color(0.4f, 0.4f, 0.4f, 0.5f) : new Color(0.75f, 0.82f, 0.86f, 0.85f);
+                    aiIndex++;
+                }
+            }
+
+            for (int i = aiIndex; i < aiProgressDots.Count; i++)
+            {
+                if (aiProgressDots[i].gameObject.activeSelf)
+                {
+                    aiProgressDots[i].gameObject.SetActive(false);
+                }
+            }
         }
 
         void BuildDebugOverlay()
@@ -308,6 +400,8 @@ namespace LocalFormulaRacing
             UpdateFastElements(car);
             UpdateNotificationAnimation();
             UpdateRaceStartLights();
+            UpdateProgressStrip();
+            UpdateGoFlash();
 
             if (Input.GetKeyDown(KeyCode.F1))
             {
@@ -379,10 +473,10 @@ namespace LocalFormulaRacing
             center.text = session + "  |  " + eventName + position + "  |  Lap " + lapLabel + "  |  " + race.SessionMessage + (string.IsNullOrEmpty(reaction) ? "" : "  |  " + reaction);
 
             telemetry.text =
-                "DRS  " + race.DrsStateText(player) + "     ERS  " + ErsModeText() + "\n" +
-                "TYRE " + car.Tyres.Compound + "     TEMP " + car.Tyres.TemperatureStatus + "\n" +
-                "PIT  " + (car.PitLimiterActive ? "LIMITER 80" : race.PitStatusText(player)) + "\n" +
-                "ROAD " + (car.IsOffTrackSlowdown ? "OFF TRACK" : "ON TRACK") + "\n" +
+                "DRS  " + ColoredDrsText(race.DrsStateText(player)) + "     ERS  " + ColoredErsText() + "\n" +
+                "TYRE " + ColoredTyreText(car.Tyres) + "\n" +
+                "PIT  " + (car.PitLimiterActive ? "<color=#F5D45C>LIMITER 80</color>" : race.PitStatusText(player)) + "\n" +
+                "ROAD " + (car.IsOffTrackSlowdown ? "<color=#FF6C6C>OFF TRACK</color>" : "<color=#8CE99A>ON TRACK</color>") + "\n" +
                 "SLOW " + car.ActiveSlowdownReason;
             UpdateMeters(car);
 
@@ -766,6 +860,13 @@ namespace LocalFormulaRacing
             }
 
             bool visible = race.RaceStartLightsVisible;
+            if (lightsWereVisible && !visible && race.CanDrive)
+            {
+                goFlashTimer = 1.5f;
+                SimpleAudioManager.PlayDrsAvailable();
+            }
+
+            lightsWereVisible = visible;
             if (startLightPanel.activeSelf != visible)
             {
                 startLightPanel.SetActive(visible);
@@ -786,9 +887,72 @@ namespace LocalFormulaRacing
             }
         }
 
+        void UpdateGoFlash()
+        {
+            if (goFlash == null)
+            {
+                return;
+            }
+
+            goFlashTimer = Mathf.Max(0f, goFlashTimer - Time.deltaTime);
+            if (goFlashTimer <= 0f)
+            {
+                if (!string.IsNullOrEmpty(goFlash.text))
+                {
+                    goFlash.text = "";
+                }
+
+                return;
+            }
+
+            goFlash.text = "LIGHTS OUT";
+            float alpha = Mathf.Clamp01(goFlashTimer / 0.6f);
+            goFlash.color = new Color(0.35f, 1f, 0.45f, alpha);
+        }
+
         string SectorText(int sector, float time)
         {
             return race == null ? (time <= 0f ? "--.---" : UiFactory.FormatTime(time)) : race.PlayerSectorText(sector, time);
+        }
+
+        string ColoredDrsText(string state)
+        {
+            if (state == "ACTIVE")
+            {
+                return "<color=#5CFF8A>ACTIVE</color>";
+            }
+
+            if (state == "AVAILABLE")
+            {
+                return "<color=#5CD6FF>AVAILABLE</color>";
+            }
+
+            return "<color=#8A98A2>OFF</color>";
+        }
+
+        string ColoredErsText()
+        {
+            string mode = ErsModeText();
+            if (mode == "DEPLOY")
+            {
+                return "<color=#5CD6FF>DEPLOY</color>";
+            }
+
+            if (mode == "HARVEST")
+            {
+                return "<color=#F5D45C>HARVEST</color>";
+            }
+
+            return "BAL";
+        }
+
+        string ColoredTyreText(TyreState tyres)
+        {
+            string temp = tyres.TemperatureStatus;
+            string tempColored = temp == "HOT"
+                ? "<color=#FF6C6C>HOT</color>"
+                : (temp == "COLD" ? "<color=#5CD6FF>COLD</color>" : "<color=#8CE99A>" + temp + "</color>");
+            return tyres.Compound + "  " + tempColored + "  WEAR " + Mathf.RoundToInt(tyres.WearPercent) + "%";
         }
 
         string ErsModeText()

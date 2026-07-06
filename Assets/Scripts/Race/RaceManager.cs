@@ -108,6 +108,20 @@ namespace LocalFormulaRacing
             StartSession(repository, career, settings, runtimeUi, eventData, playerName, playerTeamId, careerRace, RaceWeekendSession.QuickRace);
         }
 
+        // Track test: jump straight to the next calendar circuit in a fresh time trial.
+        // Bound to F2 while a time trial is running so all 24 layouts can be checked fast.
+        public void CycleToNextTrack()
+        {
+            if (!IsTimeTrial || Data == null || Data.Calendar == null || Data.Calendar.events.Count == 0)
+            {
+                return;
+            }
+
+            int currentIndex = EventData == null ? -1 : Data.Calendar.events.IndexOf(EventData);
+            CalendarEventData next = Data.Calendar.events[(currentIndex + 1 + Data.Calendar.events.Count) % Data.Calendar.events.Count];
+            StartTimeTrial(Data, Career, Settings, ui, next, Career.Save.playerDriverName, Career.Save.playerTeamId);
+        }
+
         public void StartTimeTrial(
             GameDataRepository repository,
             CareerManager career,
@@ -195,7 +209,7 @@ namespace LocalFormulaRacing
             }
 
             SimpleAudioManager.SetRain(Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain);
-            Debug.Log("[RoadPhysics] Race start roadColliderExists=" + (Track.roadCollider != null) +
+            GameLog.Info("[RoadPhysics] Race start roadColliderExists=" + (Track.roadCollider != null) +
                       " roadLayer=" + (Track.roadCollider == null ? "none" : LayerMask.LayerToName(Track.roadCollider.gameObject.layer)) +
                       " roadIsTrigger=" + (Track.roadCollider != null && Track.roadCollider.isTrigger) +
                       " roadCollidesWithDefaultCars=" + (Track.roadCollider != null && !Physics.GetIgnoreLayerCollision(Track.roadCollider.gameObject.layer, 0)));
@@ -1788,6 +1802,10 @@ namespace LocalFormulaRacing
             carObject.transform.SetParent(raceWorld.transform);
             carObject.transform.position = spawnPosition;
             carObject.transform.rotation = spawnRotation;
+            if (!player)
+            {
+                CreateDriverLabel(carObject.transform, driver != null && !string.IsNullOrEmpty(driver.abbreviation) ? driver.abbreviation : driverName, team.SecondaryUnityColor);
+            }
 
             VehicleController controller = carObject.AddComponent<VehicleController>();
             LapTracker lapTracker = carObject.AddComponent<LapTracker>();
@@ -1872,7 +1890,7 @@ namespace LocalFormulaRacing
             }
             else
             {
-                Debug.Log("[RoadPhysics] Spawn raycast hit road for " + driverName + " spawn=" + bestPoint);
+                GameLog.Info("[RoadPhysics] Spawn raycast hit road for " + driverName + " spawn=" + bestPoint);
             }
 
             return bestPoint;
@@ -1901,7 +1919,7 @@ namespace LocalFormulaRacing
             }
 
             Rigidbody body = PlayerParticipant.GetComponent<Rigidbody>();
-            Debug.Log("[RoadPhysics] Player spawn position=" + PlayerParticipant.transform.position +
+            GameLog.Info("[RoadPhysics] Player spawn position=" + PlayerParticipant.transform.position +
                       " raycastHitRoad=" + hitRoad +
                       " roadHitPoint=" + hitPoint +
                       " rigidbodyY=" + (body == null ? -999f : body.position.y) +
@@ -1974,7 +1992,7 @@ namespace LocalFormulaRacing
             }
 
             participant.fallRespawnCooldown = 2f;
-            Debug.LogWarning("[RoadPhysics] Respawned " + participant.driverName +
+            GameLog.Warn("[RoadPhysics] Respawned " + participant.driverName +
                              " after falling below track. respawn=" + respawnPosition);
         }
 
@@ -2042,6 +2060,12 @@ namespace LocalFormulaRacing
             CreateChildSphere(root.transform, "cockpit visor", new Vector3(0f, 0.78f, 0.44f), new Vector3(0.48f, 0.24f, 0.52f), visorMaterial);
             CreateChildSphere(root.transform, "driver helmet", new Vector3(0f, 0.88f, 0.2f), new Vector3(0.32f, 0.32f, 0.32f), helmetMaterial);
             CreateChildCube(root.transform, "steering wheel", new Vector3(0f, 0.76f, 0.62f), new Vector3(0.24f, 0.18f, 0.05f), detailMaterial);
+
+            // Rear rain light: glows under braking, blinks while harvesting.
+            Material rainLightMaterial = CreateMaterial(driverName + " rain light", new Color(0.28f, 0.02f, 0.02f), 0.1f, 0.6f);
+            CreateChildCube(root.transform, "rear rain light", new Vector3(0f, 0.42f, -2.12f), new Vector3(0.1f, 0.22f, 0.05f), rainLightMaterial);
+            VehicleVisuals visuals = root.AddComponent<VehicleVisuals>();
+            visuals.Initialize(root.GetComponent<VehicleController>(), rainLightMaterial);
 
             CreateSuspension(root.transform, floorMaterial, detailMaterial);
             CreateWheel(root.transform, new Vector3(-1.08f, 0.22f, 1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
@@ -2269,7 +2293,9 @@ namespace LocalFormulaRacing
             string trackId = EventData == null || string.IsNullOrEmpty(EventData.trackId) ? "" : EventData.trackId;
             bool night = trackId.Contains("singapore") || trackId.Contains("las_vegas");
             bool desert = trackId.Contains("bahrain") || trackId.Contains("abu_dhabi") || trackId.Contains("qatar");
-            bool park = trackId.Contains("silverstone") || trackId.Contains("melbourne") || trackId.Contains("monza") || trackId.Contains("interlagos") || trackId.Contains("spa") || trackId.Contains("suzuka") || trackId.Contains("austria") || trackId.Contains("zandvoort");
+            bool coastal = trackId.Contains("jeddah") || trackId.Contains("miami") || trackId.Contains("zandvoort") || trackId.Contains("monaco") || trackId.Contains("baku");
+            bool mountain = trackId.Contains("austria") || trackId.Contains("spa") || trackId.Contains("austin") || trackId.Contains("mexico");
+            bool park = trackId.Contains("silverstone") || trackId.Contains("melbourne") || trackId.Contains("monza") || trackId.Contains("interlagos") || trackId.Contains("suzuka") || trackId.Contains("zandvoort");
             string weatherProfile = EventData == null || string.IsNullOrEmpty(EventData.weatherProfile) ? "" : EventData.weatherProfile.ToLowerInvariant();
             bool rainThreat = weatherProfile.Contains("wet") || weatherProfile.Contains("mixed");
 
@@ -2282,22 +2308,30 @@ namespace LocalFormulaRacing
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
             RenderSettings.ambientSkyColor = night ? new Color(0.08f, 0.12f, 0.22f) : (rainThreat ? new Color(0.28f, 0.36f, 0.42f) : new Color(0.42f, 0.58f, 0.74f));
             RenderSettings.ambientEquatorColor = night ? new Color(0.05f, 0.08f, 0.14f) : (rainThreat ? new Color(0.28f, 0.32f, 0.34f) : new Color(0.45f, 0.42f, 0.38f));
-            RenderSettings.ambientGroundColor = night ? new Color(0.01f, 0.01f, 0.02f) : (rainThreat ? new Color(0.08f, 0.09f, 0.1f) : new Color(0.18f, 0.16f, 0.14f));
+            RenderSettings.ambientGroundColor = night ? new Color(0.01f, 0.01f, 0.02f) : (rainThreat ? new Color(0.08f, 0.09f, 0.1f) : (park ? new Color(0.12f, 0.18f, 0.12f) : new Color(0.18f, 0.16f, 0.14f)));
             RenderSettings.reflectionIntensity = rainThreat ? 0.78f : 0.46f;
 
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogDensity = rainThreat ? 0.00024f : 0.00015f;
-            RenderSettings.fogColor = night ? new Color(0.015f, 0.02f, 0.035f) : (rainThreat ? new Color(0.28f, 0.34f, 0.36f) : (desert ? new Color(0.65f, 0.55f, 0.42f) : new Color(0.44f, 0.54f, 0.52f)));
+            RenderSettings.fogDensity = rainThreat ? 0.00024f : (mountain ? 0.00019f : 0.00015f);
+            Color dryFog = desert ? new Color(0.65f, 0.55f, 0.42f)
+                : (coastal ? new Color(0.5f, 0.62f, 0.68f)
+                : (mountain ? new Color(0.4f, 0.5f, 0.46f)
+                : new Color(0.44f, 0.54f, 0.52f)));
+            RenderSettings.fogColor = night ? new Color(0.015f, 0.02f, 0.035f) : (rainThreat ? new Color(0.28f, 0.34f, 0.36f) : dryFog);
             RenderSettings.skybox = null;
 
             GameObject lightObject = new GameObject("Primary Sun");
             lightObject.transform.SetParent(raceWorld.transform);
-            lightObject.transform.rotation = Quaternion.Euler(night ? -15f : (desert ? 32f : 48f), desert ? -42f : -56f, 0f);
+            lightObject.transform.rotation = Quaternion.Euler(night ? -15f : (desert ? 32f : (mountain ? 38f : 48f)), desert ? -42f : (coastal ? -30f : -56f), 0f);
             Light light = lightObject.AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = night ? 0.08f : (rainThreat ? 0.92f : (desert ? 1.55f : 1.25f));
-            light.color = night ? new Color(0.6f, 0.7f, 1f) : (rainThreat ? new Color(0.76f, 0.86f, 0.92f) : (desert ? new Color(1f, 0.85f, 0.65f) : new Color(0.98f, 0.96f, 0.94f)));
+            light.intensity = night ? 0.08f : (rainThreat ? 0.92f : (desert ? 1.55f : (coastal ? 1.4f : 1.25f)));
+            light.color = night ? new Color(0.6f, 0.7f, 1f)
+                : (rainThreat ? new Color(0.76f, 0.86f, 0.92f)
+                : (desert ? new Color(1f, 0.85f, 0.65f)
+                : (coastal ? new Color(1f, 0.94f, 0.85f)
+                : new Color(0.98f, 0.96f, 0.94f))));
             light.shadows = LightShadows.Soft;
             light.shadowStrength = rainThreat ? 0.68f : 0.92f;
             light.shadowBias = 0.035f;

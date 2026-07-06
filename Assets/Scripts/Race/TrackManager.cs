@@ -1297,7 +1297,7 @@ namespace LocalFormulaRacing
             collider.sharedMaterial = GetRoadPhysicsMaterial();
             road.layer = 0;
             Runtime.roadCollider = collider;
-            Debug.Log("[RoadPhysics] Road collider created=" + (collider != null) +
+            GameLog.Info("[RoadPhysics] Road collider created=" + (collider != null) +
                       " layer=" + LayerMask.LayerToName(road.layer) +
                       " isTrigger=" + collider.isTrigger +
                       " sharedMeshAssigned=" + (collider.sharedMesh == mesh) +
@@ -1895,13 +1895,13 @@ namespace LocalFormulaRacing
 
                 if (!repaired)
                 {
-                    Debug.LogWarning("[TrackValidation] Removed " + obstacle.name + " because it intersected the racing surface near " + desiredBasePosition);
+                    GameLog.Warn("[TrackValidation] Removed " + obstacle.name + " because it intersected the racing surface near " + desiredBasePosition);
                     obstacle.SetActive(false);
                     Destroy(obstacle);
                     return false;
                 }
 
-                Debug.LogWarning("[TrackValidation] Repositioned " + obstacle.name + " away from racing surface to " + candidate);
+                GameLog.Warn("[TrackValidation] Repositioned " + obstacle.name + " away from racing surface to " + candidate);
             }
 
             TrackSolidObstacle solid = obstacle.AddComponent<TrackSolidObstacle>();
@@ -2095,7 +2095,7 @@ namespace LocalFormulaRacing
 
                 if (DecorativeRendererTouchesRacingSurface(renderer))
                 {
-                    Debug.LogWarning("[TrackValidation] Removed decorative object " + renderer.gameObject.name + " because it intersected the racing surface.");
+                    GameLog.Warn("[TrackValidation] Removed decorative object " + renderer.gameObject.name + " because it intersected the racing surface.");
                     renderer.gameObject.SetActive(false);
                     Destroy(renderer.gameObject);
                 }
@@ -2172,7 +2172,7 @@ namespace LocalFormulaRacing
                 string objectName = collider.gameObject.name.ToLowerInvariant();
                 if (IsVisualMarkingName(objectName))
                 {
-                    Debug.LogWarning("[TrackValidation] Removed collider from visual-only marking " + collider.gameObject.name);
+                    GameLog.Warn("[TrackValidation] Removed collider from visual-only marking " + collider.gameObject.name);
                     RemoveColliderNow(collider);
                 }
             }

@@ -39,6 +39,19 @@ namespace LocalFormulaRacing
                 cameraRig.NextMode();
             }
 
+            // Track test: cycle to the next calendar circuit while in a time trial.
+            if (Input.GetKeyDown(KeyCode.F2) && raceManager.IsTimeTrial)
+            {
+                raceManager.CycleToNextTrack();
+                return;
+            }
+
+            if (Input.GetKeyDown(KeyCode.F3))
+            {
+                GameLog.Verbose = !GameLog.Verbose;
+                Debug.Log("[GameLog] Verbose logging " + (GameLog.Verbose ? "enabled" : "disabled"));
+            }
+
             GameSettingsData settings = raceManager.Settings.Current;
 
             // R: tap cycles ERS mode, hold ~1 second recovers a stuck car.
@@ -95,8 +108,11 @@ namespace LocalFormulaRacing
                 targetBrake = Mathf.Max(targetBrake, -verticalAxis);
             }
 
+            // Return-to-center is faster than steering in, which keeps keyboard input
+            // responsive without making the car twitchy at speed.
             float steerRate = Mathf.Lerp(6f, 13f, settings.steeringSensitivity);
-            steerValue = Mathf.MoveTowards(steerValue, targetSteer, Time.deltaTime * steerRate);
+            bool returningToCenter = Mathf.Abs(targetSteer) < Mathf.Abs(steerValue) || Mathf.Sign(targetSteer) != Mathf.Sign(steerValue);
+            steerValue = Mathf.MoveTowards(steerValue, targetSteer, Time.deltaTime * steerRate * (returningToCenter ? 1.7f : 1f));
             throttleValue = Mathf.MoveTowards(throttleValue, targetThrottle, Time.deltaTime * Mathf.Lerp(4f, 11f, settings.throttleSensitivity));
             brakeValue = Mathf.MoveTowards(brakeValue, targetBrake, Time.deltaTime * Mathf.Lerp(8f, 18f, settings.brakeSensitivity));
 
@@ -163,6 +179,12 @@ namespace LocalFormulaRacing
             }
 
             vehicle.SetCommand(command);
+
+            // Kerb vibration: a tiny camera impulse sells the rumble without nausea.
+            if (cameraRig != null && vehicle.IsOnKerb && Mathf.Abs(vehicle.CurrentSpeedKph) > 70f)
+            {
+                cameraRig.AddImpulseShake(0.035f);
+            }
         }
 
         bool Key(KeyCode code)
