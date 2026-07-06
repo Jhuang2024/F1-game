@@ -255,6 +255,30 @@ namespace LocalFormulaRacing
         public float controllerDeadzone = 0.12f;
         public int ersMode;
         public int raceLengthPreset = 1;
+
+        // Added fields: field initializers act as backwards-compatible defaults, because
+        // JsonUtility keeps them when the key is absent from an older save file.
+        public float hudScale = 1f;
+        public float cameraFov = 60f;
+        public float cameraShakeStrength = 1f;
+        public bool useMphUnits;
+        public float sceneryDensity = 1f;
+        public int graphicsQuality = 2;
+        public bool uiAnimations = true;
+    }
+
+    [Serializable]
+    public class PlayerRecordsData
+    {
+        public List<TrackRecordEntry> trackRecords = new List<TrackRecordEntry>();
+    }
+
+    [Serializable]
+    public class TrackRecordEntry
+    {
+        public string trackId;
+        public float bestLapTime;
+        public string context;
     }
 
     public enum RaceDifficulty

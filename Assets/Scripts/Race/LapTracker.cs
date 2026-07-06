@@ -38,6 +38,17 @@ namespace LocalFormulaRacing
         bool sawSectorThree;
         bool awaitingRaceStartLine;
 
+        // Virtual checkpoint validation: the track is split into normalized-progress bands.
+        // A lap only counts when enough bands were crossed in forward sequence, which stops
+        // teleports, resets, or reversing over the line from producing phantom laps.
+        const int CheckpointCount = 16;
+        const int MinimumCheckpointsForLap = 12;
+        int lastCheckpointIndex;
+        int checkpointsPassedThisLap;
+
+        public int CheckpointsPassed { get { return checkpointsPassedThisLap; } }
+        public int CurrentCheckpointIndex { get { return lastCheckpointIndex; } }
+
         public int DisplayLap
         {
             get { return OutLapActive ? 0 : Mathf.Clamp(CompletedLaps + 1, 1, RaceLaps); }
@@ -73,6 +84,40 @@ namespace LocalFormulaRacing
             BestSector3Time = 0f;
             progressDistanceOffset = 0f;
             referenceDistance = 0f;
+            lastCheckpointIndex = 0;
+            checkpointsPassedThisLap = 0;
+        }
+
+        void ResetCheckpointsFromCurrentPosition()
+        {
+            lastCheckpointIndex = CheckpointIndexFor(CurrentProgress.normalized);
+            checkpointsPassedThisLap = 0;
+        }
+
+        int CheckpointIndexFor(float normalized)
+        {
+            return Mathf.Clamp(Mathf.FloorToInt(normalized * CheckpointCount), 0, CheckpointCount - 1);
+        }
+
+        void UpdateCheckpoints()
+        {
+            int checkpoint = CheckpointIndexFor(CurrentProgress.normalized);
+            if (checkpoint == lastCheckpointIndex)
+            {
+                return;
+            }
+
+            int forwardDelta = (checkpoint - lastCheckpointIndex + CheckpointCount) % CheckpointCount;
+            if (forwardDelta == 1)
+            {
+                lastCheckpointIndex = checkpoint;
+                checkpointsPassedThisLap++;
+            }
+            else if (forwardDelta > 3)
+            {
+                // Teleport, respawn, or reversing: resync without crediting progress.
+                lastCheckpointIndex = checkpoint;
+            }
         }
 
         public void ConfigureRaceGridStart()
@@ -99,6 +144,7 @@ namespace LocalFormulaRacing
                 sectorStartTime = Time.time;
                 sawSectorTwo = false;
                 sawSectorThree = false;
+                ResetCheckpointsFromCurrentPosition();
             }
             else
             {
@@ -123,6 +169,7 @@ namespace LocalFormulaRacing
                 previousNormalized = CurrentProgress.normalized;
                 referenceDistance = CurrentProgress.distance;
                 initialized = true;
+                ResetCheckpointsFromCurrentPosition();
             }
         }
 
@@ -159,8 +206,11 @@ namespace LocalFormulaRacing
                 previousNormalized = CurrentProgress.normalized;
                 referenceDistance = CurrentProgress.distance;
                 initialized = true;
+                ResetCheckpointsFromCurrentPosition();
                 return;
             }
+
+            UpdateCheckpoints();
 
             if (CrossedSectorLine(0.333f))
             {
@@ -198,8 +248,11 @@ namespace LocalFormulaRacing
                     sectorStartTime = Time.time;
                     sawSectorTwo = false;
                     sawSectorThree = false;
+                    checkpointsPassedThisLap = 0;
                 }
-                else if (sawSectorTwo && sawSectorThree && CurrentLapTime > MinimumValidLapTime())
+                else if (sawSectorTwo && sawSectorThree &&
+                         checkpointsPassedThisLap >= MinimumCheckpointsForLap &&
+                         CurrentLapTime > MinimumValidLapTime())
                 {
                     CompleteLap();
                 }
@@ -234,6 +287,7 @@ namespace LocalFormulaRacing
                 sawSectorThree = false;
                 CurrentLapInvalidated = OutLapFinalCornerCut;
                 referenceDistance = CurrentProgress.distance;
+                checkpointsPassedThisLap = 0;
                 return;
             }
 
@@ -256,6 +310,7 @@ namespace LocalFormulaRacing
             sawSectorTwo = false;
             sawSectorThree = false;
             CurrentLapInvalidated = false;
+            checkpointsPassedThisLap = 0;
 
             if (CompletedLaps >= RaceLaps)
             {

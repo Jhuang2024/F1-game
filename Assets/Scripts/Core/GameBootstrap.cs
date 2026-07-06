@@ -83,6 +83,44 @@ namespace LocalFormulaRacing
             ui.ShowRaceTyreSelect(data, career, settings, false);
         }
 
+        public void ShowTimeTrialSetup()
+        {
+            if (raceManager != null)
+            {
+                raceManager.CleanupRaceWorld();
+            }
+
+            ui.ShowTimeTrialSetup(data, career, settings);
+        }
+
+        public void ShowTrackInfo()
+        {
+            if (raceManager != null)
+            {
+                raceManager.CleanupRaceWorld();
+            }
+
+            ui.ShowTrackInfo(data, career, settings);
+        }
+
+        public void BeginTimeTrial(CalendarEventData raceEvent)
+        {
+            if (raceEvent == null)
+            {
+                raceEvent = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : career.CurrentEvent();
+            }
+
+            SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
+            raceManager.StartTimeTrial(
+                data,
+                career,
+                settings,
+                ui,
+                raceEvent,
+                career.Save.playerDriverName,
+                career.Save.playerTeamId);
+        }
+
         public void BeginQuickRace()
         {
             CalendarEventData raceEvent = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : career.CurrentEvent();

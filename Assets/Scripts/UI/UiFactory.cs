@@ -8,6 +8,16 @@ namespace LocalFormulaRacing
 {
     public static class UiFactory
     {
+        // Shared dark-motorsport theme so every screen reads as one product.
+        public static readonly Color Accent = new Color(0.95f, 0.08f, 0.06f, 1f);
+        public static readonly Color AccentCyan = new Color(0.2f, 0.72f, 1f, 1f);
+        public static readonly Color PanelDark = new Color(0.018f, 0.026f, 0.034f, 0.94f);
+        public static readonly Color PanelDarker = new Color(0.006f, 0.009f, 0.012f, 0.82f);
+        public static readonly Color TextPrimary = new Color(0.94f, 0.97f, 1f, 1f);
+        public static readonly Color TextMuted = new Color(0.68f, 0.78f, 0.84f, 1f);
+        public static readonly Color RowEven = new Color(0.04f, 0.055f, 0.064f, 0.74f);
+        public static readonly Color RowOdd = new Color(0.04f, 0.055f, 0.064f, 0.42f);
+
         static UnityEngine.Font cachedFont;
 
         public static UnityEngine.Font Font
@@ -229,6 +239,165 @@ namespace LocalFormulaRacing
 
             TimeSpan span = TimeSpan.FromSeconds(seconds);
             return span.Minutes.ToString("00") + ":" + span.Seconds.ToString("00") + "." + span.Milliseconds.ToString("000");
+        }
+
+        // ---------- Modern component helpers ----------
+
+        public static RectTransform CreateCard(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax)
+        {
+            RectTransform card = CreateBand(parent, name, anchorMin, anchorMax, Vector2.zero, Vector2.zero, PanelDark);
+            CreateBand(card, name + " accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -3f), Vector2.zero, Accent);
+            return card;
+        }
+
+        public static Text CreateHeader(Transform parent, string value)
+        {
+            Text header = CreateText(parent, value + " header", value, 40, TextPrimary, TextAnchor.MiddleLeft);
+            SetSize(header, 720f, 54f);
+            return header;
+        }
+
+        public static Text CreateSubHeader(Transform parent, string value)
+        {
+            Text header = CreateText(parent, value + " subheader", value.ToUpperInvariant(), 20, Accent, TextAnchor.MiddleLeft);
+            SetSize(header, 620f, 30f);
+            return header;
+        }
+
+        public static Button CreatePrimaryButton(Transform parent, string label, UnityAction action)
+        {
+            return CreateButton(parent, label, action);
+        }
+
+        public static Button CreateSecondaryButton(Transform parent, string label, UnityAction action)
+        {
+            Button button = CreateButton(parent, label, action);
+            ColorBlock colors = button.colors;
+            colors.highlightedColor = new Color(0.1f, 0.16f, 0.22f, 1f);
+            colors.selectedColor = colors.highlightedColor;
+            button.colors = colors;
+            Transform accent = button.transform.Find("Accent");
+            if (accent != null)
+            {
+                Image accentImage = accent.GetComponent<Image>();
+                if (accentImage != null)
+                {
+                    accentImage.color = new Color(0.4f, 0.5f, 0.58f, 0.9f);
+                }
+            }
+
+            return button;
+        }
+
+        public static RectTransform CreateDivider(Transform parent)
+        {
+            RectTransform divider = CreateBand(parent, "Divider", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, new Color(1f, 1f, 1f, 0.1f));
+            divider.sizeDelta = new Vector2(560f, 2f);
+            return divider;
+        }
+
+        public static Text CreateStatCard(Transform parent, string label, string value, float width)
+        {
+            RectTransform card = CreateRect(parent, label + " stat card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(width, 74f);
+            Image background = card.gameObject.AddComponent<Image>();
+            background.color = PanelDarker;
+            CreateBand(card, "Stat rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), Accent);
+            Text labelText = CreateText(card, "Stat label", label.ToUpperInvariant(), 13, TextMuted, TextAnchor.UpperLeft);
+            RectTransform labelRect = labelText.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 1f);
+            labelRect.anchorMax = new Vector2(1f, 1f);
+            labelRect.offsetMin = new Vector2(14f, -30f);
+            labelRect.offsetMax = new Vector2(-8f, -8f);
+            Text valueText = CreateText(card, "Stat value", value, 24, TextPrimary, TextAnchor.LowerLeft);
+            RectTransform valueRect = valueText.GetComponent<RectTransform>();
+            valueRect.anchorMin = Vector2.zero;
+            valueRect.anchorMax = Vector2.one;
+            valueRect.offsetMin = new Vector2(14f, 8f);
+            valueRect.offsetMax = new Vector2(-8f, -30f);
+            return valueText;
+        }
+
+        public static Image CreateProgressBar(Transform parent, string name, float width, float height, Color fillColor, float value01)
+        {
+            RectTransform track = CreateRect(parent, name + " bar", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            track.sizeDelta = new Vector2(width, height);
+            Image trackImage = track.gameObject.AddComponent<Image>();
+            trackImage.color = new Color(0.12f, 0.15f, 0.17f, 0.9f);
+            RectTransform fill = CreateBand(track, name + " fill", Vector2.zero, new Vector2(Mathf.Clamp01(value01), 1f), Vector2.zero, Vector2.zero, fillColor);
+            return fill.GetComponent<Image>();
+        }
+
+        public static Text CreatePillLabel(Transform parent, string value, Color color)
+        {
+            RectTransform pill = CreateRect(parent, value + " pill", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            pill.sizeDelta = new Vector2(Mathf.Max(64f, value.Length * 11f + 26f), 26f);
+            Image background = pill.gameObject.AddComponent<Image>();
+            background.color = new Color(color.r, color.g, color.b, 0.2f);
+            Text text = CreateText(pill, "Pill text", value.ToUpperInvariant(), 13, color, TextAnchor.MiddleCenter);
+            RectTransform textRect = text.GetComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = Vector2.zero;
+            textRect.offsetMax = Vector2.zero;
+            return text;
+        }
+
+        // Scrollable vertical panel. Returns the content RectTransform; add children to it,
+        // they stack top-down and the panel scrolls when content overflows.
+        public static RectTransform CreateScrollPanel(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, int spacing, RectOffset padding)
+        {
+            RectTransform viewport = CreateBand(parent, name, anchorMin, anchorMax, Vector2.zero, Vector2.zero, PanelDarker);
+            viewport.gameObject.AddComponent<RectMask2D>();
+            ScrollRect scroll = viewport.gameObject.AddComponent<ScrollRect>();
+            RectTransform content = CreateRect(viewport, name + " content", new Vector2(0f, 1f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
+            content.pivot = new Vector2(0.5f, 1f);
+            VerticalLayoutGroup layout = AddVerticalLayout(content, spacing, padding);
+            layout.childAlignment = TextAnchor.UpperLeft;
+            ContentSizeFitter fitter = content.gameObject.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            scroll.content = content;
+            scroll.viewport = viewport;
+            scroll.horizontal = false;
+            scroll.vertical = true;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+            scroll.scrollSensitivity = 24f;
+            return content;
+        }
+
+        public static RectTransform CreateBackdrop(Transform parent, string name)
+        {
+            return CreatePanel(parent, name, new Color(0f, 0f, 0f, 0.72f));
+        }
+
+        // Simple centered modal card on a dimmed backdrop. Returns the card content rect.
+        public static RectTransform CreateModal(Transform parent, string title, out GameObject root)
+        {
+            RectTransform backdrop = CreateBackdrop(parent, title + " modal backdrop");
+            root = backdrop.gameObject;
+            RectTransform card = CreateCard(backdrop, title + " modal card", new Vector2(0.34f, 0.28f), new Vector2(0.66f, 0.72f));
+            Text heading = CreateText(card, "Modal title", title, 30, TextPrimary, TextAnchor.UpperLeft);
+            RectTransform headingRect = heading.GetComponent<RectTransform>();
+            headingRect.anchorMin = new Vector2(0f, 1f);
+            headingRect.anchorMax = new Vector2(1f, 1f);
+            headingRect.offsetMin = new Vector2(24f, -64f);
+            headingRect.offsetMax = new Vector2(-24f, -16f);
+            RectTransform content = CreateRect(card, "Modal content", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -70f));
+            AddVerticalLayout(content, 10, new RectOffset(0, 0, 0, 0));
+            return content;
+        }
+
+        public static RectTransform CreateTopNav(Transform parent, string title)
+        {
+            RectTransform nav = CreateBand(parent, "Top nav", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -92f), Vector2.zero, PanelDarker);
+            CreateBand(nav, "Top nav rule", new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 3f), Accent);
+            Text heading = CreateText(nav, "Nav title", title, 38, TextPrimary, TextAnchor.MiddleLeft);
+            RectTransform headingRect = heading.GetComponent<RectTransform>();
+            headingRect.anchorMin = new Vector2(0f, 0f);
+            headingRect.anchorMax = new Vector2(0.6f, 1f);
+            headingRect.offsetMin = new Vector2(64f, 0f);
+            headingRect.offsetMax = Vector2.zero;
+            return nav;
         }
     }
 }
