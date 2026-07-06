@@ -261,9 +261,47 @@ namespace LocalFormulaRacing
         }
     }
 
+    public class TrackValidationReport
+    {
+        public string trackName = "";
+        public int centerLinePoints;
+        public float trackLength;
+        public int longSegmentsSplit;
+        public int shortSegmentsMerged;
+        public int violentAnglesSmoothed;
+        public bool roadColliderValid;
+        public int invalidObstaclesRemoved;
+        public bool gridSpawnValid = true;
+        public bool pitPosesValid = true;
+        public readonly List<string> warnings = new List<string>();
+
+        public void Warn(string message)
+        {
+            warnings.Add(message);
+            Debug.LogWarning("[TrackValidation] " + trackName + ": " + message);
+        }
+
+        public string Summary()
+        {
+            return "[TrackAudit] " + trackName +
+                   " | points=" + centerLinePoints +
+                   " | length=" + trackLength.ToString("0") + "m" +
+                   " | roadCollider=" + (roadColliderValid ? "OK" : "INVALID") +
+                   " | repaired(split=" + longSegmentsSplit + " merged=" + shortSegmentsMerged + " smoothed=" + violentAnglesSmoothed + ")" +
+                   " | obstaclesRemoved=" + invalidObstaclesRemoved +
+                   " | grid=" + (gridSpawnValid ? "OK" : "INVALID") +
+                   " | pit=" + (pitPosesValid ? "OK" : "INVALID") +
+                   " | warnings=" + warnings.Count;
+        }
+    }
+
     public class TrackManager : MonoBehaviour
     {
         public TrackRuntime Runtime { get; private set; }
+        public TrackValidationReport LastReport { get; private set; }
+
+        // Scenery/detail spawn multiplier, set by the race flow from graphics settings before Build.
+        public float sceneryDensity = 1f;
 
         Material roadMaterial;
         Material kerbMaterial;
@@ -294,6 +332,10 @@ namespace LocalFormulaRacing
         public TrackRuntime Build(CalendarEventData eventData, bool showRacingLine)
         {
             ClearChildren();
+            LastReport = new TrackValidationReport
+            {
+                trackName = eventData != null ? eventData.displayName : "Prototype GP"
+            };
             Runtime = CreateLayout(eventData);
             CreateMaterials();
             BuildGround();
@@ -435,8 +477,101 @@ namespace LocalFormulaRacing
                 BuildBahrainLayout(runtime);
             }
 
+            RepairLayout(runtime);
+            if (runtime.centerLine.Count < 18)
+            {
+                if (LastReport != null)
+                {
+                    LastReport.Warn("Layout generated too few points (" + runtime.centerLine.Count + "). Falling back to Bahrain-style template.");
+                }
+
+                runtime.centerLine.Clear();
+                BuildBahrainLayout(runtime);
+                RepairLayout(runtime);
+            }
+
             ApplyTrackScale(runtime, 1.32f);
             ValidateLayout(runtime);
+        }
+
+        // Auto-repair pass: merge tiny segments, split very long segments, and smooth
+        // violent single-point direction changes left behind by layout generation.
+        void RepairLayout(TrackRuntime runtime)
+        {
+            List<Vector3> line = runtime.centerLine;
+            if (line.Count < 4)
+            {
+                return;
+            }
+
+            // 1. Merge segments that are too short to drive or mesh cleanly.
+            for (int i = line.Count - 1; i >= 0 && line.Count > 4; i--)
+            {
+                Vector3 current = line[i];
+                Vector3 previous = line[(i - 1 + line.Count) % line.Count];
+                if (Vector3.Distance(current, previous) < 3.5f)
+                {
+                    line.RemoveAt(i);
+                    if (LastReport != null)
+                    {
+                        LastReport.shortSegmentsMerged++;
+                    }
+                }
+            }
+
+            // 2. Split segments that are too long so sampling, kerbs, and barriers stay continuous.
+            const float maxSegment = 58f;
+            for (int i = 0; i < line.Count; i++)
+            {
+                Vector3 current = line[i];
+                Vector3 next = line[(i + 1) % line.Count];
+                float segment = Vector3.Distance(current, next);
+                if (segment > maxSegment)
+                {
+                    int inserts = Mathf.Min(6, Mathf.CeilToInt(segment / maxSegment) - 1);
+                    for (int step = inserts; step >= 1; step--)
+                    {
+                        float t = step / (float)(inserts + 1);
+                        line.Insert(i + 1, Vector3.Lerp(current, next, t));
+                    }
+
+                    if (LastReport != null)
+                    {
+                        LastReport.longSegmentsSplit += inserts;
+                    }
+
+                    i += inserts;
+                }
+            }
+
+            // 3. Smooth violent single-point kinks. Real hairpins are spread over several
+            //    points by the Catmull-Rom pass, so a >64 degree turn at one point is an artifact.
+            for (int pass = 0; pass < 3; pass++)
+            {
+                bool smoothedAny = false;
+                for (int i = 0; i < line.Count; i++)
+                {
+                    Vector3 previous = line[(i - 1 + line.Count) % line.Count];
+                    Vector3 current = line[i];
+                    Vector3 next = line[(i + 1) % line.Count];
+                    Vector3 entry = (current - previous).normalized;
+                    Vector3 exit = (next - current).normalized;
+                    if (Vector3.Angle(entry, exit) > 64f)
+                    {
+                        line[i] = Vector3.Lerp(current, (previous + next) * 0.5f, 0.5f);
+                        smoothedAny = true;
+                        if (LastReport != null)
+                        {
+                            LastReport.violentAnglesSmoothed++;
+                        }
+                    }
+                }
+
+                if (!smoothedAny)
+                {
+                    break;
+                }
+            }
         }
 
         void ApplyTrackScale(TrackRuntime runtime, float scale)
@@ -506,50 +641,29 @@ namespace LocalFormulaRacing
 
         void BuildSuzukaLayout(TrackRuntime runtime)
         {
-            runtime.styleName = "Technical figure-eight Park";
-            runtime.roadHalfWidth = 14.5f;
-            runtime.kerbStart = 12.2f;
-            runtime.drsZoneOne = new Vector2(0.92f, 0.08f);
-            runtime.drsZoneTwo = new Vector2(0.62f, 0.76f);
-
+            // Rebuilt at the same world scale as every other layout in this file. The old
+            // figure-eight anchors spanned ~3km, self-intersected at ground level, and broke
+            // progress tracking, AI navigation, and object budgets.
+            runtime.styleName = "Technical esses Park";
+            runtime.roadHalfWidth = 9.7f;
+            runtime.kerbStart = 8.6f;
+            runtime.drsZoneOne = new Vector2(0.9f, 0.07f);
+            runtime.drsZoneTwo = new Vector2(0.5f, 0.63f);
             AddSmoothedAnchors(runtime, new[]
             {
-                new Vector3(-600f, 0f, 0f),
-                new Vector3(0f, 0f, 0f),
-                new Vector3(400f, 0f, 0f),
-                new Vector3(750f, 0f, 100f),
-                new Vector3(820f, -2f, 350f),
-                new Vector3(650f, 2f, 600f),
-                new Vector3(420f, 5f, 750f),
-                new Vector3(280f, 8f, 1000f),
-                new Vector3(400f, 7f, 1250f),
-                new Vector3(680f, 4f, 1450f),
-                new Vector3(1050f, 1f, 1350f),
-                new Vector3(1250f, -2f, 950f),
-                new Vector3(1120f, -5f, 650f),
-                new Vector3(1350f, -8f, 500f),
-                new Vector3(1650f, -12f, 650f),
-                new Vector3(1850f, -14f, 1150f),
-                new Vector3(1750f, -9f, 1550f),
-                new Vector3(1580f, -8f, 1620f),
-                new Vector3(1420f, -9f, 1520f),
-                new Vector3(1150f, 2f, 1750f),
-                new Vector3(850f, 8f, 2100f),
-                new Vector3(450f, 15f, 2350f),
-                new Vector3(50f, 18f, 2250f),
-                new Vector3(-250f, 20f, 1950f),
-                new Vector3(50f, 21f, 1600f),
-                new Vector3(550f, 22f, 1200f),
-                new Vector3(1200f, 28f, 750f),
-                new Vector3(1850f, 22f, 450f),
-                new Vector3(2200f, 12f, -150f),
-                new Vector3(1850f, 6f, -650f),
-                new Vector3(1350f, 2f, -450f),
-                new Vector3(1050f, 0f, 50f),
-                new Vector3(750f, 0f, -250f),
-                new Vector3(250f, 0f, -120f),
-                new Vector3(-1000f, 0f, 0f)
-            }, 12);
+                new Vector3(0f, 0f, 0f), new Vector3(158f, 0f, 0f),
+                new Vector3(216f, 1f, 30f), new Vector3(232f, 3f, 84f),
+                new Vector3(186f, 4f, 120f), new Vector3(124f, 5f, 108f),
+                new Vector3(92f, 6f, 148f), new Vector3(128f, 7f, 188f),
+                new Vector3(188f, 7f, 212f), new Vector3(204f, 6f, 266f),
+                new Vector3(156f, 5f, 300f), new Vector3(92f, 4f, 290f),
+                new Vector3(56f, 3f, 326f), new Vector3(70f, 2f, 372f),
+                new Vector3(108f, 1f, 394f), new Vector3(96f, 1f, 416f),
+                new Vector3(30f, 1f, 404f), new Vector3(-70f, 0.5f, 368f),
+                new Vector3(-108f, 0f, 296f),
+                new Vector3(-86f, -1f, 228f), new Vector3(-118f, -1f, 156f),
+                new Vector3(-90f, 0f, 86f), new Vector3(-150f, 0f, 12f)
+            }, 5);
         }
 
         void BuildSilverstoneLayout(TrackRuntime runtime)
@@ -936,33 +1050,54 @@ namespace LocalFormulaRacing
 
         void ValidateLayout(TrackRuntime runtime)
         {
-            for (int i = runtime.centerLine.Count - 1; i >= 0; i--)
-            {
-                Vector3 current = runtime.centerLine[i];
-                Vector3 previous = runtime.centerLine[(i - 1 + runtime.centerLine.Count) % runtime.centerLine.Count];
-                if (Vector3.Distance(current, previous) < 3.5f)
-                {
-                    runtime.centerLine.RemoveAt(i);
-                }
-            }
-
-            if (runtime.centerLine.Count < 18)
-            {
-                Debug.LogWarning("[TrackValidation] " + runtime.displayName + " generated too few points. Falling back to Bahrain-style template.");
-                runtime.centerLine.Clear();
-                BuildBahrainLayout(runtime);
-                return;
-            }
-
             for (int i = 0; i < runtime.centerLine.Count; i++)
             {
                 Vector3 current = runtime.centerLine[i];
                 Vector3 next = runtime.centerLine[(i + 1) % runtime.centerLine.Count];
                 float segment = Vector3.Distance(current, next);
-                if (segment < 4f || segment > 90f)
+                if ((segment < 3f || segment > 95f) && LastReport != null)
                 {
-                    Debug.LogWarning("[TrackValidation] " + runtime.displayName + " segment " + i + " length " + segment.ToString("0.0") + "m may need tuning.");
+                    LastReport.Warn("segment " + i + " length " + segment.ToString("0.0") + "m survived repair pass.");
                 }
+            }
+
+            if (runtime.roadHalfWidth < 6f || runtime.roadHalfWidth > 22f)
+            {
+                if (LastReport != null)
+                {
+                    LastReport.Warn("road half width " + runtime.roadHalfWidth.ToString("0.0") + " out of range, clamping.");
+                }
+
+                runtime.roadHalfWidth = Mathf.Clamp(runtime.roadHalfWidth, 6f, 22f);
+            }
+
+            if (runtime.kerbStart <= 0f || runtime.kerbStart >= runtime.roadHalfWidth)
+            {
+                if (LastReport != null)
+                {
+                    LastReport.Warn("kerb start " + runtime.kerbStart.ToString("0.0") + " invalid, clamping inside road width.");
+                }
+
+                runtime.kerbStart = runtime.roadHalfWidth * 0.88f;
+            }
+
+            ValidateDrsZone(runtime, ref runtime.drsZoneOne, "DRS zone 1");
+            ValidateDrsZone(runtime, ref runtime.drsZoneTwo, "DRS zone 2");
+        }
+
+        void ValidateDrsZone(TrackRuntime runtime, ref Vector2 zone, string label)
+        {
+            zone.x = Mathf.Repeat(zone.x, 1f);
+            zone.y = Mathf.Repeat(zone.y, 1f);
+            float span = zone.x <= zone.y ? zone.y - zone.x : (1f - zone.x) + zone.y;
+            if (span < 0.03f || span > 0.5f)
+            {
+                if (LastReport != null)
+                {
+                    LastReport.Warn(label + " span " + span.ToString("0.00") + " invalid, resetting to default range.");
+                }
+
+                zone = new Vector2(zone.x, Mathf.Repeat(zone.x + 0.14f, 1f));
             }
         }
 
@@ -1230,13 +1365,15 @@ namespace LocalFormulaRacing
 
         void BuildGridPaint()
         {
+            // Keep the painted boxes in lockstep with RaceManager.SpawnParticipant so cars
+            // actually start on their grid markings.
             int slots = 22;
-            float laneWidth = Mathf.Min(5.5f, Runtime.roadHalfWidth * 0.38f);
+            float laneWidth = Mathf.Min(4.2f, Runtime.roadHalfWidth * 0.46f);
             for (int i = 0; i < slots; i++)
             {
                 int row = i / 2;
                 bool leftSlot = i % 2 == 0;
-                float gridDistance = Runtime.length - 65f - row * 22f - (leftSlot ? 0f : 11f);
+                float gridDistance = Runtime.length - 42f - row * 15.5f - (leftSlot ? 0f : 7.7f);
                 Vector3 point;
                 Vector3 forward;
                 Vector3 right;
@@ -1308,7 +1445,15 @@ namespace LocalFormulaRacing
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
                 bool street = streetCircuit;
                 CreateBarrier(point - right * (Runtime.roadHalfWidth + (street ? 2f : 5.5f)), forward, street);
-                CreateBarrier(point + right * (Runtime.roadHalfWidth + (street ? 2f : 5.5f)), forward, street);
+
+                // Leave the right side clear where the pit lane runs (entry through exit),
+                // otherwise barrier segments spawn straight across the pit corridor.
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+                bool insidePitCorridor = normalized > 0.83f || normalized < 0.06f;
+                if (!insidePitCorridor)
+                {
+                    CreateBarrier(point + right * (Runtime.roadHalfWidth + (street ? 2f : 5.5f)), forward, street);
+                }
             }
         }
 
@@ -1529,19 +1674,28 @@ namespace LocalFormulaRacing
             bool park = Runtime.styleName.Contains("Park") || Runtime.styleName.Contains("Flowing");
             bool night = Runtime.styleName.Contains("Night");
 
-            // Signature grandstands
+            // Signature grandstands on the main spectator stretches. Grandstand at 0.85-1.0
+            // is kept on the left so it never fights the pit complex on the right.
             BuildGrandstand(0.02f, -1);
             BuildGrandstand(0.15f, 1);
             BuildGrandstand(0.45f, -1);
-            BuildGrandstand(0.85f, 1);
+            BuildGrandstand(0.85f, -1);
 
-            for (int i = 0; i < Runtime.centerLine.Count; i++)
+            float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+            int step = Mathf.Max(1, Mathf.RoundToInt(2f / density));
+            for (int i = 0; i < Runtime.centerLine.Count; i += step)
             {
                 Vector3 point;
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.cumulativeDistances[i], out point, out forward, out right);
                 float side = i % 2 == 0 ? -1f : 1f;
+                float normalized = Runtime.cumulativeDistances[i] / Mathf.Max(1f, Runtime.length);
+                bool insidePitCorridor = (normalized > 0.83f || normalized < 0.06f) && side > 0f;
+                if (insidePitCorridor)
+                {
+                    continue;
+                }
 
                 // Trackside detail: marshal posts and towers
                 if (i % 8 == 0)
@@ -1796,9 +1950,23 @@ namespace LocalFormulaRacing
 
         void ValidateGeneratedTrack()
         {
-            if (Runtime.roadCollider == null || Runtime.roadCollider.sharedMesh == null || Runtime.roadCollider.isTrigger)
+            TrackValidationReport report = LastReport ?? new TrackValidationReport { trackName = Runtime.displayName };
+            report.centerLinePoints = Runtime.centerLine.Count;
+            report.trackLength = Runtime.length;
+            report.roadColliderValid = Runtime.roadCollider != null &&
+                                       Runtime.roadCollider.sharedMesh != null &&
+                                       !Runtime.roadCollider.isTrigger &&
+                                       !Physics.GetIgnoreLayerCollision(Runtime.roadCollider.gameObject.layer, 0);
+            if (!report.roadColliderValid)
             {
-                Debug.LogWarning("[TrackValidation] Invalid road collider on " + Runtime.displayName);
+                report.Warn("road collider missing, trigger-only, or ignoring vehicle layer. Rebuilding.");
+                BuildRoadMesh();
+                report.roadColliderValid = Runtime.roadCollider != null && Runtime.roadCollider.sharedMesh != null && !Runtime.roadCollider.isTrigger;
+            }
+
+            if (Runtime.length < 700f)
+            {
+                report.Warn("track length " + Runtime.length.ToString("0") + "m is short for a 22 car grid.");
             }
 
             for (int i = solidObstacles.Count - 1; i >= 0; i--)
@@ -1812,16 +1980,100 @@ namespace LocalFormulaRacing
 
                 if (!IsObstacleClearOfRacingSurface(obstacle.transform.position, obstacle.transform.forward, obstacle.localScaleAtValidation, obstacle.minimumClearance))
                 {
-                    Debug.LogWarning("[TrackValidation] Removed " + obstacle.name + " after final validation because it overlapped the racing surface.");
+                    report.invalidObstaclesRemoved++;
                     obstacle.gameObject.SetActive(false);
                     Destroy(obstacle.gameObject);
                     solidObstacles.RemoveAt(i);
                 }
             }
 
-            Debug.Log("[TrackValidation] " + Runtime.displayName + " roadContinuous=" + (Runtime.centerLine.Count >= 18) +
-                      " roadCollider=" + (Runtime.roadCollider != null && Runtime.roadCollider.sharedMesh != null) +
-                      " solidObstacles=" + solidObstacles.Count);
+            report.gridSpawnValid = ValidateGridSlots(report);
+            report.pitPosesValid = ValidatePitPoses(report);
+            Debug.Log(report.Summary());
+        }
+
+        bool ValidateGridSlots(TrackValidationReport report)
+        {
+            bool valid = true;
+            float laneWidth = Mathf.Min(4.2f, Runtime.roadHalfWidth * 0.46f);
+            for (int i = 0; i < 22; i++)
+            {
+                int row = i / 2;
+                bool leftSlot = i % 2 == 0;
+                float gridDistance = Runtime.length - 42f - row * 15.5f - (leftSlot ? 0f : 7.7f);
+                if (gridDistance <= 0f)
+                {
+                    report.Warn("grid slot " + (i + 1) + " runs past the start line; track too short for full grid spacing.");
+                    valid = false;
+                    continue;
+                }
+
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(gridDistance, out point, out forward, out right);
+                Vector3 slot = point + right * (leftSlot ? -laneWidth : laneWidth);
+                TrackProgress progress = Runtime.GetProgress(slot);
+                if (Mathf.Abs(progress.lateralDistance) > Runtime.roadHalfWidth - 0.8f)
+                {
+                    report.Warn("grid slot " + (i + 1) + " sits off the road surface (lateral " + progress.lateralDistance.ToString("0.0") + ").");
+                    valid = false;
+                }
+            }
+
+            return valid;
+        }
+
+        bool ValidatePitPoses(TrackValidationReport report)
+        {
+            bool valid = true;
+            Vector3 position;
+            Quaternion rotation;
+            Runtime.GetPitEntryPose(out position, out rotation);
+            valid &= ValidatePitPose(report, "pit entry", position);
+            Runtime.GetPitServicePose(out position, out rotation);
+            valid &= ValidatePitPose(report, "pit service", position);
+            Runtime.GetPitReleasePose(out position, out rotation);
+            valid &= ValidatePitPose(report, "pit release", position);
+            return valid;
+        }
+
+        bool ValidatePitPose(TrackValidationReport report, string label, Vector3 position)
+        {
+            TrackProgress progress = Runtime.GetProgress(position);
+            float lateral = Mathf.Abs(progress.lateralDistance);
+            if (lateral < Runtime.roadHalfWidth - 0.5f)
+            {
+                report.Warn(label + " pose sits on the racing surface (lateral " + progress.lateralDistance.ToString("0.0") + ").");
+                return false;
+            }
+
+            if (lateral > Runtime.roadHalfWidth + 26f)
+            {
+                report.Warn(label + " pose is unusually far from the road (lateral " + progress.lateralDistance.ToString("0.0") + ").");
+                return false;
+            }
+
+            // Make sure no solid obstacle blocks the pose.
+            for (int i = 0; i < solidObstacles.Count; i++)
+            {
+                TrackSolidObstacle obstacle = solidObstacles[i];
+                if (obstacle == null)
+                {
+                    continue;
+                }
+
+                if (Vector3.Distance(obstacle.transform.position, position) < 2.4f)
+                {
+                    report.Warn(label + " pose was blocked by " + obstacle.name + "; obstacle removed.");
+                    obstacle.gameObject.SetActive(false);
+                    Destroy(obstacle.gameObject);
+                    solidObstacles.RemoveAt(i);
+                    i--;
+                }
+            }
+
+            return true;
         }
 
         void ValidateDecorativeObjectsClearTrack()
@@ -1885,6 +2137,7 @@ namespace LocalFormulaRacing
         {
             string groundName = Runtime == null ? "" : (Runtime.styleName + " runoff").ToLowerInvariant();
             return objectName == groundName ||
+                   objectName.Contains("terrain base") ||
                    objectName.Contains("procedural road") ||
                    objectName.Contains("asphalt") ||
                    objectName.Contains("pit lane") ||

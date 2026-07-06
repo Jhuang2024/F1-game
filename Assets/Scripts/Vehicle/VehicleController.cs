@@ -634,7 +634,7 @@ namespace LocalFormulaRacing
 
         void ProcessDamageCollision(Collision collision, bool sustained)
         {
-            if (!initialized || Damage == null || IsHeldOnGrid || collision.contactCount == 0 || collision.collider == null)
+            if (!initialized || Damage == null || IsHeldOnGrid || IsHeldInPit || collision.contactCount == 0 || collision.collider == null)
             {
                 return;
             }

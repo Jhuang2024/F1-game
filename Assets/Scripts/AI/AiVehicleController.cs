@@ -15,6 +15,8 @@ namespace LocalFormulaRacing
         float mistakeSteer;
         float aggressionOffset;
         float damageDecisionTimer;
+        float lastProgressDistance;
+        bool hasProgressReference;
 
         public void Initialize(RaceManager manager, RaceParticipant raceParticipant, TrackRuntime raceTrack)
         {
@@ -24,6 +26,7 @@ namespace LocalFormulaRacing
             vehicle = GetComponent<VehicleController>();
             lateralOffset = Random.Range(-0.8f, 0.8f);
             mistakeTimer = Random.Range(3f, 8f);
+            hasProgressReference = false;
         }
 
         void Update()
@@ -51,7 +54,13 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            TrackProgress progress = track.GetProgress(transform.position);
+            // Continuity-aware progress lookup so the AI never snaps to the wrong part of
+            // the track near the start/finish wrap or where sections run close together.
+            TrackProgress progress = hasProgressReference
+                ? track.GetProgressNear(transform.position, lastProgressDistance)
+                : track.GetProgress(transform.position);
+            lastProgressDistance = progress.distance;
+            hasProgressReference = true;
             float speedKph = Mathf.Abs(vehicle.CurrentSpeedKph);
             DriverData driver = participant == null ? null : participant.driverData;
             int pace = driver == null ? 80 : (raceManager.CurrentSession == RaceWeekendSession.Qualifying ? driver.qualifying : driver.pace);
@@ -62,13 +71,15 @@ namespace LocalFormulaRacing
             int defending = driver == null ? 78 : driver.defending;
             int overtaking = driver == null ? 78 : driver.overtaking;
 
-            float lookAhead = Mathf.Lerp(20f, 54f, Mathf.Clamp01(speedKph / 350f));
+            float cornerSeverity = EstimateCornerSeverity(progress.distance);
+            // Look further ahead with speed, but shorten in corners so the AI hits apexes
+            // instead of cutting across them.
+            float lookAhead = Mathf.Lerp(20f, 54f, Mathf.Clamp01(speedKph / 350f)) * Mathf.Lerp(1.12f, 0.62f, cornerSeverity);
             Vector3 targetPoint;
             Vector3 forward;
             Vector3 right;
             track.SampleAtDistance(progress.distance + lookAhead, out targetPoint, out forward, out right);
 
-            float cornerSeverity = EstimateCornerSeverity(progress.distance);
             float difficultyPace = raceManager.GetDifficultyPaceMultiplier();
             float carTopSpeed = vehicle.CarData == null || vehicle.CarData.topSpeed <= 0 ? 337f : vehicle.CarData.topSpeed;
             float straightTargetSpeed = Mathf.Clamp(carTopSpeed + 12f, 330f, 350f);
@@ -89,7 +100,17 @@ namespace LocalFormulaRacing
             UpdateMistake(consistency, aggression);
             UpdateOvertakeOffset(progress, cornerSeverity, aggression, defending, overtaking);
 
-            float desiredOffset = ConstrainLegalLineOffset(progress, lateralOffset + aggressionOffset + mistakeSteer, cornerSeverity);
+            // Off-track recovery: drive straight back toward the centerline at reduced pace
+            // instead of chasing the racing line offset from the grass.
+            bool offTrack = Mathf.Abs(progress.lateralDistance) > track.roadHalfWidth + 0.6f;
+            if (offTrack)
+            {
+                baseTargetSpeed = Mathf.Min(baseTargetSpeed, 118f);
+                aggressionOffset = 0f;
+                mistakeSteer = 0f;
+            }
+
+            float desiredOffset = offTrack ? 0f : ConstrainLegalLineOffset(progress, lateralOffset + aggressionOffset + mistakeSteer, cornerSeverity);
             targetPoint += right * desiredOffset;
             TrackProgress targetProgress = track.GetProgress(targetPoint);
             float legalTargetLimit = LegalOffsetLimit(cornerSeverity);
@@ -113,6 +134,13 @@ namespace LocalFormulaRacing
             else
             {
                 command.throttle = Mathf.Clamp01((baseTargetSpeed - speedKph) / 62f + 0.34f);
+            }
+
+            // Calmer opening seconds: keep a small throttle cap so the pack fans out into
+            // turn one instead of piling into the leaders.
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.RaceElapsed < 3.5f)
+            {
+                command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(0.72f, 1f, raceManager.RaceElapsed / 3.5f));
             }
 
             ApplyTrafficAvoidance(ref command, progress, speedKph);
