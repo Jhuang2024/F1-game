@@ -1,0 +1,782 @@
+using UnityEngine;
+
+namespace LocalFormulaRacing
+{
+    [RequireComponent(typeof(Rigidbody))]
+    public class VehicleController : MonoBehaviour
+    {
+        public TyreState Tyres { get; private set; }
+        public DamageState Damage { get; private set; }
+        public float CurrentSpeedKph { get; private set; }
+        public int CurrentGear { get; private set; }
+        public float ErsBattery { get; private set; }
+        public bool DrsActive { get; private set; }
+        public bool PitRequested { get; private set; }
+        public bool IsOnRoad { get; private set; }
+        public bool IsOnKerb { get; private set; }
+        public bool IsOffTrackSlowdown { get; private set; }
+        public bool IsPlayerControlled { get; private set; }
+        public bool IsHeldInPit { get; private set; }
+        public bool IsHeldOnGrid { get; private set; }
+        public bool PitLimiterActive { get; private set; }
+        public float FuelKg { get { return fuelKg; } }
+        public float UndersteerAmount { get; private set; }
+        public float OversteerAmount { get; private set; }
+        public float EffectiveThrottle { get; private set; }
+        public float EffectiveBrake { get; private set; }
+        public float LastTyreGripMultiplier { get; private set; }
+        public float LastPowerMultiplier { get; private set; }
+        public float LastGearTorqueMultiplier { get; private set; }
+        public float TargetTopSpeedKph { get; private set; }
+        public float LateralDistance { get; private set; }
+        public string ActiveSlowdownReason { get; private set; }
+        public string LastDamageDebug { get; private set; }
+        public VehicleCommand CurrentCommand { get { return command; } }
+
+        public CarPerformanceData CarData { get; private set; }
+        public TrackRuntime Track { get; private set; }
+        public WeatherState Weather { get; private set; }
+
+        Rigidbody body;
+        VehicleCommand command;
+        bool initialized;
+        bool manualGears;
+        GameSettingsData settings;
+        float fuelKg = 35f;
+        float pitCooldown;
+        Vector3 gridHoldPosition;
+        Quaternion gridHoldRotation;
+        float scrapeDamageCooldown;
+        float stuckPowerDebugTimer;
+        float smoothedThrottle;
+        float smoothedBrake;
+        bool lowBatteryForcedHarvest;
+        static PhysicMaterial vehiclePhysicsMaterial;
+
+        const int GearCount = 8;
+        const float RaceSpeedCeilingKph = 350f;
+        static readonly float[] AutoShiftUpKph = { 0f, 62f, 102f, 142f, 186f, 232f, 282f, 322f };
+        static readonly float[] GearTorqueMultipliers = { 1.72f, 1.52f, 1.34f, 1.18f, 1.05f, 0.94f, 0.84f, 0.76f };
+
+        public void Initialize(CarPerformanceData carData, TrackRuntime track, TyreCompound compound, bool useManualGears, GameSettingsData gameSettings, bool playerControlled)
+        {
+            CarData = carData;
+            Track = track;
+            Weather = track == null ? WeatherState.Clear : track.weather;
+            manualGears = useManualGears;
+            settings = gameSettings;
+            IsPlayerControlled = playerControlled;
+            body = GetComponent<Rigidbody>();
+            body.mass = 760f + fuelKg;
+            body.drag = 0.004f;
+            body.angularDrag = 4.8f;
+            body.centerOfMass = new Vector3(0f, -0.42f, 0.05f);
+            body.interpolation = RigidbodyInterpolation.Interpolate;
+            ApplyLowFrictionPhysicsMaterial();
+            Tyres = new TyreState();
+            Tyres.Reset(compound);
+            Damage = new DamageState();
+            CurrentGear = 1;
+            ErsBattery = 0.72f;
+            TargetTopSpeedKph = CalculateTargetTopSpeedKph(new VehicleCommand());
+            LastGearTorqueMultiplier = GearTorqueMultipliers[0];
+            initialized = true;
+            Debug.Log("[Damage] " + name + " starting damage " + Damage.OverallPercent.ToString("0.0") + "%");
+        }
+
+        public void SetCommand(VehicleCommand newCommand)
+        {
+            command = newCommand;
+            if (newCommand.pitRequest)
+            {
+                PitRequested = true;
+            }
+        }
+
+        public void ClearPitRequest()
+        {
+            PitRequested = false;
+        }
+
+        public void CompletePitStop(TyreCompound compound)
+        {
+            Tyres.Reset(compound);
+            Damage.RepairPitDamage();
+            pitCooldown = 4f;
+            ClearPitRequest();
+        }
+
+        public void SetPitServiceHold(bool held)
+        {
+            IsHeldInPit = held;
+        }
+
+        public void SetPitLimiter(bool active)
+        {
+            PitLimiterActive = active;
+        }
+
+        public void SnapToPitPose(Vector3 position, Quaternion rotation)
+        {
+            transform.position = position;
+            transform.rotation = rotation;
+            if (body != null)
+            {
+                body.position = position;
+                body.rotation = rotation;
+                body.velocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
+            }
+
+            smoothedThrottle = 0f;
+            smoothedBrake = 1f;
+        }
+
+        public float GuideToPitPose(Vector3 position, Quaternion rotation, float moveSpeed, float rotateSpeed)
+        {
+            float dt = Mathf.Max(Time.deltaTime, 0.001f);
+            Vector3 nextPosition = Vector3.MoveTowards(transform.position, position, moveSpeed * dt);
+            Quaternion nextRotation = Quaternion.RotateTowards(transform.rotation, rotation, rotateSpeed * dt);
+            transform.position = nextPosition;
+            transform.rotation = nextRotation;
+            if (body != null)
+            {
+                body.position = nextPosition;
+                body.rotation = nextRotation;
+                body.velocity = Vector3.MoveTowards(body.velocity, Vector3.zero, 18f * dt);
+                body.angularVelocity = Vector3.zero;
+            }
+
+            smoothedThrottle = 0f;
+            smoothedBrake = 1f;
+            CurrentSpeedKph = body == null ? 0f : body.velocity.magnitude * 3.6f;
+            return Vector3.Distance(nextPosition, position);
+        }
+
+        public void SetGridHold(bool held)
+        {
+            if (held && !IsHeldOnGrid)
+            {
+                gridHoldPosition = transform.position;
+                gridHoldRotation = transform.rotation;
+            }
+
+            IsHeldOnGrid = held;
+        }
+
+        void FixedUpdate()
+        {
+            if (!initialized)
+            {
+                return;
+            }
+
+            float dt = Time.fixedDeltaTime;
+            if (IsHeldOnGrid)
+            {
+                body.velocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
+                body.MovePosition(gridHoldPosition);
+                body.MoveRotation(gridHoldRotation);
+                CurrentSpeedKph = 0f;
+                EffectiveThrottle = 0f;
+                EffectiveBrake = 1f;
+                ActiveSlowdownReason = "GRID HOLD";
+                return;
+            }
+
+            scrapeDamageCooldown = Mathf.Max(0f, scrapeDamageCooldown - dt);
+            CurrentSpeedKph = Vector3.Dot(body.velocity, transform.forward) * 3.6f;
+            float absoluteSpeedKph = body.velocity.magnitude * 3.6f;
+            TrackProgress progress = Track == null ? new TrackProgress() : Track.GetProgress(transform.position);
+            LateralDistance = progress.lateralDistance;
+            IsOffTrackSlowdown = Track != null && Mathf.Abs(progress.lateralDistance) > Track.roadHalfWidth + 1.6f;
+            if (PitLimiterActive)
+            {
+                IsOffTrackSlowdown = false;
+            }
+
+            IsOnRoad = Track == null || !IsOffTrackSlowdown;
+            IsOnKerb = Track != null && Track.IsOnKerb(transform.position);
+
+            VehicleCommand assisted = GetAssistedCommand(command, absoluteSpeedKph, progress);
+            SmoothDriveCommand(ref assisted, absoluteSpeedKph, dt);
+            EffectiveThrottle = assisted.throttle;
+            EffectiveBrake = assisted.brake;
+            float lateralSpeed = Mathf.Abs(Vector3.Dot(body.velocity, transform.right));
+            float slipEnergy = Mathf.Clamp01(lateralSpeed / Mathf.Max(6f, body.velocity.magnitude * 0.32f)) * Mathf.InverseLerp(28f, 260f, absoluteSpeedKph);
+            slipEnergy = Mathf.Clamp01(slipEnergy + Mathf.Abs(assisted.steer) * Mathf.InverseLerp(80f, 270f, absoluteSpeedKph) * 0.35f);
+            UpdateGear(absoluteSpeedKph);
+            Tyres.Tick(absoluteSpeedKph, assisted.brake, assisted.steer, assisted.throttle, slipEnergy, Weather, CarData.tyreManagement, dt);
+            ApplyForces(assisted, absoluteSpeedKph, progress, dt);
+            ApplySteering(assisted, absoluteSpeedKph, dt);
+            StabilizeChassis(dt);
+
+            float burn = Mathf.Lerp(0.012f, 0.03f, Mathf.Clamp01(assisted.throttle));
+            fuelKg = Mathf.Max(4f, fuelKg - dt * burn);
+            body.mass = 760f + fuelKg;
+            pitCooldown = Mathf.Max(0f, pitCooldown - dt);
+            LogSuspiciousPowerLoss(absoluteSpeedKph, dt);
+        }
+
+        void LogSuspiciousPowerLoss(float absoluteSpeedKph, float dt)
+        {
+            if (EffectiveThrottle > 0.55f && EffectiveBrake < 0.15f && absoluteSpeedKph < 12f && !IsHeldInPit && !IsHeldOnGrid)
+            {
+                stuckPowerDebugTimer -= dt;
+                if (stuckPowerDebugTimer <= 0f)
+                {
+                    stuckPowerDebugTimer = 1.2f;
+                    Debug.LogWarning("[DriveDebug] " + name +
+                                     " low speed despite throttle speedKph=" + absoluteSpeedKph.ToString("0.0") +
+                                     " throttle=" + EffectiveThrottle.ToString("0.00") +
+                                     " brake=" + EffectiveBrake.ToString("0.00") +
+                                     " damage=" + (Damage == null ? -1f : Damage.OverallPercent).ToString("0.0") +
+                                     " offTrack=" + IsOffTrackSlowdown +
+                                     " lateral=" + LateralDistance.ToString("0.0") +
+                                     " tyreGrip=" + LastTyreGripMultiplier.ToString("0.00") +
+                                     " power=" + LastPowerMultiplier.ToString("0.00") +
+                                     " slowdown=" + ActiveSlowdownReason +
+                                     " lastDamage=" + LastDamageDebug);
+                }
+
+                return;
+            }
+
+            stuckPowerDebugTimer = 0f;
+        }
+
+        VehicleCommand GetAssistedCommand(VehicleCommand raw, float speedKph, TrackProgress progress)
+        {
+            VehicleCommand assisted = raw;
+            if (!IsPlayerControlled || settings == null)
+            {
+                return assisted;
+            }
+
+            float lateralSpeed = Mathf.Abs(Vector3.Dot(body.velocity, transform.right));
+            float slip = Mathf.Clamp01(lateralSpeed / 18f);
+            if (settings.absAssist && assisted.brake > 0.1f)
+            {
+                float steeringBrakeLimit = Mathf.Lerp(1f, 0.72f, Mathf.Abs(assisted.steer));
+                float lockupLimit = Mathf.Lerp(1f, 0.76f, Mathf.InverseLerp(90f, 270f, speedKph));
+                assisted.brake = Mathf.Min(assisted.brake, Mathf.Clamp(Mathf.Lerp(0.98f, 0.72f, slip) * steeringBrakeLimit * lockupLimit + 0.16f, 0.68f, 1f));
+            }
+
+            if (settings.tractionControl && assisted.throttle > 0.1f)
+            {
+                float tractionLimit = Mathf.Lerp(1f, 0.58f, slip);
+                tractionLimit *= Mathf.Lerp(0.72f, 1f, Mathf.InverseLerp(0f, 120f, speedKph));
+                assisted.throttle = Mathf.Min(assisted.throttle, Mathf.Clamp01(tractionLimit + 0.16f));
+            }
+
+            if (settings.autoBrakeAssist && Track != null)
+            {
+                float severity = EstimateUpcomingCorner(progress.distance);
+                float brakeSeverity = Mathf.Clamp01((severity - 0.18f) / 0.82f);
+                float desiredSpeed = Mathf.Lerp(335f, 108f, brakeSeverity * brakeSeverity);
+                if (speedKph > desiredSpeed)
+                {
+                    assisted.brake = Mathf.Max(assisted.brake, Mathf.Clamp01((speedKph - desiredSpeed) / 115f));
+                    assisted.throttle = Mathf.Min(assisted.throttle, Mathf.Lerp(0.55f, 0.18f, brakeSeverity));
+                }
+            }
+
+            if (ErsBattery < 0.02f)
+            {
+                lowBatteryForcedHarvest = true;
+                settings.ersMode = (int)ErsStrategyMode.Harvest;
+            }
+            else if (lowBatteryForcedHarvest && ErsBattery > 0.28f)
+            {
+                lowBatteryForcedHarvest = false;
+                settings.ersMode = (int)ErsStrategyMode.Balanced;
+            }
+
+            if (settings.ersMode == (int)ErsStrategyMode.Harvest)
+            {
+                assisted.ers = false;
+            }
+            else if (settings.ersMode == (int)ErsStrategyMode.Attack && ErsBattery > 0.12f && assisted.throttle > 0.75f)
+            {
+                assisted.ers = true;
+            }
+            else if (settings.ersMode == (int)ErsStrategyMode.Balanced && ErsBattery > 0.24f && assisted.throttle > 0.88f && speedKph > 130f)
+            {
+                assisted.ers = true;
+            }
+
+            return assisted;
+        }
+
+        void SmoothDriveCommand(ref VehicleCommand assisted, float speedKph, float dt)
+        {
+            float throttleRise = Mathf.Lerp(2.35f, 5.4f, Mathf.InverseLerp(80f, 240f, speedKph));
+            float throttleFall = 10.5f;
+            smoothedThrottle = Mathf.MoveTowards(
+                smoothedThrottle,
+                assisted.throttle,
+                dt * (assisted.throttle > smoothedThrottle ? throttleRise : throttleFall));
+
+            smoothedBrake = Mathf.MoveTowards(
+                smoothedBrake,
+                assisted.brake,
+                dt * (assisted.brake > smoothedBrake ? 26f : 15f));
+
+            assisted.throttle = Mathf.Clamp01(smoothedThrottle);
+            assisted.brake = Mathf.Clamp01(smoothedBrake);
+        }
+
+        void ApplyForces(VehicleCommand activeCommand, float absoluteSpeedKph, TrackProgress progress, float dt)
+        {
+            float speedMps = body.velocity.magnitude;
+            float forwardSpeed = Vector3.Dot(body.velocity, transform.forward);
+            DrsActive = activeCommand.drs && absoluteSpeedKph > 90f;
+            TargetTopSpeedKph = CalculateTargetTopSpeedKph(activeCommand);
+            if (PitLimiterActive)
+            {
+                DrsActive = false;
+                TargetTopSpeedKph = Mathf.Min(TargetTopSpeedKph, 80f);
+            }
+
+            float topSpeed = TargetTopSpeedKph / 3.6f;
+            float tyreGrip = Tyres.GripMultiplier(Weather);
+            LastTyreGripMultiplier = tyreGrip;
+            LastPowerMultiplier = Damage.PowerMultiplier;
+            LastGearTorqueMultiplier = GearTorqueMultiplier(absoluteSpeedKph);
+            float gripStat = Mathf.Lerp(0.9f, 1.28f, CarData.cornering / 100f);
+            float grip = tyreGrip * gripStat * Damage.HandlingMultiplier;
+            ActiveSlowdownReason = "NONE";
+            if (IsOffTrackSlowdown)
+            {
+                grip *= 0.58f;
+                ActiveSlowdownReason = "OFF TRACK DRAG";
+            }
+            else if (IsOnKerb)
+            {
+                grip *= 0.92f;
+                ActiveSlowdownReason = "KERB";
+            }
+
+            Vector3 lateralVelocity = Vector3.Dot(body.velocity, transform.right) * transform.right;
+            float lateralSlip = Mathf.Clamp01(lateralVelocity.magnitude / Mathf.Max(6f, speedMps * 0.38f));
+            UndersteerAmount = Mathf.Clamp01(Mathf.Abs(activeCommand.steer) * Mathf.InverseLerp(120f, 310f, absoluteSpeedKph) * Mathf.Lerp(0.45f, 1.25f, lateralSlip) * (activeCommand.throttle > 0.35f ? 1.1f : 0.8f));
+            OversteerAmount = Mathf.Clamp01(lateralSlip * Mathf.Lerp(0.4f, 1.2f, activeCommand.throttle) * (1f - Mathf.Clamp01(tyreGrip)));
+            float lateralGripForce = (10f + grip * 18f) * Mathf.Lerp(1.12f, 0.78f, UndersteerAmount);
+            body.AddForce(-lateralVelocity * lateralGripForce, ForceMode.Acceleration);
+
+            float accelerationStat = Mathf.Lerp(11.4f, 20.4f, CarData.acceleration / 100f);
+            float engineStat = Mathf.Lerp(0.96f, 1.24f, CarData.enginePower / 100f);
+            float fuelPenalty = Mathf.Lerp(0.9f, 1f, Mathf.InverseLerp(42f, 5f, fuelKg));
+            float ersBoost = 0f;
+            if (activeCommand.ers && ErsBattery > 0.01f)
+            {
+                ersBoost = Mathf.Lerp(3.2f, 6.4f, CarData.ersEfficiency / 100f);
+                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.11f, 0.16f, activeCommand.throttle));
+            }
+
+            if (activeCommand.brake > 0.1f)
+            {
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.055f, 0.12f, CarData.ersEfficiency / 100f));
+            }
+            else if (activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
+            {
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.006f, 0.018f, CarData.ersEfficiency / 100f));
+            }
+
+            float forwardSpeedKph = Mathf.Max(0f, forwardSpeed * 3.6f);
+            float speedRatio = Mathf.Clamp01(forwardSpeedKph / Mathf.Max(1f, TargetTopSpeedKph));
+            if (PitLimiterActive && forwardSpeedKph > 82f)
+            {
+                float limiterBrake = Mathf.Min(12f, (forwardSpeedKph - 80f) * 0.12f);
+                body.AddForce(-transform.forward * limiterBrake, ForceMode.Acceleration);
+                ActiveSlowdownReason = "PIT LIMITER";
+            }
+
+            float highSpeedPower = Mathf.Lerp(1.2f, 0.82f, speedRatio);
+            if (DrsActive)
+            {
+                highSpeedPower += 0.1f;
+            }
+
+            float limiterWindow = PitLimiterActive ? 11f / 3.6f : 0.7f;
+            float speedLimiter = Mathf.Clamp01((topSpeed + limiterWindow - forwardSpeed) / limiterWindow);
+            if (!IsHeldInPit && activeCommand.throttle > 0.01f && speedLimiter > 0.01f)
+            {
+                float driveAcceleration = accelerationStat *
+                                          engineStat *
+                                          fuelPenalty *
+                                          Tyres.TractionMultiplier *
+                                          Damage.PowerMultiplier *
+                                          LastGearTorqueMultiplier *
+                                          highSpeedPower *
+                                          Mathf.Lerp(0.72f, 1f, Mathf.InverseLerp(32f, 145f, forwardSpeedKph));
+                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost), ForceMode.Acceleration);
+                if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
+                {
+                    float pullThrough = Mathf.Lerp(5.6f, 2.0f, speedRatio) * activeCommand.throttle * speedLimiter;
+                    body.AddForce(transform.forward * pullThrough, ForceMode.Acceleration);
+                }
+            }
+            else if (IsHeldInPit)
+            {
+                ActiveSlowdownReason = "PIT HOLD";
+            }
+            else if (forwardSpeed >= topSpeed)
+            {
+                ActiveSlowdownReason = "TOP SPEED LIMIT";
+            }
+
+            float brakeStat = Mathf.Lerp(33f, 56f, CarData.braking / 100f) *
+                              Tyres.BrakingMultiplier *
+                              Mathf.Lerp(1.04f, 1.42f, Mathf.InverseLerp(80f, 330f, absoluteSpeedKph)) *
+                              Damage.HandlingMultiplier;
+            if (activeCommand.brake > 0.01f || IsHeldInPit)
+            {
+                if (activeCommand.brake > 0.01f)
+                {
+                    ActiveSlowdownReason = "BRAKE INPUT";
+                }
+
+                float brakeInput = IsHeldInPit ? 1f : BrakeResponse(activeCommand.brake);
+                if (forwardSpeed > 2f)
+                {
+                    body.AddForce(-transform.forward * brakeInput * brakeStat, ForceMode.Acceleration);
+                }
+                else if (forwardSpeed < -2f)
+                {
+                    body.AddForce(transform.forward * brakeInput * brakeStat, ForceMode.Acceleration);
+                }
+                else
+                {
+                    body.AddForce(-transform.forward * brakeInput * 8f, ForceMode.Acceleration);
+                }
+
+                if (speedMps > 5f)
+                {
+                    body.AddForce(-body.velocity.normalized * brakeInput * brakeStat * 0.18f, ForceMode.Acceleration);
+                }
+            }
+
+            float dragCoefficient = DrsActive ? 0.00034f : 0.00054f;
+            dragCoefficient *= Mathf.Lerp(1.1f, 0.84f, CarData.aeroEfficiency / 100f);
+            dragCoefficient *= Mathf.Lerp(1.02f, 0.88f, Mathf.InverseLerp(1, GearCount, CurrentGear));
+            dragCoefficient /= Mathf.Max(0.55f, Damage.AeroMultiplier);
+            body.AddForce(-body.velocity.normalized * speedMps * speedMps * dragCoefficient, ForceMode.Acceleration);
+
+            if (forwardSpeed > topSpeed)
+            {
+                float excessSpeed = forwardSpeed - topSpeed;
+                float limiterDrag = PitLimiterActive ? Mathf.Min(5.5f, excessSpeed * 0.55f) : Mathf.Min(9f, excessSpeed * 2.2f);
+                body.AddForce(-transform.forward * limiterDrag, ForceMode.Acceleration);
+            }
+
+            float downforce = speedMps * speedMps * 0.0022f * Mathf.Lerp(0.85f, 1.18f, CarData.aeroEfficiency / 100f) * Damage.AeroMultiplier;
+            body.AddForce(Vector3.down * downforce, ForceMode.Acceleration);
+
+            if (IsOffTrackSlowdown)
+            {
+                body.AddForce(-body.velocity * 0.95f, ForceMode.Acceleration);
+            }
+
+            if (IsOnKerb)
+            {
+                body.AddForce(transform.right * Mathf.Sin(Time.time * 35f) * 1.1f, ForceMode.Acceleration);
+            }
+
+            if (Damage.OverallPercent > 35f && ActiveSlowdownReason == "NONE")
+            {
+                ActiveSlowdownReason = "DAMAGE";
+            }
+
+            if (PitLimiterActive && ActiveSlowdownReason == "NONE")
+            {
+                ActiveSlowdownReason = "PIT LIMITER";
+            }
+        }
+
+        void ApplySteering(VehicleCommand activeCommand, float speedKph, float dt)
+        {
+            float speedFactor = Mathf.Lerp(0.34f, 1f, Mathf.Clamp01(speedKph / 62f));
+            float highSpeedLimit = Mathf.Lerp(1f, 0.54f, Mathf.InverseLerp(90f, 320f, speedKph));
+            float tyreGrip = Tyres.GripMultiplier(Weather);
+            float turnRate = Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit * tyreGrip * Damage.HandlingMultiplier;
+            turnRate *= Mathf.Lerp(1.04f, 0.72f, UndersteerAmount);
+            float steerAmount = activeCommand.steer * turnRate * dt;
+            if (Mathf.Abs(steerAmount) > 0.0001f)
+            {
+                body.MoveRotation(body.rotation * Quaternion.Euler(0f, steerAmount, 0f));
+            }
+        }
+
+        float EstimateUpcomingCorner(float distance)
+        {
+            Vector3 pointA;
+            Vector3 forwardA;
+            Vector3 rightA;
+            Vector3 pointB;
+            Vector3 forwardB;
+            Vector3 rightB;
+            Track.SampleAtDistance(distance + 20f, out pointA, out forwardA, out rightA);
+            Track.SampleAtDistance(distance + 72f, out pointB, out forwardB, out rightB);
+            return Mathf.Clamp01(Vector3.Angle(forwardA, forwardB) / 82f);
+        }
+
+        void StabilizeChassis(float dt)
+        {
+            Vector3 euler = transform.eulerAngles;
+            Quaternion target = Quaternion.Euler(0f, euler.y, 0f);
+            body.MoveRotation(Quaternion.Slerp(body.rotation, target, dt * 5f));
+            Vector3 position = body.position;
+            float targetRideHeight = 0.42f;
+            if (Track != null)
+            {
+                targetRideHeight = Track.GetProgress(position).nearestPoint.y + 0.42f;
+            }
+
+            if (position.y < targetRideHeight - 0.1f || position.y > targetRideHeight + 0.35f)
+            {
+                position.y = Mathf.Lerp(position.y, targetRideHeight, dt * 8f);
+                body.position = position;
+            }
+        }
+
+        void UpdateGear(float speedKph)
+        {
+            if (manualGears)
+            {
+                if (command.shiftUp)
+                {
+                    CurrentGear = Mathf.Clamp(CurrentGear + 1, 1, GearCount);
+                }
+
+                if (command.shiftDown)
+                {
+                    CurrentGear = Mathf.Clamp(CurrentGear - 1, 1, GearCount);
+                }
+
+                return;
+            }
+
+            int gear = 1;
+            for (int i = 1; i < AutoShiftUpKph.Length; i++)
+            {
+                if (speedKph > AutoShiftUpKph[i])
+                {
+                    gear = i + 1;
+                }
+            }
+
+            CurrentGear = Mathf.Clamp(gear, 1, GearCount);
+        }
+
+        float GearTorqueMultiplier(float speedKph)
+        {
+            int index = Mathf.Clamp(CurrentGear - 1, 0, GearCount - 1);
+            float topFade = Mathf.Lerp(1f, 0.72f, Mathf.InverseLerp(260f, RaceSpeedCeilingKph, speedKph));
+            return GearTorqueMultipliers[index] * topFade;
+        }
+
+        float CalculateTargetTopSpeedKph(VehicleCommand activeCommand)
+        {
+            float carTopSpeed = CarData == null || CarData.topSpeed <= 0 ? 337f : CarData.topSpeed;
+            float target = Mathf.Clamp(carTopSpeed + 15f, 342f, RaceSpeedCeilingKph);
+            if (DrsActive)
+            {
+                target = Mathf.Min(RaceSpeedCeilingKph, target + 4f);
+            }
+
+            if (activeCommand.ers && ErsBattery > 0.01f)
+            {
+                target = Mathf.Min(RaceSpeedCeilingKph, target + 2f);
+            }
+
+            return target;
+        }
+
+        float BrakeResponse(float input)
+        {
+            input = Mathf.Clamp01(input);
+            return Mathf.Clamp01(Mathf.Pow(input, 0.72f) * Mathf.Lerp(0.72f, 1.1f, input));
+        }
+
+        void ApplyLowFrictionPhysicsMaterial()
+        {
+            if (vehiclePhysicsMaterial == null)
+            {
+                vehiclePhysicsMaterial = new PhysicMaterial("Open wheel low-friction body");
+                vehiclePhysicsMaterial.dynamicFriction = 0.02f;
+                vehiclePhysicsMaterial.staticFriction = 0.02f;
+                vehiclePhysicsMaterial.bounciness = 0f;
+                vehiclePhysicsMaterial.frictionCombine = PhysicMaterialCombine.Minimum;
+                vehiclePhysicsMaterial.bounceCombine = PhysicMaterialCombine.Minimum;
+            }
+
+            Collider[] colliders = GetComponentsInChildren<Collider>();
+            for (int i = 0; i < colliders.Length; i++)
+            {
+                if (colliders[i] != null)
+                {
+                    colliders[i].sharedMaterial = vehiclePhysicsMaterial;
+                }
+            }
+        }
+
+        void OnCollisionEnter(Collision collision)
+        {
+            ProcessDamageCollision(collision, false);
+        }
+
+        void OnCollisionStay(Collision collision)
+        {
+            ProcessDamageCollision(collision, true);
+        }
+
+        void ProcessDamageCollision(Collision collision, bool sustained)
+        {
+            if (!initialized || Damage == null || IsHeldOnGrid || collision.contactCount == 0 || collision.collider == null)
+            {
+                return;
+            }
+
+            if (sustained && scrapeDamageCooldown > 0f)
+            {
+                return;
+            }
+
+            string classificationReason;
+            DamageImpactType impactType = ClassifyDamageCollision(collision, out classificationReason);
+            ContactPoint contact = collision.GetContact(0);
+            string objectName = collision.collider.gameObject.name;
+            if (impactType == DamageImpactType.None)
+            {
+                LastDamageDebug = "ignored " + objectName + " " + classificationReason;
+                if (!sustained && IsSuspiciousIgnoredCollisionName(objectName))
+                {
+                    Debug.Log("[Damage] ignored object=" + objectName + " reason=" + classificationReason);
+                }
+
+                return;
+            }
+
+            float impactSpeedKph = collision.relativeVelocity.magnitude * 3.6f;
+            float normalSpeedKph = Mathf.Abs(Vector3.Dot(collision.relativeVelocity, contact.normal)) * 3.6f;
+            if (sustained)
+            {
+                normalSpeedKph = Mathf.Max(normalSpeedKph, body.velocity.magnitude * 3.6f * 0.18f);
+            }
+
+            Vector3 localPoint = transform.InverseTransformPoint(contact.point);
+            float delta = Damage.AddImpact(impactSpeedKph, normalSpeedKph, localPoint, impactType, sustained);
+            LastDamageDebug = "object=" + objectName +
+                              " type=" + impactType +
+                              " impact=" + impactSpeedKph.ToString("0.0") +
+                              " normal=" + normalSpeedKph.ToString("0.0") +
+                              " delta=" + delta.ToString("0.0") +
+                              " total=" + Damage.OverallPercent.ToString("0.0");
+            if (delta > 0f)
+            {
+                scrapeDamageCooldown = sustained ? 0.45f : 0.08f;
+                Debug.Log("[Damage] applied object=" + objectName +
+                          " reason=" + classificationReason +
+                          " impactKph=" + impactSpeedKph.ToString("0.0") +
+                          " normalKph=" + normalSpeedKph.ToString("0.0") +
+                          " sustained=" + sustained +
+                          " delta=" + delta.ToString("0.0") +
+                          "% total=" + Damage.OverallPercent.ToString("0.0") + "%");
+                SimpleAudioManager.PlayCollision(transform.position, impactSpeedKph / 3.6f);
+            }
+            else if (!sustained)
+            {
+                Debug.Log("[Damage] no damage object=" + objectName +
+                          " reason=below threshold type=" + impactType +
+                          " impactKph=" + impactSpeedKph.ToString("0.0") +
+                          " normalKph=" + normalSpeedKph.ToString("0.0") +
+                          " total=" + Damage.OverallPercent.ToString("0.0") + "%");
+            }
+        }
+
+        DamageImpactType ClassifyDamageCollision(Collision collision, out string reason)
+        {
+            Collider hitCollider = collision.collider;
+            if (hitCollider == null)
+            {
+                reason = "no collider";
+                return DamageImpactType.None;
+            }
+
+            if (Track != null && hitCollider == Track.roadCollider)
+            {
+                reason = "road collider";
+                return DamageImpactType.None;
+            }
+
+            if (hitCollider.isTrigger)
+            {
+                reason = "trigger collider";
+                return DamageImpactType.None;
+            }
+
+            VehicleController otherCar = hitCollider.GetComponentInParent<VehicleController>();
+            if (otherCar != null && otherCar != this)
+            {
+                reason = "car-to-car contact";
+                return DamageImpactType.Car;
+            }
+
+            string hitName = hitCollider.gameObject.name.ToLowerInvariant();
+            if (IsVisualOrRoadCollisionName(hitName))
+            {
+                reason = "visual road marking or kerb";
+                return DamageImpactType.None;
+            }
+
+            TrackSolidObstacle obstacle = hitCollider.GetComponentInParent<TrackSolidObstacle>();
+            if (obstacle != null)
+            {
+                reason = obstacle.obstacleType;
+                if (obstacle.obstacleType.Contains("wall"))
+                {
+                    return DamageImpactType.Wall;
+                }
+
+                if (obstacle.obstacleType.Contains("barrier"))
+                {
+                    return DamageImpactType.Barrier;
+                }
+
+                return DamageImpactType.SolidObject;
+            }
+
+            if (hitCollider.GetComponentInParent<TrackManager>() != null)
+            {
+                reason = "non-obstacle track object";
+                return DamageImpactType.None;
+            }
+
+            reason = "unclassified solid object";
+            return DamageImpactType.SolidObject;
+        }
+
+        bool IsVisualOrRoadCollisionName(string hitName)
+        {
+            return hitName.Contains("road") ||
+                   hitName.Contains("paint") ||
+                   hitName.Contains("grid") ||
+                   hitName.Contains("line") ||
+                   hitName.Contains("start") ||
+                   hitName.Contains("finish") ||
+                   hitName.Contains("sector") ||
+                   hitName.Contains("kerb") ||
+                   hitName.Contains("rubber") ||
+                   hitName.Contains("drs") ||
+                   hitName.Contains("racing");
+        }
+
+        bool IsSuspiciousIgnoredCollisionName(string objectName)
+        {
+            string lowered = objectName.ToLowerInvariant();
+            return lowered.Contains("road") || lowered.Contains("paint") || lowered.Contains("grid") || lowered.Contains("line") || lowered.Contains("kerb");
+        }
+    }
+}

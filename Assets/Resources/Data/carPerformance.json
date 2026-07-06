@@ -1,0 +1,15 @@
+{
+  "cars": [
+    {"id":"mclaren_2026","topSpeed":350,"acceleration":95,"cornering":94,"braking":91,"reliability":88,"ersEfficiency":91,"tyreManagement":88,"aeroEfficiency":94,"chassisBalance":93,"enginePower":91},
+    {"id":"mercedes_2026","topSpeed":349,"acceleration":94,"cornering":92,"braking":92,"reliability":89,"ersEfficiency":94,"tyreManagement":87,"aeroEfficiency":91,"chassisBalance":91,"enginePower":94},
+    {"id":"red_bull_2026","topSpeed":350,"acceleration":95,"cornering":92,"braking":91,"reliability":87,"ersEfficiency":90,"tyreManagement":89,"aeroEfficiency":93,"chassisBalance":92,"enginePower":93},
+    {"id":"ferrari_2026","topSpeed":350,"acceleration":95,"cornering":91,"braking":90,"reliability":86,"ersEfficiency":89,"tyreManagement":86,"aeroEfficiency":91,"chassisBalance":90,"enginePower":96},
+    {"id":"williams_2026","topSpeed":346,"acceleration":88,"cornering":82,"braking":83,"reliability":80,"ersEfficiency":82,"tyreManagement":83,"aeroEfficiency":82,"chassisBalance":81,"enginePower":90},
+    {"id":"rb_2026","topSpeed":344,"acceleration":86,"cornering":84,"braking":82,"reliability":79,"ersEfficiency":81,"tyreManagement":80,"aeroEfficiency":84,"chassisBalance":83,"enginePower":86},
+    {"id":"aston_2026","topSpeed":345,"acceleration":88,"cornering":85,"braking":84,"reliability":82,"ersEfficiency":83,"tyreManagement":84,"aeroEfficiency":85,"chassisBalance":84,"enginePower":87},
+    {"id":"haas_2026","topSpeed":343,"acceleration":85,"cornering":80,"braking":81,"reliability":78,"ersEfficiency":79,"tyreManagement":80,"aeroEfficiency":79,"chassisBalance":80,"enginePower":88},
+    {"id":"audi_2026","topSpeed":342,"acceleration":84,"cornering":81,"braking":80,"reliability":77,"ersEfficiency":81,"tyreManagement":79,"aeroEfficiency":80,"chassisBalance":79,"enginePower":86},
+    {"id":"alpine_2026","topSpeed":342,"acceleration":84,"cornering":80,"braking":80,"reliability":76,"ersEfficiency":79,"tyreManagement":79,"aeroEfficiency":78,"chassisBalance":79,"enginePower":86},
+    {"id":"cadillac_2026","topSpeed":341,"acceleration":82,"cornering":78,"braking":79,"reliability":74,"ersEfficiency":78,"tyreManagement":78,"aeroEfficiency":77,"chassisBalance":77,"enginePower":84}
+  ]
+}

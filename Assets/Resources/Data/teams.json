@@ -1,0 +1,16 @@
+{
+  "teams": [
+    {"id":"mclaren","name":"McLaren","shortName":"MCL","primaryColor":"#F07A18","secondaryColor":"#1B1F27","carPerformanceId":"mclaren_2026","reliability":88,"reputation":92},
+    {"id":"mercedes","name":"Mercedes","shortName":"MER","primaryColor":"#27D3C3","secondaryColor":"#171A1F","carPerformanceId":"mercedes_2026","reliability":89,"reputation":91},
+    {"id":"red_bull","name":"Red Bull Racing","shortName":"RBR","primaryColor":"#2546A3","secondaryColor":"#F3C21A","carPerformanceId":"red_bull_2026","reliability":87,"reputation":94},
+    {"id":"ferrari","name":"Ferrari","shortName":"FER","primaryColor":"#D51B23","secondaryColor":"#222222","carPerformanceId":"ferrari_2026","reliability":86,"reputation":95},
+    {"id":"williams","name":"Williams","shortName":"WIL","primaryColor":"#2A71D0","secondaryColor":"#F7F7F7","carPerformanceId":"williams_2026","reliability":80,"reputation":76},
+    {"id":"rb","name":"RB","shortName":"RB","primaryColor":"#3157D6","secondaryColor":"#F9FAFF","carPerformanceId":"rb_2026","reliability":79,"reputation":72},
+    {"id":"aston_martin","name":"Aston Martin","shortName":"AST","primaryColor":"#006F62","secondaryColor":"#D7E55F","carPerformanceId":"aston_2026","reliability":82,"reputation":84},
+    {"id":"haas","name":"Haas","shortName":"HAS","primaryColor":"#F2F3F5","secondaryColor":"#C8102E","carPerformanceId":"haas_2026","reliability":78,"reputation":70},
+    {"id":"audi","name":"Sauber / Audi","shortName":"AUD","primaryColor":"#68FF00","secondaryColor":"#111111","carPerformanceId":"audi_2026","reliability":77,"reputation":74},
+    {"id":"alpine","name":"Alpine","shortName":"ALP","primaryColor":"#2293D1","secondaryColor":"#F15BB5","carPerformanceId":"alpine_2026","reliability":76,"reputation":73},
+    {"id":"cadillac","name":"Cadillac","shortName":"CAD","primaryColor":"#B8A15A","secondaryColor":"#132D2C","carPerformanceId":"cadillac_2026","reliability":74,"reputation":68}
+  ]
+}
+
