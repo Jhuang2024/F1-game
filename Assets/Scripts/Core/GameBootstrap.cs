@@ -40,6 +40,7 @@ namespace LocalFormulaRacing
             raceManager = gameObject.AddComponent<RaceManager>();
             SimpleAudioManager.Ensure(transform);
             SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
+            UiFactory.AnimationsEnabled = settings.Current.uiAnimations;
         }
 
         void Start()

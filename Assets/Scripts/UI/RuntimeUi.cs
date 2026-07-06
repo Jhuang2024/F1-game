@@ -346,6 +346,7 @@ namespace LocalFormulaRacing
             UiFactory.CreateButton(leftList, "UI Animations: " + OnOff(settings.Current.uiAnimations), () =>
             {
                 settings.Current.uiAnimations = !settings.Current.uiAnimations;
+                UiFactory.AnimationsEnabled = settings.Current.uiAnimations;
                 settings.Save();
                 ShowDisplaySettings(data, career, settings);
             });
@@ -396,26 +397,45 @@ namespace LocalFormulaRacing
         {
             Clear();
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Driver ratings background", new Color(0.006f, 0.009f, 0.014f, 1f));
-            UiFactory.CreateBand(background, "Ratings top accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -8f), Vector2.zero, new Color(0.95f, 0.04f, 0.035f, 1f));
-            Text title = UiFactory.CreateText(background, "Ratings title", "Driver Ratings", 48, Color.white, TextAnchor.UpperLeft);
-            title.GetComponent<RectTransform>().anchoredPosition = new Vector2(80f, -54f);
-            Text subtitle = UiFactory.CreateText(background, "Ratings subtitle", "Overall is calculated from qualifying, defending, overtaking, and race pace.", 20, new Color(0.72f, 0.82f, 0.86f), TextAnchor.UpperLeft);
-            subtitle.GetComponent<RectTransform>().anchoredPosition = new Vector2(82f, -108f);
+            UiFactory.CreateTopNav(background, "Driver Ratings");
+            Text subtitle = UiFactory.CreateText(background, "Ratings subtitle", "Overall is calculated from qualifying, defending, overtaking, and race pace.", 18, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            subtitle.GetComponent<RectTransform>().anchoredPosition = new Vector2(66f, -112f);
+            UiFactory.SetSize(subtitle, 1200f, 28f);
 
-            RectTransform panel = UiFactory.CreateBand(background, "Ratings panel", new Vector2(0.08f, 0.16f), new Vector2(0.86f, 0.82f), Vector2.zero, Vector2.zero, new Color(0.018f, 0.026f, 0.034f, 0.94f));
-            UiFactory.CreateBand(panel, "Ratings red rule", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -4f), Vector2.zero, new Color(0.95f, 0.04f, 0.035f, 1f));
-            Text table = UiFactory.CreateText(panel, "Ratings table", BuildDriverRatingsText(data), 18, new Color(0.88f, 0.94f, 0.97f), TextAnchor.UpperLeft);
-            RectTransform tableRect = table.GetComponent<RectTransform>();
-            tableRect.anchorMin = Vector2.zero;
-            tableRect.anchorMax = Vector2.one;
-            tableRect.offsetMin = new Vector2(28f, 22f);
-            tableRect.offsetMax = new Vector2(-28f, -22f);
-            table.verticalOverflow = VerticalWrapMode.Overflow;
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Ratings table", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.85f), 3, new RectOffset(18, 18, 12, 12));
+            string header = Pad("OVR", 6) + Pad("DVR", 6) + Pad("TEAM", 7) + Pad("DRIVER", 26) + Pad("QUAL", 7) + Pad("DEF", 7) + Pad("OVT", 7) + "PACE";
+            Text headerText = UiFactory.CreateText(content, "Ratings header", header, 16, UiFactory.Accent, TextAnchor.MiddleLeft);
+            UiFactory.SetSize(headerText, 1240f, 28f);
 
-            RectTransform buttons = UiFactory.CreateRect(background, "Ratings buttons", new Vector2(0.08f, 0.06f), new Vector2(0.5f, 0.12f), Vector2.zero, Vector2.zero);
+            List<DriverData> drivers = new List<DriverData>(data.Drivers.drivers);
+            drivers.Sort((a, b) =>
+            {
+                int overall = b.OverallRating.CompareTo(a.OverallRating);
+                return overall != 0 ? overall : b.pace.CompareTo(a.pace);
+            });
+
+            for (int i = 0; i < drivers.Count; i++)
+            {
+                DriverData driver = drivers[i];
+                TeamData team = data.FindTeam(driver.teamId);
+                string teamCode = team == null ? driver.teamId.ToUpperInvariant() : team.shortName.ToUpperInvariant();
+                string ovrColor = driver.OverallRating >= 90 ? "#B86CFF" : (driver.OverallRating >= 85 ? "#63FF82" : (driver.OverallRating >= 78 ? "#FFD45C" : "#AAB8C0"));
+                string line = "<color=" + ovrColor + ">" + Pad(driver.OverallRating.ToString("00"), 6) + "</color>" +
+                              Pad(driver.abbreviation.ToUpperInvariant(), 6) +
+                              Pad(teamCode, 7) +
+                              Pad(driver.displayName, 26) +
+                              Pad(driver.qualifying.ToString("00"), 7) +
+                              Pad(driver.defending.ToString("00"), 7) +
+                              Pad(driver.overtaking.ToString("00"), 7) +
+                              driver.pace.ToString("00");
+                Text row = UiFactory.CreateText(content, "Ratings row " + i, line, 16, i % 2 == 0 ? new Color(0.9f, 0.95f, 0.98f) : UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                UiFactory.SetSize(row, 1240f, 26f);
+            }
+
+            RectTransform buttons = UiFactory.CreateRect(background, "Ratings buttons", new Vector2(0.06f, 0.03f), new Vector2(0.5f, 0.1f), Vector2.zero, Vector2.zero);
             UiFactory.AddHorizontalLayout(buttons, 14, new RectOffset(0, 0, 0, 0));
-            UiFactory.CreateButton(buttons, "Career", () => ShowCareerHub(data, career, settings));
-            UiFactory.CreateButton(buttons, "Main Menu", () => ShowMainMenu(data, career, settings));
+            UiFactory.CreateSecondaryButton(buttons, "Career", () => ShowCareerHub(data, career, settings));
+            UiFactory.CreateSecondaryButton(buttons, "Main Menu", () => ShowMainMenu(data, career, settings));
         }
 
         public void ShowAssists(GameDataRepository data, CareerManager career, GameSettingsStore settings)
@@ -496,13 +516,16 @@ namespace LocalFormulaRacing
 
             string profile = current.weatherProfile.ToLower();
             float trackTemp = profile.Contains("hot") ? 44f : (profile.Contains("wet") ? 19f : (profile.Contains("cloud") ? 25f : 31f));
-            UiFactory.CreateText(left, "Weekend meta",
+            Text weekendMeta = UiFactory.CreateText(left, "Weekend meta",
                 "Track: " + current.displayName + "\n" +
                 "Condition: " + WeatherProfileText(profile).ToUpper() + "\n" +
                 "Track Temp: " + trackTemp.ToString("0") + "°C\n" +
                 "Air Temp: " + (trackTemp - 7f).ToString("0") + "°C\n" +
+                "Recommended Tyre: " + RecommendedTyreText(profile).ToUpper() + "\n" +
                 "Team: " + (team == null ? "INDEPENDENT" : team.shortName.ToUpper()),
                 19, new Color(0.86f, 0.92f, 0.96f), TextAnchor.UpperLeft);
+            weekendMeta.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(weekendMeta, 390f, 150f);
 
             bool hasQualifying = career.HasQualifyingForCurrentRound();
             UiFactory.CreateText(left, "Session status",
@@ -741,8 +764,14 @@ namespace LocalFormulaRacing
                 UiFactory.SetSize(rowText, 1240f, 26f);
             }
 
-            RectTransform buttons = UiFactory.CreateRect(background, "Track info buttons", new Vector2(0.06f, 0.03f), new Vector2(0.5f, 0.1f), Vector2.zero, Vector2.zero);
+            RectTransform buttons = UiFactory.CreateRect(background, "Track info buttons", new Vector2(0.06f, 0.03f), new Vector2(0.7f, 0.1f), Vector2.zero, Vector2.zero);
             UiFactory.AddHorizontalLayout(buttons, 14, new RectOffset(0, 0, 0, 0));
+            UnityEngine.UI.Button trackTest = UiFactory.CreateButton(buttons, "Track Test (F2 cycles circuits)", () =>
+            {
+                CalendarEventData first = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : null;
+                bootstrap.BeginTimeTrial(first);
+            });
+            UiFactory.SetSize(trackTest, 360f, 50f);
             UiFactory.CreateSecondaryButton(buttons, "Back", () => ShowMainMenu(data, career, settings));
         }
 
@@ -976,39 +1005,6 @@ namespace LocalFormulaRacing
         {
             int delta = tuned - baseline;
             return tuned + (delta == 0 ? "" : " <color=#6CFF8D>+" + delta + "</color>");
-        }
-
-        string BuildDriverRatingsText(GameDataRepository data)
-        {
-            List<DriverData> drivers = new List<DriverData>(data.Drivers.drivers);
-            drivers.Sort((a, b) =>
-            {
-                int overall = b.OverallRating.CompareTo(a.OverallRating);
-                if (overall != 0)
-                {
-                    return overall;
-                }
-
-                return b.pace.CompareTo(a.pace);
-            });
-
-            string text = "OVR  QAL  DEF  OVT  RACE   DVR  TEAM  DRIVER\n";
-            for (int i = 0; i < drivers.Count; i++)
-            {
-                DriverData driver = drivers[i];
-                TeamData team = data.FindTeam(driver.teamId);
-                string teamCode = team == null ? driver.teamId.ToUpperInvariant() : team.shortName.ToUpperInvariant();
-                text += driver.OverallRating.ToString("00") + "   " +
-                        Mathf.Clamp(driver.qualifying, 1, 100).ToString("00") + "   " +
-                        Mathf.Clamp(driver.defending, 1, 100).ToString("00") + "   " +
-                        Mathf.Clamp(driver.overtaking, 1, 100).ToString("00") + "   " +
-                        Mathf.Clamp(driver.pace, 1, 100).ToString("00") + "     " +
-                        Pad(driver.abbreviation.ToUpperInvariant(), 3) + "  " +
-                        Pad(teamCode, 4) + "  " +
-                        driver.displayName + "\n";
-            }
-
-            return text;
         }
 
         string BuildQualifyingText(List<QualifyingResultEntry> results)

@@ -81,7 +81,7 @@ namespace LocalFormulaRacing
             TargetTopSpeedKph = CalculateTargetTopSpeedKph(new VehicleCommand());
             LastGearTorqueMultiplier = GearTorqueMultipliers[0];
             initialized = true;
-            Debug.Log("[Damage] " + name + " starting damage " + Damage.OverallPercent.ToString("0.0") + "%");
+            GameLog.Info("[Damage] " + name + " starting damage " + Damage.OverallPercent.ToString("0.0") + "%");
         }
 
         public void SetCommand(VehicleCommand newCommand)
@@ -227,7 +227,7 @@ namespace LocalFormulaRacing
                 if (stuckPowerDebugTimer <= 0f)
                 {
                     stuckPowerDebugTimer = 1.2f;
-                    Debug.LogWarning("[DriveDebug] " + name +
+                    GameLog.Warn("[DriveDebug] " + name +
                                      " low speed despite throttle speedKph=" + absoluteSpeedKph.ToString("0.0") +
                                      " throttle=" + EffectiveThrottle.ToString("0.00") +
                                      " brake=" + EffectiveBrake.ToString("0.00") +
@@ -653,7 +653,7 @@ namespace LocalFormulaRacing
                 LastDamageDebug = "ignored " + objectName + " " + classificationReason;
                 if (!sustained && IsSuspiciousIgnoredCollisionName(objectName))
                 {
-                    Debug.Log("[Damage] ignored object=" + objectName + " reason=" + classificationReason);
+                    GameLog.Info("[Damage] ignored object=" + objectName + " reason=" + classificationReason);
                 }
 
                 return;
@@ -677,7 +677,7 @@ namespace LocalFormulaRacing
             if (delta > 0f)
             {
                 scrapeDamageCooldown = sustained ? 0.45f : 0.08f;
-                Debug.Log("[Damage] applied object=" + objectName +
+                GameLog.Info("[Damage] applied object=" + objectName +
                           " reason=" + classificationReason +
                           " impactKph=" + impactSpeedKph.ToString("0.0") +
                           " normalKph=" + normalSpeedKph.ToString("0.0") +
@@ -688,7 +688,7 @@ namespace LocalFormulaRacing
             }
             else if (!sustained)
             {
-                Debug.Log("[Damage] no damage object=" + objectName +
+                GameLog.Info("[Damage] no damage object=" + objectName +
                           " reason=below threshold type=" + impactType +
                           " impactKph=" + impactSpeedKph.ToString("0.0") +
                           " normalKph=" + normalSpeedKph.ToString("0.0") +
