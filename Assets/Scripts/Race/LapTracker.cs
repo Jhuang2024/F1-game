@@ -73,12 +73,24 @@ namespace LocalFormulaRacing
 
         public void ConfigureRaceGridStart()
         {
-            progressDistanceOffset = Track == null ? 0f : -Track.length;
             if (Track != null)
             {
                 CurrentProgress = Track.GetProgress(transform.position);
                 CurrentSector = CurrentProgress.sector;
+                
+                // Fix "lap down" bug by ensuring progress distance offset is correctly set.
+                // If we are on the grid, we are on Lap 0, but behind the start line.
+                // TotalProgressDistance = CompletedLaps * length + distance + offset
+                // On Lap 0, before crossing start line, distance is near length (e.g. 0.95 * length).
+                // If offset is -length, TotalProgressDistance is roughly -0.05 * length, which is correct.
+                progressDistanceOffset = -Track.length;
                 TotalProgressDistance = CurrentProgress.distance + progressDistanceOffset;
+                previousNormalized = CurrentProgress.normalized;
+                initialized = true;
+            }
+            else
+            {
+                progressDistanceOffset = 0f;
             }
         }
 
@@ -148,18 +160,42 @@ namespace LocalFormulaRacing
                 sawSectorThree = true;
             }
 
-            bool crossedStart = previousNormalized > 0.86f && CurrentProgress.normalized < 0.14f;
-            if (crossedStart && progressDistanceOffset < 0f)
+            // More robust crossing detection
+            bool crossedStart = previousNormalized > 0.80f && CurrentProgress.normalized < 0.20f;
+            
+            if (crossedStart)
             {
-                progressDistanceOffset = 0f;
+                if (progressDistanceOffset < -0.001f)
+                {
+                    // First crossing of start line after grid start
+                    progressDistanceOffset = 0f;
+                    // We don't call CompleteLap yet because the first crossing just starts Lap 1 (CompletedLaps 0 -> 1 happens at the END of Lap 1)
+                    // Wait, if CompletedLaps is 0, and we cross start, we are still on Lap 1.
+                    // Actually, the original logic calls CompleteLap() which increments CompletedLaps.
+                    // If we start on the grid, we are on "Lap 1" but have 0 completed laps.
+                    // Crossing the line for the FIRST time should NOT increment CompletedLaps if we started on the grid.
+                    // But if we are in Qualifying OutLap, it should finish the outlap.
+                    
+                    if (OutLapActive)
+                    {
+                        CompleteLap();
+                    }
+                    else
+                    {
+                        // Reset lap timer for the start of the first full lap
+                        lapStartTime = Time.time;
+                        sectorStartTime = Time.time;
+                        sawSectorTwo = false;
+                        sawSectorThree = false;
+                    }
+                }
+                else if (sawSectorTwo && sawSectorThree && CurrentLapTime > 10f)
+                {
+                    CompleteLap();
+                }
             }
 
             TotalProgressDistance = CompletedLaps * Track.length + CurrentProgress.distance + progressDistanceOffset;
-            if (crossedStart && sawSectorTwo && sawSectorThree && CurrentLapTime > 12f)
-            {
-                CompleteLap();
-            }
-
             previousNormalized = CurrentProgress.normalized;
         }
 
