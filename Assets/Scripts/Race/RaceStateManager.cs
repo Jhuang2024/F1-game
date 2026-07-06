@@ -10,7 +10,7 @@ namespace LocalFormulaRacing
 
         private Dictionary<RaceParticipant, SectorSnapshot> sectorSnapshots = new Dictionary<RaceParticipant, SectorSnapshot>();
         private float[] overallBestSectors = new float[3];
-
+        
         public RaceWeekendSession CurrentSession { get; private set; }
         public int QualifyingPhase { get; private set; } = 1;
         public int FinishedCount { get; private set; } = 0;
@@ -46,30 +46,29 @@ namespace LocalFormulaRacing
             SortedOrder.AddRange(Participants);
             SortedOrder.Sort((a, b) =>
             {
-                // 1. Finished/Retired status
                 if (a.finished && b.finished)
                 {
-                    if (a.retired != b.retired) return a.retired ? 1 : -1;
+                    if (a.retired != b.retired)
+                    {
+                        return a.retired ? 1 : -1;
+                    }
+
                     return a.finishingPosition.CompareTo(b.finishingPosition);
                 }
-                if (a.finished) return a.retired ? 1 : -1;
-                if (b.finished) return b.retired ? -1 : 1;
 
-                if (a.retired && b.retired) return 0;
-                if (a.retired) return 1;
-                if (b.retired) return -1;
-
-                if (a.lapTracker == null || b.lapTracker == null) return 0;
-
-                // Authoritative Position Logic:
-                // Laps completed is the primary sort key
-                if (a.lapTracker.CompletedLaps != b.lapTracker.CompletedLaps)
+                if (a.finished)
                 {
-                    return b.lapTracker.CompletedLaps.CompareTo(a.lapTracker.CompletedLaps);
+                    return a.retired ? 1 : -1;
                 }
 
-                // If on the same lap, use total progress distance along the spline
-                return b.lapTracker.TotalProgressDistance.CompareTo(a.lapTracker.TotalProgressDistance);
+                if (b.finished)
+                {
+                    return b.retired ? -1 : 1;
+                }
+
+                float aDistance = a.lapTracker == null ? 0f : a.lapTracker.TotalProgressDistance;
+                float bDistance = b.lapTracker == null ? 0f : b.lapTracker.TotalProgressDistance;
+                return bDistance.CompareTo(aDistance);
             });
         }
 
@@ -84,7 +83,7 @@ namespace LocalFormulaRacing
 
             SectorSnapshot snapshot = sectorSnapshots[participant];
             float previous = sector == 1 ? snapshot.s1 : (sector == 2 ? snapshot.s2 : snapshot.s3);
-
+            
             if (Mathf.Abs(previous - sectorTime) < 0.001f) return;
 
             if (sector == 1) snapshot.s1 = sectorTime;
@@ -116,10 +115,10 @@ namespace LocalFormulaRacing
             {
                 if (participant.vehicle != null)
                 {
-                    // Logic to reset vehicle state if needed,
+                    // Logic to reset vehicle state if needed, 
                     // though currently RaceManager recreates them.
                 }
-
+                
                 if (participant.lapTracker != null)
                 {
                     if (CurrentSession == RaceWeekendSession.Qualifying)

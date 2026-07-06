@@ -77,7 +77,7 @@ namespace LocalFormulaRacing
             {
                 CurrentProgress = Track.GetProgress(transform.position);
                 CurrentSector = CurrentProgress.sector;
-
+                
                 // Fix "lap down" bug by ensuring progress distance offset is correctly set.
                 // If we are on the grid, we are on Lap 0, but behind the start line.
                 // TotalProgressDistance = CompletedLaps * length + distance + offset
@@ -160,37 +160,37 @@ namespace LocalFormulaRacing
                 sawSectorThree = true;
             }
 
-            // Authoritative crossing detection logic
-            // Handles both standing starts (behind start line) and outlaps.
-            bool crossedStart = previousNormalized > 0.72f && CurrentProgress.normalized < 0.28f;
-
+            // More robust crossing detection
+            bool crossedStart = previousNormalized > 0.80f && CurrentProgress.normalized < 0.20f;
+            
             if (crossedStart)
             {
-                if (progressDistanceOffset < -1f)
+                if (progressDistanceOffset < -0.001f)
                 {
-                    // Case: Car spawned on grid (behind line) and is crossing for the FIRST time.
-                    // This crossing transitions from Lap 0 (negative progress) to Lap 1 (positive progress).
+                    // First crossing of start line after grid start
                     progressDistanceOffset = 0f;
-
+                    // We don't call CompleteLap yet because the first crossing just starts Lap 1 (CompletedLaps 0 -> 1 happens at the END of Lap 1)
+                    // Wait, if CompletedLaps is 0, and we cross start, we are still on Lap 1.
+                    // Actually, the original logic calls CompleteLap() which increments CompletedLaps.
+                    // If we start on the grid, we are on "Lap 1" but have 0 completed laps.
+                    // Crossing the line for the FIRST time should NOT increment CompletedLaps if we started on the grid.
+                    // But if we are in Qualifying OutLap, it should finish the outlap.
+                    
                     if (OutLapActive)
                     {
-                        // In Qualifying, first crossing ENDS outlap and STARTS timed lap.
                         CompleteLap();
                     }
                     else
                     {
-                        // In Race, first crossing just STARTS Lap 1 timing.
-                        // CompletedLaps stays at 0.
+                        // Reset lap timer for the start of the first full lap
                         lapStartTime = Time.time;
                         sectorStartTime = Time.time;
                         sawSectorTwo = false;
                         sawSectorThree = false;
-                        CurrentLapInvalidated = false;
                     }
                 }
-                else if (sawSectorTwo && sawSectorThree && CurrentLapTime > 8f)
+                else if (sawSectorTwo && sawSectorThree && CurrentLapTime > 10f)
                 {
-                    // Case: Standard lap completion (Lap 1 -> 2, etc.)
                     CompleteLap();
                 }
             }
