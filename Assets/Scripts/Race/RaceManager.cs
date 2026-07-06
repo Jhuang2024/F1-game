@@ -14,6 +14,7 @@ namespace LocalFormulaRacing
         public bool IsPaused { get; private set; }
         public bool IsRaceFinished { get; private set; }
         public bool IsCareerRace { get; private set; }
+        public bool IsTimeTrial { get; private set; }
         public RaceWeekendSession CurrentSession { get; private set; }
         public float StartCountdown { get; private set; }
         public bool CanDrive { get { return StartCountdown <= 0f && !IsPaused && !IsRaceFinished && !qualifyingTransitionPending; } }
@@ -43,7 +44,7 @@ namespace LocalFormulaRacing
 
         public bool RaceStartLightsVisible
         {
-            get { return CurrentSession != RaceWeekendSession.Qualifying && StartCountdown > 0f; }
+            get { return CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial && StartCountdown > 0f; }
         }
 
         public RaceStateManager State { get; private set; }
@@ -79,6 +80,12 @@ namespace LocalFormulaRacing
         bool engineerPitRequestConfirmed;
         bool engineerTyreWarningSent;
         bool engineerBatteryWarningSent;
+        bool engineerFinalLapSent;
+        bool engineerFuelWarningSent;
+        bool engineerDamageWarningSent;
+        float lastRecordedPlayerBestLap;
+        bool pendingTimeTrial;
+        float playerResetCooldown;
         static PhysicMaterial carBodyPhysicsMaterial;
         const int FullWeekendDriverCount = 22;
         const int FullWeekendAiCount = FullWeekendDriverCount - 1;
@@ -101,6 +108,19 @@ namespace LocalFormulaRacing
             StartSession(repository, career, settings, runtimeUi, eventData, playerName, playerTeamId, careerRace, RaceWeekendSession.QuickRace);
         }
 
+        public void StartTimeTrial(
+            GameDataRepository repository,
+            CareerManager career,
+            GameSettingsStore settings,
+            RuntimeUi runtimeUi,
+            CalendarEventData eventData,
+            string playerName,
+            string playerTeamId)
+        {
+            pendingTimeTrial = true;
+            StartSession(repository, career, settings, runtimeUi, eventData, playerName, playerTeamId, false, RaceWeekendSession.QuickRace);
+        }
+
         public void StartSession(
             GameDataRepository repository,
             CareerManager career,
@@ -118,6 +138,8 @@ namespace LocalFormulaRacing
             ui = runtimeUi;
             EventData = eventData;
             IsCareerRace = careerRace;
+            IsTimeTrial = pendingTimeTrial;
+            pendingTimeTrial = false;
             CurrentSession = session;
             IsRaceFinished = false;
             IsPaused = false;
@@ -130,6 +152,8 @@ namespace LocalFormulaRacing
             playerReactionTime = -1f;
             reactionDisplayTimer = 0f;
             waitingForPlayerReaction = false;
+            lastRecordedPlayerBestLap = 0f;
+            playerResetCooldown = 0f;
             ResetEngineerState();
             if (session == RaceWeekendSession.Qualifying && !preserveQualifyingState)
             {
@@ -138,9 +162,9 @@ namespace LocalFormulaRacing
                 ResetPlayerQualifyingCaptures();
             }
             preserveQualifyingState = false;
-            raceStartSequenceDuration = session == RaceWeekendSession.Qualifying ? 1.5f : Random.Range(5.4f, 6.8f);
+            raceStartSequenceDuration = session == RaceWeekendSession.Qualifying || IsTimeTrial ? 1.5f : Random.Range(5.4f, 6.8f);
             StartCountdown = raceStartSequenceDuration;
-            SessionMessage = session == RaceWeekendSession.Qualifying ? "Q" + qualifyingPhase + " out lap ready" : "Race start";
+            SessionMessage = session == RaceWeekendSession.Qualifying ? "Q" + qualifyingPhase + " out lap ready" : (IsTimeTrial ? "Time trial: set a lap" : "Race start");
             Time.timeScale = 1f;
 
             if (raceWorld != null)
@@ -157,6 +181,7 @@ namespace LocalFormulaRacing
 
             TrackManager trackManager = new GameObject("Track Manager").AddComponent<TrackManager>();
             trackManager.transform.SetParent(raceWorld.transform);
+            trackManager.sceneryDensity = Settings.Current.sceneryDensity;
             Track = trackManager.Build(eventData, Settings.Current.racingLineAssist);
             if (session == RaceWeekendSession.Qualifying)
             {
@@ -279,7 +304,7 @@ namespace LocalFormulaRacing
                     HoldGridCars(false);
                     SessionMessage = CurrentSession == RaceWeekendSession.Qualifying ? "Q" + qualifyingPhase + " out lap: build tyre temp" : "Lights out";
                     raceStartTime = Time.time;
-                    if (CurrentSession != RaceWeekendSession.Qualifying)
+                    if (CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial)
                     {
                         lightsOutTime = Time.time;
                         waitingForPlayerReaction = true;
@@ -408,6 +433,7 @@ namespace LocalFormulaRacing
             {
                 State.ResetAllParticipants();
             }
+            pendingTimeTrial = IsTimeTrial;
             StartSession(Data, Career, Settings, ui, EventData, Career.Save.playerDriverName, Career.Save.playerTeamId, IsCareerRace, CurrentSession);
         }
 
@@ -416,6 +442,7 @@ namespace LocalFormulaRacing
             Time.timeScale = 1f;
             IsPaused = false;
             IsRaceFinished = true;
+            IsTimeTrial = false;
             State = null;
             PlayerParticipant = null;
             if (raceWorld != null)
@@ -449,7 +476,7 @@ namespace LocalFormulaRacing
 
         public int RaceLaps
         {
-            get { return Mathf.Max(3, Settings.Current.laps); }
+            get { return IsTimeTrial ? 999 : Mathf.Max(3, Settings.Current.laps); }
         }
 
         public int RecommendedPitLap(RaceParticipant participant)
@@ -477,6 +504,9 @@ namespace LocalFormulaRacing
             engineerPitRequestConfirmed = false;
             engineerTyreWarningSent = false;
             engineerBatteryWarningSent = false;
+            engineerFinalLapSent = false;
+            engineerFuelWarningSent = false;
+            engineerDamageWarningSent = false;
         }
 
         void TickEngineerTimers()
@@ -484,6 +514,7 @@ namespace LocalFormulaRacing
             engineerMessageTimer = Mathf.Max(0f, engineerMessageTimer - Time.deltaTime);
             engineerCooldown = Mathf.Max(0f, engineerCooldown - Time.deltaTime);
             reactionDisplayTimer = Mathf.Max(0f, reactionDisplayTimer - Time.deltaTime);
+            playerResetCooldown = Mathf.Max(0f, playerResetCooldown - Time.deltaTime);
         }
 
         void PostEngineerMessage(string message, bool priority)
@@ -510,6 +541,14 @@ namespace LocalFormulaRacing
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
                 return "Weather is " + weather + ". Out lap first, then push when the tyres are ready.";
+            }
+
+            if (IsTimeTrial)
+            {
+                float best = PlayerRecordsStore.GetBestLap(EventData == null ? "" : EventData.trackId);
+                return best > 0f
+                    ? "Time trial. Track record to beat: " + UiFactory.FormatTime(best) + "."
+                    : "Time trial. No local record yet, set a benchmark lap.";
             }
 
             return "Weather is " + weather + ". Mandatory stop is active. Target window around lap " + RecommendedPitLap(PlayerParticipant) + ".";
@@ -543,6 +582,7 @@ namespace LocalFormulaRacing
             }
 
             VehicleController car = PlayerParticipant.vehicle;
+            TrackPlayerBestLapRecord();
             if (!engineerWeatherSent)
             {
                 engineerWeatherSent = true;
@@ -561,7 +601,32 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            if (IsTimeTrial)
+            {
+                return;
+            }
+
             int completedLaps = PlayerParticipant.lapTracker.CompletedLaps;
+            if (completedLaps == RaceLaps - 1 && !engineerFinalLapSent)
+            {
+                engineerFinalLapSent = true;
+                PostEngineerMessage("Final lap. Bring it home, watch the tyres.", true);
+                return;
+            }
+
+            if (car.FuelKg < 7f && !engineerFuelWarningSent)
+            {
+                engineerFuelWarningSent = true;
+                PostEngineerMessage("Fuel is getting low. Lift and coast into the heavy braking zones.", false);
+                return;
+            }
+
+            if (car.Damage.OverallPercent > 45f && !engineerDamageWarningSent)
+            {
+                engineerDamageWarningSent = true;
+                PostEngineerMessage("We are seeing damage on the car. Consider a stop for repairs.", false);
+                return;
+            }
             int targetLap = RecommendedPitLap(PlayerParticipant);
             if (PlayerParticipant.pitStops == 0 && !PlayerParticipant.isPitting)
             {
@@ -601,9 +666,98 @@ namespace LocalFormulaRacing
             }
         }
 
+        void TrackPlayerBestLapRecord()
+        {
+            if (PlayerParticipant == null || PlayerParticipant.lapTracker == null || EventData == null)
+            {
+                return;
+            }
+
+            float best = PlayerParticipant.lapTracker.BestLapTime;
+            if (best <= 0f || Mathf.Approximately(best, lastRecordedPlayerBestLap))
+            {
+                return;
+            }
+
+            lastRecordedPlayerBestLap = best;
+            string context = IsTimeTrial ? "Time Trial" : (CurrentSession == RaceWeekendSession.Qualifying ? "Qualifying" : "Race");
+            if (PlayerRecordsStore.TryRecordLap(EventData.trackId, best, context))
+            {
+                PostEngineerMessage("New local track record: " + UiFactory.FormatTime(best) + "!", true);
+            }
+            else if (IsTimeTrial)
+            {
+                PostEngineerMessage("Personal best this session: " + UiFactory.FormatTime(best) + ".", false);
+            }
+        }
+
+        // Stuck recovery: snap the player back to the last safe on-track pose.
+        // Costs five seconds in competitive race sessions so it cannot be exploited.
+        public void ResetPlayerToSafePose(RaceParticipant participant)
+        {
+            if (participant == null || !participant.isPlayer || participant.vehicle == null || Track == null ||
+                participant.isPitting || participant.pitPhase != PitPhase.None || playerResetCooldown > 0f || !CanDrive)
+            {
+                return;
+            }
+
+            playerResetCooldown = 5f;
+            TrackProgress progress = participant.lapTracker != null
+                ? participant.lapTracker.CurrentProgress
+                : Track.GetProgress(participant.transform.position);
+
+            Vector3 respawnPosition;
+            Quaternion respawnRotation;
+            if (participant.hasLastSafePosition)
+            {
+                respawnPosition = participant.lastSafePosition + Vector3.up * 0.35f;
+                respawnRotation = participant.lastSafeRotation;
+            }
+            else
+            {
+                respawnPosition = progress.nearestPoint + Vector3.up * 0.45f;
+                respawnRotation = Quaternion.LookRotation(progress.forward, Vector3.up);
+            }
+
+            Rigidbody body = participant.GetComponent<Rigidbody>();
+            if (body != null)
+            {
+                body.velocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
+                body.position = respawnPosition;
+                body.rotation = respawnRotation;
+            }
+
+            participant.transform.position = respawnPosition;
+            participant.transform.rotation = respawnRotation;
+            participant.fallRespawnCooldown = 2f;
+
+            if (participant.lapTracker != null)
+            {
+                participant.lapTracker.InvalidateCurrentLap();
+            }
+
+            if (CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial)
+            {
+                AddPenalty(participant, 5f, "Car recovery");
+                SessionMessage = "Car recovered: +5s";
+                PostEngineerMessage("Car recovered to the track. Five second penalty added.", true);
+            }
+            else
+            {
+                SessionMessage = "Car recovered: lap invalidated";
+                PostEngineerMessage("Car recovered. This lap will not count.", true);
+            }
+        }
+
         public string PitStatusText(RaceParticipant participant)
         {
             if (CurrentSession == RaceWeekendSession.Qualifying || participant == null)
+            {
+                return "";
+            }
+
+            if (IsTimeTrial && participant.pitPhase == PitPhase.None && !participant.isPitting)
             {
                 return "";
             }
@@ -764,7 +918,7 @@ namespace LocalFormulaRacing
 
         public void ReportJumpStartIntent(RaceParticipant participant)
         {
-            if (participant == null || participant.jumpStartPenaltyApplied || StartCountdown <= 0f || CurrentSession == RaceWeekendSession.Qualifying)
+            if (participant == null || participant.jumpStartPenaltyApplied || StartCountdown <= 0f || CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
             {
                 return;
             }
@@ -834,7 +988,7 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            if (CurrentSession == RaceWeekendSession.Qualifying)
+            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
             {
                 return true;
             }
@@ -1390,6 +1544,11 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            if (IsTimeTrial)
+            {
+                return;
+            }
+
             List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, ReplacedDriverIdForPlayerTeam(playerTeamId));
             for (int i = 0; i < aiDrivers.Count; i++)
             {
@@ -1669,7 +1828,10 @@ namespace LocalFormulaRacing
                 CameraRig rig = new GameObject("Player camera rig").AddComponent<CameraRig>();
                 rig.transform.SetParent(raceWorld.transform);
                 rig.transform.position = carObject.transform.position - carObject.transform.forward * 10f + Vector3.up * 4f;
-                rig.Initialize(carObject.transform, Settings.Current.cameraShake);
+                rig.Initialize(
+                    carObject.transform,
+                    Settings.Current.cameraShake ? Settings.Current.cameraShakeStrength : 0f,
+                    Settings.Current.cameraFov);
                 PlayerVehicleInput input = carObject.AddComponent<PlayerVehicleInput>();
                 input.raceManager = this;
                 input.cameraRig = rig;
@@ -2111,10 +2273,11 @@ namespace LocalFormulaRacing
             string weatherProfile = EventData == null || string.IsNullOrEmpty(EventData.weatherProfile) ? "" : EventData.weatherProfile.ToLowerInvariant();
             bool rainThreat = weatherProfile.Contains("wet") || weatherProfile.Contains("mixed");
 
-            QualitySettings.antiAliasing = 8;
-            QualitySettings.shadows = ShadowQuality.All;
-            QualitySettings.shadowDistance = 450f;
-            QualitySettings.shadowResolution = ShadowResolution.VeryHigh;
+            int quality = Settings == null ? 2 : Mathf.Clamp(Settings.Current.graphicsQuality, 0, 2);
+            QualitySettings.antiAliasing = quality == 0 ? 0 : (quality == 1 ? 4 : 8);
+            QualitySettings.shadows = quality == 0 ? ShadowQuality.HardOnly : ShadowQuality.All;
+            QualitySettings.shadowDistance = quality == 0 ? 180f : (quality == 1 ? 300f : 450f);
+            QualitySettings.shadowResolution = quality == 0 ? ShadowResolution.Medium : (quality == 1 ? ShadowResolution.High : ShadowResolution.VeryHigh);
 
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
             RenderSettings.ambientSkyColor = night ? new Color(0.08f, 0.12f, 0.22f) : (rainThreat ? new Color(0.28f, 0.36f, 0.42f) : new Color(0.42f, 0.58f, 0.74f));
@@ -2512,7 +2675,7 @@ namespace LocalFormulaRacing
 
         void ApplyMandatoryPitPenalty(RaceParticipant participant)
         {
-            if (CurrentSession == RaceWeekendSession.Qualifying)
+            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
             {
                 return;
             }

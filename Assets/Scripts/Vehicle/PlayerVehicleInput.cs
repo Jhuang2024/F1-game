@@ -14,6 +14,8 @@ namespace LocalFormulaRacing
         float throttleValue;
         float brakeValue;
         bool drsLatched;
+        float resetHoldTime;
+        bool resetTriggered;
 
         void Awake()
         {
@@ -38,9 +40,27 @@ namespace LocalFormulaRacing
             }
 
             GameSettingsData settings = raceManager.Settings.Current;
-            if (Input.GetKeyDown(KeyCode.R))
+
+            // R: tap cycles ERS mode, hold ~1 second recovers a stuck car.
+            if (Input.GetKey(KeyCode.R))
             {
-                settings.ersMode = (settings.ersMode + 1) % 3;
+                resetHoldTime += Time.deltaTime;
+                if (!resetTriggered && resetHoldTime >= 1.0f)
+                {
+                    resetTriggered = true;
+                    raceManager.ResetPlayerToSafePose(participant);
+                }
+            }
+
+            if (Input.GetKeyUp(KeyCode.R))
+            {
+                if (!resetTriggered && resetHoldTime < 0.45f)
+                {
+                    settings.ersMode = (settings.ersMode + 1) % 3;
+                }
+
+                resetHoldTime = 0f;
+                resetTriggered = false;
             }
 
             VehicleCommand command = new VehicleCommand();
