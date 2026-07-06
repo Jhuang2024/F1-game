@@ -160,37 +160,37 @@ namespace LocalFormulaRacing
                 sawSectorThree = true;
             }
 
-            // More robust crossing detection
-            bool crossedStart = previousNormalized > 0.80f && CurrentProgress.normalized < 0.20f;
+            // Authoritative crossing detection logic
+            // Handles both standing starts (behind start line) and outlaps.
+            bool crossedStart = previousNormalized > 0.72f && CurrentProgress.normalized < 0.28f;
 
             if (crossedStart)
             {
-                if (progressDistanceOffset < -0.001f)
+                if (progressDistanceOffset < -1f)
                 {
-                    // First crossing of start line after grid start
+                    // Case: Car spawned on grid (behind line) and is crossing for the FIRST time.
+                    // This crossing transitions from Lap 0 (negative progress) to Lap 1 (positive progress).
                     progressDistanceOffset = 0f;
-                    // We don't call CompleteLap yet because the first crossing just starts Lap 1 (CompletedLaps 0 -> 1 happens at the END of Lap 1)
-                    // Wait, if CompletedLaps is 0, and we cross start, we are still on Lap 1.
-                    // Actually, the original logic calls CompleteLap() which increments CompletedLaps.
-                    // If we start on the grid, we are on "Lap 1" but have 0 completed laps.
-                    // Crossing the line for the FIRST time should NOT increment CompletedLaps if we started on the grid.
-                    // But if we are in Qualifying OutLap, it should finish the outlap.
 
                     if (OutLapActive)
                     {
+                        // In Qualifying, first crossing ENDS outlap and STARTS timed lap.
                         CompleteLap();
                     }
                     else
                     {
-                        // Reset lap timer for the start of the first full lap
+                        // In Race, first crossing just STARTS Lap 1 timing.
+                        // CompletedLaps stays at 0.
                         lapStartTime = Time.time;
                         sectorStartTime = Time.time;
                         sawSectorTwo = false;
                         sawSectorThree = false;
+                        CurrentLapInvalidated = false;
                     }
                 }
-                else if (sawSectorTwo && sawSectorThree && CurrentLapTime > 10f)
+                else if (sawSectorTwo && sawSectorThree && CurrentLapTime > 8f)
                 {
+                    // Case: Standard lap completion (Lap 1 -> 2, etc.)
                     CompleteLap();
                 }
             }

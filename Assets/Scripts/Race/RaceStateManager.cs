@@ -46,29 +46,30 @@ namespace LocalFormulaRacing
             SortedOrder.AddRange(Participants);
             SortedOrder.Sort((a, b) =>
             {
+                // 1. Finished/Retired status
                 if (a.finished && b.finished)
                 {
-                    if (a.retired != b.retired)
-                    {
-                        return a.retired ? 1 : -1;
-                    }
-
+                    if (a.retired != b.retired) return a.retired ? 1 : -1;
                     return a.finishingPosition.CompareTo(b.finishingPosition);
                 }
+                if (a.finished) return a.retired ? 1 : -1;
+                if (b.finished) return b.retired ? -1 : 1;
 
-                if (a.finished)
+                if (a.retired && b.retired) return 0;
+                if (a.retired) return 1;
+                if (b.retired) return -1;
+
+                if (a.lapTracker == null || b.lapTracker == null) return 0;
+
+                // Authoritative Position Logic:
+                // Laps completed is the primary sort key
+                if (a.lapTracker.CompletedLaps != b.lapTracker.CompletedLaps)
                 {
-                    return a.retired ? 1 : -1;
+                    return b.lapTracker.CompletedLaps.CompareTo(a.lapTracker.CompletedLaps);
                 }
 
-                if (b.finished)
-                {
-                    return b.retired ? -1 : 1;
-                }
-
-                float aDistance = a.lapTracker == null ? 0f : a.lapTracker.TotalProgressDistance;
-                float bDistance = b.lapTracker == null ? 0f : b.lapTracker.TotalProgressDistance;
-                return bDistance.CompareTo(aDistance);
+                // If on the same lap, use total progress distance along the spline
+                return b.lapTracker.TotalProgressDistance.CompareTo(a.lapTracker.TotalProgressDistance);
             });
         }
 

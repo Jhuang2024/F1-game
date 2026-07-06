@@ -91,10 +91,10 @@ namespace LocalFormulaRacing
             IsLocked = brake > 0.84f && speedKph > 105f && Random.value < deltaTime * Mathf.Lerp(0.65f, 1.25f, Mathf.Clamp01(1f - TemperatureWindowScore));
             float management = Mathf.Lerp(1.35f, 0.72f, Mathf.Clamp01(tyreManagement / 100f));
             float weatherWear = weather == WeatherState.Clear || weather == WeatherState.Cloudy ? 1.04f : 1.24f;
-            float lockupWear = IsLocked ? 0.018f : 0f;
-            float overheatWear = Mathf.Lerp(1f, 1.72f, Mathf.InverseLerp(targetMax, targetMax + 24f, Temperature));
-            float slideWear = slipEnergy * 0.00125f;
-            float baselineWear = speedHeat * 0.00094f + Mathf.Abs(steer) * 0.00054f + brake * 0.00048f + slideWear;
+            float lockupWear = IsLocked ? 0.024f : 0f;
+            float overheatWear = Mathf.Lerp(1f, 2.15f, Mathf.InverseLerp(targetMax, targetMax + 22f, Temperature));
+            float slideWear = slipEnergy * 0.00165f;
+            float baselineWear = speedHeat * 0.00124f + Mathf.Abs(steer) * 0.00068f + brake * 0.00058f + slideWear;
             float wearLoss = (baselineWear * baseWear * management * weatherWear * overheatWear) + lockupWear;
             Wear = Mathf.Clamp01(Wear - wearLoss * deltaTime);
         }
@@ -102,7 +102,10 @@ namespace LocalFormulaRacing
         public float GripMultiplier(WeatherState weather)
         {
             float tempGrip = TemperatureGripMultiplier;
-            float wearGrip = Wear > 0.45f ? Mathf.Lerp(0.85f, 1f, Wear) : Mathf.Lerp(0.42f, 0.80f, Wear / 0.45f);
+            // Aggressive wear drop: Significant linear drop followed by a steep cliff.
+            float wearGrip = Wear > 0.65f ? Mathf.Lerp(0.82f, 1f, (Wear - 0.65f) / 0.35f) :
+                             (Wear > 0.35f ? Mathf.Lerp(0.55f, 0.82f, (Wear - 0.35f) / 0.30f) :
+                                             Mathf.Lerp(0.12f, 0.55f, Wear / 0.35f));
             float rainGrip = 1f;
             if (weather == WeatherState.LightRain)
             {
@@ -145,12 +148,12 @@ namespace LocalFormulaRacing
 
         public float BrakingMultiplier
         {
-            get { return Mathf.Lerp(0.72f, 1.08f, TemperatureWindowScore) * Mathf.Lerp(0.78f, 1f, Wear); }
+            get { return Mathf.Lerp(0.68f, 1.12f, TemperatureWindowScore) * (Wear > 0.5f ? Mathf.Lerp(0.72f, 1f, Wear) : Mathf.Lerp(0.35f, 0.72f, Wear / 0.5f)); }
         }
 
         public float TractionMultiplier
         {
-            get { return Mathf.Lerp(0.64f, 1.06f, TemperatureWindowScore) * Mathf.Lerp(0.74f, 1f, Wear); }
+            get { return Mathf.Lerp(0.60f, 1.08f, TemperatureWindowScore) * (Wear > 0.5f ? Mathf.Lerp(0.68f, 1f, Wear) : Mathf.Lerp(0.28f, 0.68f, Wear / 0.5f)); }
         }
 
         public float TemperatureWindowScore

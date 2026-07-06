@@ -260,6 +260,7 @@ namespace LocalFormulaRacing
             return Runtime;
         }
 
+
         TrackRuntime CreateLayout(CalendarEventData eventData)
         {
             TrackRuntime runtime = new TrackRuntime
@@ -448,41 +449,77 @@ namespace LocalFormulaRacing
         void BuildSuzukaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Technical figure-eight Park";
-            runtime.roadHalfWidth = 10.5f;
-            runtime.kerbStart = 9.2f;
-            runtime.drsZoneOne = new Vector2(0.91f, 0.08f);
-            runtime.drsZoneTwo = new Vector2(0.6f, 0.74f);
+            runtime.roadHalfWidth = 14.5f; // Significant width increase
+            runtime.kerbStart = 12.2f;
+            runtime.drsZoneOne = new Vector2(0.92f, 0.08f);
+            runtime.drsZoneTwo = new Vector2(0.62f, 0.76f);
+
+            // Handcrafted large-scale Suzuka layout with precise anchor separation to prevent overlap.
             AddSmoothedAnchors(runtime, new[]
             {
-                // Start/Finish straight
-                new Vector3(0f, 0f, 0f), new Vector3(320f, 0f, 0f),
-                // First corner (T1 & T2)
-                new Vector3(480f, 0f, 40f), new Vector3(520f, 0f, 150f),
-                // Esses (T3-T6)
-                new Vector3(440f, 1.8f, 240f), new Vector3(320f, 3.8f, 300f), new Vector3(260f, 5.2f, 400f), new Vector3(320f, 4.8f, 500f),
-                // Dunlop Curve (T7)
-                new Vector3(460f, 2.8f, 580f), new Vector3(640f, 0.8f, 540f),
-                // Degner Curves (T8 & T9)
-                new Vector3(740f, -0.2f, 380f), new Vector3(680f, -1.8f, 240f), new Vector3(800f, -3.4f, 180f),
-                // Under the bridge (Crossover point)
-                new Vector3(980f, -5.8f, 240f), new Vector3(1050f, -5.2f, 440f),
-                // Hairpin (T11) - Tight 180
-                new Vector3(1020f, -3.2f, 620f), new Vector3(940f, -2.8f, 660f), new Vector3(860f, -3.1f, 600f),
-                // 200R (T12)
-                new Vector3(720f, 0.6f, 740f), new Vector3(520f, 3.8f, 880f),
-                // Spoon Curve (T13 & T14)
-                new Vector3(240f, 7.2f, 960f), new Vector3(40f, 8.5f, 920f), new Vector3(-160f, 9.2f, 740f), new Vector3(40f, 9.8f, 560f),
-                // Back straight leading to 130R
-                new Vector3(320f, 10.4f, 420f),
-                // The Bridge (crossing over the section between T9 and T10)
-                new Vector3(720f, 15.5f, 280f), new Vector3(1040f, 11.2f, 120f),
-                // 130R (T15)
-                new Vector3(1150f, 6.4f, -40f), new Vector3(1020f, 3.2f, -180f),
-                // Casio Triangle (T16 & T17)
-                new Vector3(820f, 0.8f, -100f), new Vector3(720f, 0f, 40f), new Vector3(620f, 0f, -40f),
-                // Final turn (T18)
-                new Vector3(360f, 0f, -20f), new Vector3(-440f, 0f, 0f)
-            }, 10);
+                // Start/Finish Straight (Grid facing line at 0,0,0)
+                new Vector3(-600f, 0f, 0f),
+                new Vector3(0f, 0f, 0f),
+                new Vector3(400f, 0f, 0f),
+
+                // T1 & T2 (The First Curve)
+                new Vector3(750f, 0f, 100f),
+                new Vector3(820f, -2f, 350f),
+
+                // The S-Curves (T3-T6) - Winding sequence
+                new Vector3(650f, 2f, 600f),
+                new Vector3(420f, 5f, 750f),
+                new Vector3(280f, 8f, 1000f),
+                new Vector3(400f, 7f, 1250f),
+
+                // Dunlop Curve (T7) - Long uphill left
+                new Vector3(680f, 4f, 1450f),
+                new Vector3(1050f, 1f, 1350f),
+
+                // Degner Curves (T8 & T9) - Double right
+                new Vector3(1250f, -2f, 950f),
+                new Vector3(1120f, -5f, 650f),
+                new Vector3(1350f, -8f, 500f),
+
+                // T10 and Under-Bridge Section (Going underneath the later crossover)
+                new Vector3(1650f, -12f, 650f),
+                new Vector3(1850f, -14f, 1150f),
+
+                // Hairpin (T11) - Tight slow 180 (Fixed geometry)
+                new Vector3(1750f, -9f, 1550f),
+                new Vector3(1580f, -8f, 1620f),
+                new Vector3(1420f, -9f, 1520f),
+
+                // 200R (T12) - High speed left
+                new Vector3(1150f, 2f, 1750f),
+                new Vector3(850f, 8f, 2100f),
+
+                // Spoon Curve (T13 & T14) - Double left apex
+                new Vector3(450f, 15f, 2350f),
+                new Vector3(50f, 18f, 2250f),
+                new Vector3(-250f, 20f, 1950f),
+                new Vector3(50f, 21f, 1600f),
+
+                // Back Straight leading to Bridge
+                new Vector3(550f, 22f, 1200f),
+
+                // THE BRIDGE (Crossover point - clearly elevated)
+                new Vector3(1200f, 28f, 750f),
+                new Vector3(1850f, 22f, 450f),
+
+                // 130R (T15) - Very high speed left
+                new Vector3(2200f, 12f, -150f),
+                new Vector3(1850f, 6f, -650f),
+
+                // Casio Triangle (T16 & T17) - Tight chicane
+                new Vector3(1350f, 2f, -450f),
+                new Vector3(1050f, 0f, 50f),
+                new Vector3(750f, 0f, -250f),
+
+                // Final Turn (T18)
+                new Vector3(250f, 0f, -120f),
+                new Vector3(-1000f, 0f, 0f)
+            }, 12);
         }
 
         void BuildSilverstoneLayout(TrackRuntime runtime)
@@ -1018,13 +1055,26 @@ namespace LocalFormulaRacing
             }
 
             Vector3 center = bounds.center;
-            center.y = bounds.min.y - 0.18f;
-            Vector3 size = new Vector3(Mathf.Max(640f, bounds.size.x + 240f), 0.12f, Mathf.Max(540f, bounds.size.z + 240f));
-            GameObject ground = CreateVisualBox(Runtime.styleName + " runoff", center, Quaternion.identity, size, grassMaterial);
+            center.y = bounds.min.y - 1.25f;
+            Vector3 size = new Vector3(Mathf.Max(1200f, bounds.size.x * 1.5f), 1.0f, Mathf.Max(1200f, bounds.size.z * 1.5f));
+            GameObject ground = CreateVisualBox(Runtime.styleName + " terrain base", center, Quaternion.identity, size, grassMaterial);
             ground.layer = 0;
             BoxCollider collider = ground.AddComponent<BoxCollider>();
             collider.isTrigger = false;
             collider.sharedMaterial = GetRunoffPhysicsMaterial();
+
+            // Add decorative height variation to the terrain edges
+            for (int i = 0; i < 12; i++)
+            {
+                Vector3 hillPos = center + new Vector3(Random.Range(-size.x, size.x) * 0.45f, 5f, Random.Range(-size.z, size.z) * 0.45f);
+                if (Runtime.IsOnRoad(hillPos)) continue;
+                GameObject hill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                hill.transform.SetParent(transform);
+                hill.transform.position = hillPos;
+                hill.transform.localScale = new Vector3(180f, 42f, 180f);
+                hill.GetComponent<Renderer>().sharedMaterial = grassMaterial;
+                MakeVisualOnly(hill);
+            }
         }
 
         void BuildRoadMesh()
@@ -1089,27 +1139,31 @@ namespace LocalFormulaRacing
 
         void BuildRoadPaint()
         {
-            float spacing = 17f;
+            float spacing = 12f;
             for (float d = 0f; d < Runtime.length; d += spacing)
             {
                 Vector3 point;
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
-                CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 0.42f), forward, 0.18f, spacing * 0.82f, roadEdgeMaterial, "Left edge line");
-                CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 0.42f), forward, 0.18f, spacing * 0.82f, roadEdgeMaterial, "Right edge line");
 
-                if (Mathf.FloorToInt(d / spacing) % 3 == 0)
+                // Edge lines
+                CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, roadEdgeMaterial, "Left edge line");
+                CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, roadEdgeMaterial, "Right edge line");
+
+                // Racing line rubbering
+                if (Mathf.FloorToInt(d / spacing) % 2 == 0)
                 {
-                    CreateRoadStripe(point, forward, 0.12f, 5.2f, rubberMaterial, "Rubbered braking mark");
-                    CreateRoadStripe(point + right * 1.15f, forward, 0.1f, 4.5f, rubberMaterial, "Rubbered braking mark");
+                    float lateralOffset = Mathf.Sin(d * 0.02f) * (Runtime.roadHalfWidth * 0.35f);
+                    CreateRoadStripe(point + right * lateralOffset, forward, 4.2f, spacing * 1.1f, rubberMaterial, "Rubbered racing line");
+                    CreateRoadStripe(point + right * (lateralOffset + 0.15f), forward, 1.2f, spacing * 0.5f, rubberMaterial, "Rubbered skid mark");
                 }
 
                 float normalized = d / Mathf.Max(1f, Runtime.length);
                 if (Runtime.IsInDrsZone(normalized) && Mathf.FloorToInt(d / spacing) % 2 == 0)
                 {
-                    CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 1.2f), forward, 0.5f, 6f, drsPaintMaterial, "DRS zone paint");
-                    CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 1.2f), forward, 0.5f, 6f, drsPaintMaterial, "DRS zone paint");
+                    CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint");
+                    CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint");
                 }
             }
         }
@@ -1121,21 +1175,30 @@ namespace LocalFormulaRacing
 
         void BuildGridPaint()
         {
-            int slots = 18;
-            float laneWidth = Mathf.Min(4.2f, Runtime.roadHalfWidth * 0.46f);
+            int slots = 22;
+            float laneWidth = Mathf.Min(5.5f, Runtime.roadHalfWidth * 0.38f);
             for (int i = 0; i < slots; i++)
             {
                 int row = i / 2;
                 bool leftSlot = i % 2 == 0;
-                float gridDistance = Runtime.length - 42f - row * 15.5f - (leftSlot ? 0f : 7.7f);
+                float gridDistance = Runtime.length - 65f - row * 22f - (leftSlot ? 0f : 11f);
                 Vector3 point;
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(gridDistance, out point, out forward, out right);
                 Vector3 center = point + right * (leftSlot ? -laneWidth : laneWidth);
-                CreateRoadStripe(center - forward * 2.2f, right, 0.12f, 4.6f, lineMaterial, "Painted grid stop line");
-                CreateRoadStripe(center - right * 1.2f, forward, 0.1f, 4.8f, lineMaterial, "Painted grid side line");
-                CreateRoadStripe(center + right * 1.2f, forward, 0.1f, 4.8f, lineMaterial, "Painted grid side line");
+
+                // Detailed grid box
+                CreateRoadStripe(center - forward * 3.5f, right, 0.22f, 6.5f, lineMaterial, "Painted grid stop line");
+                CreateRoadStripe(center - right * 1.8f, forward, 0.15f, 6.8f, lineMaterial, "Painted grid side line");
+                CreateRoadStripe(center + right * 1.8f, forward, 0.15f, 6.8f, lineMaterial, "Painted grid side line");
+
+                // Row markers
+                if (leftSlot)
+                {
+                    Vector3 markerPos = center - right * 4.2f;
+                    CreateVisualBox("Grid Row Marker", markerPos + Vector3.up * 0.05f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(0.8f, 0.01f, 0.8f), lineMaterial);
+                }
             }
         }
 
@@ -1149,23 +1212,29 @@ namespace LocalFormulaRacing
                 Vector3 entry = (current - previous).normalized;
                 Vector3 exit = (next - current).normalized;
                 float angle = Vector3.Angle(entry, exit);
-                if (angle < 18f)
+                if (angle < 12f)
                 {
                     continue;
                 }
 
                 float turnSign = Mathf.Sign(Vector3.Cross(entry, exit).y);
-                for (float offset = -13f; offset <= 13f; offset += 6.5f)
+                float kerbLength = Mathf.Lerp(12f, 42f, angle / 90f);
+
+                for (float offset = -kerbLength * 0.5f; offset <= kerbLength * 0.5f; offset += 5.5f)
                 {
                     Vector3 point;
                     Vector3 forward;
                     Vector3 right;
                     Runtime.SampleAtDistance(Runtime.cumulativeDistances[i] + offset, out point, out forward, out right);
-                    Vector3 outer = point + right * turnSign * (Runtime.roadHalfWidth + 0.28f);
-                    Vector3 inner = point - right * turnSign * (Runtime.roadHalfWidth + 0.15f);
+
+                    // Outer kerb (Apex or Exit)
+                    Vector3 outer = point + right * turnSign * (Runtime.roadHalfWidth + 0.35f);
                     CreateKerbBlock(outer, forward, Runtime.cumulativeDistances[i] + offset);
-                    if (angle > 42f)
+
+                    // Inner kerb (if sharp turn)
+                    if (angle > 35f)
                     {
+                        Vector3 inner = point - right * turnSign * (Runtime.roadHalfWidth + 0.25f);
                         CreateKerbBlock(inner, forward, Runtime.cumulativeDistances[i] + offset + 2f);
                     }
                 }
@@ -1215,9 +1284,32 @@ namespace LocalFormulaRacing
 
         void BuildTrackMarkers()
         {
-            CreateTrackLine(0f, "Start finish", Color.white, 1.2f);
-            CreateTrackLine(Runtime.length * 0.333f, "Sector 1 line", new Color(0.2f, 0.8f, 1f), 0.7f);
-            CreateTrackLine(Runtime.length * 0.666f, "Sector 2 line", new Color(0.2f, 1f, 0.55f), 0.7f);
+            CreateTrackLine(0f, "Start finish", Color.white, 2.4f);
+            CreateTrackLine(Runtime.length * 0.333f, "Sector 1 line", new Color(0.1f, 0.75f, 1f), 1.2f);
+            CreateTrackLine(Runtime.length * 0.666f, "Sector 2 line", new Color(0.1f, 1f, 0.45f), 1.2f);
+
+            // Distance boards for major braking zones
+            for (int i = 0; i < Runtime.centerLine.Count; i++)
+            {
+                Vector3 current = Runtime.centerLine[i];
+                Vector3 next = Runtime.centerLine[(i + 1) % Runtime.centerLine.Count];
+                if (Vector3.Angle((next - current).normalized, (Runtime.centerLine[(i + 2) % Runtime.centerLine.Count] - next).normalized) > 35f)
+                {
+                    float dist = Runtime.cumulativeDistances[i];
+                    CreateBrakingBoard(dist - 150f, "150");
+                    CreateBrakingBoard(dist - 100f, "100");
+                    CreateBrakingBoard(dist - 50f, "50");
+                }
+            }
+        }
+
+        void CreateBrakingBoard(float distance, string label)
+        {
+            Vector3 point; Vector3 forward; Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            GameObject board = CreateVisualBox("Braking Board " + label, point + right * (Runtime.roadHalfWidth + 2.5f) + Vector3.up * 0.8f, Quaternion.LookRotation(right, Vector3.up), new Vector3(0.1f, 1.2f, 1.8f), lineMaterial);
+            // Label geometry placeholder
+            CreateVisualBox("Board Text " + label, point + right * (Runtime.roadHalfWidth + 2.44f) + Vector3.up * 0.8f, Quaternion.LookRotation(right, Vector3.up), new Vector3(0.01f, 0.6f, 1.2f), rubberMaterial);
         }
 
         void CreateTrackLine(float distance, string markerName, Color color, float depth)
@@ -1236,19 +1328,24 @@ namespace LocalFormulaRacing
             Vector3 forward;
             Vector3 right;
             Runtime.SampleAtDistance(Runtime.length * 0.93f, out start, out forward, out right);
-            Material pitMaterial = CreateMaterial("Pit lane material", new Color(0.105f, 0.112f, 0.12f), 0f, 0.48f);
-            CreateCollidablePitSurface("Pit lane asphalt service road", start + right * 15f + Vector3.up * 0.015f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(8.4f, 0.16f, 58f), pitMaterial);
+            Material pitMaterial = CreateMaterial("Pit lane material", new Color(0.12f, 0.13f, 0.15f), 0.02f, 0.55f);
+
+            // Scaled up pit building
+            GameObject pitBuilding = CreateVisualBox("Main Pit Building", start + right * 38f + Vector3.up * 8f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(12f, 16f, 120f), metalMaterial);
+
+            CreateCollidablePitSurface("Pit lane asphalt service road", start + right * 18f + Vector3.up * 0.015f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(14f, 0.16f, 95f), pitMaterial);
             CreatePitEntryExitSurfaces(pitMaterial);
             CreatePitEntryExitPaint(pitMaterial);
-            CreateVisualBox("Pit service box paint", start + right * 15f + Vector3.up * 0.12f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(7f, 0.035f, 46f), pitMaterial);
-            for (float wall = -28f; wall <= 28f; wall += 7f)
+            CreateVisualBox("Pit service box paint", start + right * 18f + Vector3.up * 0.12f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(10f, 0.035f, 75f), pitMaterial);
+
+            for (float wall = -42f; wall <= 42f; wall += 12f)
             {
-                CreatePitWallSegment(start + right * (Runtime.roadHalfWidth + 1.45f) + forward * wall, forward);
+                CreatePitWallSegment(start + right * (Runtime.roadHalfWidth + 2.2f) + forward * wall, forward);
             }
 
-            for (int i = 0; i < 5; i++)
+            for (int i = 0; i < 8; i++)
             {
-                Vector3 bay = start + right * 19f - forward * (18f - i * 8f);
+                Vector3 bay = start + right * 24f - forward * (35f - i * 11f);
                 CreatePitBox(bay, forward, right, i);
             }
         }
@@ -1328,28 +1425,34 @@ namespace LocalFormulaRacing
             Vector3 forward;
             Vector3 right;
             Runtime.SampleAtDistance(0f, out point, out forward, out right);
-            Vector3 left = point - right * (Runtime.roadHalfWidth + 1.7f);
-            Vector3 rightSide = point + right * (Runtime.roadHalfWidth + 1.7f);
+            Vector3 left = point - right * (Runtime.roadHalfWidth + 2.8f);
+            Vector3 rightSide = point + right * (Runtime.roadHalfWidth + 2.8f);
+
             CreateGantryPost(left, forward);
             CreateGantryPost(rightSide, forward);
+
             GameObject crossbar = GameObject.CreatePrimitive(PrimitiveType.Cube);
             crossbar.name = "Start gantry crossbar";
             crossbar.transform.SetParent(transform);
-            crossbar.transform.position = point + Vector3.up * 6.4f;
+            crossbar.transform.position = point + Vector3.up * 7.2f;
             crossbar.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
-            crossbar.transform.localScale = new Vector3(Runtime.roadHalfWidth * 2.5f, 0.7f, 1.1f);
+            crossbar.transform.localScale = new Vector3(Runtime.roadHalfWidth * 2.2f, 0.85f, 1.4f);
             crossbar.GetComponent<Renderer>().sharedMaterial = metalMaterial;
             MakeVisualOnly(crossbar);
 
-            for (int i = -2; i <= 2; i++)
+            // Double row of start lights
+            for (int row = 0; row < 2; row++)
             {
-                GameObject light = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                light.name = "Start light";
-                light.transform.SetParent(transform);
-                light.transform.position = point + right * (i * 1.05f) + Vector3.up * 5.9f - forward * 0.7f;
-                light.transform.localScale = new Vector3(0.36f, 0.36f, 0.36f);
-                light.GetComponent<Renderer>().sharedMaterial = lightGlowMaterial;
-                MakeVisualOnly(light);
+                for (int i = -2; i <= 2; i++)
+                {
+                    GameObject light = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                    light.name = "Start light " + row + "_" + i;
+                    light.transform.SetParent(transform);
+                    light.transform.position = point + right * (i * 1.15f) + Vector3.up * (6.8f - row * 0.65f) - forward * 0.85f;
+                    light.transform.localScale = new Vector3(0.42f, 0.42f, 0.42f);
+                    light.GetComponent<Renderer>().sharedMaterial = lightGlowMaterial;
+                    MakeVisualOnly(light);
+                }
             }
         }
 
@@ -1370,8 +1473,12 @@ namespace LocalFormulaRacing
             bool street = Runtime.styleName.Contains("street") || Runtime.styleName.Contains("Street");
             bool park = Runtime.styleName.Contains("Park") || Runtime.styleName.Contains("Flowing");
             bool night = Runtime.styleName.Contains("Night");
-            BuildGrandstand(0.18f, -1);
-            BuildGrandstand(0.58f, 1);
+
+            // Signature grandstands
+            BuildGrandstand(0.02f, -1);
+            BuildGrandstand(0.15f, 1);
+            BuildGrandstand(0.45f, -1);
+            BuildGrandstand(0.85f, 1);
 
             for (int i = 0; i < Runtime.centerLine.Count; i++)
             {
@@ -1380,19 +1487,27 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.cumulativeDistances[i], out point, out forward, out right);
                 float side = i % 2 == 0 ? -1f : 1f;
-                Vector3 basePosition = point + right * side * (Runtime.roadHalfWidth + (street ? 12f : 24f));
+
+                // Trackside detail: marshal posts and towers
+                if (i % 8 == 0)
+                {
+                    CreateFloodlight(point + right * side * (Runtime.roadHalfWidth + 6.5f), forward, night || street);
+                }
+
+                Vector3 basePosition = point + right * side * (Runtime.roadHalfWidth + (street ? 18f : 32f));
                 if (street)
                 {
                     CreateCityBlock(basePosition, forward, i, night);
-                    CreateFloodlight(point - right * side * (Runtime.roadHalfWidth + 5.5f), forward, night);
                 }
                 else if (park)
                 {
                     CreateTreeCluster(basePosition, i);
+                    if (i % 5 == 0) CreateDune(basePosition + right * side * 40f, i);
                 }
                 else
                 {
                     CreateDune(basePosition, i);
+                    if (i % 6 == 0) CreateTreeCluster(basePosition + right * side * 45f, i);
                 }
             }
         }

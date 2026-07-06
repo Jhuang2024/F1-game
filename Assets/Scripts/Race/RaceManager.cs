@@ -1804,21 +1804,22 @@ namespace LocalFormulaRacing
             Rigidbody body = root.AddComponent<Rigidbody>();
             body.useGravity = true;
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            body.solverIterations = 14;
-            body.solverVelocityIterations = 6;
+            body.solverIterations = 16;
+            body.solverVelocityIterations = 8;
             BoxCollider collider = root.AddComponent<BoxCollider>();
             collider.size = new Vector3(1.75f, 0.68f, 4.7f);
             collider.center = new Vector3(0f, 0.22f, 0.08f);
             collider.sharedMaterial = GetCarBodyPhysicsMaterial();
 
-            Material primaryMaterial = CreateMaterial(driverName + " primary", primary, 0.18f, 0.82f);
-            Material secondaryMaterial = CreateMaterial(driverName + " secondary", secondary, 0.14f, 0.78f);
-            Material tyreMaterial = CreateMaterial(driverName + " tyre", new Color(0.01f, 0.01f, 0.012f), 0.01f, 0.22f);
-            Material rimMaterial = CreateMaterial(driverName + " rim", new Color(0.72f, 0.72f, 0.7f), 0.55f, 0.74f);
-            Material floorMaterial = CreateMaterial(driverName + " carbon floor", new Color(0.015f, 0.018f, 0.02f), 0.22f, 0.58f);
-            Material visorMaterial = CreateMaterial(driverName + " visor", new Color(0.02f, 0.06f, 0.1f), 0.35f, 0.92f);
-            Material helmetMaterial = CreateMaterial(driverName + " helmet", Color.Lerp(secondary, Color.white, 0.32f), 0.12f, 0.85f);
-            Material inletMaterial = CreateMaterial(driverName + " inlet shadow", new Color(0.004f, 0.005f, 0.006f), 0f, 0.42f);
+            Material primaryMaterial = CreateMaterial(driverName + " primary", primary, 0.22f, 0.86f);
+            Material secondaryMaterial = CreateMaterial(driverName + " secondary", secondary, 0.18f, 0.82f);
+            Material tyreMaterial = CreateMaterial(driverName + " tyre", new Color(0.008f, 0.009f, 0.011f), 0.02f, 0.28f);
+            Material rimMaterial = CreateMaterial(driverName + " rim", new Color(0.76f, 0.76f, 0.74f), 0.65f, 0.82f);
+            Material floorMaterial = CreateMaterial(driverName + " carbon floor", new Color(0.012f, 0.014f, 0.016f), 0.35f, 0.68f);
+            Material visorMaterial = CreateMaterial(driverName + " visor", new Color(0.01f, 0.04f, 0.08f), 0.45f, 0.96f);
+            Material helmetMaterial = CreateMaterial(driverName + " helmet", Color.Lerp(secondary, Color.white, 0.35f), 0.15f, 0.88f);
+            Material inletMaterial = CreateMaterial(driverName + " inlet shadow", new Color(0.002f, 0.003f, 0.004f), 0f, 0.48f);
+            Material detailMaterial = CreateMaterial(driverName + " tech detail", new Color(0.12f, 0.14f, 0.16f), 0.55f, 0.78f);
 
             CreateTaperedBox(root.transform, "survival cell", new Vector3(0f, 0.38f, 0.0f), 0.64f, 1.04f, 0.42f, 2.35f, primaryMaterial);
             CreateTaperedBox(root.transform, "carbon floor", new Vector3(0f, 0.14f, -0.18f), 1.34f, 1.62f, 0.1f, 3.72f, floorMaterial);
@@ -1826,25 +1827,39 @@ namespace LocalFormulaRacing
             CreateTaperedBox(root.transform, "right sidepod", new Vector3(0.64f, 0.35f, -0.48f), 0.22f, 0.42f, 0.34f, 1.28f, primaryMaterial);
             CreateChildCube(root.transform, "left sidepod inlet", new Vector3(-0.86f, 0.42f, 0.02f), new Vector3(0.05f, 0.22f, 0.36f), inletMaterial);
             CreateChildCube(root.transform, "right sidepod inlet", new Vector3(0.86f, 0.42f, 0.02f), new Vector3(0.05f, 0.22f, 0.36f), inletMaterial);
-            CreateChildCube(root.transform, "left livery flash", new Vector3(-0.86f, 0.5f, -0.44f), new Vector3(0.045f, 0.14f, 1.04f), secondaryMaterial);
-            CreateChildCube(root.transform, "right livery flash", new Vector3(0.86f, 0.5f, -0.44f), new Vector3(0.045f, 0.14f, 1.04f), secondaryMaterial);
+            CreateChildCube(root.transform, "left livery flash", new Vector3(-0.88f, 0.52f, -0.44f), new Vector3(0.045f, 0.16f, 1.08f), secondaryMaterial);
+            CreateChildCube(root.transform, "right livery flash", new Vector3(0.88f, 0.52f, -0.44f), new Vector3(0.045f, 0.16f, 1.08f), secondaryMaterial);
             CreateTaperedBox(root.transform, "narrow nose", new Vector3(0f, 0.3f, 1.62f), 0.2f, 0.48f, 0.22f, 1.95f, primaryMaterial);
-            CreateChildCube(root.transform, "nose stripe", new Vector3(0f, 0.44f, 1.63f), new Vector3(0.16f, 0.045f, 1.48f), secondaryMaterial);
-            CreateChildCube(root.transform, "front wing", new Vector3(0f, 0.17f, 2.55f), new Vector3(1.95f, 0.08f, 0.32f), secondaryMaterial);
-            CreateChildCube(root.transform, "front wing flap", new Vector3(0f, 0.27f, 2.7f), new Vector3(1.72f, 0.055f, 0.18f), primaryMaterial);
-            CreateChildCube(root.transform, "left front endplate", new Vector3(-1.02f, 0.23f, 2.55f), new Vector3(0.065f, 0.3f, 0.42f), secondaryMaterial);
-            CreateChildCube(root.transform, "right front endplate", new Vector3(1.02f, 0.23f, 2.55f), new Vector3(0.065f, 0.3f, 0.42f), secondaryMaterial);
-            CreateChildCube(root.transform, "rear wing", new Vector3(0f, 0.62f, -2.02f), new Vector3(1.72f, 0.13f, 0.32f), secondaryMaterial);
-            CreateChildCube(root.transform, "rear wing flap", new Vector3(0f, 0.8f, -2.17f), new Vector3(1.5f, 0.075f, 0.18f), primaryMaterial);
-            CreateChildCube(root.transform, "left rear endplate", new Vector3(-0.9f, 0.7f, -2.07f), new Vector3(0.08f, 0.58f, 0.34f), secondaryMaterial);
-            CreateChildCube(root.transform, "right rear endplate", new Vector3(0.9f, 0.7f, -2.07f), new Vector3(0.08f, 0.58f, 0.34f), secondaryMaterial);
+            CreateChildCube(root.transform, "nose detail upper", new Vector3(0f, 0.46f, 1.63f), new Vector3(0.18f, 0.055f, 1.52f), secondaryMaterial);
+            CreateChildCube(root.transform, "nose detail tip", new Vector3(0f, 0.22f, 2.58f), new Vector3(0.12f, 0.08f, 0.18f), detailMaterial);
+
+            // Front Wing - Multi-element
+            CreateChildCube(root.transform, "front wing base", new Vector3(0f, 0.17f, 2.55f), new Vector3(1.95f, 0.06f, 0.42f), secondaryMaterial);
+            CreateChildCube(root.transform, "front wing upper flap", new Vector3(0f, 0.28f, 2.68f), new Vector3(1.85f, 0.04f, 0.22f), primaryMaterial);
+            CreateChildCube(root.transform, "left front endplate", new Vector3(-1.02f, 0.24f, 2.55f), new Vector3(0.06f, 0.35f, 0.48f), secondaryMaterial);
+            CreateChildCube(root.transform, "right front endplate", new Vector3(1.02f, 0.24f, 2.55f), new Vector3(0.06f, 0.35f, 0.48f), secondaryMaterial);
+
+            // Rear Wing - DR-S style
+            CreateChildCube(root.transform, "rear wing pillar left", new Vector3(-0.25f, 0.65f, -1.95f), new Vector3(0.05f, 0.35f, 0.08f), detailMaterial);
+            CreateChildCube(root.transform, "rear wing pillar right", new Vector3(0.25f, 0.65f, -1.95f), new Vector3(0.05f, 0.35f, 0.08f), detailMaterial);
+            CreateChildCube(root.transform, "rear wing main plane", new Vector3(0f, 0.62f, -2.02f), new Vector3(1.72f, 0.12f, 0.38f), secondaryMaterial);
+            CreateChildCube(root.transform, "rear wing flap", new Vector3(0f, 0.82f, -2.18f), new Vector3(1.65f, 0.08f, 0.24f), primaryMaterial);
+            CreateChildCube(root.transform, "left rear endplate", new Vector3(-0.92f, 0.72f, -2.08f), new Vector3(0.08f, 0.65f, 0.42f), secondaryMaterial);
+            CreateChildCube(root.transform, "right rear endplate", new Vector3(0.92f, 0.72f, -2.08f), new Vector3(0.08f, 0.65f, 0.42f), secondaryMaterial);
+
             CreateTaperedBox(root.transform, "engine cover", new Vector3(0f, 0.66f, -0.72f), 0.42f, 0.72f, 0.58f, 1.38f, primaryMaterial);
+            CreateChildCube(root.transform, "shark fin", new Vector3(0f, 0.88f, -1.15f), new Vector3(0.035f, 0.32f, 0.85f), secondaryMaterial);
             CreateTaperedBox(root.transform, "rear diffuser", new Vector3(0f, 0.18f, -1.94f), 1.12f, 1.48f, 0.18f, 0.72f, floorMaterial);
-            CreateChildCube(root.transform, "airbox", new Vector3(0f, 0.96f, -0.34f), new Vector3(0.34f, 0.18f, 0.48f), secondaryMaterial);
-            CreateChildCube(root.transform, "halo", new Vector3(0f, 0.91f, 0.28f), new Vector3(0.72f, 0.06f, 0.68f), secondaryMaterial);
-            CreateChildSphere(root.transform, "cockpit visor", new Vector3(0f, 0.77f, 0.44f), new Vector3(0.46f, 0.22f, 0.5f), visorMaterial);
-            CreateChildSphere(root.transform, "driver helmet", new Vector3(0f, 0.86f, 0.2f), new Vector3(0.28f, 0.28f, 0.28f), helmetMaterial);
-            CreateSuspension(root.transform, floorMaterial);
+            CreateChildCube(root.transform, "airbox", new Vector3(0f, 0.98f, -0.34f), new Vector3(0.35f, 0.22f, 0.52f), secondaryMaterial);
+
+            // Cockpit Detail
+            CreateChildCube(root.transform, "halo center", new Vector3(0f, 0.88f, 0.52f), new Vector3(0.06f, 0.18f, 0.08f), detailMaterial);
+            CreateChildCube(root.transform, "halo rim", new Vector3(0f, 0.95f, 0.28f), new Vector3(0.74f, 0.06f, 0.72f), secondaryMaterial);
+            CreateChildSphere(root.transform, "cockpit visor", new Vector3(0f, 0.78f, 0.44f), new Vector3(0.48f, 0.24f, 0.52f), visorMaterial);
+            CreateChildSphere(root.transform, "driver helmet", new Vector3(0f, 0.88f, 0.2f), new Vector3(0.32f, 0.32f, 0.32f), helmetMaterial);
+            CreateChildCube(root.transform, "steering wheel", new Vector3(0f, 0.76f, 0.62f), new Vector3(0.24f, 0.18f, 0.05f), detailMaterial);
+
+            CreateSuspension(root.transform, floorMaterial, detailMaterial);
             CreateWheel(root.transform, new Vector3(-1.05f, 0.22f, 1.35f), tyreMaterial, rimMaterial);
             CreateWheel(root.transform, new Vector3(1.05f, 0.22f, 1.35f), tyreMaterial, rimMaterial);
             CreateWheel(root.transform, new Vector3(-1.05f, 0.22f, -1.35f), tyreMaterial, rimMaterial);
@@ -1955,12 +1970,25 @@ namespace LocalFormulaRacing
             }
         }
 
-        void CreateSuspension(Transform parent, Material material)
+        void CreateSuspension(Transform parent, Material armMaterial, Material detailMaterial)
         {
-            CreateSuspensionArm(parent, new Vector3(-0.58f, 0.29f, 1.32f), new Vector3(-1.02f, 0.26f, 1.35f), material);
-            CreateSuspensionArm(parent, new Vector3(0.58f, 0.29f, 1.32f), new Vector3(1.02f, 0.26f, 1.35f), material);
-            CreateSuspensionArm(parent, new Vector3(-0.58f, 0.29f, -1.34f), new Vector3(-1.02f, 0.26f, -1.35f), material);
-            CreateSuspensionArm(parent, new Vector3(0.58f, 0.29f, -1.34f), new Vector3(1.02f, 0.26f, -1.35f), material);
+            // Front
+            CreateSuspensionArm(parent, new Vector3(-0.52f, 0.32f, 1.32f), new Vector3(-1.02f, 0.26f, 1.35f), armMaterial);
+            CreateSuspensionArm(parent, new Vector3(0.52f, 0.32f, 1.32f), new Vector3(1.02f, 0.26f, 1.35f), armMaterial);
+            CreateSuspensionArm(parent, new Vector3(-0.52f, 0.18f, 1.32f), new Vector3(-1.02f, 0.22f, 1.35f), armMaterial);
+            CreateSuspensionArm(parent, new Vector3(0.52f, 0.18f, 1.32f), new Vector3(1.02f, 0.22f, 1.35f), armMaterial);
+
+            // Rear
+            CreateSuspensionArm(parent, new Vector3(-0.52f, 0.32f, -1.34f), new Vector3(-1.02f, 0.26f, -1.35f), armMaterial);
+            CreateSuspensionArm(parent, new Vector3(0.52f, 0.32f, -1.34f), new Vector3(1.02f, 0.26f, -1.35f), armMaterial);
+            CreateSuspensionArm(parent, new Vector3(-0.52f, 0.18f, -1.34f), new Vector3(-1.02f, 0.22f, -1.35f), armMaterial);
+            CreateSuspensionArm(parent, new Vector3(0.52f, 0.18f, -1.34f), new Vector3(1.02f, 0.22f, -1.35f), armMaterial);
+
+            // Brake assemblies
+            CreateChildCube(parent, "brake fl", new Vector3(-1.02f, 0.26f, 1.35f), new Vector3(0.12f, 0.22f, 0.22f), detailMaterial);
+            CreateChildCube(parent, "brake fr", new Vector3(1.02f, 0.26f, 1.35f), new Vector3(0.12f, 0.22f, 0.22f), detailMaterial);
+            CreateChildCube(parent, "brake rl", new Vector3(-1.02f, 0.26f, -1.35f), new Vector3(0.12f, 0.22f, 0.22f), detailMaterial);
+            CreateChildCube(parent, "brake rr", new Vector3(1.02f, 0.26f, -1.35f), new Vector3(0.12f, 0.22f, 0.22f), detailMaterial);
         }
 
         void CreateSuspensionArm(Transform parent, Vector3 a, Vector3 b, Material material)
@@ -2033,35 +2061,39 @@ namespace LocalFormulaRacing
             bool night = trackId.Contains("singapore") || trackId.Contains("las_vegas");
             bool desert = trackId.Contains("bahrain") || trackId.Contains("abu_dhabi") || trackId.Contains("qatar");
             bool park = trackId.Contains("silverstone") || trackId.Contains("melbourne") || trackId.Contains("monza") || trackId.Contains("interlagos") || trackId.Contains("spa") || trackId.Contains("suzuka") || trackId.Contains("austria") || trackId.Contains("zandvoort");
-            if (QualitySettings.antiAliasing < 4)
-            {
-                QualitySettings.antiAliasing = 4;
-            }
 
-            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Flat;
-            RenderSettings.ambientLight = night ? new Color(0.13f, 0.16f, 0.24f) : (desert ? new Color(0.58f, 0.48f, 0.34f) : new Color(0.42f, 0.5f, 0.48f));
+            QualitySettings.antiAliasing = 8;
+            QualitySettings.shadowDistance = 450f;
+            QualitySettings.shadowResolution = ShadowResolution.VeryHigh;
+
+            RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
+            RenderSettings.ambientSkyColor = night ? new Color(0.08f, 0.12f, 0.22f) : new Color(0.42f, 0.58f, 0.74f);
+            RenderSettings.ambientEquatorColor = night ? new Color(0.05f, 0.08f, 0.14f) : new Color(0.45f, 0.42f, 0.38f);
+            RenderSettings.ambientGroundColor = night ? new Color(0.01f, 0.01f, 0.02f) : new Color(0.18f, 0.16f, 0.14f);
+
             RenderSettings.fog = true;
-            RenderSettings.fogMode = FogMode.Linear;
-            RenderSettings.fogColor = night ? new Color(0.018f, 0.026f, 0.045f) : (desert ? new Color(0.7f, 0.58f, 0.38f) : (park ? new Color(0.44f, 0.56f, 0.5f) : new Color(0.43f, 0.5f, 0.52f)));
-            RenderSettings.fogStartDistance = night ? 160f : 230f;
-            RenderSettings.fogEndDistance = night ? 540f : 720f;
-            RenderSettings.skybox = null;
+            RenderSettings.fogMode = FogMode.ExponentialSquared;
+            RenderSettings.fogDensity = 0.00015f;
+            RenderSettings.fogColor = night ? new Color(0.015f, 0.02f, 0.035f) : (desert ? new Color(0.65f, 0.55f, 0.42f) : new Color(0.44f, 0.54f, 0.52f));
 
-            GameObject lightObject = new GameObject("Race sun");
+            GameObject lightObject = new GameObject("Primary Sun");
             lightObject.transform.SetParent(raceWorld.transform);
-            lightObject.transform.rotation = Quaternion.Euler(night ? 62f : (desert ? 34f : 44f), desert ? -34f : -48f, 0f);
+            lightObject.transform.rotation = Quaternion.Euler(night ? -15f : (desert ? 32f : 48f), desert ? -42f : -56f, 0f);
             Light light = lightObject.AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = night ? 0.58f : (desert ? 1.38f : 1.18f);
-            light.color = night ? new Color(0.68f, 0.78f, 1f) : (desert ? new Color(1f, 0.78f, 0.5f) : new Color(0.94f, 0.98f, 0.92f));
+            light.intensity = night ? 0.08f : (desert ? 1.55f : 1.25f);
+            light.color = night ? new Color(0.6f, 0.7f, 1f) : (desert ? new Color(1f, 0.85f, 0.65f) : new Color(0.98f, 0.96f, 0.94f));
+            light.shadows = LightShadows.Soft;
+            light.shadowStrength = 0.92f;
 
-            GameObject fill = new GameObject("Soft paddock fill");
+            GameObject fill = new GameObject("Atmospheric Fill");
             fill.transform.SetParent(raceWorld.transform);
-            fill.transform.position = new Vector3(20f, 20f, -30f);
+            fill.transform.position = new Vector3(40f, 40f, -40f);
             Light fillLight = fill.AddComponent<Light>();
             fillLight.type = LightType.Point;
-            fillLight.intensity = night ? 2.2f : 0.82f;
-            fillLight.range = 220f;
+            fillLight.intensity = night ? 1.8f : 0.64f;
+            fillLight.range = 350f;
+            fillLight.shadows = LightShadows.None;
 
             if (night)
             {

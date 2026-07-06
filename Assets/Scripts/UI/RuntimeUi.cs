@@ -356,28 +356,43 @@ namespace LocalFormulaRacing
         public void ShowRaceWeekend(GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
             Clear();
-            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Weekend background", new Color(0.015f, 0.02f, 0.025f, 1f));
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Weekend background", new Color(0.012f, 0.015f, 0.018f, 1f));
             CalendarEventData current = career.CurrentEvent();
             if (current == null)
             {
-                current = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : new CalendarEventData { displayName = "Prototype GP", round = 1 };
+                current = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : new CalendarEventData { displayName = "Prototype GP", round = 1, weatherProfile = "clear" };
             }
             TeamData team = data.FindTeam(career.Save.playerTeamId);
-            Text title = UiFactory.CreateText(background, "Weekend title", current.displayName, 42, Color.white, TextAnchor.UpperLeft);
+            Text title = UiFactory.CreateText(background, "Weekend title", current.displayName.ToUpper(), 42, Color.white, TextAnchor.UpperLeft);
             title.GetComponent<RectTransform>().anchoredPosition = new Vector2(80f, -52f);
 
-            RectTransform left = UiFactory.CreateBand(background, "Weekend actions", new Vector2(0.06f, 0.16f), new Vector2(0.35f, 0.76f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
-            UiFactory.AddVerticalLayout(left, 14, new RectOffset(22, 22, 22, 22));
-            UiFactory.CreateText(left, "Weekend meta", "Season " + career.Save.currentSeason + " Round " + career.Save.currentRound + "\n" +
-                career.Save.playerDriverName + "\n" +
-                (team == null ? career.Save.playerTeamId : team.name) + "\n" +
-                "Contract target P" + career.Save.contractTargetPosition,
-                21, new Color(0.82f, 0.89f, 0.92f), TextAnchor.UpperLeft);
-            UiFactory.CreateButton(left, "Start Weekend: Qualifying", bootstrap.StartCareerQualifying);
+            RectTransform main = UiFactory.CreateRect(background, "Weekend main layout", new Vector2(0.06f, 0.14f), new Vector2(0.94f, 0.82f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(main, 24, new RectOffset(0, 0, 0, 0));
+
+            // Left: Session Info & Weather
+            RectTransform left = UiFactory.CreateBand(main, "Weekend actions", new Vector2(0f, 0f), new Vector2(0.35f, 1f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
+            left.sizeDelta = new Vector2(440f, 0f);
+            UiFactory.AddVerticalLayout(left, 12, new RectOffset(22, 22, 22, 22));
+            UiFactory.CreateText(left, "Weekend title", "ROUND " + career.Save.currentRound, 24, new Color(0.95f, 0.04f, 0.035f), TextAnchor.MiddleLeft);
+
+            string profile = current.weatherProfile.ToLower();
+            float trackTemp = profile.Contains("hot") ? 44f : (profile.Contains("wet") ? 19f : (profile.Contains("cloud") ? 25f : 31f));
+            UiFactory.CreateText(left, "Weekend meta",
+                "Track: " + current.displayName + "\n" +
+                "Condition: " + WeatherProfileText(profile).ToUpper() + "\n" +
+                "Track Temp: " + trackTemp.ToString("0") + "°C\n" +
+                "Air Temp: " + (trackTemp - 7f).ToString("0") + "°C\n" +
+                "Team: " + (team == null ? "INDEPENDENT" : team.shortName.ToUpper()),
+                19, new Color(0.86f, 0.92f, 0.96f), TextAnchor.UpperLeft);
+
+            UiFactory.CreateBand(left, "Spacer", Vector2.zero, Vector2.zero, Vector2.zero, new Vector2(0f, 20f), new Color(0, 0, 0, 0));
+            UiFactory.CreateButton(left, "Go to Qualifying", bootstrap.ShowQualifyingTyreSelect);
+            UiFactory.CreateButton(left, "Go to Race", bootstrap.StartCareerRace);
             UiFactory.CreateButton(left, "Sim Qualifying", bootstrap.StartCareerSimQualifying);
             UiFactory.CreateButton(left, "Back", () => ShowCareerHub(data, career, settings));
 
-            RectTransform right = UiFactory.CreateBand(background, "Weekend grid", new Vector2(0.42f, 0.16f), new Vector2(0.9f, 0.76f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
+            // Right: Grid / Standings
+            RectTransform right = UiFactory.CreateBand(main, "Weekend grid", new Vector2(0f, 0f), new Vector2(0.65f, 1f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
             List<QualifyingResultEntry> currentGrid = career.HasQualifyingForCurrentRound() ? career.Save.lastQualifyingResults : null;
             Text grid = UiFactory.CreateText(right, "Grid", BuildQualifyingText(currentGrid), 17, Color.white, TextAnchor.UpperLeft);
             RectTransform gridRect = grid.GetComponent<RectTransform>();

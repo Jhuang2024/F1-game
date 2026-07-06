@@ -34,6 +34,8 @@ namespace LocalFormulaRacing
         Image pitFill;
         Image revBar;
         Text gearText;
+        Image tyreFl, tyreFr, tyreRl, tyreRr;
+        Image carSilhouette;
         GameObject qualifyingFeedbackPanel;
         GameObject engineerPanel;
         GameObject startLightPanel;
@@ -104,20 +106,32 @@ namespace LocalFormulaRacing
             telemetryRect.offsetMax = new Vector2(-18f, -14f);
             telemetry.verticalOverflow = VerticalWrapMode.Overflow;
 
-            RectTransform visualBand = UiFactory.CreateBand(transform, "HUD visual meters", new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-460f, 266f), new Vector2(-24f, 476f), new Color(0.006f, 0.009f, 0.012f, 0.76f));
+            RectTransform visualBand = UiFactory.CreateBand(transform, "HUD visual meters", new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-460f, 266f), new Vector2(-24f, 620f), new Color(0.006f, 0.009f, 0.012f, 0.82f));
             UiFactory.CreateBand(visualBand, "Meters accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -3f), Vector2.zero, new Color(0.95f, 0.08f, 0.06f, 0.95f));
+
+            // Tyre Diagram
+            RectTransform tyreContainer = UiFactory.CreateRect(visualBand, "Tyres", new Vector2(0.1f, 0.55f), new Vector2(0.45f, 0.92f), Vector2.zero, Vector2.zero);
+            tyreFl = CreateTyreIcon(tyreContainer, "FL", new Vector2(0, 1));
+            tyreFr = CreateTyreIcon(tyreContainer, "FR", new Vector2(1, 1));
+            tyreRl = CreateTyreIcon(tyreContainer, "RL", new Vector2(0, 0));
+            tyreRr = CreateTyreIcon(tyreContainer, "RR", new Vector2(1, 0));
+
+            // Car Silhouette / Damage
+            RectTransform damageContainer = UiFactory.CreateRect(visualBand, "Damage", new Vector2(0.55f, 0.55f), new Vector2(0.9f, 0.92f), Vector2.zero, Vector2.zero);
+            RectTransform silhouette = UiFactory.CreateBand(damageContainer, "Silhouette", new Vector2(0.35f, 0.1f), new Vector2(0.65f, 0.9f), Vector2.zero, Vector2.zero, new Color(0.2f, 0.22f, 0.24f, 1f));
+            carSilhouette = silhouette.GetComponent<Image>();
+
             pitStatus = UiFactory.CreateText(visualBand, "Pit status", "", 16, new Color(0.92f, 0.96f, 0.98f), TextAnchor.MiddleLeft);
             RectTransform pitStatusRect = pitStatus.GetComponent<RectTransform>();
-            pitStatusRect.anchorMin = new Vector2(0f, 1f);
-            pitStatusRect.anchorMax = new Vector2(1f, 1f);
-            pitStatusRect.offsetMin = new Vector2(18f, -34f);
-            pitStatusRect.offsetMax = new Vector2(-18f, -8f);
-            ersFill = CreateMeter(visualBand, "ERS", 138f, new Color(0.25f, 0.78f, 1f));
-            tyreTempFill = CreateMeter(visualBand, "TEMP", 112f, new Color(1f, 0.72f, 0.18f));
-            tyreWearFill = CreateMeter(visualBand, "WEAR", 86f, new Color(0.34f, 1f, 0.52f));
-            fuelFill = CreateMeter(visualBand, "FUEL", 60f, new Color(0.7f, 0.95f, 1f));
-            damageFill = CreateMeter(visualBand, "DMG", 34f, new Color(1f, 0.12f, 0.08f));
-            pitFill = CreateMeter(visualBand, "PIT", 8f, new Color(0.95f, 0.08f, 0.06f));
+            pitStatusRect.anchorMin = new Vector2(0f, 0f);
+            pitStatusRect.anchorMax = new Vector2(1f, 0f);
+            pitStatusRect.offsetMin = new Vector2(18f, 185f);
+            pitStatusRect.offsetMax = new Vector2(-18f, 215f);
+
+            ersFill = CreateMeter(visualBand, "ERS", 155f, new Color(0.25f, 0.78f, 1f));
+            fuelFill = CreateMeter(visualBand, "FUEL", 125f, new Color(0.7f, 0.95f, 1f));
+            damageFill = CreateMeter(visualBand, "DMG", 95f, new Color(1f, 0.12f, 0.08f));
+            pitFill = CreateMeter(visualBand, "PIT", 65f, new Color(0.95f, 0.08f, 0.06f));
 
             RectTransform timingBand = UiFactory.CreateBand(transform, "Timing panel", new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(24f, 26f), new Vector2(430f, 218f), new Color(0.006f, 0.009f, 0.012f, 0.72f));
             timing = UiFactory.CreateText(timingBand, "Timing", "", 18, new Color(0.92f, 0.96f, 0.98f), TextAnchor.UpperLeft);
@@ -411,17 +425,36 @@ namespace LocalFormulaRacing
         void UpdateMeters(VehicleController car)
         {
             UpdateMeter(ersFill, car.ErsBattery, new Color(0.25f, 0.78f, 1f));
-            float temp01 = Mathf.InverseLerp(45f, 115f, car.Tyres.Temperature);
-            Color tempColor = car.Tyres.TemperatureStatus == "OPT" ? new Color(0.32f, 1f, 0.45f) : (car.Tyres.TemperatureStatus == "HOT" ? new Color(1f, 0.14f, 0.08f) : (car.Tyres.TemperatureStatus == "COLD" ? new Color(0.22f, 0.52f, 1f) : new Color(1f, 0.82f, 0.12f)));
-            UpdateMeter(tyreTempFill, temp01, tempColor);
-            UpdateMeter(tyreWearFill, 1f - Mathf.Clamp01(car.Tyres.WearPercent / 100f), new Color(0.34f, 1f, 0.52f));
             UpdateMeter(fuelFill, Mathf.Clamp01(car.FuelKg / 42f), new Color(0.7f, 0.95f, 1f));
             UpdateMeter(damageFill, Mathf.Clamp01(car.Damage.OverallPercent / 100f), car.Damage.OverallPercent > 55f ? new Color(1f, 0.05f, 0.03f) : new Color(1f, 0.55f, 0.1f));
             UpdateMeter(pitFill, race.PitStopProgress01(player), new Color(0.95f, 0.08f, 0.06f));
+
+            Color tyreColor = GetTyreColorByCondition(car.Tyres);
+            tyreFl.color = tyreColor;
+            tyreFr.color = tyreColor;
+            tyreRl.color = tyreColor;
+            tyreRr.color = tyreColor;
+
+            carSilhouette.color = Color.Lerp(new Color(0.2f, 0.22f, 0.24f), Color.red, car.Damage.OverallPercent / 100f);
+
             if (pitStatus != null)
             {
                 pitStatus.text = race.PitStatusText(player);
             }
+        }
+
+        Color GetTyreColorByCondition(TyreState tyres)
+        {
+            if (tyres.TemperatureStatus == "HOT") return Color.red;
+            if (tyres.TemperatureStatus == "COLD") return Color.cyan;
+            if (tyres.Wear < 0.4f) return new Color(1f, 0.5f, 0f); // Orange for high wear
+            return Color.green;
+        }
+
+        Image CreateTyreIcon(RectTransform parent, string name, Vector2 pivot)
+        {
+            RectTransform icon = UiFactory.CreateBand(parent, name, pivot, pivot, new Vector2(-15, -25), new Vector2(15, 25), Color.green);
+            return icon.GetComponent<Image>();
         }
 
         void UpdateMeter(Image fill, float value, Color color)
@@ -435,7 +468,10 @@ namespace LocalFormulaRacing
             rect.anchorMax = new Vector2(Mathf.Clamp01(value), 1f);
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
-            fill.color = color;
+
+            // Add subtle pulsing for low values
+            float pulse = value < 0.15f ? 0.75f + Mathf.Sin(Time.time * 12f) * 0.25f : 1f;
+            fill.color = color * pulse;
         }
 
         void UpdateRaceStartLights()
