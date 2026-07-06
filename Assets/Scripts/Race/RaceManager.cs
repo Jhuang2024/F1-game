@@ -46,17 +46,16 @@ namespace LocalFormulaRacing
             get { return CurrentSession != RaceWeekendSession.Qualifying && StartCountdown > 0f; }
         }
 
-        public readonly List<RaceParticipant> Participants = new List<RaceParticipant>();
+        public RaceStateManager State { get; private set; }
+        public List<RaceParticipant> Participants { get { return State != null ? State.Participants : emptyParticipants; } }
 
         RuntimeUi ui;
+        readonly List<RaceParticipant> emptyParticipants = new List<RaceParticipant>();
         GameObject raceWorld;
         float raceStartTime;
         int finishedCount;
-        List<RaceParticipant> sortedOrder = new List<RaceParticipant>();
         List<QualifyingResultEntry> lastQualifyingResults = new List<QualifyingResultEntry>();
         List<QualifyingSimEntry> qualifyingEntries = new List<QualifyingSimEntry>();
-        Dictionary<RaceParticipant, SectorSnapshot> sectorSnapshots = new Dictionary<RaceParticipant, SectorSnapshot>();
-        readonly float[] qualifyingBestSectors = new float[3];
         readonly string[] playerSectorColors = new string[3];
         readonly float[] playerQualifyingBestTimes = new float[3];
         readonly float[,] playerQualifyingBestSectors = new float[3, 3];
@@ -151,6 +150,11 @@ namespace LocalFormulaRacing
 
             raceWorld = new GameObject("Runtime race world");
             CreateLighting();
+
+            State = new GameObject("Race State Manager").AddComponent<RaceStateManager>();
+            State.transform.SetParent(raceWorld.transform);
+            State.Initialize(session, qualifyingPhase);
+
             TrackManager trackManager = new GameObject("Track Manager").AddComponent<TrackManager>();
             trackManager.transform.SetParent(raceWorld.transform);
             Track = trackManager.Build(eventData, Settings.Current.racingLineAssist);
@@ -395,6 +399,10 @@ namespace LocalFormulaRacing
 
         public void RestartRace()
         {
+            if (State != null)
+            {
+                State.ResetAllParticipants();
+            }
             StartSession(Data, Career, Settings, ui, EventData, Career.Save.playerDriverName, Career.Save.playerTeamId, IsCareerRace, CurrentSession);
         }
 
@@ -403,8 +411,7 @@ namespace LocalFormulaRacing
             Time.timeScale = 1f;
             IsPaused = false;
             IsRaceFinished = true;
-            Participants.Clear();
-            sortedOrder.Clear();
+            State = null;
             PlayerParticipant = null;
             if (raceWorld != null)
             {
@@ -667,12 +674,13 @@ namespace LocalFormulaRacing
                 return GetQualifyingPositionEstimate();
             }
 
-            if (sortedOrder.Count == 0)
+            if (State == null || State.SortedOrder.Count == 0)
             {
                 SortRunningOrder();
             }
 
-            int index = sortedOrder.IndexOf(participant);
+            if (State == null) return Participants.Count;
+            int index = State.SortedOrder.IndexOf(participant);
             return index < 0 ? Participants.Count : index + 1;
         }
 
@@ -938,20 +946,20 @@ namespace LocalFormulaRacing
         public List<RaceParticipant> GetRunningOrderSnapshot()
         {
             SortRunningOrder();
-            return new List<RaceParticipant>(sortedOrder);
+            return State != null ? new List<RaceParticipant>(State.SortedOrder) : new List<RaceParticipant>();
         }
 
         public void RetireParticipant(RaceParticipant participant, string reason)
         {
-            if (participant == null || participant.retired || participant.finished || CurrentSession == RaceWeekendSession.Qualifying)
+            if (participant == null || participant.retired || participant.finished || CurrentSession == RaceWeekendSession.Qualifying || State == null)
             {
                 return;
             }
 
             participant.retired = true;
-            participant.finished = true;
             participant.retirementReason = string.IsNullOrEmpty(reason) ? "Damage" : reason;
-            participant.finishTime = RaceElapsed + 9999f + Mathf.Max(0f, RaceLaps - (participant.lapTracker == null ? 0 : participant.lapTracker.CompletedLaps)) * 120f;
+            float retiredTime = RaceElapsed + 9999f + Mathf.Max(0f, RaceLaps - (participant.lapTracker == null ? 0 : participant.lapTracker.CompletedLaps)) * 120f;
+            State.OnParticipantFinished(participant, retiredTime);
             if (string.IsNullOrEmpty(participant.penaltyReason))
             {
                 participant.penaltyReason = "DNF " + participant.retirementReason;
@@ -977,12 +985,12 @@ namespace LocalFormulaRacing
         public string GapToLeaderText(RaceParticipant participant)
         {
             SortRunningOrder();
-            if (participant == null || sortedOrder.Count == 0 || sortedOrder[0] == participant)
+            if (participant == null || State == null || State.SortedOrder.Count == 0 || State.SortedOrder[0] == participant)
             {
                 return "LEADER";
             }
 
-            RaceParticipant leader = sortedOrder[0];
+            RaceParticipant leader = State.SortedOrder[0];
             float deltaMeters = leader.lapTracker.TotalProgressDistance - participant.lapTracker.TotalProgressDistance;
             if (Track != null && deltaMeters >= Track.length * 0.92f)
             {
@@ -997,13 +1005,14 @@ namespace LocalFormulaRacing
         public string IntervalAheadText(RaceParticipant participant)
         {
             SortRunningOrder();
-            int index = sortedOrder.IndexOf(participant);
+            if (State == null) return "--";
+            int index = State.SortedOrder.IndexOf(participant);
             if (index <= 0)
             {
                 return "--";
             }
 
-            RaceParticipant ahead = sortedOrder[index - 1];
+            RaceParticipant ahead = State.SortedOrder[index - 1];
             float deltaMeters = ahead.lapTracker.TotalProgressDistance - participant.lapTracker.TotalProgressDistance;
             if (Track != null && deltaMeters >= Track.length * 0.92f)
             {
@@ -1069,6 +1078,14 @@ namespace LocalFormulaRacing
             return best == float.MaxValue ? 0f : best;
         }
 
+        public void ReportSectorToState(RaceParticipant participant, int sector, float sectorTime, bool invalidated)
+        {
+            if (State != null)
+            {
+                State.OnSectorComplete(participant, sector, sectorTime, invalidated);
+            }
+        }
+
         public string QualifyingDeltaText(RaceParticipant participant)
         {
             if (CurrentSession != RaceWeekendSession.Qualifying || participant == null || participant.lapTracker == null)
@@ -1119,10 +1136,9 @@ namespace LocalFormulaRacing
 
         void ResetQualifyingSectorState()
         {
-            sectorSnapshots.Clear();
-            for (int i = 0; i < qualifyingBestSectors.Length; i++)
+            if (State != null) State.Initialize(CurrentSession, qualifyingPhase);
+            for (int i = 0; i < 3; i++)
             {
-                qualifyingBestSectors[i] = 0f;
                 playerSectorColors[i] = "";
             }
         }
@@ -1247,56 +1263,32 @@ namespace LocalFormulaRacing
 
         void UpdateSectorRecords(RaceParticipant participant)
         {
-            if (participant == null || participant.lapTracker == null)
+            if (participant == null || participant.lapTracker == null || State == null)
             {
                 return;
-            }
-
-            SectorSnapshot snapshot;
-            if (!sectorSnapshots.TryGetValue(participant, out snapshot))
-            {
-                snapshot = new SectorSnapshot();
-                sectorSnapshots.Add(participant, snapshot);
             }
 
             LapTracker lap = participant.lapTracker;
-            CheckCompletedSector(participant, snapshot, 1, lap.LastSector1Time, lap.BestSector1Time, lap.CurrentLapInvalidated);
-            CheckCompletedSector(participant, snapshot, 2, lap.LastSector2Time, lap.BestSector2Time, lap.CurrentLapInvalidated);
-            CheckCompletedSector(participant, snapshot, 3, lap.LastSector3Time, lap.BestSector3Time, lap.LastLapInvalidated);
+            CheckCompletedSector(participant, 1, lap.LastSector1Time, lap.BestSector1Time, lap.CurrentLapInvalidated);
+            CheckCompletedSector(participant, 2, lap.LastSector2Time, lap.BestSector2Time, lap.CurrentLapInvalidated);
+            CheckCompletedSector(participant, 3, lap.LastSector3Time, lap.BestSector3Time, lap.LastLapInvalidated);
         }
 
-        void CheckCompletedSector(RaceParticipant participant, SectorSnapshot snapshot, int sector, float sectorTime, float personalBest, bool invalidated)
+        void CheckCompletedSector(RaceParticipant participant, int sector, float sectorTime, float personalBest, bool invalidated)
         {
-            if (sectorTime <= 0f || sector < 1 || sector > 3)
+            if (sectorTime <= 0f || sector < 1 || sector > 3 || State == null)
             {
                 return;
             }
 
-            float previous = sector == 1 ? snapshot.s1 : (sector == 2 ? snapshot.s2 : snapshot.s3);
-            if (Mathf.Abs(previous - sectorTime) < 0.001f)
-            {
-                return;
-            }
-
-            if (sector == 1)
-            {
-                snapshot.s1 = sectorTime;
-            }
-            else if (sector == 2)
-            {
-                snapshot.s2 = sectorTime;
-            }
-            else
-            {
-                snapshot.s3 = sectorTime;
-            }
+            State.OnSectorComplete(participant, sector, sectorTime, invalidated);
 
             if (CurrentSession != RaceWeekendSession.Qualifying || invalidated)
             {
                 return;
             }
 
-            bool purple = UpdateQualifyingBestSector(sector, sectorTime);
+            bool purple = State.IsPurpleSector(sector, sectorTime);
             if (participant.isPlayer)
             {
                 bool personalBestSector = personalBest > 0f && Mathf.Abs(personalBest - sectorTime) < 0.002f;
@@ -1304,22 +1296,6 @@ namespace LocalFormulaRacing
             }
         }
 
-        bool UpdateQualifyingBestSector(int sector, float sectorTime)
-        {
-            if (sector < 1 || sector > 3 || sectorTime <= 0f)
-            {
-                return false;
-            }
-
-            int index = sector - 1;
-            if (qualifyingBestSectors[index] <= 0f || sectorTime < qualifyingBestSectors[index])
-            {
-                qualifyingBestSectors[index] = sectorTime;
-                return true;
-            }
-
-            return Mathf.Abs(qualifyingBestSectors[index] - sectorTime) < 0.001f;
-        }
 
         float GetDisplayQualifyingTime(QualifyingSimEntry entry)
         {
@@ -1370,8 +1346,6 @@ namespace LocalFormulaRacing
 
         void SpawnRaceGrid(string playerName, string playerTeamId, bool careerRace)
         {
-            Participants.Clear();
-            sortedOrder.Clear();
             TeamData playerTeam = Data.FindTeam(playerTeamId);
             CarPerformanceData playerCar = Data.FindCar(playerTeam.carPerformanceId);
             if (careerRace)
@@ -1688,7 +1662,7 @@ namespace LocalFormulaRacing
                 ai.Initialize(this, participant, Track);
             }
 
-            Participants.Add(participant);
+            if (State != null) State.RegisterParticipant(participant);
             return participant;
         }
 
@@ -2425,7 +2399,7 @@ namespace LocalFormulaRacing
 
         void HandleFinish(RaceParticipant participant)
         {
-            if (participant == null || participant.finished || participant.lapTracker == null)
+            if (participant == null || participant.finished || participant.lapTracker == null || State == null)
             {
                 return;
             }
@@ -2433,10 +2407,7 @@ namespace LocalFormulaRacing
             if (participant.lapTracker.CompletedRace)
             {
                 ApplyMandatoryPitPenalty(participant);
-                participant.finished = true;
-                finishedCount++;
-                participant.finishingPosition = finishedCount;
-                participant.finishTime = RaceElapsed;
+                State.OnParticipantFinished(participant, RaceElapsed);
             }
         }
 
@@ -2526,34 +2497,7 @@ namespace LocalFormulaRacing
 
         void SortRunningOrder()
         {
-            sortedOrder.Clear();
-            sortedOrder.AddRange(Participants);
-            sortedOrder.Sort((a, b) =>
-            {
-                if (a.finished && b.finished)
-                {
-                    if (a.retired != b.retired)
-                    {
-                        return a.retired ? 1 : -1;
-                    }
-
-                    return a.finishingPosition.CompareTo(b.finishingPosition);
-                }
-
-                if (a.finished)
-                {
-                    return a.retired ? 1 : -1;
-                }
-
-                if (b.finished)
-                {
-                    return b.retired ? -1 : 1;
-                }
-
-                float aDistance = a.lapTracker == null ? 0f : a.lapTracker.TotalProgressDistance;
-                float bDistance = b.lapTracker == null ? 0f : b.lapTracker.TotalProgressDistance;
-                return bDistance.CompareTo(aDistance);
-            });
+            if (State != null) State.Tick();
         }
 
         void FinishRace()
@@ -2562,9 +2506,10 @@ namespace LocalFormulaRacing
             Time.timeScale = 1f;
             SortRunningOrder();
             List<RaceResultEntry> results = new List<RaceResultEntry>();
-            for (int i = 0; i < sortedOrder.Count; i++)
+            if (State == null) return;
+            for (int i = 0; i < State.SortedOrder.Count; i++)
             {
-                RaceParticipant participant = sortedOrder[i];
+                RaceParticipant participant = State.SortedOrder[i];
                 ApplyMandatoryPitPenalty(participant);
                 participant.finishingPosition = i + 1;
                 RaceResultEntry entry = participant.ToResultEntry();
@@ -3027,9 +2972,12 @@ namespace LocalFormulaRacing
             float s3;
             SimulateQualifyingSectors(entry, phase, time, out s1, out s2, out s3);
             SetQualifyingPhaseSectors(entry, phase, s1, s2, s3);
-            UpdateQualifyingBestSector(1, s1);
-            UpdateQualifyingBestSector(2, s2);
-            UpdateQualifyingBestSector(3, s3);
+            if (State != null && entry.participant != null)
+            {
+                State.OnSectorComplete(entry.participant, 1, s1, false);
+                State.OnSectorComplete(entry.participant, 2, s2, false);
+                State.OnSectorComplete(entry.participant, 3, s3, false);
+            }
         }
 
         void SetSimulatedPlayerQualifyingPhaseTime(QualifyingSimEntry entry, int phase, float time)
@@ -3046,9 +2994,12 @@ namespace LocalFormulaRacing
             playerQualifyingBestSectors[phaseIndex, 1] = s2;
             playerQualifyingBestSectors[phaseIndex, 2] = s3;
             SetQualifyingPhaseSectors(entry, phase, s1, s2, s3);
-            UpdateQualifyingBestSector(1, s1);
-            UpdateQualifyingBestSector(2, s2);
-            UpdateQualifyingBestSector(3, s3);
+            if (State != null && entry.participant != null)
+            {
+                State.OnSectorComplete(entry.participant, 1, s1, false);
+                State.OnSectorComplete(entry.participant, 2, s2, false);
+                State.OnSectorComplete(entry.participant, 3, s3, false);
+            }
         }
 
         void SetPlayerQualifyingSectors(QualifyingSimEntry entry, int phase, float lapTime, bool invalidated)
@@ -3072,11 +3023,11 @@ namespace LocalFormulaRacing
             }
 
             SetQualifyingPhaseSectors(entry, phase, s1, s2, s3);
-            if (!invalidated)
+            if (!invalidated && State != null && entry.participant != null)
             {
-                UpdateQualifyingBestSector(1, s1);
-                UpdateQualifyingBestSector(2, s2);
-                UpdateQualifyingBestSector(3, s3);
+                State.OnSectorComplete(entry.participant, 1, s1, false);
+                State.OnSectorComplete(entry.participant, 2, s2, false);
+                State.OnSectorComplete(entry.participant, 3, s3, false);
             }
         }
 

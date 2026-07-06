@@ -76,17 +76,26 @@ namespace LocalFormulaRacing
                 Vector3 a = centerLine[i];
                 Vector3 b = centerLine[(i + 1) % centerLine.Count];
                 Vector3 segment = b - a;
-                Vector3 flatPosition = new Vector3(worldPosition.x, a.y, worldPosition.z);
-                float t = Vector3.Dot(flatPosition - a, segment) / Mathf.Max(1f, segment.sqrMagnitude);
+                float t = Vector3.Dot(worldPosition - a, segment) / Mathf.Max(1f, segment.sqrMagnitude);
                 t = Mathf.Clamp01(t);
                 Vector3 candidate = a + segment * t;
-                float distanceSqr = (flatPosition - candidate).sqrMagnitude;
+
+                // Weighted 3D distance to handle crossovers (bridges/tunnels) correctly.
+                // Weighting height higher prevents snapping to the wrong track level.
+                Vector3 diff = worldPosition - candidate;
+                Vector3 weightedDiff = new Vector3(diff.x, diff.y * 3.5f, diff.z);
+                float distanceSqr = weightedDiff.sqrMagnitude;
+
                 if (distanceSqr < closestDistanceSqr)
                 {
                     closestDistanceSqr = distanceSqr;
                     Vector3 forward = segment.normalized;
                     Vector3 right = Vector3.Cross(Vector3.up, forward).normalized;
-                    float signed = Vector3.Dot(flatPosition - candidate, right);
+
+                    // Lateral distance is the 2D projected distance from the centerline
+                    Vector3 flatDiff = new Vector3(diff.x, 0f, diff.z);
+                    float signed = Vector3.Dot(flatDiff, right);
+
                     progress.distance = cumulativeDistances[i] + segment.magnitude * t;
                     progress.normalized = Mathf.Clamp01(progress.distance / Mathf.Max(1f, length));
                     progress.lateralDistance = signed;
@@ -438,21 +447,42 @@ namespace LocalFormulaRacing
 
         void BuildSuzukaLayout(TrackRuntime runtime)
         {
-            runtime.styleName = "Technical figure-eight";
-            runtime.roadHalfWidth = 8.9f;
-            runtime.kerbStart = 7.92f;
-            runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
-            runtime.drsZoneTwo = new Vector2(0.62f, 0.76f);
+            runtime.styleName = "Technical figure-eight Park";
+            runtime.roadHalfWidth = 9.4f;
+            runtime.kerbStart = 8.35f;
+            runtime.drsZoneOne = new Vector2(0.885f, 0.08f);
+            runtime.drsZoneTwo = new Vector2(0.55f, 0.68f);
             AddSmoothedAnchors(runtime, new[]
             {
-                new Vector3(0f, 0f, 0f), new Vector3(110f, 0f, 0f), new Vector3(156f, 0.5f, 22f),
-                new Vector3(136f, 1.2f, 58f), new Vector3(82f, 1.8f, 70f), new Vector3(46f, 2.0f, 50f),
-                new Vector3(72f, 1.6f, 20f), new Vector3(128f, 1.0f, 42f), new Vector3(174f, 0.4f, 88f),
-                new Vector3(146f, 0.2f, 138f), new Vector3(76f, 0.5f, 154f), new Vector3(12f, 3.0f, 134f),
-                new Vector3(-46f, 5.0f, 96f), new Vector3(-20f, 7.0f, 54f), new Vector3(46f, 6.2f, 88f),
-                new Vector3(112f, 4.1f, 116f), new Vector3(162f, 1.5f, 72f), new Vector3(126f, 0.5f, 22f),
-                new Vector3(38f, 0f, -18f), new Vector3(-118f, 0f, -8f)
-            }, 4);
+                // Start/Finish straight
+                new Vector3(0f, 0f, 0f), new Vector3(145f, 0f, 0f),
+                // First corner (T1 & T2)
+                new Vector3(205f, 0f, 25f), new Vector3(228f, 0f, 78f),
+                // Esses (T3-T6)
+                new Vector3(188f, 1.2f, 128f), new Vector3(142f, 2.8f, 156f), new Vector3(112f, 3.4f, 192f), new Vector3(138f, 3.1f, 238f),
+                // Dunlop Curve (T7)
+                new Vector3(196f, 1.8f, 264f), new Vector3(258f, 0.4f, 246f),
+                // Degner Curves (T8 & T9)
+                new Vector3(284f, 0f, 188f), new Vector3(262f, -1f, 142f), new Vector3(306f, -1.8f, 126f),
+                // Under the bridge
+                new Vector3(348f, -2.4f, 158f), new Vector3(372f, -2.2f, 218f),
+                // Hairpin (T11)
+                new Vector3(344f, -1.5f, 276f), new Vector3(286f, -1.2f, 282f),
+                // 200R (T12)
+                new Vector3(224f, 0.5f, 318f), new Vector3(164f, 2.4f, 362f),
+                // Spoon Curve (T13 & T14)
+                new Vector3(88f, 4.2f, 388f), new Vector3(22f, 4.8f, 372f), new Vector3(-24f, 5.1f, 328f), new Vector3(18f, 5.2f, 284f),
+                // Back straight leading to 130R
+                new Vector3(104f, 5.4f, 242f),
+                // The Bridge (crossing over Degner section)
+                new Vector3(228f, 6.8f, 188f), new Vector3(342f, 5.2f, 124f),
+                // 130R (T15)
+                new Vector3(382f, 3.2f, 52f), new Vector3(336f, 1.4f, -12f),
+                // Casio Triangle (T16 & T17)
+                new Vector3(264f, 0.2f, 18f), new Vector3(222f, 0f, 54f), new Vector3(184f, 0f, 28f),
+                // Final turn (T18)
+                new Vector3(112f, 0f, 12f), new Vector3(-168f, 0f, 0f)
+            }, 6);
         }
 
         void BuildSilverstoneLayout(TrackRuntime runtime)
@@ -1462,10 +1492,11 @@ namespace LocalFormulaRacing
 
         void CreateDune(Vector3 position, int index)
         {
+            Vector3 safePosition = PushSceneryClearOfTrack(position, 15f);
             GameObject dune = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             dune.name = "Sculpted runoff dune";
             dune.transform.SetParent(transform);
-            dune.transform.position = position + Vector3.down * 0.28f;
+            dune.transform.position = safePosition + Vector3.down * 0.28f;
             dune.transform.localScale = new Vector3(8f + index % 5, 0.75f, 4.6f + index % 4);
             dune.GetComponent<Renderer>().sharedMaterial = grassMaterial;
             MakeVisualOnly(dune);
