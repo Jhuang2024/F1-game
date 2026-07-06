@@ -386,7 +386,7 @@ namespace LocalFormulaRacing
                 19, new Color(0.86f, 0.92f, 0.96f), TextAnchor.UpperLeft);
 
             UiFactory.CreateBand(left, "Spacer", Vector2.zero, Vector2.zero, Vector2.zero, new Vector2(0f, 20f), new Color(0, 0, 0, 0));
-            UiFactory.CreateButton(left, "Go to Qualifying", bootstrap.ShowQualifyingTyreSelect);
+            UiFactory.CreateButton(left, "Go to Qualifying", bootstrap.StartCareerQualifying);
             UiFactory.CreateButton(left, "Go to Race", bootstrap.StartCareerRace);
             UiFactory.CreateButton(left, "Sim Qualifying", bootstrap.StartCareerSimQualifying);
             UiFactory.CreateButton(left, "Back", () => ShowCareerHub(data, career, settings));
@@ -489,6 +489,60 @@ namespace LocalFormulaRacing
             return "";
         }
 
+        public void ShowRaceTyreSelect(GameDataRepository data, CareerManager career, GameSettingsStore settings, bool careerRace)
+        {
+            Clear();
+            CalendarEventData current = careerRace ? career.CurrentEvent() : (data.Calendar.events.Count > 0 ? data.Calendar.events[0] : career.CurrentEvent());
+            if (current == null)
+            {
+                current = new CalendarEventData { displayName = "Prototype GP", weatherProfile = "clear" };
+            }
+
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Race tyre background", new Color(0.015f, 0.02f, 0.025f, 1f));
+            UiFactory.CreateBand(background, "Race tyre accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -8f), Vector2.zero, new Color(0.95f, 0.04f, 0.035f, 1f));
+
+            Text title = UiFactory.CreateText(background, "Race tyre title", "Race Tyre Selection", 44, Color.white, TextAnchor.UpperLeft);
+            title.GetComponent<RectTransform>().anchoredPosition = new Vector2(80f, -54f);
+
+            RectTransform panel = UiFactory.CreateBand(background, "Race tyre panel", new Vector2(0.12f, 0.14f), new Vector2(0.78f, 0.8f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
+            UiFactory.AddVerticalLayout(panel, 12, new RectOffset(28, 28, 24, 24));
+            Text briefing = UiFactory.CreateText(panel, "Race weather briefing", BuildWeatherBriefing(current, "Race", settings.Current.tyreCompound), 20, new Color(0.84f, 0.91f, 0.95f), TextAnchor.UpperLeft);
+            briefing.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(briefing, 820f, 174f);
+
+            RectTransform tyreButtons = UiFactory.CreateRect(panel, "Race tyre buttons", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            tyreButtons.sizeDelta = new Vector2(780f, 78f);
+            UiFactory.AddHorizontalLayout(tyreButtons, 10, new RectOffset(0, 0, 0, 0));
+            CreateRaceTyreButton(tyreButtons, data, career, settings, "Soft", careerRace);
+            CreateRaceTyreButton(tyreButtons, data, career, settings, "Medium", careerRace);
+            CreateRaceTyreButton(tyreButtons, data, career, settings, "Hard", careerRace);
+            CreateRaceTyreButton(tyreButtons, data, career, settings, "Intermediate", careerRace);
+            CreateRaceTyreButton(tyreButtons, data, career, settings, "Wet", careerRace);
+
+            UiFactory.CreateButton(panel, "Start Race", () =>
+            {
+                if (careerRace)
+                {
+                    bootstrap.BeginCareerRace();
+                }
+                else
+                {
+                    bootstrap.BeginQuickRace();
+                }
+            });
+            UiFactory.CreateButton(panel, careerRace ? "Back to Weekend" : "Back to Menu", () =>
+            {
+                if (careerRace)
+                {
+                    bootstrap.ShowRaceWeekend();
+                }
+                else
+                {
+                    bootstrap.ShowMainMenu();
+                }
+            });
+        }
+
         void CreateQualifyingTyreButton(RectTransform parent, GameDataRepository data, CareerManager career, GameSettingsStore settings, int phase, string tyreName, bool simulate)
         {
             string selected = settings.Current.tyreCompound == tyreName ? "  SELECTED" : "";
@@ -497,6 +551,17 @@ namespace LocalFormulaRacing
                 settings.Current.tyreCompound = tyreName;
                 settings.Save();
                 ShowQualifyingTyreSelect(data, career, settings, phase, simulate);
+            });
+        }
+
+        void CreateRaceTyreButton(RectTransform parent, GameDataRepository data, CareerManager career, GameSettingsStore settings, string tyreName, bool careerRace)
+        {
+            string selected = settings.Current.tyreCompound == tyreName ? "  SELECTED" : "";
+            UiFactory.CreateButton(parent, tyreName + selected, () =>
+            {
+                settings.Current.tyreCompound = tyreName;
+                settings.Save();
+                ShowRaceTyreSelect(data, career, settings, careerRace);
             });
         }
 
@@ -740,6 +805,164 @@ namespace LocalFormulaRacing
             }
 
             return "Dry";
+        }
+
+        string BuildWeatherBriefing(CalendarEventData current, string sessionName, string selectedCompound)
+        {
+            string profile = current == null ? "" : current.weatherProfile;
+            int air;
+            int track;
+            WeatherTemperatures(profile, out air, out track);
+            return
+                (current == null ? "Prototype GP" : current.displayName) + "\n" +
+                "Session: " + sessionName + "\n" +
+                "Current weather: " + CurrentWeatherText(profile) + "\n" +
+                "Forecast: " + ForecastText(profile) + "\n" +
+                "Track condition: " + TrackConditionText(profile) + "\n" +
+                "Track temp: " + track + " C   Air temp: " + air + " C\n" +
+                "Recommended compound: " + RecommendedTyreText(profile) + "\n" +
+                "Selected compound: " + selectedCompound;
+        }
+
+        string CurrentWeatherText(string profile)
+        {
+            string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
+            if (normalized.Contains("wet"))
+            {
+                return "Light rain";
+            }
+
+            if (normalized.Contains("mixed"))
+            {
+                return "Changeable cloud with damp patches";
+            }
+
+            if (normalized.Contains("cloud"))
+            {
+                return "Cloudy";
+            }
+
+            if (normalized.Contains("night"))
+            {
+                return "Clear night";
+            }
+
+            if (normalized.Contains("twilight"))
+            {
+                return "Clear twilight";
+            }
+
+            if (normalized.Contains("hot"))
+            {
+                return "Clear and hot";
+            }
+
+            return WeatherProfileText(profile);
+        }
+
+        string ForecastText(string profile)
+        {
+            string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
+            if (normalized.Contains("wet"))
+            {
+                return "Rain likely to continue; wet line off-line";
+            }
+
+            if (normalized.Contains("mixed"))
+            {
+                return "Showers possible; track may dry late";
+            }
+
+            if (normalized.Contains("cloud"))
+            {
+                return "Stable cloud cover, low rain risk";
+            }
+
+            if (normalized.Contains("hot"))
+            {
+                return "Dry and abrasive, rear temperatures rising";
+            }
+
+            return "Stable dry running expected";
+        }
+
+        string TrackConditionText(string profile)
+        {
+            string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
+            if (normalized.Contains("wet"))
+            {
+                return "Wet";
+            }
+
+            if (normalized.Contains("mixed"))
+            {
+                return "Damp, drying";
+            }
+
+            return "Dry";
+        }
+
+        string RecommendedTyreText(string profile)
+        {
+            string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
+            if (normalized.Contains("wet"))
+            {
+                return "Intermediate";
+            }
+
+            if (normalized.Contains("mixed"))
+            {
+                return "Intermediate if damp, Medium if drying";
+            }
+
+            if (normalized.Contains("hot"))
+            {
+                return "Medium or Hard";
+            }
+
+            return "Soft for qualifying, Medium for race";
+        }
+
+        void WeatherTemperatures(string profile, out int air, out int track)
+        {
+            string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
+            if (normalized.Contains("wet"))
+            {
+                air = 19;
+                track = 23;
+                return;
+            }
+
+            if (normalized.Contains("mixed"))
+            {
+                air = 22;
+                track = 27;
+                return;
+            }
+
+            if (normalized.Contains("hot"))
+            {
+                air = 33;
+                track = 47;
+                return;
+            }
+
+            if (normalized.Contains("warm"))
+            {
+                air = 27;
+                track = 36;
+                return;
+            }
+
+            if (normalized.Contains("night"))
+            {
+                air = 24;
+                track = 28;
+                return;
+            }
+
+            air = 22;
+            track = 31;
         }
 
         string BuildControlsText()

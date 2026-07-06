@@ -29,12 +29,14 @@ namespace LocalFormulaRacing
         public float BestSector3Time { get; private set; }
 
         float previousNormalized;
+        float referenceDistance;
         float progressDistanceOffset;
         float lapStartTime;
         float sectorStartTime;
         bool initialized;
         bool sawSectorTwo;
         bool sawSectorThree;
+        bool awaitingRaceStartLine;
 
         public int DisplayLap
         {
@@ -54,6 +56,7 @@ namespace LocalFormulaRacing
             initialized = false;
             sawSectorTwo = false;
             sawSectorThree = false;
+            awaitingRaceStartLine = false;
             CompletedRace = false;
             CurrentLapInvalidated = false;
             LastLapInvalidated = false;
@@ -69,28 +72,38 @@ namespace LocalFormulaRacing
             BestSector2Time = 0f;
             BestSector3Time = 0f;
             progressDistanceOffset = 0f;
+            referenceDistance = 0f;
         }
 
         public void ConfigureRaceGridStart()
         {
+            float inferredDistance = Track == null ? 0f : Track.GetProgress(transform.position).distance;
+            ConfigureRaceGridStart(inferredDistance);
+        }
+
+        public void ConfigureRaceGridStart(float gridDistance)
+        {
             if (Track != null)
             {
-                CurrentProgress = Track.GetProgress(transform.position);
+                float wrappedGridDistance = Track.WrapDistance(gridDistance);
+                CurrentProgress = Track.GetProgressAtDistance(wrappedGridDistance, transform.position);
                 CurrentSector = CurrentProgress.sector;
-                
-                // Fix "lap down" bug by ensuring progress distance offset is correctly set.
-                // If we are on the grid, we are on Lap 0, but behind the start line.
-                // TotalProgressDistance = CompletedLaps * length + distance + offset
-                // On Lap 0, before crossing start line, distance is near length (e.g. 0.95 * length).
-                // If offset is -length, TotalProgressDistance is roughly -0.05 * length, which is correct.
+
                 progressDistanceOffset = -Track.length;
                 TotalProgressDistance = CurrentProgress.distance + progressDistanceOffset;
                 previousNormalized = CurrentProgress.normalized;
+                referenceDistance = CurrentProgress.distance;
                 initialized = true;
+                awaitingRaceStartLine = true;
+                lapStartTime = Time.time;
+                sectorStartTime = Time.time;
+                sawSectorTwo = false;
+                sawSectorThree = false;
             }
             else
             {
                 progressDistanceOffset = 0f;
+                awaitingRaceStartLine = false;
             }
         }
 
@@ -103,6 +116,14 @@ namespace LocalFormulaRacing
             LastLapInvalidated = false;
             lapStartTime = Time.time;
             sectorStartTime = Time.time;
+            if (Track != null)
+            {
+                CurrentProgress = Track.GetProgress(transform.position);
+                CurrentSector = CurrentProgress.sector;
+                previousNormalized = CurrentProgress.normalized;
+                referenceDistance = CurrentProgress.distance;
+                initialized = true;
+            }
         }
 
         public void InvalidateCurrentLap()
@@ -127,7 +148,7 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            CurrentProgress = Track.GetProgress(transform.position);
+            CurrentProgress = initialized ? Track.GetProgressNear(transform.position, referenceDistance) : Track.GetProgress(transform.position);
             CurrentSector = CurrentProgress.sector;
             CurrentLapTime = OutLapActive || TimedLapStarted ? Time.time - lapStartTime : 0f;
             CurrentSectorTime = Time.time - sectorStartTime;
@@ -136,6 +157,7 @@ namespace LocalFormulaRacing
             {
                 TotalProgressDistance = CompletedLaps * Track.length + CurrentProgress.distance + progressDistanceOffset;
                 previousNormalized = CurrentProgress.normalized;
+                referenceDistance = CurrentProgress.distance;
                 initialized = true;
                 return;
             }
@@ -160,36 +182,24 @@ namespace LocalFormulaRacing
                 sawSectorThree = true;
             }
 
-            // More robust crossing detection
             bool crossedStart = previousNormalized > 0.80f && CurrentProgress.normalized < 0.20f;
             
             if (crossedStart)
             {
-                if (progressDistanceOffset < -0.001f)
+                if (OutLapActive)
                 {
-                    // First crossing of start line after grid start
-                    progressDistanceOffset = 0f;
-                    // We don't call CompleteLap yet because the first crossing just starts Lap 1 (CompletedLaps 0 -> 1 happens at the END of Lap 1)
-                    // Wait, if CompletedLaps is 0, and we cross start, we are still on Lap 1.
-                    // Actually, the original logic calls CompleteLap() which increments CompletedLaps.
-                    // If we start on the grid, we are on "Lap 1" but have 0 completed laps.
-                    // Crossing the line for the FIRST time should NOT increment CompletedLaps if we started on the grid.
-                    // But if we are in Qualifying OutLap, it should finish the outlap.
-                    
-                    if (OutLapActive)
-                    {
-                        CompleteLap();
-                    }
-                    else
-                    {
-                        // Reset lap timer for the start of the first full lap
-                        lapStartTime = Time.time;
-                        sectorStartTime = Time.time;
-                        sawSectorTwo = false;
-                        sawSectorThree = false;
-                    }
+                    CompleteLap();
                 }
-                else if (sawSectorTwo && sawSectorThree && CurrentLapTime > 10f)
+                else if (awaitingRaceStartLine)
+                {
+                    awaitingRaceStartLine = false;
+                    progressDistanceOffset = 0f;
+                    lapStartTime = Time.time;
+                    sectorStartTime = Time.time;
+                    sawSectorTwo = false;
+                    sawSectorThree = false;
+                }
+                else if (sawSectorTwo && sawSectorThree && CurrentLapTime > MinimumValidLapTime())
                 {
                     CompleteLap();
                 }
@@ -197,6 +207,17 @@ namespace LocalFormulaRacing
 
             TotalProgressDistance = CompletedLaps * Track.length + CurrentProgress.distance + progressDistanceOffset;
             previousNormalized = CurrentProgress.normalized;
+            referenceDistance = CurrentProgress.distance;
+        }
+
+        float MinimumValidLapTime()
+        {
+            if (Track == null)
+            {
+                return 10f;
+            }
+
+            return Mathf.Clamp(Track.length / 92f, 11f, 42f);
         }
 
         void CompleteLap()
@@ -212,6 +233,7 @@ namespace LocalFormulaRacing
                 sawSectorTwo = false;
                 sawSectorThree = false;
                 CurrentLapInvalidated = OutLapFinalCornerCut;
+                referenceDistance = CurrentProgress.distance;
                 return;
             }
 

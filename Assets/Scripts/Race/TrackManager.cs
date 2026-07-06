@@ -68,8 +68,39 @@ namespace LocalFormulaRacing
 
         public TrackProgress GetProgress(Vector3 worldPosition)
         {
+            return GetProgressInternal(worldPosition, 0f, false);
+        }
+
+        public TrackProgress GetProgressNear(Vector3 worldPosition, float referenceDistance)
+        {
+            return GetProgressInternal(worldPosition, referenceDistance, true);
+        }
+
+        public TrackProgress GetProgressAtDistance(float distance, Vector3 worldPosition)
+        {
+            float wrapped = WrapDistance(distance);
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            SampleAtDistance(wrapped, out point, out forward, out right);
+            Vector3 flatPosition = new Vector3(worldPosition.x, point.y, worldPosition.z);
+            float signed = Vector3.Dot(flatPosition - point, right);
+            float normalized = Mathf.Clamp01(wrapped / Mathf.Max(1f, length));
+            return new TrackProgress
+            {
+                distance = wrapped,
+                normalized = normalized,
+                lateralDistance = signed,
+                nearestPoint = point,
+                forward = forward,
+                sector = normalized < 0.333f ? 1 : (normalized < 0.666f ? 2 : 3)
+            };
+        }
+
+        TrackProgress GetProgressInternal(Vector3 worldPosition, float referenceDistance, bool preferContinuity)
+        {
             TrackProgress progress = new TrackProgress();
-            float closestDistanceSqr = float.MaxValue;
+            float bestScore = float.MaxValue;
 
             for (int i = 0; i < centerLine.Count; i++)
             {
@@ -79,24 +110,26 @@ namespace LocalFormulaRacing
                 float t = Vector3.Dot(worldPosition - a, segment) / Mathf.Max(1f, segment.sqrMagnitude);
                 t = Mathf.Clamp01(t);
                 Vector3 candidate = a + segment * t;
-
-                // Weighted 3D distance to handle crossovers (bridges/tunnels) correctly.
-                // Weighting height higher prevents snapping to the wrong track level.
                 Vector3 diff = worldPosition - candidate;
                 Vector3 weightedDiff = new Vector3(diff.x, diff.y * 3.5f, diff.z);
                 float distanceSqr = weightedDiff.sqrMagnitude;
-
-                if (distanceSqr < closestDistanceSqr)
+                float distance = cumulativeDistances[i] + segment.magnitude * t;
+                float score = distanceSqr;
+                if (preferContinuity && length > 1f)
                 {
-                    closestDistanceSqr = distanceSqr;
+                    float unwrapped = ClosestUnwrappedDistance(distance, referenceDistance);
+                    float delta = Mathf.Abs(unwrapped - referenceDistance);
+                    score += delta * delta * 0.08f;
+                }
+
+                if (score < bestScore)
+                {
+                    bestScore = score;
                     Vector3 forward = segment.normalized;
                     Vector3 right = Vector3.Cross(Vector3.up, forward).normalized;
-
-                    // Lateral distance is the 2D projected distance from the centerline
                     Vector3 flatDiff = new Vector3(diff.x, 0f, diff.z);
                     float signed = Vector3.Dot(flatDiff, right);
-
-                    progress.distance = cumulativeDistances[i] + segment.magnitude * t;
+                    progress.distance = WrapDistance(distance);
                     progress.normalized = Mathf.Clamp01(progress.distance / Mathf.Max(1f, length));
                     progress.lateralDistance = signed;
                     progress.nearestPoint = candidate;
@@ -106,6 +139,27 @@ namespace LocalFormulaRacing
             }
 
             return progress;
+        }
+
+        float ClosestUnwrappedDistance(float distance, float referenceDistance)
+        {
+            if (length <= 0f)
+            {
+                return distance;
+            }
+
+            float candidate = distance;
+            while (candidate - referenceDistance > length * 0.5f)
+            {
+                candidate -= length;
+            }
+
+            while (referenceDistance - candidate > length * 0.5f)
+            {
+                candidate += length;
+            }
+
+            return candidate;
         }
 
         public bool IsOnRoad(Vector3 worldPosition)
@@ -218,6 +272,8 @@ namespace LocalFormulaRacing
         Material roadEdgeMaterial;
         Material drsPaintMaterial;
         Material rubberMaterial;
+        Material asphaltPatchMaterial;
+        Material skidMarkMaterial;
         Material barrierMaterial;
         Material tireBarrierMaterial;
         Material foliageMaterial;
@@ -243,6 +299,7 @@ namespace LocalFormulaRacing
             BuildGround();
             BuildRoadMesh();
             BuildRoadPaint();
+            BuildAsphaltDetail();
             BuildGridPaint();
             BuildKerbs();
             BuildBarriers();
@@ -256,6 +313,7 @@ namespace LocalFormulaRacing
             }
 
             AuditVisualMarkingColliders();
+            ValidateDecorativeObjectsClearTrack();
             ValidateGeneratedTrack();
             return Runtime;
         }
@@ -377,7 +435,7 @@ namespace LocalFormulaRacing
                 BuildBahrainLayout(runtime);
             }
 
-            ApplyTrackScale(runtime, 1.12f);
+            ApplyTrackScale(runtime, 1.32f);
             ValidateLayout(runtime);
         }
 
@@ -449,74 +507,46 @@ namespace LocalFormulaRacing
         void BuildSuzukaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Technical figure-eight Park";
-            runtime.roadHalfWidth = 14.5f; // Significant width increase
+            runtime.roadHalfWidth = 14.5f;
             runtime.kerbStart = 12.2f;
             runtime.drsZoneOne = new Vector2(0.92f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.62f, 0.76f);
 
-            // Handcrafted large-scale Suzuka layout with precise anchor separation to prevent overlap.
             AddSmoothedAnchors(runtime, new[]
             {
-                // Start/Finish Straight (Grid facing line at 0,0,0)
                 new Vector3(-600f, 0f, 0f),
                 new Vector3(0f, 0f, 0f),
                 new Vector3(400f, 0f, 0f),
-
-                // T1 & T2 (The First Curve)
                 new Vector3(750f, 0f, 100f),
                 new Vector3(820f, -2f, 350f),
-
-                // The S-Curves (T3-T6) - Winding sequence
                 new Vector3(650f, 2f, 600f),
                 new Vector3(420f, 5f, 750f),
                 new Vector3(280f, 8f, 1000f),
                 new Vector3(400f, 7f, 1250f),
-
-                // Dunlop Curve (T7) - Long uphill left
                 new Vector3(680f, 4f, 1450f),
                 new Vector3(1050f, 1f, 1350f),
-
-                // Degner Curves (T8 & T9) - Double right
                 new Vector3(1250f, -2f, 950f),
                 new Vector3(1120f, -5f, 650f),
                 new Vector3(1350f, -8f, 500f),
-
-                // T10 and Under-Bridge Section (Going underneath the later crossover)
                 new Vector3(1650f, -12f, 650f),
                 new Vector3(1850f, -14f, 1150f),
-
-                // Hairpin (T11) - Tight slow 180 (Fixed geometry)
                 new Vector3(1750f, -9f, 1550f),
                 new Vector3(1580f, -8f, 1620f),
                 new Vector3(1420f, -9f, 1520f),
-
-                // 200R (T12) - High speed left
                 new Vector3(1150f, 2f, 1750f),
                 new Vector3(850f, 8f, 2100f),
-
-                // Spoon Curve (T13 & T14) - Double left apex
                 new Vector3(450f, 15f, 2350f),
                 new Vector3(50f, 18f, 2250f),
                 new Vector3(-250f, 20f, 1950f),
                 new Vector3(50f, 21f, 1600f),
-
-                // Back Straight leading to Bridge
                 new Vector3(550f, 22f, 1200f),
-
-                // THE BRIDGE (Crossover point - clearly elevated)
                 new Vector3(1200f, 28f, 750f),
                 new Vector3(1850f, 22f, 450f),
-
-                // 130R (T15) - Very high speed left
                 new Vector3(2200f, 12f, -150f),
                 new Vector3(1850f, 6f, -650f),
-
-                // Casio Triangle (T16 & T17) - Tight chicane
                 new Vector3(1350f, 2f, -450f),
                 new Vector3(1050f, 0f, 50f),
                 new Vector3(750f, 0f, -250f),
-
-                // Final Turn (T18)
                 new Vector3(250f, 0f, -120f),
                 new Vector3(-1000f, 0f, 0f)
             }, 12);
@@ -948,7 +978,7 @@ namespace LocalFormulaRacing
                 return WeatherState.LightRain;
             }
 
-            if (profile.Contains("mixed") && Random.value < 0.35f)
+            if (profile.Contains("mixed"))
             {
                 return WeatherState.LightRain;
             }
@@ -973,13 +1003,16 @@ namespace LocalFormulaRacing
                 runoff = new Color(0.12f, 0.13f, 0.14f);
             }
 
-            roadMaterial = CreateMaterial("Runtime Road", new Color(0.015f, 0.016f, 0.018f), 0.04f, 0.72f);
+            bool rain = Runtime.weather == WeatherState.LightRain || Runtime.weather == WeatherState.HeavyRain;
+            roadMaterial = CreateMaterial("Runtime Road", rain ? new Color(0.008f, 0.011f, 0.014f) : new Color(0.015f, 0.016f, 0.018f), 0.04f, rain ? 0.86f : 0.72f);
             kerbMaterial = CreateMaterial("Runtime Kerb", new Color(0.94f, 0.04f, 0.03f), 0.02f, 0.64f);
             grassMaterial = CreateMaterial("Runtime Runoff", runoff, 0.01f, 0.18f);
             lineMaterial = CreateMaterial("Runtime Track Line", new Color(0.95f, 0.98f, 1f), 0.05f, 0.78f);
             roadEdgeMaterial = CreateMaterial("Runtime Painted Edge", new Color(1f, 0.98f, 0.9f), 0.04f, 0.76f);
             drsPaintMaterial = CreateMaterial("Runtime DRS Paint", new Color(0.02f, 0.32f, 0.95f), 0.06f, 0.82f, new Color(0.01f, 0.05f, 0.18f));
             rubberMaterial = CreateMaterial("Runtime Rubber", new Color(0.003f, 0.003f, 0.003f), 0.01f, 0.24f);
+            asphaltPatchMaterial = CreateMaterial("Runtime Asphalt Patch", new Color(0.033f, 0.036f, 0.039f), 0f, rain ? 0.72f : 0.5f);
+            skidMarkMaterial = CreateMaterial("Runtime Skid Mark", new Color(0.001f, 0.001f, 0.001f, 0.92f), 0f, 0.16f);
             barrierMaterial = CreateMaterial("Runtime Barrier", new Color(0.68f, 0.72f, 0.74f), 0.12f, 0.62f);
             tireBarrierMaterial = CreateMaterial("Runtime Tyre Barrier", new Color(0.015f, 0.016f, 0.017f), 0.02f, 0.28f);
             foliageMaterial = CreateMaterial("Runtime Foliage", new Color(0.04f, 0.32f, 0.12f), 0f, 0.42f);
@@ -1120,7 +1153,7 @@ namespace LocalFormulaRacing
             MeshRenderer renderer = road.AddComponent<MeshRenderer>();
             filter.sharedMesh = mesh;
             renderer.sharedMaterial = roadMaterial;
-            renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.On;
+            renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Simple;
             MeshCollider collider = road.AddComponent<MeshCollider>();
             collider.sharedMesh = null;
             collider.sharedMesh = mesh;
@@ -1164,6 +1197,28 @@ namespace LocalFormulaRacing
                 {
                     CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint");
                     CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint");
+                }
+            }
+        }
+
+        void BuildAsphaltDetail()
+        {
+            float spacing = 24f;
+            for (float d = 0f; d < Runtime.length; d += spacing)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+                float laneBias = Mathf.Sin(normalized * Mathf.PI * 10f) * 0.34f;
+                CreateRoadStripe(point + right * laneBias, forward, Runtime.roadHalfWidth * 0.82f, spacing * 0.76f, asphaltPatchMaterial, "Asphalt grain variation");
+                CreateRoadStripe(point + right * (laneBias * 0.45f), forward, Runtime.roadHalfWidth * 0.42f, spacing * 0.82f, rubberMaterial, "Dark racing line rubber");
+
+                if (Mathf.FloorToInt(d / spacing) % 4 == 1)
+                {
+                    CreateRoadStripe(point - right * 1.05f, forward, 0.16f, 7.6f, skidMarkMaterial, "Heavy braking skid mark");
+                    CreateRoadStripe(point + right * 1.25f, forward, 0.14f, 6.8f, skidMarkMaterial, "Heavy braking skid mark");
                 }
             }
         }
@@ -1279,7 +1334,7 @@ namespace LocalFormulaRacing
 
             GameObject kerb = CreateVisualBox("Painted kerb", position + Vector3.up * 0.075f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1.15f, 0.09f, 4.5f), material);
             MeshRenderer renderer = kerb.GetComponent<MeshRenderer>();
-            renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.On;
+            renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Simple;
         }
 
         void BuildTrackMarkers()
@@ -1767,6 +1822,87 @@ namespace LocalFormulaRacing
             Debug.Log("[TrackValidation] " + Runtime.displayName + " roadContinuous=" + (Runtime.centerLine.Count >= 18) +
                       " roadCollider=" + (Runtime.roadCollider != null && Runtime.roadCollider.sharedMesh != null) +
                       " solidObstacles=" + solidObstacles.Count);
+        }
+
+        void ValidateDecorativeObjectsClearTrack()
+        {
+            MeshRenderer[] renderers = GetComponentsInChildren<MeshRenderer>(true);
+            for (int i = renderers.Length - 1; i >= 0; i--)
+            {
+                MeshRenderer renderer = renderers[i];
+                if (renderer == null || renderer.GetComponentInParent<TrackSolidObstacle>() != null)
+                {
+                    continue;
+                }
+
+                string objectName = renderer.gameObject.name.ToLowerInvariant();
+                if (IsAllowedTrackSurfaceOrOverheadName(objectName))
+                {
+                    continue;
+                }
+
+                if (DecorativeRendererTouchesRacingSurface(renderer))
+                {
+                    Debug.LogWarning("[TrackValidation] Removed decorative object " + renderer.gameObject.name + " because it intersected the racing surface.");
+                    renderer.gameObject.SetActive(false);
+                    Destroy(renderer.gameObject);
+                }
+            }
+        }
+
+        bool DecorativeRendererTouchesRacingSurface(Renderer renderer)
+        {
+            Bounds bounds = renderer.bounds;
+            Vector3 extents = bounds.extents;
+            Vector3[] samples =
+            {
+                bounds.center,
+                bounds.center + new Vector3(extents.x, 0f, 0f),
+                bounds.center - new Vector3(extents.x, 0f, 0f),
+                bounds.center + new Vector3(0f, 0f, extents.z),
+                bounds.center - new Vector3(0f, 0f, extents.z),
+                bounds.center + new Vector3(extents.x, 0f, extents.z),
+                bounds.center + new Vector3(extents.x, 0f, -extents.z),
+                bounds.center + new Vector3(-extents.x, 0f, extents.z),
+                bounds.center + new Vector3(-extents.x, 0f, -extents.z)
+            };
+
+            for (int sample = 0; sample < samples.Length; sample++)
+            {
+                TrackProgress progress = Runtime.GetProgress(samples[sample]);
+                bool nearRoad = Mathf.Abs(progress.lateralDistance) < Runtime.roadHalfWidth + 0.55f;
+                bool nearRoadHeight = bounds.min.y < progress.nearestPoint.y + 2.2f && bounds.max.y > progress.nearestPoint.y - 0.4f;
+                if (nearRoad && nearRoadHeight)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool IsAllowedTrackSurfaceOrOverheadName(string objectName)
+        {
+            string groundName = Runtime == null ? "" : (Runtime.styleName + " runoff").ToLowerInvariant();
+            return objectName == groundName ||
+                   objectName.Contains("procedural road") ||
+                   objectName.Contains("asphalt") ||
+                   objectName.Contains("pit lane") ||
+                   objectName.Contains("pit entry") ||
+                   objectName.Contains("pit release") ||
+                   objectName.Contains("pit exit") ||
+                   objectName.Contains("paint") ||
+                   objectName.Contains("grid") ||
+                   objectName.Contains("line") ||
+                   objectName.Contains("rubber") ||
+                   objectName.Contains("skid") ||
+                   objectName.Contains("kerb") ||
+                   objectName.Contains("drs") ||
+                   objectName.Contains("start finish") ||
+                   objectName.Contains("sector") ||
+                   objectName.Contains("racing line") ||
+                   objectName.Contains("gantry") ||
+                   objectName.Contains("start light");
         }
 
         void AuditVisualMarkingColliders()

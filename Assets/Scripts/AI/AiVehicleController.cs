@@ -117,7 +117,7 @@ namespace LocalFormulaRacing
 
             ApplyTrafficAvoidance(ref command, progress, speedKph);
 
-            float tyrePitThreshold = Mathf.Lerp(0.54f, 0.42f, tyreManagement / 100f);
+            float tyrePitThreshold = Mathf.Lerp(0.68f, 0.52f, tyreManagement / 100f);
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                 vehicle.Tyres.Wear < tyrePitThreshold &&
                 participant.lapTracker.CompletedLaps > 0)

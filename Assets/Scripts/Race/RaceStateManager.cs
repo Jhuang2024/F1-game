@@ -9,6 +9,7 @@ namespace LocalFormulaRacing
         public List<RaceParticipant> SortedOrder { get; private set; } = new List<RaceParticipant>();
 
         private Dictionary<RaceParticipant, SectorSnapshot> sectorSnapshots = new Dictionary<RaceParticipant, SectorSnapshot>();
+        private Dictionary<RaceParticipant, TimingSnapshot> timingSnapshots = new Dictionary<RaceParticipant, TimingSnapshot>();
         private float[] overallBestSectors = new float[3];
         
         public RaceWeekendSession CurrentSession { get; private set; }
@@ -22,6 +23,7 @@ namespace LocalFormulaRacing
             Participants.Clear();
             SortedOrder.Clear();
             sectorSnapshots.Clear();
+            timingSnapshots.Clear();
             FinishedCount = 0;
             for (int i = 0; i < 3; i++) overallBestSectors[i] = 0f;
         }
@@ -32,12 +34,38 @@ namespace LocalFormulaRacing
             {
                 Participants.Add(participant);
                 sectorSnapshots[participant] = new SectorSnapshot();
+                timingSnapshots[participant] = BuildTimingSnapshot(participant);
             }
         }
 
         public void Tick()
         {
+            RefreshTimingSnapshots();
             SortRunningOrder();
+        }
+
+        public void RefreshTimingSnapshots()
+        {
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant participant = Participants[i];
+                if (participant == null)
+                {
+                    continue;
+                }
+
+                timingSnapshots[participant] = BuildTimingSnapshot(participant);
+            }
+        }
+
+        public void RefreshTimingSnapshot(RaceParticipant participant)
+        {
+            if (participant == null)
+            {
+                return;
+            }
+
+            timingSnapshots[participant] = BuildTimingSnapshot(participant);
         }
 
         private void SortRunningOrder()
@@ -66,10 +94,59 @@ namespace LocalFormulaRacing
                     return b.retired ? -1 : 1;
                 }
 
-                float aDistance = a.lapTracker == null ? 0f : a.lapTracker.TotalProgressDistance;
-                float bDistance = b.lapTracker == null ? 0f : b.lapTracker.TotalProgressDistance;
+                float aDistance = GetProgressDistance(a);
+                float bDistance = GetProgressDistance(b);
                 return bDistance.CompareTo(aDistance);
             });
+        }
+
+        public float GetProgressDistance(RaceParticipant participant)
+        {
+            TimingSnapshot snapshot;
+            if (participant != null && timingSnapshots.TryGetValue(participant, out snapshot) && snapshot.valid)
+            {
+                return snapshot.totalProgressDistance;
+            }
+
+            return participant == null || participant.lapTracker == null ? 0f : participant.lapTracker.TotalProgressDistance;
+        }
+
+        public int GetCompletedLaps(RaceParticipant participant)
+        {
+            TimingSnapshot snapshot;
+            if (participant != null && timingSnapshots.TryGetValue(participant, out snapshot) && snapshot.valid)
+            {
+                return snapshot.completedLaps;
+            }
+
+            return participant == null || participant.lapTracker == null ? 0 : participant.lapTracker.CompletedLaps;
+        }
+
+        public TrackProgress GetCurrentProgress(RaceParticipant participant)
+        {
+            TimingSnapshot snapshot;
+            if (participant != null && timingSnapshots.TryGetValue(participant, out snapshot) && snapshot.valid)
+            {
+                return snapshot.progress;
+            }
+
+            return participant == null || participant.lapTracker == null ? new TrackProgress() : participant.lapTracker.CurrentProgress;
+        }
+
+        TimingSnapshot BuildTimingSnapshot(RaceParticipant participant)
+        {
+            if (participant == null || participant.lapTracker == null)
+            {
+                return new TimingSnapshot();
+            }
+
+            return new TimingSnapshot
+            {
+                valid = true,
+                completedLaps = participant.lapTracker.CompletedLaps,
+                totalProgressDistance = participant.lapTracker.TotalProgressDistance,
+                progress = participant.lapTracker.CurrentProgress
+            };
         }
 
         public void OnSectorComplete(RaceParticipant participant, int sector, float sectorTime, bool invalidated)
@@ -127,6 +204,8 @@ namespace LocalFormulaRacing
                         participant.lapTracker.ConfigureRaceGridStart();
                 }
 
+                timingSnapshots[participant] = BuildTimingSnapshot(participant);
+
                 participant.finished = false;
                 participant.retired = false;
                 participant.finishingPosition = 0;
@@ -156,6 +235,14 @@ namespace LocalFormulaRacing
             public float s1;
             public float s2;
             public float s3;
+        }
+
+        struct TimingSnapshot
+        {
+            public bool valid;
+            public int completedLaps;
+            public float totalProgressDistance;
+            public TrackProgress progress;
         }
     }
 }

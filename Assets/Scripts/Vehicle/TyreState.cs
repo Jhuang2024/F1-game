@@ -25,8 +25,8 @@ namespace LocalFormulaRacing
 
             if (compound == TyreCompound.Soft)
             {
-                baseGrip = 1.08f;
-                baseWear = 1.22f;
+                baseGrip = 1.11f;
+                baseWear = 1.88f;
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
@@ -36,7 +36,7 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Medium)
             {
                 baseGrip = 1f;
-                baseWear = 1f;
+                baseWear = 1.34f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
@@ -45,8 +45,8 @@ namespace LocalFormulaRacing
             }
             else if (compound == TyreCompound.Hard)
             {
-                baseGrip = 0.94f;
-                baseWear = 0.72f;
+                baseGrip = 0.93f;
+                baseWear = 0.9f;
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;
@@ -55,8 +55,8 @@ namespace LocalFormulaRacing
             }
             else if (compound == TyreCompound.Intermediate)
             {
-                baseGrip = 0.88f;
-                baseWear = 1.08f;
+                baseGrip = 0.9f;
+                baseWear = 1.42f;
                 targetMin = 58f;
                 targetMax = 82f;
                 warmup = 1.05f;
@@ -66,7 +66,7 @@ namespace LocalFormulaRacing
             else
             {
                 baseGrip = 0.78f;
-                baseWear = 1.18f;
+                baseWear = 1.55f;
                 targetMin = 45f;
                 targetMax = 70f;
                 warmup = 1.1f;
@@ -90,19 +90,29 @@ namespace LocalFormulaRacing
 
             IsLocked = brake > 0.84f && speedKph > 105f && Random.value < deltaTime * Mathf.Lerp(0.65f, 1.25f, Mathf.Clamp01(1f - TemperatureWindowScore));
             float management = Mathf.Lerp(1.35f, 0.72f, Mathf.Clamp01(tyreManagement / 100f));
-            float weatherWear = weather == WeatherState.Clear || weather == WeatherState.Cloudy ? 1.04f : 1.24f;
-            float lockupWear = IsLocked ? 0.024f : 0f;
-            float overheatWear = Mathf.Lerp(1f, 2.15f, Mathf.InverseLerp(targetMax, targetMax + 22f, Temperature));
-            float slideWear = slipEnergy * 0.00165f;
-            float baselineWear = speedHeat * 0.00124f + Mathf.Abs(steer) * 0.00068f + brake * 0.00058f + slideWear;
-            float wearLoss = (baselineWear * baseWear * management * weatherWear * overheatWear) + lockupWear;
+            float weatherWear = weather == WeatherState.Clear || weather == WeatherState.Cloudy ? 1.08f : 1.32f;
+            if ((weather == WeatherState.Clear || weather == WeatherState.Cloudy) && (Compound == TyreCompound.Intermediate || Compound == TyreCompound.Wet))
+            {
+                weatherWear *= Compound == TyreCompound.Wet ? 2.2f : 1.75f;
+            }
+            else if ((weather == WeatherState.LightRain || weather == WeatherState.HeavyRain) && Compound != TyreCompound.Intermediate && Compound != TyreCompound.Wet)
+            {
+                weatherWear *= 1.42f;
+            }
+
+            float lockupWear = IsLocked ? 0.026f : 0f;
+            float overheatWear = Mathf.Lerp(1f, 2.35f, Mathf.InverseLerp(targetMax - 2f, targetMax + 32f, Temperature));
+            float wornHeatWear = Mathf.Lerp(1f, 1.42f, Mathf.InverseLerp(0.62f, 0.18f, Wear));
+            float slideWear = slipEnergy * 0.00195f;
+            float baselineWear = speedHeat * 0.00135f + Mathf.Abs(steer) * 0.00082f + brake * 0.00062f + slideWear;
+            baselineWear *= Mathf.Lerp(0.86f, 1.28f, Mathf.InverseLerp(110f, 315f, speedKph));
+            float wearLoss = (baselineWear * baseWear * management * weatherWear * overheatWear * wornHeatWear) + lockupWear;
             Wear = Mathf.Clamp01(Wear - wearLoss * deltaTime);
         }
 
         public float GripMultiplier(WeatherState weather)
         {
             float tempGrip = TemperatureGripMultiplier;
-            // Aggressive wear drop: Significant linear drop followed by a steep cliff.
             float wearGrip = Wear > 0.65f ? Mathf.Lerp(0.82f, 1f, (Wear - 0.65f) / 0.35f) :
                              (Wear > 0.35f ? Mathf.Lerp(0.55f, 0.82f, (Wear - 0.35f) / 0.30f) :
                                              Mathf.Lerp(0.12f, 0.55f, Wear / 0.35f));

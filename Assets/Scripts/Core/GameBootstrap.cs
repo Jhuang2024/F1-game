@@ -80,6 +80,11 @@ namespace LocalFormulaRacing
 
         public void StartQuickRace()
         {
+            ui.ShowRaceTyreSelect(data, career, settings, false);
+        }
+
+        public void BeginQuickRace()
+        {
             CalendarEventData raceEvent = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : career.CurrentEvent();
             SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
             raceManager.StartRace(
@@ -144,6 +149,11 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            ui.ShowRaceTyreSelect(data, career, settings, true);
+        }
+
+        public void BeginCareerRace()
+        {
             CalendarEventData raceEvent = career.CurrentEvent();
             SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
             raceManager.StartSession(

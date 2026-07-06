@@ -319,6 +319,11 @@ namespace LocalFormulaRacing
                 if (participant.lapTracker != null)
                 {
                     participant.lapTracker.Tick();
+                    if (State != null)
+                    {
+                        State.RefreshTimingSnapshot(participant);
+                    }
+
                     UpdateSectorRecords(participant);
                     if (participant.isPlayer && CurrentSession == RaceWeekendSession.Qualifying)
                     {
@@ -704,7 +709,7 @@ namespace LocalFormulaRacing
                 return null;
             }
 
-            float self = participant.lapTracker.TotalProgressDistance;
+            float self = State == null ? participant.lapTracker.TotalProgressDistance : State.GetProgressDistance(participant);
             float bestDelta = maxMeters;
             RaceParticipant best = null;
             for (int i = 0; i < Participants.Count; i++)
@@ -715,7 +720,8 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                float delta = other.lapTracker.TotalProgressDistance - self;
+                float otherDistance = State == null ? other.lapTracker.TotalProgressDistance : State.GetProgressDistance(other);
+                float delta = otherDistance - self;
                 if (delta > 0f && delta < bestDelta)
                 {
                     bestDelta = delta;
@@ -733,7 +739,7 @@ namespace LocalFormulaRacing
                 return null;
             }
 
-            float self = participant.lapTracker.TotalProgressDistance;
+            float self = State == null ? participant.lapTracker.TotalProgressDistance : State.GetProgressDistance(participant);
             float bestDelta = maxMeters;
             RaceParticipant best = null;
             for (int i = 0; i < Participants.Count; i++)
@@ -744,7 +750,8 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                float delta = self - other.lapTracker.TotalProgressDistance;
+                float otherDistance = State == null ? other.lapTracker.TotalProgressDistance : State.GetProgressDistance(other);
+                float delta = self - otherDistance;
                 if (delta > 0f && delta < bestDelta)
                 {
                     bestDelta = delta;
@@ -821,7 +828,8 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            if (!Track.IsInDrsZone(participant.lapTracker.CurrentProgress.normalized))
+            TrackProgress progress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
+            if (!Track.IsInDrsZone(progress.normalized))
             {
                 return false;
             }
@@ -842,7 +850,7 @@ namespace LocalFormulaRacing
         public string DrsStateText(RaceParticipant participant)
         {
             if (participant == null || participant.vehicle == null || participant.lapTracker == null || Track == null ||
-                !Track.IsInDrsZone(participant.lapTracker.CurrentProgress.normalized))
+                !Track.IsInDrsZone((State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant)).normalized))
             {
                 return "UNAVAILABLE";
             }
@@ -925,7 +933,9 @@ namespace LocalFormulaRacing
                 return "--";
             }
 
-            float deltaMeters = ahead.lapTracker.TotalProgressDistance - participant.lapTracker.TotalProgressDistance;
+            float aheadDistance = State == null ? ahead.lapTracker.TotalProgressDistance : State.GetProgressDistance(ahead);
+            float selfDistance = State == null ? participant.lapTracker.TotalProgressDistance : State.GetProgressDistance(participant);
+            float deltaMeters = aheadDistance - selfDistance;
             float speed = Mathf.Max(18f, participant.vehicle == null ? 32f : participant.vehicle.CurrentSpeedKph / 3.6f);
             return (deltaMeters / speed).ToString("0.0") + "s";
         }
@@ -938,7 +948,9 @@ namespace LocalFormulaRacing
                 return 999f;
             }
 
-            float deltaMeters = ahead.lapTracker.TotalProgressDistance - participant.lapTracker.TotalProgressDistance;
+            float aheadDistance = State == null ? ahead.lapTracker.TotalProgressDistance : State.GetProgressDistance(ahead);
+            float participantDistance = State == null ? participant.lapTracker.TotalProgressDistance : State.GetProgressDistance(participant);
+            float deltaMeters = aheadDistance - participantDistance;
             float speed = Mathf.Max(24f, participant.vehicle == null ? 36f : Mathf.Abs(participant.vehicle.CurrentSpeedKph) / 3.6f);
             return Mathf.Max(0f, deltaMeters / speed);
         }
@@ -991,7 +1003,9 @@ namespace LocalFormulaRacing
             }
 
             RaceParticipant leader = State.SortedOrder[0];
-            float deltaMeters = leader.lapTracker.TotalProgressDistance - participant.lapTracker.TotalProgressDistance;
+            float leaderDistance = State.GetProgressDistance(leader);
+            float participantDistance = State.GetProgressDistance(participant);
+            float deltaMeters = leaderDistance - participantDistance;
             if (Track != null && deltaMeters >= Track.length * 0.92f)
             {
                 int laps = Mathf.Max(1, Mathf.RoundToInt(deltaMeters / Mathf.Max(1f, Track.length)));
@@ -1013,7 +1027,9 @@ namespace LocalFormulaRacing
             }
 
             RaceParticipant ahead = State.SortedOrder[index - 1];
-            float deltaMeters = ahead.lapTracker.TotalProgressDistance - participant.lapTracker.TotalProgressDistance;
+            float aheadDistance = State.GetProgressDistance(ahead);
+            float participantDistance = State.GetProgressDistance(participant);
+            float deltaMeters = aheadDistance - participantDistance;
             if (Track != null && deltaMeters >= Track.length * 0.92f)
             {
                 int laps = Mathf.Max(1, Mathf.RoundToInt(deltaMeters / Mathf.Max(1f, Track.length)));
@@ -1032,7 +1048,9 @@ namespace LocalFormulaRacing
                 return "--";
             }
 
-            float deltaMeters = participant.lapTracker.TotalProgressDistance - behind.lapTracker.TotalProgressDistance;
+            float participantDistance = State == null ? participant.lapTracker.TotalProgressDistance : State.GetProgressDistance(participant);
+            float behindDistance = State == null ? behind.lapTracker.TotalProgressDistance : State.GetProgressDistance(behind);
+            float deltaMeters = participantDistance - behindDistance;
             float speed = Mathf.Max(18f, behind.vehicle == null ? 32f : behind.vehicle.CurrentSpeedKph / 3.6f);
             return (deltaMeters / speed).ToString("0.0") + "s";
         }
@@ -1099,7 +1117,8 @@ namespace LocalFormulaRacing
                 return "--";
             }
 
-            float progress = Mathf.Clamp(participant.lapTracker.CurrentProgress.normalized, 0.02f, 0.995f);
+            TrackProgress currentProgress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
+            float progress = Mathf.Clamp(currentProgress.normalized, 0.02f, 0.995f);
             float reference = pole * progress;
             float delta = participant.lapTracker.CurrentLapTime - reference;
             string color = delta <= 0f ? "#6CFF8D" : "#FF6C6C";
@@ -1639,7 +1658,7 @@ namespace LocalFormulaRacing
             }
             else
             {
-                lapTracker.ConfigureRaceGridStart();
+                lapTracker.ConfigureRaceGridStart(gridDistance);
             }
 
             participant.vehicle = controller;
@@ -1820,6 +1839,8 @@ namespace LocalFormulaRacing
             Material helmetMaterial = CreateMaterial(driverName + " helmet", Color.Lerp(secondary, Color.white, 0.35f), 0.15f, 0.88f);
             Material inletMaterial = CreateMaterial(driverName + " inlet shadow", new Color(0.002f, 0.003f, 0.004f), 0f, 0.48f);
             Material detailMaterial = CreateMaterial(driverName + " tech detail", new Color(0.12f, 0.14f, 0.16f), 0.55f, 0.78f);
+            Material brakeDiscMaterial = CreateMaterial(driverName + " brake disc", new Color(0.34f, 0.34f, 0.32f), 0.42f, 0.48f);
+            Material caliperMaterial = CreateMaterial(driverName + " brake caliper", Color.Lerp(secondary, Color.black, 0.18f), 0.12f, 0.55f);
 
             CreateTaperedBox(root.transform, "survival cell", new Vector3(0f, 0.38f, 0.0f), 0.64f, 1.04f, 0.42f, 2.35f, primaryMaterial);
             CreateTaperedBox(root.transform, "carbon floor", new Vector3(0f, 0.14f, -0.18f), 1.34f, 1.62f, 0.1f, 3.72f, floorMaterial);
@@ -1833,17 +1854,17 @@ namespace LocalFormulaRacing
             CreateChildCube(root.transform, "nose detail upper", new Vector3(0f, 0.46f, 1.63f), new Vector3(0.18f, 0.055f, 1.52f), secondaryMaterial);
             CreateChildCube(root.transform, "nose detail tip", new Vector3(0f, 0.22f, 2.58f), new Vector3(0.12f, 0.08f, 0.18f), detailMaterial);
 
-            // Front Wing - Multi-element
             CreateChildCube(root.transform, "front wing base", new Vector3(0f, 0.17f, 2.55f), new Vector3(1.95f, 0.06f, 0.42f), secondaryMaterial);
             CreateChildCube(root.transform, "front wing upper flap", new Vector3(0f, 0.28f, 2.68f), new Vector3(1.85f, 0.04f, 0.22f), primaryMaterial);
+            CreateChildCube(root.transform, "front wing carbon element", new Vector3(0f, 0.34f, 2.86f), new Vector3(1.58f, 0.045f, 0.16f), detailMaterial);
             CreateChildCube(root.transform, "left front endplate", new Vector3(-1.02f, 0.24f, 2.55f), new Vector3(0.06f, 0.35f, 0.48f), secondaryMaterial);
             CreateChildCube(root.transform, "right front endplate", new Vector3(1.02f, 0.24f, 2.55f), new Vector3(0.06f, 0.35f, 0.48f), secondaryMaterial);
 
-            // Rear Wing - DR-S style
             CreateChildCube(root.transform, "rear wing pillar left", new Vector3(-0.25f, 0.65f, -1.95f), new Vector3(0.05f, 0.35f, 0.08f), detailMaterial);
             CreateChildCube(root.transform, "rear wing pillar right", new Vector3(0.25f, 0.65f, -1.95f), new Vector3(0.05f, 0.35f, 0.08f), detailMaterial);
             CreateChildCube(root.transform, "rear wing main plane", new Vector3(0f, 0.62f, -2.02f), new Vector3(1.72f, 0.12f, 0.38f), secondaryMaterial);
             CreateChildCube(root.transform, "rear wing flap", new Vector3(0f, 0.82f, -2.18f), new Vector3(1.65f, 0.08f, 0.24f), primaryMaterial);
+            CreateChildCube(root.transform, "rear beam wing", new Vector3(0f, 0.41f, -2.04f), new Vector3(1.52f, 0.07f, 0.2f), detailMaterial);
             CreateChildCube(root.transform, "left rear endplate", new Vector3(-0.92f, 0.72f, -2.08f), new Vector3(0.08f, 0.65f, 0.42f), secondaryMaterial);
             CreateChildCube(root.transform, "right rear endplate", new Vector3(0.92f, 0.72f, -2.08f), new Vector3(0.08f, 0.65f, 0.42f), secondaryMaterial);
 
@@ -1852,18 +1873,19 @@ namespace LocalFormulaRacing
             CreateTaperedBox(root.transform, "rear diffuser", new Vector3(0f, 0.18f, -1.94f), 1.12f, 1.48f, 0.18f, 0.72f, floorMaterial);
             CreateChildCube(root.transform, "airbox", new Vector3(0f, 0.98f, -0.34f), new Vector3(0.35f, 0.22f, 0.52f), secondaryMaterial);
 
-            // Cockpit Detail
             CreateChildCube(root.transform, "halo center", new Vector3(0f, 0.88f, 0.52f), new Vector3(0.06f, 0.18f, 0.08f), detailMaterial);
             CreateChildCube(root.transform, "halo rim", new Vector3(0f, 0.95f, 0.28f), new Vector3(0.74f, 0.06f, 0.72f), secondaryMaterial);
+            CreateChildCube(root.transform, "left halo stay", new Vector3(-0.32f, 0.78f, 0.22f), new Vector3(0.055f, 0.32f, 0.07f), detailMaterial);
+            CreateChildCube(root.transform, "right halo stay", new Vector3(0.32f, 0.78f, 0.22f), new Vector3(0.055f, 0.32f, 0.07f), detailMaterial);
             CreateChildSphere(root.transform, "cockpit visor", new Vector3(0f, 0.78f, 0.44f), new Vector3(0.48f, 0.24f, 0.52f), visorMaterial);
             CreateChildSphere(root.transform, "driver helmet", new Vector3(0f, 0.88f, 0.2f), new Vector3(0.32f, 0.32f, 0.32f), helmetMaterial);
             CreateChildCube(root.transform, "steering wheel", new Vector3(0f, 0.76f, 0.62f), new Vector3(0.24f, 0.18f, 0.05f), detailMaterial);
 
             CreateSuspension(root.transform, floorMaterial, detailMaterial);
-            CreateWheel(root.transform, new Vector3(-1.05f, 0.22f, 1.35f), tyreMaterial, rimMaterial);
-            CreateWheel(root.transform, new Vector3(1.05f, 0.22f, 1.35f), tyreMaterial, rimMaterial);
-            CreateWheel(root.transform, new Vector3(-1.05f, 0.22f, -1.35f), tyreMaterial, rimMaterial);
-            CreateWheel(root.transform, new Vector3(1.05f, 0.22f, -1.35f), tyreMaterial, rimMaterial);
+            CreateWheel(root.transform, new Vector3(-1.08f, 0.22f, 1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
+            CreateWheel(root.transform, new Vector3(1.08f, 0.22f, 1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
+            CreateWheel(root.transform, new Vector3(-1.08f, 0.22f, -1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
+            CreateWheel(root.transform, new Vector3(1.08f, 0.22f, -1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
 
             return root;
         }
@@ -1874,9 +1896,6 @@ namespace LocalFormulaRacing
             meshObject.transform.SetParent(parent);
             meshObject.transform.localPosition = localPosition;
             meshObject.transform.localRotation = Quaternion.identity;
-
-            MeshRenderer renderer = meshObject.AddComponent<MeshRenderer>();
-            renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.On;
 
             float front = length * 0.5f;
             float rear = -length * 0.5f;
@@ -1907,6 +1926,7 @@ namespace LocalFormulaRacing
             MeshRenderer renderer = meshObject.AddComponent<MeshRenderer>();
             filter.sharedMesh = mesh;
             renderer.sharedMaterial = material;
+            renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Simple;
         }
 
         void CreateChildCube(Transform parent, string objectName, Vector3 localPosition, Vector3 localScale, Material material)
@@ -1941,14 +1961,14 @@ namespace LocalFormulaRacing
             }
         }
 
-        void CreateWheel(Transform parent, Vector3 localPosition, Material tyreMaterial, Material rimMaterial)
+        void CreateWheel(Transform parent, Vector3 localPosition, Material tyreMaterial, Material rimMaterial, Material brakeDiscMaterial, Material caliperMaterial)
         {
             GameObject wheel = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             wheel.name = "open wheel";
             wheel.transform.SetParent(parent);
             wheel.transform.localPosition = localPosition;
             wheel.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
-            wheel.transform.localScale = new Vector3(0.34f, 0.18f, 0.34f);
+            wheel.transform.localScale = new Vector3(0.38f, 0.25f, 0.38f);
             wheel.GetComponent<Renderer>().sharedMaterial = tyreMaterial;
             Collider collider = wheel.GetComponent<Collider>();
             if (collider != null)
@@ -1961,12 +1981,39 @@ namespace LocalFormulaRacing
             rim.transform.SetParent(parent);
             rim.transform.localPosition = localPosition;
             rim.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
-            rim.transform.localScale = new Vector3(0.2f, 0.195f, 0.2f);
+            rim.transform.localScale = new Vector3(0.22f, 0.265f, 0.22f);
             rim.GetComponent<Renderer>().sharedMaterial = rimMaterial;
             Collider rimCollider = rim.GetComponent<Collider>();
             if (rimCollider != null)
             {
                 Destroy(rimCollider);
+            }
+
+            float inboard = localPosition.x < 0f ? 0.14f : -0.14f;
+            GameObject disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            disc.name = "brake disc";
+            disc.transform.SetParent(parent);
+            disc.transform.localPosition = localPosition + new Vector3(inboard, 0f, 0f);
+            disc.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            disc.transform.localScale = new Vector3(0.17f, 0.035f, 0.17f);
+            disc.GetComponent<Renderer>().sharedMaterial = brakeDiscMaterial;
+            Collider discCollider = disc.GetComponent<Collider>();
+            if (discCollider != null)
+            {
+                Destroy(discCollider);
+            }
+
+            GameObject caliper = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            caliper.name = "brake caliper";
+            caliper.transform.SetParent(parent);
+            caliper.transform.localPosition = localPosition + new Vector3(inboard * 1.08f, 0.1f, 0.04f);
+            caliper.transform.localRotation = Quaternion.identity;
+            caliper.transform.localScale = new Vector3(0.07f, 0.16f, 0.12f);
+            caliper.GetComponent<Renderer>().sharedMaterial = caliperMaterial;
+            Collider caliperCollider = caliper.GetComponent<Collider>();
+            if (caliperCollider != null)
+            {
+                Destroy(caliperCollider);
             }
         }
 
@@ -2061,30 +2108,37 @@ namespace LocalFormulaRacing
             bool night = trackId.Contains("singapore") || trackId.Contains("las_vegas");
             bool desert = trackId.Contains("bahrain") || trackId.Contains("abu_dhabi") || trackId.Contains("qatar");
             bool park = trackId.Contains("silverstone") || trackId.Contains("melbourne") || trackId.Contains("monza") || trackId.Contains("interlagos") || trackId.Contains("spa") || trackId.Contains("suzuka") || trackId.Contains("austria") || trackId.Contains("zandvoort");
+            string weatherProfile = EventData == null || string.IsNullOrEmpty(EventData.weatherProfile) ? "" : EventData.weatherProfile.ToLowerInvariant();
+            bool rainThreat = weatherProfile.Contains("wet") || weatherProfile.Contains("mixed");
 
             QualitySettings.antiAliasing = 8;
+            QualitySettings.shadows = ShadowQuality.All;
             QualitySettings.shadowDistance = 450f;
             QualitySettings.shadowResolution = ShadowResolution.VeryHigh;
 
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = night ? new Color(0.08f, 0.12f, 0.22f) : new Color(0.42f, 0.58f, 0.74f);
-            RenderSettings.ambientEquatorColor = night ? new Color(0.05f, 0.08f, 0.14f) : new Color(0.45f, 0.42f, 0.38f);
-            RenderSettings.ambientGroundColor = night ? new Color(0.01f, 0.01f, 0.02f) : new Color(0.18f, 0.16f, 0.14f);
+            RenderSettings.ambientSkyColor = night ? new Color(0.08f, 0.12f, 0.22f) : (rainThreat ? new Color(0.28f, 0.36f, 0.42f) : new Color(0.42f, 0.58f, 0.74f));
+            RenderSettings.ambientEquatorColor = night ? new Color(0.05f, 0.08f, 0.14f) : (rainThreat ? new Color(0.28f, 0.32f, 0.34f) : new Color(0.45f, 0.42f, 0.38f));
+            RenderSettings.ambientGroundColor = night ? new Color(0.01f, 0.01f, 0.02f) : (rainThreat ? new Color(0.08f, 0.09f, 0.1f) : new Color(0.18f, 0.16f, 0.14f));
+            RenderSettings.reflectionIntensity = rainThreat ? 0.78f : 0.46f;
 
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogDensity = 0.00015f;
-            RenderSettings.fogColor = night ? new Color(0.015f, 0.02f, 0.035f) : (desert ? new Color(0.65f, 0.55f, 0.42f) : new Color(0.44f, 0.54f, 0.52f));
+            RenderSettings.fogDensity = rainThreat ? 0.00024f : 0.00015f;
+            RenderSettings.fogColor = night ? new Color(0.015f, 0.02f, 0.035f) : (rainThreat ? new Color(0.28f, 0.34f, 0.36f) : (desert ? new Color(0.65f, 0.55f, 0.42f) : new Color(0.44f, 0.54f, 0.52f)));
+            RenderSettings.skybox = null;
 
             GameObject lightObject = new GameObject("Primary Sun");
             lightObject.transform.SetParent(raceWorld.transform);
             lightObject.transform.rotation = Quaternion.Euler(night ? -15f : (desert ? 32f : 48f), desert ? -42f : -56f, 0f);
             Light light = lightObject.AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = night ? 0.08f : (desert ? 1.55f : 1.25f);
-            light.color = night ? new Color(0.6f, 0.7f, 1f) : (desert ? new Color(1f, 0.85f, 0.65f) : new Color(0.98f, 0.96f, 0.94f));
+            light.intensity = night ? 0.08f : (rainThreat ? 0.92f : (desert ? 1.55f : 1.25f));
+            light.color = night ? new Color(0.6f, 0.7f, 1f) : (rainThreat ? new Color(0.76f, 0.86f, 0.92f) : (desert ? new Color(1f, 0.85f, 0.65f) : new Color(0.98f, 0.96f, 0.94f)));
             light.shadows = LightShadows.Soft;
-            light.shadowStrength = 0.92f;
+            light.shadowStrength = rainThreat ? 0.68f : 0.92f;
+            light.shadowBias = 0.035f;
+            light.shadowNormalBias = 0.22f;
 
             GameObject fill = new GameObject("Atmospheric Fill");
             fill.transform.SetParent(raceWorld.transform);
@@ -2094,6 +2148,15 @@ namespace LocalFormulaRacing
             fillLight.intensity = night ? 1.8f : 0.64f;
             fillLight.range = 350f;
             fillLight.shadows = LightShadows.None;
+
+            GameObject probeObject = new GameObject("Runtime reflection probe");
+            probeObject.transform.SetParent(raceWorld.transform);
+            probeObject.transform.position = new Vector3(40f, 18f, 40f);
+            ReflectionProbe probe = probeObject.AddComponent<ReflectionProbe>();
+            probe.mode = UnityEngine.Rendering.ReflectionProbeMode.Realtime;
+            probe.refreshMode = UnityEngine.Rendering.ReflectionProbeRefreshMode.EveryFrame;
+            probe.intensity = rainThreat ? 0.78f : 0.46f;
+            probe.size = new Vector3(520f, 120f, 520f);
 
             if (night)
             {
@@ -2169,7 +2232,8 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            float normalized = participant.lapTracker.CurrentProgress.normalized;
+            TrackProgress currentProgress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
+            float normalized = currentProgress.normalized;
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
                 if (participant.pitPhase == PitPhase.QualifyingReturn)

@@ -34,6 +34,8 @@ namespace LocalFormulaRacing
             followCamera.fieldOfView = 60f;
             followCamera.nearClipPlane = 0.12f;
             followCamera.farClipPlane = 1200f;
+            followCamera.allowHDR = true;
+            followCamera.allowMSAA = true;
             followCamera.backgroundColor = RenderSettings.fogColor;
             AudioListener listener = followCamera.GetComponent<AudioListener>();
             if (listener == null)
