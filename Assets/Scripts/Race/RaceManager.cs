@@ -1804,21 +1804,21 @@ namespace LocalFormulaRacing
             Rigidbody body = root.AddComponent<Rigidbody>();
             body.useGravity = true;
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
-            body.solverIterations = 12;
-            body.solverVelocityIterations = 4;
+            body.solverIterations = 14;
+            body.solverVelocityIterations = 6;
             BoxCollider collider = root.AddComponent<BoxCollider>();
             collider.size = new Vector3(1.75f, 0.68f, 4.7f);
             collider.center = new Vector3(0f, 0.22f, 0.08f);
             collider.sharedMaterial = GetCarBodyPhysicsMaterial();
 
-            Material primaryMaterial = CreateMaterial(driverName + " primary", primary, 0.05f, 0.68f);
-            Material secondaryMaterial = CreateMaterial(driverName + " secondary", secondary, 0.02f, 0.54f);
-            Material tyreMaterial = CreateMaterial(driverName + " tyre", new Color(0.011f, 0.012f, 0.014f), 0f, 0.18f);
-            Material rimMaterial = CreateMaterial(driverName + " rim", new Color(0.78f, 0.78f, 0.74f), 0.35f, 0.62f);
-            Material floorMaterial = CreateMaterial(driverName + " carbon floor", new Color(0.018f, 0.021f, 0.024f), 0.1f, 0.5f);
-            Material visorMaterial = CreateMaterial(driverName + " visor", new Color(0.02f, 0.055f, 0.08f), 0f, 0.86f);
-            Material helmetMaterial = CreateMaterial(driverName + " helmet", Color.Lerp(secondary, Color.white, 0.28f), 0.05f, 0.7f);
-            Material inletMaterial = CreateMaterial(driverName + " inlet shadow", new Color(0.006f, 0.008f, 0.01f), 0f, 0.38f);
+            Material primaryMaterial = CreateMaterial(driverName + " primary", primary, 0.18f, 0.82f);
+            Material secondaryMaterial = CreateMaterial(driverName + " secondary", secondary, 0.14f, 0.78f);
+            Material tyreMaterial = CreateMaterial(driverName + " tyre", new Color(0.01f, 0.01f, 0.012f), 0.01f, 0.22f);
+            Material rimMaterial = CreateMaterial(driverName + " rim", new Color(0.72f, 0.72f, 0.7f), 0.55f, 0.74f);
+            Material floorMaterial = CreateMaterial(driverName + " carbon floor", new Color(0.015f, 0.018f, 0.02f), 0.22f, 0.58f);
+            Material visorMaterial = CreateMaterial(driverName + " visor", new Color(0.02f, 0.06f, 0.1f), 0.35f, 0.92f);
+            Material helmetMaterial = CreateMaterial(driverName + " helmet", Color.Lerp(secondary, Color.white, 0.32f), 0.12f, 0.85f);
+            Material inletMaterial = CreateMaterial(driverName + " inlet shadow", new Color(0.004f, 0.005f, 0.006f), 0f, 0.42f);
 
             CreateTaperedBox(root.transform, "survival cell", new Vector3(0f, 0.38f, 0.0f), 0.64f, 1.04f, 0.42f, 2.35f, primaryMaterial);
             CreateTaperedBox(root.transform, "carbon floor", new Vector3(0f, 0.14f, -0.18f), 1.34f, 1.62f, 0.1f, 3.72f, floorMaterial);
@@ -1859,6 +1859,9 @@ namespace LocalFormulaRacing
             meshObject.transform.SetParent(parent);
             meshObject.transform.localPosition = localPosition;
             meshObject.transform.localRotation = Quaternion.identity;
+
+            MeshRenderer renderer = meshObject.AddComponent<MeshRenderer>();
+            renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.On;
 
             float front = length * 0.5f;
             float rear = -length * 0.5f;

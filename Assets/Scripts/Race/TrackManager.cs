@@ -448,41 +448,41 @@ namespace LocalFormulaRacing
         void BuildSuzukaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Technical figure-eight Park";
-            runtime.roadHalfWidth = 9.4f;
-            runtime.kerbStart = 8.35f;
-            runtime.drsZoneOne = new Vector2(0.885f, 0.08f);
-            runtime.drsZoneTwo = new Vector2(0.55f, 0.68f);
+            runtime.roadHalfWidth = 10.5f;
+            runtime.kerbStart = 9.2f;
+            runtime.drsZoneOne = new Vector2(0.91f, 0.08f);
+            runtime.drsZoneTwo = new Vector2(0.6f, 0.74f);
             AddSmoothedAnchors(runtime, new[]
             {
                 // Start/Finish straight
-                new Vector3(0f, 0f, 0f), new Vector3(145f, 0f, 0f),
+                new Vector3(0f, 0f, 0f), new Vector3(320f, 0f, 0f),
                 // First corner (T1 & T2)
-                new Vector3(205f, 0f, 25f), new Vector3(228f, 0f, 78f),
+                new Vector3(480f, 0f, 40f), new Vector3(520f, 0f, 150f),
                 // Esses (T3-T6)
-                new Vector3(188f, 1.2f, 128f), new Vector3(142f, 2.8f, 156f), new Vector3(112f, 3.4f, 192f), new Vector3(138f, 3.1f, 238f),
+                new Vector3(440f, 1.8f, 240f), new Vector3(320f, 3.8f, 300f), new Vector3(260f, 5.2f, 400f), new Vector3(320f, 4.8f, 500f),
                 // Dunlop Curve (T7)
-                new Vector3(196f, 1.8f, 264f), new Vector3(258f, 0.4f, 246f),
+                new Vector3(460f, 2.8f, 580f), new Vector3(640f, 0.8f, 540f),
                 // Degner Curves (T8 & T9)
-                new Vector3(284f, 0f, 188f), new Vector3(262f, -1f, 142f), new Vector3(306f, -1.8f, 126f),
-                // Under the bridge
-                new Vector3(348f, -2.4f, 158f), new Vector3(372f, -2.2f, 218f),
-                // Hairpin (T11)
-                new Vector3(344f, -1.5f, 276f), new Vector3(286f, -1.2f, 282f),
+                new Vector3(740f, -0.2f, 380f), new Vector3(680f, -1.8f, 240f), new Vector3(800f, -3.4f, 180f),
+                // Under the bridge (Crossover point)
+                new Vector3(980f, -5.8f, 240f), new Vector3(1050f, -5.2f, 440f),
+                // Hairpin (T11) - Tight 180
+                new Vector3(1020f, -3.2f, 620f), new Vector3(940f, -2.8f, 660f), new Vector3(860f, -3.1f, 600f),
                 // 200R (T12)
-                new Vector3(224f, 0.5f, 318f), new Vector3(164f, 2.4f, 362f),
+                new Vector3(720f, 0.6f, 740f), new Vector3(520f, 3.8f, 880f),
                 // Spoon Curve (T13 & T14)
-                new Vector3(88f, 4.2f, 388f), new Vector3(22f, 4.8f, 372f), new Vector3(-24f, 5.1f, 328f), new Vector3(18f, 5.2f, 284f),
+                new Vector3(240f, 7.2f, 960f), new Vector3(40f, 8.5f, 920f), new Vector3(-160f, 9.2f, 740f), new Vector3(40f, 9.8f, 560f),
                 // Back straight leading to 130R
-                new Vector3(104f, 5.4f, 242f),
-                // The Bridge (crossing over Degner section)
-                new Vector3(228f, 6.8f, 188f), new Vector3(342f, 5.2f, 124f),
+                new Vector3(320f, 10.4f, 420f),
+                // The Bridge (crossing over the section between T9 and T10)
+                new Vector3(720f, 15.5f, 280f), new Vector3(1040f, 11.2f, 120f),
                 // 130R (T15)
-                new Vector3(382f, 3.2f, 52f), new Vector3(336f, 1.4f, -12f),
+                new Vector3(1150f, 6.4f, -40f), new Vector3(1020f, 3.2f, -180f),
                 // Casio Triangle (T16 & T17)
-                new Vector3(264f, 0.2f, 18f), new Vector3(222f, 0f, 54f), new Vector3(184f, 0f, 28f),
+                new Vector3(820f, 0.8f, -100f), new Vector3(720f, 0f, 40f), new Vector3(620f, 0f, -40f),
                 // Final turn (T18)
-                new Vector3(112f, 0f, 12f), new Vector3(-168f, 0f, 0f)
-            }, 6);
+                new Vector3(360f, 0f, -20f), new Vector3(-440f, 0f, 0f)
+            }, 10);
         }
 
         void BuildSilverstoneLayout(TrackRuntime runtime)
@@ -929,27 +929,27 @@ namespace LocalFormulaRacing
             Color runoff = new Color(0.61f, 0.52f, 0.36f);
             if (Runtime.styleName.Contains("Park") || Runtime.styleName.Contains("Flowing"))
             {
-                runoff = new Color(0.2f, 0.38f, 0.24f);
+                runoff = new Color(0.18f, 0.34f, 0.22f);
             }
             else if (Runtime.styleName.Contains("street") || Runtime.styleName.Contains("Street"))
             {
                 runoff = new Color(0.12f, 0.13f, 0.14f);
             }
 
-            roadMaterial = CreateMaterial("Runtime Road", new Color(0.018f, 0.02f, 0.024f), 0.02f, 0.62f);
-            kerbMaterial = CreateMaterial("Runtime Kerb", new Color(0.96f, 0.05f, 0.035f), 0f, 0.52f);
-            grassMaterial = CreateMaterial("Runtime Runoff", runoff, 0f, 0.24f);
-            lineMaterial = CreateMaterial("Runtime Track Line", new Color(0.94f, 0.97f, 0.98f), 0f, 0.66f);
-            roadEdgeMaterial = CreateMaterial("Runtime Painted Edge", new Color(1f, 0.99f, 0.92f), 0f, 0.68f);
-            drsPaintMaterial = CreateMaterial("Runtime DRS Paint", new Color(0.03f, 0.34f, 1f), 0f, 0.68f, new Color(0.01f, 0.06f, 0.22f));
-            rubberMaterial = CreateMaterial("Runtime Rubber", new Color(0.004f, 0.004f, 0.004f), 0f, 0.22f);
-            barrierMaterial = CreateMaterial("Runtime Barrier", new Color(0.72f, 0.75f, 0.76f), 0.08f, 0.58f);
-            tireBarrierMaterial = CreateMaterial("Runtime Tyre Barrier", new Color(0.018f, 0.019f, 0.02f), 0f, 0.22f);
-            foliageMaterial = CreateMaterial("Runtime Foliage", new Color(0.06f, 0.36f, 0.14f), 0f, 0.38f);
-            metalMaterial = CreateMaterial("Runtime Brushed Metal", new Color(0.5f, 0.54f, 0.56f), 0.38f, 0.72f);
-            glassMaterial = CreateMaterial("Runtime Glass", new Color(0.15f, 0.3f, 0.42f, 0.82f), 0f, 0.9f);
-            lightGlowMaterial = CreateMaterial("Runtime Light Glow", new Color(1f, 0.82f, 0.36f), 0f, 0.88f, new Color(1f, 0.64f, 0.18f));
-            sceneryAccentMaterial = CreateMaterial("Runtime Scenery Accent", new Color(0.94f, 0.04f, 0.035f), 0f, 0.58f);
+            roadMaterial = CreateMaterial("Runtime Road", new Color(0.015f, 0.016f, 0.018f), 0.04f, 0.72f);
+            kerbMaterial = CreateMaterial("Runtime Kerb", new Color(0.94f, 0.04f, 0.03f), 0.02f, 0.64f);
+            grassMaterial = CreateMaterial("Runtime Runoff", runoff, 0.01f, 0.18f);
+            lineMaterial = CreateMaterial("Runtime Track Line", new Color(0.95f, 0.98f, 1f), 0.05f, 0.78f);
+            roadEdgeMaterial = CreateMaterial("Runtime Painted Edge", new Color(1f, 0.98f, 0.9f), 0.04f, 0.76f);
+            drsPaintMaterial = CreateMaterial("Runtime DRS Paint", new Color(0.02f, 0.32f, 0.95f), 0.06f, 0.82f, new Color(0.01f, 0.05f, 0.18f));
+            rubberMaterial = CreateMaterial("Runtime Rubber", new Color(0.003f, 0.003f, 0.003f), 0.01f, 0.24f);
+            barrierMaterial = CreateMaterial("Runtime Barrier", new Color(0.68f, 0.72f, 0.74f), 0.12f, 0.62f);
+            tireBarrierMaterial = CreateMaterial("Runtime Tyre Barrier", new Color(0.015f, 0.016f, 0.017f), 0.02f, 0.28f);
+            foliageMaterial = CreateMaterial("Runtime Foliage", new Color(0.04f, 0.32f, 0.12f), 0f, 0.42f);
+            metalMaterial = CreateMaterial("Runtime Brushed Metal", new Color(0.52f, 0.56f, 0.58f), 0.42f, 0.78f);
+            glassMaterial = CreateMaterial("Runtime Glass", new Color(0.12f, 0.28f, 0.38f, 0.85f), 0.1f, 0.95f);
+            lightGlowMaterial = CreateMaterial("Runtime Light Glow", new Color(1f, 0.85f, 0.4f), 0f, 0.92f, new Color(1f, 0.62f, 0.15f));
+            sceneryAccentMaterial = CreateMaterial("Runtime Scenery Accent", new Color(0.92f, 0.03f, 0.025f), 0.05f, 0.65f);
         }
 
         Material CreateMaterial(string materialName, Color color)
@@ -1044,9 +1044,9 @@ namespace LocalFormulaRacing
                 Runtime.SampleAtDistance(Runtime.cumulativeDistances[i], out point, out forward, out right);
                 vertices[i * 2] = point - right * Runtime.roadHalfWidth + Vector3.up * 0.015f;
                 vertices[i * 2 + 1] = point + right * Runtime.roadHalfWidth + Vector3.up * 0.015f;
-                float v = Runtime.cumulativeDistances[i] / Mathf.Max(1f, Runtime.length);
+                float v = Runtime.cumulativeDistances[i] / 12f; // Tiled UV for asphalt detail
                 uvs[i * 2] = new Vector2(0f, v);
-                uvs[i * 2 + 1] = new Vector2(1f, v);
+                uvs[i * 2 + 1] = new Vector2(Runtime.roadHalfWidth * 0.5f, v);
 
                 int next = (i + 1) % count;
                 int tri = i * 6;
@@ -1070,6 +1070,7 @@ namespace LocalFormulaRacing
             MeshRenderer renderer = road.AddComponent<MeshRenderer>();
             filter.sharedMesh = mesh;
             renderer.sharedMaterial = roadMaterial;
+            renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.On;
             MeshCollider collider = road.AddComponent<MeshCollider>();
             collider.sharedMesh = null;
             collider.sharedMesh = mesh;
@@ -1202,12 +1203,14 @@ namespace LocalFormulaRacing
         void CreateKerbBlock(Vector3 position, Vector3 forward, float seed)
         {
             Material material = kerbMaterial;
-            if (Mathf.FloorToInt(seed / 18f) % 2 == 0)
+            if (Mathf.FloorToInt(seed / 16f) % 2 == 0)
             {
                 material = lineMaterial;
             }
 
-            CreateVisualBox("Painted kerb", position + Vector3.up * 0.07f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1.05f, 0.075f, 4.2f), material);
+            GameObject kerb = CreateVisualBox("Painted kerb", position + Vector3.up * 0.075f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1.15f, 0.09f, 4.5f), material);
+            MeshRenderer renderer = kerb.GetComponent<MeshRenderer>();
+            renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.On;
         }
 
         void BuildTrackMarkers()

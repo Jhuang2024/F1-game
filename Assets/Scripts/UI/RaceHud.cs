@@ -32,6 +32,8 @@ namespace LocalFormulaRacing
         Image fuelFill;
         Image damageFill;
         Image pitFill;
+        Image revBar;
+        Text gearText;
         GameObject qualifyingFeedbackPanel;
         GameObject engineerPanel;
         GameObject startLightPanel;
@@ -72,13 +74,26 @@ namespace LocalFormulaRacing
                 CreateTowerRow(towerBand, i);
             }
 
-            RectTransform speedBand = UiFactory.CreateBand(transform, "Speed panel", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-210f, 26f), new Vector2(210f, 134f), new Color(0.006f, 0.009f, 0.012f, 0.78f));
-            speed = UiFactory.CreateText(speedBand, "Speed", "", 42, Color.white, TextAnchor.MiddleCenter);
+            RectTransform speedBand = UiFactory.CreateBand(transform, "Speed panel", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(-220f, 26f), new Vector2(220f, 154f), new Color(0.006f, 0.009f, 0.012f, 0.82f));
+            UiFactory.CreateBand(speedBand, "Dashboard accent", new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 4f), new Color(0.95f, 0.08f, 0.06f, 0.95f));
+
+            speed = UiFactory.CreateText(speedBand, "Speed", "", 46, Color.white, TextAnchor.MiddleCenter);
             RectTransform speedRect = speed.GetComponent<RectTransform>();
-            speedRect.anchorMin = Vector2.zero;
-            speedRect.anchorMax = Vector2.one;
-            speedRect.offsetMin = Vector2.zero;
-            speedRect.offsetMax = Vector2.zero;
+            speedRect.anchorMin = new Vector2(0.5f, 0.5f);
+            speedRect.anchorMax = new Vector2(0.5f, 0.5f);
+            speedRect.sizeDelta = new Vector2(200f, 60f);
+            speedRect.anchoredPosition = new Vector2(-60f, 10f);
+
+            gearText = UiFactory.CreateText(speedBand, "Gear", "1", 58, new Color(0.95f, 0.08f, 0.06f), TextAnchor.MiddleCenter);
+            RectTransform gearRect = gearText.GetComponent<RectTransform>();
+            gearRect.anchorMin = new Vector2(0.5f, 0.5f);
+            gearRect.anchorMax = new Vector2(0.5f, 0.5f);
+            gearRect.sizeDelta = new Vector2(80f, 80f);
+            gearRect.anchoredPosition = new Vector2(80f, 10f);
+
+            RectTransform revTrack = UiFactory.CreateBand(speedBand, "Rev track", new Vector2(0.1f, 0.82f), new Vector2(0.9f, 0.92f), Vector2.zero, Vector2.zero, new Color(0.12f, 0.14f, 0.16f, 0.9f));
+            RectTransform revFill = UiFactory.CreateBand(revTrack, "Rev fill", new Vector2(0f, 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero, Color.white);
+            revBar = revFill.GetComponent<Image>();
 
             RectTransform telemetryBand = UiFactory.CreateBand(transform, "Telemetry panel", new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(-460f, 26f), new Vector2(-24f, 256f), new Color(0.006f, 0.009f, 0.012f, 0.72f));
             telemetry = UiFactory.CreateText(telemetryBand, "Telemetry", "", 18, new Color(0.92f, 0.96f, 0.98f), TextAnchor.UpperLeft);
@@ -183,7 +198,14 @@ namespace LocalFormulaRacing
             string eventName = race.EventData == null ? "Prototype GP" : race.EventData.displayName;
             string reaction = race.RaceStartReactionText;
             center.text = session + "  |  " + eventName + "  |  P" + race.GetPosition(player) + "/" + race.DisplayedEntrantCount + "  |  Lap " + lapLabel + "  |  " + race.SessionMessage + (string.IsNullOrEmpty(reaction) ? "" : "  |  " + reaction);
-            speed.text = Mathf.RoundToInt(Mathf.Abs(car.CurrentSpeedKph)) + "\n<color=#AAB8C0>km/h   G" + car.CurrentGear + "/8</color>";
+            speed.text = Mathf.RoundToInt(Mathf.Abs(car.CurrentSpeedKph)) + "\n<size=16><color=#AAB8C0>KM/H</color></size>";
+            gearText.text = car.CurrentGear.ToString();
+
+            float speedRatio = Mathf.Clamp01(Mathf.Abs(car.CurrentSpeedKph) / car.TargetTopSpeedKph);
+            // Simulate revs based on gear speed windows
+            float revs = (Mathf.Abs(car.CurrentSpeedKph) % 60f) / 60f;
+            if (car.CurrentGear == 8) revs = speedRatio;
+            UpdateMeter(revBar, revs, revs > 0.9f ? Color.red : (revs > 0.7f ? Color.yellow : Color.green));
 
             string drsState = race.DrsStateText(player);
             if (drsState == "AVAILABLE" && previousDrsState != "AVAILABLE")
@@ -389,8 +411,8 @@ namespace LocalFormulaRacing
         void UpdateMeters(VehicleController car)
         {
             UpdateMeter(ersFill, car.ErsBattery, new Color(0.25f, 0.78f, 1f));
-            float temp01 = Mathf.InverseLerp(65f, 120f, car.Tyres.Temperature);
-            Color tempColor = car.Tyres.TemperatureStatus == "OPT" ? new Color(0.32f, 1f, 0.45f) : (car.Tyres.TemperatureStatus == "HOT" ? new Color(1f, 0.14f, 0.08f) : new Color(0.25f, 0.72f, 1f));
+            float temp01 = Mathf.InverseLerp(45f, 115f, car.Tyres.Temperature);
+            Color tempColor = car.Tyres.TemperatureStatus == "OPT" ? new Color(0.32f, 1f, 0.45f) : (car.Tyres.TemperatureStatus == "HOT" ? new Color(1f, 0.14f, 0.08f) : (car.Tyres.TemperatureStatus == "COLD" ? new Color(0.22f, 0.52f, 1f) : new Color(1f, 0.82f, 0.12f)));
             UpdateMeter(tyreTempFill, temp01, tempColor);
             UpdateMeter(tyreWearFill, 1f - Mathf.Clamp01(car.Tyres.WearPercent / 100f), new Color(0.34f, 1f, 0.52f));
             UpdateMeter(fuelFill, Mathf.Clamp01(car.FuelKg / 42f), new Color(0.7f, 0.95f, 1f));
