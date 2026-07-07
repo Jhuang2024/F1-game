@@ -178,10 +178,20 @@ namespace LocalFormulaRacing
             Vector3 forward;
             Vector3 right;
             track.SampleAtDistance(ProgressDistance, out point, out forward, out right);
+            // Blend the heading with a short lookahead sample so a single
+            // centerline segment boundary (where SampleAtDistance's forward can
+            // jump slightly between linear segments) doesn't read as a visible
+            // snap in the car's rotation - this smooths cornering without
+            // affecting the position track, which is already MoveTowards'd.
+            Vector3 lookaheadPoint;
+            Vector3 lookaheadForward;
+            Vector3 lookaheadRight;
+            track.SampleAtDistance(track.WrapDistance(ProgressDistance + 6f), out lookaheadPoint, out lookaheadForward, out lookaheadRight);
+            Vector3 blendedForward = (forward + lookaheadForward).normalized;
             Vector3 targetPosition = point + Vector3.up * 0.08f;
-            Quaternion targetRotation = Quaternion.LookRotation(forward, Vector3.up);
+            Quaternion targetRotation = Quaternion.LookRotation(blendedForward, Vector3.up);
             transform.position = Vector3.MoveTowards(transform.position, targetPosition, Time.deltaTime * (CurrentSpeedKph / 3.6f + 8f));
-            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, Time.deltaTime * 220f);
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, Time.deltaTime * 160f);
             // If the smoothing ever falls far behind the sampled point (a teleport,
             // a respawn, a long pause), snap rather than drift through scenery.
             if ((transform.position - targetPosition).sqrMagnitude > 40f * 40f)

@@ -979,7 +979,13 @@ namespace LocalFormulaRacing
                 participant.recoveryGraceTimer = Mathf.Max(0f, participant.recoveryGraceTimer - RaceControlCheckInterval);
 
                 bool nearStationary = speedKph < 8f;
-                bool strandedExcluded = preRace || inPitPhaseOrPitting || paceLimited || queuedBehindTraffic || creepingWithPurpose || recoveryGraceActive;
+                // paceLimited already covers the whole full-SC/VSC period field-
+                // wide, but the explicit isRaceControlAutopilot check is kept too
+                // as a direct guard - a car race control is actively driving
+                // itself must never be declared stranded regardless of exactly
+                // which race-control-state check caught it.
+                bool strandedExcluded = preRace || inPitPhaseOrPitting || paceLimited || queuedBehindTraffic ||
+                    creepingWithPurpose || recoveryGraceActive || participant.isRaceControlAutopilot;
                 bool stoppedCandidate = nearStationary && !strandedExcluded;
                 participant.stoppedOnTrackTimer = stoppedCandidate ? participant.stoppedOnTrackTimer + RaceControlCheckInterval : 0f;
 
@@ -1311,6 +1317,27 @@ namespace LocalFormulaRacing
             List<RaceParticipant> order = GetRunningOrderSnapshot();
             safetyCarQueueLeader = order.Count > 0 ? order[0] : null;
 
+            // Convoy autopilot (Part 2): freeze each car's legal running-order
+            // slot at the instant of deployment as its safety-car queue index -
+            // the leader gets 0, second place 1, and so on - so the whole field
+            // forms up in a stable, predictable queue rather than re-sorting
+            // itself against a moving target every frame while cars close up.
+            for (int i = 0; i < order.Count; i++)
+            {
+                RaceParticipant queued = order[i];
+                if (queued == null)
+                {
+                    continue;
+                }
+
+                queued.safetyCarQueueIndex = i;
+                queued.preSafetyCarOrderIndex = i;
+                if (!queued.retired && !queued.finished)
+                {
+                    queued.isRaceControlAutopilot = true;
+                }
+            }
+
             // Part 1: a real AI car, not just a HUD state - it joins the track a
             // short, safe distance ahead of whoever is currently leading, so the
             // leader immediately has to slow down and queue up behind it exactly
@@ -1336,6 +1363,8 @@ namespace LocalFormulaRacing
             if (Settings != null && Settings.Current.raceControlMessages)
             {
                 PostEngineerMessage("Safety car deployed.", true);
+                PostEngineerMessage("Safety car deployed, car is under race-control autopilot.", true);
+                PostEngineerMessage("You can request a pit stop under safety car.", false);
             }
         }
 
@@ -1363,6 +1392,49 @@ namespace LocalFormulaRacing
         }
 
         float safetyCarWatchdogTimer;
+        const float SafetyCarWatchdogMissingThresholdSeconds = 2f;
+
+        // A loose "!activeInHierarchy" check alone can flicker true for reasons
+        // unrelated to a real failure (a single skipped frame during a scene
+        // transition, a renderer toggle, etc.) - require the reference to
+        // actually be null/inactive, or every renderer to have vanished, or the
+        // car to have ended up implausibly far from where the leader-relative
+        // spawn logic put it, before treating it as genuinely missing.
+        bool IsSafetyCarGenuinelyMissing()
+        {
+            if (safetyCarController == null || safetyCarObject == null)
+            {
+                return true;
+            }
+
+            if (!safetyCarController.IsActive || !safetyCarObject.activeInHierarchy)
+            {
+                return true;
+            }
+
+            Renderer[] renderers = safetyCarObject.GetComponentsInChildren<Renderer>(true);
+            if (renderers.Length == 0)
+            {
+                return true;
+            }
+
+            if (safetyCarQueueLeader != null && State != null && Track != null)
+            {
+                float leaderDistance = State.GetProgressDistance(safetyCarQueueLeader);
+                // WrapDistance already folds this into [0, track length) - the
+                // safety car is always spawned/held a short distance ahead of the
+                // leader, so a gap far beyond any plausible queue formation
+                // distance indicates a genuinely lost/derailed car rather than
+                // normal queue-forming movement.
+                float gapAheadOfLeader = Track.WrapDistance(safetyCarController.ProgressDistance - leaderDistance);
+                if (gapAheadOfLeader > 500f)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
 
         // Field-wide backstop (Part 1/2): keeps the pace-limiter's own target
         // number honest against the real car's actual speed instead of a single
@@ -1373,14 +1445,49 @@ namespace LocalFormulaRacing
         // without a visible, active safety car object.
         void UpdateSafetyCar()
         {
+            // Convoy autopilot upkeep: every non-retired/non-finished car is under
+            // race-control autopilot for exactly as long as the field is in a
+            // full safety car period, and not a tick longer - IsFullSafetyCarPeriod
+            // already excludes RaceControlState.Restart, so control hands back to
+            // the player/AI's own driving the instant the state machine advances
+            // past SafetyCarInThisLap, with no extra bookkeeping needed here.
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant p = Participants[i];
+                if (p == null)
+                {
+                    continue;
+                }
+
+                if (IsFullSafetyCarPeriod && !p.retired && !p.finished)
+                {
+                    p.isRaceControlAutopilot = true;
+                }
+                else if (p.isRaceControlAutopilot)
+                {
+                    p.isRaceControlAutopilot = false;
+                }
+            }
+
             if (IsFullSafetyCarPeriod)
             {
-                bool visibleCarMissing = safetyCarController == null || !safetyCarController.IsActive ||
-                    safetyCarObject == null || !safetyCarObject.activeInHierarchy;
+                bool visibleCarMissing = IsSafetyCarGenuinelyMissing();
                 if (visibleCarMissing)
                 {
+                    bool wasAlreadyCounting = safetyCarWatchdogTimer > 0f;
                     safetyCarWatchdogTimer += Time.deltaTime;
-                    if (safetyCarWatchdogTimer > 0.5f)
+                    if (!wasAlreadyCounting)
+                    {
+                        // One-shot heads-up the moment the watchdog starts
+                        // counting, at Info level - if it fires repeatedly in the
+                        // logs without ever reaching a real respawn, that is the
+                        // signal of a flickering/loose "missing" check rather
+                        // than an actual failure, without the noise of a
+                        // respawn (which is logged at Warn) happening every time.
+                        GameLog.Info("[RaceControl] Safety car watchdog started counting - visible car appears missing.");
+                    }
+
+                    if (safetyCarWatchdogTimer > SafetyCarWatchdogMissingThresholdSeconds)
                     {
                         safetyCarWatchdogTimer = 0f;
                         RespawnMissingSafetyCar();
@@ -1512,8 +1619,11 @@ namespace LocalFormulaRacing
             for (int i = 0; i < Participants.Count; i++)
             {
                 RaceParticipant participant = Participants[i];
+                // A car under race-control's own convoy autopilot can never
+                // "illegally" pass the safety car - its movement is race
+                // control's own doing, not a driver decision to penalize.
                 if (participant == null || participant.vehicle == null || participant.retired || participant.finished ||
-                    participant.isPitting || participant.pitPhase != PitPhase.None)
+                    participant.isPitting || participant.pitPhase != PitPhase.None || participant.isRaceControlAutopilot)
                 {
                     aheadOfSafetyCarLastTick.Remove(participant);
                     continue;
@@ -1554,6 +1664,118 @@ namespace LocalFormulaRacing
         public Transform SafetyCarTransform { get { return safetyCarController != null && safetyCarController.IsActive ? safetyCarController.transform : null; } }
         public bool IsSafetyCarOnTrack { get { return safetyCarController != null && safetyCarController.IsActive; } }
         public float SafetyCarCurrentSpeedKph { get { return safetyCarController != null ? safetyCarController.CurrentSpeedKph : 0f; } }
+
+        // Full safety car convoy autopilot (Part 2). True only while there's an
+        // actual, active safety car object on track during a full SC period -
+        // HUD and callers use this instead of IsFullSafetyCarPeriod alone so a
+        // brief window where the controller/object hasn't finished spawning yet
+        // never shows "autopilot active" with nothing physically driving it.
+        public bool IsSafetyCarConvoyActive { get { return IsFullSafetyCarPeriod && safetyCarController != null && safetyCarController.IsActive; } }
+
+        // HUD readouts (Part 10): 1-based queue position (0/-1 when not queued)
+        // and live gap-to-target-slot in meters, both driven off the same state
+        // BuildRaceControlAutopilotCommand itself uses every tick.
+        public int PlayerSafetyCarQueuePosition
+        {
+            get { return PlayerParticipant != null && PlayerParticipant.safetyCarQueueIndex >= 0 ? PlayerParticipant.safetyCarQueueIndex + 1 : -1; }
+        }
+
+        public float PlayerSafetyCarGapToTargetMeters
+        {
+            get
+            {
+                if (PlayerParticipant == null || State == null || Track == null || !PlayerParticipant.isRaceControlAutopilot)
+                {
+                    return -1f;
+                }
+
+                float signed = Track.WrapDistance(PlayerParticipant.safetyCarTargetDistance - State.GetProgressDistance(PlayerParticipant));
+                return signed > Track.length * 0.5f ? signed - Track.length : signed;
+            }
+        }
+
+        // Convoy autopilot driving command (Part 2): builds a full throttle/
+        // brake/steer command that drives `participant` toward its assigned
+        // slot in the safety-car queue - the leader targets a fixed distance
+        // behind the real safety car object, everyone else targets a further
+        // fixed distance behind the leader's own slot, scaled by their frozen
+        // queue index. Steering mirrors the same lookahead-point pattern
+        // AiVehicleController's own normal driving uses (SampleAtDistance ahead
+        // of the car's current position, steer toward it in local space) so the
+        // convoy still tracks the racing line through corners instead of
+        // cutting straight lines between distance samples; only the speed
+        // target comes from the queue-slot error, not from the normal apex/
+        // braking-point model.
+        public VehicleCommand BuildRaceControlAutopilotCommand(RaceParticipant participant)
+        {
+            VehicleCommand command = new VehicleCommand();
+            if (participant == null || participant.vehicle == null || Track == null || State == null)
+            {
+                command.brake = 1f;
+                return command;
+            }
+
+            if (safetyCarController == null || !safetyCarController.IsActive)
+            {
+                // No physical safety car to queue behind (shouldn't normally
+                // happen while this is being called) - hold speed down gently
+                // rather than doing anything erratic.
+                command.throttle = 0f;
+                command.brake = 0.15f;
+                return command;
+            }
+
+            float scSpeedKph = safetyCarController.CurrentSpeedKph;
+            // Gap scales slightly with pace: a faster-moving queue needs a
+            // little more following distance per car than a crawling one.
+            float gapPerCar = Mathf.Lerp(14f, 22f, Mathf.Clamp01(scSpeedKph / 160f));
+            int queueIndex = Mathf.Max(0, participant.safetyCarQueueIndex);
+            float leaderTargetDistance = Track.WrapDistance(safetyCarController.ProgressDistance - 28f);
+            float targetDistance = Track.WrapDistance(leaderTargetDistance - queueIndex * gapPerCar);
+            participant.safetyCarTargetDistance = targetDistance;
+
+            float ownDistance = State.GetProgressDistance(participant);
+            // Signed distance from us to our slot: positive means the slot is
+            // still ahead of us (behind on pace, catch up); negative means we've
+            // already reached/overshot it (too close/ahead, back off).
+            float rawGap = Track.WrapDistance(targetDistance - ownDistance);
+            float signedSlotError = rawGap > Track.length * 0.5f ? rawGap - Track.length : rawGap;
+
+            float mySpeedKph = Mathf.Abs(participant.vehicle.CurrentSpeedKph);
+            // Proportional speed target around the safety car's own pace: ahead
+            // of slot -> brake back toward it, behind -> close in gently. Capped
+            // well short of racing pace so a car that fell a long way back
+            // during the deployment doesn't come storming up on the queue.
+            float speedAdjustKph = Mathf.Clamp(signedSlotError * 1.2f, -45f, 25f);
+            float targetSpeedKph = Mathf.Clamp(scSpeedKph + speedAdjustKph, 0f, scSpeedKph + 25f);
+
+            float speedGapKph = targetSpeedKph - mySpeedKph;
+            if (speedGapKph < -3f)
+            {
+                command.brake = Mathf.Clamp01(-speedGapKph / 40f);
+                command.throttle = 0f;
+            }
+            else
+            {
+                command.brake = 0f;
+                command.throttle = Mathf.Clamp01(0.15f + speedGapKph / 40f);
+            }
+
+            // Steering: same lookahead-sample-and-steer-toward-it pattern the AI's
+            // own normal driving uses, just always aimed at the centerline (no
+            // racing-line offset - a convoy holds station, it doesn't need to
+            // find the fastest line through a corner).
+            float lookAhead = Mathf.Lerp(14f, 38f, Mathf.Clamp01(mySpeedKph / 150f));
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Track.SampleAtDistance(Track.WrapDistance(ownDistance + lookAhead), out point, out forward, out right);
+            Vector3 toTarget = point - participant.transform.position;
+            float localSteer = Vector3.Dot(toTarget.normalized, participant.transform.right);
+            command.steer = Mathf.Clamp(localSteer * 2.2f, -1f, 1f);
+
+            return command;
+        }
 
         // Ticks the active race-control state forward, including the safety-car
         // period's scripted restart chain (Active -> in this lap -> restart -> green).
@@ -1621,6 +1843,7 @@ namespace LocalFormulaRacing
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
                             PostEngineerMessage("Safety car in this lap.", true);
+                            PostEngineerMessage("Safety car in this lap, control will return at restart.", false);
                         }
 
                         if (safetyCarController != null)
@@ -1668,6 +1891,7 @@ namespace LocalFormulaRacing
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
                             PostEngineerMessage("Green flag, go go go!", true);
+                            PostEngineerMessage("Green flag, control returned.", false);
                         }
                     }
                     break;
@@ -1810,8 +2034,13 @@ namespace LocalFormulaRacing
             for (int i = 0; i < running.Count; i++)
             {
                 RaceParticipant candidate = running[i];
+                // Race-control's own convoy autopilot moves cars around in the
+                // queue for its own bookkeeping reasons (never a driver's overtake
+                // decision) - excluded the same way pitting cars already are so it
+                // can never false-positive an illegal-overtake penalty.
                 if (candidate == null || candidate.vehicle == null || candidate.retired || candidate.finished ||
-                    candidate.lapTracker == null || candidate.isPitting || candidate.pitPhase != PitPhase.None)
+                    candidate.lapTracker == null || candidate.isPitting || candidate.pitPhase != PitPhase.None ||
+                    candidate.isRaceControlAutopilot)
                 {
                     continue;
                 }

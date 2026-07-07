@@ -229,6 +229,20 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Full safety car convoy autopilot: race control drives the car
+            // directly for the duration of the full SC period, skipping the
+            // entire overtake/defend/attack state machine and ERS/DRS usage
+            // below entirely - a pitting car (isPitting/pitPhase != None, or
+            // still limited on pit exit) falls out of this and keeps its normal
+            // driving/pit-guided handling instead, then rejoins the convoy on
+            // its own once it's back out and clear of the pit limiter.
+            if (participant != null && participant.isRaceControlAutopilot && !participant.isPitting &&
+                participant.pitPhase == PitPhase.None && !participant.pitLimiterUntilExit)
+            {
+                vehicle.SetCommand(raceManager.BuildRaceControlAutopilotCommand(participant));
+                return;
+            }
+
             // Continuity-aware progress lookup so the AI never snaps to the wrong part of
             // the track near the start/finish wrap or where sections run close together.
             TrackProgress progress = hasProgressReference

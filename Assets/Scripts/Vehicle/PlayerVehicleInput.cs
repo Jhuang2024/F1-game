@@ -179,11 +179,27 @@ namespace LocalFormulaRacing
                 raceManager.RecordPlayerLaunchInput(participant, command.throttle);
             }
 
-            // Race control pace parity (Task 2/3): AI has been VSC/SC pace-clamped
-            // for several passes, the player never was. This shapes throttle/brake
-            // toward the current cap and force-disables ERS/DRS while pace-limited,
-            // so holding Shift or a latched DRS press can never bypass race control.
-            command = raceManager.ApplyPlayerRaceControlLimiter(participant, command, Mathf.Abs(vehicle.CurrentSpeedKph));
+            // Full safety car convoy autopilot: race control drives the car
+            // directly for the duration of the full SC period - the player's
+            // raw steer/throttle/brake input above is discarded for this frame,
+            // but the pit-request input already latched into `command` still
+            // passes through so the player can still box under safety car.
+            if (participant != null && participant.isRaceControlAutopilot)
+            {
+                bool pitRequest = command.pitRequest;
+                command = raceManager.BuildRaceControlAutopilotCommand(participant);
+                command.pitRequest = pitRequest;
+                drsLatched = false;
+            }
+            else
+            {
+                // Race control pace parity (Task 2/3): AI has been VSC/SC pace-clamped
+                // for several passes, the player never was. This shapes throttle/brake
+                // toward the current cap and force-disables ERS/DRS while pace-limited,
+                // so holding Shift or a latched DRS press can never bypass race control.
+                command = raceManager.ApplyPlayerRaceControlLimiter(participant, command, Mathf.Abs(vehicle.CurrentSpeedKph));
+            }
+
             if (!command.drs)
             {
                 drsLatched = false;

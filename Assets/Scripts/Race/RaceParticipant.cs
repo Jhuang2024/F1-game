@@ -116,6 +116,19 @@ namespace LocalFormulaRacing
         public bool pitTyreSelectionActive;
         public bool mandatoryPitPenaltyApplied;
 
+        // Full safety car convoy autopilot (RaceManager.BuildRaceControlAutopilotCommand):
+        // this car's slot in the queue (0 = right behind the safety car), the
+        // legal running-order index it held the instant the safety car was
+        // deployed (restored, unchanged, once control returns at the restart),
+        // the live target progress-distance the autopilot is currently steering
+        // this car toward (surfaced for HUD gap readouts), and whether race
+        // control - not the player or the AI's own state machine - is currently
+        // driving this car at all.
+        public int safetyCarQueueIndex = -1;
+        public float safetyCarTargetDistance;
+        public bool isRaceControlAutopilot;
+        public int preSafetyCarOrderIndex = -1;
+
         public VehicleController vehicle;
         public LapTracker lapTracker;
         public DriverData driverData;

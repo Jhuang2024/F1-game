@@ -983,21 +983,44 @@ namespace LocalFormulaRacing
                     break;
                 case RaceManager.RaceControlState.SafetyCarDeploying:
                     bool deployLit = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f;
-                    raceControlPill.SetState("SAFETY CAR", UiFactory.Accent, deployLit);
+                    raceControlPill.SetState("SAFETY CAR - AUTOPILOT ACTIVE", UiFactory.Accent, deployLit);
                     break;
                 case RaceManager.RaceControlState.SafetyCarActive:
-                    raceControlPill.SetState("SAFETY CAR - FOLLOW, NO OVERTAKING", UiFactory.Accent, true);
+                    raceControlPill.SetState("SAFETY CAR - AUTOPILOT - FOLLOWING QUEUE" + SafetyCarQueueSuffix() + " - NO OVERTAKING", UiFactory.Accent, true);
                     break;
                 case RaceManager.RaceControlState.SafetyCarInThisLap:
-                    raceControlPill.SetState("SC ENDING THIS LAP", UiFactory.AccentAmber, true);
+                    raceControlPill.SetState("SAFETY CAR IN THIS LAP - CONTROL RETURNING AT RESTART", UiFactory.AccentAmber, true);
                     break;
                 case RaceManager.RaceControlState.Restart:
                     bool restartLit = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f;
-                    raceControlPill.SetState("RESTART", Color.white, restartLit);
+                    raceControlPill.SetState("GREEN FLAG", Color.white, restartLit);
                     break;
             }
 
             UpdatePaceCompliancePill(nearLocalYellow);
+        }
+
+        // Live queue position/gap-to-slot suffix for the full-SC banner (Part
+        // 10) - only meaningful once the player is actually under convoy
+        // autopilot with a real queue slot assigned; blank otherwise so the
+        // banner text doesn't flicker "P0" during the brief deployment window
+        // before slots are handed out.
+        string SafetyCarQueueSuffix()
+        {
+            if (race.PlayerParticipant == null || !race.PlayerParticipant.isRaceControlAutopilot)
+            {
+                return "";
+            }
+
+            int position = race.PlayerSafetyCarQueuePosition;
+            if (position <= 0)
+            {
+                return "";
+            }
+
+            float gap = race.PlayerSafetyCarGapToTargetMeters;
+            string gapText = gap >= 0f ? " +" + gap.ToString("0") + "m" : "";
+            return " (P" + position + gapText + ")";
         }
 
         // Meaningful whenever the player's own car is actually under a
@@ -1035,7 +1058,15 @@ namespace LocalFormulaRacing
                 capLabel = " SC +" + scGap.ToString("0") + "m";
             }
 
-            if (race.IsPlayerRaceControlWarningActive)
+            bool playerUnderAutopilot = race.PlayerParticipant != null && race.PlayerParticipant.isRaceControlAutopilot;
+            if (playerUnderAutopilot)
+            {
+                // Race control is driving the car - never show penalty-panic
+                // ("PACE WARNING"/"SLOW DOWN") UI while autopilot is in control,
+                // even if a stale flag from just before deployment is still set.
+                paceCompliancePill.SetState("AUTOPILOT - NO ACTION NEEDED", UiFactory.AccentCyan, false);
+            }
+            else if (race.IsPlayerRaceControlWarningActive)
             {
                 bool lit = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f;
                 paceCompliancePill.SetState("PACE WARNING" + capLabel, UiFactory.Accent, lit);
