@@ -1023,10 +1023,17 @@ namespace LocalFormulaRacing
             }
 
             // Target Delta (Part 2): the live speed cap the player is actually
-            // being held to right now, not just a status word.
+            // being held to right now, not just a status word. During a full SC
+            // period with the queue in range, the gap to the actual safety car
+            // is the more useful number.
             string capLabel = race.PlayerParticipant != null
                 ? " " + race.RaceControlSpeedCapKphFor(race.PlayerParticipant).ToString("0") + " KPH"
                 : "";
+            float scGap = race.PlayerGapToSafetyCarMeters();
+            if (scGap >= 0f)
+            {
+                capLabel = " SC +" + scGap.ToString("0") + "m";
+            }
 
             if (race.IsPlayerRaceControlWarningActive)
             {
@@ -1036,6 +1043,10 @@ namespace LocalFormulaRacing
             else if (race.IsPlayerOverRaceControlPace)
             {
                 paceCompliancePill.SetState("SLOW DOWN" + capLabel, UiFactory.AccentAmber, true);
+            }
+            else if (scGap >= 0f && scGap < 40f)
+            {
+                paceCompliancePill.SetState("FOLLOW SAFETY CAR" + capLabel, UiFactory.AccentCyan, false);
             }
             else
             {

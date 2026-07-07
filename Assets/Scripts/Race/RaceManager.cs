@@ -790,6 +790,11 @@ namespace LocalFormulaRacing
             safetyCarObject = null;
             safetyCarController = null;
             aheadOfSafetyCarLastTick.Clear();
+            raceControlOrderSnapshot.Clear();
+            illegalOvertakePairCooldowns.Clear();
+            restrictionActiveAtLastSnapshot = false;
+            orderSnapshotTimer = 0f;
+            safetyCarWatchdogTimer = 0f;
             if (State != null)
             {
                 for (int i = 0; i < State.Participants.Count; i++)
@@ -1302,6 +1307,7 @@ namespace LocalFormulaRacing
             IsOvertakingAllowed = false;
             SafetyCarDeploymentCount++;
             playerScPitPromptSent = false;
+            playerScQueueWarningSent = false;
             List<RaceParticipant> order = GetRunningOrderSnapshot();
             safetyCarQueueLeader = order.Count > 0 ? order[0] : null;
 
@@ -1315,14 +1321,17 @@ namespace LocalFormulaRacing
                 : 0f;
             if (safetyCarController != null)
             {
-                safetyCarController.EnterTrack(leaderDistance + 45f);
-                SafetyCarTargetSpeedKph = safetyCarController.CurrentSpeedKph;
+                safetyCarController.EnterTrack(Track != null ? Track.WrapDistance(leaderDistance + 60f) : leaderDistance + 60f);
+                SafetyCarTargetSpeedKph = Mathf.Max(110f, safetyCarController.CurrentSpeedKph);
+                LogSafetyCarSpawnState("deployment");
             }
             else
             {
                 SafetyCarTargetSpeedKph = Random.Range(140f, 160f);
+                GameLog.Warn("[RaceControl] Safety car deployment WITHOUT a physical car: controller build failed, falling back to pace-cap-only period.");
             }
 
+            safetyCarWatchdogTimer = 0f;
             GameLog.Info("[RaceControl] Safety car deployment triggered. targetSpeed=" + SafetyCarTargetSpeedKph.ToString("0") + "kph deploymentCount=" + SafetyCarDeploymentCount);
             if (Settings != null && Settings.Current.raceControlMessages)
             {
@@ -1353,13 +1362,36 @@ namespace LocalFormulaRacing
             safetyCarObject.SetActive(false);
         }
 
+        float safetyCarWatchdogTimer;
+
         // Field-wide backstop (Part 1/2): keeps the pace-limiter's own target
         // number honest against the real car's actual speed instead of a single
         // number picked once at deployment, ends the period by sending the car
-        // toward the pits once race control calls "safety car in this lap", and
-        // penalizes anyone who actually gets past it on track.
+        // toward the pits once race control calls "safety car in this lap",
+        // penalizes anyone who actually gets past it on track, and - watchdog -
+        // rebuilds/respawns the whole car if a full SC period is somehow running
+        // without a visible, active safety car object.
         void UpdateSafetyCar()
         {
+            if (IsFullSafetyCarPeriod)
+            {
+                bool visibleCarMissing = safetyCarController == null || !safetyCarController.IsActive ||
+                    safetyCarObject == null || !safetyCarObject.activeInHierarchy;
+                if (visibleCarMissing)
+                {
+                    safetyCarWatchdogTimer += Time.deltaTime;
+                    if (safetyCarWatchdogTimer > 0.5f)
+                    {
+                        safetyCarWatchdogTimer = 0f;
+                        RespawnMissingSafetyCar();
+                    }
+                }
+                else
+                {
+                    safetyCarWatchdogTimer = 0f;
+                }
+            }
+
             if (safetyCarController == null || !safetyCarController.IsActive)
             {
                 aheadOfSafetyCarLastTick.Clear();
@@ -1369,6 +1401,16 @@ namespace LocalFormulaRacing
             if (IsFullSafetyCarPeriod)
             {
                 SafetyCarTargetSpeedKph = Mathf.Max(60f, safetyCarController.CurrentSpeedKph);
+
+                // Leader pickup (Part 4): the safety car waits (slows hard) while
+                // the leader is still far behind, then releases to normal pace as
+                // the queue forms up - controlled from here since the controller
+                // itself knows nothing about participants.
+                if (safetyCarQueueLeader != null && State != null && Track != null)
+                {
+                    float gapToLeader = Track.WrapDistance(safetyCarController.ProgressDistance - State.GetProgressDistance(safetyCarQueueLeader));
+                    safetyCarController.SetLeaderGapMeters(gapToLeader);
+                }
             }
 
             if (!IsFullSafetyCarPeriod && !safetyCarController.IsReturningToPits)
@@ -1379,7 +1421,79 @@ namespace LocalFormulaRacing
                 safetyCarController.BeginPitReturn();
             }
 
+            // One-shot heads-up as the player first closes on the physical queue.
+            if (!playerScQueueWarningSent)
+            {
+                float playerGap = PlayerGapToSafetyCarMeters();
+                if (playerGap >= 0f && playerGap < 150f)
+                {
+                    playerScQueueWarningSent = true;
+                    if (Settings != null && Settings.Current.raceControlMessages)
+                    {
+                        PostEngineerMessage("Safety car queue ahead - slow down and hold your gap.", true);
+                    }
+                }
+            }
+
             CheckSafetyCarOvertakes();
+        }
+
+        bool playerScQueueWarningSent;
+
+        void RespawnMissingSafetyCar()
+        {
+            if (safetyCarController == null || safetyCarObject == null)
+            {
+                safetyCarObject = null;
+                safetyCarController = null;
+                EnsureSafetyCarBuilt();
+            }
+
+            if (safetyCarController == null)
+            {
+                GameLog.Warn("[RaceControl] Safety car respawn FAILED: controller could not be rebuilt.");
+                return;
+            }
+
+            List<RaceParticipant> order = GetRunningOrderSnapshot();
+            RaceParticipant leader = order.Count > 0 ? order[0] : safetyCarQueueLeader;
+            float leaderDistance = leader != null && State != null ? State.GetProgressDistance(leader) : 0f;
+            safetyCarController.EnterTrack(Track != null ? Track.WrapDistance(leaderDistance + 60f) : leaderDistance + 60f);
+            GameLog.Warn("[RaceControl] Safety car respawned because visible object was missing.");
+            LogSafetyCarSpawnState("watchdog-respawn");
+        }
+
+        void LogSafetyCarSpawnState(string context)
+        {
+            if (safetyCarController == null || safetyCarObject == null)
+            {
+                GameLog.Warn("[RaceControl] SC spawn (" + context + "): controller/object is null.");
+                return;
+            }
+
+            Renderer[] renderers = safetyCarObject.GetComponentsInChildren<Renderer>(true);
+            float leaderDistance = safetyCarQueueLeader != null && State != null ? State.GetProgressDistance(safetyCarQueueLeader) : -1f;
+            GameLog.Info("[RaceControl] SC spawn (" + context + "): state=" + CurrentRaceControlState +
+                " active=" + safetyCarObject.activeInHierarchy +
+                " controllerActive=" + safetyCarController.IsActive +
+                " spawnDistance=" + safetyCarController.ProgressDistance.ToString("0") +
+                " worldPos=" + safetyCarObject.transform.position +
+                " leaderDistance=" + leaderDistance.ToString("0") +
+                " scSpeed=" + safetyCarController.CurrentSpeedKph.ToString("0") +
+                " renderers=" + renderers.Length);
+        }
+
+        // HUD support (Part 4): live gap from the player to the safety car when
+        // the player is in the forming/formed queue; negative when not relevant.
+        public float PlayerGapToSafetyCarMeters()
+        {
+            if (safetyCarController == null || !safetyCarController.IsActive || PlayerParticipant == null || State == null || Track == null)
+            {
+                return -1f;
+            }
+
+            float gap = Track.WrapDistance(safetyCarController.ProgressDistance - State.GetProgressDistance(PlayerParticipant));
+            return gap < 400f ? gap : -1f;
         }
 
         // Passing the actual safety car (Part 3): a transition-based check, same
@@ -1579,59 +1693,197 @@ namespace LocalFormulaRacing
             }
         }
 
-        // Illegal-overtake-under-yellow penalty (Part B.7): reuses the existing
-        // AddPenalty pattern rather than inventing a new penalty mechanism.
-        // Deliberately simple - a one-shot penalty fires the instant a specific
-        // pair's order inverts while overtaking is banned (full SC/VSC ban, or
-        // either car sitting in the locally yellow-flagged sector), with no
-        // repeated-warning bookkeeping. Only fires when that pair genuinely wasn't
-        // already inverted the tick before (previousAhead was ahead last tick and
-        // is found immediately behind this tick), so an established running order
-        // or a pit-cycle shuffle can never be falsely flagged.
+        // ---------- Overtaking legality (shared by AI decisions, player
+        // enforcement, and penalty detection) ----------
+
+        // True when this specific car may not gain positions right now: any full
+        // VSC/SC/restart ban applies everywhere, a local yellow only inside the
+        // flagged sector.
+        public bool IsOvertakingRestrictedForParticipant(RaceParticipant participant)
+        {
+            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
+            {
+                return false;
+            }
+
+            if (!IsOvertakingAllowed)
+            {
+                return true;
+            }
+
+            if (YellowFlagSector >= 0 && State != null && participant != null)
+            {
+                return State.GetCurrentProgress(participant).sector == YellowFlagSector;
+            }
+
+            return false;
+        }
+
+        // Passing a car that isn't actually racing (retired, pitting, being
+        // guided, recovering from an incident, or crawling far off race pace) is
+        // order correction, not an overtake - legal even under yellow/VSC/SC.
+        public bool IsPositionCorrectionAllowed(RaceParticipant attacker, RaceParticipant defender)
+        {
+            if (defender == null || defender.vehicle == null || defender.retired || defender.finished)
+            {
+                return true;
+            }
+
+            if (defender.isPitting || defender.pitPhase != PitPhase.None || defender.pitLimiterUntilExit || defender.vehicle.IsPitGuided)
+            {
+                return true;
+            }
+
+            if (defender.recoveryState == CarRecoveryState.Recovering || defender.recoveryState == CarRecoveryState.ActuallyStranded)
+            {
+                return true;
+            }
+
+            // A car crawling because it's pacing behind the safety car queue is
+            // NOT a hazard to be waved past - only a car that is slow for its
+            // own reasons (damage, spin aftermath) counts as passable here.
+            bool defenderPacingLegitimately = defender.recoveryState == CarRecoveryState.RaceControlPacing;
+            bool defenderCrawling = Mathf.Abs(defender.vehicle.CurrentSpeedKph) < 30f;
+            bool attackerAtPace = attacker != null && attacker.vehicle != null && Mathf.Abs(attacker.vehicle.CurrentSpeedKph) > 60f;
+            return defenderCrawling && attackerAtPace && !defenderPacingLegitimately;
+        }
+
+        public bool CanParticipantOvertake(RaceParticipant attacker, RaceParticipant defender)
+        {
+            if (!IsOvertakingRestrictedForParticipant(attacker) && !IsOvertakingRestrictedForParticipant(defender))
+            {
+                return true;
+            }
+
+            return IsPositionCorrectionAllowed(attacker, defender);
+        }
+
+        // Illegal-overtake detection, rebuilt on full running-order snapshots
+        // (Part 1): the old version compared only FindCarAhead/Behind within a
+        // 40m window against the previous frame, which missed any pass where the
+        // pair was ever more than 40m apart or where the order shuffled between
+        // frames. This compares the complete eligible running order between two
+        // snapshots ~0.5s apart: any car that moved ahead of a car it was behind
+        // - while restrictions applied at BOTH snapshot times, and the move
+        // isn't an allowed order correction - is penalized exactly once per
+        // pair per cooldown window, player and AI identically.
+        readonly List<RaceParticipant> raceControlOrderSnapshot = new List<RaceParticipant>();
+        readonly Dictionary<string, float> illegalOvertakePairCooldowns = new Dictionary<string, float>();
+        readonly List<string> expiredPairCooldownKeys = new List<string>();
+        float orderSnapshotTimer;
+        bool restrictionActiveAtLastSnapshot;
+        const float OrderSnapshotInterval = 0.5f;
+        const float IllegalOvertakePairCooldownSeconds = 25f;
+
         void CheckIllegalOvertakesUnderYellow()
         {
             if (State == null || CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial || StartCountdown > 0f)
             {
+                raceControlOrderSnapshot.Clear();
+                restrictionActiveAtLastSnapshot = false;
                 return;
             }
 
-            for (int i = 0; i < Participants.Count; i++)
+            orderSnapshotTimer -= Time.deltaTime;
+            if (orderSnapshotTimer > 0f)
             {
-                RaceParticipant participant = Participants[i];
-                if (participant == null || participant.vehicle == null || participant.retired || participant.finished || participant.lapTracker == null ||
-                    participant.isPitting || participant.pitPhase != PitPhase.None)
+                return;
+            }
+
+            orderSnapshotTimer = OrderSnapshotInterval;
+
+            expiredPairCooldownKeys.Clear();
+            foreach (KeyValuePair<string, float> entry in illegalOvertakePairCooldowns)
+            {
+                if (RaceElapsed > entry.Value)
+                {
+                    expiredPairCooldownKeys.Add(entry.Key);
+                }
+            }
+            for (int i = 0; i < expiredPairCooldownKeys.Count; i++)
+            {
+                illegalOvertakePairCooldowns.Remove(expiredPairCooldownKeys[i]);
+            }
+
+            List<RaceParticipant> currentOrder = new List<RaceParticipant>();
+            List<RaceParticipant> running = GetRunningOrderSnapshot();
+            for (int i = 0; i < running.Count; i++)
+            {
+                RaceParticipant candidate = running[i];
+                if (candidate == null || candidate.vehicle == null || candidate.retired || candidate.finished ||
+                    candidate.lapTracker == null || candidate.isPitting || candidate.pitPhase != PitPhase.None)
                 {
                     continue;
                 }
 
-                RaceParticipant currentAhead = FindCarAhead(participant, 40f);
-                RaceParticipant previousAhead = participant.previousCarAheadForOvertakeCheck;
+                currentOrder.Add(candidate);
+            }
 
-                if (previousAhead != null && previousAhead != currentAhead && !previousAhead.retired && !previousAhead.finished &&
-                    previousAhead.vehicle != null && !previousAhead.isPitting && previousAhead.pitPhase == PitPhase.None)
+            bool restrictionActiveNow = !IsOvertakingAllowed || YellowFlagSector >= 0;
+            // A pass must have happened between two snapshots that were BOTH
+            // under restriction - a legal move made just before the flag came
+            // out (or completed just after green) can never be penalized.
+            if (restrictionActiveNow && restrictionActiveAtLastSnapshot && raceControlOrderSnapshot.Count > 1)
+            {
+                for (int c = 0; c < currentOrder.Count; c++)
                 {
-                    RaceParticipant nowBehind = FindCarBehind(participant, 40f);
-                    if (nowBehind == previousAhead)
+                    RaceParticipant mover = currentOrder[c];
+                    int moverPreviousIndex = raceControlOrderSnapshot.IndexOf(mover);
+                    if (moverPreviousIndex < 0)
                     {
-                        TrackProgress selfProgress = State.GetCurrentProgress(participant);
-                        TrackProgress aheadProgress = State.GetCurrentProgress(previousAhead);
-                        bool overtakingBannedNow = !IsOvertakingAllowed ||
-                            selfProgress.sector == YellowFlagSector ||
-                            aheadProgress.sector == YellowFlagSector;
-                        if (overtakingBannedNow)
+                        // Not in the previous snapshot (was pitting/rejoining) -
+                        // its first snapshot back establishes a baseline instead
+                        // of being compared against a stale position.
+                        continue;
+                    }
+
+                    for (int d = c + 1; d < currentOrder.Count; d++)
+                    {
+                        RaceParticipant passed = currentOrder[d];
+                        int passedPreviousIndex = raceControlOrderSnapshot.IndexOf(passed);
+                        if (passedPreviousIndex < 0 || passedPreviousIndex >= moverPreviousIndex)
                         {
-                            AddPenalty(participant, 5f, "Overtake under yellow/SC");
-                            GameLog.Warn("[RaceControl] Illegal overtake penalty: " + participant.driverName + " passed " + previousAhead.driverName + " while overtaking was not allowed (+5s).");
-                            if (participant.isPlayer)
+                            continue;
+                        }
+
+                        // mover was behind `passed` last snapshot and is ahead
+                        // now - a completed pass during the restricted window.
+                        bool restrictedPair = IsOvertakingRestrictedForParticipant(mover) || IsOvertakingRestrictedForParticipant(passed);
+                        if (!restrictedPair || IsPositionCorrectionAllowed(mover, passed))
+                        {
+                            continue;
+                        }
+
+                        string pairKey = mover.driverId + ">" + passed.driverId;
+                        if (illegalOvertakePairCooldowns.ContainsKey(pairKey))
+                        {
+                            continue;
+                        }
+
+                        illegalOvertakePairCooldowns[pairKey] = RaceElapsed + IllegalOvertakePairCooldownSeconds;
+                        string stateLabel = IsFullSafetyCarPeriod ? "safety car" : (IsVirtualSafetyCarActive ? "VSC" : "yellow");
+                        AddPenalty(mover, 5f, "Overtake under " + stateLabel);
+                        GameLog.Warn("[RaceControl] Illegal overtake penalty: " + mover.driverName + " passed " + passed.driverName +
+                            " under " + stateLabel + " (state=" + CurrentRaceControlState + ", yellowSector=" + YellowFlagSector + ") (+5s).");
+                        if (mover.isPlayer)
+                        {
+                            SessionMessage = "Overtake under " + stateLabel + ": +5s - give the position back";
+                            if (Settings != null && Settings.Current.raceControlMessages)
                             {
-                                SessionMessage = "Overtake under yellow: +5s";
+                                PostEngineerMessage("That pass wasn't allowed under " + stateLabel + " - give the position back.", true);
                             }
+                        }
+                        else if (passed.isPlayer && Settings != null && Settings.Current.raceControlMessages)
+                        {
+                            PostEngineerMessage(mover.driverName + " passed you illegally - race control has given them 5 seconds.", false);
                         }
                     }
                 }
-
-                participant.previousCarAheadForOvertakeCheck = currentAhead;
             }
+
+            raceControlOrderSnapshot.Clear();
+            raceControlOrderSnapshot.AddRange(currentOrder);
+            restrictionActiveAtLastSnapshot = restrictionActiveNow;
         }
 
         // AI (and, via RecommendedPitUnderSafetyCar, the player HUD) pit-under-SC
@@ -2638,11 +2890,10 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            // Part 2: a local yellow disables DRS too, but only for a car actually
-            // near the incident that caused it - the same window the local speed
-            // cap uses - not the whole field for a hazard on the other side of the
-            // circuit.
-            if (IsNearLocalYellowIncident(participant))
+            // A local yellow disables DRS for any car in the flagged sector (the
+            // same scope as the overtaking ban - DRS exists purely to overtake),
+            // plus the tighter near-incident window used by the speed cap.
+            if (IsNearLocalYellowIncident(participant) || IsOvertakingRestrictedForParticipant(participant))
             {
                 return false;
             }
@@ -2702,7 +2953,8 @@ namespace LocalFormulaRacing
                 CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
                 CurrentRaceControlState == RaceControlState.SafetyCarActive ||
                 CurrentRaceControlState == RaceControlState.SafetyCarInThisLap ||
-                IsNearLocalYellowIncident(participant))
+                IsNearLocalYellowIncident(participant) ||
+                IsOvertakingRestrictedForParticipant(participant))
             {
                 return false;
             }

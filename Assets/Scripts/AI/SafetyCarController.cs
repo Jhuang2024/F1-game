@@ -25,11 +25,16 @@ namespace LocalFormulaRacing
         public bool IsReturningToPits { get; private set; }
 
         float previousSpeedKph;
-        bool despawnRequested;
         float despawnTimer;
+        // Distance from the safety car back to the race leader, fed by
+        // RaceManager each tick during a full SC period - the car waits (slow
+        // pickup pace) while the leader is far behind and releases to full
+        // cruise as the queue forms up.
+        float leaderGapMeters;
 
         const float CruiseSpeedKph = 140f;
         const float MinCornerSpeedKph = 90f;
+        const float PickupSpeedKph = 70f;
         const float PitReturnDurationSeconds = 6f;
 
         public void Configure(TrackRuntime trackRuntime, Renderer beaconRenderer, Renderer brakeLightRenderer)
@@ -72,15 +77,21 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            ProgressDistance = atDistance;
+            ProgressDistance = track.WrapDistance(atDistance);
             IsActive = true;
             IsReturningToPits = false;
-            despawnRequested = false;
             despawnTimer = 0f;
-            CurrentSpeedKph = CruiseSpeedKph * 0.4f;
+            leaderGapMeters = 999f;
+            CurrentSpeedKph = PickupSpeedKph;
             previousSpeedKph = CurrentSpeedKph;
             gameObject.SetActive(true);
+            ForceRenderersVisible();
             SnapToProgress();
+        }
+
+        public void SetLeaderGapMeters(float gapMeters)
+        {
+            leaderGapMeters = gapMeters;
         }
 
         // Called once race control is ready to end the safety car period - the
@@ -93,14 +104,27 @@ namespace LocalFormulaRacing
             IsReturningToPits = true;
         }
 
+        // Guards against any child renderer having been disabled (or the whole
+        // object left inactive) between deployments - the safety car must never
+        // be "on track" as pure race-control state with nothing visible.
+        void ForceRenderersVisible()
+        {
+            Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                renderers[i].enabled = true;
+            }
+        }
+
         void SnapToProgress()
         {
             Vector3 point;
             Vector3 forward;
             Vector3 right;
             track.SampleAtDistance(ProgressDistance, out point, out forward, out right);
-            transform.position = point + Vector3.up * 0.05f;
+            transform.position = point + Vector3.up * 0.08f;
             transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+            transform.localScale = Vector3.one;
             if (body != null)
             {
                 body.position = transform.position;
@@ -116,7 +140,21 @@ namespace LocalFormulaRacing
             }
 
             float severity = EstimateSeverityAhead();
-            float targetKph = IsReturningToPits ? CruiseSpeedKph * 1.1f : Mathf.Lerp(CruiseSpeedKph, MinCornerSpeedKph, severity);
+            float targetKph;
+            if (IsReturningToPits)
+            {
+                targetKph = CruiseSpeedKph * 1.1f;
+            }
+            else
+            {
+                targetKph = Mathf.Lerp(CruiseSpeedKph, MinCornerSpeedKph, severity);
+                // Leader pickup: hold a slow waiting pace until the leader has
+                // closed to within ~120m, blending up to full cruise by ~35m so
+                // the queue forms without the safety car driving off alone.
+                float pickupBlend = Mathf.InverseLerp(120f, 35f, leaderGapMeters);
+                targetKph = Mathf.Lerp(PickupSpeedKph, targetKph, pickupBlend);
+            }
+
             CurrentSpeedKph = Mathf.MoveTowards(CurrentSpeedKph, targetKph, Time.deltaTime * (targetKph < CurrentSpeedKph ? 55f : 25f));
 
             bool braking = CurrentSpeedKph < previousSpeedKph - 0.5f;
@@ -128,19 +166,29 @@ namespace LocalFormulaRacing
 
             if (beaconMaterial != null)
             {
-                float pulse = Mathf.PingPong(Time.time * 3.4f, 1f);
-                beaconMaterial.SetColor("_EmissionColor", Color.Lerp(beaconBaseColor * 0.3f, beaconBaseColor * 2.2f, pulse));
+                // Fast alternating double-flash reads as an emergency light bar
+                // from much further away than a smooth sine pulse does.
+                float phase = Mathf.Repeat(Time.time * 2.4f, 1f);
+                bool lit = phase < 0.12f || (phase > 0.2f && phase < 0.32f);
+                beaconMaterial.SetColor("_EmissionColor", lit ? beaconBaseColor * 2.6f : beaconBaseColor * 0.2f);
             }
 
-            ProgressDistance += CurrentSpeedKph / 3.6f * Time.deltaTime;
+            ProgressDistance = track.WrapDistance(ProgressDistance + CurrentSpeedKph / 3.6f * Time.deltaTime);
             Vector3 point;
             Vector3 forward;
             Vector3 right;
             track.SampleAtDistance(ProgressDistance, out point, out forward, out right);
-            Vector3 targetPosition = point + Vector3.up * 0.05f;
+            Vector3 targetPosition = point + Vector3.up * 0.08f;
             Quaternion targetRotation = Quaternion.LookRotation(forward, Vector3.up);
-            transform.position = Vector3.MoveTowards(transform.position, targetPosition, Time.deltaTime * (CurrentSpeedKph / 3.6f + 6f));
+            transform.position = Vector3.MoveTowards(transform.position, targetPosition, Time.deltaTime * (CurrentSpeedKph / 3.6f + 8f));
             transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, Time.deltaTime * 220f);
+            // If the smoothing ever falls far behind the sampled point (a teleport,
+            // a respawn, a long pause), snap rather than drift through scenery.
+            if ((transform.position - targetPosition).sqrMagnitude > 40f * 40f)
+            {
+                SnapToProgress();
+            }
+
             if (body != null)
             {
                 body.MovePosition(transform.position);
@@ -149,7 +197,6 @@ namespace LocalFormulaRacing
 
             if (IsReturningToPits)
             {
-                despawnRequested = true;
                 despawnTimer += Time.deltaTime;
                 if (despawnTimer > PitReturnDurationSeconds)
                 {
@@ -175,7 +222,6 @@ namespace LocalFormulaRacing
         {
             IsActive = false;
             IsReturningToPits = false;
-            despawnRequested = false;
             gameObject.SetActive(false);
         }
     }

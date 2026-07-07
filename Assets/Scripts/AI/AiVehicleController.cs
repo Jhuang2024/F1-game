@@ -637,6 +637,8 @@ namespace LocalFormulaRacing
         // close" treatment as a real car directly ahead, so the queue actually
         // forms behind it instead of AI cars only being pace-capped in the
         // abstract while treating the visible car itself as empty air.
+        // Queue shape: hold a ~14m gap to the safety car, matching its speed
+        // once settled, with controlled braking (not a stab) when closing fast.
         void ApplySafetyCarFollowing(ref VehicleCommand command)
         {
             Transform safetyCar = raceManager.SafetyCarTransform;
@@ -646,18 +648,49 @@ namespace LocalFormulaRacing
             }
 
             Vector3 local = transform.InverseTransformPoint(safetyCar.position);
-            if (local.z <= 0f || local.z > 60f || Mathf.Abs(local.x) > 6f)
+            if (local.z <= 0f || local.z > 90f || Mathf.Abs(local.x) > 7f)
             {
                 return;
             }
 
-            float closeness = Mathf.Clamp01(1f - local.z / 60f);
-            if (local.z < 16f)
+            const float targetGap = 14f;
+            float mySpeedKph = Mathf.Abs(vehicle.CurrentSpeedKph);
+            float scSpeedKph = raceManager.SafetyCarCurrentSpeedKph;
+            float closingKph = Mathf.Max(0f, mySpeedKph - scSpeedKph);
+
+            // Brake earlier the faster the gap is actually shrinking, so a car
+            // arriving at 250kph starts shedding speed well before the queue.
+            float timeToContact = (local.z - targetGap) / Mathf.Max(1.5f, closingKph / 3.6f);
+            if (timeToContact < 3f && closingKph > 5f)
             {
-                command.brake = Mathf.Max(command.brake, Mathf.Lerp(0.15f, 0.85f, closeness * closeness));
+                float urgency = Mathf.Clamp01(1f - timeToContact / 3f);
+                command.brake = Mathf.Max(command.brake, Mathf.Lerp(0.1f, 0.9f, urgency * urgency));
             }
 
-            command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(1f, 0.1f, closeness));
+            if (local.z < targetGap)
+            {
+                command.brake = Mathf.Max(command.brake, 0.6f);
+                command.throttle = 0f;
+            }
+            else if (local.z < targetGap * 2.5f)
+            {
+                // Settled in the queue: hold station by matching the safety
+                // car's speed instead of oscillating between full throttle and
+                // panic braking.
+                if (mySpeedKph > scSpeedKph + 2f)
+                {
+                    command.throttle = 0f;
+                }
+                else
+                {
+                    command.throttle = Mathf.Min(command.throttle, 0.45f);
+                }
+            }
+            else
+            {
+                float closeness = Mathf.Clamp01(1f - local.z / 90f);
+                command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(1f, 0.3f, closeness));
+            }
         }
 
         float AiDamagePaceMultiplier(float damagePercent)
@@ -977,10 +1010,15 @@ namespace LocalFormulaRacing
                 commitment = Mathf.Clamp01(commitment + 0.12f);
             }
 
-            // No overtaking under a safety car / VSC or in a locally yellow-flagged
-            // sector (Part 5 / Part 4). Any attempt already under way is aborted
-            // cleanly back to a single lane instead of snapping straight.
-            bool overtakingAllowedHere = raceManager.IsOvertakingAllowed && progress.sector != raceManager.YellowFlagSector;
+            // No overtaking under a safety car / VSC / restart hold or in a locally
+            // yellow-flagged sector - decided by RaceManager's single legality
+            // helper so the AI's own restraint, the player's enforcement and the
+            // penalty detector can never disagree about what was allowed. Any
+            // attempt already under way is aborted cleanly back to a single lane
+            // instead of snapping straight. Order correction (a retired/pitting/
+            // recovering/crawling car ahead) is the one exception, checked
+            // per-target below.
+            bool overtakingAllowedHere = !raceManager.IsOvertakingRestrictedForParticipant(participant);
             if (!overtakingAllowedHere && overtakeState != OvertakeState.Following && overtakeState != OvertakeState.BackingOut && overtakeState != OvertakeState.CompletingPass)
             {
                 overtakeState = OvertakeState.BackingOut;
@@ -994,7 +1032,7 @@ namespace LocalFormulaRacing
             {
                 case OvertakeState.Following:
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, 0f, Time.deltaTime * 4f);
-                    if (ahead != null && ahead.vehicle != null && overtakingAllowedHere)
+                    if (ahead != null && ahead.vehicle != null && raceManager.CanParticipantOvertake(participant, ahead))
                     {
                         float gapSeconds = raceManager.GetIntervalToAheadSeconds(participant);
                         bool approachingBrakeZone = apexDistanceAhead < 90f && apexSeverity > 0.2f;
