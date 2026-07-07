@@ -45,6 +45,10 @@ namespace LocalFormulaRacing
         public Vector3 lastSafePosition;
         public Quaternion lastSafeRotation;
         public float fallRespawnCooldown;
+        // Tracks how long the car has been sitting notably below the intended
+        // road height (e.g. settled on lower ground beneath an elevated section)
+        // so recovery can trigger on a sustained mismatch, not only a hard fall.
+        public float belowTrackTimer;
         public int pitStops;
         public TyreCompound startingCompound = TyreCompound.Medium;
         public TyreCompound nextPitCompound = TyreCompound.Medium;

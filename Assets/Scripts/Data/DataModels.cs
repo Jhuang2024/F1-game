@@ -264,7 +264,7 @@ namespace LocalFormulaRacing
         // JsonUtility keeps them when the key is absent from an older save file.
         public float hudScale = 1f;
         public float cameraFov = 60f;
-        public float cameraShakeStrength = 1f;
+        public float cameraShakeStrength = 0.2f;
         public bool useMphUnits;
         public float sceneryDensity = 1f;
         public int graphicsQuality = 2;

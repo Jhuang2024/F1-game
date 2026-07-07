@@ -1466,24 +1466,41 @@ namespace LocalFormulaRacing
             return (deltaMeters / speed).ToString("0.0") + "s";
         }
 
-        public string BuildQualifyingTimingTowerText(RaceParticipant player)
+        // Structured qualifying timing tower row so RaceHud renders directly into
+        // real Text cells instead of parsing a hand-padded string back apart.
+        public struct QualifyingTowerRow
         {
+            public int position;
+            public string driverCode;
+            public string bestTimeText;
+            public string gapText;
+            public bool isPlayer;
+        }
+
+        public List<QualifyingTowerRow> BuildQualifyingTowerRows(int maxRows)
+        {
+            List<QualifyingTowerRow> rows = new List<QualifyingTowerRow>();
             List<QualifyingSimEntry> active = ActiveQualifyingEntries(qualifyingPhase);
             active.Sort((a, b) => GetDisplayQualifyingTime(a).CompareTo(GetDisplayQualifyingTime(b)));
             float pole = GetQualifyingPoleReferenceTime();
-            string text = "Q" + qualifyingPhase + "  POS  DVR   BEST    GAP\n";
-            int count = Mathf.Min(FullWeekendDriverCount, active.Count);
+            int count = Mathf.Min(maxRows, active.Count);
             for (int i = 0; i < count; i++)
             {
                 QualifyingSimEntry entry = active[i];
                 float time = GetDisplayQualifyingTime(entry);
-                string marker = entry.isPlayer ? ">" : " ";
                 string best = time >= 9998f ? "--:--.---" : UiFactory.FormatTime(time);
                 string gap = time >= 9998f || pole <= 0f ? "--" : (Mathf.Abs(time - pole) < 0.001f ? "P1" : "+" + (time - pole).ToString("0.000"));
-                text += marker + (i + 1).ToString("00") + "   " + DriverCode(entry.driverName) + "   " + best + "   " + gap + "\n";
+                rows.Add(new QualifyingTowerRow
+                {
+                    position = i + 1,
+                    driverCode = DriverCode(entry.driverName),
+                    bestTimeText = best,
+                    gapText = gap,
+                    isPlayer = entry.isPlayer
+                });
             }
 
-            return text;
+            return rows;
         }
 
         public float GetQualifyingPoleReferenceTime()
@@ -2202,10 +2219,11 @@ namespace LocalFormulaRacing
 
             participant.fallRespawnCooldown = Mathf.Max(0f, participant.fallRespawnCooldown - Time.deltaTime);
             TrackProgress progress = Track.GetProgress(participant.transform.position);
+            float heightOffset = participant.transform.position.y - progress.nearestPoint.y;
             bool stableOnRoad =
                 Mathf.Abs(progress.lateralDistance) <= Track.roadHalfWidth &&
-                participant.transform.position.y >= progress.nearestPoint.y - 0.35f &&
-                participant.transform.position.y <= progress.nearestPoint.y + 2.25f;
+                heightOffset >= -0.35f &&
+                heightOffset <= 2.25f;
 
             if (stableOnRoad && participant.fallRespawnCooldown <= 0f)
             {
@@ -2214,11 +2232,28 @@ namespace LocalFormulaRacing
                 participant.lastSafeRotation = participant.transform.rotation;
             }
 
-            if (participant.transform.position.y >= progress.nearestPoint.y - 5f)
+            // Two independent triggers: a hard, fast drop clearly past the track
+            // surface, and a sustained mismatch for cars that settle on lower
+            // ground beneath an elevated section without ever registering a single
+            // instantaneous deep-fall frame. The second case was the actual "car
+            // becomes impossible to drive" report - it never truly fell forever,
+            // it just got physically stuck at the wrong height.
+            bool hardFall = heightOffset < -3f;
+            if (heightOffset < -1.5f && !hardFall)
+            {
+                participant.belowTrackTimer += Time.deltaTime;
+            }
+            else
+            {
+                participant.belowTrackTimer = 0f;
+            }
+
+            if (!hardFall && participant.belowTrackTimer <= 0.6f)
             {
                 return;
             }
 
+            participant.belowTrackTimer = 0f;
             Vector3 respawnPosition = participant.hasLastSafePosition
                 ? participant.lastSafePosition + Vector3.up * 0.35f
                 : progress.nearestPoint + Vector3.up * 0.45f;
@@ -2241,8 +2276,9 @@ namespace LocalFormulaRacing
             }
 
             participant.fallRespawnCooldown = 2f;
-            GameLog.Warn("[RoadPhysics] Respawned " + participant.driverName +
-                             " after falling below track. respawn=" + respawnPosition);
+            GameLog.Warn("[RoadPhysics] Recovered " + participant.driverName +
+                             " from an invalid below-track position (offset=" + heightOffset.ToString("0.0") +
+                             "m). respawn=" + respawnPosition);
         }
 
         GameObject CreateOpenWheelCar(string driverName, Color primary, Color secondary)
