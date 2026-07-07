@@ -1032,40 +1032,128 @@ namespace LocalFormulaRacing
             });
 
             // Bottom row: pit strategy plan, shown on the HUD pit card and used
-            // for the engineer's box calls during the race.
+            // for the engineer's box calls during the race. Supports both a
+            // 1-stop and a 2-stop plan; the "Strategy" row toggles whether the
+            // stop-2 rows exist at all (they're omitted, not just disabled, to
+            // keep a 1-stop plan compact). Card height below is sized for the
+            // worst case (2-stop, every row present) so it never clips.
             RectTransform pitCard = UiFactory.CreateGlassPanel(bodyMargin, "Pit strategy card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, UiFactory.PanelDarker);
-            UiFactory.SetFixedRowHeight(pitCard, 196f);
+            UiFactory.SetFixedRowHeight(pitCard, 452f);
             RectTransform pitList = UiFactory.CreateRect(pitCard, "Pit strategy list", Vector2.zero, Vector2.one, new Vector2(28f, 16f), new Vector2(-28f, -16f));
             UiFactory.AddVerticalLayout(pitList, 6, new RectOffset(0, 0, 0, 0));
             UiFactory.CreateSubHeader(pitList, "Pit Strategy");
 
             int raceLaps = Mathf.Max(3, settings.Current.laps);
-            string plannedLabel = settings.Current.plannedPitLap <= 0 ? "Auto" : "Lap " + settings.Current.plannedPitLap;
-            RectTransform plannedControl;
-            UiFactory.CreateSettingRow(pitList, "Planned Stop", "Leave on Auto to let the engineer call the window.", out plannedControl);
-            UiFactory.CreateCycleControl(plannedControl, plannedLabel, () =>
+            int stopCount = Mathf.Clamp(settings.Current.plannedStopCount, 1, 2);
+
+            RectTransform strategyControl;
+            UiFactory.CreateSettingRow(pitList, "Strategy", "One mandatory stop, or two for extra tyre flexibility.", out strategyControl);
+            UiFactory.CreateCycleControl(strategyControl, stopCount == 1 ? "1-Stop" : "2-Stop", () =>
             {
-                settings.Current.plannedPitLap = settings.Current.plannedPitLap >= raceLaps - 1 ? 0 : settings.Current.plannedPitLap + 1;
+                settings.Current.plannedStopCount = stopCount == 1 ? 2 : 1;
                 settings.Save();
                 ShowRaceTyreSelect(data, career, settings, careerRace);
             });
 
-            RectTransform secondCompoundControl;
-            UiFactory.CreateSettingRow(pitList, "Second Compound", "Tyre fitted at the mandatory stop.", out secondCompoundControl);
-            UiFactory.CreateCycleControl(secondCompoundControl, settings.Current.plannedSecondCompound, () =>
+            int stop1Lap = settings.Current.plannedPitLapOne;
+            string stop1LapLabel = stop1Lap <= 0 ? "Auto" : "Lap " + stop1Lap;
+            RectTransform stop1LapControl;
+            UiFactory.CreateSettingRow(pitList, "Stop 1 Lap", "Leave on Auto to let the engineer call the window.", out stop1LapControl);
+            UiFactory.CreateCycleControl(stop1LapControl, stop1LapLabel, () =>
             {
-                settings.Current.plannedSecondCompound = NextTyreName(settings.Current.plannedSecondCompound);
+                settings.Current.plannedPitLapOne = settings.Current.plannedPitLapOne >= raceLaps - 1 ? 0 : settings.Current.plannedPitLapOne + 1;
                 settings.Save();
                 ShowRaceTyreSelect(data, career, settings, careerRace);
             });
 
-            int stintLength = settings.Current.plannedPitLap <= 0 ? Mathf.Max(1, Mathf.RoundToInt(raceLaps * 0.55f)) : settings.Current.plannedPitLap;
-            Text estimate = UiFactory.CreateText(pitList, "Strategy estimate",
-                "Mandatory stop is active. First stint ~" + stintLength + " of " + raceLaps + " laps, pit lane loss ~22s." +
-                (profileIsWet(current) ? " Rain risk: plan for Intermediates." : ""),
-                14, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            estimate.verticalOverflow = VerticalWrapMode.Overflow;
-            UiFactory.SetSize(estimate, 900f, 40f);
+            RectTransform stop1TyreControl;
+            UiFactory.CreateSettingRow(pitList, "Stop 1 Tyre", "Tyre fitted at the first stop.", out stop1TyreControl);
+            UiFactory.CreateCycleControl(stop1TyreControl, settings.Current.plannedStopOneCompound, () =>
+            {
+                settings.Current.plannedStopOneCompound = NextTyreName(settings.Current.plannedStopOneCompound);
+                settings.Save();
+                ShowRaceTyreSelect(data, career, settings, careerRace);
+            });
+
+            // A 2-stop's second lap can never land at or before the first stop.
+            // If the player tightened stop 1 after already picking a stop-2 lap,
+            // silently drop the now-invalid stop-2 lap back to Auto rather than
+            // letting the plan show a nonsensical order.
+            int stop1LapLowerBound = stop1Lap > 0 ? stop1Lap : 0;
+            if (stopCount == 2 && settings.Current.plannedPitLapTwo > 0 && stop1LapLowerBound > 0 &&
+                settings.Current.plannedPitLapTwo <= stop1LapLowerBound)
+            {
+                settings.Current.plannedPitLapTwo = 0;
+                settings.Save();
+            }
+
+            if (stopCount == 2)
+            {
+                int stop2Lap = settings.Current.plannedPitLapTwo;
+                string stop2LapLabel = stop2Lap <= 0 ? "Auto" : "Lap " + stop2Lap;
+                RectTransform stop2LapControl;
+                UiFactory.CreateSettingRow(pitList, "Stop 2 Lap", "Leave on Auto to let the engineer call the window.", out stop2LapControl);
+                UiFactory.CreateCycleControl(stop2LapControl, stop2LapLabel, () =>
+                {
+                    int next = settings.Current.plannedPitLapTwo;
+                    do
+                    {
+                        next = next >= raceLaps - 1 ? 0 : next + 1;
+                    }
+                    while (next != 0 && stop1LapLowerBound > 0 && next <= stop1LapLowerBound);
+                    settings.Current.plannedPitLapTwo = next;
+                    settings.Save();
+                    ShowRaceTyreSelect(data, career, settings, careerRace);
+                });
+
+                RectTransform stop2TyreControl;
+                UiFactory.CreateSettingRow(pitList, "Stop 2 Tyre", "Tyre fitted at the second stop.", out stop2TyreControl);
+                UiFactory.CreateCycleControl(stop2TyreControl, settings.Current.plannedStopTwoCompound, () =>
+                {
+                    settings.Current.plannedStopTwoCompound = NextTyreName(settings.Current.plannedStopTwoCompound);
+                    settings.Save();
+                    ShowRaceTyreSelect(data, career, settings, careerRace);
+                });
+            }
+
+            // Resolved-plan preview, e.g. "Start Medium -> Lap 5 Hard" or, for a
+            // 2-stop, "Start Soft -> Lap 4 Medium -> Lap 8 Hard". Auto laps are
+            // estimated the same way the old single-stop row did (55% of race
+            // distance for stop 1), and a 2-stop's auto stop-2 lap mirrors
+            // RaceManager.GetPlannedPitLapForStop(2)'s "two-thirds of what's left
+            // after stop 1" reasoning so this preview roughly matches the race.
+            int stop1LapEstimate = stop1Lap > 0 ? stop1Lap : Mathf.Max(1, Mathf.RoundToInt(raceLaps * 0.55f));
+            string summaryLine = "Start " + settings.Current.tyreCompound + " → Lap " + stop1LapEstimate + " " + settings.Current.plannedStopOneCompound;
+            if (stopCount == 2)
+            {
+                int stop2LapValue = settings.Current.plannedPitLapTwo;
+                int stop2LapEstimate = stop2LapValue > 0
+                    ? stop2LapValue
+                    : Mathf.Clamp(stop1LapEstimate + Mathf.RoundToInt(Mathf.Max(1, raceLaps - stop1LapEstimate) * 0.66f), stop1LapEstimate + 1, raceLaps - 1);
+                summaryLine += " → Lap " + stop2LapEstimate + " " + settings.Current.plannedStopTwoCompound;
+            }
+
+            Text summary = UiFactory.CreateText(pitList, "Strategy summary", summaryLine, 15, UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            summary.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(summary, 900f, 26f);
+
+            string recommendation;
+            if (profileIsWet(current))
+            {
+                recommendation = "Wet weather: Intermediates or Wets are the safe call.";
+            }
+            else if (raceLaps <= 8)
+            {
+                recommendation = "Short race: a one-stop is usually enough.";
+            }
+            else
+            {
+                recommendation = "Longer race: a two-stop can undercut rivals on fresher tyres.";
+            }
+
+            Text recommendationText = UiFactory.CreateText(pitList, "Strategy recommendation", recommendation, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            recommendationText.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(recommendationText, 900f, 24f);
 
             RectTransform footerLeft;
             RectTransform footerRight;
