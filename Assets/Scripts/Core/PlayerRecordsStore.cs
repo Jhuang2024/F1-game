@@ -78,5 +78,56 @@ namespace LocalFormulaRacing
             LocalJsonStore.Save(RecordsFile, Data);
             return true;
         }
+
+        // Career-wide stat tracking; called once when a race classification is final.
+        public static void RecordRaceFinish(int position, int points, bool fastestLap, bool cleanRace, int trackLimitWarnings)
+        {
+            PlayerRecordsData data = Data;
+            data.racesFinished++;
+            if (position == 1)
+            {
+                data.raceWins++;
+            }
+
+            if (position >= 1 && position <= 3)
+            {
+                data.podiums++;
+            }
+
+            if (fastestLap)
+            {
+                data.fastestLaps++;
+            }
+
+            if (cleanRace)
+            {
+                data.cleanRaces++;
+            }
+
+            data.totalPoints += Mathf.Max(0, points);
+            data.trackLimitWarningsTotal += Mathf.Max(0, trackLimitWarnings);
+            LocalJsonStore.Save(RecordsFile, data);
+        }
+
+        public static void RecordQualifyingResult(int position)
+        {
+            if (position <= 0)
+            {
+                return;
+            }
+
+            PlayerRecordsData data = Data;
+            if (position == 1)
+            {
+                data.polePositions++;
+            }
+
+            if (data.bestQualifyingPosition <= 0 || position < data.bestQualifyingPosition)
+            {
+                data.bestQualifyingPosition = position;
+            }
+
+            LocalJsonStore.Save(RecordsFile, data);
+        }
     }
 }

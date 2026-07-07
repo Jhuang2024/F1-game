@@ -53,6 +53,13 @@ namespace LocalFormulaRacing
         bool lowBatteryForcedHarvest;
         static PhysicMaterial vehiclePhysicsMaterial;
 
+        // Garage setup trade-offs (player car only); all neutral at 1.
+        float setupTopSpeedMultiplier = 1f;
+        float setupGripMultiplier = 1f;
+        float setupBrakeMultiplier = 1f;
+        float setupKerbGrip = 0.92f;
+        float setupWearBias = 1f;
+
         const int GearCount = 8;
         const float RaceSpeedCeilingKph = 350f;
         static readonly float[] AutoShiftUpKph = { 0f, 62f, 102f, 142f, 186f, 232f, 282f, 322f };
@@ -73,6 +80,7 @@ namespace LocalFormulaRacing
             body.centerOfMass = new Vector3(0f, -0.42f, 0.05f);
             body.interpolation = RigidbodyInterpolation.Interpolate;
             ApplyLowFrictionPhysicsMaterial();
+            ApplyCarSetup();
             Tyres = new TyreState();
             Tyres.Reset(compound);
             Damage = new DamageState();
@@ -82,6 +90,35 @@ namespace LocalFormulaRacing
             LastGearTorqueMultiplier = GearTorqueMultipliers[0];
             initialized = true;
             GameLog.Info("[Damage] " + name + " starting damage " + Damage.OverallPercent.ToString("0.0") + "%");
+        }
+
+        // Translate the saved garage setup into small, readable physics trade-offs.
+        // More wing: corner grip up, straight-line speed down. Brake bias off-center:
+        // stronger stopping power but a stability cost. Stiff suspension: slightly
+        // more grip on smooth tarmac, worse kerb behavior, faster tyre wear. Low
+        // ride height: less drag but the car hates kerbs.
+        void ApplyCarSetup()
+        {
+            setupTopSpeedMultiplier = 1f;
+            setupGripMultiplier = 1f;
+            setupBrakeMultiplier = 1f;
+            setupKerbGrip = 0.92f;
+            setupWearBias = 1f;
+            if (!IsPlayerControlled || settings == null)
+            {
+                return;
+            }
+
+            float wing = (settings.setupFrontWing + settings.setupRearWing) * 0.5f - 3f; // -2 .. +2
+            float bias = settings.setupBrakeBias - 3f;
+            float stiffness = settings.setupSuspension - 3f;
+            float ride = settings.setupRideHeight - 3f; // negative = low
+
+            setupGripMultiplier = (1f + wing * 0.016f + stiffness * 0.004f) * (1f - Mathf.Abs(bias) * 0.004f);
+            setupTopSpeedMultiplier = 1f - wing * 0.011f - ride * 0.0045f;
+            setupBrakeMultiplier = 1f + bias * 0.014f;
+            setupKerbGrip = Mathf.Clamp(0.92f - stiffness * 0.018f + Mathf.Min(0f, ride) * 0.02f, 0.78f, 0.98f);
+            setupWearBias = Mathf.Clamp(1f + stiffness * 0.05f, 0.85f, 1.2f);
         }
 
         public void SetCommand(VehicleCommand newCommand)
@@ -207,7 +244,7 @@ namespace LocalFormulaRacing
             float slipEnergy = Mathf.Clamp01(lateralSpeed / Mathf.Max(6f, body.velocity.magnitude * 0.32f)) * Mathf.InverseLerp(28f, 260f, absoluteSpeedKph);
             slipEnergy = Mathf.Clamp01(slipEnergy + Mathf.Abs(assisted.steer) * Mathf.InverseLerp(80f, 270f, absoluteSpeedKph) * 0.35f);
             UpdateGear(absoluteSpeedKph);
-            Tyres.Tick(absoluteSpeedKph, assisted.brake, assisted.steer, assisted.throttle, slipEnergy, Weather, CarData.tyreManagement, dt);
+            Tyres.Tick(absoluteSpeedKph, assisted.brake, assisted.steer, assisted.throttle, slipEnergy * setupWearBias, Weather, CarData.tyreManagement, dt);
             ApplyForces(assisted, absoluteSpeedKph, progress, dt);
             ApplySteering(assisted, absoluteSpeedKph, dt);
             StabilizeChassis(dt);
@@ -345,7 +382,7 @@ namespace LocalFormulaRacing
             LastPowerMultiplier = Damage.PowerMultiplier;
             LastGearTorqueMultiplier = GearTorqueMultiplier(absoluteSpeedKph);
             float gripStat = Mathf.Lerp(0.9f, 1.28f, CarData.cornering / 100f);
-            float grip = tyreGrip * gripStat * Damage.HandlingMultiplier;
+            float grip = tyreGrip * gripStat * Damage.HandlingMultiplier * setupGripMultiplier;
             ActiveSlowdownReason = "NONE";
             if (IsOffTrackSlowdown)
             {
@@ -354,7 +391,7 @@ namespace LocalFormulaRacing
             }
             else if (IsOnKerb)
             {
-                grip *= 0.92f;
+                grip *= setupKerbGrip;
                 ActiveSlowdownReason = "KERB";
             }
 
@@ -430,7 +467,8 @@ namespace LocalFormulaRacing
             float brakeStat = Mathf.Lerp(33f, 56f, CarData.braking / 100f) *
                               Tyres.BrakingMultiplier *
                               Mathf.Lerp(1.04f, 1.42f, Mathf.InverseLerp(80f, 330f, absoluteSpeedKph)) *
-                              Damage.HandlingMultiplier;
+                              Damage.HandlingMultiplier *
+                              setupBrakeMultiplier;
             if (activeCommand.brake > 0.01f || IsHeldInPit)
             {
                 if (activeCommand.brake > 0.01f)
@@ -580,7 +618,7 @@ namespace LocalFormulaRacing
         float CalculateTargetTopSpeedKph(VehicleCommand activeCommand)
         {
             float carTopSpeed = CarData == null || CarData.topSpeed <= 0 ? 337f : CarData.topSpeed;
-            float target = Mathf.Clamp(carTopSpeed + 15f, 342f, RaceSpeedCeilingKph);
+            float target = Mathf.Clamp(carTopSpeed + 15f, 342f, RaceSpeedCeilingKph) * setupTopSpeedMultiplier;
             if (DrsActive)
             {
                 target = Mathf.Min(RaceSpeedCeilingKph, target + 4f);

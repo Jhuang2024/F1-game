@@ -83,6 +83,9 @@ namespace LocalFormulaRacing
         bool engineerFinalLapSent;
         bool engineerFuelWarningSent;
         bool engineerDamageWarningSent;
+        bool engineerRivalSent;
+        bool engineerTrackLimitsSent;
+        int lastGapReportLap = -1;
         float lastRecordedPlayerBestLap;
         bool pendingTimeTrial;
         float playerResetCooldown;
@@ -521,6 +524,21 @@ namespace LocalFormulaRacing
             engineerFinalLapSent = false;
             engineerFuelWarningSent = false;
             engineerDamageWarningSent = false;
+            engineerRivalSent = false;
+            engineerTrackLimitsSent = false;
+            lastGapReportLap = -1;
+        }
+
+        // Player pit plan: the strategy screen choice wins, otherwise the
+        // engineer's recommended window.
+        public int PlannedPitLapFor(RaceParticipant participant)
+        {
+            if (participant != null && participant.isPlayer && Settings != null && Settings.Current.plannedPitLap > 0)
+            {
+                return Mathf.Clamp(Settings.Current.plannedPitLap, 1, Mathf.Max(1, RaceLaps - 1));
+            }
+
+            return RecommendedPitLap(participant);
         }
 
         void TickEngineerTimers()
@@ -641,13 +659,15 @@ namespace LocalFormulaRacing
                 PostEngineerMessage("We are seeing damage on the car. Consider a stop for repairs.", false);
                 return;
             }
-            int targetLap = RecommendedPitLap(PlayerParticipant);
+            int targetLap = PlannedPitLapFor(PlayerParticipant);
             if (PlayerParticipant.pitStops == 0 && !PlayerParticipant.isPitting)
             {
                 if (completedLaps >= targetLap && lastEngineerPitLapPrompt != completedLaps)
                 {
                     lastEngineerPitLapPrompt = completedLaps;
-                    PostEngineerMessage("Box this lap. Mandatory stop still required.", true);
+                    float undercutGap = GetIntervalToAheadSeconds(PlayerParticipant);
+                    string undercut = undercutGap > 0f && undercutGap < 2.5f ? " The undercut on the car ahead is live." : "";
+                    PostEngineerMessage("Box this lap. Mandatory stop still required." + undercut, true);
                     return;
                 }
 
@@ -657,6 +677,64 @@ namespace LocalFormulaRacing
                     PostEngineerMessage("Pit window opens next lap. Think about the undercut.", false);
                     return;
                 }
+            }
+
+            if (PlayerParticipant.trackLimitWarnings >= 2 && !engineerTrackLimitsSent)
+            {
+                engineerTrackLimitsSent = true;
+                PostEngineerMessage("Careful with track limits. One more warning is a time penalty.", true);
+                return;
+            }
+
+            if (!engineerRivalSent && IsCareerRace && Career != null && Career.Save != null && !string.IsNullOrEmpty(Career.Save.rivalDriverId))
+            {
+                RaceParticipant rivalAhead = FindCarAhead(PlayerParticipant, 70f);
+                RaceParticipant rivalBehind = FindCarBehind(PlayerParticipant, 70f);
+                if (rivalAhead != null && rivalAhead.driverId == Career.Save.rivalDriverId)
+                {
+                    engineerRivalSent = true;
+                    PostEngineerMessage("That's your rival ahead. Beat him and the team will notice.", false);
+                    return;
+                }
+
+                if (rivalBehind != null && rivalBehind.driverId == Career.Save.rivalDriverId)
+                {
+                    engineerRivalSent = true;
+                    PostEngineerMessage("Your rival is right behind. Keep it clean, hold the position.", false);
+                    return;
+                }
+            }
+
+            // Periodic pace report every couple of laps when nothing urgent is up.
+            if (completedLaps >= 2 && completedLaps % 2 == 0 && lastGapReportLap != completedLaps && engineerCooldown <= 0f)
+            {
+                lastGapReportLap = completedLaps;
+                if (GetPosition(PlayerParticipant) == 1)
+                {
+                    float gapBehind = 0f;
+                    RaceParticipant chaser = FindCarBehind(PlayerParticipant, 400f);
+                    if (chaser != null)
+                    {
+                        gapBehind = GetIntervalToAheadSeconds(chaser);
+                    }
+
+                    PostEngineerMessage(gapBehind > 0.05f
+                        ? "You're leading, gap behind " + gapBehind.ToString("0.0") + "s. Manage the tyres."
+                        : "You're leading. Manage the tyres and keep it clean.", false);
+                    return;
+                }
+
+                float interval = GetIntervalToAheadSeconds(PlayerParticipant);
+                if (interval > 0.05f && interval < 1.2f)
+                {
+                    PostEngineerMessage("Car ahead " + interval.ToString("0.0") + "s. You're in DRS range, go get him.", false);
+                }
+                else if (interval > 0.05f)
+                {
+                    PostEngineerMessage("Gap to the car ahead " + interval.ToString("0.0") + "s. Consistent laps now.", false);
+                }
+
+                return;
             }
 
             if (car.Tyres.WearPercent > 42f && !engineerTyreWarningSent)
@@ -2889,7 +2967,35 @@ namespace LocalFormulaRacing
                 Career.ApplyRaceResults(EventData, results);
             }
 
+            RecordPlayerRaceStats(results);
             ui.ShowResults(this, results, IsCareerRace);
+        }
+
+        void RecordPlayerRaceStats(List<RaceResultEntry> results)
+        {
+            RaceResultEntry playerResult = results == null ? null : results.Find(entry => entry.isPlayer);
+            if (playerResult == null)
+            {
+                return;
+            }
+
+            RaceResultEntry fastest = null;
+            for (int i = 0; i < results.Count; i++)
+            {
+                if (results[i].bestLapTime > 0f && (fastest == null || results[i].bestLapTime < fastest.bestLapTime))
+                {
+                    fastest = results[i];
+                }
+            }
+
+            bool fastestLap = fastest != null && fastest.isPlayer;
+            int trackLimitWarnings = PlayerParticipant != null ? PlayerParticipant.trackLimitWarnings : 0;
+            bool cleanRace = playerResult.penaltiesSeconds <= 0.01f &&
+                             trackLimitWarnings == 0 &&
+                             PlayerParticipant != null &&
+                             PlayerParticipant.vehicle != null &&
+                             PlayerParticipant.vehicle.Damage.OverallPercent < 20f;
+            PlayerRecordsStore.RecordRaceFinish(playerResult.finishingPosition, playerResult.points, fastestLap, cleanRace, trackLimitWarnings);
         }
 
         void CompleteQualifyingRun()
@@ -2986,6 +3092,12 @@ namespace LocalFormulaRacing
             if (IsCareerRace)
             {
                 Career.ApplyQualifyingResults(EventData, results);
+            }
+
+            QualifyingResultEntry playerQualifying = results.Find(entry => entry.isPlayer);
+            if (playerQualifying != null)
+            {
+                PlayerRecordsStore.RecordQualifyingResult(playerQualifying.position);
             }
 
             ui.ShowQualifyingResults(this, results, IsCareerRace);
