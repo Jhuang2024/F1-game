@@ -1090,5 +1090,208 @@ namespace LocalFormulaRacing
             headingRect.offsetMax = Vector2.zero;
             return nav;
         }
+
+        // ---------- reusable screen structure ----------
+        // One header and one footer style used everywhere, so every screen shares
+        // the same navigation chrome instead of hand-rolled title bars and
+        // scattered Back/Main Menu buttons in the body.
+
+        // Header bar with a title and an optional muted subtitle line beneath it -
+        // use for every top-level screen instead of a one-off title Text.
+        public static RectTransform CreateScreenHeader(Transform parent, string title, string subtitle)
+        {
+            float height = string.IsNullOrEmpty(subtitle) ? 92f : 108f;
+            RectTransform nav = CreateBand(parent, "Screen header", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -height), Vector2.zero, PanelDarker);
+            CreateBand(nav, "Screen header rule", new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 3f), Accent);
+            RectTransform accentTab = CreateRect(nav, "Header accent tab", new Vector2(0f, 0f), new Vector2(0f, 0f), Vector2.zero, Vector2.zero);
+            accentTab.sizeDelta = new Vector2(58f, 6f);
+            accentTab.pivot = new Vector2(0f, 0f);
+            accentTab.anchoredPosition = new Vector2(64f, 0f);
+            Image accentTabImage = accentTab.gameObject.AddComponent<Image>();
+            accentTabImage.color = Color.white;
+
+            if (string.IsNullOrEmpty(subtitle))
+            {
+                Text heading = CreateText(nav, "Header title", title, 38, TextPrimary, TextAnchor.MiddleLeft);
+                RectTransform headingRect = heading.GetComponent<RectTransform>();
+                headingRect.anchorMin = new Vector2(0f, 0f);
+                headingRect.anchorMax = new Vector2(0.72f, 1f);
+                headingRect.offsetMin = new Vector2(64f, 0f);
+                headingRect.offsetMax = Vector2.zero;
+                return nav;
+            }
+
+            Text titleText = CreateText(nav, "Header title", title, 34, TextPrimary, TextAnchor.LowerLeft);
+            RectTransform titleRect = titleText.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0f, 0.5f);
+            titleRect.anchorMax = new Vector2(0.72f, 1f);
+            titleRect.offsetMin = new Vector2(64f, 0f);
+            titleRect.offsetMax = new Vector2(0f, -10f);
+
+            Text subtitleText = CreateText(nav, "Header subtitle", subtitle, 16, TextMuted, TextAnchor.UpperLeft);
+            RectTransform subtitleRect = subtitleText.GetComponent<RectTransform>();
+            subtitleRect.anchorMin = new Vector2(0f, 0f);
+            subtitleRect.anchorMax = new Vector2(0.72f, 0.5f);
+            subtitleRect.offsetMin = new Vector2(64f, 8f);
+            subtitleRect.offsetMax = Vector2.zero;
+            return nav;
+        }
+
+        // Bottom-docked action bar: secondary/back actions on the left, primary
+        // forward actions on the right. Replaces scattered per-screen button rows
+        // so navigation always lives in the same place.
+        public static void CreateFooterBar(Transform parent, out RectTransform leftGroup, out RectTransform rightGroup)
+        {
+            RectTransform footer = CreateBand(parent, "Footer bar", Vector2.zero, new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 78f), PanelDarker);
+            CreateBand(footer, "Footer rule", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -2f), Vector2.zero, new Color(1f, 1f, 1f, 0.06f));
+
+            leftGroup = CreateRect(footer, "Footer left group", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, Vector2.zero);
+            leftGroup.pivot = new Vector2(0f, 0.5f);
+            leftGroup.anchoredPosition = new Vector2(48f, 0f);
+            leftGroup.sizeDelta = new Vector2(760f, 60f);
+            AddHorizontalLayout(leftGroup, 12, new RectOffset(0, 0, 0, 0));
+
+            rightGroup = CreateRect(footer, "Footer right group", new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), Vector2.zero, Vector2.zero);
+            rightGroup.pivot = new Vector2(1f, 0.5f);
+            rightGroup.anchoredPosition = new Vector2(-48f, 0f);
+            rightGroup.sizeDelta = new Vector2(760f, 60f);
+            HorizontalLayoutGroup rightLayout = AddHorizontalLayout(rightGroup, 12, new RectOffset(0, 0, 0, 0));
+            rightLayout.childAlignment = TextAnchor.MiddleRight;
+        }
+
+        // Screen body area sized to sit cleanly between a header and a footer, so
+        // callers don't hand-tune anchor math on every screen.
+        public static RectTransform CreateScreenBody(Transform parent, float headerHeight, float footerHeight)
+        {
+            return CreateRect(parent, "Screen body", Vector2.zero, Vector2.one, new Vector2(0f, footerHeight), new Vector2(0f, -headerHeight));
+        }
+
+        // ---------- settings rows ----------
+        // A settings screen built from these reads as label / value / description
+        // rows with a compact control, not a wall of full-width buttons.
+
+        public static RectTransform CreateSettingRow(Transform parent, string label, string description, out RectTransform controlSlot)
+        {
+            RectTransform row = CreateRect(parent, label + " setting row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            row.sizeDelta = new Vector2(760f, string.IsNullOrEmpty(description) ? 46f : 60f);
+            Image background = row.gameObject.AddComponent<Image>();
+            StyleRounded(background, new Color(1f, 1f, 1f, 0.02f));
+
+            Text labelText = CreateText(row, "Row label", label, 18, TextPrimary, TextAnchor.UpperLeft);
+            RectTransform labelRect = labelText.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, string.IsNullOrEmpty(description) ? 0f : 0.5f);
+            labelRect.anchorMax = new Vector2(0.58f, 1f);
+            labelRect.offsetMin = new Vector2(16f, 0f);
+            labelRect.offsetMax = new Vector2(-8f, -6f);
+
+            if (!string.IsNullOrEmpty(description))
+            {
+                Text descriptionText = CreateText(row, "Row description", description, 13, TextMuted, TextAnchor.LowerLeft);
+                RectTransform descriptionRect = descriptionText.GetComponent<RectTransform>();
+                descriptionRect.anchorMin = Vector2.zero;
+                descriptionRect.anchorMax = new Vector2(0.58f, 0.5f);
+                descriptionRect.offsetMin = new Vector2(16f, 8f);
+                descriptionRect.offsetMax = new Vector2(-8f, 0f);
+            }
+
+            controlSlot = CreateRect(row, "Row control", new Vector2(0.58f, 0f), new Vector2(1f, 1f), new Vector2(0f, 8f), new Vector2(-14f, -8f));
+            return row;
+        }
+
+        // Compact single-button control that cycles through a value on click -
+        // used inside a setting row's control slot for numeric/enum settings.
+        public static Button CreateCycleControl(RectTransform controlSlot, string valueText, UnityAction onCycle)
+        {
+            Button button = CreateSecondaryButton(controlSlot, valueText, onCycle);
+            RectTransform rect = button.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(1f, 0.5f);
+            rect.anchorMax = new Vector2(1f, 0.5f);
+            rect.pivot = new Vector2(1f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
+            rect.sizeDelta = new Vector2(Mathf.Clamp(valueText.Length * 11f + 48f, 120f, 260f), 40f);
+            return button;
+        }
+
+        // Compact on/off switch styled as a two-state pill button.
+        public static Button CreateToggleControl(RectTransform controlSlot, bool value, UnityAction onToggle)
+        {
+            Button button = CreateButton(controlSlot, value ? "ON" : "OFF", onToggle);
+            Image face = button.targetGraphic as Image;
+            if (face != null)
+            {
+                Color onColor = new Color(0.1f, 0.5f, 0.22f, 0.95f);
+                Color offColor = new Color(0.1f, 0.13f, 0.17f, 0.9f);
+                StyleRounded(face, value ? onColor : offColor);
+                ColorBlock colors = button.colors;
+                colors.normalColor = face.color;
+                colors.highlightedColor = value ? new Color(0.14f, 0.62f, 0.28f, 1f) : new Color(0.16f, 0.2f, 0.26f, 1f);
+                colors.selectedColor = colors.highlightedColor;
+                button.colors = colors;
+            }
+
+            RectTransform rect = button.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(1f, 0.5f);
+            rect.anchorMax = new Vector2(1f, 0.5f);
+            rect.pivot = new Vector2(1f, 0.5f);
+            rect.anchoredPosition = Vector2.zero;
+            rect.sizeDelta = new Vector2(84f, 38f);
+            return button;
+        }
+
+        // Row of small pill buttons, one per option, with the active option lit -
+        // the segmented alternative to a single "click to cycle" button, good for
+        // a handful of mutually exclusive choices (difficulty, quality, tyre).
+        public static void CreateSegmentedControl(RectTransform controlSlot, string[] options, int selectedIndex, Action<int> onSelect)
+        {
+            HorizontalLayoutGroup layout = controlSlot.gameObject.AddComponent<HorizontalLayoutGroup>();
+            layout.spacing = 6f;
+            layout.childAlignment = TextAnchor.MiddleRight;
+            layout.childControlWidth = false;
+            layout.childControlHeight = false;
+            layout.childForceExpandWidth = false;
+            layout.childForceExpandHeight = false;
+
+            for (int i = 0; i < options.Length; i++)
+            {
+                int index = i;
+                bool selected = index == selectedIndex;
+                Button segment = CreateButton(controlSlot, options[i], () => onSelect(index));
+                UiFactory.SetSize(segment, Mathf.Clamp(options[i].Length * 9f + 28f, 56f, 150f), 38f);
+                UiFactory.SetButtonSelected(segment, selected);
+            }
+        }
+
+        // Simple titled body-text card - for weather briefings, guidance text,
+        // and other paragraph content that needs a defined container rather than
+        // loose text dropped straight onto the background.
+        public static RectTransform CreateInfoCard(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, string title, string body, Color accentColor)
+        {
+            RectTransform card = CreateGlassPanel(parent, name, anchorMin, anchorMax, Vector2.zero, Vector2.zero, PanelDark);
+            RectTransform accent = CreateRect(card, name + " accent", new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+            accent.sizeDelta = new Vector2(56f, 3f);
+            accent.pivot = new Vector2(0f, 1f);
+            accent.anchoredPosition = new Vector2(20f, -14f);
+            Image accentImage = accent.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(accentImage, accentColor);
+
+            if (!string.IsNullOrEmpty(title))
+            {
+                Text titleText = CreateText(card, name + " title", title.ToUpperInvariant(), 15, accentColor, TextAnchor.UpperLeft);
+                RectTransform titleRect = titleText.GetComponent<RectTransform>();
+                titleRect.anchorMin = new Vector2(0f, 1f);
+                titleRect.anchorMax = new Vector2(1f, 1f);
+                titleRect.offsetMin = new Vector2(20f, -42f);
+                titleRect.offsetMax = new Vector2(-16f, -22f);
+            }
+
+            Text bodyText = CreateText(card, name + " body", body, 16, new Color(0.85f, 0.91f, 0.95f), TextAnchor.UpperLeft);
+            RectTransform bodyRect = bodyText.GetComponent<RectTransform>();
+            bodyRect.anchorMin = Vector2.zero;
+            bodyRect.anchorMax = Vector2.one;
+            bodyRect.offsetMin = new Vector2(20f, 16f);
+            bodyRect.offsetMax = new Vector2(-16f, string.IsNullOrEmpty(title) ? -18f : -48f);
+            bodyText.verticalOverflow = VerticalWrapMode.Overflow;
+            return card;
+        }
     }
 }

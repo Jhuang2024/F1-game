@@ -24,7 +24,11 @@ namespace LocalFormulaRacing
         float hudScale = 1f;
 
         // Top band.
-        Text center;
+        Text sessionLabelText;
+        Text eventNameText;
+        Text positionBadgeText;
+        Text lapCounterText;
+        Text sessionMessageText;
         Image topAccent;
         float trackLimitFlashTimer;
         int seenTrackLimitWarnings;
@@ -181,17 +185,43 @@ namespace LocalFormulaRacing
 
         // ---------- construction ----------
 
+        // Distinct segments instead of one long pipe-joined string: a session
+        // pill, event name, position badge, lap counter, and a message segment
+        // that takes the remaining width. Thin vertical rules separate them.
         void BuildTopBand()
         {
-            RectTransform band = UiFactory.CreateResponsivePanel(transform, "HUD top band", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(940f, 52f), new Vector2(0f, -8f), UiFactory.PanelDarker);
+            RectTransform band = UiFactory.CreateResponsivePanel(transform, "HUD top band", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(980f, 52f), new Vector2(0f, -8f), UiFactory.PanelDarker);
             ApplyPanelScale(band);
             topAccent = UiFactory.CreateBand(band, "HUD top rule", new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 3f), UiFactory.Accent).GetComponent<Image>();
-            center = UiFactory.CreateText(band, "Session line", "", 19, UiFactory.TextPrimary, TextAnchor.MiddleCenter);
-            RectTransform centerRect = center.GetComponent<RectTransform>();
-            centerRect.anchorMin = Vector2.zero;
-            centerRect.anchorMax = Vector2.one;
-            centerRect.offsetMin = new Vector2(14f, 2f);
-            centerRect.offsetMax = new Vector2(-14f, -2f);
+
+            sessionLabelText = CreateTopBandSegment(band, "Session segment", 0f, 0.13f, UiFactory.Accent, TextAnchor.MiddleLeft, 15, true);
+            CreateTopBandDivider(band, 0.13f);
+            eventNameText = CreateTopBandSegment(band, "Event segment", 0.14f, 0.4f, UiFactory.TextPrimary, TextAnchor.MiddleLeft, 16, false);
+            CreateTopBandDivider(band, 0.4f);
+            positionBadgeText = CreateTopBandSegment(band, "Position segment", 0.41f, 0.51f, UiFactory.AccentCyan, TextAnchor.MiddleCenter, 17, true);
+            CreateTopBandDivider(band, 0.51f);
+            lapCounterText = CreateTopBandSegment(band, "Lap segment", 0.52f, 0.63f, UiFactory.TextPrimary, TextAnchor.MiddleCenter, 17, false);
+            CreateTopBandDivider(band, 0.63f);
+            sessionMessageText = CreateTopBandSegment(band, "Message segment", 0.64f, 1f, new Color(0.85f, 0.9f, 0.94f), TextAnchor.MiddleLeft, 16, false);
+        }
+
+        Text CreateTopBandSegment(RectTransform band, string name, float anchorX0, float anchorX1, Color color, TextAnchor alignment, int size, bool bold)
+        {
+            Text text = UiFactory.CreateText(band, name, "", size, color, alignment);
+            RectTransform rect = text.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(anchorX0, 0f);
+            rect.anchorMax = new Vector2(anchorX1, 1f);
+            rect.offsetMin = new Vector2(14f, 2f);
+            rect.offsetMax = new Vector2(-10f, -2f);
+            text.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            return text;
+        }
+
+        void CreateTopBandDivider(RectTransform band, float anchorX)
+        {
+            RectTransform divider = UiFactory.CreateBand(band, "Top band divider", new Vector2(anchorX, 0.22f), new Vector2(anchorX, 0.78f), new Vector2(-0.5f, 0f), new Vector2(0.5f, 0f), new Color(1f, 1f, 1f, 0.1f));
+            divider.sizeDelta = new Vector2(1.5f, 0f);
         }
 
         void BuildProgressStrip()
@@ -851,11 +881,15 @@ namespace LocalFormulaRacing
         {
             string session = race.IsTimeTrial ? "TIME TRIAL" : (race.CurrentSession == RaceWeekendSession.Qualifying ? "QUALIFYING" : "RACE");
             int sessionLaps = race.CurrentSession == RaceWeekendSession.Qualifying ? 2 : race.RaceLaps;
-            string lapLabel = lap.OutLapActive ? "OUT" : (race.IsTimeTrial ? "L" + lap.DisplayLap : lap.DisplayLap + "/" + sessionLaps);
+            string lapLabel = lap.OutLapActive ? "OUT" : (race.IsTimeTrial ? "L" + lap.DisplayLap : lap.DisplayLap + " / " + sessionLaps);
             string eventName = race.EventData == null ? "Prototype GP" : race.EventData.displayName;
             string reaction = race.RaceStartReactionText;
-            string position = race.IsTimeTrial ? "" : "  |  P" + race.GetPosition(player) + "/" + race.DisplayedEntrantCount;
-            center.text = session + "  |  " + eventName + position + "  |  LAP " + lapLabel + "  |  " + race.SessionMessage + (string.IsNullOrEmpty(reaction) ? "" : "  |  " + reaction);
+
+            sessionLabelText.text = session;
+            eventNameText.text = eventName;
+            positionBadgeText.text = race.IsTimeTrial ? "" : "P" + race.GetPosition(player) + " / " + race.DisplayedEntrantCount;
+            lapCounterText.text = "LAP " + lapLabel;
+            sessionMessageText.text = race.SessionMessage + (string.IsNullOrEmpty(reaction) ? "" : "   " + reaction);
 
             UpdateTimingCard(car, lap);
             UpdateTyreCard(car);
@@ -981,7 +1015,7 @@ namespace LocalFormulaRacing
 
             int currentLap = player.lapTracker != null ? player.lapTracker.DisplayLap : 1;
             string status = currentLap > planned ? "  <color=#FFC85C>LATE</color>" : "";
-            return "L" + planned + " -> " + compound.ToUpperInvariant() + status;
+            return "Lap " + planned + "  ·  " + compound.ToUpperInvariant() + status;
         }
 
         void UpdateQualifyingCard()
@@ -1271,29 +1305,14 @@ namespace LocalFormulaRacing
         void UpdateQualifyingTowerRows()
         {
             tower.text = "POS  DVR     BEST         GAP";
-            string[] lines = race.BuildQualifyingTimingTowerText(player).Split('\n');
-            int row = 0;
-            for (int i = 1; i < lines.Length && row < visibleTowerRows; i++)
+            List<RaceManager.QualifyingTowerRow> rows = race.BuildQualifyingTowerRows(visibleTowerRows);
+            for (int i = 0; i < rows.Count; i++)
             {
-                string line = lines[i];
-                if (string.IsNullOrEmpty(line.Trim()))
-                {
-                    continue;
-                }
-
-                bool highlight = line.TrimStart().StartsWith(">");
-                string clean = line.Replace(">", "").Trim();
-                string[] parts = clean.Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length < 4)
-                {
-                    continue;
-                }
-
-                SetTowerRow(row, parts[0], parts[1], new Color(0.34f, 0.78f, 1f), parts[2], parts[3], "", highlight);
-                row++;
+                RaceManager.QualifyingTowerRow row = rows[i];
+                SetTowerRow(i, row.position.ToString("00"), row.driverCode, new Color(0.34f, 0.78f, 1f), row.bestTimeText, row.gapText, "", row.isPlayer);
             }
 
-            for (int i = row; i < TowerRowCount; i++)
+            for (int i = rows.Count; i < TowerRowCount; i++)
             {
                 SetTowerRowVisible(i, false);
             }

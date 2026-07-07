@@ -422,6 +422,7 @@ namespace LocalFormulaRacing
             twilightTrack = trackId.Contains("abu_dhabi");
             CreateMaterials();
             BuildGround();
+            BuildContinuousSafetyFloor();
             BuildRoadMesh();
             BuildRoadPaint();
             BuildAsphaltDetail();
@@ -1451,6 +1452,40 @@ namespace LocalFormulaRacing
                 hill.transform.localScale = new Vector3(180f, 42f, 180f);
                 hill.GetComponent<Renderer>().sharedMaterial = grassMaterial;
                 MakeVisualOnly(hill);
+            }
+        }
+
+        // Continuous invisible collision floor that follows the road's elevation
+        // profile, sampled along the whole lap. This is the real fix for cars
+        // dropping onto the far-below flat terrain slab whenever the track rises
+        // above ground level (bridges, hills, elevated corners): wherever a car
+        // goes off track, there is now a physical backstop not far below the local
+        // road height instead of a multi-meter void down to BuildGround's slab.
+        // No renderer, no visual footprint - purely a physics safety net.
+        void BuildContinuousSafetyFloor()
+        {
+            const float spacing = 14f;
+            const float segmentLength = spacing * 1.6f;
+            const float halfWidth = 70f;
+            const float thickness = 1.4f;
+            const float depthBelowRoad = 2.6f;
+
+            for (float d = 0f; d < Runtime.length; d += spacing)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d + spacing * 0.5f, out point, out forward, out right);
+                float floorTopY = Mathf.Max(groundTopY + 0.05f, point.y - depthBelowRoad);
+
+                GameObject floor = new GameObject("Safety catch floor");
+                floor.transform.SetParent(transform);
+                floor.transform.position = new Vector3(point.x, floorTopY - thickness * 0.5f, point.z);
+                floor.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+                floor.layer = 0;
+                BoxCollider collider = floor.AddComponent<BoxCollider>();
+                collider.size = new Vector3(halfWidth * 2f, thickness, segmentLength);
+                collider.sharedMaterial = GetRunoffPhysicsMaterial();
             }
         }
 

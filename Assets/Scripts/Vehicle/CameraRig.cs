@@ -16,6 +16,7 @@ namespace LocalFormulaRacing
         Vector3 velocitySmoothed;
         float rollAngle;
         float impulseShake;
+        float smoothedSteer;
 
         // Chase, cockpit/halo, high TV, rear chase, low nose cam.
         readonly Vector3[] offsets =
@@ -37,7 +38,7 @@ namespace LocalFormulaRacing
             target = followTarget;
             targetBody = target == null ? null : target.GetComponent<Rigidbody>();
             targetVehicle = target == null ? null : target.GetComponent<VehicleController>();
-            shakeStrength = Mathf.Clamp(shakeAmount, 0f, 1.5f);
+            shakeStrength = Mathf.Clamp(shakeAmount, 0f, 0.6f);
             cameraShake = shakeStrength > 0.01f;
             baseFov = Mathf.Clamp(fieldOfView, 45f, 80f);
             followCamera = GetComponentInChildren<Camera>();
@@ -118,10 +119,13 @@ namespace LocalFormulaRacing
             {
                 desired = target.TransformPoint(offset);
 
-                // Look-ahead: aim down the velocity plus a steering-based bias so the
-                // camera opens the corner before the car turns in.
-                float steerBias = targetVehicle != null ? targetVehicle.CurrentCommand.steer : 0f;
-                Vector3 cornerBias = target.right * steerBias * Mathf.Lerp(1.5f, 6.5f, speed01);
+                // Steering influence is heavily smoothed and kept subtle: a light
+                // hint of corner look-ahead, not a camera that whips sideways every
+                // time the wheel turns.
+                float rawSteer = targetVehicle != null ? targetVehicle.CurrentCommand.steer : 0f;
+                smoothedSteer = Mathf.Lerp(smoothedSteer, rawSteer, 1f - Mathf.Exp(-dt * 5f));
+                float cornerBiasScale = mode == 1 || mode == 4 ? Mathf.Lerp(0.12f, 0.5f, speed01) : Mathf.Lerp(0.25f, 1.4f, speed01);
+                Vector3 cornerBias = target.right * smoothedSteer * cornerBiasScale;
                 Vector3 lookTarget = target.position + Vector3.up * 1.05f + velocitySmoothed * (mode == 1 ? 0.07f : 0.2f) + cornerBias;
                 Vector3 lookDirection = lookTarget - desired;
                 if (mode == 3)
@@ -141,9 +145,10 @@ namespace LocalFormulaRacing
 
                 desiredRotation = Quaternion.LookRotation(lookDirection, Vector3.up);
 
-                // Corner lean from lateral velocity sells the load transfer.
+                // Corner lean from lateral velocity sells the load transfer, kept mild.
                 float lateral = Vector3.Dot(velocitySmoothed, target.right);
-                float targetRoll = Mathf.Clamp(-lateral * 0.16f, -3.8f, 3.8f) * (mode == 1 ? 1.4f : 1f);
+                float rollClamp = mode == 1 ? 1.6f : 1.2f;
+                float targetRoll = Mathf.Clamp(-lateral * 0.05f, -rollClamp, rollClamp);
                 rollAngle = Mathf.Lerp(rollAngle, targetRoll, dt * 4f);
                 desiredRotation *= Quaternion.Euler(0f, 0f, rollAngle);
             }
@@ -160,30 +165,31 @@ namespace LocalFormulaRacing
         }
 
         // Shake only when the situation earns it: very high speed, heavy braking,
-        // kerb strikes, and collisions (via AddImpulseShake). Cruise stays steady.
+        // kerb strikes, and collisions (via AddImpulseShake). Cruise stays steady,
+        // and steering alone contributes nothing here.
         Vector3 ComputeShakeOffset(float speed01)
         {
-            impulseShake = Mathf.MoveTowards(impulseShake, 0f, Time.deltaTime * 0.6f);
-            if (!cameraShake || mode == 2)
+            impulseShake = Mathf.MoveTowards(impulseShake, 0f, Time.deltaTime * 0.9f);
+            if (!cameraShake || mode == 2 || shakeStrength <= 0.001f)
             {
                 return Vector3.zero;
             }
 
             float amount = impulseShake;
-            float highSpeed = Mathf.InverseLerp(0.74f, 1f, speed01);
-            amount += highSpeed * 0.03f;
+            float highSpeed = Mathf.InverseLerp(0.86f, 1f, speed01);
+            amount += highSpeed * 0.012f;
 
             if (targetVehicle != null)
             {
                 float braking = targetVehicle.EffectiveBrake;
-                if (braking > 0.45f && speed01 > 0.35f)
+                if (braking > 0.55f && speed01 > 0.45f)
                 {
-                    amount += braking * speed01 * 0.045f;
+                    amount += braking * speed01 * 0.016f;
                 }
 
                 if (targetVehicle.IsOnKerb && speed01 > 0.2f)
                 {
-                    amount += 0.035f;
+                    amount += 0.016f;
                 }
             }
 
@@ -192,7 +198,13 @@ namespace LocalFormulaRacing
                 return Vector3.zero;
             }
 
-            return Random.insideUnitSphere * amount * shakeStrength;
+            // Smoothed noise instead of raw per-frame randomness, and mostly local
+            // X/Y so it never introduces wild forward/back jitter.
+            float t = Time.unscaledTime;
+            float noiseX = Mathf.PerlinNoise(t * 11f, 0.13f) - 0.5f;
+            float noiseY = Mathf.PerlinNoise(0.42f, t * 13f) - 0.5f;
+            float noiseZ = (Mathf.PerlinNoise(t * 7f, t * 7f) - 0.5f) * 0.3f;
+            return new Vector3(noiseX, noiseY, noiseZ) * amount * shakeStrength * 1.6f;
         }
 
         public void AddImpulseShake(float amount)
@@ -202,7 +214,7 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            impulseShake = Mathf.Min(0.32f, impulseShake + Mathf.Clamp(amount, 0f, 0.3f));
+            impulseShake = Mathf.Min(0.16f, impulseShake + Mathf.Clamp(amount, 0f, 0.15f));
         }
 
         void SnapToTarget()

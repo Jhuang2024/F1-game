@@ -20,6 +20,14 @@ namespace LocalFormulaRacing
         float visualSteerAngle;
         const float WheelRadius = 0.31f;
 
+        // Rear wing DRS flap: found lazily by name so RaceManager's car builder
+        // doesn't need to hand off another reference explicitly.
+        Transform rearWingFlap;
+        bool rearWingFlapSearched;
+        float wingFlapOpenAmount;
+        static readonly Quaternion WingFlapClosedRotation = Quaternion.Euler(24f, 0f, 0f);
+        static readonly Quaternion WingFlapOpenRotation = Quaternion.Euler(1f, 0f, 0f);
+
         static readonly Color GlowColor = new Color(1f, 0.06f, 0.04f);
         static readonly Color DiscGlowColor = new Color(1f, 0.32f, 0.05f);
 
@@ -66,6 +74,28 @@ namespace LocalFormulaRacing
             UpdateWheels();
             UpdateBrakeGlow();
             UpdateRainLight();
+            UpdateDrsFlap();
+        }
+
+        void UpdateDrsFlap()
+        {
+            if (!rearWingFlapSearched)
+            {
+                rearWingFlapSearched = true;
+                Transform found = transform.Find("rear wing flap");
+                if (found != null)
+                {
+                    rearWingFlap = found;
+                }
+            }
+
+            if (rearWingFlap == null)
+            {
+                return;
+            }
+
+            wingFlapOpenAmount = Mathf.MoveTowards(wingFlapOpenAmount, vehicle.DrsActive ? 1f : 0f, Time.deltaTime * 6f);
+            rearWingFlap.localRotation = Quaternion.Slerp(WingFlapClosedRotation, WingFlapOpenRotation, wingFlapOpenAmount);
         }
 
         void UpdateWheels()

@@ -16,6 +16,7 @@ namespace LocalFormulaRacing
         bool drsLatched;
         float resetHoldTime;
         bool resetTriggered;
+        float lastDamagePercent = -1f;
 
         void Awake()
         {
@@ -183,7 +184,20 @@ namespace LocalFormulaRacing
             // Kerb vibration: a tiny camera impulse sells the rumble without nausea.
             if (cameraRig != null && vehicle.IsOnKerb && Mathf.Abs(vehicle.CurrentSpeedKph) > 70f)
             {
-                cameraRig.AddImpulseShake(0.035f);
+                cameraRig.AddImpulseShake(0.018f);
+            }
+
+            // Impact hit: a short, proportional jolt when new damage lands.
+            if (cameraRig != null && vehicle.Damage != null)
+            {
+                float damagePercent = vehicle.Damage.OverallPercent;
+                if (lastDamagePercent >= 0f && damagePercent > lastDamagePercent + 0.05f)
+                {
+                    float hit = Mathf.Clamp((damagePercent - lastDamagePercent) * 0.01f, 0.02f, 0.12f);
+                    cameraRig.AddImpulseShake(hit);
+                }
+
+                lastDamagePercent = damagePercent;
             }
         }
 

@@ -62,6 +62,11 @@ namespace LocalFormulaRacing
 
         const int GearCount = 8;
         const float RaceSpeedCeilingKph = 350f;
+        // DRS needs headroom above the normal ceiling or its top-speed bonus gets
+        // clamped away to nothing on cars whose base target is already near 350.
+        const float DrsSpeedCeilingKph = 368f;
+        const float DrsTopSpeedBonusKph = 15f;
+        const float ErsTopSpeedBonusKph = 5f;
         static readonly float[] AutoShiftUpKph = { 0f, 62f, 102f, 142f, 186f, 232f, 282f, 322f };
         static readonly float[] GearTorqueMultipliers = { 1.72f, 1.52f, 1.34f, 1.18f, 1.05f, 0.94f, 0.84f, 0.76f };
 
@@ -390,18 +395,22 @@ namespace LocalFormulaRacing
                 settings.ersMode = (int)ErsStrategyMode.Balanced;
             }
 
-            if (settings.ersMode == (int)ErsStrategyMode.Harvest)
+            // ERS mode governs when the car deploys automatically, but holding the
+            // manual override key must always be able to trigger a deploy while
+            // there is meaningful charge left - the mode is a strategy default, not
+            // a hard lock on the driver's own overtake button.
+            bool autoDeployRequested = false;
+            if (settings.ersMode == (int)ErsStrategyMode.Attack && ErsBattery > 0.12f && assisted.throttle > 0.75f)
             {
-                assisted.ers = false;
-            }
-            else if (settings.ersMode == (int)ErsStrategyMode.Attack && ErsBattery > 0.12f && assisted.throttle > 0.75f)
-            {
-                assisted.ers = true;
+                autoDeployRequested = true;
             }
             else if (settings.ersMode == (int)ErsStrategyMode.Balanced && ErsBattery > 0.24f && assisted.throttle > 0.88f && speedKph > 130f)
             {
-                assisted.ers = true;
+                autoDeployRequested = true;
             }
+
+            bool manualDeployRequested = raw.ers && ErsBattery > 0.03f && assisted.throttle > 0.05f;
+            assisted.ers = autoDeployRequested || manualDeployRequested;
 
             return assisted;
         }
@@ -468,7 +477,10 @@ namespace LocalFormulaRacing
             float ersBoost = 0f;
             if (activeCommand.ers && ErsBattery > 0.01f)
             {
-                ersBoost = Mathf.Lerp(3.2f, 6.4f, CarData.ersEfficiency / 100f);
+                // A real, felt push out of corners and down straights without being
+                // an arcade nitro button - roughly a quarter to a third of base
+                // acceleration on top, gated by remaining battery.
+                ersBoost = Mathf.Lerp(4.4f, 7.4f, CarData.ersEfficiency / 100f);
                 ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.11f, 0.16f, activeCommand.throttle));
             }
 
@@ -681,17 +693,26 @@ namespace LocalFormulaRacing
         {
             float carTopSpeed = CarData == null || CarData.topSpeed <= 0 ? 337f : CarData.topSpeed;
             float target = Mathf.Clamp(carTopSpeed + 15f, 342f, RaceSpeedCeilingKph) * setupTopSpeedMultiplier;
+
+            // DRS and ERS both need a ceiling above the normal ~350 clamp, otherwise
+            // their bonus is silently absorbed since the unassisted target already
+            // sits close to it. Real F1 DRS: better terminal speed on straights, not
+            // an arcade boost, so the drag reduction (see ApplyForces) does most of
+            // the work; this raises the ceiling that drag reduction is allowed to reach.
+            float ceiling = RaceSpeedCeilingKph;
             if (DrsActive)
             {
-                target = Mathf.Min(RaceSpeedCeilingKph, target + 4f);
+                target += DrsTopSpeedBonusKph;
+                ceiling = DrsSpeedCeilingKph;
             }
 
             if (activeCommand.ers && ErsBattery > 0.01f)
             {
-                target = Mathf.Min(RaceSpeedCeilingKph, target + 2f);
+                target += ErsTopSpeedBonusKph;
+                ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + ErsTopSpeedBonusKph);
             }
 
-            return target;
+            return Mathf.Min(target, ceiling);
         }
 
         float BrakeResponse(float input)
