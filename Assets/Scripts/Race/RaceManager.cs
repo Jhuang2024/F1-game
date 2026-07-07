@@ -1438,6 +1438,14 @@ namespace LocalFormulaRacing
 
             if (!attacking && !defending)
             {
+                // Push-lap deploy: a real driver spends ERS on a clear straight with
+                // battery to spare generally, not only while directly racing someone.
+                // Kept modest and scaled by difficulty so it never becomes constant spam.
+                if (battery > 0.5f)
+                {
+                    return Random.value < profile.ersDeploymentQuality * 0.5f;
+                }
+
                 return false;
             }
 
@@ -1472,6 +1480,19 @@ namespace LocalFormulaRacing
             public float trafficAvoidanceCaution;
             public float wetWeatherCaution;
             public float tyreSavingBias;
+
+            // Explicit pace scaling on top of the decision-quality model above - same
+            // car, same physical envelope, but a more skilled/confident difficulty
+            // tier actually drives closer to that envelope instead of only deciding
+            // slightly better. straightSpeedMultiplier is always clamped to <= 1.0
+            // wherever it touches a real top-speed ceiling; the others may legitimately
+            // exceed 1.0 for Hard/Expert since a corner apex or braking point is a
+            // driving-skill judgment call, not a hard physics limit.
+            public float paceMultiplier;
+            public float cornerSpeedMultiplier;
+            public float straightSpeedMultiplier;
+            public float brakeConfidenceMultiplier;
+            public float throttleAggressionMultiplier;
         }
 
         public AiDifficultyProfile GetAiDifficultyProfile()
@@ -1495,7 +1516,12 @@ namespace LocalFormulaRacing
                     mistakeChancePerLap = 0.16f,
                     trafficAvoidanceCaution = 1.35f,
                     wetWeatherCaution = 1.5f,
-                    tyreSavingBias = 0.35f
+                    tyreSavingBias = 0.35f,
+                    paceMultiplier = 0.96f,
+                    cornerSpeedMultiplier = 0.94f,
+                    straightSpeedMultiplier = 0.95f,
+                    brakeConfidenceMultiplier = 0.85f,
+                    throttleAggressionMultiplier = 0.75f
                 };
             }
 
@@ -1517,7 +1543,12 @@ namespace LocalFormulaRacing
                     mistakeChancePerLap = 0.09f,
                     trafficAvoidanceCaution = 1.05f,
                     wetWeatherCaution = 1.2f,
-                    tyreSavingBias = 0.20f
+                    tyreSavingBias = 0.20f,
+                    paceMultiplier = 1.01f,
+                    cornerSpeedMultiplier = 1.00f,
+                    straightSpeedMultiplier = 0.98f,
+                    brakeConfidenceMultiplier = 1.00f,
+                    throttleAggressionMultiplier = 1.00f
                 };
             }
 
@@ -1535,11 +1566,16 @@ namespace LocalFormulaRacing
                     overtakeCommitment = 0.75f,
                     defendCommitment = 0.78f,
                     ersDeploymentQuality = 0.85f,
-                    drsUsageQuality = 0.90f,
+                    drsUsageQuality = 0.95f,
                     mistakeChancePerLap = 0.045f,
                     trafficAvoidanceCaution = 0.85f,
                     wetWeatherCaution = 1.0f,
-                    tyreSavingBias = 0.12f
+                    tyreSavingBias = 0.12f,
+                    paceMultiplier = 1.06f,
+                    cornerSpeedMultiplier = 1.05f,
+                    straightSpeedMultiplier = 1.00f,
+                    brakeConfidenceMultiplier = 1.10f,
+                    throttleAggressionMultiplier = 1.20f
                 };
             }
 
@@ -1555,11 +1591,16 @@ namespace LocalFormulaRacing
                 overtakeCommitment = 0.92f,
                 defendCommitment = 0.93f,
                 ersDeploymentQuality = 0.97f,
-                drsUsageQuality = 0.98f,
+                drsUsageQuality = 0.99f,
                 mistakeChancePerLap = 0.012f,
                 trafficAvoidanceCaution = 0.62f,
                 wetWeatherCaution = 0.85f,
-                tyreSavingBias = 0.05f
+                tyreSavingBias = 0.05f,
+                paceMultiplier = 1.11f,
+                cornerSpeedMultiplier = 1.10f,
+                straightSpeedMultiplier = 1.00f,
+                brakeConfidenceMultiplier = 1.20f,
+                throttleAggressionMultiplier = 1.35f
             };
         }
 
@@ -3897,7 +3938,40 @@ namespace LocalFormulaRacing
                 PlayerRecordsStore.RecordQualifyingResult(playerQualifying.position);
             }
 
+            LogAiQualifyingDiagnostics(results, playerQualifying);
             ui.ShowQualifyingResults(this, results, IsCareerRace);
+        }
+
+        // Qualifying-side counterpart to LogAiDiagnostics: a one-shot internal log
+        // comparing the player's actual/simulated time against the fastest AI and the
+        // field median, so a balance pass can be checked from the log alone. Plain
+        // GameLog only, never player-visible.
+        void LogAiQualifyingDiagnostics(List<QualifyingResultEntry> results, QualifyingResultEntry playerQualifying)
+        {
+            if (results == null || results.Count == 0)
+            {
+                return;
+            }
+
+            List<float> aiTimes = new List<float>();
+            for (int i = 0; i < results.Count; i++)
+            {
+                if (!results[i].isPlayer && results[i].bestLapTime > 0f)
+                {
+                    aiTimes.Add(results[i].bestLapTime);
+                }
+            }
+
+            aiTimes.Sort();
+            float fastestAi = aiTimes.Count > 0 ? aiTimes[0] : 0f;
+            float medianAi = aiTimes.Count > 0 ? aiTimes[aiTimes.Count / 2] : 0f;
+
+            GameLog.Info("[AIQualifyingDiagnostics] difficulty=" + Settings.Difficulty +
+                         " playerTime=" + (playerQualifying != null && playerQualifying.bestLapTime > 0f ? UiFactory.FormatTime(playerQualifying.bestLapTime) : "--") +
+                         " playerPosition=" + (playerQualifying != null ? "P" + playerQualifying.position : "--") +
+                         " aiFastest=" + (fastestAi > 0f ? UiFactory.FormatTime(fastestAi) : "--") +
+                         " aiMedian=" + (medianAi > 0f ? UiFactory.FormatTime(medianAi) : "--") +
+                         " fieldSize=" + results.Count);
         }
 
         List<QualifyingResultEntry> BuildFinalQualifyingResults()
@@ -4173,7 +4247,7 @@ namespace LocalFormulaRacing
             // Percentage of baseLap rather than a flat constant, so difficulty stays
             // meaningful regardless of track length: Easy is clearly the slowest,
             // Expert clearly the fastest/most aggressive, Medium close to neutral.
-            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.022f : Settings.Difficulty == RaceDifficulty.Medium ? 0.002f : Settings.Difficulty == RaceDifficulty.Hard ? -0.010f : -0.020f;
+            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.035f : Settings.Difficulty == RaceDifficulty.Medium ? 0.005f : Settings.Difficulty == RaceDifficulty.Hard ? -0.030f : -0.060f;
             breakdown.difficultyEffect = breakdown.baseLap * difficultyPercent;
             breakdown.phaseEffect = phase == 1 ? 0.08f : (phase == 2 ? -0.18f : -0.36f);
             breakdown.tyrePrep = Mathf.Lerp(0.14f, 0.0f, tyreManagement / 100f) + Random.Range(0f, 0.04f);
@@ -4217,14 +4291,14 @@ namespace LocalFormulaRacing
             string style = (track.styleName ?? "").ToLowerInvariant();
             if (id.Contains("monaco"))
             {
-                return 0.40f;
+                return 0.44f;
             }
 
             if (id.Contains("spa") || id.Contains("monza") || id.Contains("silverstone") ||
                 id.Contains("baku") || id.Contains("jeddah") || id.Contains("las_vegas") ||
                 id.Contains("suzuka") || id.Contains("qatar"))
             {
-                return 0.70f;
+                return 0.76f;
             }
 
             if (id.Contains("hungary"))
@@ -4234,10 +4308,10 @@ namespace LocalFormulaRacing
 
             if (style.Contains("street") || track.roadHalfWidth < 12f)
             {
-                return 0.48f;
+                return 0.53f;
             }
 
-            return 0.60f;
+            return 0.66f;
         }
 
         float WeatherQualifyingPenalty(DriverData driver)

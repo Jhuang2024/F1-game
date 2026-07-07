@@ -153,7 +153,10 @@ namespace LocalFormulaRacing
             // Real ceiling, not an invented ~330-350kph clamp: the same DRS/ERS-aware
             // number the player's own physics already computes every tick.
             float carTopSpeed = vehicle.CarData == null || vehicle.CarData.topSpeed <= 0 ? 337f : vehicle.CarData.topSpeed;
-            float straightTargetSpeed = vehicle.TargetTopSpeedKph > 5f ? vehicle.TargetTopSpeedKph : carTopSpeed;
+            // straightSpeedMultiplier is hard-clamped to <= 1.0 here: it may only ever
+            // discount how much of the real ceiling this difficulty confidently uses,
+            // never inflate a straight-line target past what the car can actually do.
+            float straightTargetSpeed = (vehicle.TargetTopSpeedKph > 5f ? vehicle.TargetTopSpeedKph : carTopSpeed) * Mathf.Min(1f, profile.straightSpeedMultiplier);
 
             bool wet = track.weather == WeatherState.LightRain || track.weather == WeatherState.HeavyRain;
             float gripMultiplier = vehicle.Tyres.GripMultiplier(track.weather);
@@ -168,16 +171,30 @@ namespace LocalFormulaRacing
 
             float experienceConfidence = Mathf.Lerp(0.85f, 1.05f, consistency / 100f);
             float apexConfidence = Mathf.Clamp01(minCornerConfidence * experienceConfidence);
-            const float hairpinSpeedKph = 88f;
-            float trueApexSpeed = Mathf.Lerp(straightTargetSpeed, hairpinSpeedKph, apexSeverity) * gripMultiplier;
-            float apexTargetSpeed = Mathf.Lerp(trueApexSpeed * 0.5f, trueApexSpeed, apexConfidence);
 
-            // Driver-quality variance is now the only pace differentiator - difficulty
-            // no longer multiplies speed at all - so it is widened and applies to every
-            // AI equally, not just gated by difficulty tier.
+            // Car-relative hairpin floor instead of one flat number for every car: a
+            // stronger braking/cornering car has a genuinely higher minimum apex speed
+            // even at a true hairpin.
+            float carBrakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
+            float carCorneringStat = vehicle.CarData == null ? 78f : vehicle.CarData.cornering;
+            float hairpinSpeedKph = Mathf.Lerp(76f, 108f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
+
+            // Eased so moderate bends (severity ~0.3-0.5) stay well clear of hairpin
+            // pace - only a genuinely tight corner (severity near 1) reaches the floor.
+            float apexSeverityEased = Mathf.Pow(apexSeverity, 1.4f);
+            float trueApexSpeed = Mathf.Lerp(straightTargetSpeed, hairpinSpeedKph, apexSeverityEased) * gripMultiplier;
+
+            // cornerSpeedMultiplier may exceed 1.0 for Hard/Expert: how much of the
+            // tyre's real available grip a confident driver carries through the apex is
+            // a driving-skill judgment call, not a hard physics ceiling like top speed.
+            float apexTargetSpeed = Mathf.Lerp(trueApexSpeed * 0.5f, trueApexSpeed, apexConfidence) * profile.cornerSpeedMultiplier;
+
+            // Driver-quality variance is the per-driver pace differentiator, independent
+            // of difficulty; profile.paceMultiplier is the difficulty-tier pace scaler
+            // layered on top so Hard/Expert are meaningfully quicker than Easy/Medium.
             float driverPaceVariance = Mathf.Lerp(0.89f, 1.11f, pace / 100f) * Mathf.Lerp(0.95f, 1.05f, racecraft / 100f);
-            float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance;
-            float brakingApexSpeed = apexTargetSpeed * driverPaceVariance;
+            float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
+            float brakingApexSpeed = apexTargetSpeed * driverPaceVariance * profile.paceMultiplier;
 
             float damagePercent = vehicle.Damage == null ? 0f : vehicle.Damage.OverallPercent;
             float damageMultiplier = AiDamagePaceMultiplier(damagePercent);
@@ -269,7 +286,11 @@ namespace LocalFormulaRacing
             // blunt speed-delta formula with a fixed 55kph window.
             float brakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
             float decelReference = Mathf.Lerp(9.5f, 15.5f, Mathf.Clamp01(brakingStat / 100f));
-            float effectiveBrakeMultiplier = Mathf.Max(0.55f, profile.brakeDistanceMultiplier * Mathf.Lerp(0.92f, 1.05f, experience / 100f));
+            // brakeConfidenceMultiplier folds in on top of brakeDistanceMultiplier so
+            // Hard/Expert genuinely brake later/shorter, not just via the weaker base
+            // multiplier alone: >1 shortens the effective distance (brakes later),
+            // <1 lengthens it (brakes earlier), same as the base multiplier's own sense.
+            float effectiveBrakeMultiplier = Mathf.Max(0.55f, profile.brakeDistanceMultiplier * Mathf.Lerp(0.92f, 1.05f, experience / 100f) * profile.brakeConfidenceMultiplier);
             float v0 = speedKph / 3.6f;
             float v1 = Mathf.Min(speedKph, brakingApexSpeed) / 3.6f;
             float rawBrakingDistance = Mathf.Max(0f, (v0 * v0 - v1 * v1) / (2f * decelReference));
@@ -296,12 +317,16 @@ namespace LocalFormulaRacing
                 float exitConfidence = profile.exitThrottleConfidence;
                 if (throttleDelayTimer > 0f)
                 {
-                    throttleTarget = Mathf.Lerp(0.2f, 0.5f, exitConfidence);
+                    throttleTarget = Mathf.Clamp01(Mathf.Lerp(0.2f, 0.5f, exitConfidence) * profile.throttleAggressionMultiplier);
                 }
                 else
                 {
                     float speedGap = cruiseTargetSpeed - speedKph;
-                    throttleTarget = Mathf.Clamp01(speedGap / 60f * Mathf.Lerp(0.7f, 1.1f, exitConfidence) + Mathf.Lerp(0.18f, 0.4f, exitConfidence));
+                    // throttleAggressionMultiplier scales the whole exit-throttle target
+                    // so Hard/Expert commit to throttle earlier/harder on corner exit,
+                    // not just ramp faster once already committed (see the MoveTowards
+                    // rate below).
+                    throttleTarget = Mathf.Clamp01((speedGap / 60f * Mathf.Lerp(0.7f, 1.1f, exitConfidence) + Mathf.Lerp(0.18f, 0.4f, exitConfidence)) * profile.throttleAggressionMultiplier);
                 }
 
                 // Only lift for genuine traction loss, never as a disguised second brake.
@@ -318,7 +343,7 @@ namespace LocalFormulaRacing
 
             // Smooth the ramp instead of snapping frame to frame - lift off quickly
             // into a brake, but build throttle back in without chopping.
-            currentThrottle = Mathf.MoveTowards(currentThrottle, throttleTarget, Time.deltaTime * (brakeDemand > 0.02f ? 4.5f : 2.6f));
+            currentThrottle = Mathf.MoveTowards(currentThrottle, throttleTarget, Time.deltaTime * (brakeDemand > 0.02f ? 4.5f : 2.6f * profile.throttleAggressionMultiplier));
             command.throttle = currentThrottle;
 
             // Launch confidence: a brief, skill-scaled settle-in right off the line.

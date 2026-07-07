@@ -410,10 +410,24 @@ namespace LocalFormulaRacing
         bool spaTrack;
         bool neonTrack;
         bool wetTrack;
+        // Additional archetype flags so every one of the 24 calendar tracks gets a
+        // dedicated environment pass instead of only the tracks covered by the
+        // original desert/street/monaco/neon/parkland buckets.
+        bool parklandTrack;
+        bool technicalParklandTrack;
+        bool coastalTrack;
+        bool urbanHillsideTrack;
+        bool canadaTrack;
         Material edgeGlowMaterial;
         Material[] neonMaterials;
         Material yachtMaterial;
         Material toriiMaterial;
+        Material windowStripMaterial;
+        Material grandstandRoofMaterial;
+        Material luxuryApartmentMaterial;
+        Material weatheredConcreteMaterial;
+        Material coastalSandMaterial;
+        Material[] hillsideBuildingMaterials;
 
         public TrackRuntime Build(CalendarEventData eventData)
         {
@@ -438,6 +452,13 @@ namespace LocalFormulaRacing
             spaTrack = trackId.Contains("spa");
             neonTrack = trackId.Contains("singapore") || trackId.Contains("las_vegas");
             wetTrack = Runtime.weather == WeatherState.LightRain || Runtime.weather == WeatherState.HeavyRain;
+            parklandTrack = trackId.Contains("spa") || trackId.Contains("austria") || trackId.Contains("red_bull_ring") ||
+                            trackId.Contains("suzuka") || trackId.Contains("silverstone") || trackId.Contains("monza") ||
+                            trackId.Contains("melbourne");
+            technicalParklandTrack = trackId.Contains("hungary") || trackId.Contains("barcelona");
+            coastalTrack = trackId.Contains("zandvoort") || (Runtime.styleName.ToLowerInvariant().Contains("coastal") && !streetTrack);
+            urbanHillsideTrack = trackId.Contains("interlagos");
+            canadaTrack = trackId.Contains("canada");
             CreateMaterials();
             BuildGround();
             BuildContinuousSafetyFloor();
@@ -455,6 +476,7 @@ namespace LocalFormulaRacing
             BuildScenery();
             BuildCircuitLandmarks();
             BuildEnvironmentIdentity();
+            BuildTrackInfrastructure();
             BuildCameraTowers();
             if (wetTrack)
             {
@@ -1383,14 +1405,58 @@ namespace LocalFormulaRacing
 
             // Vegas/Singapore neon palette; kept small and shared rather than one
             // material per building so the neon look doesn't balloon the material count.
+            // Two extra hues (green/ice) over the original three so a cluster of signs
+            // doesn't repeat the same glow colour every third instance.
             neonMaterials = new[]
             {
                 CreateMaterial("Runtime Neon Cyan", new Color(0.05f, 0.85f, 0.92f), 0f, 0.9f, new Color(0.15f, 1.7f, 1.85f)),
                 CreateMaterial("Runtime Neon Magenta", new Color(0.9f, 0.05f, 0.8f), 0f, 0.9f, new Color(1.7f, 0.1f, 1.5f)),
-                CreateMaterial("Runtime Neon Amber", new Color(0.95f, 0.55f, 0.05f), 0f, 0.9f, new Color(1.8f, 0.9f, 0.05f))
+                CreateMaterial("Runtime Neon Amber", new Color(0.95f, 0.55f, 0.05f), 0f, 0.9f, new Color(1.8f, 0.9f, 0.05f)),
+                CreateMaterial("Runtime Neon Green", new Color(0.15f, 0.92f, 0.35f), 0f, 0.9f, new Color(0.3f, 1.85f, 0.55f)),
+                CreateMaterial("Runtime Neon Ice", new Color(0.55f, 0.75f, 0.98f), 0f, 0.9f, new Color(0.9f, 1.35f, 1.9f))
             };
             yachtMaterial = CreateMaterial("Runtime Yacht Hull", new Color(0.94f, 0.94f, 0.92f), 0.15f, 0.88f);
             toriiMaterial = CreateMaterial("Runtime Torii Red", new Color(0.62f, 0.13f, 0.06f), 0.02f, 0.4f);
+
+            // Thin repeating window-strip pattern (cached texture, shared material) so
+            // building window bands read as a row of individual lit windows instead of
+            // one flat emissive quad, on top of the existing per-building box variation.
+            windowStripMaterial = CreateMaterial("Runtime Window Strip", new Color(0.62f, 0.68f, 0.6f), 0.1f, 0.72f, new Color(0.45f, 0.4f, 0.26f));
+            windowStripMaterial.mainTexture = GetWindowStripTexture();
+            windowStripMaterial.mainTextureScale = new Vector2(6f, 1f);
+
+            // Distinct roof tone/metalness from the grandstand/stadium seating structure
+            // so roofs stop reading as the same flat block as the tiers underneath.
+            grandstandRoofMaterial = CreateMaterial("Runtime Grandstand Roof", new Color(0.34f, 0.36f, 0.4f), 0.28f, 0.42f);
+
+            // Monaco luxury apartment/hotel silhouette: lighter, cream-toned, distinct
+            // from the generic barrier-toned street buildings.
+            luxuryApartmentMaterial = CreateMaterial("Runtime Luxury Apartment", new Color(0.88f, 0.84f, 0.74f), 0.08f, 0.52f);
+            luxuryApartmentMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.9f, 0.87f, 0.8f), 0.06f);
+            luxuryApartmentMaterial.mainTextureScale = new Vector2(2f, 3f);
+
+            // Weathered concrete tone for "old-school racing venue" grandstands and the
+            // Zandvoort boardwalk deck; duller and less glossy than the bridge/wall
+            // concreteMaterial.
+            weatheredConcreteMaterial = CreateMaterial("Runtime Weathered Concrete", new Color(0.5f, 0.5f, 0.46f), 0.03f, 0.22f);
+            weatheredConcreteMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.6f, 0.6f, 0.56f), 0.14f);
+            weatheredConcreteMaterial.mainTextureScale = new Vector2(3f, 1f);
+
+            // Cooler, sandier ground tone for Zandvoort's coastal dunes than the warm
+            // orange desert palette above.
+            coastalSandMaterial = CreateMaterial("Runtime Coastal Sand", new Color(0.82f, 0.76f, 0.6f), 0.02f, 0.28f);
+            coastalSandMaterial.mainTexture = BuildNoiseTexture(128, new Color(0.86f, 0.83f, 0.72f), 0.14f);
+            coastalSandMaterial.mainTextureScale = new Vector2(60f, 60f);
+
+            // Small cycled palette for Interlagos' hillside district blocks, standing in
+            // for a favela-style mix of building tones instead of one flat colour.
+            hillsideBuildingMaterials = new[]
+            {
+                CreateMaterial("Runtime Hillside Block A", new Color(0.72f, 0.5f, 0.36f), 0.03f, 0.3f),
+                CreateMaterial("Runtime Hillside Block B", new Color(0.62f, 0.58f, 0.42f), 0.03f, 0.3f),
+                CreateMaterial("Runtime Hillside Block C", new Color(0.55f, 0.4f, 0.38f), 0.03f, 0.3f),
+                CreateMaterial("Runtime Hillside Block D", new Color(0.68f, 0.62f, 0.5f), 0.03f, 0.3f)
+            };
         }
 
         // Standard shader in alpha-blended Fade mode: used for the wet-track sheen and
@@ -1460,6 +1526,42 @@ namespace LocalFormulaRacing
             asphaltNoiseTexture.SetPixels(pixels);
             asphaltNoiseTexture.Apply(true);
             return asphaltNoiseTexture;
+        }
+
+        static Texture2D windowStripTexture;
+
+        // Small tiled texture of alternating bright/dark columns simulating individual
+        // lit windows, so a single thin "window band" quad on a building reads as a row
+        // of windows instead of one flat emissive strip. Cached once and shared across
+        // every building the same way GetAsphaltNoiseTexture is shared across the road.
+        static Texture2D GetWindowStripTexture()
+        {
+            if (windowStripTexture != null)
+            {
+                return windowStripTexture;
+            }
+
+            const int size = 64;
+            windowStripTexture = new Texture2D(size, size, TextureFormat.RGB24, true);
+            windowStripTexture.name = "Runtime window strip";
+            windowStripTexture.wrapMode = TextureWrapMode.Repeat;
+            windowStripTexture.filterMode = FilterMode.Point;
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    int cell = x / 8;
+                    bool lit = cell % 2 == 0;
+                    float noise = Mathf.PerlinNoise(cell * 3.1f, 0.5f);
+                    float value = lit ? 0.75f + noise * 0.25f : 0.12f + noise * 0.08f;
+                    pixels[y * size + x] = new Color(value, value, value);
+                }
+            }
+
+            windowStripTexture.SetPixels(pixels);
+            windowStripTexture.Apply(true);
+            return windowStripTexture;
         }
 
         static readonly Dictionary<string, Texture2D> noiseTextureCache = new Dictionary<string, Texture2D>();
@@ -2321,7 +2423,8 @@ namespace LocalFormulaRacing
         static readonly Color[] SponsorPalette =
         {
             new Color(0.85f, 0.1f, 0.1f), new Color(0.05f, 0.35f, 0.85f),
-            new Color(0.95f, 0.75f, 0.05f), new Color(0.1f, 0.55f, 0.2f)
+            new Color(0.95f, 0.75f, 0.05f), new Color(0.1f, 0.55f, 0.2f),
+            new Color(0.55f, 0.15f, 0.75f), new Color(0.9f, 0.45f, 0.05f)
         };
 
         // Rectangular sponsor board along a straight, reusing the visual-box primitive
@@ -2665,7 +2768,9 @@ namespace LocalFormulaRacing
                     CreateFloodlight(point + right * side * (Runtime.roadHalfWidth + 6.5f), forward, night || nightTrack || street);
                 }
 
-                if (i % 12 == 4)
+                // Parkland circuits (the "old-school racing venue" archetypes) get a
+                // second marshal post slot for denser classic trackside furniture.
+                if (i % 12 == 4 || (parklandTrack && i % 12 == 10))
                 {
                     CreateMarshalPost(point + right * side * (Runtime.roadHalfWidth + 9f), forward, i);
                 }
@@ -2710,7 +2815,9 @@ namespace LocalFormulaRacing
         {
             if (monacoTrack)
             {
-                BuildHarbourYachts(0.34f, 5);
+                // Bigger harbour presence: more yachts, larger/varied hulls (see
+                // BuildHarbourYachts) so the marina reads as a real promenade.
+                BuildHarbourYachts(0.34f, 8);
             }
 
             if (suzukaTrack)
@@ -2742,15 +2849,50 @@ namespace LocalFormulaRacing
             string id = Runtime.trackId ?? "";
             string style = (Runtime.styleName ?? "").ToLowerInvariant();
 
-            bool parkland = id.Contains("spa") || id.Contains("austria") || id.Contains("red_bull_ring") ||
-                            id.Contains("suzuka") || id.Contains("silverstone") || id.Contains("monza");
             bool cityStreet = streetTrack && !monacoTrack && !neonTrack;
             bool nightNeon = neonTrack || style.Contains("night");
 
             // Baseline distant ridge behind every circuit so nothing ever reads as flat;
             // archetype passes below layer their own identity on top of this rather than
-            // replacing it.
-            Color ridgeTint = desertTrack ? new Color(0.62f, 0.5f, 0.34f) : (parkland ? new Color(0.24f, 0.3f, 0.24f) : new Color(0.34f, 0.38f, 0.46f));
+            // replacing it. Tint now varies per-archetype (not just desert/parkland/
+            // other) so the newer coastal/Mediterranean/hillside identities read as
+            // distinct from the shared northern-European parkland green, and individual
+            // parkland circuits get their own ridge colour instead of one shared tint.
+            Color ridgeTint;
+            if (desertTrack)
+            {
+                ridgeTint = new Color(0.62f, 0.5f, 0.34f);
+            }
+            else if (coastalTrack)
+            {
+                ridgeTint = new Color(0.56f, 0.54f, 0.48f);
+            }
+            else if (technicalParklandTrack)
+            {
+                ridgeTint = id.Contains("barcelona") ? new Color(0.44f, 0.4f, 0.26f) : new Color(0.3f, 0.36f, 0.24f);
+            }
+            else if (urbanHillsideTrack)
+            {
+                ridgeTint = new Color(0.4f, 0.34f, 0.3f);
+            }
+            else if (canadaTrack)
+            {
+                ridgeTint = new Color(0.28f, 0.34f, 0.26f);
+            }
+            else if (parklandTrack)
+            {
+                ridgeTint = spaTrack ? new Color(0.18f, 0.26f, 0.2f) :
+                            suzukaTrack ? new Color(0.26f, 0.32f, 0.24f) :
+                            id.Contains("austria") ? new Color(0.3f, 0.34f, 0.38f) :
+                            id.Contains("monza") ? new Color(0.34f, 0.32f, 0.24f) :
+                            id.Contains("melbourne") ? new Color(0.3f, 0.38f, 0.28f) :
+                            new Color(0.24f, 0.3f, 0.24f);
+            }
+            else
+            {
+                ridgeTint = new Color(0.34f, 0.38f, 0.46f);
+            }
+
             BuildMountainBackdrop(density, ridgeTint);
 
             if (desertTrack)
@@ -2771,9 +2913,36 @@ namespace LocalFormulaRacing
                 BuildCityStreetBackdrop(density);
             }
 
-            if (parkland)
+            if (parklandTrack)
             {
                 BuildParklandBackdrop(density);
+            }
+
+            // Hungary/Barcelona: natural amphitheater/rolling-hillside terrain instead
+            // of the deep-forest parkland treatment above, with Barcelona getting a
+            // warmer Mediterranean terrain tone.
+            if (technicalParklandTrack)
+            {
+                BuildTechnicalParklandBackdrop(density, id.Contains("barcelona"));
+            }
+
+            // Zandvoort (and any other track styled as "coastal"): dune terrain,
+            // boardwalk suggestion, cooler sandy-beige palette.
+            if (coastalTrack)
+            {
+                BuildCoastalBackdrop(density);
+            }
+
+            // Interlagos: dense hillside city-block silhouettes climbing a slope.
+            if (urbanHillsideTrack)
+            {
+                BuildUrbanHillsideBackdrop(density);
+            }
+
+            // Canada: light parkland/urban mix rather than either bucket at full density.
+            if (canadaTrack)
+            {
+                BuildCanadaBackdrop(density);
             }
 
             if (id.Contains("mexico"))
@@ -2834,8 +3003,44 @@ namespace LocalFormulaRacing
         // from the corridor, plus a warm heat-haze band standing in for horizon shimmer.
         void BuildDesertBackdrop(float density)
         {
-            CreatePaddockComplex(0.08f, 1);
-            CreatePaddockComplex(0.58f, -1);
+            // More paddock structures at more offsets around the lap (was a fixed pair)
+            // so the desert paddock reads as a real facility rather than two buildings.
+            int paddocks = Mathf.Max(2, Mathf.RoundToInt(4f * density));
+            for (int i = 0; i < paddocks; i++)
+            {
+                float t = (i + 0.5f) / paddocks;
+                int side = i % 2 == 0 ? 1 : -1;
+                CreatePaddockComplex(t, side);
+            }
+
+            // Distant dune ridges far outside the corridor, standing in for desert
+            // horizon terrain beyond the sparse near-road dunes BuildScenery scatters.
+            int distantDunes = Mathf.Max(4, Mathf.RoundToInt(10f * density));
+            for (int i = 0; i < distantDunes; i++)
+            {
+                float t = (i + 0.5f) / distantDunes;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 170f + (i % 3) * 40f);
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, 50f, 10f, out safePosition))
+                {
+                    continue;
+                }
+
+                float widthScale = 90f + (i % 4) * 30f;
+                float heightScale = 16f + (i % 3) * 8f;
+                GameObject duneRidge = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                duneRidge.name = "Distant desert dune ridge";
+                duneRidge.transform.SetParent(transform);
+                duneRidge.transform.position = new Vector3(safePosition.x, groundTopY - heightScale * 0.3f, safePosition.z);
+                duneRidge.transform.localScale = new Vector3(widthScale, heightScale, widthScale * 0.7f);
+                duneRidge.GetComponent<Renderer>().sharedMaterial = grassMaterial;
+                MakeVisualOnly(duneRidge);
+            }
 
             Material haze = CreateTranslucentMaterial("Runtime desert haze", new Color(0.85f, 0.72f, 0.5f), 0.12f);
             int bands = Mathf.Max(3, Mathf.RoundToInt(6f * density));
@@ -2857,6 +3062,30 @@ namespace LocalFormulaRacing
 
                     CreateVisualBox("Desert heat haze bank", safePosition, Quaternion.LookRotation(forward, Vector3.up), new Vector3(120f, 30f, 4f), haze);
                 }
+            }
+
+            // Taller/varied floodlit modern circuit buildings, further back than the
+            // paddock complexes above; twilight (Abu Dhabi) gets slightly taller, more
+            // lit-glass massing to sell the "twilight finale" look with materials alone.
+            int circuitBuildings = Mathf.Max(2, Mathf.RoundToInt(4f * density));
+            for (int i = 0; i < circuitBuildings; i++)
+            {
+                float t = (i + 0.3f) / circuitBuildings;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? 1 : -1;
+                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 95f);
+                float height = 20f + (i % 3) * 10f + (twilightTrack ? 6f : 0f);
+                CreateProceduralBuildingCluster(anchor, forward, 2, height, twilightTrack);
+            }
+
+            // A couple of extra long, low grandstands beyond BuildScenery's fixed set.
+            BuildGrandstand(0.3f, 1);
+            if (density > 0.6f)
+            {
+                BuildGrandstand(0.72f, -1);
             }
         }
 
@@ -2892,25 +3121,8 @@ namespace LocalFormulaRacing
         // without duplicating it.
         void BuildMonacoBackdrop(float density)
         {
-            int clusters = Mathf.Max(3, Mathf.RoundToInt(6f * density));
-            for (int i = 0; i < clusters; i++)
-            {
-                float t = (i + 0.5f) / clusters;
-                Vector3 point;
-                Vector3 forward;
-                Vector3 right;
-                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
-                int side = i % 2 == 0 ? -1 : 1;
-                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 46f);
-                CreateProceduralBuildingCluster(anchor, forward, 3, 14f + (i % 3) * 6f, false);
-            }
-        }
-
-        // Denser lit skyline for Singapore/Las Vegas-style night circuits, building on the
-        // existing CreateNeonPylon trackside strips with a further-back row of taller neon
-        // towers so the horizon itself glows.
-        void BuildNeonSkylineBackdrop(float density)
-        {
+            // Denser, taller, and pulled in closer (46f -> 38f margin) than the original
+            // pass so the hillside street reads as a tight wall-canyon.
             int clusters = Mathf.Max(4, Mathf.RoundToInt(8f * density));
             for (int i = 0; i < clusters; i++)
             {
@@ -2920,17 +3132,38 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? -1 : 1;
-                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 60f);
-                CreateProceduralBuildingCluster(anchor, forward, 3, 26f + (i % 3) * 8f, true);
+                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 38f);
+                CreateProceduralBuildingCluster(anchor, forward, 3, 16f + (i % 4) * 8f, false, 2f);
+            }
+
+            // Cream-toned luxury apartment/hotel silhouettes distinct from the generic
+            // barrier-toned buildings above, further back so they read as the hillside
+            // skyline behind the immediate street canyon.
+            int luxuryClusters = Mathf.Max(2, Mathf.RoundToInt(3f * density));
+            for (int i = 0; i < luxuryClusters; i++)
+            {
+                float t = (i + 0.5f) / luxuryClusters * 0.85f + 0.05f;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? 1 : -1;
+                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 58f);
+                CreateLuxuryApartmentCluster(anchor, forward, 2, 26f + (i % 2) * 10f);
             }
         }
 
-        // Modern street-circuit skyline (Jeddah/Baku/Madrid/Miami-style): a further-back
-        // skyline row plus one or two sponsor bridges spanning the track on the longer
-        // straights.
-        void BuildCityStreetBackdrop(float density)
+        // Denser lit skyline for Singapore/Las Vegas-style night circuits, building on the
+        // existing CreateNeonPylon trackside strips with a further-back row of taller neon
+        // towers so the horizon itself glows.
+        void BuildNeonSkylineBackdrop(float density)
         {
-            int clusters = Mathf.Max(3, Mathf.RoundToInt(6f * density));
+            // Denser and taller than the original pass, plus a further-back set of extra
+            // clusters biased toward the DRS zones - the two stretches every track is
+            // guaranteed to have a genuine straight, and exactly where a player is
+            // driving fastest (and glancing at the skyline least, so the spectacle needs
+            // to read big) rather than threading a technical corner.
+            int clusters = Mathf.Max(5, Mathf.RoundToInt(10f * density));
             for (int i = 0; i < clusters; i++)
             {
                 float t = (i + 0.5f) / clusters;
@@ -2939,14 +3172,88 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? -1 : 1;
-                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 55f);
-                CreateProceduralBuildingCluster(anchor, forward, 3, 20f + (i % 3) * 7f, false);
+                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 60f);
+                CreateProceduralBuildingCluster(anchor, forward, 3, 30f + (i % 4) * 11f, true);
+            }
+
+            float[] straightCenters =
+            {
+                Mathf.Repeat((Runtime.drsZoneOne.x + Runtime.drsZoneOne.y) * 0.5f, 1f),
+                Mathf.Repeat((Runtime.drsZoneTwo.x + Runtime.drsZoneTwo.y) * 0.5f, 1f)
+            };
+            for (int s = 0; s < straightCenters.Length; s++)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * straightCenters[s], out point, out forward, out right);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 46f);
+                    CreateProceduralBuildingCluster(anchor, forward, 2, 40f + s * 10f, true, 3f);
+                }
+            }
+        }
+
+        // Modern street-circuit skyline (Jeddah/Baku/Madrid/Miami-style): a further-back
+        // skyline row plus one or two sponsor bridges spanning the track on the longer
+        // straights.
+        void BuildCityStreetBackdrop(float density)
+        {
+            // Denser, taller, and pulled in closer than the original pass so the
+            // street-circuit "canyon" feel is stronger.
+            int clusters = Mathf.Max(4, Mathf.RoundToInt(9f * density));
+            for (int i = 0; i < clusters; i++)
+            {
+                float t = (i + 0.5f) / clusters;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 42f);
+                CreateProceduralBuildingCluster(anchor, forward, 3, 22f + (i % 4) * 9f, false, 2.5f);
+            }
+
+            // A closer second row on alternating samples for extra canyon density.
+            for (int i = 0; i < clusters; i += 2)
+            {
+                float t = (i + 0.5f) / clusters;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? 1 : -1;
+                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 24f);
+                CreateProceduralBuildingCluster(anchor, forward, 2, 16f + (i % 3) * 6f, false, 2f);
             }
 
             CreateSponsorBridge(Runtime.length * 0.22f);
+            CreateSponsorBridge(Runtime.length * 0.68f);
             if (density > 0.6f)
             {
-                CreateSponsorBridge(Runtime.length * 0.68f);
+                CreateSponsorBridge(Runtime.length * 0.44f);
+            }
+
+            // Extra concrete wall variety along the canyon - a cheap "service alley"
+            // suggestion set back close to the road, distinct from the skyline blocks.
+            int wallSegments = Mathf.Max(2, Mathf.RoundToInt(5f * density));
+            for (int i = 0; i < wallSegments; i++)
+            {
+                float t = (i + 0.5f) / wallSegments;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 12f);
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, 2f, 2f, out safePosition))
+                {
+                    continue;
+                }
+
+                CreateVisualBox("Street canyon service wall", safePosition + Vector3.up * 1.1f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(0.35f, 2.2f, 8f), i % 2 == 0 ? weatheredConcreteMaterial : concreteMaterial);
             }
         }
 
@@ -2955,6 +3262,15 @@ namespace LocalFormulaRacing
         // cluster anchor) since the spread can push outer buildings back toward the
         // corridor on tighter circuits.
         void CreateProceduralBuildingCluster(Vector3 anchor, Vector3 forward, int count, float baseHeight, bool neonStyle)
+        {
+            CreateProceduralBuildingCluster(anchor, forward, count, baseHeight, neonStyle, 4f);
+        }
+
+        // extraMargin lets callers pull the cluster closer to the corridor (Monaco's
+        // canyon, the city-street "canyon of buildings" pass) without bypassing the
+        // clearance check itself - it is still routed through TryGetClearScenerySpot,
+        // just with a smaller required buffer.
+        void CreateProceduralBuildingCluster(Vector3 anchor, Vector3 forward, int count, float baseHeight, bool neonStyle, float extraMargin)
         {
             Vector3 right = Vector3.Cross(Vector3.up, forward).normalized;
             for (int i = 0; i < count; i++)
@@ -2965,7 +3281,7 @@ namespace LocalFormulaRacing
                 float height = baseHeight + (i % 4) * 5f;
                 float footprint = 9f + (i % 3) * 3f;
                 Vector3 safePosition;
-                if (!TryGetClearScenerySpot(desired, footprint * 0.75f, 4f, out safePosition))
+                if (!TryGetClearScenerySpot(desired, footprint * 0.75f, extraMargin, out safePosition))
                 {
                     continue;
                 }
@@ -2980,11 +3296,47 @@ namespace LocalFormulaRacing
                 block.GetComponent<Renderer>().sharedMaterial = neonStyle ? glassMaterial : (monacoTrack ? barrierMaterial : concreteMaterial);
                 MakeVisualOnly(block);
 
-                Material windowMaterial = neonStyle ? neonMaterials[i % neonMaterials.Length] : (nightTrack || twilightTrack ? lightGlowMaterial : glassMaterial);
+                Material windowMaterial = neonStyle ? neonMaterials[i % neonMaterials.Length] : windowStripMaterial;
                 int bands = Mathf.Clamp(Mathf.RoundToInt(height / 3f), 1, 4);
                 for (int band = 0; band < bands; band++)
                 {
                     CreateVisualBox("Skyline window band", safePosition + Vector3.up * (1.5f + band * 2.6f), rotation, new Vector3(footprint * 0.8f, 0.6f, 0.08f), windowMaterial);
+                }
+            }
+        }
+
+        // Monaco-specific luxury apartment/hotel silhouette, distinct from the generic
+        // barrier-toned street buildings above: taller, cream-coloured, with a repeated
+        // balcony-strip ledge per floor.
+        void CreateLuxuryApartmentCluster(Vector3 anchor, Vector3 forward, int count, float baseHeight)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                float spread = (i - (count - 1) * 0.5f) * 16f;
+                Vector3 desired = anchor + forward * spread;
+                float height = baseHeight + (i % 3) * 8f;
+                float footprint = 10f + (i % 2) * 3f;
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, footprint * 0.75f, 3f, out safePosition))
+                {
+                    continue;
+                }
+
+                Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+                GameObject block = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                block.name = "Luxury apartment silhouette";
+                block.transform.SetParent(transform);
+                block.transform.position = safePosition + Vector3.up * height * 0.5f;
+                block.transform.rotation = rotation;
+                block.transform.localScale = new Vector3(footprint, height, footprint * 0.8f);
+                block.GetComponent<Renderer>().sharedMaterial = luxuryApartmentMaterial;
+                MakeVisualOnly(block);
+
+                int floors = Mathf.Clamp(Mathf.RoundToInt(height / 3.2f), 2, 6);
+                for (int floor = 0; floor < floors; floor++)
+                {
+                    CreateVisualBox("Luxury apartment balcony strip", safePosition + Vector3.up * (2f + floor * 3.1f), rotation, new Vector3(footprint * 0.86f, 0.14f, footprint * 0.82f + 0.3f), sceneryAccentMaterial);
+                    CreateVisualBox("Luxury apartment window band", safePosition + Vector3.up * (2.5f + floor * 3.1f) - forward * (footprint * 0.4f), rotation, new Vector3(footprint * 0.7f, 0.9f, 0.06f), windowStripMaterial);
                 }
             }
         }
@@ -3057,6 +3409,254 @@ namespace LocalFormulaRacing
                     CreateTreeCluster(safePosition + right * side * 14f, i + 40);
                 }
             }
+
+            // Two further-back layers at increasing distance/height so the forest reads
+            // with real depth instead of one flat treeline ring.
+            int farRings = Mathf.Max(4, Mathf.RoundToInt(8f * density));
+            for (int layer = 1; layer <= 2; layer++)
+            {
+                for (int i = 0; i < farRings; i++)
+                {
+                    float t = (i + layer * 0.33f) / farRings;
+                    Vector3 point;
+                    Vector3 forward;
+                    Vector3 right;
+                    Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                    int side = i % 2 == 0 ? -1 : 1;
+                    float distanceOut = 90f + layer * 70f;
+                    Vector3 desired = point + right * side * (Runtime.roadHalfWidth + distanceOut);
+                    Vector3 safePosition;
+                    if (!TryGetClearScenerySpot(desired, 34f + layer * 8f, 10f, out safePosition))
+                    {
+                        continue;
+                    }
+
+                    float heightScale = (26f + layer * 10f) + (i % 3) * 8f;
+                    GameObject farHill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                    farHill.name = "Distant forested ridge layer " + layer;
+                    farHill.transform.SetParent(transform);
+                    farHill.transform.position = safePosition + Vector3.up * (heightScale * 0.15f * layer);
+                    farHill.transform.localScale = new Vector3(70f + (i % 4) * 16f, heightScale, 50f + (i % 3) * 12f);
+                    farHill.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
+                    MakeVisualOnly(farHill);
+                }
+            }
+        }
+
+        // Zandvoort-style coastal dressing: dune terrain reusing CreateDune's sculpting
+        // machinery, a boardwalk/promenade suggestion, and a cooler, sandier ground tone
+        // than the warm-orange desert palette, plus a blue-tinted sea haze toward the
+        // notional "sea" side instead of the desert's warm heat-haze.
+        void BuildCoastalBackdrop(float density)
+        {
+            int duneRings = Mathf.Max(6, Mathf.RoundToInt(12f * density));
+            for (int i = 0; i < duneRings; i++)
+            {
+                float t = (i + 0.5f) / duneRings;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 nearDune = point + right * side * (Runtime.roadHalfWidth + 50f + (i % 3) * 20f);
+                CreateDune(nearDune, i + 70);
+
+                Vector3 farDesired = point + right * side * (Runtime.roadHalfWidth + 110f);
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(farDesired, 40f, 10f, out safePosition))
+                {
+                    continue;
+                }
+
+                float heightScale = 12f + (i % 3) * 6f;
+                GameObject duneRidge = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                duneRidge.name = "Coastal dune ridge";
+                duneRidge.transform.SetParent(transform);
+                duneRidge.transform.position = new Vector3(safePosition.x, groundTopY - heightScale * 0.25f, safePosition.z);
+                duneRidge.transform.localScale = new Vector3(80f + (i % 4) * 20f, heightScale, 60f + (i % 3) * 14f);
+                duneRidge.GetComponent<Renderer>().sharedMaterial = coastalSandMaterial;
+                MakeVisualOnly(duneRidge);
+            }
+
+            // Flattened boardwalk/promenade suggestion on the notional sea side.
+            int boardwalkSegments = Mathf.Max(3, Mathf.RoundToInt(6f * density));
+            for (int i = 0; i < boardwalkSegments; i++)
+            {
+                float t = (i + 0.5f) / boardwalkSegments;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                Vector3 desired = point + right * (Runtime.roadHalfWidth + 75f);
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, 10f, 6f, out safePosition))
+                {
+                    continue;
+                }
+
+                CreateVisualBox("Coastal boardwalk deck", safePosition + Vector3.up * 0.2f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(6f, 0.3f, 26f), weatheredConcreteMaterial);
+                CreateVisualBox("Coastal boardwalk rail", safePosition + Vector3.up * 0.9f + right * 2.9f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(0.14f, 1.1f, 26f), fencePostMaterial);
+            }
+
+            // Cool blue sea-haze bank, distinct from the desert's warm heat-haze tint.
+            Material seaHaze = CreateTranslucentMaterial("Runtime sea haze", new Color(0.62f, 0.72f, 0.8f), 0.14f);
+            int hazeBands = Mathf.Max(3, Mathf.RoundToInt(5f * density));
+            for (int i = 0; i < hazeBands; i++)
+            {
+                float d = Runtime.length * (i / (float)hazeBands);
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                Vector3 desired = point + right * (Runtime.roadHalfWidth + 150f) + Vector3.up * 16f;
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, 60f, 10f, out safePosition))
+                {
+                    continue;
+                }
+
+                CreateVisualBox("Coastal sea haze bank", safePosition, Quaternion.LookRotation(forward, Vector3.up), new Vector3(130f, 26f, 4f), seaHaze);
+            }
+        }
+
+        // Hungaroring/Barcelona-style natural amphitheater terrain: rolling grass-bank
+        // hillside rings closer in than the deep-forest BuildParklandBackdrop pass,
+        // since both circuits read as a bowl of banking rather than a forest. Barcelona
+        // gets a warmer, drier Mediterranean tint; Hungary keeps a cooler natural green.
+        void BuildTechnicalParklandBackdrop(float density, bool mediterranean)
+        {
+            Material terrainMaterial = CreateMaterial("Runtime Technical Parkland Terrain",
+                mediterranean ? new Color(0.5f, 0.46f, 0.28f) : new Color(0.28f, 0.36f, 0.22f), 0f, 0.2f);
+
+            int banks = Mathf.Max(7, Mathf.RoundToInt(14f * density));
+            for (int i = 0; i < banks; i++)
+            {
+                float t = (i + 0.5f) / banks;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 70f);
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, 26f, 8f, out safePosition))
+                {
+                    continue;
+                }
+
+                float heightScale = 14f + (i % 3) * 6f;
+                GameObject bank = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                bank.name = "Amphitheater hillside bank";
+                bank.transform.SetParent(transform);
+                bank.transform.position = safePosition + Vector3.down * (heightScale * 0.3f);
+                bank.transform.localScale = new Vector3(56f + (i % 4) * 12f, heightScale, 40f + (i % 3) * 10f);
+                bank.GetComponent<Renderer>().sharedMaterial = terrainMaterial;
+                MakeVisualOnly(bank);
+
+                if (i % 3 == 0)
+                {
+                    CreateTreeCluster(safePosition + right * side * 12f, i + 90);
+                }
+            }
+
+            // A packed-in natural-amphitheater crowd feel gets a few extra floodlights
+            // along the bowl rim beyond the standard per-lap set.
+            int rim = Mathf.Max(3, Mathf.RoundToInt(5f * density));
+            for (int i = 0; i < rim; i++)
+            {
+                float t = (i + 0.5f) / rim;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                Vector3 desired = point - right * (Runtime.roadHalfWidth + 24f);
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, 3f, 3f, out safePosition))
+                {
+                    continue;
+                }
+
+                CreateFloodlight(safePosition, forward, false);
+            }
+        }
+
+        // Interlagos-style hillside favela silhouette: dense stacked building clusters
+        // at climbing heights following a notional slope behind the circuit, distinct
+        // from the flat cityStreet skyline bucket.
+        void BuildUrbanHillsideBackdrop(float density)
+        {
+            int clusters = Mathf.Max(6, Mathf.RoundToInt(11f * density));
+            for (int i = 0; i < clusters; i++)
+            {
+                float t = (i + 0.5f) / clusters;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+
+                // Further clusters sit both further back and higher up, so the
+                // silhouette reads as stacking up a hillside rather than one flat row.
+                int climbStep = i % 4;
+                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 48f + climbStep * 22f) + Vector3.up * (climbStep * 6f);
+                CreateHillsideBuildingCluster(anchor, forward, 4, 12f + climbStep * 7f);
+            }
+        }
+
+        // Stacked, colourful low-rise blocks at varying heights, reusing the clearance-
+        // checked spread pattern from CreateProceduralBuildingCluster but cycling a
+        // small hillside-toned material palette instead of one flat concrete/glass
+        // look, so the climbing silhouette reads as a dense hillside district.
+        void CreateHillsideBuildingCluster(Vector3 anchor, Vector3 forward, int count, float baseHeight)
+        {
+            Vector3 right = Vector3.Cross(Vector3.up, forward).normalized;
+            for (int i = 0; i < count; i++)
+            {
+                float spread = (i - (count - 1) * 0.5f) * 11f;
+                float depth = (i % 2) * 7f;
+                Vector3 desired = anchor + forward * spread + right * depth;
+                float height = baseHeight + (i % 3) * 4f;
+                float footprint = 7f + (i % 3) * 2.5f;
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, footprint * 0.75f, 4f, out safePosition))
+                {
+                    continue;
+                }
+
+                Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+                GameObject block = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                block.name = "Hillside district block";
+                block.transform.SetParent(transform);
+                block.transform.position = safePosition + Vector3.up * height * 0.5f;
+                block.transform.rotation = rotation;
+                block.transform.localScale = new Vector3(footprint, height, footprint * 0.85f);
+                block.GetComponent<Renderer>().sharedMaterial = hillsideBuildingMaterials[Mathf.Abs(i + Mathf.RoundToInt(anchor.x)) % hillsideBuildingMaterials.Length];
+                MakeVisualOnly(block);
+
+                CreateVisualBox("Hillside district window band", safePosition + Vector3.up * (height * 0.5f), rotation, new Vector3(footprint * 0.8f, height * 0.4f, 0.08f), windowStripMaterial);
+            }
+        }
+
+        // Canada's Gilles-Villeneuve-style identity: parkland-adjacent island setting
+        // with a couple of modern circuit/paddock buildings, rather than the deep
+        // forest treatment full parkland circuits get or the dense canyon of the pure
+        // street tracks.
+        void BuildCanadaBackdrop(float density)
+        {
+            BuildParklandBackdrop(density * 0.5f);
+
+            int buildings = Mathf.Max(2, Mathf.RoundToInt(3f * density));
+            for (int i = 0; i < buildings; i++)
+            {
+                float t = (i + 0.5f) / buildings;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? 1 : -1;
+                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 50f);
+                CreateProceduralBuildingCluster(anchor, forward, 2, 16f + (i % 2) * 6f, false);
+            }
         }
 
         // Mexico's Foro Sol-style stadium section: a tight, tall grandstand bowl around
@@ -3073,15 +3673,44 @@ namespace LocalFormulaRacing
                 Vector3 basePosition = point + right * side * (Runtime.roadHalfWidth + 20f);
                 Vector3 lateral = right * side;
                 Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
-                for (int row = 0; row < 9; row++)
+
+                // Bigger bowl (12 tiers, wider span) than the original 9-tier version for
+                // a stronger grandstand-bowl effect.
+                const int tiers = 12;
+                for (int row = 0; row < tiers; row++)
                 {
                     Vector3 rowCenter = basePosition + Vector3.up * (0.4f + row * 0.68f) + lateral * row * 1.3f;
-                    CreateVisualBox("Stadium bowl tier", rowCenter, rotation, new Vector3(1.3f, 0.55f, 46f), metalMaterial);
-                    CreateVisualBox("Stadium bowl crowd block", rowCenter + Vector3.up * 0.5f, rotation, new Vector3(0.95f, 0.46f, 45f), row % 2 == 0 ? sceneryAccentMaterial : glassMaterial);
+                    CreateVisualBox("Stadium bowl tier", rowCenter, rotation, new Vector3(1.3f, 0.55f, 52f), metalMaterial);
+                    CreateVisualBox("Stadium bowl crowd block", rowCenter + Vector3.up * 0.5f, rotation, new Vector3(0.95f, 0.46f, 51f), row % 2 == 0 ? sceneryAccentMaterial : glassMaterial);
                 }
 
-                Vector3 roofCenter = basePosition + Vector3.up * 8.2f + lateral * 4.6f;
-                CreateVisualBox("Stadium bowl roof", roofCenter, rotation, new Vector3(13f, 0.3f, 48f), metalMaterial);
+                Vector3 roofCenter = basePosition + Vector3.up * 10.8f + lateral * 4.6f;
+                CreateVisualBox("Stadium bowl roof", roofCenter, rotation, new Vector3(13f, 0.3f, 54f), grandstandRoofMaterial);
+            }
+
+            // Extra wraparound sections just before/after the main tier so the bowl
+            // encloses the whole closing corner complex rather than reading as one
+            // straight stand. Routed through the clearance helper since this is new.
+            for (float offset = -0.035f; offset <= 0.035f; offset += 0.07f)
+            {
+                Vector3 wrapPoint;
+                Vector3 wrapForward;
+                Vector3 wrapRight;
+                Runtime.SampleAtDistance(Runtime.length * (normalized + offset), out wrapPoint, out wrapForward, out wrapRight);
+                Vector3 desired = wrapPoint + wrapRight * (Runtime.roadHalfWidth + 20f);
+                Vector3 safeAnchor;
+                if (!TryGetClearScenerySpot(desired, 15f, 4f, out safeAnchor))
+                {
+                    continue;
+                }
+
+                Quaternion rotation = Quaternion.LookRotation(wrapForward, Vector3.up);
+                for (int row = 0; row < 7; row++)
+                {
+                    Vector3 rowCenter = safeAnchor + Vector3.up * (0.4f + row * 0.68f) + wrapRight * row * 1.3f;
+                    CreateVisualBox("Stadium bowl wrap tier", rowCenter, rotation, new Vector3(1.3f, 0.55f, 30f), metalMaterial);
+                    CreateVisualBox("Stadium bowl wrap crowd block", rowCenter + Vector3.up * 0.5f, rotation, new Vector3(0.95f, 0.46f, 29f), row % 2 == 0 ? sceneryAccentMaterial : glassMaterial);
+                }
             }
         }
 
@@ -3102,34 +3731,230 @@ namespace LocalFormulaRacing
             }
 
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
-            const float towerHeight = 70f;
-            CreateVisualBox("Observation tower shaft", basePosition + Vector3.up * towerHeight * 0.5f, rotation, new Vector3(3.2f, towerHeight, 3.2f), metalMaterial);
-            CreateVisualBox("Observation tower deck", basePosition + Vector3.up * (towerHeight + 2f), rotation, new Vector3(9f, 1.6f, 9f), concreteMaterial);
+            const float towerHeight = 96f; // taller and more iconic than the original 70f pole
+            CreateVisualBox("Observation tower shaft", basePosition + Vector3.up * towerHeight * 0.5f, rotation, new Vector3(3.4f, towerHeight, 3.4f), metalMaterial);
+            CreateVisualBox("Observation tower deck", basePosition + Vector3.up * (towerHeight + 2f), rotation, new Vector3(10.5f, 1.8f, 10.5f), concreteMaterial);
+
+            // COTA's real tower has an angled, twisted observation deck near the top;
+            // two canted box elements at contrasting angles approximate that silhouette
+            // instead of a plain vertical pole capping the shaft.
+            GameObject twistLower = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            twistLower.name = "Observation tower twist lower";
+            twistLower.transform.SetParent(transform);
+            twistLower.transform.position = basePosition + Vector3.up * (towerHeight + 6.5f);
+            twistLower.transform.rotation = rotation * Quaternion.Euler(0f, 18f, 12f);
+            twistLower.transform.localScale = new Vector3(6.5f, 3.2f, 3.6f);
+            twistLower.GetComponent<Renderer>().sharedMaterial = concreteMaterial;
+            MakeVisualOnly(twistLower);
+
+            GameObject twistUpper = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            twistUpper.name = "Observation tower twist upper";
+            twistUpper.transform.SetParent(transform);
+            twistUpper.transform.position = basePosition + Vector3.up * (towerHeight + 10.5f);
+            twistUpper.transform.rotation = rotation * Quaternion.Euler(0f, -22f, -10f);
+            twistUpper.transform.localScale = new Vector3(5.2f, 2.8f, 3.2f);
+            twistUpper.GetComponent<Renderer>().sharedMaterial = sceneryAccentMaterial;
+            MakeVisualOnly(twistUpper);
+
             GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
             marker.name = "Observation tower marker";
             marker.transform.SetParent(transform);
-            marker.transform.position = basePosition + Vector3.up * (towerHeight + 8f);
+            marker.transform.position = basePosition + Vector3.up * (towerHeight + 15f);
             marker.transform.rotation = rotation * Quaternion.Euler(18f, 0f, 6f);
             marker.transform.localScale = new Vector3(0.6f, 4.5f, 0.6f);
             marker.GetComponent<Renderer>().sharedMaterial = sceneryAccentMaterial;
             MakeVisualOnly(marker);
+
+            // Rolling terrain variation near the tower base.
+            for (int i = 0; i < 3; i++)
+            {
+                Vector3 hillDesired = basePosition + forward * (i - 1) * 40f + right * 30f;
+                Vector3 safeHill;
+                if (!TryGetClearScenerySpot(hillDesired, 26f, 8f, out safeHill))
+                {
+                    continue;
+                }
+
+                float heightScale = 10f + i * 4f;
+                GameObject hill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                hill.name = "Austin rolling terrain rise";
+                hill.transform.SetParent(transform);
+                hill.transform.position = safeHill + Vector3.down * (heightScale * 0.3f);
+                hill.transform.localScale = new Vector3(52f, heightScale, 40f);
+                hill.GetComponent<Renderer>().sharedMaterial = grassMaterial;
+                MakeVisualOnly(hill);
+            }
         }
 
-        // Row of moored white "yachts" along a straight for Monaco's harbour promenade.
-        void BuildHarbourYachts(float startNormalized, int count)
+        // Generic per-track infrastructure pass: one race-control-style tower, one or
+        // two overhead billboard gantries on the main straight(s), a couple of low
+        // paddock parked-vehicle block suggestions, and thin service-road strips set
+        // back behind the barriers. New structure types for every track, all routed
+        // through the same clearance helpers as the rest of the file's scenery.
+        void BuildTrackInfrastructure()
         {
-            for (int i = 0; i < count; i++)
+            float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+            BuildControlTower();
+            BuildBillboardGantries(density);
+            BuildParkingBlocks(density);
+            BuildServiceRoadStrips(density);
+        }
+
+        // Race-control-style tower near the pit lane/start-finish: tall shaft with a
+        // glass-banded upper section, distinct from the generic skyline/paddock
+        // buildings elsewhere in this file.
+        void BuildControlTower()
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(Runtime.length * 0.975f, out point, out forward, out right);
+            Vector3 desired = point + right * (Runtime.PitLaneLateral + 42f);
+            Vector3 basePosition;
+            if (!TryGetClearScenerySpot(desired, 6f, 8f, out basePosition))
             {
-                float d = Runtime.length * startNormalized + i * 14f;
+                return;
+            }
+
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            const float shaftHeight = 27f;
+            const float glassHeight = 11f;
+            CreateVisualBox("Control tower shaft", basePosition + Vector3.up * shaftHeight * 0.5f, rotation, new Vector3(7.2f, shaftHeight, 7.2f), concreteMaterial);
+            CreateVisualBox("Control tower glass band", basePosition + Vector3.up * (shaftHeight + glassHeight * 0.5f), rotation, new Vector3(7.6f, glassHeight, 7.6f), glassMaterial);
+            CreateVisualBox("Control tower roof", basePosition + Vector3.up * (shaftHeight + glassHeight + 0.4f), rotation, new Vector3(8f, 0.7f, 8f), sceneryAccentMaterial);
+            CreateVisualBox("Control tower mast", basePosition + Vector3.up * (shaftHeight + glassHeight + 3.2f), rotation, new Vector3(0.18f, 5f, 0.18f), metalMaterial);
+            if (nightTrack || twilightTrack)
+            {
+                CreateVisualBox("Control tower glow strip", basePosition + Vector3.up * (shaftHeight + glassHeight * 0.5f) + right * 3.85f, rotation, new Vector3(0.1f, glassHeight * 0.8f, 7f), lightGlowMaterial);
+            }
+        }
+
+        void BuildBillboardGantries(float density)
+        {
+            CreateBillboardGantry(Runtime.length * 0.06f);
+            if (density > 0.55f)
+            {
+                CreateBillboardGantry(Runtime.length * 0.47f);
+            }
+        }
+
+        // Overhead sign spanning the track, well above any car/camera concern. Height
+        // alone clears the corridor, so - per the brief - it is the support pylons'
+        // lateral footprint that gets the radius-aware clearance check, not the span
+        // itself, following the same visual-only convention CreateSuzukaCrossoverBridge
+        // and CreateSponsorBridge already use for their decks. Both pylon spots must
+        // clear before anything is created, so a failed second pylon never leaves an
+        // orphaned first one behind.
+        void CreateBillboardGantry(float distance)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            float span = Runtime.roadHalfWidth * 2f + 8f;
+            const float clearance = 12.5f;
+            float deckY = point.y + clearance;
+
+            Vector3 leftPylonTop = point - right * (span * 0.5f - 1f);
+            Vector3 rightPylonTop = point + right * (span * 0.5f - 1f);
+            Vector3 leftSafe;
+            Vector3 rightSafe;
+            if (!TryGetClearScenerySpot(new Vector3(leftPylonTop.x, groundTopY, leftPylonTop.z), 1.6f, 4f, out leftSafe) ||
+                !TryGetClearScenerySpot(new Vector3(rightPylonTop.x, groundTopY, rightPylonTop.z), 1.6f, 4f, out rightSafe))
+            {
+                return;
+            }
+
+            Quaternion postRotation = Quaternion.LookRotation(forward, Vector3.up);
+            float pylonHeight = Mathf.Max(2f, deckY - groundTopY);
+            CreateVisualBox("Billboard gantry pylon", new Vector3(leftSafe.x, groundTopY + pylonHeight * 0.5f, leftSafe.z), postRotation, new Vector3(1.1f, pylonHeight, 1.1f), metalMaterial);
+            CreateVisualBox("Billboard gantry pylon", new Vector3(rightSafe.x, groundTopY + pylonHeight * 0.5f, rightSafe.z), postRotation, new Vector3(1.1f, pylonHeight, 1.1f), metalMaterial);
+
+            Vector3 deckCenter = new Vector3(point.x, deckY, point.z);
+            Quaternion deckRotation = Quaternion.LookRotation(forward, Vector3.up);
+            CreateVisualBox("Billboard gantry frame", deckCenter, deckRotation, new Vector3(span, 0.5f, 2.4f), metalMaterial);
+            Color panelColor = SponsorPalette[Mathf.Abs(Mathf.RoundToInt(distance)) % SponsorPalette.Length];
+            Material panel = CreateMaterial("Billboard gantry panel", panelColor, 0.05f, 0.55f, (nightTrack || twilightTrack) ? panelColor * 0.4f : Color.black);
+            CreateVisualBox("Billboard gantry panel", deckCenter - Vector3.up * 1.4f, deckRotation, new Vector3(span * 0.82f, 2.1f, 0.28f), panel);
+            if (nightTrack || twilightTrack || neonTrack)
+            {
+                CreateVisualBox("Billboard gantry glow trim", deckCenter - Vector3.up * 0.3f, deckRotation, new Vector3(span * 0.86f, 0.1f, 2.5f), lightGlowMaterial);
+            }
+        }
+
+        // Low rectangular parked-vehicle block suggestions near the paddock area,
+        // generic across every track and kept sparse - background dressing, not a
+        // feature.
+        void BuildParkingBlocks(float density)
+        {
+            int rows = Mathf.Max(1, Mathf.RoundToInt(3f * density));
+            float corridorStart = Runtime.length * 0.885f;
+            float corridorEnd = Runtime.length * 0.995f;
+            for (int i = 0; i < rows; i++)
+            {
+                float t = rows <= 1 ? 0.5f : (i + 0.5f) / rows;
+                float d = Mathf.Lerp(corridorStart, corridorEnd, t);
                 Vector3 point;
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
-                Vector3 basePos = PushSceneryClearOfTrack(point + right * (Runtime.roadHalfWidth + 24f), 22f);
+                Vector3 desired = point + right * (Runtime.PitLaneLateral + 30f);
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, 6f, 4f, out safePosition))
+                {
+                    continue;
+                }
+
                 Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
-                CreateVisualBox("Harbour yacht hull", basePos + Vector3.up * 0.6f, rotation, new Vector3(2.4f, 1.1f, 7.5f), yachtMaterial);
-                CreateVisualBox("Harbour yacht cabin", basePos + Vector3.up * 1.5f, rotation, new Vector3(1.6f, 0.9f, 3.2f), glassMaterial);
-                CreateVisualBox("Harbour yacht mast", basePos + Vector3.up * 3.4f, rotation, new Vector3(0.1f, 3.8f, 0.1f), metalMaterial);
+                Material blockMaterial = i % 2 == 0 ? concreteMaterial : metalMaterial;
+                CreateVisualBox("Paddock parked vehicle block", safePosition + Vector3.up * 0.55f, rotation, new Vector3(7.4f, 1.1f, 2.6f), blockMaterial);
+                CreateVisualBox("Paddock parked vehicle block", safePosition + Vector3.up * 0.55f + right * 3.6f, rotation, new Vector3(7.4f, 1.1f, 2.6f), blockMaterial);
+            }
+        }
+
+        // Thin, low-contrast paved strip running parallel to the track, set back behind
+        // the barriers - a cheap suggestion of a service road rather than a modelled one.
+        void BuildServiceRoadStrips(float density)
+        {
+            float spacing = Mathf.Lerp(110f, 60f, Mathf.InverseLerp(0.25f, 2f, density));
+            int index = 0;
+            for (float d = 0f; d < Runtime.length; d += spacing)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d + spacing * 0.5f, out point, out forward, out right);
+                int side = index % 2 == 0 ? -1 : 1;
+                Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 26f);
+                Vector3 safePosition;
+                if (TryGetClearScenerySpot(desired, 2f, 2f, out safePosition))
+                {
+                    CreateVisualBox("Trackside service road strip", safePosition + Vector3.up * 0.02f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(3f, 0.02f, spacing * 0.8f), asphaltPatchMaterial);
+                }
+
+                index++;
+            }
+        }
+
+        // Row of moored white "yachts" along a straight for Monaco's harbour promenade.
+        // Hull length now varies per instance and a hull stripe/richer cabin was added
+        // so a bigger marina doesn't just repeat one identical boat shape.
+        void BuildHarbourYachts(float startNormalized, int count)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                float d = Runtime.length * startNormalized + i * 15f;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                float hullLength = 6.5f + (i % 3) * 3.5f;
+                Vector3 basePos = PushSceneryClearOfTrack(point + right * (Runtime.roadHalfWidth + 24f), 20f + hullLength * 0.3f);
+                Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+                CreateVisualBox("Harbour yacht hull", basePos + Vector3.up * 0.6f, rotation, new Vector3(2.6f, 1.15f, hullLength), yachtMaterial);
+                CreateVisualBox("Harbour yacht hull stripe", basePos + Vector3.up * 0.98f, rotation, new Vector3(2.65f, 0.14f, hullLength), sceneryAccentMaterial);
+                CreateVisualBox("Harbour yacht cabin", basePos + Vector3.up * 1.55f, rotation, new Vector3(1.7f, 0.95f, hullLength * 0.42f), glassMaterial);
+                CreateVisualBox("Harbour yacht mast", basePos + Vector3.up * 3.5f, rotation, new Vector3(0.1f, 3.9f, 0.1f), metalMaterial);
             }
         }
 
@@ -3225,16 +4050,20 @@ namespace LocalFormulaRacing
 
             // Tiered seating stepping up and away from the track, with colored crowd
             // blocks so the stands read as full rather than as bare metal shelves.
+            // Parkland circuits get a weathered concrete tier tone instead of bare
+            // metal for the "old-school racing venue" read the brief asks for.
+            Material tierMaterial = parklandTrack ? weatheredConcreteMaterial : metalMaterial;
             for (int row = 0; row < 6; row++)
             {
                 Vector3 rowCenter = basePosition + Vector3.up * (0.4f + row * 0.62f) + lateral * row * 1.15f;
-                CreateVisualBox("Grandstand tier", rowCenter, rotation, new Vector3(1.25f, 0.5f, 22f), metalMaterial);
+                CreateVisualBox("Grandstand tier", rowCenter, rotation, new Vector3(1.25f, 0.5f, 22f), tierMaterial);
                 CreateVisualBox("Grandstand crowd block", rowCenter + Vector3.up * 0.45f, rotation, new Vector3(0.9f, 0.42f, 21f), row % 2 == 0 ? sceneryAccentMaterial : glassMaterial);
             }
 
-            // Roof canopy on slender pylons.
+            // Roof canopy on slender pylons, in a distinct roof-toned material from the
+            // seating tiers so the stand doesn't read as one flat block.
             Vector3 roofCenter = basePosition + Vector3.up * 5.4f + lateral * 3.4f;
-            CreateVisualBox("Grandstand roof", roofCenter, rotation, new Vector3(9.6f, 0.28f, 23.5f), metalMaterial);
+            CreateVisualBox("Grandstand roof", roofCenter, rotation, new Vector3(9.6f, 0.28f, 23.5f), grandstandRoofMaterial);
             CreateVisualBox("Grandstand roof fascia", roofCenter - lateral * 4.6f - Vector3.up * 0.5f, rotation, new Vector3(0.22f, 0.9f, 23.5f), sceneryAccentMaterial);
             for (int pylon = -1; pylon <= 1; pylon++)
             {
@@ -3261,10 +4090,11 @@ namespace LocalFormulaRacing
             // feel inhabited instead of like grey crates.
             Vector3 flatPosition = new Vector3(position.x, 0f, position.z);
             Vector3 towardTrack = flatPosition.sqrMagnitude > 1f ? -flatPosition.normalized : forward;
-            // Singapore/Vegas get a share of coloured neon windows mixed in with the plain
-            // glow so the skyline reads as multi-coloured night-spectacle rather than one
-            // uniform amber wash.
-            Material windowMaterial = neonTrack && index % 3 == 1 ? neonMaterials[index % neonMaterials.Length] : (night || nightTrack ? lightGlowMaterial : glassMaterial);
+            // Singapore/Vegas get a share of coloured neon windows mixed in with the
+            // striped window material so the skyline reads as multi-coloured night-
+            // spectacle rather than one uniform wash; every other building gets the
+            // cached window-strip texture instead of one flat glass/glow colour.
+            Material windowMaterial = neonTrack && index % 3 == 1 ? neonMaterials[index % neonMaterials.Length] : windowStripMaterial;
             int bands = Mathf.Clamp(Mathf.RoundToInt(height / 2.4f), 1, 3);
             for (int band = 0; band < bands; band++)
             {
