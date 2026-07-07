@@ -48,4 +48,138 @@ namespace LocalFormulaRacing
             brakeLightMaterial.SetColor("_EmissionColor", GlowColor * Mathf.Clamp01(intensity) * 1.6f);
         }
     }
+
+    // Lightweight per-car particle effects: off-track dust, wet spray, lockup smoke,
+    // and collision sparks. Emitters share one generated soft-dot texture; the whole
+    // component is only added when the particles setting is enabled.
+    public class VehicleEffects : MonoBehaviour
+    {
+        VehicleController vehicle;
+        ParticleSystem dust;
+        ParticleSystem spray;
+        ParticleSystem lockupSmoke;
+        ParticleSystem sparks;
+
+        static Texture2D softDot;
+        static Material sharedParticleMaterial;
+
+        public void Initialize(VehicleController controller)
+        {
+            vehicle = controller;
+            dust = CreateEmitter("Dust emitter", new Vector3(0f, 0.28f, -1.9f), new Color(0.62f, 0.51f, 0.35f, 0.5f), 0.9f, 1.5f, 2.6f);
+            spray = CreateEmitter("Spray emitter", new Vector3(0f, 0.34f, -2.15f), new Color(0.7f, 0.78f, 0.84f, 0.35f), 0.65f, 1.2f, 3.4f);
+            lockupSmoke = CreateEmitter("Lockup smoke emitter", new Vector3(0f, 0.2f, 1.35f), new Color(0.86f, 0.86f, 0.86f, 0.45f), 0.75f, 1.05f, 1.9f);
+            sparks = CreateEmitter("Spark emitter", new Vector3(0f, 0.22f, 0f), new Color(1f, 0.74f, 0.28f, 0.9f), 0.4f, 0.14f, 7.5f);
+            ParticleSystem.MainModule sparkMain = sparks.main;
+            sparkMain.gravityModifier = 1.3f;
+            sparkMain.maxParticles = 80;
+        }
+
+        ParticleSystem CreateEmitter(string emitterName, Vector3 localPosition, Color color, float lifetime, float size, float speed)
+        {
+            GameObject emitter = new GameObject(emitterName);
+            emitter.transform.SetParent(transform, false);
+            emitter.transform.localPosition = localPosition;
+            emitter.transform.localRotation = Quaternion.Euler(-72f, 0f, 0f);
+            ParticleSystem system = emitter.AddComponent<ParticleSystem>();
+            ParticleSystem.MainModule main = system.main;
+            main.startLifetime = lifetime;
+            main.startSize = size;
+            main.startSpeed = speed;
+            main.startColor = color;
+            main.maxParticles = 200;
+            main.simulationSpace = ParticleSystemSimulationSpace.World;
+            ParticleSystem.EmissionModule emission = system.emission;
+            emission.rateOverTime = 0f;
+            ParticleSystem.ShapeModule shape = system.shape;
+            shape.shapeType = ParticleSystemShapeType.Cone;
+            shape.angle = 30f;
+            shape.radius = 0.28f;
+            ParticleSystemRenderer particleRenderer = emitter.GetComponent<ParticleSystemRenderer>();
+            particleRenderer.sharedMaterial = GetParticleMaterial();
+            return system;
+        }
+
+        static Material GetParticleMaterial()
+        {
+            if (sharedParticleMaterial != null)
+            {
+                return sharedParticleMaterial;
+            }
+
+            Shader shader = Shader.Find("Sprites/Default");
+            sharedParticleMaterial = new Material(shader);
+            sharedParticleMaterial.mainTexture = GetSoftDot();
+            return sharedParticleMaterial;
+        }
+
+        static Texture2D GetSoftDot()
+        {
+            if (softDot != null)
+            {
+                return softDot;
+            }
+
+            const int size = 32;
+            softDot = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = (x - (size - 1) * 0.5f) / (size * 0.5f);
+                    float dy = (y - (size - 1) * 0.5f) / (size * 0.5f);
+                    float alpha = Mathf.Clamp01(1f - Mathf.Sqrt(dx * dx + dy * dy));
+                    softDot.SetPixel(x, y, new Color(1f, 1f, 1f, alpha * alpha));
+                }
+            }
+
+            softDot.Apply();
+            return softDot;
+        }
+
+        void Update()
+        {
+            if (vehicle == null)
+            {
+                return;
+            }
+
+            float speedKph = Mathf.Abs(vehicle.CurrentSpeedKph);
+            float speed01 = Mathf.InverseLerp(40f, 240f, speedKph);
+
+            SetRate(dust, vehicle.IsOffTrackSlowdown && speedKph > 35f ? Mathf.Lerp(14f, 70f, speed01) : 0f);
+
+            bool wet = vehicle.Weather == WeatherState.LightRain || vehicle.Weather == WeatherState.HeavyRain;
+            SetRate(spray, wet && speedKph > 85f ? Mathf.Lerp(18f, 85f, speed01) : 0f);
+
+            bool locked = vehicle.Tyres != null && vehicle.Tyres.IsLocked && speedKph > 60f;
+            SetRate(lockupSmoke, locked ? 55f : 0f);
+        }
+
+        void SetRate(ParticleSystem system, float rate)
+        {
+            if (system == null)
+            {
+                return;
+            }
+
+            ParticleSystem.EmissionModule emission = system.emission;
+            emission.rateOverTime = rate;
+        }
+
+        void OnCollisionEnter(Collision collision)
+        {
+            if (sparks == null || collision.relativeVelocity.magnitude < 8.5f)
+            {
+                return;
+            }
+
+            if (collision.contactCount > 0)
+            {
+                sparks.transform.position = collision.GetContact(0).point;
+            }
+
+            sparks.Emit(Mathf.Clamp(Mathf.RoundToInt(collision.relativeVelocity.magnitude * 1.4f), 6, 24));
+        }
+    }
 }

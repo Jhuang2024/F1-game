@@ -1828,6 +1828,11 @@ namespace LocalFormulaRacing
 
             VehicleAudio audio = carObject.AddComponent<VehicleAudio>();
             audio.Initialize(Settings.Current.audioEnabled, player ? 0.55f : 0.28f);
+            if (Settings.Current.particlesEnabled)
+            {
+                VehicleEffects effects = carObject.AddComponent<VehicleEffects>();
+                effects.Initialize(controller);
+            }
             lapTracker.Initialize(Track, CurrentSession == RaceWeekendSession.Qualifying ? 2 : RaceLaps);
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
@@ -2061,6 +2066,16 @@ namespace LocalFormulaRacing
             CreateChildSphere(root.transform, "driver helmet", new Vector3(0f, 0.88f, 0.2f), new Vector3(0.32f, 0.32f, 0.32f), helmetMaterial);
             CreateChildCube(root.transform, "steering wheel", new Vector3(0f, 0.76f, 0.62f), new Vector3(0.24f, 0.18f, 0.05f), detailMaterial);
 
+            // Detail pass: mirrors, bargeboards, and livery accents that make each
+            // team car read as designed rather than assembled from crates.
+            CreateChildCube(root.transform, "left mirror", new Vector3(-0.5f, 0.72f, 0.72f), new Vector3(0.14f, 0.07f, 0.06f), secondaryMaterial);
+            CreateChildCube(root.transform, "right mirror", new Vector3(0.5f, 0.72f, 0.72f), new Vector3(0.14f, 0.07f, 0.06f), secondaryMaterial);
+            CreateChildCube(root.transform, "left bargeboard", new Vector3(-0.58f, 0.26f, 0.62f), new Vector3(0.035f, 0.24f, 0.5f), detailMaterial);
+            CreateChildCube(root.transform, "right bargeboard", new Vector3(0.58f, 0.26f, 0.62f), new Vector3(0.035f, 0.24f, 0.5f), detailMaterial);
+            CreateChildCube(root.transform, "engine cover stripe", new Vector3(0f, 0.86f, -0.66f), new Vector3(0.1f, 0.05f, 1.3f), secondaryMaterial);
+            CreateChildCube(root.transform, "nose number panel", new Vector3(0f, 0.42f, 2.1f), new Vector3(0.24f, 0.03f, 0.3f), CreateMaterial(driverName + " number panel", Color.Lerp(Color.white, secondary, 0.15f), 0.1f, 0.7f));
+            CreateChildCube(root.transform, "cockpit surround pad", new Vector3(0f, 0.72f, 0.34f), new Vector3(0.58f, 0.08f, 0.5f), inletMaterial);
+
             // Rear rain light: glows under braking, blinks while harvesting.
             Material rainLightMaterial = CreateMaterial(driverName + " rain light", new Color(0.28f, 0.02f, 0.02f), 0.1f, 0.6f);
             CreateChildCube(root.transform, "rear rain light", new Vector3(0f, 0.42f, -2.12f), new Vector3(0.1f, 0.22f, 0.05f), rainLightMaterial);
@@ -2173,6 +2188,21 @@ namespace LocalFormulaRacing
             if (rimCollider != null)
             {
                 Destroy(rimCollider);
+            }
+
+            // Aero wheel cover on the outboard face.
+            float outboard = localPosition.x < 0f ? -0.27f : 0.27f;
+            GameObject cover = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            cover.name = "wheel cover";
+            cover.transform.SetParent(parent);
+            cover.transform.localPosition = localPosition + new Vector3(outboard, 0f, 0f);
+            cover.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            cover.transform.localScale = new Vector3(0.3f, 0.012f, 0.3f);
+            cover.GetComponent<Renderer>().sharedMaterial = rimMaterial;
+            Collider coverCollider = cover.GetComponent<Collider>();
+            if (coverCollider != null)
+            {
+                Destroy(coverCollider);
             }
 
             float inboard = localPosition.x < 0f ? 0.14f : -0.14f;
@@ -2291,7 +2321,8 @@ namespace LocalFormulaRacing
         void CreateLighting()
         {
             string trackId = EventData == null || string.IsNullOrEmpty(EventData.trackId) ? "" : EventData.trackId;
-            bool night = trackId.Contains("singapore") || trackId.Contains("las_vegas");
+            bool night = trackId.Contains("singapore") || trackId.Contains("las_vegas") || trackId.Contains("qatar");
+            bool twilight = trackId.Contains("abu_dhabi");
             bool desert = trackId.Contains("bahrain") || trackId.Contains("abu_dhabi") || trackId.Contains("qatar");
             bool coastal = trackId.Contains("jeddah") || trackId.Contains("miami") || trackId.Contains("zandvoort") || trackId.Contains("monaco") || trackId.Contains("baku");
             bool mountain = trackId.Contains("austria") || trackId.Contains("spa") || trackId.Contains("austin") || trackId.Contains("mexico");
@@ -2299,16 +2330,26 @@ namespace LocalFormulaRacing
             string weatherProfile = EventData == null || string.IsNullOrEmpty(EventData.weatherProfile) ? "" : EventData.weatherProfile.ToLowerInvariant();
             bool rainThreat = weatherProfile.Contains("wet") || weatherProfile.Contains("mixed");
 
-            int quality = Settings == null ? 2 : Mathf.Clamp(Settings.Current.graphicsQuality, 0, 2);
-            QualitySettings.antiAliasing = quality == 0 ? 0 : (quality == 1 ? 4 : 8);
+            int quality = Settings == null ? 2 : Mathf.Clamp(Settings.Current.graphicsQuality, 0, 3);
+            QualitySettings.antiAliasing = quality == 0 ? 0 : (quality == 1 ? 2 : (quality == 2 ? 4 : 8));
             QualitySettings.shadows = quality == 0 ? ShadowQuality.HardOnly : ShadowQuality.All;
-            QualitySettings.shadowDistance = quality == 0 ? 180f : (quality == 1 ? 300f : 450f);
-            QualitySettings.shadowResolution = quality == 0 ? ShadowResolution.Medium : (quality == 1 ? ShadowResolution.High : ShadowResolution.VeryHigh);
+            QualitySettings.shadowDistance = 140f + quality * 120f;
+            QualitySettings.shadowResolution = quality <= 1 ? ShadowResolution.Medium : (quality == 2 ? ShadowResolution.High : ShadowResolution.VeryHigh);
 
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = night ? new Color(0.08f, 0.12f, 0.22f) : (rainThreat ? new Color(0.28f, 0.36f, 0.42f) : new Color(0.42f, 0.58f, 0.74f));
-            RenderSettings.ambientEquatorColor = night ? new Color(0.05f, 0.08f, 0.14f) : (rainThreat ? new Color(0.28f, 0.32f, 0.34f) : new Color(0.45f, 0.42f, 0.38f));
-            RenderSettings.ambientGroundColor = night ? new Color(0.01f, 0.01f, 0.02f) : (rainThreat ? new Color(0.08f, 0.09f, 0.1f) : (park ? new Color(0.12f, 0.18f, 0.12f) : new Color(0.18f, 0.16f, 0.14f)));
+            if (twilight)
+            {
+                RenderSettings.ambientSkyColor = new Color(0.3f, 0.2f, 0.34f);
+                RenderSettings.ambientEquatorColor = new Color(0.42f, 0.24f, 0.2f);
+                RenderSettings.ambientGroundColor = new Color(0.1f, 0.07f, 0.09f);
+            }
+            else
+            {
+                RenderSettings.ambientSkyColor = night ? new Color(0.08f, 0.12f, 0.22f) : (rainThreat ? new Color(0.28f, 0.36f, 0.42f) : new Color(0.42f, 0.58f, 0.74f));
+                RenderSettings.ambientEquatorColor = night ? new Color(0.05f, 0.08f, 0.14f) : (rainThreat ? new Color(0.28f, 0.32f, 0.34f) : new Color(0.45f, 0.42f, 0.38f));
+                RenderSettings.ambientGroundColor = night ? new Color(0.01f, 0.01f, 0.02f) : (rainThreat ? new Color(0.08f, 0.09f, 0.1f) : (park ? new Color(0.12f, 0.18f, 0.12f) : new Color(0.18f, 0.16f, 0.14f)));
+            }
+
             RenderSettings.reflectionIntensity = rainThreat ? 0.78f : 0.46f;
 
             RenderSettings.fog = true;
@@ -2318,20 +2359,26 @@ namespace LocalFormulaRacing
                 : (coastal ? new Color(0.5f, 0.62f, 0.68f)
                 : (mountain ? new Color(0.4f, 0.5f, 0.46f)
                 : new Color(0.44f, 0.54f, 0.52f)));
+            if (twilight)
+            {
+                dryFog = new Color(0.48f, 0.3f, 0.3f);
+            }
+
             RenderSettings.fogColor = night ? new Color(0.015f, 0.02f, 0.035f) : (rainThreat ? new Color(0.28f, 0.34f, 0.36f) : dryFog);
             RenderSettings.skybox = null;
 
             GameObject lightObject = new GameObject("Primary Sun");
             lightObject.transform.SetParent(raceWorld.transform);
-            lightObject.transform.rotation = Quaternion.Euler(night ? -15f : (desert ? 32f : (mountain ? 38f : 48f)), desert ? -42f : (coastal ? -30f : -56f), 0f);
+            lightObject.transform.rotation = Quaternion.Euler(night ? -15f : (twilight ? 12f : (desert ? 32f : (mountain ? 38f : 48f))), desert ? -42f : (coastal ? -30f : -56f), 0f);
             Light light = lightObject.AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = night ? 0.08f : (rainThreat ? 0.92f : (desert ? 1.55f : (coastal ? 1.4f : 1.25f)));
+            light.intensity = night ? 0.08f : (twilight ? 0.85f : (rainThreat ? 0.92f : (desert ? 1.55f : (coastal ? 1.4f : 1.25f))));
             light.color = night ? new Color(0.6f, 0.7f, 1f)
+                : (twilight ? new Color(1f, 0.62f, 0.4f)
                 : (rainThreat ? new Color(0.76f, 0.86f, 0.92f)
                 : (desert ? new Color(1f, 0.85f, 0.65f)
                 : (coastal ? new Color(1f, 0.94f, 0.85f)
-                : new Color(0.98f, 0.96f, 0.94f))));
+                : new Color(0.98f, 0.96f, 0.94f)))));
             light.shadows = LightShadows.Soft;
             light.shadowStrength = rainThreat ? 0.68f : 0.92f;
             light.shadowBias = 0.035f;
