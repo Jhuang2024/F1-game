@@ -838,6 +838,36 @@ namespace LocalFormulaRacing
             return layout;
         }
 
+        // Vertical list of full-width setting rows. AddVerticalLayout defaults to
+        // childControlWidth/childForceExpandWidth = false so its many other callers
+        // (tyre grids, mode-card menus, table lists) keep their own hand-picked row
+        // widths - flipping those defaults globally would break every one of them.
+        // Setting rows need the opposite: CreateSettingRow no longer hardcodes a
+        // pixel width, so whatever list holds them must actually stretch each row to
+        // fill the available width instead of leaving it at zero. Use this instead of
+        // AddVerticalLayout for any list built specifically to hold CreateSettingRow
+        // children.
+        public static VerticalLayoutGroup AddSettingsListLayout(RectTransform rect, int spacing, RectOffset padding)
+        {
+            VerticalLayoutGroup layout = AddVerticalLayout(rect, spacing, padding);
+            StretchListChildrenWidth(rect);
+            return layout;
+        }
+
+        // Switches an already-built VerticalLayoutGroup (from AddVerticalLayout, or
+        // the one CreateScrollPanel attaches to its content rect internally) so its
+        // children stretch to the full available width. Lets a CreateScrollPanel
+        // result be turned into a settings list without duplicating its layout setup.
+        public static void StretchListChildrenWidth(RectTransform listWithLayout)
+        {
+            VerticalLayoutGroup layout = listWithLayout.GetComponent<VerticalLayoutGroup>();
+            if (layout != null)
+            {
+                layout.childControlWidth = true;
+                layout.childForceExpandWidth = true;
+            }
+        }
+
         // Fixed-width column: give it a firm preferred width so it never collapses.
         public static LayoutElement SetFixedColumnWidth(Component component, float width)
         {
@@ -1469,21 +1499,44 @@ namespace LocalFormulaRacing
 
         public static RectTransform CreateSettingRow(Transform parent, string label, string description, out RectTransform controlSlot)
         {
-            RectTransform row = CreateRect(parent, label + " setting row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            row.sizeDelta = new Vector2(760f, string.IsNullOrEmpty(description) ? 46f : 60f);
+            bool hasDescription = !string.IsNullOrEmpty(description);
+            // Fixed height only - width used to be hardcoded to 760px regardless of
+            // the parent's actual size, which guaranteed overflow in any card
+            // narrower than that (e.g. the Gameplay tab's Race Control card, ~530px
+            // interior). The row now anchor-stretches across whatever it's placed in
+            // (anchorMin/anchorMax span 0..1 on X) and a LayoutElement pins only the
+            // height, so the list layout that owns this row - see
+            // AddSettingsListLayout / StretchListChildrenWidth - controls the width.
+            // Description rows are taller than before (84 vs the old 60) because a
+            // description can run to two wrapped lines once a row is genuinely
+            // narrow instead of floating at a fixed 760px; every settings list is
+            // scroll-wrapped now so the extra height never costs clipped content.
+            float height = hasDescription ? 84f : 46f;
+            RectTransform row = CreateRect(parent, label + " setting row", new Vector2(0f, 1f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
+            row.pivot = new Vector2(0.5f, 1f);
+            row.sizeDelta = new Vector2(0f, height);
+            LayoutElement layoutElement = row.gameObject.AddComponent<LayoutElement>();
+            layoutElement.minHeight = height;
+            layoutElement.preferredHeight = height;
             Image background = row.gameObject.AddComponent<Image>();
             StyleRounded(background, new Color(1f, 1f, 1f, 0.02f));
 
             Text labelText = CreateText(row, "Row label", label, 18, TextPrimary, TextAnchor.UpperLeft);
             RectTransform labelRect = labelText.GetComponent<RectTransform>();
-            labelRect.anchorMin = new Vector2(0f, string.IsNullOrEmpty(description) ? 0f : 0.5f);
+            labelRect.anchorMin = new Vector2(0f, hasDescription ? 0.5f : 0f);
             labelRect.anchorMax = new Vector2(0.58f, 1f);
             labelRect.offsetMin = new Vector2(16f, 0f);
             labelRect.offsetMax = new Vector2(-8f, -6f);
 
-            if (!string.IsNullOrEmpty(description))
+            if (hasDescription)
             {
                 Text descriptionText = CreateText(row, "Row description", description, 13, TextMuted, TextAnchor.LowerLeft);
+                // Overflow rather than Truncate: on a narrow card a long description
+                // can still run past two lines, and silently swallowing the tail of
+                // the sentence is worse than it occasionally drawing a hair below its
+                // box (rows are spaced with enough gap - see AddSettingsListLayout
+                // callers - that this doesn't overlap the next row in practice).
+                descriptionText.verticalOverflow = VerticalWrapMode.Overflow;
                 RectTransform descriptionRect = descriptionText.GetComponent<RectTransform>();
                 descriptionRect.anchorMin = Vector2.zero;
                 descriptionRect.anchorMax = new Vector2(0.58f, 0.5f);
