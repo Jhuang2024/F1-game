@@ -536,6 +536,7 @@ namespace LocalFormulaRacing
             BuildEnvironmentIdentity();
             BuildTrackInfrastructure();
             BuildCameraTowers();
+            BuildCircuitLightMasts();
             if (wetTrack)
             {
                 BuildWetSheenOverlay();
@@ -3347,6 +3348,82 @@ namespace LocalFormulaRacing
             CreateVisualBox("Tower lattice brace", a + delta * 0.5f, Quaternion.LookRotation(delta.normalized, Vector3.up), new Vector3(thickness, thickness, length), material);
         }
 
+        // Tall circuit lighting masts for night/twilight races - a handful of ~20m
+        // poles with a canted bank of emissive lamp heads, an order of scale above
+        // the small CreateFloodlight poles BuildScenery scatters, so a night race
+        // reads as lit by real circuit infrastructure rather than street lamps.
+        void BuildCircuitLightMasts()
+        {
+            if (!nightTrack && !twilightTrack)
+            {
+                return;
+            }
+
+            int masts = Mathf.Clamp(Mathf.RoundToInt(Runtime.length / 550f), 6, 12);
+            for (int i = 0; i < masts; i++)
+            {
+                float normalized = (i + 0.5f) / masts;
+
+                // The pit corridor keeps its own lighting from the pit complex.
+                if (normalized > TrackRuntime.PitCorridorStartNormalized || normalized < 0.04f)
+                {
+                    continue;
+                }
+
+                CreateLightMast(Runtime.length * normalized, i);
+            }
+        }
+
+        void CreateLightMast(float distance, int index)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            float side = index % 2 == 0 ? 1f : -1f;
+            Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 17f);
+            Vector3 basePosition;
+            if (!TryGetClearScenerySpot(new Vector3(desired.x, groundTopY, desired.z), 2.5f, 3f, out basePosition))
+            {
+                return;
+            }
+
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            float mastHeight = 19f + (index % 3) * 2.5f;
+            Vector3 mastBase = new Vector3(basePosition.x, groundTopY, basePosition.z);
+            CreateVisualBox("Light mast pole", mastBase + Vector3.up * mastHeight * 0.5f, rotation, new Vector3(0.55f, mastHeight, 0.55f), metalMaterial);
+            CreateVisualBox("Light mast collar", mastBase + Vector3.up * mastHeight * 0.62f, rotation, new Vector3(0.9f, 0.35f, 0.9f), fencePostMaterial);
+
+            // Head bank leans back toward and slightly down at the road so the
+            // fixture reads as aimed at the track, not glowing straight outward.
+            Vector3 headCenter = mastBase + Vector3.up * mastHeight - right * side * 1.1f;
+            Quaternion headRotation = Quaternion.LookRotation((-right * side + Vector3.down * 0.55f).normalized, Vector3.up);
+            CreateVisualBox("Light mast head frame", headCenter, headRotation, new Vector3(4.6f, 2.2f, 0.35f), metalMaterial);
+            for (int row = 0; row < 2; row++)
+            {
+                for (int lamp = -2; lamp <= 2; lamp++)
+                {
+                    // Lamps sit proud of the frame face on its track-facing side.
+                    Vector3 lampLocal = new Vector3(lamp * 0.85f, 0.55f - row * 1.1f, 0.27f);
+                    CreateVisualBox("Light mast lamp", headCenter + headRotation * lampLocal, headRotation, new Vector3(0.62f, 0.62f, 0.18f), lightGlowMaterial);
+                }
+            }
+
+            // A real point light only on every other mast keeps the runtime light
+            // count in check while the emissive heads carry the look everywhere.
+            if (index % 2 == 0)
+            {
+                GameObject lightAnchor = new GameObject("Light mast point light");
+                lightAnchor.transform.SetParent(transform);
+                lightAnchor.transform.position = headCenter;
+                Light light = lightAnchor.AddComponent<Light>();
+                light.type = LightType.Point;
+                light.range = 85f;
+                light.intensity = 1.3f;
+                light.color = new Color(1f, 0.93f, 0.78f);
+            }
+        }
+
         void BuildScenery()
         {
             bool street = streetTrack;
@@ -4418,6 +4495,21 @@ namespace LocalFormulaRacing
             BuildBillboardGantries(density);
             BuildParkingBlocks(density);
             BuildServiceRoadStrips(density);
+
+            // Long circuits get 1-2 spanning spectator bridges of their own; the
+            // city-street backdrop already builds its bridges (and Suzuka its
+            // signature crossover in BuildCircuitLandmarks), so only the remaining
+            // archetypes need them here. CreateSponsorBridge keeps a 9.5m deck
+            // clearance, comfortably above the 7m minimum for the racing surface.
+            bool cityStreet = streetTrack && !monacoTrack && !neonTrack;
+            if (!cityStreet && Runtime.length > 5000f)
+            {
+                CreateSponsorBridge(Runtime.length * 0.3f);
+                if (Runtime.length > 6200f && density > 0.55f)
+                {
+                    CreateSponsorBridge(Runtime.length * 0.62f);
+                }
+            }
         }
 
         // Race-control-style tower near the pit lane/start-finish: tall shaft with a
@@ -5412,11 +5504,21 @@ namespace LocalFormulaRacing
         static readonly Color CyanBright = new Color(0.1f, 0.95f, 1.1f);
         static readonly Color RedDim = new Color(0.18f, 0.02f, 0.01f);
         static readonly Color RedBright = new Color(1.3f, 0.08f, 0.04f);
-        static readonly Color VscDim = new Color(0.03f, 0.12f, 0.13f);
-        static readonly Color VscBright = new Color(0.15f, 0.85f, 0.95f);
-        static readonly Color ScDim = new Color(0.15f, 0.02f, 0.01f);
-        static readonly Color ScBright = new Color(1.4f, 0.1f, 0.05f);
+        // Dims sit near-black and brights push past 1 so the caution pulses read
+        // at full daylight exposure, not just against a night sky.
+        static readonly Color VscDim = new Color(0.02f, 0.08f, 0.09f);
+        static readonly Color VscBright = new Color(0.2f, 1.05f, 1.2f);
+        static readonly Color ScDim = new Color(0.1f, 0.015f, 0.01f);
+        static readonly Color ScBright = new Color(1.6f, 0.12f, 0.06f);
         static readonly Color StrobeWhite = new Color(1.6f, 1.55f, 1.4f);
+
+        // Resting emission of the "off" board face, matching what CreateMaterials
+        // bakes into raceControlBoardMaterial, so the restart strobe below can
+        // hand the material back exactly as it found it.
+        static readonly Color BoardOffEmission = new Color(0.35f, 0.05f, 0.03f);
+        static readonly Color VscTextColor = new Color(0.55f, 0.95f, 1f, 0.95f);
+        static readonly Color ScTextColor = new Color(1f, 0.5f, 0.35f, 0.95f);
+        static readonly Color IdleTextColor = new Color(0.95f, 0.75f, 0.15f, 0.95f);
 
         public void Configure(List<Renderer> marshalFlagBoardRenderers, Renderer raceControlBoardRenderer, TextMesh raceControlBoardText,
             Material flagGreen, Material flagYellow, Material boardOff, Material boardVsc, Material boardSc, Material gantryLight)
@@ -5463,6 +5565,13 @@ namespace LocalFormulaRacing
                 }
             }
 
+            // The pulses in Update mutate shared emissive materials, so every board
+            // material is put back to its resting emission on each state change -
+            // otherwise a state that ends mid-pulse leaves its board stuck bright.
+            SetEmission(boardOffMaterial, BoardOffEmission);
+            SetEmission(boardVscMaterial, VscDim);
+            SetEmission(boardScMaterial, ScDim);
+
             if (boardRenderer != null)
             {
                 Material boardMaterial = boardOffMaterial;
@@ -5470,7 +5579,7 @@ namespace LocalFormulaRacing
                 {
                     boardMaterial = boardVscMaterial;
                 }
-                else if (currentState >= 3)
+                else if (currentState >= 3 && currentState <= 5)
                 {
                     boardMaterial = boardScMaterial;
                 }
@@ -5479,7 +5588,10 @@ namespace LocalFormulaRacing
 
             if (boardText != null)
             {
-                boardText.text = currentState == 2 ? "VSC" : (currentState >= 3 ? "SC" : "");
+                // Restart (6) withdraws the SC board like real race control does -
+                // the white strobe in Update carries the restart message instead.
+                boardText.text = currentState == 2 ? "VSC" : (currentState >= 3 && currentState <= 5 ? "SC" : "");
+                boardText.color = currentState == 2 ? VscTextColor : (currentState >= 3 && currentState <= 5 ? ScTextColor : IdleTextColor);
             }
         }
 
@@ -5504,8 +5616,12 @@ namespace LocalFormulaRacing
                     ApplyPulse(gantryLightMaterial, cyanPhase ? CyanDim : AmberDim, cyanPhase ? CyanBright : AmberBright, 2.8f);
                     ApplyPulse(boardVscMaterial, VscDim, VscBright, 1.6f);
                     break;
-                case 3: // SafetyCarDeploying
-                case 4: // SafetyCarActive
+                case 3: // SafetyCarDeploying: amber/red alternation - boards are out but the SC isn't leading yet
+                    bool redPhase = Mathf.PingPong(Time.time * 0.7f, 1f) < 0.5f;
+                    ApplyPulse(gantryLightMaterial, redPhase ? RedDim : AmberDim, redPhase ? RedBright : AmberBright, 3.4f);
+                    ApplyPulse(boardScMaterial, ScDim, ScBright, 2.2f);
+                    break;
+                case 4: // SafetyCarActive: steady heavy red pulse
                     ApplyPulse(gantryLightMaterial, RedDim, RedBright, 4.5f);
                     ApplyPulse(boardScMaterial, ScDim, ScBright, 2.2f);
                     break;
@@ -5513,10 +5629,12 @@ namespace LocalFormulaRacing
                     ApplyPulse(gantryLightMaterial, RedDim, RedBright, 7f);
                     ApplyPulse(boardScMaterial, ScDim, ScBright, 3.4f);
                     break;
-                case 6: // Restart: hard bright strobe distinct from the steady SC pulse
+                case 6: // Restart: hard bright strobe distinct from the steady SC pulse; the
+                        // board face itself (back on the "off" material per ApplyDiscreteState)
+                        // strobes with the gantry rather than still flashing SC red.
                     float strobe = Mathf.PingPong(Time.time * 14f, 1f) > 0.5f ? 1f : 0f;
                     SetEmission(gantryLightMaterial, Color.Lerp(Color.black, StrobeWhite, strobe));
-                    SetEmission(boardScMaterial, Color.Lerp(ScDim, StrobeWhite, strobe));
+                    SetEmission(boardOffMaterial, Color.Lerp(BoardOffEmission, StrobeWhite, strobe));
                     break;
                 default: // Green (0) and any unrecognized state: steady/off
                     SetEmission(gantryLightMaterial, GantryOffColor);

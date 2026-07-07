@@ -36,6 +36,7 @@ namespace LocalFormulaRacing
         float smoothedSteer;
         float smoothedYawRate;
         float modeBlend = 1f;
+        float smoothedDrsBoost;
 
         // Chase, cockpit/halo, high TV, rear chase, low nose cam.
         readonly Vector3[] offsets =
@@ -228,8 +229,22 @@ namespace LocalFormulaRacing
             transform.position = Vector3.Lerp(transform.position, desired, 1f - Mathf.Exp(-followRate * dt));
             transform.rotation = Quaternion.Slerp(transform.rotation, desiredRotation, 1f - Mathf.Exp(-rotRate * dt));
 
+            // DRS opening stretches the lens a touch beyond the pure speed curve -
+            // the flap and the extra top-end arrive together, so the widening sells
+            // the surge - while a fresh impact briefly tightens it (impulseShake is
+            // already fed and decayed by the shake pass above), a quick punch-in
+            // that reads as the hit even with the offset shake kept subtle. The TV
+            // crane (mode 2) stays at its fixed broadcast focal length.
+            float drsTarget = targetVehicle != null && targetVehicle.DrsActive ? 1f : 0f;
+            smoothedDrsBoost = Mathf.MoveTowards(smoothedDrsBoost, drsTarget, dt * 1.6f);
+            float fovTarget = ModeFov(speed01);
+            if (mode != 2)
+            {
+                fovTarget += smoothedDrsBoost * 2.6f - impulseShake * 22f;
+            }
+
             float fovBlendRate = Mathf.Lerp(1.4f, 3f, blendEase);
-            float desiredFov = Mathf.Lerp(followCamera.fieldOfView, ModeFov(speed01), dt * fovBlendRate);
+            float desiredFov = Mathf.Lerp(followCamera.fieldOfView, fovTarget, dt * fovBlendRate);
             followCamera.fieldOfView = Mathf.Clamp(desiredFov, 40f, 100f);
             followCamera.transform.localPosition = Vector3.zero;
             followCamera.transform.localRotation = Quaternion.identity;

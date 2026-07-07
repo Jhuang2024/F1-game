@@ -510,6 +510,8 @@ namespace LocalFormulaRacing
         ParticleSystem lockupSmoke;
         ParticleSystem sparks;
         ParticleSystem heatHaze;
+        ParticleSystem damageSmoke;
+        float previousDamagePercent = -1f;
 
         static Texture2D softDot;
         static Material sharedParticleMaterial;
@@ -533,6 +535,14 @@ namespace LocalFormulaRacing
             heatMain.gravityModifier = -0.2f;
             heatMain.maxParticles = 40;
             heatHaze.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
+
+            // Dark engine-damage smoke off the cover, distinct from the pale tyre
+            // smoke: slower, longer-lived and rising, so a wounded car trails a
+            // visible plume rather than only slowing down mysteriously.
+            damageSmoke = CreateEmitter("Damage smoke emitter", new Vector3(0f, 0.7f, -1.35f), new Color(0.28f, 0.27f, 0.26f, 0.5f), 1.4f, 1.1f, 2.2f);
+            ParticleSystem.MainModule damageMain = damageSmoke.main;
+            damageMain.gravityModifier = -0.12f;
+            damageMain.maxParticles = 160;
         }
 
         ParticleSystem CreateEmitter(string emitterName, Vector3 localPosition, Color color, float lifetime, float size, float speed)
@@ -636,6 +646,39 @@ namespace LocalFormulaRacing
             float engineLoad = vehicle.EffectiveThrottle;
             bool underLoad = engineLoad > 0.7f && speedKph > 25f;
             SetRate(heatHaze, underLoad ? Mathf.Lerp(3f, 12f, Mathf.InverseLerp(0.7f, 1f, engineLoad)) : 0f);
+
+            UpdateDamageEffects();
+        }
+
+        // Accumulated damage above ~60% trails a progressively thicker, darker
+        // plume, and a sudden jump in the damage total (a fresh hit, as opposed
+        // to gradual scraping) fires the existing spark emitter so the moment of
+        // impact registers even below the OnCollisionEnter speed threshold.
+        void UpdateDamageEffects()
+        {
+            float damagePercent = vehicle.Damage != null ? vehicle.Damage.OverallPercent : 0f;
+            if (previousDamagePercent >= 0f && sparks != null && damagePercent > previousDamagePercent + 4f)
+            {
+                sparks.Emit(Mathf.Clamp(Mathf.RoundToInt((damagePercent - previousDamagePercent) * 2.2f), 8, 30));
+            }
+
+            previousDamagePercent = damagePercent;
+
+            if (damageSmoke == null)
+            {
+                return;
+            }
+
+            float damage01 = Mathf.InverseLerp(60f, 100f, damagePercent);
+            if (damage01 > 0f)
+            {
+                ParticleSystem.MainModule damageMain = damageSmoke.main;
+                damageMain.startColor = Color.Lerp(new Color(0.45f, 0.44f, 0.42f, 0.35f), new Color(0.12f, 0.11f, 0.1f, 0.6f), damage01);
+                damageMain.startSize = Mathf.Lerp(0.8f, 1.6f, damage01);
+                damageMain.startLifetime = Mathf.Lerp(1.1f, 2f, damage01);
+            }
+
+            SetRate(damageSmoke, damage01 > 0f ? Mathf.Lerp(6f, 55f, damage01) : 0f);
         }
 
         void SetRate(ParticleSystem system, float rate)
