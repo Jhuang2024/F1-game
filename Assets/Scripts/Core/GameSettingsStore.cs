@@ -31,7 +31,23 @@ namespace LocalFormulaRacing
             Current.cameraFov = ClampSetting(Current.cameraFov, 60f, 48f, 78f);
             Current.cameraShakeStrength = Mathf.Clamp(Current.cameraShakeStrength, 0f, 1.5f);
             Current.sceneryDensity = ClampSetting(Current.sceneryDensity, 1f, 0.25f, 2f);
-            Current.graphicsQuality = Mathf.Clamp(Current.graphicsQuality, 0, 2);
+            Current.graphicsQuality = Mathf.Clamp(Current.graphicsQuality, 0, 3);
+
+            Current.setupFrontWing = ClampSetupStep(Current.setupFrontWing);
+            Current.setupRearWing = ClampSetupStep(Current.setupRearWing);
+            Current.setupBrakeBias = ClampSetupStep(Current.setupBrakeBias);
+            Current.setupSuspension = ClampSetupStep(Current.setupSuspension);
+            Current.setupRideHeight = ClampSetupStep(Current.setupRideHeight);
+            Current.plannedPitLap = Mathf.Clamp(Current.plannedPitLap, 0, 99);
+            if (string.IsNullOrEmpty(Current.plannedSecondCompound))
+            {
+                Current.plannedSecondCompound = "Medium";
+            }
+        }
+
+        int ClampSetupStep(int value)
+        {
+            return value <= 0 ? 3 : Mathf.Clamp(value, 1, 5);
         }
 
         public void Save()
