@@ -385,6 +385,7 @@ namespace LocalFormulaRacing
         Material glassMaterial;
         Material lightGlowMaterial;
         Material sceneryAccentMaterial;
+        Material trafficConeMaterial;
         PhysicMaterial roadPhysicsMaterial;
         PhysicMaterial runoffPhysicsMaterial;
         Mesh visualBoxMesh;
@@ -478,8 +479,8 @@ namespace LocalFormulaRacing
             {
                 trackId = eventData != null ? eventData.trackId : "bahrain_desert",
                 displayName = eventData != null ? eventData.displayName : "Bahrain-style Desert GP",
-                roadHalfWidth = 19.5f,
-                kerbStart = 11.5f,
+                roadHalfWidth = 13.4f,
+                kerbStart = 7.9f,
                 weather = DetermineWeather(eventData == null ? "clear_hot" : eventData.weatherProfile)
             };
 
@@ -660,35 +661,35 @@ namespace LocalFormulaRacing
             string id = runtime.trackId ?? "";
             string style = runtime.styleName ?? "";
 
-            // High-speed / long circuits. Lengths bumped ~50% over the original
-            // normalization targets so laps take longer and the widened road (see the
-            // per-track roadHalfWidth values below) has room to breathe.
+            // High-speed / long circuits. Recalibrated back down from an earlier +50%
+            // pass that made laps take too long - lands in the 4.8-5.6km band for a
+            // ~1:15-1:30 lap instead of several minutes.
             if (id.Contains("spa"))
             {
-                return 8400f;
+                return 5600f;
             }
 
             if (id.Contains("monza") || id.Contains("silverstone") || id.Contains("jeddah") ||
                 id.Contains("las_vegas") || id.Contains("baku") || id.Contains("qatar") || id.Contains("suzuka"))
             {
-                return 7700f;
+                return 5300f;
             }
 
             // Tight / street layouts stay shorter but never kart-track short.
             if (id.Contains("monaco"))
             {
-                return 5850f;
+                return 3900f;
             }
 
             if (id.Contains("singapore") || id.Contains("hungary") || id.Contains("zandvoort") ||
                 id.Contains("interlagos") || id.Contains("madrid") || id.Contains("monaco") ||
                 style.ToLowerInvariant().Contains("street"))
             {
-                return 6450f;
+                return 4200f;
             }
 
             // Standard circuits.
-            return 7000f;
+            return 4650f;
         }
 
         // Auto-repair pass: merge tiny segments, split very long segments, and smooth
@@ -774,8 +775,8 @@ namespace LocalFormulaRacing
         void BuildBahrainLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Desert power braking";
-            runtime.roadHalfWidth = 20.1f;
-            runtime.kerbStart = 11.8f;
+            runtime.roadHalfWidth = 13.4f;
+            runtime.kerbStart = 7.9f;
             runtime.drsZoneOne = new Vector2(0.91f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.57f);
             AddSmoothedAnchors(runtime, new[]
@@ -792,8 +793,8 @@ namespace LocalFormulaRacing
         void BuildJeddahLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Fast coastal street";
-            runtime.roadHalfWidth = 19.2f;
-            runtime.kerbStart = 11.3f;
+            runtime.roadHalfWidth = 12.8f;
+            runtime.kerbStart = 7.5f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.56f, 0.73f);
             AddSmoothedAnchors(runtime, new[]
@@ -809,8 +810,8 @@ namespace LocalFormulaRacing
         void BuildMonacoLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Tight harbour street";
-            runtime.roadHalfWidth = 17.4f;
-            runtime.kerbStart = 10.2f;
+            runtime.roadHalfWidth = 10.8f;
+            runtime.kerbStart = 6.3f;
             runtime.drsZoneOne = new Vector2(0.87f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.46f, 0.58f);
             AddSmoothedAnchors(runtime, new[]
@@ -830,8 +831,8 @@ namespace LocalFormulaRacing
             // figure-eight anchors spanned ~3km, self-intersected at ground level, and broke
             // progress tracking, AI navigation, and object budgets.
             runtime.styleName = "Technical esses Park";
-            runtime.roadHalfWidth = 20.1f;
-            runtime.kerbStart = 11.8f;
+            runtime.roadHalfWidth = 13.2f;
+            runtime.kerbStart = 7.7f;
             runtime.drsZoneOne = new Vector2(0.9f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.5f, 0.63f);
             AddSmoothedAnchors(runtime, new[]
@@ -854,8 +855,8 @@ namespace LocalFormulaRacing
         void BuildSilverstoneLayout(TrackRuntime runtime)
         {
             runtime.styleName = "High-speed airfield";
-            runtime.roadHalfWidth = 22.2f;
-            runtime.kerbStart = 13.0f;
+            runtime.roadHalfWidth = 15.4f;
+            runtime.kerbStart = 9.0f;
             runtime.drsZoneOne = new Vector2(0.89f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.64f);
             AddSmoothedAnchors(runtime, new[]
@@ -872,8 +873,8 @@ namespace LocalFormulaRacing
         void BuildMonzaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Low-downforce park";
-            runtime.roadHalfWidth = 22.4f;
-            runtime.kerbStart = 13.1f;
+            runtime.roadHalfWidth = 15.5f;
+            runtime.kerbStart = 9.1f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.44f, 0.62f);
             AddSmoothedAnchors(runtime, new[]
@@ -890,8 +891,8 @@ namespace LocalFormulaRacing
         void BuildSpaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Long Ardennes elevation";
-            runtime.roadHalfWidth = 21.3f;
-            runtime.kerbStart = 12.5f;
+            runtime.roadHalfWidth = 14.8f;
+            runtime.kerbStart = 8.7f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.18f, 0.36f);
             AddSmoothedAnchors(runtime, new[]
@@ -908,8 +909,8 @@ namespace LocalFormulaRacing
         void BuildSingaporeLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Night street ninety";
-            runtime.roadHalfWidth = 18.3f;
-            runtime.kerbStart = 10.7f;
+            runtime.roadHalfWidth = 11.2f;
+            runtime.kerbStart = 6.6f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.55f, 0.69f);
             AddSmoothedAnchors(runtime, new[]
@@ -925,8 +926,8 @@ namespace LocalFormulaRacing
         void BuildMelbourneLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Park circuit";
-            runtime.roadHalfWidth = 21.6f;
-            runtime.kerbStart = 12.7f;
+            runtime.roadHalfWidth = 15.0f;
+            runtime.kerbStart = 8.8f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.52f, 0.69f);
             AddSmoothedAnchors(runtime, new[]
@@ -942,8 +943,8 @@ namespace LocalFormulaRacing
         void BuildInterlagosLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Short flowing hillside";
-            runtime.roadHalfWidth = 19.5f;
-            runtime.kerbStart = 11.4f;
+            runtime.roadHalfWidth = 13.0f;
+            runtime.kerbStart = 7.6f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.62f, 0.79f);
             AddSmoothedAnchors(runtime, new[]
@@ -959,8 +960,8 @@ namespace LocalFormulaRacing
         void BuildAbuDhabiLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Twilight finale";
-            runtime.roadHalfWidth = 20.7f;
-            runtime.kerbStart = 12.1f;
+            runtime.roadHalfWidth = 14.2f;
+            runtime.kerbStart = 8.3f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.34f, 0.53f);
             AddSmoothedAnchors(runtime, new[]
@@ -976,8 +977,8 @@ namespace LocalFormulaRacing
         void BuildChinaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Technical snail and back straight";
-            runtime.roadHalfWidth = 21.3f;
-            runtime.kerbStart = 12.5f;
+            runtime.roadHalfWidth = 14.6f;
+            runtime.kerbStart = 8.6f;
             runtime.drsZoneOne = new Vector2(0.83f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.58f);
             AddSmoothedAnchors(runtime, new[]
@@ -994,8 +995,8 @@ namespace LocalFormulaRacing
         void BuildMiamiLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Stadium street rhythm";
-            runtime.roadHalfWidth = 20.1f;
-            runtime.kerbStart = 11.8f;
+            runtime.roadHalfWidth = 12.6f;
+            runtime.kerbStart = 7.4f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.64f);
             AddSmoothedAnchors(runtime, new[]
@@ -1012,8 +1013,8 @@ namespace LocalFormulaRacing
         void BuildCanadaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Stop-go island";
-            runtime.roadHalfWidth = 19.4f;
-            runtime.kerbStart = 11.4f;
+            runtime.roadHalfWidth = 12.8f;
+            runtime.kerbStart = 7.5f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.09f);
             runtime.drsZoneTwo = new Vector2(0.56f, 0.72f);
             AddSmoothedAnchors(runtime, new[]
@@ -1030,8 +1031,8 @@ namespace LocalFormulaRacing
         void BuildBarcelonaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Flowing test track";
-            runtime.roadHalfWidth = 21.0f;
-            runtime.kerbStart = 12.3f;
+            runtime.roadHalfWidth = 14.4f;
+            runtime.kerbStart = 8.4f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.5f, 0.65f);
             AddSmoothedAnchors(runtime, new[]
@@ -1048,8 +1049,8 @@ namespace LocalFormulaRacing
         void BuildAustriaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Short alpine power";
-            runtime.roadHalfWidth = 20.7f;
-            runtime.kerbStart = 12.1f;
+            runtime.roadHalfWidth = 14.0f;
+            runtime.kerbStart = 8.2f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.18f, 0.36f);
             AddSmoothedAnchors(runtime, new[]
@@ -1065,8 +1066,8 @@ namespace LocalFormulaRacing
         void BuildHungaryLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Twisty technical bowl";
-            runtime.roadHalfWidth = 19.4f;
-            runtime.kerbStart = 11.4f;
+            runtime.roadHalfWidth = 12.6f;
+            runtime.kerbStart = 7.4f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.34f, 0.45f);
             AddSmoothedAnchors(runtime, new[]
@@ -1083,8 +1084,8 @@ namespace LocalFormulaRacing
         void BuildZandvoortLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Coastal banked flow";
-            runtime.roadHalfWidth = 18.9f;
-            runtime.kerbStart = 11.1f;
+            runtime.roadHalfWidth = 12.5f;
+            runtime.kerbStart = 7.3f;
             runtime.drsZoneOne = new Vector2(0.87f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.54f, 0.68f);
             AddSmoothedAnchors(runtime, new[]
@@ -1100,8 +1101,8 @@ namespace LocalFormulaRacing
         void BuildMadridLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Hybrid street exhibition";
-            runtime.roadHalfWidth = 19.4f;
-            runtime.kerbStart = 11.4f;
+            runtime.roadHalfWidth = 12.0f;
+            runtime.kerbStart = 7.0f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.46f, 0.62f);
             AddSmoothedAnchors(runtime, new[]
@@ -1118,8 +1119,8 @@ namespace LocalFormulaRacing
         void BuildBakuLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Castle straight street";
-            runtime.roadHalfWidth = 19.7f;
-            runtime.kerbStart = 11.5f;
+            runtime.roadHalfWidth = 12.4f;
+            runtime.kerbStart = 7.3f;
             runtime.drsZoneOne = new Vector2(0.78f, 0.1f);
             runtime.drsZoneTwo = new Vector2(0.52f, 0.67f);
             AddSmoothedAnchors(runtime, new[]
@@ -1136,8 +1137,8 @@ namespace LocalFormulaRacing
         void BuildAustinLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Rollercoaster esses";
-            runtime.roadHalfWidth = 21.3f;
-            runtime.kerbStart = 12.5f;
+            runtime.roadHalfWidth = 14.6f;
+            runtime.kerbStart = 8.6f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.38f, 0.56f);
             AddSmoothedAnchors(runtime, new[]
@@ -1154,8 +1155,8 @@ namespace LocalFormulaRacing
         void BuildMexicoLayout(TrackRuntime runtime)
         {
             runtime.styleName = "High-altitude stadium";
-            runtime.roadHalfWidth = 21.0f;
-            runtime.kerbStart = 12.3f;
+            runtime.roadHalfWidth = 14.2f;
+            runtime.kerbStart = 8.3f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.09f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.63f);
             AddSmoothedAnchors(runtime, new[]
@@ -1172,8 +1173,8 @@ namespace LocalFormulaRacing
         void BuildLasVegasLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Neon strip street";
-            runtime.roadHalfWidth = 20.9f;
-            runtime.kerbStart = 12.2f;
+            runtime.roadHalfWidth = 13.0f;
+            runtime.kerbStart = 7.6f;
             runtime.drsZoneOne = new Vector2(0.74f, 0.13f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.58f);
             AddSmoothedAnchors(runtime, new[]
@@ -1190,8 +1191,8 @@ namespace LocalFormulaRacing
         void BuildQatarLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Desert high-speed flow";
-            runtime.roadHalfWidth = 21.6f;
-            runtime.kerbStart = 12.7f;
+            runtime.roadHalfWidth = 15.0f;
+            runtime.kerbStart = 8.8f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.55f, 0.72f);
             AddSmoothedAnchors(runtime, new[]
@@ -1246,14 +1247,14 @@ namespace LocalFormulaRacing
                 }
             }
 
-            if (runtime.roadHalfWidth < 6f || runtime.roadHalfWidth > 26f)
+            if (runtime.roadHalfWidth < 9f || runtime.roadHalfWidth > 17f)
             {
                 if (LastReport != null)
                 {
                     LastReport.Warn("road half width " + runtime.roadHalfWidth.ToString("0.0") + " out of range, clamping.");
                 }
 
-                runtime.roadHalfWidth = Mathf.Clamp(runtime.roadHalfWidth, 6f, 26f);
+                runtime.roadHalfWidth = Mathf.Clamp(runtime.roadHalfWidth, 9f, 17f);
             }
 
             if (runtime.kerbStart <= 0f || runtime.kerbStart >= runtime.roadHalfWidth)
@@ -1347,7 +1348,14 @@ namespace LocalFormulaRacing
             roadMaterial.mainTexture = GetAsphaltNoiseTexture();
             roadMaterial.mainTextureScale = new Vector2(1.6f, 0.5f);
             kerbMaterial = CreateMaterial("Runtime Kerb", new Color(0.94f, 0.04f, 0.03f), 0.02f, 0.64f);
+            kerbMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.92f, 0.92f, 0.92f), 0.08f);
+            kerbMaterial.mainTextureScale = new Vector2(6f, 1.5f);
             grassMaterial = CreateMaterial("Runtime Runoff", runoff, 0.01f, runoffSmoothness, runoffEmission);
+            // Grass/runoff covers the most screen space of anything in the scene, so a
+            // tiled neutral-grey noise texture (multiplied against the tinted runoff
+            // colour) does the most to kill the flat-plastic ground read.
+            grassMaterial.mainTexture = BuildNoiseTexture(128, new Color(0.83f, 0.85f, 0.8f), 0.18f);
+            grassMaterial.mainTextureScale = new Vector2(70f, 70f);
             lineMaterial = CreateMaterial("Runtime Track Line", new Color(0.95f, 0.98f, 1f), 0.05f, 0.78f);
             roadEdgeMaterial = CreateMaterial("Runtime Painted Edge", new Color(1f, 0.98f, 0.9f), 0.04f, 0.76f);
             drsPaintMaterial = CreateMaterial("Runtime DRS Paint", new Color(0.02f, 0.32f, 0.95f), 0.06f, 0.82f, new Color(0.01f, 0.05f, 0.18f));
@@ -1355,8 +1363,12 @@ namespace LocalFormulaRacing
             asphaltPatchMaterial = CreateMaterial("Runtime Asphalt Patch", new Color(0.033f, 0.036f, 0.039f), 0f, rain ? 0.72f : 0.5f);
             skidMarkMaterial = CreateMaterial("Runtime Skid Mark", new Color(0.001f, 0.001f, 0.001f, 0.92f), 0f, 0.16f);
             barrierMaterial = CreateMaterial("Runtime Barrier", monacoTrack ? new Color(0.86f, 0.85f, 0.8f) : new Color(0.68f, 0.72f, 0.74f), 0.12f, monacoTrack ? 0.55f : 0.62f);
+            barrierMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.87f, 0.87f, 0.87f), 0.1f);
+            barrierMaterial.mainTextureScale = new Vector2(4f, 1.5f);
             tireBarrierMaterial = CreateMaterial("Runtime Tyre Barrier", new Color(0.015f, 0.016f, 0.017f), 0.02f, 0.28f);
             concreteMaterial = CreateMaterial("Runtime Concrete Wall", desertTrack ? new Color(0.72f, 0.66f, 0.5f) : new Color(0.56f, 0.58f, 0.59f), 0.04f, desertTrack ? 0.5f : 0.32f, desertTrack ? new Color(0.06f, 0.05f, 0.02f) : Color.black);
+            concreteMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.85f, 0.85f, 0.85f), 0.09f);
+            concreteMaterial.mainTextureScale = new Vector2(3f, 1f);
             fenceMaterial = CreateMaterial("Runtime Catch Fence", new Color(0.14f, 0.16f, 0.18f), 0.42f, 0.44f);
             fencePostMaterial = CreateMaterial("Runtime Fence Post", new Color(0.4f, 0.44f, 0.47f), 0.55f, 0.66f);
             foliageMaterial = CreateMaterial("Runtime Foliage", spaTrack ? new Color(0.05f, 0.22f, 0.14f) : new Color(0.04f, 0.32f, 0.12f), 0f, 0.42f);
@@ -1364,6 +1376,7 @@ namespace LocalFormulaRacing
             glassMaterial = CreateMaterial("Runtime Glass", new Color(0.12f, 0.28f, 0.38f, 0.85f), 0.1f, 0.95f);
             lightGlowMaterial = CreateMaterial("Runtime Light Glow", new Color(1f, 0.85f, 0.4f), 0f, 0.92f, new Color(1f, 0.62f, 0.15f));
             sceneryAccentMaterial = CreateMaterial("Runtime Scenery Accent", new Color(0.92f, 0.03f, 0.025f), 0.05f, 0.65f);
+            trafficConeMaterial = CreateMaterial("Runtime Traffic Cone", new Color(0.95f, 0.42f, 0.03f), 0f, 0.5f);
             edgeGlowMaterial = nightTrack || twilightTrack
                 ? CreateMaterial("Runtime Edge Glow", new Color(0.85f, 0.95f, 1f), 0.05f, 0.85f, new Color(0.32f, 0.42f, 0.6f))
                 : roadEdgeMaterial;
@@ -1447,6 +1460,47 @@ namespace LocalFormulaRacing
             asphaltNoiseTexture.SetPixels(pixels);
             asphaltNoiseTexture.Apply(true);
             return asphaltNoiseTexture;
+        }
+
+        static readonly Dictionary<string, Texture2D> noiseTextureCache = new Dictionary<string, Texture2D>();
+
+        // Generic runtime noise texture used to break up the remaining flat, single-
+        // colour materials (grass/kerb/barrier/concrete) the same way the asphalt
+        // grain above does. Cached by its parameters so every track Build reuses the
+        // same handful of bitmaps instead of allocating one per call.
+        static Texture2D BuildNoiseTexture(int size, Color baseColor, float variation)
+        {
+            string key = size + "_" + baseColor.r.ToString("F3") + "_" + baseColor.g.ToString("F3") + "_" +
+                         baseColor.b.ToString("F3") + "_" + variation.ToString("F3");
+            Texture2D cached;
+            if (noiseTextureCache.TryGetValue(key, out cached) && cached != null)
+            {
+                return cached;
+            }
+
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGB24, true);
+            texture.name = "Runtime noise " + key;
+            texture.wrapMode = TextureWrapMode.Repeat;
+            texture.filterMode = FilterMode.Trilinear;
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float coarse = Mathf.PerlinNoise(x * 0.045f, y * 0.045f);
+                    float fine = Mathf.PerlinNoise(x * 0.22f + 91.3f, y * 0.22f + 42.1f);
+                    float jitter = (coarse * 0.65f + fine * 0.35f - 0.5f) * 2f * variation;
+                    pixels[y * size + x] = new Color(
+                        Mathf.Clamp01(baseColor.r + jitter),
+                        Mathf.Clamp01(baseColor.g + jitter),
+                        Mathf.Clamp01(baseColor.b + jitter));
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply(true);
+            noiseTextureCache[key] = texture;
+            return texture;
         }
 
         Material CreateMaterial(string materialName, Color color, float metallic, float smoothness, Color emission)
@@ -2132,6 +2186,7 @@ namespace LocalFormulaRacing
                     CreateBrakingBoard(dist - 150f, "150");
                     CreateBrakingBoard(dist - 100f, "100");
                     CreateBrakingBoard(dist - 50f, "50");
+                    CreateApexCones(dist);
                 }
             }
         }
@@ -2192,6 +2247,29 @@ namespace LocalFormulaRacing
             textMesh.anchor = TextAnchor.MiddleCenter;
             textMesh.alignment = TextAlignment.Center;
             textMesh.color = new Color(0.05f, 0.05f, 0.05f, 0.95f);
+        }
+
+        // Small apex-marker cones flanking every hard-braking corner detected above.
+        // Count scales with sceneryDensity like the rest of the per-lap furniture;
+        // placement is pushed clear of the corridor as a safety net on tight curves.
+        void CreateApexCones(float distance)
+        {
+            int perSide = Mathf.Max(1, Mathf.RoundToInt(2f * Mathf.Clamp(sceneryDensity, 0.25f, 2f)));
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                for (int c = 0; c < perSide; c++)
+                {
+                    float along = (c - (perSide - 1) * 0.5f) * 3.2f;
+                    Vector3 conePos = point + forward * along + right * side * (Runtime.roadHalfWidth + 1.4f);
+                    conePos = PushSceneryClearOfTrack(conePos, 1.4f);
+                    CreateTrafficCone(conePos, rotation);
+                }
+            }
         }
 
         void BuildDrsZoneBoards()
@@ -2293,6 +2371,7 @@ namespace LocalFormulaRacing
 
             CreatePitEntryExitSurfaces(pitMaterial);
             CreatePitEntryExitPaint(pitMaterial);
+            CreatePitLaneCones();
 
             // Pit wall between track and lane, sampled so it never cuts the corner.
             for (float d = corridorStart + 10f; d < corridorEnd - 8f; d += 12.5f)
@@ -2419,6 +2498,31 @@ namespace LocalFormulaRacing
             CreateVisualBox("Pit exit lane paint", exit + exitRight * (Runtime.roadHalfWidth + 4.4f) + Vector3.up * 0.055f, Quaternion.LookRotation(exitForward, Vector3.up), new Vector3(5.2f, 0.055f, 38f), pitMaterial);
             CreateVisualBox("Pit exit blend line", exit + exitRight * (Runtime.roadHalfWidth + 1.1f) + Vector3.up * 0.075f, Quaternion.LookRotation(exitForward, Vector3.up), new Vector3(0.32f, 0.045f, 30f), roadEdgeMaterial);
             CreateVisualBox("Pit limiter board", entry + entryRight * (Runtime.roadHalfWidth + 7.9f) + Vector3.up * 1.8f, Quaternion.LookRotation(entryForward, Vector3.up), new Vector3(1.8f, 1.2f, 0.16f), lightGlowMaterial);
+        }
+
+        // Cone row tracing the pit entry/exit blend line, right along the edge line the
+        // paint above already draws, so the funnel reads as marked-off rather than just
+        // painted. Count scales with sceneryDensity like the rest of the lap furniture.
+        void CreatePitLaneCones()
+        {
+            int count = Mathf.Max(2, Mathf.RoundToInt(5f * Mathf.Clamp(sceneryDensity, 0.25f, 2f)));
+            CreateConeRow(Runtime.length * 0.865f, Runtime.roadHalfWidth + 1.3f, count, 26f);
+            CreateConeRow(Runtime.length * 0.035f, Runtime.roadHalfWidth + 1.2f, count, 30f);
+        }
+
+        void CreateConeRow(float centerDistance, float lateral, int count, float span)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                float t = count <= 1 ? 0.5f : i / (float)(count - 1);
+                float d = centerDistance - span * 0.5f + span * t;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                Vector3 conePos = PushSceneryClearOfTrack(point + right * lateral, 1f);
+                CreateTrafficCone(conePos, Quaternion.LookRotation(forward, Vector3.up));
+            }
         }
 
         void BuildStartGantry()
@@ -3347,6 +3451,68 @@ namespace LocalFormulaRacing
             return box;
         }
 
+        Mesh visualConeMesh;
+
+        // Cheap shared 8-sided cone mesh (base radius 0.5, height 1, apex up), reused by
+        // every traffic cone the same way GetVisualBoxMesh is reused by every box.
+        Mesh GetVisualConeMesh()
+        {
+            if (visualConeMesh != null)
+            {
+                return visualConeMesh;
+            }
+
+            const int sides = 8;
+            Vector3[] vertices = new Vector3[sides + 2];
+            vertices[0] = new Vector3(0f, 1f, 0f);
+            vertices[sides + 1] = Vector3.zero;
+            for (int i = 0; i < sides; i++)
+            {
+                float angle = (i / (float)sides) * Mathf.PI * 2f;
+                vertices[i + 1] = new Vector3(Mathf.Cos(angle) * 0.5f, 0f, Mathf.Sin(angle) * 0.5f);
+            }
+
+            List<int> triangles = new List<int>(sides * 6);
+            for (int i = 0; i < sides; i++)
+            {
+                int a = i + 1;
+                int b = (i + 1) % sides + 1;
+                triangles.Add(0); triangles.Add(b); triangles.Add(a);
+                triangles.Add(sides + 1); triangles.Add(a); triangles.Add(b);
+            }
+
+            visualConeMesh = new Mesh();
+            visualConeMesh.name = "Runtime visual-only cone";
+            visualConeMesh.vertices = vertices;
+            visualConeMesh.triangles = triangles.ToArray();
+            visualConeMesh.RecalculateNormals();
+            visualConeMesh.RecalculateBounds();
+            return visualConeMesh;
+        }
+
+        GameObject CreateVisualCone(string objectName, Vector3 position, Quaternion rotation, Vector3 localScale, Material material)
+        {
+            GameObject cone = new GameObject(objectName);
+            cone.transform.SetParent(transform);
+            cone.transform.position = position;
+            cone.transform.rotation = rotation;
+            cone.transform.localScale = localScale;
+            MeshFilter filter = cone.AddComponent<MeshFilter>();
+            MeshRenderer renderer = cone.AddComponent<MeshRenderer>();
+            filter.sharedMesh = GetVisualConeMesh();
+            renderer.sharedMaterial = material;
+            return cone;
+        }
+
+        // Small marker cone with a white foot plate, the "cones/markers" trackside
+        // detail every other marker (boards, marshal posts) already had an equivalent
+        // of. Visual-only like the rest of the box/cone furniture - no collider added.
+        void CreateTrafficCone(Vector3 basePosition, Quaternion rotation)
+        {
+            CreateVisualCone("Traffic cone", basePosition, rotation, new Vector3(0.42f, 0.55f, 0.42f), trafficConeMaterial);
+            CreateVisualBox("Traffic cone base plate", basePosition + Vector3.up * 0.02f, rotation, new Vector3(0.5f, 0.04f, 0.5f), lineMaterial);
+        }
+
         bool TryPlaceSolidObstacle(GameObject obstacle, string obstacleType, Vector3 desiredBasePosition, Vector3 forward, Vector3 localScale, float verticalOffset, float minimumClearance)
         {
             Vector3 candidate = desiredBasePosition + Vector3.up * verticalOffset;
@@ -3452,11 +3618,11 @@ namespace LocalFormulaRacing
                 report.roadColliderValid = Runtime.roadCollider != null && Runtime.roadCollider.sharedMesh != null && !Runtime.roadCollider.isTrigger;
             }
 
-            if (Runtime.length < 5700f)
+            if (Runtime.length < 3700f)
             {
-                report.Warn("track length " + Runtime.length.ToString("0") + "m is INVALID: circuits must normalize to at least 5.7 km for race pacing.");
+                report.Warn("track length " + Runtime.length.ToString("0") + "m is INVALID: circuits must normalize to at least 3.7 km for race pacing.");
             }
-            else if (Runtime.length > 9300f)
+            else if (Runtime.length > 6000f)
             {
                 report.Warn("track length " + Runtime.length.ToString("0") + "m exceeds the expected normalization ceiling.");
             }
