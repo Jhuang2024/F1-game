@@ -92,6 +92,13 @@ namespace LocalFormulaRacing
         RaceParticipant safetyCarQueueLeader;
         float lastIncidentTime = -999f;
         float lastIncidentDistance = -99999f;
+
+        // Part 1: the real, visible AI safety car - built lazily the first time
+        // it's needed each session and reused for every deployment within that
+        // session rather than instantiated fresh each time.
+        GameObject safetyCarObject;
+        SafetyCarController safetyCarController;
+        readonly HashSet<RaceParticipant> aheadOfSafetyCarLastTick = new HashSet<RaceParticipant>();
         // Blocks a NEW VSC/SC escalation for a while after the field returns to
         // Green, so one incident's aftermath can't chain into a second SC/VSC the
         // moment the first ends - yellow flags themselves are unaffected.
@@ -775,6 +782,14 @@ namespace LocalFormulaRacing
             safetyCarQueueLeader = null;
             lastIncidentTime = -999f;
             lastIncidentDistance = -99999f;
+            // The previous session's safety car object (if any) lived under the
+            // old raceWorld root and is already gone by the time a new session
+            // resets this state - null the references so EnsureSafetyCarBuilt
+            // rebuilds a fresh one under the new raceWorld instead of touching a
+            // destroyed object.
+            safetyCarObject = null;
+            safetyCarController = null;
+            aheadOfSafetyCarLastTick.Clear();
             if (State != null)
             {
                 for (int i = 0; i < State.Participants.Count; i++)
@@ -838,6 +853,8 @@ namespace LocalFormulaRacing
             }
 
             DriveRaceControlStateMachine();
+            UpdateSafetyCar();
+            ApplyRaceControlSpeedCaps();
             if (Track != null)
             {
                 // Safe to call every tick - TrackRuntime.SetRaceControlVisual no-ops
@@ -1282,18 +1299,147 @@ namespace LocalFormulaRacing
         {
             CurrentRaceControlState = RaceControlState.SafetyCarDeploying;
             safetyCarTimer = Random.Range(6f, 10f);
-            SafetyCarTargetSpeedKph = Random.Range(140f, 160f);
             IsOvertakingAllowed = false;
             SafetyCarDeploymentCount++;
             playerScPitPromptSent = false;
             List<RaceParticipant> order = GetRunningOrderSnapshot();
             safetyCarQueueLeader = order.Count > 0 ? order[0] : null;
+
+            // Part 1: a real AI car, not just a HUD state - it joins the track a
+            // short, safe distance ahead of whoever is currently leading, so the
+            // leader immediately has to slow down and queue up behind it exactly
+            // like a real safety car period.
+            EnsureSafetyCarBuilt();
+            float leaderDistance = safetyCarQueueLeader != null && State != null
+                ? State.GetProgressDistance(safetyCarQueueLeader)
+                : 0f;
+            if (safetyCarController != null)
+            {
+                safetyCarController.EnterTrack(leaderDistance + 45f);
+                SafetyCarTargetSpeedKph = safetyCarController.CurrentSpeedKph;
+            }
+            else
+            {
+                SafetyCarTargetSpeedKph = Random.Range(140f, 160f);
+            }
+
             GameLog.Info("[RaceControl] Safety car deployment triggered. targetSpeed=" + SafetyCarTargetSpeedKph.ToString("0") + "kph deploymentCount=" + SafetyCarDeploymentCount);
             if (Settings != null && Settings.Current.raceControlMessages)
             {
                 PostEngineerMessage("Safety car deployed.", true);
             }
         }
+
+        // Builds the safety car GameObject + controller once per session and
+        // reuses it for every subsequent deployment - reactivated via EnterTrack
+        // rather than destroyed/recreated each time.
+        void EnsureSafetyCarBuilt()
+        {
+            if (safetyCarController != null)
+            {
+                return;
+            }
+
+            Renderer beaconRenderer;
+            Renderer brakeLightRenderer;
+            safetyCarObject = CreateSafetyCarVisual(out beaconRenderer, out brakeLightRenderer);
+            if (raceWorld != null)
+            {
+                safetyCarObject.transform.SetParent(raceWorld.transform);
+            }
+
+            safetyCarController = safetyCarObject.AddComponent<SafetyCarController>();
+            safetyCarController.Configure(Track, beaconRenderer, brakeLightRenderer);
+            safetyCarObject.SetActive(false);
+        }
+
+        // Field-wide backstop (Part 1/2): keeps the pace-limiter's own target
+        // number honest against the real car's actual speed instead of a single
+        // number picked once at deployment, ends the period by sending the car
+        // toward the pits once race control calls "safety car in this lap", and
+        // penalizes anyone who actually gets past it on track.
+        void UpdateSafetyCar()
+        {
+            if (safetyCarController == null || !safetyCarController.IsActive)
+            {
+                aheadOfSafetyCarLastTick.Clear();
+                return;
+            }
+
+            if (IsFullSafetyCarPeriod)
+            {
+                SafetyCarTargetSpeedKph = Mathf.Max(60f, safetyCarController.CurrentSpeedKph);
+            }
+
+            if (!IsFullSafetyCarPeriod && !safetyCarController.IsReturningToPits)
+            {
+                // State moved on (VSC/green/etc.) without the normal
+                // "in this lap" hand-off - send it home defensively rather than
+                // leaving it circulating with nothing driving it into the pits.
+                safetyCarController.BeginPitReturn();
+            }
+
+            CheckSafetyCarOvertakes();
+        }
+
+        // Passing the actual safety car (Part 3): a transition-based check, same
+        // shape as CheckIllegalOvertakesUnderYellow - only fires the instant a
+        // car's progress distance crosses from behind the safety car to ahead of
+        // it, not on every tick it happens to already be ahead (lapped traffic a
+        // full circuit away from the queue must never trip this).
+        void CheckSafetyCarOvertakes()
+        {
+            if (State == null || Track == null)
+            {
+                return;
+            }
+
+            float safetyCarDistance = safetyCarController.ProgressDistance;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant participant = Participants[i];
+                if (participant == null || participant.vehicle == null || participant.retired || participant.finished ||
+                    participant.isPitting || participant.pitPhase != PitPhase.None)
+                {
+                    aheadOfSafetyCarLastTick.Remove(participant);
+                    continue;
+                }
+
+                float gap = Track.WrapDistance(State.GetProgressDistance(participant) - safetyCarDistance);
+                bool aheadNow = gap > 3f && gap < 250f;
+                bool wasAhead = aheadOfSafetyCarLastTick.Contains(participant);
+                if (aheadNow && !wasAhead)
+                {
+                    AddPenalty(participant, 5f, "Passed the safety car");
+                    GameLog.Warn("[RaceControl] " + participant.driverName + " illegally passed the safety car (+5s).");
+                    if (participant.isPlayer)
+                    {
+                        SessionMessage = "Passed the safety car: +5s";
+                        if (Settings != null && Settings.Current.raceControlMessages)
+                        {
+                            PostEngineerMessage("You passed the safety car - that's a penalty, fall back into line.", true);
+                        }
+                    }
+                }
+
+                if (aheadNow)
+                {
+                    aheadOfSafetyCarLastTick.Add(participant);
+                }
+                else
+                {
+                    aheadOfSafetyCarLastTick.Remove(participant);
+                }
+            }
+        }
+
+        // Public read-only surface (Part 1/2/3): AI traffic-avoidance treats the
+        // safety car as a real obstacle to queue behind, and the HUD shows a
+        // distinct "follow the safety car" state, both without needing their own
+        // copy of the deployment/despawn bookkeeping above.
+        public Transform SafetyCarTransform { get { return safetyCarController != null && safetyCarController.IsActive ? safetyCarController.transform : null; } }
+        public bool IsSafetyCarOnTrack { get { return safetyCarController != null && safetyCarController.IsActive; } }
+        public float SafetyCarCurrentSpeedKph { get { return safetyCarController != null ? safetyCarController.CurrentSpeedKph : 0f; } }
 
         // Ticks the active race-control state forward, including the safety-car
         // period's scripted restart chain (Active -> in this lap -> restart -> green).
@@ -1361,6 +1507,11 @@ namespace LocalFormulaRacing
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
                             PostEngineerMessage("Safety car in this lap.", true);
+                        }
+
+                        if (safetyCarController != null)
+                        {
+                            safetyCarController.BeginPitReturn();
                         }
                     }
 
@@ -2304,11 +2455,41 @@ namespace LocalFormulaRacing
 
         public bool IsRaceControlPaceLimited { get { return IsVirtualSafetyCarActive || IsFullSafetyCarPeriod; } }
 
-        // The allowed speed cap for the current race-control state. Deploying and
-        // "in this lap" allow a little more than the steady active/VSC caps since
-        // the field is still catching up to the queue or about to go green.
-        public float PlayerRaceControlSpeedLimitKph(RaceParticipant participant)
+        // Part 2: a local yellow only limits speed for cars actually near the
+        // incident that caused it, not the entire lap-third sector it's flagged
+        // in - a genuine "progress window around the incident", tighter than the
+        // sector-wide overtake ban above (which deliberately stays sector-wide,
+        // since that's about not passing near a hazard you might not see yet).
+        const float LocalYellowSpeedCapWindowMeters = 180f;
+        const float LocalYellowSpeedCapKph = 210f;
+
+        public bool IsNearLocalYellowIncident(RaceParticipant participant)
         {
+            if (participant == null || State == null || Track == null || CurrentRaceControlState != RaceControlState.YellowSector)
+            {
+                return false;
+            }
+
+            TrackProgress progress = State.GetCurrentProgress(participant);
+            return Mathf.Abs(Track.WrapDistance(progress.distance - lastIncidentDistance)) < LocalYellowSpeedCapWindowMeters;
+        }
+
+        // The allowed speed cap for this specific car's current race-control
+        // situation - pit lane has its own dedicated limiter so it's excluded
+        // here, VSC/SC apply field-wide, and local yellow only applies to a car
+        // actually near the incident. Shared by both the player's own warning/
+        // penalty logic below and the field-wide physical cap applied to every
+        // car (player and AI alike) in ApplyRaceControlSpeedCaps.
+        public float RaceControlSpeedCapKphFor(RaceParticipant participant)
+        {
+            if (participant == null || participant.isPitting || participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit)
+            {
+                return 9999f;
+            }
+
+            // Deploying and "in this lap" allow a little more than the steady
+            // active/VSC caps since the field is still catching up to the queue
+            // or about to go green.
             switch (CurrentRaceControlState)
             {
                 case RaceControlState.VirtualSafetyCar:
@@ -2320,7 +2501,25 @@ namespace LocalFormulaRacing
                 case RaceControlState.SafetyCarInThisLap:
                     return SafetyCarTargetSpeedKph + 15f;
                 default:
-                    return 9999f;
+                    return IsNearLocalYellowIncident(participant) ? LocalYellowSpeedCapKph : 9999f;
+            }
+        }
+
+        // Physically caps every car's real top speed to its own current
+        // race-control situation - the "pit-limiter-style" hard enforcement the
+        // brief calls for, applied identically to the player and every AI car
+        // rather than the player alone relying on the softer shaping below.
+        void ApplyRaceControlSpeedCaps()
+        {
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant participant = Participants[i];
+                if (participant == null || participant.vehicle == null || participant.retired || participant.finished)
+                {
+                    continue;
+                }
+
+                participant.vehicle.SetRaceControlSpeedCap(RaceControlSpeedCapKphFor(participant));
             }
         }
 
@@ -2348,7 +2547,8 @@ namespace LocalFormulaRacing
                 return command;
             }
 
-            if (!IsRaceControlPaceLimited)
+            bool localYellowHere = IsNearLocalYellowIncident(participant);
+            if (!IsRaceControlPaceLimited && !localYellowHere)
             {
                 playerRaceControlOverspeedTimer = 0f;
                 playerRaceControlWarningSent = false;
@@ -2356,10 +2556,15 @@ namespace LocalFormulaRacing
                 return command;
             }
 
+            // Both reasons this method is active (VSC/SC pace limiting, or being
+            // near a local yellow incident) already ban DRS via IsDrsAvailable and
+            // ERS deployment makes no sense while being held to a reduced pace
+            // either way - force both off unconditionally here as the single place
+            // a stale Shift press or already-latched DRS can't sneak past either.
             command.ers = false;
             command.drs = false;
 
-            float cap = PlayerRaceControlSpeedLimitKph(participant);
+            float cap = RaceControlSpeedCapKphFor(participant);
             float overspeed = currentSpeedKph - cap;
             if (overspeed <= 0f)
             {
@@ -2398,7 +2603,7 @@ namespace LocalFormulaRacing
             }
             else if (playerRaceControlWarningSent && overspeed > 25f && playerRaceControlOverspeedTimer > 6f)
             {
-                AddPenalty(participant, 5f, "Ignored safety car pace");
+                AddPenalty(participant, 5f, localYellowHere && !IsRaceControlPaceLimited ? "Ignored yellow flag speed limit" : "Ignored safety car pace");
                 GameLog.Warn("[RaceControl] Player pace penalty: " + overspeed.ToString("0") + "kph over cap for " + playerRaceControlOverspeedTimer.ToString("0.0") + "s (+5s).");
                 SessionMessage = "Pace limit ignored: +5s";
                 playerRaceControlOverspeedTimer = 0f;
@@ -2429,6 +2634,15 @@ namespace LocalFormulaRacing
                 CurrentRaceControlState == RaceControlState.SafetyCarActive ||
                 CurrentRaceControlState == RaceControlState.SafetyCarInThisLap ||
                 CurrentRaceControlState == RaceControlState.Restart)
+            {
+                return false;
+            }
+
+            // Part 2: a local yellow disables DRS too, but only for a car actually
+            // near the incident that caused it - the same window the local speed
+            // cap uses - not the whole field for a hazard on the other side of the
+            // circuit.
+            if (IsNearLocalYellowIncident(participant))
             {
                 return false;
             }
@@ -2487,7 +2701,8 @@ namespace LocalFormulaRacing
             if (CurrentRaceControlState == RaceControlState.VirtualSafetyCar ||
                 CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
                 CurrentRaceControlState == RaceControlState.SafetyCarActive ||
-                CurrentRaceControlState == RaceControlState.SafetyCarInThisLap)
+                CurrentRaceControlState == RaceControlState.SafetyCarInThisLap ||
+                IsNearLocalYellowIncident(participant))
             {
                 return false;
             }
@@ -3208,7 +3423,7 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, ReplacedDriverIdForPlayerTeam(playerTeamId));
+            List<DriverData> aiDrivers = GetDefensiveAiRoster(playerTeamId, playerName);
             int aiFallbackSlot = 0;
             for (int i = 0; i < aiDrivers.Count; i++)
             {
@@ -3282,7 +3497,7 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, ReplacedDriverIdForPlayerTeam(playerTeamId));
+            List<DriverData> aiDrivers = GetDefensiveAiRoster(playerTeamId, PlayerParticipant != null ? PlayerParticipant.driverName : "");
             for (int i = 0; i < aiDrivers.Count; i++)
             {
                 DriverData driver = aiDrivers[i];
@@ -3320,7 +3535,7 @@ namespace LocalFormulaRacing
                 isPlayer = true
             });
 
-            List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, ReplacedDriverIdForPlayerTeam(playerTeamId));
+            List<DriverData> aiDrivers = GetDefensiveAiRoster(playerTeamId, playerName);
             for (int i = 0; i < aiDrivers.Count; i++)
             {
                 DriverData driver = aiDrivers[i];
@@ -3385,6 +3600,70 @@ namespace LocalFormulaRacing
 
             List<DriverData> teamDrivers = Data.GetDriversForTeam(playerTeamId);
             return teamDrivers.Count > 0 ? teamDrivers[0].id : "";
+        }
+
+        // Defensive duplicate check (career roster fix): the normal exclusion
+        // above (via Data.GetAiRaceDrivers's replacedDriverId param) is the
+        // primary mechanism, but this is the one place all three roster builders
+        // (race grid, live qualifying, sim qualifying) funnel through, so a
+        // second, independent identity check lives here as a safety net - if the
+        // primary exclusion is ever wrong (a future bug, a save file from before
+        // this fix, or a custom driver name that happens to collide with a real
+        // one), the player never ends up racing against an AI copy of themselves.
+        // Removing a collision without backfilling would silently shrink the
+        // grid below 22, so a replacement is pulled from the full driver
+        // database rather than just dropping the seat.
+        List<DriverData> GetDefensiveAiRoster(string playerTeamId, string playerDisplayName)
+        {
+            string replacedId = ReplacedDriverIdForPlayerTeam(playerTeamId);
+            List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, replacedId);
+
+            string playerDriverId = Career != null && Career.Save != null ? Career.Save.selectedDriverId : "";
+            // Sim qualifying never spawns a PlayerParticipant (it's a pure
+            // simulation), so the identity has to come from whichever caller
+            // actually knows the player's name for this session rather than
+            // reading a participant reference that may be null or stale here.
+            string playerName = string.IsNullOrEmpty(playerDisplayName) && PlayerParticipant != null ? PlayerParticipant.driverName : playerDisplayName;
+            int removed = 0;
+            for (int i = aiDrivers.Count - 1; i >= 0; i--)
+            {
+                DriverData candidate = aiDrivers[i];
+                bool idCollision = !string.IsNullOrEmpty(playerDriverId) && candidate.id == playerDriverId;
+                bool nameCollision = !string.IsNullOrEmpty(playerName) && candidate.displayName == playerName;
+                if (idCollision || nameCollision)
+                {
+                    GameLog.Warn("[Roster] Removed duplicate AI driver '" + candidate.displayName + "' (" + candidate.id + ") - matches the player's identity.");
+                    aiDrivers.RemoveAt(i);
+                    removed++;
+                }
+            }
+
+            for (int i = 0; removed > 0 && i < Data.Drivers.drivers.Count; i++)
+            {
+                DriverData candidate = Data.Drivers.drivers[i];
+                if (candidate.id == replacedId || candidate.id == playerDriverId || candidate.displayName == playerName)
+                {
+                    continue;
+                }
+
+                bool alreadyUsed = false;
+                for (int j = 0; j < aiDrivers.Count; j++)
+                {
+                    if (aiDrivers[j].id == candidate.id)
+                    {
+                        alreadyUsed = true;
+                        break;
+                    }
+                }
+
+                if (!alreadyUsed)
+                {
+                    aiDrivers.Add(candidate);
+                    removed--;
+                }
+            }
+
+            return aiDrivers;
         }
 
         void PrepareAiQualifyingTargetsForPhase()
@@ -3811,6 +4090,112 @@ namespace LocalFormulaRacing
             return root;
         }
 
+        // A simple polished coupe silhouette - deliberately NOT an open-wheel F1
+        // shape, so it reads as a distinct support vehicle rather than another
+        // race car. Kinematic Rigidbody + a real collider (Part 1): the object is
+        // solid, so a careless approach gets a genuine physical bump rather than
+        // clipping through, while SafetyCarController drives it directly via
+        // transform/rigidbody movement instead of engine/tyre physics - it never
+        // races, it only needs to look right and block the road.
+        GameObject CreateSafetyCarVisual(out Renderer beaconRenderer, out Renderer brakeLightRenderer)
+        {
+            GameObject root = new GameObject("Safety car");
+            root.layer = 0;
+            Rigidbody body = root.AddComponent<Rigidbody>();
+            body.isKinematic = true;
+            body.interpolation = RigidbodyInterpolation.Interpolate;
+            BoxCollider collider = root.AddComponent<BoxCollider>();
+            collider.size = new Vector3(1.9f, 1.15f, 4.5f);
+            collider.center = new Vector3(0f, 0.58f, 0f);
+            collider.sharedMaterial = GetCarBodyPhysicsMaterial();
+
+            Color bodyColor = new Color(0.05f, 0.06f, 0.08f);
+            Color accentColor = new Color(1f, 0.62f, 0.05f);
+            Material bodyMaterial = CreateMaterial("Safety car body", bodyColor, 0.55f, 0.82f);
+            Material accentMaterial = CreateMaterial("Safety car accent", accentColor, 0.1f, 0.7f);
+            Material glassMaterial = CreateMaterial("Safety car glass", new Color(0.08f, 0.12f, 0.16f, 0.9f), 0.2f, 0.95f);
+            Material wheelMaterial = CreateMaterial("Safety car wheel", new Color(0.02f, 0.02f, 0.02f), 0.05f, 0.3f);
+            Material rimMaterial = CreateMaterial("Safety car rim", new Color(0.7f, 0.7f, 0.68f), 0.7f, 0.8f);
+            Material headlightMaterial = CreateMaterial("Safety car headlight", new Color(1.2f, 1.2f, 1f), 0f, 0.9f, new Color(1f, 1f, 0.85f));
+            Material beaconMaterial = CreateMaterial("Safety car beacon", accentColor, 0f, 0.9f, accentColor);
+            Material brakeLightMaterial = CreateMaterial("Safety car brake light", new Color(0.12f, 0.01f, 0.01f), 0.1f, 0.6f, new Color(0.12f, 0.01f, 0.01f));
+
+            CreateChildCube(root.transform, "SC body lower", new Vector3(0f, 0.42f, 0f), new Vector3(1.82f, 0.62f, 4.3f), bodyMaterial);
+            CreateChildCube(root.transform, "SC cabin", new Vector3(0f, 0.94f, -0.1f), new Vector3(1.5f, 0.5f, 2.2f), bodyMaterial);
+            CreateChildCube(root.transform, "SC windshield", new Vector3(0f, 0.98f, 0.98f), new Vector3(1.4f, 0.42f, 0.06f), Quaternion.Euler(-24f, 0f, 0f), glassMaterial);
+            CreateChildCube(root.transform, "SC rear glass", new Vector3(0f, 0.98f, -1.18f), new Vector3(1.4f, 0.4f, 0.06f), Quaternion.Euler(20f, 0f, 0f), glassMaterial);
+            CreateChildCube(root.transform, "SC side glass left", new Vector3(-0.75f, 1.0f, -0.1f), new Vector3(0.04f, 0.32f, 1.9f), glassMaterial);
+            CreateChildCube(root.transform, "SC side glass right", new Vector3(0.75f, 1.0f, -0.1f), new Vector3(0.04f, 0.32f, 1.9f), glassMaterial);
+            CreateChildCube(root.transform, "SC front bumper", new Vector3(0f, 0.28f, 2.18f), new Vector3(1.86f, 0.32f, 0.22f), accentMaterial);
+            CreateChildCube(root.transform, "SC rear bumper", new Vector3(0f, 0.28f, -2.18f), new Vector3(1.86f, 0.32f, 0.22f), accentMaterial);
+            CreateChildCube(root.transform, "SC livery stripe left", new Vector3(-0.92f, 0.5f, 0f), new Vector3(0.02f, 0.14f, 4.2f), accentMaterial);
+            CreateChildCube(root.transform, "SC livery stripe right", new Vector3(0.92f, 0.5f, 0f), new Vector3(0.02f, 0.14f, 4.2f), accentMaterial);
+            CreateChildCube(root.transform, "SC hood accent", new Vector3(0f, 0.74f, 1.5f), new Vector3(0.9f, 0.03f, 1.1f), accentMaterial);
+
+            GameObject headlightLeft = CreateChildCubeReturn(root.transform, "SC headlight left", new Vector3(-0.62f, 0.42f, 2.24f), new Vector3(0.26f, 0.14f, 0.08f), headlightMaterial);
+            GameObject headlightRight = CreateChildCubeReturn(root.transform, "SC headlight right", new Vector3(0.62f, 0.42f, 2.24f), new Vector3(0.26f, 0.14f, 0.08f), headlightMaterial);
+            MakeVisualOnlyIfPossible(headlightLeft);
+            MakeVisualOnlyIfPossible(headlightRight);
+
+            GameObject brakeLightLeft = CreateChildCubeReturn(root.transform, "SC brake light left", new Vector3(-0.62f, 0.46f, -2.24f), new Vector3(0.3f, 0.16f, 0.06f), brakeLightMaterial);
+            CreateChildCubeReturn(root.transform, "SC brake light right", new Vector3(0.62f, 0.46f, -2.24f), new Vector3(0.3f, 0.16f, 0.06f), brakeLightMaterial);
+            brakeLightRenderer = brakeLightLeft.GetComponent<Renderer>();
+
+            // Roof light bar: the clearest "this is the safety car" identity read
+            // from a distance, and the pulsing beacon SafetyCarController drives.
+            CreateChildCube(root.transform, "SC roof bar mount", new Vector3(0f, 1.24f, -0.2f), new Vector3(0.9f, 0.06f, 0.34f), wheelMaterial);
+            GameObject beacon = CreateChildCubeReturn(root.transform, "SC roof beacon", new Vector3(0f, 1.32f, -0.2f), new Vector3(0.86f, 0.14f, 0.3f), beaconMaterial);
+            beaconRenderer = beacon.GetComponent<Renderer>();
+
+            CreateSafetyCarWheel(root.transform, new Vector3(-0.98f, 0.34f, 1.42f), wheelMaterial, rimMaterial);
+            CreateSafetyCarWheel(root.transform, new Vector3(0.98f, 0.34f, 1.42f), wheelMaterial, rimMaterial);
+            CreateSafetyCarWheel(root.transform, new Vector3(-0.98f, 0.34f, -1.42f), wheelMaterial, rimMaterial);
+            CreateSafetyCarWheel(root.transform, new Vector3(0.98f, 0.34f, -1.42f), wheelMaterial, rimMaterial);
+
+            return root;
+        }
+
+        void CreateSafetyCarWheel(Transform parent, Vector3 localPosition, Material tyreMaterial, Material rimMaterial)
+        {
+            GameObject tyre = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            tyre.name = "SC wheel";
+            tyre.transform.SetParent(parent);
+            tyre.transform.localPosition = localPosition;
+            tyre.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            tyre.transform.localScale = new Vector3(0.34f, 0.34f, 0.34f);
+            tyre.GetComponent<Renderer>().sharedMaterial = tyreMaterial;
+            MakeVisualOnlyIfPossible(tyre);
+
+            GameObject rim = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            rim.name = "SC wheel rim";
+            rim.transform.SetParent(tyre.transform);
+            rim.transform.localPosition = Vector3.zero;
+            rim.transform.localScale = new Vector3(0.62f, 1.05f, 0.62f);
+            rim.GetComponent<Renderer>().sharedMaterial = rimMaterial;
+            MakeVisualOnlyIfPossible(rim);
+        }
+
+        GameObject CreateChildCubeReturn(Transform parent, string objectName, Vector3 localPosition, Vector3 localScale, Material material)
+        {
+            GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.name = objectName;
+            cube.transform.SetParent(parent);
+            cube.transform.localPosition = localPosition;
+            cube.transform.localScale = localScale;
+            cube.GetComponent<Renderer>().sharedMaterial = material;
+            MakeVisualOnlyIfPossible(cube);
+            return cube;
+        }
+
+        void MakeVisualOnlyIfPossible(GameObject visualObject)
+        {
+            Collider objectCollider = visualObject.GetComponent<Collider>();
+            if (objectCollider != null)
+            {
+                Destroy(objectCollider);
+            }
+        }
+
         void CreateTaperedBox(Transform parent, string objectName, Vector3 localPosition, float frontWidth, float rearWidth, float height, float length, Material material)
         {
             GameObject meshObject = new GameObject(objectName);
@@ -4021,6 +4406,18 @@ namespace LocalFormulaRacing
             material.color = color;
             material.SetFloat("_Metallic", metallic);
             material.SetFloat("_Glossiness", smoothness);
+            return material;
+        }
+
+        Material CreateMaterial(string materialName, Color color, float metallic, float smoothness, Color emission)
+        {
+            Material material = CreateMaterial(materialName, color, metallic, smoothness);
+            if (emission.r > 0f || emission.g > 0f || emission.b > 0f)
+            {
+                material.EnableKeyword("_EMISSION");
+                material.SetColor("_EmissionColor", emission);
+            }
+
             return material;
         }
 

@@ -318,6 +318,17 @@ namespace LocalFormulaRacing
             Button modeButton = UiFactory.CreateSecondaryButton(modeRow, useExistingDriver ? "Using existing driver" : "Using custom driver", () =>
             {
                 useExistingDriver = !useExistingDriver;
+                // Bug fix: switching back to "custom driver" used to leave the
+                // previously-picked real driver's id sitting in selectedDriverId,
+                // which could get saved as the player's identity and leave that
+                // same real driver unfixed in the AI roster - two cars with the
+                // same name/team. Clearing it here means the toggle actually
+                // means what its label says.
+                if (!useExistingDriver)
+                {
+                    selectedDriverId = "";
+                }
+
                 ShowCareerSetup(data, career, settings);
             });
             UiFactory.SetSize(modeButton, 300f, 40f);

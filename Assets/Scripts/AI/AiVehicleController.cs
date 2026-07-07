@@ -626,7 +626,38 @@ namespace LocalFormulaRacing
             wasDrsLegalLastFrame = drsLegal;
             command.drs = drsLegal && drsCommittedThisZone;
 
+            ApplySafetyCarFollowing(ref command);
+
             vehicle.SetCommand(command);
+        }
+
+        // Part 1: the real safety car isn't a RaceParticipant, so it never shows
+        // up in ApplyTrafficAvoidance's loop over raceManager.Participants above -
+        // this gives it the same "brake and back off the throttle as it gets
+        // close" treatment as a real car directly ahead, so the queue actually
+        // forms behind it instead of AI cars only being pace-capped in the
+        // abstract while treating the visible car itself as empty air.
+        void ApplySafetyCarFollowing(ref VehicleCommand command)
+        {
+            Transform safetyCar = raceManager.SafetyCarTransform;
+            if (safetyCar == null)
+            {
+                return;
+            }
+
+            Vector3 local = transform.InverseTransformPoint(safetyCar.position);
+            if (local.z <= 0f || local.z > 60f || Mathf.Abs(local.x) > 6f)
+            {
+                return;
+            }
+
+            float closeness = Mathf.Clamp01(1f - local.z / 60f);
+            if (local.z < 16f)
+            {
+                command.brake = Mathf.Max(command.brake, Mathf.Lerp(0.15f, 0.85f, closeness * closeness));
+            }
+
+            command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(1f, 0.1f, closeness));
         }
 
         float AiDamagePaceMultiplier(float damagePercent)
