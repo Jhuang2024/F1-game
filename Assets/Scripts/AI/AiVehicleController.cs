@@ -268,8 +268,8 @@ namespace LocalFormulaRacing
                 if (stuckDetectTimer > StuckManeuverTriggerSeconds)
                 {
                     bool facingWrongWay = Vector3.Dot(transform.forward, progress.forward) < -0.4f;
-                    float turnSign = Mathf.Sign(Vector3.Cross(transform.forward, progress.forward).y);
-                    maneuverTurnSide = turnSign == 0f ? preferredSide : turnSign;
+                    float recoverySteerSign = Mathf.Sign(Vector3.Cross(transform.forward, progress.forward).y);
+                    maneuverTurnSide = recoverySteerSign == 0f ? preferredSide : recoverySteerSign;
                     activeManeuver = facingWrongWay ? RecoveryManeuver.ReorientWrongWay : RecoveryManeuver.ReverseAway;
                     maneuverTimer = facingWrongWay ? ReorientDuration : ReverseAwayDuration;
                     GameLog.Info("[RaceControl] " + participant.driverName + " attempting " + activeManeuver + " recovery maneuver (stuck " + stuckDetectTimer.ToString("0.0") + "s).");
