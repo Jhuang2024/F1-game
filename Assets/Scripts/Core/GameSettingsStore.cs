@@ -43,6 +43,37 @@ namespace LocalFormulaRacing
             {
                 Current.plannedSecondCompound = "Medium";
             }
+
+            MigrateLegacyStrategyFields();
+            Current.plannedStopCount = Mathf.Clamp(Current.plannedStopCount <= 0 ? 1 : Current.plannedStopCount, 1, 2);
+            Current.plannedPitLapOne = Mathf.Clamp(Current.plannedPitLapOne, 0, 99);
+            Current.plannedPitLapTwo = Mathf.Clamp(Current.plannedPitLapTwo, 0, 99);
+            if (string.IsNullOrEmpty(Current.plannedStopOneCompound))
+            {
+                Current.plannedStopOneCompound = "Hard";
+            }
+
+            if (string.IsNullOrEmpty(Current.plannedStopTwoCompound))
+            {
+                Current.plannedStopTwoCompound = "Medium";
+            }
+        }
+
+        // Older saves only know plannedPitLap/plannedSecondCompound (single mandatory
+        // stop). The first time a save with those set is loaded under the new
+        // stop-indexed fields, carry the old choice forward as stop 1 so existing
+        // players don't lose their plan.
+        void MigrateLegacyStrategyFields()
+        {
+            if (Current.plannedPitLapOne <= 0 && Current.plannedPitLap > 0)
+            {
+                Current.plannedPitLapOne = Current.plannedPitLap;
+            }
+
+            if (Current.plannedStopOneCompound == "Hard" && !string.IsNullOrEmpty(Current.plannedSecondCompound))
+            {
+                Current.plannedStopOneCompound = Current.plannedSecondCompound;
+            }
         }
 
         int ClampSetupStep(int value)

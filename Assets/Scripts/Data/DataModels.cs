@@ -282,8 +282,19 @@ namespace LocalFormulaRacing
         public int setupRideHeight = 3;
 
         // Pit strategy plan. plannedPitLap 0 = engineer's recommendation.
+        // Kept for backward compatibility with older save files; GameSettingsStore.Load
+        // migrates these into the stop-indexed fields below on first load.
         public int plannedPitLap;
         public string plannedSecondCompound = "Medium";
+
+        // Full 1-stop/2-stop strategy plan. plannedStopCount selects how many
+        // planned stops the engineer will call for; pit lap 0 for a stop means
+        // "let the engineer pick the window" for that stop.
+        public int plannedStopCount = 1;
+        public int plannedPitLapOne;
+        public int plannedPitLapTwo;
+        public string plannedStopOneCompound = "Hard";
+        public string plannedStopTwoCompound = "Medium";
     }
 
     [Serializable]

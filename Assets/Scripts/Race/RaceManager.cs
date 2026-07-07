@@ -689,16 +689,124 @@ namespace LocalFormulaRacing
             weatherTransitionDone = false;
         }
 
-        // Player pit plan: the strategy screen choice wins, otherwise the
-        // engineer's recommended window.
-        public int PlannedPitLapFor(RaceParticipant participant)
+        // Number of stops the player planned on the strategy screen, defensively
+        // clamped to the 1-2 range GameSettingsStore already enforces on load.
+        public int GetPlannedStopCount()
         {
-            if (participant != null && participant.isPlayer && Settings != null && Settings.Current.plannedPitLap > 0)
+            return Mathf.Clamp(Settings == null ? 1 : Settings.Current.plannedStopCount, 1, 2);
+        }
+
+        // stopIndex is 1 or 2. Falls back to a RecommendedPitLap-style window when the
+        // player left the lap at 0 (engineer's recommendation). Stop 2, when it has no
+        // explicit lap, targets roughly two-thirds of the way through what remains
+        // after stop 1 and is always strictly later than the resolved stop-1 lap.
+        public int GetPlannedPitLapForStop(int stopIndex)
+        {
+            int maxPitLap = Mathf.Max(1, RaceLaps - 1);
+            if (stopIndex <= 1)
             {
-                return Mathf.Clamp(Settings.Current.plannedPitLap, 1, Mathf.Max(1, RaceLaps - 1));
+                int plannedLapOne = Settings == null ? 0 : Settings.Current.plannedPitLapOne;
+                if (plannedLapOne > 0)
+                {
+                    return Mathf.Clamp(plannedLapOne, 1, maxPitLap);
+                }
+
+                return Mathf.Clamp(RecommendedPitLap(PlayerParticipant), 1, maxPitLap);
             }
 
-            return RecommendedPitLap(participant);
+            int stopOneLap = GetPlannedPitLapForStop(1);
+            int minStopTwoLap = Mathf.Min(maxPitLap, stopOneLap + 1);
+            int plannedLapTwo = Settings == null ? 0 : Settings.Current.plannedPitLapTwo;
+            if (plannedLapTwo > 0)
+            {
+                return Mathf.Clamp(plannedLapTwo, minStopTwoLap, maxPitLap);
+            }
+
+            int remaining = Mathf.Max(1, RaceLaps - stopOneLap);
+            int recommended = stopOneLap + Mathf.RoundToInt(remaining * 0.66f);
+            return Mathf.Clamp(recommended, minStopTwoLap, maxPitLap);
+        }
+
+        // stopIndex is 1 or 2; returns the planned compound name for that stop.
+        public string GetPlannedCompoundForStop(int stopIndex)
+        {
+            if (Settings == null)
+            {
+                return stopIndex <= 1 ? "Hard" : "Medium";
+            }
+
+            return stopIndex <= 1 ? Settings.Current.plannedStopOneCompound : Settings.Current.plannedStopTwoCompound;
+        }
+
+        // Which lap the NEXT still-pending planned stop should happen on. Returns -1
+        // when there is no more planned stop (1-stop plan already taken, or both
+        // stops of a 2-stop plan already taken) so callers know not to prompt.
+        // Non-player participants have no strategy plan and just use the generic
+        // engineer recommendation, same as before.
+        public int NextPlannedPitLapFor(RaceParticipant participant)
+        {
+            if (participant == null || !participant.isPlayer)
+            {
+                return RecommendedPitLap(participant);
+            }
+
+            if (participant.pitStops == 0)
+            {
+                return GetPlannedPitLapForStop(1);
+            }
+
+            if (participant.pitStops == 1 && GetPlannedStopCount() >= 2)
+            {
+                return GetPlannedPitLapForStop(2);
+            }
+
+            return -1;
+        }
+
+        // Compound for the player's next pending planned stop, parsed from the
+        // strategy screen's stored string the same way Settings.SelectedTyreCompound
+        // parses the qualifying/race tyre choice. Falls back to the automatic
+        // weather/degradation-based NextPitCompound when there is no plan to read
+        // (parse failure, no pending planned stop, or a non-player participant) so
+        // AI behaviour is unchanged.
+        public TyreCompound NextPlannedPitCompoundFor(RaceParticipant participant)
+        {
+            if (participant == null || !participant.isPlayer)
+            {
+                return NextPitCompound(participant);
+            }
+
+            int stopIndex = participant.pitStops + 1;
+            if (stopIndex > GetPlannedStopCount())
+            {
+                return NextPitCompound(participant);
+            }
+
+            TyreCompound parsed;
+            string planned = GetPlannedCompoundForStop(stopIndex);
+            if (!string.IsNullOrEmpty(planned) && System.Enum.TryParse(planned, true, out parsed))
+            {
+                return parsed;
+            }
+
+            return NextPitCompound(participant);
+        }
+
+        // Gate for the engineer's pit prompts: true while a planned stop is still
+        // owed for this participant.
+        public bool ShouldPromptPlannedStop(RaceParticipant participant)
+        {
+            return NextPlannedPitLapFor(participant) > 0;
+        }
+
+        // Player pit plan: kept for any other/legacy callers. Now stop-aware -
+        // resolves to whichever stop is currently pending (stop 1 if none taken yet,
+        // stop 2 if the first is done and a 2-stop plan is selected), falling back to
+        // the generic recommendation once there is no more planned stop.
+        public int PlannedPitLapFor(RaceParticipant participant)
+        {
+            int next = NextPlannedPitLapFor(participant);
+            return next > 0 ? next : RecommendedPitLap(participant);
         }
 
         void TickEngineerTimers()
@@ -743,7 +851,11 @@ namespace LocalFormulaRacing
                     : "Time trial. No local record yet, set a benchmark lap.";
             }
 
-            return "Weather is " + weather + ". Mandatory stop is active. Target window around lap " + RecommendedPitLap(PlayerParticipant) + ".";
+            string planLine = GetPlannedStopCount() >= 2
+                ? "Two-stop plan. First window around lap " + GetPlannedPitLapForStop(1) + " for " + GetPlannedCompoundForStop(1) +
+                  "s, second around lap " + GetPlannedPitLapForStop(2) + " for " + GetPlannedCompoundForStop(2) + "s."
+                : "One-stop plan. Target window around lap " + GetPlannedPitLapForStop(1) + " for " + GetPlannedCompoundForStop(1) + "s.";
+            return "Weather is " + weather + ". Mandatory stop is active. " + planLine;
         }
 
         string WeatherStateLabel(WeatherState weather)
@@ -819,22 +931,26 @@ namespace LocalFormulaRacing
                 PostEngineerMessage("We are seeing damage on the car. Consider a stop for repairs.", false);
                 return;
             }
-            int targetLap = PlannedPitLapFor(PlayerParticipant);
-            if (PlayerParticipant.pitStops == 0 && !PlayerParticipant.isPitting)
+            if (ShouldPromptPlannedStop(PlayerParticipant) && !PlayerParticipant.isPitting)
             {
+                int targetLap = NextPlannedPitLapFor(PlayerParticipant);
+                bool mandatoryStopStillOwed = PlayerParticipant.pitStops == 0;
                 if (completedLaps >= targetLap && lastEngineerPitLapPrompt != completedLaps)
                 {
                     lastEngineerPitLapPrompt = completedLaps;
+                    TyreCompound plannedCompound = NextPlannedPitCompoundFor(PlayerParticipant);
                     float undercutGap = GetIntervalToAheadSeconds(PlayerParticipant);
                     string undercut = undercutGap > 0f && undercutGap < 2.5f ? " The undercut on the car ahead is live." : "";
-                    PostEngineerMessage("Box this lap. Mandatory stop still required." + undercut, true);
+                    string requirement = mandatoryStopStillOwed ? "Mandatory stop still required." : "Second stop window is here.";
+                    PostEngineerMessage("Box this lap for " + plannedCompound + "s. " + requirement + undercut, true);
                     return;
                 }
 
                 if (completedLaps == Mathf.Max(0, targetLap - 1) && lastEngineerPitLapPrompt != completedLaps)
                 {
                     lastEngineerPitLapPrompt = completedLaps;
-                    PostEngineerMessage("Pit window opens next lap. Think about the undercut.", false);
+                    string label = mandatoryStopStillOwed ? "Pit window opens next lap. Think about the undercut." : "Second stop window opens next lap.";
+                    PostEngineerMessage(label, false);
                     return;
                 }
             }
@@ -1299,20 +1415,20 @@ namespace LocalFormulaRacing
             RaceDifficulty difficulty = Settings.Difficulty;
             if (difficulty == RaceDifficulty.Easy)
             {
-                return 0.9f;
+                return 0.88f;
             }
 
             if (difficulty == RaceDifficulty.Medium)
             {
-                return 0.97f;
+                return 0.98f;
             }
 
             if (difficulty == RaceDifficulty.Hard)
             {
-                return 1.03f;
+                return 1.05f;
             }
 
-            return 1.08f;
+            return 1.11f;
         }
 
         public float GetDifficultyBrakeMargin()
@@ -2855,7 +2971,7 @@ namespace LocalFormulaRacing
             participant.pitAwaitingRelease = false;
             participant.pitTimer = 0f;
             participant.pitServiceDuration = 0f;
-            participant.nextPitCompound = participant.requestedPitCompoundSet ? participant.requestedPitCompound : NextPitCompound(participant);
+            participant.nextPitCompound = participant.requestedPitCompoundSet ? participant.requestedPitCompound : NextPlannedPitCompoundFor(participant);
             participant.pitTyreSelectionActive = false;
             participant.vehicle.SetPitLimiter(true);
             participant.vehicle.SetPitServiceHold(true);
@@ -3732,18 +3848,24 @@ namespace LocalFormulaRacing
         QualifyingLapBreakdown SimulateQualifyingRunDetailed(QualifyingSimEntry entry, int phase, bool secondRun)
         {
             QualifyingLapBreakdown breakdown = new QualifyingLapBreakdown { phase = phase };
-            breakdown.baseLap = Mathf.Max(60f, Track.length / 52f);
             DriverData driver = entry.driverData;
             CarPerformanceData car = entry.carData;
+            breakdown.baseLap = EstimateReferenceLapTime(car, Track);
             float consistency = driver == null ? 80f : driver.consistency;
             float qualifying = driver == null ? 82f : driver.qualifying;
             float pace = driver == null ? 82f : driver.pace;
             float confidence = driver == null ? 80f : driver.experience;
             float tyreManagement = driver == null ? 80f : driver.tyreManagement;
             float carRating = car == null ? 84f : car.cornering * 0.34f + car.enginePower * 0.24f + car.aeroEfficiency * 0.24f + car.braking * 0.18f;
-            breakdown.driverEffect = (qualifying - 88f) * -0.048f + (pace - 88f) * -0.016f + (confidence - 80f) * -0.005f;
-            breakdown.carEffect = (carRating - 86f) * -0.052f;
-            breakdown.difficultyEffect = Settings.Difficulty == RaceDifficulty.Easy ? 0.85f : Settings.Difficulty == RaceDifficulty.Medium ? 0.05f : Settings.Difficulty == RaceDifficulty.Hard ? -0.35f : -0.65f;
+            // Coefficients widened ~20% over the original so skill/car gaps stay meaningful
+            // now that baseLap is a realistic (much larger) reference time.
+            breakdown.driverEffect = (qualifying - 88f) * -0.058f + (pace - 88f) * -0.019f + (confidence - 80f) * -0.006f;
+            breakdown.carEffect = (carRating - 86f) * -0.062f;
+            // Percentage of baseLap rather than a flat constant, so difficulty stays
+            // meaningful regardless of track length: Easy is clearly the slowest,
+            // Expert clearly the fastest/most aggressive, Medium close to neutral.
+            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.022f : Settings.Difficulty == RaceDifficulty.Medium ? 0.002f : Settings.Difficulty == RaceDifficulty.Hard ? -0.010f : -0.020f;
+            breakdown.difficultyEffect = breakdown.baseLap * difficultyPercent;
             breakdown.phaseEffect = phase == 1 ? 0.08f : (phase == 2 ? -0.18f : -0.36f);
             breakdown.tyrePrep = Mathf.Lerp(0.14f, 0.0f, tyreManagement / 100f) + Random.Range(0f, 0.04f);
             breakdown.weatherPenalty = WeatherQualifyingPenalty(driver);
@@ -3754,6 +3876,59 @@ namespace LocalFormulaRacing
                                   breakdown.difficultyEffect + breakdown.phaseEffect + breakdown.tyrePrep +
                                   breakdown.weatherPenalty + breakdown.mistakePenalty + breakdown.variance;
             return breakdown;
+        }
+
+        // Reference lap time derived from what the car's actual top speed rating can
+        // achieve on this track's layout, instead of a flat length/time divisor.
+        // Used for both AI and player qualifying simulation so the pace floor is
+        // consistently calibrated for everyone.
+        float EstimateReferenceLapTime(CarPerformanceData car, TrackRuntime track)
+        {
+            float carTopSpeedKph = car == null || car.topSpeed <= 0 ? 337f : car.topSpeed;
+            float styleFactor = TrackAverageSpeedFactor(track);
+            float referenceSpeedMps = (carTopSpeedKph / 3.6f) * styleFactor;
+            float trackLength = track == null ? 4650f : track.length;
+            return Mathf.Max(45f, trackLength / referenceSpeedMps);
+        }
+
+        // Fraction of top speed a well-driven qualifying lap averages, by track
+        // character. Tight/low-speed circuits (Monaco, street layouts) average much
+        // lower than top speed; flowing high-speed circuits average much closer to
+        // it. Named-circuit checks run before the generic street check since several
+        // real high-speed circuits (Jeddah, Baku, Las Vegas) are technically street
+        // layouts but should not be bucketed with tight street pace.
+        float TrackAverageSpeedFactor(TrackRuntime track)
+        {
+            if (track == null)
+            {
+                return 0.60f;
+            }
+
+            string id = track.trackId ?? "";
+            string style = (track.styleName ?? "").ToLowerInvariant();
+            if (id.Contains("monaco"))
+            {
+                return 0.40f;
+            }
+
+            if (id.Contains("spa") || id.Contains("monza") || id.Contains("silverstone") ||
+                id.Contains("baku") || id.Contains("jeddah") || id.Contains("las_vegas") ||
+                id.Contains("suzuka") || id.Contains("qatar"))
+            {
+                return 0.70f;
+            }
+
+            if (id.Contains("hungary"))
+            {
+                return 0.50f;
+            }
+
+            if (style.Contains("street") || track.roadHalfWidth < 12f)
+            {
+                return 0.48f;
+            }
+
+            return 0.60f;
         }
 
         float WeatherQualifyingPenalty(DriverData driver)
@@ -3800,17 +3975,12 @@ namespace LocalFormulaRacing
             float penalty = Random.Range(0.25f, 1.4f) * Mathf.Lerp(1.35f, 0.65f, awareness / 100f);
             if (Random.value < 0.12f)
             {
-                penalty += Random.Range(2.0f, 4.5f);
+                // Tail trimmed from the old 2.0-4.5s range so a single unlucky AI lap
+                // doesn't produce a comically slow outlier.
+                penalty += Random.Range(1.2f, 3.0f);
             }
 
             return penalty;
-        }
-
-        float SimulateFallbackPlayerQualifyingTime(RaceParticipant participant)
-        {
-            CarPerformanceData car = participant == null ? null : participant.carData;
-            float carEffect = car == null ? 0f : ((car.cornering + car.enginePower) / 2f - 82f) * -0.04f;
-            return Mathf.Max(56f, Track.length / 80f + 4.8f + carEffect);
         }
 
         float InvalidQualifyingTime(int phase)
