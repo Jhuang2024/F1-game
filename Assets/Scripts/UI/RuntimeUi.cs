@@ -763,11 +763,11 @@ namespace LocalFormulaRacing
             Text title = UiFactory.CreateText(background, "Race tyre title", "Race Tyre Selection", 44, Color.white, TextAnchor.UpperLeft);
             title.GetComponent<RectTransform>().anchoredPosition = new Vector2(80f, -54f);
 
-            RectTransform panel = UiFactory.CreateBand(background, "Race tyre panel", new Vector2(0.12f, 0.14f), new Vector2(0.78f, 0.8f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
-            UiFactory.AddVerticalLayout(panel, 12, new RectOffset(28, 28, 24, 24));
-            Text briefing = UiFactory.CreateText(panel, "Race weather briefing", BuildWeatherBriefing(current, "Race", settings.Current.tyreCompound), 20, new Color(0.84f, 0.91f, 0.95f), TextAnchor.UpperLeft);
+            RectTransform panel = UiFactory.CreateBand(background, "Race tyre panel", new Vector2(0.12f, 0.05f), new Vector2(0.78f, 0.86f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
+            UiFactory.AddVerticalLayout(panel, 10, new RectOffset(28, 28, 22, 22));
+            Text briefing = UiFactory.CreateText(panel, "Race weather briefing", BuildWeatherBriefing(current, "Race", settings.Current.tyreCompound), 19, new Color(0.84f, 0.91f, 0.95f), TextAnchor.UpperLeft);
             briefing.verticalOverflow = VerticalWrapMode.Overflow;
-            UiFactory.SetSize(briefing, 820f, 174f);
+            UiFactory.SetSize(briefing, 820f, 168f);
 
             RectTransform tyreButtons = UiFactory.CreateRect(panel, "Race tyre buttons", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             tyreButtons.sizeDelta = new Vector2(780f, 78f);
