@@ -495,6 +495,12 @@ namespace LocalFormulaRacing
                 HandleTrackLimits(participant);
                 HandlePitService(participant);
                 HandleFinish(participant);
+
+                if (participant.vehicle != null)
+                {
+                    if (participant.vehicle.ErsDeploying) participant.ersDeployFrameCount++;
+                    if (participant.vehicle.DrsActive) participant.drsActiveFrameCount++;
+                }
             }
 
             ResolveLowSpeedStacks();
@@ -1132,7 +1138,11 @@ namespace LocalFormulaRacing
 
             if (participant.pitPhase == PitPhase.Entry)
             {
-                return "PIT ENTRY  LIMITER 80";
+                // Distinguish "still turning into the lane" from "aligned and now
+                // driving to the box" - both used to collapse into one vague string.
+                return participant.pitEntryAligned
+                    ? "PIT LANE  DRIVING TO BOX " + (participant.pitBoxIndex + 1) + "  LIMITER 80"
+                    : "PIT ENTRY  LIMITER 80";
             }
 
             if (participant.pitPhase == PitPhase.Service)
@@ -1397,59 +1407,160 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            if (cornerSeverity > 0.24f || participant.vehicle.ErsBattery < 0.18f)
+            float battery = participant.vehicle.ErsBattery;
+            if (cornerSeverity > 0.24f || battery < 0.18f)
             {
                 return false;
+            }
+
+            AiDifficultyProfile profile = GetAiDifficultyProfile();
+            int awareness = participant.driverData == null ? 78 : participant.driverData.awareness;
+            float ersQuality = Mathf.Clamp01(profile.ersDeploymentQuality * Mathf.Lerp(0.8f, 1.08f, awareness / 100f));
+
+            bool finalLap = CurrentSession != RaceWeekendSession.Qualifying && participant.lapTracker != null && participant.lapTracker.CompletedLaps >= RaceLaps - 1;
+            float normalized = participant.lapTracker == null ? 0f : (State == null ? participant.lapTracker.CurrentProgress.normalized : State.GetCurrentProgress(participant).normalized);
+            bool finalSector = normalized > 0.68f;
+            bool batteryHigh = battery > 0.85f;
+
+            // Never hoard a near-full battery, and always spend it coming home - these
+            // are decisions even a weak driver gets right, so they bypass the quality
+            // gate entirely.
+            if (batteryHigh || finalLap || finalSector)
+            {
+                return true;
             }
 
             float aheadInterval = GetIntervalToAheadSeconds(participant);
             RaceParticipant behind = FindCarBehind(participant, 70f);
             bool attacking = aheadInterval < 1.6f;
-            bool defending = behind != null && participant.vehicle.ErsBattery > 0.32f;
-            bool batteryHigh = participant.vehicle.ErsBattery > 0.78f;
-            return attacking || defending || (batteryHigh && Random.value < 0.035f);
+            bool behindHasDrs = behind != null && IsDrsAvailable(behind);
+            bool defending = behind != null && (battery > 0.32f || behindHasDrs);
+
+            if (!attacking && !defending)
+            {
+                return false;
+            }
+
+            // Racecraft calls (attack/defend timing) are where difficulty and driver
+            // awareness actually show up: Expert nails them almost every time, Easy
+            // fluffs a meaningful share.
+            return Random.value < ersQuality;
         }
 
-        public float GetDifficultyPaceMultiplier()
+        // Difficulty as decision-making quality, never a raw speed/grip multiplier.
+        // brakeDistanceMultiplier, minimumCornerSpeedConfidence, apexErrorMeters,
+        // throttleDelay, exitThrottleConfidence, reactionTimeSeconds,
+        // mistakeChancePerLap, trafficAvoidanceCaution, overtakeCommitment,
+        // defendCommitment, ersDeploymentQuality and drsUsageQuality are all consumed
+        // by AiVehicleController; wetWeatherCaution and lineOffsetNoise round out the
+        // per-corner and per-frame driving model. Ordering must hold on every axis:
+        // Expert closest to the true limit, Easy the most forgiving.
+        public struct AiDifficultyProfile
+        {
+            public float brakeDistanceMultiplier;
+            public float minimumCornerSpeedConfidence;
+            public float apexErrorMeters;
+            public float throttleDelay;
+            public float exitThrottleConfidence;
+            public float lineOffsetNoise;
+            public float reactionTimeSeconds;
+            public float overtakeCommitment;
+            public float defendCommitment;
+            public float ersDeploymentQuality;
+            public float drsUsageQuality;
+            public float mistakeChancePerLap;
+            public float trafficAvoidanceCaution;
+            public float wetWeatherCaution;
+            public float tyreSavingBias;
+        }
+
+        public AiDifficultyProfile GetAiDifficultyProfile()
         {
             RaceDifficulty difficulty = Settings.Difficulty;
             if (difficulty == RaceDifficulty.Easy)
             {
-                return 0.88f;
+                return new AiDifficultyProfile
+                {
+                    brakeDistanceMultiplier = 0.80f,
+                    minimumCornerSpeedConfidence = 0.72f,
+                    apexErrorMeters = 2.6f,
+                    throttleDelay = 0.55f,
+                    exitThrottleConfidence = 0.62f,
+                    lineOffsetNoise = 1.4f,
+                    reactionTimeSeconds = 0.85f,
+                    overtakeCommitment = 0.35f,
+                    defendCommitment = 0.30f,
+                    ersDeploymentQuality = 0.40f,
+                    drsUsageQuality = 0.55f,
+                    mistakeChancePerLap = 0.16f,
+                    trafficAvoidanceCaution = 1.35f,
+                    wetWeatherCaution = 1.5f,
+                    tyreSavingBias = 0.35f
+                };
             }
 
             if (difficulty == RaceDifficulty.Medium)
             {
-                return 0.98f;
+                return new AiDifficultyProfile
+                {
+                    brakeDistanceMultiplier = 0.94f,
+                    minimumCornerSpeedConfidence = 0.85f,
+                    apexErrorMeters = 1.4f,
+                    throttleDelay = 0.30f,
+                    exitThrottleConfidence = 0.78f,
+                    lineOffsetNoise = 0.75f,
+                    reactionTimeSeconds = 0.55f,
+                    overtakeCommitment = 0.55f,
+                    defendCommitment = 0.55f,
+                    ersDeploymentQuality = 0.65f,
+                    drsUsageQuality = 0.75f,
+                    mistakeChancePerLap = 0.09f,
+                    trafficAvoidanceCaution = 1.05f,
+                    wetWeatherCaution = 1.2f,
+                    tyreSavingBias = 0.20f
+                };
             }
 
             if (difficulty == RaceDifficulty.Hard)
             {
-                return 1.05f;
+                return new AiDifficultyProfile
+                {
+                    brakeDistanceMultiplier = 1.04f,
+                    minimumCornerSpeedConfidence = 0.94f,
+                    apexErrorMeters = 0.7f,
+                    throttleDelay = 0.14f,
+                    exitThrottleConfidence = 0.90f,
+                    lineOffsetNoise = 0.35f,
+                    reactionTimeSeconds = 0.32f,
+                    overtakeCommitment = 0.75f,
+                    defendCommitment = 0.78f,
+                    ersDeploymentQuality = 0.85f,
+                    drsUsageQuality = 0.90f,
+                    mistakeChancePerLap = 0.045f,
+                    trafficAvoidanceCaution = 0.85f,
+                    wetWeatherCaution = 1.0f,
+                    tyreSavingBias = 0.12f
+                };
             }
 
-            return 1.11f;
-        }
-
-        public float GetDifficultyBrakeMargin()
-        {
-            RaceDifficulty difficulty = Settings.Difficulty;
-            if (difficulty == RaceDifficulty.Easy)
+            return new AiDifficultyProfile
             {
-                return 1f;
-            }
-
-            if (difficulty == RaceDifficulty.Medium)
-            {
-                return 0.7f;
-            }
-
-            if (difficulty == RaceDifficulty.Hard)
-            {
-                return 0.38f;
-            }
-
-            return 0.18f;
+                brakeDistanceMultiplier = 1.10f,
+                minimumCornerSpeedConfidence = 0.99f,
+                apexErrorMeters = 0.22f,
+                throttleDelay = 0.04f,
+                exitThrottleConfidence = 0.99f,
+                lineOffsetNoise = 0.12f,
+                reactionTimeSeconds = 0.14f,
+                overtakeCommitment = 0.92f,
+                defendCommitment = 0.93f,
+                ersDeploymentQuality = 0.97f,
+                drsUsageQuality = 0.98f,
+                mistakeChancePerLap = 0.012f,
+                trafficAvoidanceCaution = 0.62f,
+                wetWeatherCaution = 0.85f,
+                tyreSavingBias = 0.05f
+            };
         }
 
         public string GapAheadText(RaceParticipant participant)
@@ -1916,6 +2027,12 @@ namespace LocalFormulaRacing
                 playerCar = Career.ApplyCareerUpgrades(playerCar);
             }
 
+            // Without a usable qualifying result (the common quick-race path, since
+            // quick race is never a career race) the player no longer defaults to
+            // pole - the fallback itself is difficulty-scaled. AI fallback slots are
+            // then built around whichever slot the player lands in so the two streams
+            // can never collide.
+            int playerGridFallback = CurrentSession == RaceWeekendSession.Qualifying ? 0 : ResolvePlayerGridFallback();
             PlayerParticipant = SpawnParticipant(
                 "player",
                 playerName,
@@ -1925,7 +2042,7 @@ namespace LocalFormulaRacing
                 null,
                 playerTeam,
                 playerCar,
-                ResolveGridIndex("player", 0));
+                ResolveGridIndex("player", playerGridFallback));
 
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
@@ -1940,8 +2057,14 @@ namespace LocalFormulaRacing
             }
 
             List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, ReplacedDriverIdForPlayerTeam(playerTeamId));
+            int aiFallbackSlot = 0;
             for (int i = 0; i < aiDrivers.Count; i++)
             {
+                if (aiFallbackSlot == playerGridFallback)
+                {
+                    aiFallbackSlot++;
+                }
+
                 DriverData driver = aiDrivers[i];
                 TeamData team = Data.FindTeam(driver.teamId);
                 CarPerformanceData car = Data.FindCar(team.carPerformanceId);
@@ -1954,8 +2077,34 @@ namespace LocalFormulaRacing
                     driver,
                     team,
                     car,
-                    ResolveGridIndex(driver.id, i + 1));
+                    ResolveGridIndex(driver.id, aiFallbackSlot));
+                aiFallbackSlot++;
             }
+        }
+
+        // Difficulty-scaled starting slot used only when no real qualifying result
+        // exists for this session (quick race with no qualifying run, in practice).
+        // 0-based index; Expert lands dead last against the full 21-car AI field.
+        int ResolvePlayerGridFallback()
+        {
+            int lastIndex = Mathf.Max(0, FullWeekendAiCount);
+            RaceDifficulty difficulty = Settings.Difficulty;
+            if (difficulty == RaceDifficulty.Easy)
+            {
+                return Mathf.Clamp(Random.Range(4, 8), 0, lastIndex);
+            }
+
+            if (difficulty == RaceDifficulty.Medium)
+            {
+                return Mathf.Clamp(Random.Range(9, 14), 0, lastIndex);
+            }
+
+            if (difficulty == RaceDifficulty.Hard)
+            {
+                return Mathf.Clamp(Random.Range(15, 20), 0, lastIndex);
+            }
+
+            return lastIndex;
         }
 
         void BuildQualifyingField(string playerTeamId)
@@ -2189,7 +2338,7 @@ namespace LocalFormulaRacing
             participant.Initialize(driverId, driverName, teamId, teamShort, player, driver, team, car);
             participant.gridPosition = gridIndex + 1;
             participant.pitBoxIndex = Mathf.Clamp(gridIndex, 0, TrackRuntime.PitBoxCount - 1);
-            participant.startReactionDelay = player ? 0f : Random.Range(0.12f, 0.62f);
+            participant.startReactionDelay = player ? 0f : ResolveAiStartReactionDelay(driver);
             participant.hasLastSafePosition = true;
             participant.lastSafePosition = spawnPosition;
             participant.lastSafeRotation = carObject.transform.rotation;
@@ -2245,6 +2394,19 @@ namespace LocalFormulaRacing
 
             if (State != null) State.RegisterParticipant(participant);
             return participant;
+        }
+
+        // Reaction delay scales with difficulty's reactionTimeSeconds and the
+        // driver's own awareness/consistency, instead of one flat random range for
+        // every AI regardless of difficulty or driver skill. Lower skill/difficulty
+        // launches later and less consistently; Expert-tier AI launches sharp.
+        float ResolveAiStartReactionDelay(DriverData driver)
+        {
+            AiDifficultyProfile profile = GetAiDifficultyProfile();
+            float skillBlend = driver == null ? 0.5f : Mathf.Clamp01((driver.awareness + driver.consistency) / 200f);
+            float baseDelay = profile.reactionTimeSeconds * Mathf.Lerp(1.3f, 0.75f, skillBlend);
+            float variance = Mathf.Lerp(0.28f, 0.05f, skillBlend);
+            return Mathf.Max(0f, baseDelay + Random.Range(-variance, variance));
         }
 
         Vector3 FindRoadSpawnPosition(Vector3 desired, string driverName, out bool hitRoad)
@@ -2988,6 +3150,29 @@ namespace LocalFormulaRacing
         {
             if (!participant.pitEntryAligned)
             {
+                // Two cars entering the pit lane in the same few-second window must
+                // never both be guided onto, then snapped onto, the single shared
+                // entry coordinate Track.GetPitEntryPose returns. Hold the trailing
+                // car a short distance back along the approach until the leader has
+                // cleared the entry point, mirroring how GetPitQueuePose already
+                // holds cars back from a shared box target.
+                RaceParticipant entryBlocker = FindPitEntryCarAhead(participant);
+                if (entryBlocker != null)
+                {
+                    Vector3 holdPosition;
+                    Quaternion holdRotation;
+                    GetPitEntryHoldPose(participant, out holdPosition, out holdRotation);
+                    participant.vehicle.SetPitLimiter(true);
+                    participant.vehicle.SetPitServiceHold(true);
+                    participant.vehicle.GuideToPitPose(holdPosition, holdRotation, 14f, 130f);
+                    if (participant.isPlayer)
+                    {
+                        SessionMessage = "Pit entry: holding for the car ahead";
+                    }
+
+                    return;
+                }
+
                 Vector3 entryPosition;
                 Quaternion entryRotation;
                 Track.GetPitEntryPose(out entryPosition, out entryRotation);
@@ -3082,6 +3267,52 @@ namespace LocalFormulaRacing
             return Mathf.Clamp(target - ownDistance + 8f, 8f, 60f);
         }
 
+        // Any other car still occupying the shared pit-entry coordinate: either
+        // approaching it (Entry, not yet aligned) or having only just aligned onto it
+        // and not yet moved on toward its own box. Gated on real proximity to the
+        // entry point itself, not just phase, so the hold clears the moment the
+        // leader has actually moved away from that specific spot.
+        RaceParticipant FindPitEntryCarAhead(RaceParticipant participant)
+        {
+            float entryTarget = Track.length * 0.885f;
+            TrackProgress own = Track.GetProgress(participant.transform.position);
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant other = Participants[i];
+                if (other == null || other == participant || other.vehicle == null || other.pitPhase != PitPhase.Entry)
+                {
+                    continue;
+                }
+
+                TrackProgress otherProgress = Track.GetProgress(other.transform.position);
+                float gap = Vector3.Distance(other.transform.position, participant.transform.position);
+                float aheadBy = Track.WrapDistance(otherProgress.distance - own.distance);
+                float otherDistanceFromEntry = Track.WrapDistance(entryTarget - otherProgress.distance);
+                if (gap < 16f && aheadBy > 0.3f && aheadBy < 16f && otherDistanceFromEntry < 16f)
+                {
+                    return other;
+                }
+            }
+
+            return null;
+        }
+
+        // A point a few car lengths before the shared entry coordinate, along the
+        // same approach direction - mirrors GetPitQueuePose's "distance minus
+        // holdback" pattern but anchored to the entry point rather than a pit box.
+        void GetPitEntryHoldPose(RaceParticipant participant, out Vector3 position, out Quaternion rotation)
+        {
+            float entryTarget = Track.length * 0.885f;
+            float ownDistance = Track.GetProgress(participant.transform.position).distance;
+            float holdback = Mathf.Clamp(entryTarget - ownDistance + 8f, 8f, 45f);
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Track.SampleAtDistance(entryTarget - holdback, out point, out forward, out right);
+            position = point + right * (Track.roadHalfWidth + 5.6f) + Vector3.up * 0.58f;
+            rotation = Quaternion.LookRotation(forward, Vector3.up);
+        }
+
         void BeginPitStop(RaceParticipant participant)
         {
             participant.pitPhase = PitPhase.Service;
@@ -3135,6 +3366,12 @@ namespace LocalFormulaRacing
             participant.requestedPitCompoundSet = false;
             participant.pitTyreSelectionActive = false;
             participant.pitTimer = 0f;
+            // The release gap only throttles how often a new car is admitted to
+            // Release - a car already guided toward the (single) release point can
+            // still be mid-transit when the next one is let go. Stagger each car's
+            // actual release target by how many others are already in Release so two
+            // of them never both guide onto, then snap onto, the identical point.
+            participant.pitReleaseStagger = CountParticipantsInPitPhase(PitPhase.Release);
             participant.pitPhase = PitPhase.Release;
             participant.pitServiceDuration = 0f;
             if (participant.isPlayer)
@@ -3144,11 +3381,27 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Number of other participants currently sitting in the given pit phase;
+        // used to stagger cars that would otherwise share one fixed pose.
+        int CountParticipantsInPitPhase(PitPhase phase)
+        {
+            int count = 0;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                if (Participants[i] != null && Participants[i].pitPhase == phase)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
         void UpdatePitRelease(RaceParticipant participant)
         {
             Vector3 releasePosition;
             Quaternion releaseRotation;
-            Track.GetPitReleasePose(out releasePosition, out releaseRotation);
+            Track.GetPitReleasePose(participant.pitReleaseStagger, out releasePosition, out releaseRotation);
             participant.vehicle.SetPitServiceHold(true);
             participant.vehicle.SetPitLimiter(true);
             float distance = participant.vehicle.GuideToPitPose(releasePosition, releaseRotation, 21f, 210f);
@@ -3456,7 +3709,63 @@ namespace LocalFormulaRacing
             }
 
             RecordPlayerRaceStats(results);
+            LogAiDiagnostics(results);
             ui.ShowResults(this, results, IsCareerRace);
+        }
+
+        // One-shot post-race summary so an Expert AI balance pass can be checked
+        // from the log instead of only from playtesting feel.
+        void LogAiDiagnostics(List<RaceResultEntry> results)
+        {
+            if (PlayerParticipant == null || results == null || results.Count == 0)
+            {
+                return;
+            }
+
+            float playerBest = PlayerParticipant.lapTracker == null ? 0f : PlayerParticipant.lapTracker.BestLapTime;
+            List<float> aiBests = new List<float>();
+            int ersFrameTotal = 0;
+            int drsFrameTotal = 0;
+            int aiCount = 0;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant p = Participants[i];
+                if (p == null || p.isPlayer)
+                {
+                    continue;
+                }
+
+                if (p.lapTracker != null && p.lapTracker.BestLapTime > 0f)
+                {
+                    aiBests.Add(p.lapTracker.BestLapTime);
+                }
+
+                ersFrameTotal += p.ersDeployFrameCount;
+                drsFrameTotal += p.drsActiveFrameCount;
+                aiCount++;
+            }
+
+            aiBests.Sort();
+            float fastestAi = aiBests.Count > 0 ? aiBests[0] : 0f;
+            float medianAi = aiBests.Count > 0 ? aiBests[aiBests.Count / 2] : 0f;
+            float slowestAi = aiBests.Count > 0 ? aiBests[aiBests.Count - 1] : 0f;
+
+            RaceResultEntry playerResult = results.Find(entry => entry.isPlayer);
+            RaceResultEntry winner = results[0];
+            float playerGapToWinner = playerResult != null
+                ? (playerResult.totalTime + playerResult.penaltiesSeconds) - (winner.totalTime + winner.penaltiesSeconds)
+                : 0f;
+
+            GameLog.Info("[AIDiagnostics] difficulty=" + Settings.Difficulty +
+                         " playerBestLap=" + (playerBest > 0f ? UiFactory.FormatTime(playerBest) : "--") +
+                         " aiFastestLap=" + (fastestAi > 0f ? UiFactory.FormatTime(fastestAi) : "--") +
+                         " aiMedianLap=" + (medianAi > 0f ? UiFactory.FormatTime(medianAi) : "--") +
+                         " aiSlowestLap=" + (slowestAi > 0f ? UiFactory.FormatTime(slowestAi) : "--") +
+                         " playerFinish=P" + (playerResult != null ? playerResult.finishingPosition.ToString() : "--") +
+                         " winner=" + winner.driverName +
+                         " playerGapToWinner=" + playerGapToWinner.ToString("0.0") + "s" +
+                         " aiAvgErsDeployFrames=" + (aiCount > 0 ? (ersFrameTotal / (float)aiCount).ToString("0") : "0") +
+                         " aiAvgDrsActiveFrames=" + (aiCount > 0 ? (drsFrameTotal / (float)aiCount).ToString("0") : "0"));
         }
 
         void RecordPlayerRaceStats(List<RaceResultEntry> results)

@@ -38,6 +38,13 @@ namespace LocalFormulaRacing
         public int pitBoxIndex;
         // Set while the car is waiting for a safe release gap after service.
         public bool pitAwaitingRelease;
+        // Which staggered release point (see TrackRuntime.GetPitReleasePose) this car
+        // was assigned when it entered Release, so simultaneous releases never target
+        // the identical shared coordinate.
+        public int pitReleaseStagger;
+        // Lightweight per-race ERS/DRS usage counters for post-session diagnostics.
+        public int ersDeployFrameCount;
+        public int drsActiveFrameCount;
         public float pitTimer;
         public float pitServiceDuration;
         public bool pitLimiterUntilExit;
