@@ -56,6 +56,18 @@ namespace LocalFormulaRacing
         // road height (e.g. settled on lower ground beneath an elevated section)
         // so recovery can trigger on a sustained mismatch, not only a hard fall.
         public float belowTrackTimer;
+        // Race-control incident detection state (RaceManager.DetectIncidents): how
+        // long this car has been sitting near-stationary on/off track, and how long
+        // it has been facing the wrong way, plus a per-car cooldown so one ongoing
+        // incident isn't re-classified every detection tick.
+        public float stoppedOnTrackTimer;
+        public float wrongWayTimer;
+        public float incidentCooldownTimer;
+        public float previousSpeedKphForIncident;
+        public float previousDamagePercentForIncident;
+        // Completed AI overtakes this race (AiVehicleController increments this on
+        // the CompletingPass transition) - surfaced in the post-race diagnostics log.
+        public int overtakesCompleted;
         public int pitStops;
         public TyreCompound startingCompound = TyreCompound.Medium;
         public TyreCompound nextPitCompound = TyreCompound.Medium;

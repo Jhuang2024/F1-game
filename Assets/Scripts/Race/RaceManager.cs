@@ -50,6 +50,38 @@ namespace LocalFormulaRacing
         public RaceStateManager State { get; private set; }
         public List<RaceParticipant> Participants { get { return State != null ? State.Participants : emptyParticipants; } }
 
+        // ---------- Race control / safety car ----------
+        public enum RaceControlState { Green, YellowSector, VirtualSafetyCar, SafetyCarDeploying, SafetyCarActive, SafetyCarInThisLap, Restart }
+        enum IncidentSeverity { Minor, Medium, Major }
+
+        public RaceControlState CurrentRaceControlState { get; private set; } = RaceControlState.Green;
+        // Absolute target speed for a full safety car period; only meaningful while
+        // CurrentRaceControlState == SafetyCarActive.
+        public float SafetyCarTargetSpeedKph { get; private set; } = 150f;
+        // Percentage pace reduction under a Virtual Safety Car (no physical car, just
+        // a pace delta) - only meaningful while CurrentRaceControlState == VirtualSafetyCar.
+        public float VirtualSafetyCarPaceMultiplier { get; private set; } = 0.62f;
+        public bool IsPitLaneOpen { get; private set; } = true;
+        public bool IsOvertakingAllowed { get; private set; } = true;
+        // -1 when no sector-local yellow is active; otherwise the 1-3 sector index
+        // overtaking is currently banned in, independent of the full SC/VSC ban above.
+        public int YellowFlagSector { get; private set; } = -1;
+        public int IncidentCount { get; private set; }
+        public int SafetyCarDeploymentCount { get; private set; }
+        public int AiOvertakesCompletedCount { get; private set; }
+
+        float raceControlCheckTimer;
+        const float RaceControlCheckInterval = 0.35f;
+        float safetyCarTimer;
+        float restartControlTimer;
+        bool safetyCarInThisLapMessageSent;
+        bool playerScPitPromptSent;
+        float yellowSectorClearTimer;
+        float drsRestartCooldownTimer;
+        RaceParticipant safetyCarQueueLeader;
+        float lastIncidentTime = -999f;
+        float lastIncidentDistance = -99999f;
+
         RuntimeUi ui;
         readonly List<RaceParticipant> emptyParticipants = new List<RaceParticipant>();
         GameObject raceWorld;
@@ -177,6 +209,7 @@ namespace LocalFormulaRacing
             lastRecordedPlayerBestLap = 0f;
             playerResetCooldown = 0f;
             ResetEngineerState();
+            ResetRaceControlState();
             if (session == RaceWeekendSession.Qualifying && !preserveQualifyingState)
             {
                 qualifyingPhase = 1;
@@ -507,6 +540,7 @@ namespace LocalFormulaRacing
             SortRunningOrder();
             UpdateRaceEngineer();
             UpdateWeatherTransition();
+            UpdateRaceControl();
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
                 if (ShouldCompleteQualifyingRun())
@@ -674,6 +708,484 @@ namespace LocalFormulaRacing
             PostEngineerMessage(raining
                 ? "Rain is arriving. Grip is dropping, intermediates will come alive."
                 : "The rain has stopped and the track is drying. Slicks will come to you.", true);
+        }
+
+        void ResetRaceControlState()
+        {
+            CurrentRaceControlState = RaceControlState.Green;
+            SafetyCarTargetSpeedKph = 150f;
+            VirtualSafetyCarPaceMultiplier = 0.62f;
+            IsPitLaneOpen = true;
+            IsOvertakingAllowed = true;
+            YellowFlagSector = -1;
+            IncidentCount = 0;
+            SafetyCarDeploymentCount = 0;
+            AiOvertakesCompletedCount = 0;
+            raceControlCheckTimer = 0f;
+            safetyCarTimer = 0f;
+            restartControlTimer = 0f;
+            safetyCarInThisLapMessageSent = false;
+            playerScPitPromptSent = false;
+            yellowSectorClearTimer = 0f;
+            drsRestartCooldownTimer = 0f;
+            safetyCarQueueLeader = null;
+            lastIncidentTime = -999f;
+            lastIncidentDistance = -99999f;
+            if (State != null)
+            {
+                for (int i = 0; i < State.Participants.Count; i++)
+                {
+                    RaceParticipant participant = State.Participants[i];
+                    if (participant == null)
+                    {
+                        continue;
+                    }
+
+                    participant.stoppedOnTrackTimer = 0f;
+                    participant.wrongWayTimer = 0f;
+                    participant.incidentCooldownTimer = 0f;
+                    participant.previousSpeedKphForIncident = 0f;
+                    participant.previousDamagePercentForIncident = 0f;
+                    participant.overtakesCompleted = 0;
+                }
+            }
+        }
+
+        // Race control state machine: detects incidents across the field and drives
+        // yellow flag / VSC / full safety car escalation, then de-escalates back to
+        // green through a scripted restart. Skipped entirely in qualifying/time
+        // trial where there is no field-wide incident model.
+        void UpdateRaceControl()
+        {
+            if (Track == null || CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial || State == null)
+            {
+                return;
+            }
+
+            drsRestartCooldownTimer = Mathf.Max(0f, drsRestartCooldownTimer - Time.deltaTime);
+
+            if (yellowSectorNumber >= 0)
+            {
+                yellowSectorClearTimer -= Time.deltaTime;
+                if (yellowSectorClearTimer <= 0f)
+                {
+                    yellowSectorNumber = -1;
+                    YellowFlagSector = -1;
+                    if (CurrentRaceControlState == RaceControlState.YellowSector)
+                    {
+                        CurrentRaceControlState = RaceControlState.Green;
+                    }
+                }
+            }
+
+            raceControlCheckTimer -= Time.deltaTime;
+            if (raceControlCheckTimer <= 0f)
+            {
+                raceControlCheckTimer = RaceControlCheckInterval;
+                DetectIncidents();
+            }
+
+            DriveRaceControlStateMachine();
+        }
+
+        // Scans every active participant for the incident types the brief calls
+        // out - collisions, stopped/stranded cars, wrong-way, severe damage and
+        // rare mechanical failure - and classifies anything found into a severity
+        // that ApplyIncidentSeverity can turn into a yellow/VSC/SC escalation.
+        void DetectIncidents()
+        {
+            int freqSetting = Settings == null ? 2 : Mathf.Clamp(Settings.Current.safetyCarFrequency, 0, 3);
+            bool escalationAllowed = freqSetting > 0;
+            float freqScale = freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.5f : (freqSetting == 3 ? 2f : 1f));
+            bool preRace = StartCountdown > 0f;
+            int mechanicalMode = Settings == null ? 2 : Settings.Current.mechanicalFailureMode;
+
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant participant = Participants[i];
+                if (participant == null || participant.vehicle == null || participant.retired || participant.finished)
+                {
+                    continue;
+                }
+
+                float speedKph = Mathf.Abs(participant.vehicle.CurrentSpeedKph);
+                float damagePercent = participant.vehicle.Damage == null ? 0f : participant.vehicle.Damage.OverallPercent;
+                bool inPitPhaseOrPitting = participant.isPitting || participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit;
+
+                float speedDrop = participant.previousSpeedKphForIncident - speedKph;
+                float damageJump = damagePercent - participant.previousDamagePercentForIncident;
+                bool collision = !preRace && !inPitPhaseOrPitting && speedDrop > 25f && damageJump > 3f;
+                participant.previousSpeedKphForIncident = speedKph;
+                participant.previousDamagePercentForIncident = damagePercent;
+
+                bool stoppedCandidate = speedKph < 8f && !preRace && !inPitPhaseOrPitting;
+                participant.stoppedOnTrackTimer = stoppedCandidate ? participant.stoppedOnTrackTimer + RaceControlCheckInterval : 0f;
+
+                TrackProgress progress = State.GetCurrentProgress(participant);
+                float facingDot = Vector3.Dot(participant.transform.forward, progress.forward);
+                bool wrongWayCandidate = !preRace && !inPitPhaseOrPitting && speedKph > 5f && facingDot < -0.35f;
+                participant.wrongWayTimer = wrongWayCandidate ? participant.wrongWayTimer + RaceControlCheckInterval : 0f;
+
+                participant.incidentCooldownTimer = Mathf.Max(0f, participant.incidentCooldownTimer - RaceControlCheckInterval);
+                if (participant.incidentCooldownTimer > 0f)
+                {
+                    continue;
+                }
+
+                bool destroyed = participant.vehicle.Damage != null && participant.vehicle.Damage.IsDestroyed;
+                bool blockingLine = Mathf.Abs(progress.lateralDistance) <= Track.roadHalfWidth * 0.85f;
+
+                if (destroyed)
+                {
+                    RetireParticipant(participant, "Collision damage");
+                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Major : IncidentSeverity.Minor, progress, freqScale, escalationAllowed);
+                    participant.incidentCooldownTimer = 20f;
+                    continue;
+                }
+
+                if (collision)
+                {
+                    IncidentSeverity severity = damageJump > 22f ? IncidentSeverity.Major : (damageJump > 10f ? IncidentSeverity.Medium : IncidentSeverity.Minor);
+                    RegisterIncident(participant, severity, progress, freqScale, escalationAllowed);
+                    participant.incidentCooldownTimer = 12f;
+                    continue;
+                }
+
+                if (damagePercent >= 85f)
+                {
+                    RegisterIncident(participant, IncidentSeverity.Major, progress, freqScale, escalationAllowed);
+                    participant.incidentCooldownTimer = 25f;
+                    continue;
+                }
+
+                bool offTrackStranded = Mathf.Abs(progress.lateralDistance) > Track.roadHalfWidth + 3f && speedKph < 10f && !preRace && !inPitPhaseOrPitting;
+                if (participant.stoppedOnTrackTimer > 8f || (offTrackStranded && participant.stoppedOnTrackTimer > 5f))
+                {
+                    if (participant.stoppedOnTrackTimer > 20f)
+                    {
+                        RetireParticipant(participant, "Stranded");
+                    }
+
+                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed);
+                    participant.incidentCooldownTimer = 15f;
+                    continue;
+                }
+
+                if (participant.wrongWayTimer > 3f)
+                {
+                    RegisterIncident(participant, IncidentSeverity.Minor, progress, freqScale, escalationAllowed);
+                    participant.incidentCooldownTimer = 10f;
+                    continue;
+                }
+
+                // Rare mechanical failure spice, gated by the settings toggle and this
+                // car's reliability stat. Kept deliberately small: over a full 5-lap
+                // quick race this is a handful of percent chance per car, not per lap.
+                bool mechanicalEligible = mechanicalMode != 0 && !(mechanicalMode == 1 && participant.isPlayer) && !preRace;
+                if (mechanicalEligible)
+                {
+                    float reliability = participant.carData == null ? 88f : participant.carData.reliability;
+                    float perSecondChance = Mathf.Lerp(0.00006f, 0.000004f, Mathf.Clamp01(reliability / 100f));
+                    if (Random.value < perSecondChance * RaceControlCheckInterval)
+                    {
+                        RetireParticipant(participant, "Mechanical failure");
+                        RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed);
+                        participant.incidentCooldownTimer = 30f;
+                    }
+                }
+            }
+        }
+
+        // Groups incidents that land within a few seconds and a short stretch of
+        // track into one escalated event (a simple pileup approximation) rather
+        // than full physics collision-graph analysis.
+        void RegisterIncident(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed)
+        {
+            IncidentCount++;
+            bool pileup = (RaceElapsed - lastIncidentTime) < 6f && Mathf.Abs(Track.WrapDistance(progress.distance - lastIncidentDistance)) < 40f;
+            lastIncidentTime = RaceElapsed;
+            lastIncidentDistance = progress.distance;
+            if (pileup && severity != IncidentSeverity.Major)
+            {
+                severity = severity == IncidentSeverity.Minor ? IncidentSeverity.Medium : IncidentSeverity.Major;
+            }
+
+            ApplyIncidentSeverity(participant, severity, progress, freqScale, escalationAllowed);
+        }
+
+        void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed)
+        {
+            // A local sector yellow always applies regardless of the safety-car
+            // frequency setting - it is the lightest-weight signal and Off only
+            // disables VSC/SC escalation, not flags entirely.
+            TriggerYellowSector(progress.sector);
+
+            bool alreadyEscalated = CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
+                                     CurrentRaceControlState == RaceControlState.SafetyCarActive ||
+                                     CurrentRaceControlState == RaceControlState.SafetyCarInThisLap ||
+                                     CurrentRaceControlState == RaceControlState.Restart;
+            if (!escalationAllowed || alreadyEscalated || severity == IncidentSeverity.Minor)
+            {
+                return;
+            }
+
+            if (severity == IncidentSeverity.Medium)
+            {
+                if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar && Random.value < 0.55f * freqScale)
+                {
+                    BeginVirtualSafetyCar();
+                }
+
+                return;
+            }
+
+            // Major.
+            if (Random.value < 0.7f * freqScale)
+            {
+                BeginSafetyCarDeployment();
+            }
+            else if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar)
+            {
+                BeginVirtualSafetyCar();
+            }
+        }
+
+        int yellowSectorNumber = -1;
+
+        void TriggerYellowSector(int sector)
+        {
+            if (CurrentRaceControlState == RaceControlState.Green)
+            {
+                CurrentRaceControlState = RaceControlState.YellowSector;
+            }
+
+            bool freshFlag = yellowSectorNumber != sector || yellowSectorClearTimer <= 0f;
+            yellowSectorNumber = sector;
+            YellowFlagSector = sector;
+            yellowSectorClearTimer = 10f;
+            if (freshFlag && Settings != null && Settings.Current.raceControlMessages)
+            {
+                PostEngineerMessage("Yellow flag, sector " + sector + ".", false);
+            }
+        }
+
+        void BeginVirtualSafetyCar()
+        {
+            CurrentRaceControlState = RaceControlState.VirtualSafetyCar;
+            safetyCarTimer = Random.Range(14f, 24f);
+            IsOvertakingAllowed = false;
+            playerScPitPromptSent = false;
+            if (Settings != null && Settings.Current.raceControlMessages)
+            {
+                PostEngineerMessage("Virtual safety car deployed.", true);
+            }
+        }
+
+        void BeginSafetyCarDeployment()
+        {
+            CurrentRaceControlState = RaceControlState.SafetyCarDeploying;
+            safetyCarTimer = Random.Range(6f, 10f);
+            SafetyCarTargetSpeedKph = Random.Range(140f, 160f);
+            IsOvertakingAllowed = false;
+            SafetyCarDeploymentCount++;
+            playerScPitPromptSent = false;
+            List<RaceParticipant> order = GetRunningOrderSnapshot();
+            safetyCarQueueLeader = order.Count > 0 ? order[0] : null;
+            if (Settings != null && Settings.Current.raceControlMessages)
+            {
+                PostEngineerMessage("Safety car deployed.", true);
+            }
+        }
+
+        // Ticks the active race-control state forward, including the safety-car
+        // period's scripted restart chain (Active -> in this lap -> restart -> green).
+        void DriveRaceControlStateMachine()
+        {
+            switch (CurrentRaceControlState)
+            {
+                case RaceControlState.Green:
+                case RaceControlState.YellowSector:
+                    IsOvertakingAllowed = true;
+                    IsPitLaneOpen = true;
+                    break;
+
+                case RaceControlState.VirtualSafetyCar:
+                    IsPitLaneOpen = true;
+                    MaybePromptPlayerScPit();
+                    safetyCarTimer -= Time.deltaTime;
+                    if (safetyCarTimer <= 0f)
+                    {
+                        CurrentRaceControlState = RaceControlState.Green;
+                        IsOvertakingAllowed = true;
+                        if (Settings != null && Settings.Current.raceControlMessages)
+                        {
+                            PostEngineerMessage("VSC ending, green flag.", true);
+                        }
+                    }
+                    break;
+
+                case RaceControlState.SafetyCarDeploying:
+                    IsPitLaneOpen = true;
+                    MaybePromptPlayerScPit();
+                    safetyCarTimer -= Time.deltaTime;
+                    if (safetyCarTimer <= 0f)
+                    {
+                        CurrentRaceControlState = RaceControlState.SafetyCarActive;
+                        safetyCarTimer = Random.Range(28f, 55f);
+                        if (Settings != null && Settings.Current.raceControlMessages)
+                        {
+                            PostEngineerMessage("Safety car is now in position.", true);
+                        }
+                    }
+                    break;
+
+                case RaceControlState.SafetyCarActive:
+                    IsPitLaneOpen = true;
+                    MaybePromptPlayerScPit();
+                    safetyCarTimer -= Time.deltaTime;
+                    if (safetyCarTimer <= 0f)
+                    {
+                        CurrentRaceControlState = RaceControlState.SafetyCarInThisLap;
+                        safetyCarInThisLapMessageSent = false;
+                    }
+                    break;
+
+                case RaceControlState.SafetyCarInThisLap:
+                    if (!safetyCarInThisLapMessageSent)
+                    {
+                        safetyCarInThisLapMessageSent = true;
+                        restartControlTimer = 12f;
+                        if (Settings != null && Settings.Current.raceControlMessages)
+                        {
+                            PostEngineerMessage("Safety car in this lap.", true);
+                        }
+                    }
+
+                    restartControlTimer -= Time.deltaTime;
+                    if (restartControlTimer <= 0f)
+                    {
+                        CurrentRaceControlState = RaceControlState.Restart;
+                        restartControlTimer = 4f;
+                        if (Settings != null && Settings.Current.raceControlMessages)
+                        {
+                            PostEngineerMessage("Green flag imminent, get ready.", true);
+                        }
+                    }
+                    break;
+
+                case RaceControlState.Restart:
+                    restartControlTimer -= Time.deltaTime;
+                    if (restartControlTimer <= 0f)
+                    {
+                        CurrentRaceControlState = RaceControlState.Green;
+                        IsOvertakingAllowed = true;
+                        drsRestartCooldownTimer = 45f;
+                        playerScPitPromptSent = false;
+                        safetyCarQueueLeader = null;
+                        if (Settings != null && Settings.Current.raceControlMessages)
+                        {
+                            PostEngineerMessage("Green flag, go go go!", true);
+                        }
+                    }
+                    break;
+            }
+        }
+
+        void MaybePromptPlayerScPit()
+        {
+            if (playerScPitPromptSent || PlayerParticipant == null)
+            {
+                return;
+            }
+
+            if (!ShouldAiPitUnderSafetyCar(PlayerParticipant))
+            {
+                return;
+            }
+
+            playerScPitPromptSent = true;
+            if (Settings != null && Settings.Current.raceControlMessages)
+            {
+                PostEngineerMessage("Safety car deployed. Box now for reduced time loss?", true);
+            }
+        }
+
+        // AI (and, via RecommendedPitUnderSafetyCar, the player HUD) pit-under-SC
+        // decision: strongly favour pitting when there is a real strategic reason to
+        // (mandatory stop owed, tyres worn, the planned window is close, or the
+        // compound is wrong for the current weather) and there is enough race left
+        // for it to matter; avoid it otherwise (just stopped, tyres still fresh, or
+        // the race is basically over).
+        public bool ShouldAiPitUnderSafetyCar(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null || participant.vehicle.Tyres == null || participant.lapTracker == null ||
+                CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
+            {
+                return false;
+            }
+
+            bool underSafetyPeriod = CurrentRaceControlState == RaceControlState.SafetyCarActive ||
+                                      CurrentRaceControlState == RaceControlState.VirtualSafetyCar ||
+                                      CurrentRaceControlState == RaceControlState.SafetyCarDeploying;
+            if (!underSafetyPeriod)
+            {
+                return false;
+            }
+
+            if (participant.isPitting || participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit)
+            {
+                return false;
+            }
+
+            int completedLaps = participant.lapTracker.CompletedLaps;
+            if (completedLaps < 1)
+            {
+                return false;
+            }
+
+            int lapsRemaining = Mathf.Max(0, RaceLaps - completedLaps);
+            if (lapsRemaining <= 1)
+            {
+                return false;
+            }
+
+            float wear = participant.vehicle.Tyres.Wear;
+            bool freshTyres = participant.pitStops > 0 && wear > 0.85f;
+            if (freshTyres)
+            {
+                return false;
+            }
+
+            bool mandatoryStopOwed = participant.pitStops == 0;
+            bool tyresWorn = wear < 0.55f;
+
+            int windowLap = NextPlannedPitLapFor(participant);
+            bool windowClose = windowLap > 0 && completedLaps >= windowLap - 3;
+
+            WeatherState currentWeather = Track == null ? WeatherState.Clear : Track.weather;
+            bool wetNow = currentWeather == WeatherState.LightRain || currentWeather == WeatherState.HeavyRain;
+            TyreCompound currentCompound = participant.vehicle.Tyres.Compound;
+            bool onWetTyre = currentCompound == TyreCompound.Intermediate || currentCompound == TyreCompound.Wet;
+            bool weatherMismatch = wetNow != onWetTyre;
+
+            if (mandatoryStopOwed && (tyresWorn || windowClose || weatherMismatch))
+            {
+                return true;
+            }
+
+            if (!mandatoryStopOwed && (weatherMismatch || (tyresWorn && windowClose)))
+            {
+                return true;
+            }
+
+            return false;
+        }
+
+        // Player-facing counterpart for a parallel HUD pass: identical logic, named
+        // for what it means from the player's seat rather than the AI's.
+        public bool RecommendedPitUnderSafetyCar(RaceParticipant participant)
+        {
+            return ShouldAiPitUnderSafetyCar(participant);
         }
 
         void ResetEngineerState()
@@ -1365,6 +1877,18 @@ namespace LocalFormulaRacing
                 return false;
             }
 
+            // DRS is off under any safety-car period and for a short cooldown after
+            // the restart - real F1 rule, and the simplest correct place to gate it.
+            if (drsRestartCooldownTimer > 0f ||
+                CurrentRaceControlState == RaceControlState.VirtualSafetyCar ||
+                CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
+                CurrentRaceControlState == RaceControlState.SafetyCarActive ||
+                CurrentRaceControlState == RaceControlState.SafetyCarInThisLap ||
+                CurrentRaceControlState == RaceControlState.Restart)
+            {
+                return false;
+            }
+
             TrackProgress progress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
             if (!Track.IsInDrsZone(progress.normalized))
             {
@@ -1409,6 +1933,17 @@ namespace LocalFormulaRacing
 
             float battery = participant.vehicle.ErsBattery;
             if (cornerSeverity > 0.24f || battery < 0.18f)
+            {
+                return false;
+            }
+
+            // ERS deployment is disabled through the safety-car/VSC period itself -
+            // nobody is racing for position, so there is nothing to spend it on -
+            // but it comes back at the restart where a strong launch matters.
+            if (CurrentRaceControlState == RaceControlState.VirtualSafetyCar ||
+                CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
+                CurrentRaceControlState == RaceControlState.SafetyCarActive ||
+                CurrentRaceControlState == RaceControlState.SafetyCarInThisLap)
             {
                 return false;
             }
@@ -1571,8 +2106,8 @@ namespace LocalFormulaRacing
                     trafficAvoidanceCaution = 0.85f,
                     wetWeatherCaution = 1.0f,
                     tyreSavingBias = 0.12f,
-                    paceMultiplier = 1.06f,
-                    cornerSpeedMultiplier = 1.05f,
+                    paceMultiplier = 1.09f,
+                    cornerSpeedMultiplier = 1.08f,
                     straightSpeedMultiplier = 1.00f,
                     brakeConfidenceMultiplier = 1.10f,
                     throttleAggressionMultiplier = 1.20f
@@ -1592,15 +2127,15 @@ namespace LocalFormulaRacing
                 defendCommitment = 0.93f,
                 ersDeploymentQuality = 0.97f,
                 drsUsageQuality = 0.99f,
-                mistakeChancePerLap = 0.012f,
-                trafficAvoidanceCaution = 0.62f,
+                mistakeChancePerLap = 0.008f,
+                trafficAvoidanceCaution = 0.50f,
                 wetWeatherCaution = 0.85f,
                 tyreSavingBias = 0.05f,
-                paceMultiplier = 1.11f,
-                cornerSpeedMultiplier = 1.10f,
+                paceMultiplier = 1.15f,
+                cornerSpeedMultiplier = 1.14f,
                 straightSpeedMultiplier = 1.00f,
-                brakeConfidenceMultiplier = 1.20f,
-                throttleAggressionMultiplier = 1.35f
+                brakeConfidenceMultiplier = 1.32f,
+                throttleAggressionMultiplier = 1.50f
             };
         }
 
@@ -1638,6 +2173,18 @@ namespace LocalFormulaRacing
         {
             SortRunningOrder();
             return State != null ? new List<RaceParticipant>(State.SortedOrder) : new List<RaceParticipant>();
+        }
+
+        // Called by AiVehicleController on the AttackingInside/AttackingOutside/
+        // SideBySide -> CompletingPass edge, once per completed overtake, for the
+        // post-race diagnostics log.
+        public void ReportAiOvertakeCompleted(RaceParticipant participant)
+        {
+            AiOvertakesCompletedCount++;
+            if (participant != null)
+            {
+                participant.overtakesCompleted++;
+            }
         }
 
         public void RetireParticipant(RaceParticipant participant, string reason)
@@ -3768,6 +4315,8 @@ namespace LocalFormulaRacing
             int ersFrameTotal = 0;
             int drsFrameTotal = 0;
             int aiCount = 0;
+            int aiOvertakesTotal = 0;
+            int aiLockupsTotal = 0;
             for (int i = 0; i < Participants.Count; i++)
             {
                 RaceParticipant p = Participants[i];
@@ -3783,6 +4332,8 @@ namespace LocalFormulaRacing
 
                 ersFrameTotal += p.ersDeployFrameCount;
                 drsFrameTotal += p.drsActiveFrameCount;
+                aiOvertakesTotal += p.overtakesCompleted;
+                aiLockupsTotal += p.vehicle == null || p.vehicle.Tyres == null ? 0 : p.vehicle.Tyres.TotalLockups;
                 aiCount++;
             }
 
@@ -3806,7 +4357,18 @@ namespace LocalFormulaRacing
                          " winner=" + winner.driverName +
                          " playerGapToWinner=" + playerGapToWinner.ToString("0.0") + "s" +
                          " aiAvgErsDeployFrames=" + (aiCount > 0 ? (ersFrameTotal / (float)aiCount).ToString("0") : "0") +
-                         " aiAvgDrsActiveFrames=" + (aiCount > 0 ? (drsFrameTotal / (float)aiCount).ToString("0") : "0"));
+                         " aiAvgDrsActiveFrames=" + (aiCount > 0 ? (drsFrameTotal / (float)aiCount).ToString("0") : "0") +
+                         " aiTotalDrsActiveFrames=" + drsFrameTotal +
+                         " aiTotalErsDeployFrames=" + ersFrameTotal +
+                         " aiTotalOvertakesCompleted=" + aiOvertakesTotal +
+                         " aiTotalLockups=" + aiLockupsTotal +
+                         " incidentCount=" + IncidentCount +
+                         " safetyCarDeployments=" + SafetyCarDeploymentCount);
+
+            if (Settings.Difficulty == RaceDifficulty.Expert && playerBest > 0f && fastestAi > 0f && fastestAi - playerBest > 10f)
+            {
+                GameLog.Info("[AIDiagnostics] Expert AI too slow: investigate corner speed/braking/traffic.");
+            }
         }
 
         void RecordPlayerRaceStats(List<RaceResultEntry> results)

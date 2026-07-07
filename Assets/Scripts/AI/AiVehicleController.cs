@@ -61,9 +61,87 @@ namespace LocalFormulaRacing
         float overtakeStateTimer;
         float attackSide = 1f;
 
+        // How long this car has been sitting in Following without forcing an attack -
+        // a stuck Expert eventually raises its own attack-attempt probability instead
+        // of orbiting the same 0.8-1.2s gap for the rest of the stint.
+        float followingTimer;
+
+        // Temporary post-safety-car-restart commitment boost: a lap or two of extra
+        // eagerness to attack once the field is unleashed again.
+        float postRestartCommitmentBoostTimer;
+        bool wasRestartLastFrame;
+
+        // Driver-pressure model (Part 8): 0-1, set by UpdateOvertakeState each frame
+        // based on whether this car is actively attacking/defending under close
+        // pressure. Consumed once in Update() to feed a slightly more aggressive
+        // brake/steer input into this car's own command - which the tyre lockup
+        // model then naturally reads as higher lockup risk, with no changes needed
+        // to TyreState.cs itself.
+        float pressureFactor;
+
         // Defend cover is capped to one commitment per approaching braking zone
         // so a defending AI covers the line once instead of weaving repeatedly.
         bool hasCoveredThisApex;
+
+        // Corner-type classification (Part 2): a single continuous severity number
+        // hides the fact that a flowing high-speed corner and a genuine hairpin need
+        // very different confidence curves, not the same eased Lerp toward one floor.
+        enum CornerType { HighSpeed, Medium, Slow, Hairpin }
+
+        CornerType ClassifyUpcomingCorner(float apexSeverity)
+        {
+            if (apexSeverity < 0.25f)
+            {
+                return CornerType.HighSpeed;
+            }
+
+            if (apexSeverity < 0.5f)
+            {
+                return CornerType.Medium;
+            }
+
+            if (apexSeverity < 0.75f)
+            {
+                return CornerType.Slow;
+            }
+
+            return CornerType.Hairpin;
+        }
+
+        // Per-tier apex speed curve instead of one flat Pow(severity, 1.4) eased
+        // toward the same hairpin floor for every corner. High-speed and medium
+        // corners get their own, much higher, floor so a confident (Hard/Expert)
+        // driver carries speed close to trueApexSpeed's upper end through a flowing
+        // bend instead of being dragged toward hairpin pace the moment severity
+        // crosses one broad threshold. apexConfidence (already difficulty+driver
+        // derived) blends the floor upward for a sharper driver on the same corner.
+        float EstimateApexSpeedForCornerType(CornerType type, float apexSeverity, float straightTargetSpeed, float hairpinSpeedKph, float gripMultiplier, float apexConfidence)
+        {
+            float floorSpeed;
+            float easePower;
+            switch (type)
+            {
+                case CornerType.HighSpeed:
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.84f, straightTargetSpeed * 0.94f, apexConfidence);
+                    easePower = 2.6f;
+                    break;
+                case CornerType.Medium:
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.58f, straightTargetSpeed * 0.72f, apexConfidence);
+                    easePower = 1.8f;
+                    break;
+                case CornerType.Slow:
+                    floorSpeed = Mathf.Lerp(hairpinSpeedKph * 1.15f, hairpinSpeedKph * 1.4f, apexConfidence);
+                    easePower = 1.4f;
+                    break;
+                default:
+                    floorSpeed = hairpinSpeedKph;
+                    easePower = 1.2f;
+                    break;
+            }
+
+            float eased = Mathf.Pow(Mathf.Clamp01(apexSeverity), easePower);
+            return Mathf.Lerp(straightTargetSpeed, floorSpeed, eased) * gripMultiplier;
+        }
 
         public void Initialize(RaceManager manager, RaceParticipant raceParticipant, TrackRuntime raceTrack)
         {
@@ -179,10 +257,11 @@ namespace LocalFormulaRacing
             float carCorneringStat = vehicle.CarData == null ? 78f : vehicle.CarData.cornering;
             float hairpinSpeedKph = Mathf.Lerp(76f, 108f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
 
-            // Eased so moderate bends (severity ~0.3-0.5) stay well clear of hairpin
-            // pace - only a genuinely tight corner (severity near 1) reaches the floor.
-            float apexSeverityEased = Mathf.Pow(apexSeverity, 1.4f);
-            float trueApexSpeed = Mathf.Lerp(straightTargetSpeed, hairpinSpeedKph, apexSeverityEased) * gripMultiplier;
+            // Classify the upcoming apex by type rather than treating one continuous
+            // severity number the same everywhere - a flowing high-speed kink and a
+            // genuine hairpin need very different confidence curves (Part 2).
+            CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity);
+            float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, straightTargetSpeed, hairpinSpeedKph, gripMultiplier, apexConfidence);
 
             // cornerSpeedMultiplier may exceed 1.0 for Hard/Expert: how much of the
             // tyre's real available grip a confident driver carries through the apex is
@@ -200,6 +279,25 @@ namespace LocalFormulaRacing
             float damageMultiplier = AiDamagePaceMultiplier(damagePercent);
             cruiseTargetSpeed *= damageMultiplier;
             brakingApexSpeed *= damageMultiplier;
+
+            // Safety car / VSC pace clamp (Part 5): under a full safety car every car
+            // targets the same absolute delta speed; under VSC everyone takes a flat
+            // percentage off normal pace. straightTargetSpeed is clamped too so the
+            // braking-point math downstream (which reasons from it) stays consistent.
+            if (raceManager.CurrentRaceControlState == RaceManager.RaceControlState.SafetyCarActive)
+            {
+                float safetyCarCap = raceManager.SafetyCarTargetSpeedKph;
+                straightTargetSpeed = Mathf.Min(straightTargetSpeed, safetyCarCap);
+                cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, safetyCarCap);
+                brakingApexSpeed = Mathf.Min(brakingApexSpeed, safetyCarCap);
+            }
+            else if (raceManager.CurrentRaceControlState == RaceManager.RaceControlState.VirtualSafetyCar)
+            {
+                float vscMultiplier = raceManager.VirtualSafetyCarPaceMultiplier;
+                straightTargetSpeed *= vscMultiplier;
+                cruiseTargetSpeed *= vscMultiplier;
+                brakingApexSpeed *= vscMultiplier;
+            }
 
             UpdateMistake(consistency, aggression, profile);
             UpdateOvertakeState(progress, severityHere, apexDistanceAhead, apexSeverity, turnSign, aggression, overtaking, defending, profile);
@@ -358,13 +456,34 @@ namespace LocalFormulaRacing
             }
 
             // Calmer opening seconds: keep a small throttle cap so the pack fans out into
-            // turn one instead of piling into the leaders. Clears itself at 3.5s.
-            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.RaceElapsed < 3.5f)
+            // turn one instead of piling into the leaders. Easy/Medium keep the full
+            // 3.5s/0.72 pileup-safety cap; Hard/Expert get a much shorter, shallower
+            // one - a sharp, confident driver fans out cleanly and shouldn't be held
+            // back unless a collision is actually imminent (traffic avoidance still
+            // applies on top of this regardless of difficulty).
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying)
             {
-                command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(0.72f, 1f, raceManager.RaceElapsed / 3.5f));
+                RaceDifficulty difficulty = raceManager.Settings == null ? RaceDifficulty.Medium : raceManager.Settings.Difficulty;
+                bool confidentTier = difficulty == RaceDifficulty.Hard || difficulty == RaceDifficulty.Expert;
+                float openingCapDuration = confidentTier ? (difficulty == RaceDifficulty.Expert ? 1.1f : 1.8f) : 3.5f;
+                float openingCapFloor = confidentTier ? (difficulty == RaceDifficulty.Expert ? 0.92f : 0.85f) : 0.72f;
+                if (raceManager.RaceElapsed < openingCapDuration)
+                {
+                    command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(openingCapFloor, 1f, raceManager.RaceElapsed / openingCapDuration));
+                }
             }
 
             ApplyTrafficAvoidance(ref command, progress, speedKph, profile);
+
+            // Driver-pressure model: a car actively attacking or defending under
+            // close pressure pushes slightly harder - the tyre lockup model already
+            // reads brake/steer inputs, so this alone raises lockup risk exactly
+            // when a real driver would be more likely to lock a wheel.
+            if (pressureFactor > 0f)
+            {
+                command.brake = Mathf.Min(1f, command.brake * (1f + pressureFactor * 0.08f));
+                command.steer = Mathf.Clamp(command.steer * (1f + pressureFactor * 0.06f), -1f, 1f);
+            }
 
             float tyrePitThreshold = Mathf.Lerp(0.68f, 0.52f, tyreManagement / 100f) + profile.tyreSavingBias * 0.05f;
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
@@ -377,6 +496,15 @@ namespace LocalFormulaRacing
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                 participant.pitStops == 0 &&
                 participant.lapTracker.CompletedLaps >= raceManager.RecommendedPitLap(participant))
+            {
+                command.pitRequest = true;
+            }
+
+            // Safety car pit window (Part 6): an additional OR-condition alongside the
+            // normal tyre-wear/mandatory-stop triggers above, flowing through the same
+            // command.pitRequest -> BeginPitEntry pipeline (including its existing
+            // queueing/staggered release) rather than a parallel path.
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.ShouldAiPitUnderSafetyCar(participant))
             {
                 command.pitRequest = true;
             }
@@ -644,7 +772,13 @@ namespace LocalFormulaRacing
             mistakeTimer -= Time.deltaTime;
             if (mistakeTimer > 0f)
             {
-                mistakeSteer = Mathf.MoveTowards(mistakeSteer, 0f, Time.deltaTime * 0.8f);
+                // Recovery from a small mistake correction scales with difficulty: a
+                // sharp, confident Expert gathers the car back up much faster than the
+                // flat rate every tier used to share. Derived from mistakeChancePerLap
+                // (already the difficulty-quality axis) rather than adding a new field.
+                float recoveryBlend = Mathf.Clamp01(1f - profile.mistakeChancePerLap / 0.16f);
+                float recoveryRate = Mathf.Lerp(0.6f, 2.2f, recoveryBlend);
+                mistakeSteer = Mathf.MoveTowards(mistakeSteer, 0f, Time.deltaTime * recoveryRate);
                 return;
             }
 
@@ -673,22 +807,70 @@ namespace LocalFormulaRacing
             float commitment = Mathf.Clamp01(profile.overtakeCommitment * Mathf.Lerp(0.7f, 1.15f, (aggression + overtaking) / 200f));
             float defendCommitment = Mathf.Clamp01(profile.defendCommitment * Mathf.Lerp(0.7f, 1.15f, defending / 100f));
 
+            // Part 8: a lap or two of extra eagerness right after a safety car
+            // restart - detected as a Restart -> Green edge on the race control
+            // state machine, cheap to blend in since commitment is already read here
+            // every frame.
+            RaceManager.RaceControlState rcState = raceManager.CurrentRaceControlState;
+            if (wasRestartLastFrame && rcState == RaceManager.RaceControlState.Green)
+            {
+                postRestartCommitmentBoostTimer = 50f;
+            }
+            wasRestartLastFrame = rcState == RaceManager.RaceControlState.Restart;
+            postRestartCommitmentBoostTimer = Mathf.Max(0f, postRestartCommitmentBoostTimer - Time.deltaTime);
+            if (postRestartCommitmentBoostTimer > 0f)
+            {
+                commitment = Mathf.Clamp01(commitment + 0.12f);
+            }
+
+            // No overtaking under a safety car / VSC or in a locally yellow-flagged
+            // sector (Part 5 / Part 4). Any attempt already under way is aborted
+            // cleanly back to a single lane instead of snapping straight.
+            bool overtakingAllowedHere = raceManager.IsOvertakingAllowed && progress.sector != raceManager.YellowFlagSector;
+            if (!overtakingAllowedHere && overtakeState != OvertakeState.Following && overtakeState != OvertakeState.BackingOut && overtakeState != OvertakeState.CompletingPass)
+            {
+                overtakeState = OvertakeState.BackingOut;
+                overtakeStateTimer = 0.6f;
+            }
+
             overtakeStateTimer -= Time.deltaTime;
+            pressureFactor = 0f;
 
             switch (overtakeState)
             {
                 case OvertakeState.Following:
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, 0f, Time.deltaTime * 4f);
-                    if (ahead != null && ahead.vehicle != null)
+                    if (ahead != null && ahead.vehicle != null && overtakingAllowedHere)
                     {
                         float gapSeconds = raceManager.GetIntervalToAheadSeconds(participant);
                         bool approachingBrakeZone = apexDistanceAhead < 90f && apexSeverity > 0.2f;
                         bool drsHelp = raceManager.IsDrsAvailable(participant);
                         bool hasPace = Mathf.Abs(vehicle.CurrentSpeedKph) >= Mathf.Abs(ahead.vehicle.CurrentSpeedKph) - 4f;
-                        if (gapSeconds < 1.1f && (approachingBrakeZone || drsHelp) && hasPace && Random.value < commitment * Time.deltaTime * 3f)
+
+                        // Genuine pace-delta gate: a clearly slower backmarker gets
+                        // attacked more readily the higher this driver's commitment is,
+                        // not only when the gap happens to cross one fixed threshold.
+                        float speedDeltaKph = Mathf.Abs(vehicle.CurrentSpeedKph) - Mathf.Abs(ahead.vehicle.CurrentSpeedKph);
+                        bool clearlySlower = speedDeltaKph > Mathf.Lerp(9f, 2.5f, commitment);
+
+                        // Patience timer: stuck following the same 0.8-1.2s gap for a
+                        // while raises the attack-attempt probability over time instead
+                        // of orbiting it for the rest of the stint. Resets on any state
+                        // change or once the gap opens back up.
+                        followingTimer = gapSeconds < 1.8f ? followingTimer + Time.deltaTime : 0f;
+                        float patienceBonus = Mathf.Clamp01(followingTimer / 10f) * Mathf.Lerp(2f, 9f, commitment);
+
+                        // DRS conversion: a real advantage should turn into real
+                        // attacks, scaled by commitment so Expert converts a tow far
+                        // more often than a tentative Easy/Medium driver does.
+                        float drsBonus = drsHelp ? Mathf.Lerp(1.2f, 2.6f, commitment) : 1f;
+
+                        bool attackTrigger = gapSeconds < 1.1f && (approachingBrakeZone || drsHelp || clearlySlower) && hasPace;
+                        if (attackTrigger && Random.value < commitment * Time.deltaTime * (3f + patienceBonus) * drsBonus)
                         {
                             overtakeState = OvertakeState.PreparingAttack;
                             overtakeStateTimer = 2.2f;
+                            followingTimer = 0f;
                             attackSide = Mathf.Sign(Vector3.Dot(transform.position - ahead.transform.position, transform.right));
                             if (Mathf.Abs(attackSide) < 0.1f)
                             {
@@ -696,10 +878,16 @@ namespace LocalFormulaRacing
                             }
                         }
                     }
+                    else
+                    {
+                        followingTimer = 0f;
+                    }
                     break;
 
                 case OvertakeState.PreparingAttack:
                 {
+                    // attackSide is chosen once on entry above and only ever read from
+                    // here on, so it cannot flip mid-attempt.
                     float prepOffset = attackSide * Mathf.Lerp(1.2f, 2.6f, commitment) * 0.6f;
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, Mathf.Clamp(prepOffset, -legalLimit, legalLimit), Time.deltaTime * 5f);
                     bool stillThere = ahead != null && raceManager.GetIntervalToAheadSeconds(participant) < 1.4f;
@@ -722,6 +910,7 @@ namespace LocalFormulaRacing
                 case OvertakeState.AttackingInside:
                 case OvertakeState.AttackingOutside:
                 {
+                    pressureFactor = Mathf.Lerp(0.4f, 1f, commitment);
                     float attackOffset = attackSide * Mathf.Lerp(2f, legalLimit, commitment);
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, Mathf.Clamp(attackOffset, -legalLimit, legalLimit), Time.deltaTime * 6.5f);
                     bool sideBySideNow = ahead != null && Mathf.Abs(transform.InverseTransformPoint(ahead.transform.position).z) < 6f;
@@ -734,6 +923,7 @@ namespace LocalFormulaRacing
                     {
                         overtakeState = OvertakeState.CompletingPass;
                         overtakeStateTimer = 1.4f;
+                        raceManager.ReportAiOvertakeCompleted(participant);
                     }
                     else if (raceManager.GetIntervalToAheadSeconds(participant) > 1.8f || overtakeStateTimer <= 0f)
                     {
@@ -744,6 +934,7 @@ namespace LocalFormulaRacing
                 }
 
                 case OvertakeState.SideBySide:
+                    pressureFactor = Mathf.Lerp(0.4f, 1f, commitment);
                     // Hold the line and ease off the aggression; ApplyTrafficAvoidance's
                     // blockedLeft/blockedRight logic already keeps both cars apart.
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, aggressionOffset * 0.9f, Time.deltaTime * 2f);
@@ -751,6 +942,7 @@ namespace LocalFormulaRacing
                     {
                         overtakeState = OvertakeState.CompletingPass;
                         overtakeStateTimer = 1.2f;
+                        raceManager.ReportAiOvertakeCompleted(participant);
                     }
                     else if (overtakeStateTimer <= 0f)
                     {
@@ -795,6 +987,7 @@ namespace LocalFormulaRacing
                     float coverOffset = turnSign * Mathf.Lerp(1f, 2.3f, defendCommitment);
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, Mathf.Clamp(coverOffset, -legalLimit, legalLimit), Time.deltaTime * 5f);
                     hasCoveredThisApex = true;
+                    pressureFactor = Mathf.Max(pressureFactor, Mathf.Lerp(0.3f, 0.8f, defendCommitment));
                 }
             }
         }
