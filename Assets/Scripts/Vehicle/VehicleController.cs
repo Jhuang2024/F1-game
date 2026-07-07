@@ -38,6 +38,10 @@ namespace LocalFormulaRacing
         public CarPerformanceData CarData { get; private set; }
         public TrackRuntime Track { get; private set; }
         public WeatherState Weather { get; private set; }
+        // Exposed read-only so other vehicle-owned components (e.g. VehicleVisuals)
+        // can gate new visual work behind the same settings every car already holds
+        // a reference to, without needing their own separate settings plumbing.
+        public GameSettingsData Settings { get { return settings; } }
 
         Rigidbody body;
         VehicleCommand command;
@@ -571,11 +575,16 @@ namespace LocalFormulaRacing
                 ActiveSlowdownReason = "TOP SPEED LIMIT";
             }
 
+            // A locked tyre slides instead of gripping, so it brakes LESS effectively
+            // than a gripping one - this is why lockups cost you time in real racing.
+            // Scales continuously with LockupSeverity rather than a binary cliff.
+            float lockupBrakeFactor = Tyres.LockupSeverity > 0f ? Mathf.Lerp(1f, 0.55f, Tyres.LockupSeverity) : 1f;
             float brakeStat = Mathf.Lerp(33f, 56f, CarData.braking / 100f) *
                               Tyres.BrakingMultiplier *
                               Mathf.Lerp(1.04f, 1.42f, Mathf.InverseLerp(80f, 330f, absoluteSpeedKph)) *
                               Damage.HandlingMultiplier *
-                              setupBrakeMultiplier;
+                              setupBrakeMultiplier *
+                              lockupBrakeFactor;
             if (activeCommand.brake > 0.01f || IsHeldInPit)
             {
                 if (activeCommand.brake > 0.01f)

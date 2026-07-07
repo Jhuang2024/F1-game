@@ -7,7 +7,19 @@ namespace LocalFormulaRacing
         public TyreCompound Compound { get; private set; }
         public float Wear { get; private set; }
         public float Temperature { get; private set; }
-        public bool IsLocked { get; private set; }
+
+        // Real, severity-scaled lockup model (see UpdateLockup): a lockup is a
+        // discrete timed event with an intensity, not a single binary flag.
+        public float LockupSeverity { get; private set; }
+        public float LockupTimer { get; private set; }
+        public float LastLockupSeverity { get; private set; }
+        public float FlatSpotLevel { get; private set; }
+        public int TotalLockups { get; private set; }
+        public float RecentLockupWear { get; private set; }
+
+        // Kept as a convenience derived from LockupSeverity so existing callers
+        // (VehicleEffects, etc.) that only care about "locked or not" keep working.
+        public bool IsLocked { get { return LockupSeverity > 0.05f; } }
 
         float targetMin;
         float targetMax;
@@ -21,7 +33,10 @@ namespace LocalFormulaRacing
         {
             Compound = compound;
             Wear = 1f;
-            IsLocked = false;
+            LockupSeverity = 0f;
+            LockupTimer = 0f;
+            LastLockupSeverity = 0f;
+            ResetFlatSpots();
 
             if (compound == TyreCompound.Soft)
             {
@@ -75,6 +90,16 @@ namespace LocalFormulaRacing
             }
         }
 
+        // A fresh tyre sheds any accumulated flat-spotting/lockup history from the
+        // previous stint. Folded into Reset(), but exposed on its own in case a
+        // future caller wants to clear flat spots without a full compound reset.
+        public void ResetFlatSpots()
+        {
+            FlatSpotLevel = 0f;
+            TotalLockups = 0;
+            RecentLockupWear = 0f;
+        }
+
         public void Tick(float speedKph, float brake, float steer, float throttle, float slipEnergy, WeatherState weather, int tyreManagement, float deltaTime)
         {
             float speedHeat = speedKph / 310f;
@@ -88,7 +113,8 @@ namespace LocalFormulaRacing
             float cooling = speedKph < 75f && throttle < 0.25f ? 1.55f : 1f;
             Temperature = Mathf.MoveTowards(Temperature, targetTemperature, deltaTime * (2.45f + heatGain * 3.1f) * cooling);
 
-            IsLocked = brake > 0.84f && speedKph > 105f && Random.value < deltaTime * Mathf.Lerp(0.65f, 1.25f, Mathf.Clamp01(1f - TemperatureWindowScore));
+            UpdateLockup(speedKph, brake, steer, weather, tyreManagement, deltaTime);
+
             float management = Mathf.Lerp(1.35f, 0.72f, Mathf.Clamp01(tyreManagement / 100f));
             float weatherWear = weather == WeatherState.Clear || weather == WeatherState.Cloudy ? 1.08f : 1.32f;
             if ((weather == WeatherState.Clear || weather == WeatherState.Cloudy) && (Compound == TyreCompound.Intermediate || Compound == TyreCompound.Wet))
@@ -100,14 +126,88 @@ namespace LocalFormulaRacing
                 weatherWear *= 1.3f;
             }
 
-            float lockupWear = IsLocked ? 0.02f : 0f;
+            // Lockups add extra wear on top of the baseline model, scaled by how
+            // severe the current lockup event is (0 when no lockup is active).
+            // Tracked separately into RecentLockupWear as a diagnostic, in addition
+            // to feeding into the normal Wear reduction below.
+            float lockupWearRate = LockupSeverity > 0f ? Mathf.Lerp(0.03f, 0.16f, LockupSeverity) : 0f;
+            RecentLockupWear += lockupWearRate * deltaTime;
+
             float overheatWear = Mathf.Lerp(1f, 2.0f, Mathf.InverseLerp(targetMax - 2f, targetMax + 32f, Temperature));
             float wornHeatWear = Mathf.Lerp(1f, 1.3f, Mathf.InverseLerp(0.62f, 0.18f, Wear));
             float slideWear = slipEnergy * 0.0016f;
             float baselineWear = speedHeat * 0.00115f + Mathf.Abs(steer) * 0.0007f + brake * 0.00052f + slideWear;
             baselineWear *= Mathf.Lerp(0.86f, 1.28f, Mathf.InverseLerp(110f, 315f, speedKph));
-            float wearLoss = (baselineWear * baseWear * management * weatherWear * overheatWear * wornHeatWear) + lockupWear;
+            float wearLoss = (baselineWear * baseWear * management * weatherWear * overheatWear * wornHeatWear) + lockupWearRate;
             Wear = Mathf.Clamp01(Wear - wearLoss * deltaTime);
+        }
+
+        // Severity-scaled lockup model. A lockup is a discrete event: once triggered
+        // it runs for LockupTimer seconds at a fixed LockupSeverity (0-1), during
+        // which it spikes Temperature, accumulates FlatSpotLevel, and (via
+        // RecentLockupWear above) adds extra wear. No new lockup can start while one
+        // is already in progress. Probability of triggering scales up with brake
+        // input, speed, tyre WEAR (explicitly - a worn tyre locks up far more
+        // readily than a fresh one), cold/hot tyres (either end of the temperature
+        // window via TemperatureWindowScore), a wet-mismatched compound (slicks in
+        // the rain lock up much more easily than wet-weather tyres), steering while
+        // braking (trail-braking), and an existing flat spot (a flat-spotted tyre
+        // locks up more easily, a small self-reinforcing feedback loop). It scales
+        // down with better tyreManagement. ABS/driver-skill/setup effects are not
+        // modeled here - they already act upstream by lowering the brake/steer
+        // values callers pass in.
+        void UpdateLockup(float speedKph, float brake, float steer, WeatherState weather, int tyreManagement, float deltaTime)
+        {
+            if (LockupTimer > 0f)
+            {
+                LockupTimer -= deltaTime;
+                Temperature += LockupSeverity * deltaTime * 40f;
+                FlatSpotLevel = Mathf.Clamp01(FlatSpotLevel + LockupSeverity * deltaTime * 0.4f);
+                if (LockupTimer <= 0f)
+                {
+                    LockupTimer = 0f;
+                    LastLockupSeverity = LockupSeverity;
+                    LockupSeverity = 0f;
+                }
+
+                return;
+            }
+
+            if (brake < 0.5f || speedKph < 60f)
+            {
+                return;
+            }
+
+            float brakeFactor = Mathf.InverseLerp(0.5f, 1f, brake);
+            float speedFactor = Mathf.InverseLerp(60f, 260f, speedKph);
+            float wearNorm = Mathf.Clamp01(1f - Wear);
+            float wearFactor = Mathf.Lerp(1f, 2.2f, wearNorm);
+            float tempPenalty = Mathf.Clamp01(1f - TemperatureWindowScore);
+            float steerFactor = Mathf.Lerp(1f, 1.6f, Mathf.Abs(steer));
+            float managementFactor = Mathf.Lerp(1.3f, 0.7f, Mathf.Clamp01(tyreManagement / 100f));
+            float flatSpotFactor = Mathf.Lerp(1f, 1.35f, Mathf.Clamp01(FlatSpotLevel));
+            float wetMismatchFactor = 1f;
+            bool wetWeatherCompound = Compound == TyreCompound.Intermediate || Compound == TyreCompound.Wet;
+            if ((weather == WeatherState.LightRain || weather == WeatherState.HeavyRain) && !wetWeatherCompound)
+            {
+                wetMismatchFactor = weather == WeatherState.HeavyRain ? 2.8f : 1.9f;
+            }
+
+            float chance = brakeFactor * speedFactor * Mathf.Lerp(0.6f, 1.4f, tempPenalty) * wearFactor * steerFactor * managementFactor * flatSpotFactor * wetMismatchFactor;
+            float probabilityThisTick = deltaTime * chance * 0.85f;
+            if (Random.value >= probabilityThisTick)
+            {
+                return;
+            }
+
+            // Severity reflects how far over the edge conditions were, not just a
+            // yes/no roll: harder brake at higher speed with worse tyre state and
+            // more steering input produces a bigger, longer, more damaging lockup.
+            float rawSeverity = brakeFactor * 0.35f + speedFactor * 0.2f + tempPenalty * 0.2f + wearNorm * 0.15f + Mathf.Abs(steer) * 0.1f;
+            float severity = Mathf.Lerp(0.15f, 1f, Mathf.Clamp01(rawSeverity));
+            LockupSeverity = severity;
+            LockupTimer = Mathf.Lerp(0.15f, 0.6f, severity);
+            TotalLockups++;
         }
 
         public float GripMultiplier(WeatherState weather)
@@ -126,8 +226,11 @@ namespace LocalFormulaRacing
                 rainGrip = Mathf.Lerp(0.34f, 0.92f, wetPerformance);
             }
 
-            float lockupGrip = IsLocked ? 0.82f : 1f;
-            lastGripMultiplier = baseGrip * tempGrip * wearGrip * rainGrip * lockupGrip;
+            float lockupGrip = LockupSeverity > 0f ? Mathf.Lerp(1f, 0.82f, LockupSeverity) : 1f;
+            // A flat-spotted tyre vibrates and loses a little contact patch every
+            // rotation - a small, persistent handicap, not a game-ruining one.
+            float flatSpotGrip = Mathf.Lerp(1f, 0.9f, Mathf.Clamp01(FlatSpotLevel));
+            lastGripMultiplier = baseGrip * tempGrip * wearGrip * rainGrip * lockupGrip * flatSpotGrip;
             return lastGripMultiplier;
         }
 
@@ -158,7 +261,11 @@ namespace LocalFormulaRacing
 
         public float BrakingMultiplier
         {
-            get { return Mathf.Lerp(0.68f, 1.12f, TemperatureWindowScore) * (Wear > 0.5f ? Mathf.Lerp(0.72f, 1f, Wear) : Mathf.Lerp(0.35f, 0.72f, Wear / 0.5f)); }
+            get
+            {
+                float flatSpotPenalty = Mathf.Lerp(1f, 0.92f, Mathf.Clamp01(FlatSpotLevel));
+                return Mathf.Lerp(0.68f, 1.12f, TemperatureWindowScore) * (Wear > 0.5f ? Mathf.Lerp(0.72f, 1f, Wear) : Mathf.Lerp(0.35f, 0.72f, Wear / 0.5f)) * flatSpotPenalty;
+            }
         }
 
         public float TractionMultiplier

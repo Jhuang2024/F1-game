@@ -28,6 +28,19 @@ namespace LocalFormulaRacing
         static readonly Quaternion WingFlapClosedRotation = Quaternion.Euler(24f, 0f, 0f);
         static readonly Quaternion WingFlapOpenRotation = Quaternion.Euler(1f, 0f, 0f);
 
+        // Skid trails behind the front wheels, only visible while a real lockup
+        // event (see TyreState.LockupSeverity) is in progress. Anchored to loose
+        // transforms parented under the car body rather than under the wheel
+        // pivots themselves, since the wheel pivots are what UpdateWheels spins -
+        // a trail parented directly under a spinning transform would swing around
+        // with the wheel instead of tracking the car's path.
+        Transform skidTrailLeftAnchor;
+        Transform skidTrailRightAnchor;
+        TrailRenderer skidTrailLeft;
+        TrailRenderer skidTrailRight;
+        bool skidTrailsInitialized;
+        static Material sharedSkidMaterial;
+
         static readonly Color GlowColor = new Color(1f, 0.06f, 0.04f);
         static readonly Color DiscGlowColor = new Color(1f, 0.32f, 0.05f);
 
@@ -75,6 +88,7 @@ namespace LocalFormulaRacing
             UpdateBrakeGlow();
             UpdateRainLight();
             UpdateDrsFlap();
+            UpdateSkidTrails();
         }
 
         void UpdateDrsFlap()
@@ -101,7 +115,20 @@ namespace LocalFormulaRacing
         void UpdateWheels()
         {
             float speedMps = vehicle.CurrentSpeedKph / 3.6f;
-            wheelSpinAngle += speedMps / WheelRadius * Mathf.Rad2Deg * Time.deltaTime;
+            float spinDelta = speedMps / WheelRadius * Mathf.Rad2Deg * Time.deltaTime;
+
+            // Wheel spin is otherwise purely speed-derived, which never shows a real
+            // lockup: a locked tyre stops rotating (or nearly does) while the car
+            // keeps sliding. Blend the per-frame spin delta toward a near-stop the
+            // more severe the current lockup is, instead of a full instant freeze,
+            // so a partial lockup reads as reduced spin rather than a hard snap.
+            float lockupSeverity = vehicle.Tyres != null ? vehicle.Tyres.LockupSeverity : 0f;
+            if (lockupSeverity > 0f)
+            {
+                spinDelta *= Mathf.Lerp(1f, 0.05f, lockupSeverity);
+            }
+
+            wheelSpinAngle += spinDelta;
             wheelSpinAngle = Mathf.Repeat(wheelSpinAngle, 360f);
 
             float targetSteer = vehicle.CurrentCommand.steer * 16f;
@@ -160,6 +187,90 @@ namespace LocalFormulaRacing
             }
 
             brakeLightMaterial.SetColor("_EmissionColor", GlowColor * Mathf.Clamp01(intensity) * 1.6f);
+        }
+
+        void UpdateSkidTrails()
+        {
+            EnsureSkidTrails();
+            if (!skidTrailsInitialized || vehicle.Tyres == null)
+            {
+                return;
+            }
+
+            bool active = vehicle.Tyres.LockupSeverity > 0.1f;
+            if (skidTrailLeft != null && frontLeft != null)
+            {
+                skidTrailLeftAnchor.position = frontLeft.position;
+                skidTrailLeft.emitting = active;
+            }
+
+            if (skidTrailRight != null && frontRight != null)
+            {
+                skidTrailRightAnchor.position = frontRight.position;
+                skidTrailRight.emitting = active;
+            }
+        }
+
+        // Lazily builds the skid trail renderers the first time we have both wheel
+        // references and a confirmed particles-enabled setting. VehicleVisuals is
+        // always attached (unlike VehicleEffects, which is only added at all when
+        // Settings.Current.particlesEnabled is true) so this new trail work needs
+        // its own explicit guard against that same setting.
+        void EnsureSkidTrails()
+        {
+            if (skidTrailsInitialized)
+            {
+                return;
+            }
+
+            if (frontLeft == null || frontRight == null)
+            {
+                return;
+            }
+
+            if (vehicle.Settings != null && !vehicle.Settings.particlesEnabled)
+            {
+                return;
+            }
+
+            skidTrailsInitialized = true;
+            skidTrailLeftAnchor = new GameObject("Skid trail anchor FL").transform;
+            skidTrailLeftAnchor.SetParent(transform, false);
+            skidTrailLeft = CreateSkidTrail(skidTrailLeftAnchor);
+
+            skidTrailRightAnchor = new GameObject("Skid trail anchor FR").transform;
+            skidTrailRightAnchor.SetParent(transform, false);
+            skidTrailRight = CreateSkidTrail(skidTrailRightAnchor);
+        }
+
+        static TrailRenderer CreateSkidTrail(Transform anchor)
+        {
+            TrailRenderer trail = anchor.gameObject.AddComponent<TrailRenderer>();
+            trail.sharedMaterial = GetSkidMaterial();
+            trail.time = 1.5f;
+            trail.startWidth = 0.22f;
+            trail.endWidth = 0.02f;
+            trail.minVertexDistance = 0.05f;
+            trail.emitting = false;
+            trail.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            trail.receiveShadows = false;
+            return trail;
+        }
+
+        // This file has no existing material-creation helper of its own (unlike
+        // VehicleEffects.GetParticleMaterial(), which this mirrors), so build a
+        // minimal shared one directly - short, dark, low-alpha rubber mark.
+        static Material GetSkidMaterial()
+        {
+            if (sharedSkidMaterial != null)
+            {
+                return sharedSkidMaterial;
+            }
+
+            Shader shader = Shader.Find("Sprites/Default");
+            sharedSkidMaterial = new Material(shader);
+            sharedSkidMaterial.color = new Color(0.05f, 0.05f, 0.05f, 0.5f);
+            return sharedSkidMaterial;
         }
     }
 
@@ -266,8 +377,11 @@ namespace LocalFormulaRacing
             bool wet = vehicle.Weather == WeatherState.LightRain || vehicle.Weather == WeatherState.HeavyRain;
             SetRate(spray, wet && speedKph > 85f ? Mathf.Lerp(18f, 85f, speed01) : 0f);
 
-            bool locked = vehicle.Tyres != null && vehicle.Tyres.IsLocked && speedKph > 60f;
-            SetRate(lockupSmoke, locked ? 55f : 0f);
+            // Scales continuously with LockupSeverity so a small lockup puffs
+            // lightly and a big one smokes hard, instead of one binary rate.
+            float lockupSeverity = vehicle.Tyres != null ? vehicle.Tyres.LockupSeverity : 0f;
+            bool locking = lockupSeverity > 0.05f && speedKph > 60f;
+            SetRate(lockupSmoke, locking ? Mathf.Lerp(15f, 90f, lockupSeverity) : 0f);
         }
 
         void SetRate(ParticleSystem system, float rate)
