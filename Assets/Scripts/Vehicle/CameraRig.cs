@@ -229,36 +229,48 @@ namespace LocalFormulaRacing
         }
 
         // Shake only when the situation earns it: very high speed, heavy braking,
-        // kerb strikes, and collisions (via AddImpulseShake, including the
-        // internal speed-drop detection above). Cruise stays steady, and
-        // steering alone contributes nothing here.
+        // kerb strikes, tyre lockups, and collisions (via AddImpulseShake,
+        // including the internal speed-drop detection above). Cruise stays
+        // steady, and steering alone contributes nothing here. Impacts get
+        // their own higher-frequency, faster-decaying noise layer (below) so a
+        // wall strike reads as a sharp jolt rather than a bigger dose of the
+        // same rolling rumble used for braking/kerbs/lockups.
         Vector3 ComputeShakeOffset(float speed01)
         {
-            impulseShake = Mathf.MoveTowards(impulseShake, 0f, Time.deltaTime * 0.9f);
+            impulseShake = Mathf.MoveTowards(impulseShake, 0f, Time.deltaTime * 1.8f);
             if (!cameraShake || mode == 2 || shakeStrength <= 0.001f)
             {
                 return Vector3.zero;
             }
 
-            float amount = impulseShake;
+            float rumble = 0f;
             float highSpeed = Mathf.InverseLerp(0.86f, 1f, speed01);
-            amount += highSpeed * 0.012f;
+            rumble += highSpeed * 0.012f;
 
             if (targetVehicle != null)
             {
                 float braking = targetVehicle.EffectiveBrake;
                 if (braking > 0.55f && speed01 > 0.45f)
                 {
-                    amount += braking * speed01 * 0.016f;
+                    rumble += braking * speed01 * 0.016f;
                 }
 
                 if (targetVehicle.IsOnKerb && speed01 > 0.2f)
                 {
-                    amount += 0.016f;
+                    rumble += 0.016f;
+                }
+
+                // A light, fast tremor while the player's own front tyres are
+                // locked - folded into the same rumble blend rather than a
+                // parallel shake system.
+                float lockupSeverity = targetVehicle.Tyres != null ? targetVehicle.Tyres.LockupSeverity : 0f;
+                if (lockupSeverity > 0.05f)
+                {
+                    rumble += lockupSeverity * 0.014f;
                 }
             }
 
-            if (amount <= 0.001f)
+            if (rumble <= 0.001f && impulseShake <= 0.001f)
             {
                 return Vector3.zero;
             }
@@ -266,10 +278,28 @@ namespace LocalFormulaRacing
             // Smoothed noise instead of raw per-frame randomness, and mostly local
             // X/Y so it never introduces wild forward/back jitter.
             float t = Time.unscaledTime;
-            float noiseX = Mathf.PerlinNoise(t * 11f, 0.13f) - 0.5f;
-            float noiseY = Mathf.PerlinNoise(0.42f, t * 13f) - 0.5f;
-            float noiseZ = (Mathf.PerlinNoise(t * 7f, t * 7f) - 0.5f) * 0.3f;
-            return new Vector3(noiseX, noiseY, noiseZ) * amount * shakeStrength * 1.6f;
+            Vector3 rumbleOffset = Vector3.zero;
+            if (rumble > 0.001f)
+            {
+                float noiseX = Mathf.PerlinNoise(t * 11f, 0.13f) - 0.5f;
+                float noiseY = Mathf.PerlinNoise(0.42f, t * 13f) - 0.5f;
+                float noiseZ = (Mathf.PerlinNoise(t * 7f, t * 7f) - 0.5f) * 0.3f;
+                rumbleOffset = new Vector3(noiseX, noiseY, noiseZ) * rumble;
+            }
+
+            // Impact snap: a distinctly higher-frequency noise sample, driven
+            // only by impulseShake, which now also decays about twice as fast
+            // as before - short and sharp instead of a slow rolling rumble.
+            Vector3 impactOffset = Vector3.zero;
+            if (impulseShake > 0.001f)
+            {
+                float impactX = Mathf.PerlinNoise(t * 37f, 5.7f) - 0.5f;
+                float impactY = Mathf.PerlinNoise(3.1f, t * 41f) - 0.5f;
+                float impactZ = (Mathf.PerlinNoise(t * 29f + 1.7f, t * 29f) - 0.5f) * 0.4f;
+                impactOffset = new Vector3(impactX, impactY, impactZ) * impulseShake * 1.4f;
+            }
+
+            return (rumbleOffset + impactOffset) * shakeStrength * 1.6f;
         }
 
         public void AddImpulseShake(float amount)

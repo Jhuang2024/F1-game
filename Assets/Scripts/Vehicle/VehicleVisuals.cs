@@ -41,6 +41,13 @@ namespace LocalFormulaRacing
         bool skidTrailsInitialized;
         static Material sharedSkidMaterial;
 
+        // Brake discs stay hot-looking for a moment after the pedal releases
+        // rather than snapping cold instantly; a faint tint on the rims (shared
+        // across all four wheels, see rimMaterial below) catches the same glow.
+        float brakeGlowHeat;
+        Material rimMaterial;
+        bool rimMaterialSearched;
+
         static readonly Color GlowColor = new Color(1f, 0.06f, 0.04f);
         static readonly Color DiscGlowColor = new Color(1f, 0.32f, 0.05f);
 
@@ -165,8 +172,49 @@ namespace LocalFormulaRacing
             }
 
             // Discs glow only under real braking energy: hard pedal at speed.
-            float heat = vehicle.EffectiveBrake * Mathf.InverseLerp(90f, 300f, Mathf.Abs(vehicle.CurrentSpeedKph));
-            brakeDiscMaterial.SetColor("_EmissionColor", DiscGlowColor * heat * 1.4f);
+            float targetHeat = vehicle.EffectiveBrake * Mathf.InverseLerp(90f, 300f, Mathf.Abs(vehicle.CurrentSpeedKph));
+
+            // Quick to heat up under real braking, slow to cool back down -
+            // a brief lingering afterglow instead of an instant on/off value.
+            float rate = targetHeat > brakeGlowHeat ? 9f : 0.6f;
+            brakeGlowHeat = Mathf.MoveTowards(brakeGlowHeat, targetHeat, Time.deltaTime * rate);
+
+            brakeDiscMaterial.SetColor("_EmissionColor", DiscGlowColor * brakeGlowHeat * 1.4f);
+            UpdateRimHighlight(brakeGlowHeat);
+        }
+
+        // The rim/cover material is shared across all four wheels (RaceManager
+        // builds one rim Material per car and hands the same reference to every
+        // CreateWheel call), so tinting it once here lights up every wheel. Found
+        // lazily by name, same approach as the DRS flap above, since this file
+        // doesn't otherwise get a wheel Renderer reference. Kept to a faint
+        // glint rather than a full disc-strength glow.
+        void UpdateRimHighlight(float heat)
+        {
+            if (!rimMaterialSearched && frontLeft != null)
+            {
+                rimMaterialSearched = true;
+                Transform rim = frontLeft.Find("wheel rim");
+                if (rim != null)
+                {
+                    Renderer rimRenderer = rim.GetComponent<Renderer>();
+                    if (rimRenderer != null)
+                    {
+                        rimMaterial = rimRenderer.sharedMaterial;
+                        if (rimMaterial != null)
+                        {
+                            rimMaterial.EnableKeyword("_EMISSION");
+                        }
+                    }
+                }
+            }
+
+            if (rimMaterial == null)
+            {
+                return;
+            }
+
+            rimMaterial.SetColor("_EmissionColor", DiscGlowColor * heat * 0.35f);
         }
 
         void UpdateRainLight()
@@ -197,18 +245,43 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            bool active = vehicle.Tyres.LockupSeverity > 0.1f;
+            float severity = Mathf.Clamp01(vehicle.Tyres.LockupSeverity);
+            bool active = severity > 0.1f;
             if (skidTrailLeft != null && frontLeft != null)
             {
                 skidTrailLeftAnchor.position = frontLeft.position;
                 skidTrailLeft.emitting = active;
+                if (active)
+                {
+                    ApplySkidTrailSeverity(skidTrailLeft, severity);
+                }
             }
 
             if (skidTrailRight != null && frontRight != null)
             {
                 skidTrailRightAnchor.position = frontRight.position;
                 skidTrailRight.emitting = active;
+                if (active)
+                {
+                    ApplySkidTrailSeverity(skidTrailRight, severity);
+                }
             }
+        }
+
+        // Widens and darkens with LockupSeverity so a small lockup leaves a
+        // faint mark and a big one leaves an obvious dark stripe, instead of
+        // one fixed width/opacity regardless of how hard the tyre is locked.
+        static void ApplySkidTrailSeverity(TrailRenderer trail, float severity)
+        {
+            trail.startWidth = Mathf.Lerp(0.07f, 0.32f, severity);
+            trail.endWidth = Mathf.Lerp(0.01f, 0.05f, severity);
+
+            float alpha = Mathf.Lerp(0.14f, 0.7f, severity);
+            Gradient gradient = new Gradient();
+            gradient.SetKeys(
+                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
+                new[] { new GradientAlphaKey(alpha, 0f), new GradientAlphaKey(0f, 1f) });
+            trail.colorGradient = gradient;
         }
 
         // Lazily builds the skid trail renderers the first time we have both wheel
@@ -259,7 +332,9 @@ namespace LocalFormulaRacing
 
         // This file has no existing material-creation helper of its own (unlike
         // VehicleEffects.GetParticleMaterial(), which this mirrors), so build a
-        // minimal shared one directly - short, dark, low-alpha rubber mark.
+        // minimal shared one directly - short, dark rubber mark. Alpha is left
+        // at full here since ApplySkidTrailSeverity now drives the real, per-
+        // trail opacity through each TrailRenderer's own colorGradient.
         static Material GetSkidMaterial()
         {
             if (sharedSkidMaterial != null)
@@ -269,7 +344,7 @@ namespace LocalFormulaRacing
 
             Shader shader = Shader.Find("Sprites/Default");
             sharedSkidMaterial = new Material(shader);
-            sharedSkidMaterial.color = new Color(0.05f, 0.05f, 0.05f, 0.5f);
+            sharedSkidMaterial.color = new Color(0.05f, 0.05f, 0.05f, 1f);
             return sharedSkidMaterial;
         }
     }
@@ -284,6 +359,7 @@ namespace LocalFormulaRacing
         ParticleSystem spray;
         ParticleSystem lockupSmoke;
         ParticleSystem sparks;
+        ParticleSystem heatHaze;
 
         static Texture2D softDot;
         static Material sharedParticleMaterial;
@@ -298,6 +374,15 @@ namespace LocalFormulaRacing
             ParticleSystem.MainModule sparkMain = sparks.main;
             sparkMain.gravityModifier = 1.3f;
             sparkMain.maxParticles = 80;
+
+            // Faint heat-haze puffs off the engine cover under hard acceleration.
+            // Deliberately understated (small, sparse, quick to fade) - a fake
+            // shimmer that draws attention to itself reads worse than none.
+            heatHaze = CreateEmitter("Heat haze emitter", new Vector3(0f, 0.58f, -1.05f), new Color(1f, 0.95f, 0.85f, 0.16f), 0.5f, 0.4f, 0.5f);
+            ParticleSystem.MainModule heatMain = heatHaze.main;
+            heatMain.gravityModifier = -0.2f;
+            heatMain.maxParticles = 40;
+            heatHaze.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
         }
 
         ParticleSystem CreateEmitter(string emitterName, Vector3 localPosition, Color color, float lifetime, float size, float speed)
@@ -382,6 +467,13 @@ namespace LocalFormulaRacing
             float lockupSeverity = vehicle.Tyres != null ? vehicle.Tyres.LockupSeverity : 0f;
             bool locking = lockupSeverity > 0.05f && speedKph > 60f;
             SetRate(lockupSmoke, locking ? Mathf.Lerp(15f, 90f, lockupSeverity) : 0f);
+
+            // Only under real load - hard on the throttle and actually moving,
+            // not idling on the grid - and scaled by how hard, so it never
+            // becomes a constant background effect.
+            float engineLoad = vehicle.EffectiveThrottle;
+            bool underLoad = engineLoad > 0.7f && speedKph > 25f;
+            SetRate(heatHaze, underLoad ? Mathf.Lerp(3f, 12f, Mathf.InverseLerp(0.7f, 1f, engineLoad)) : 0f);
         }
 
         void SetRate(ParticleSystem system, float rate)
