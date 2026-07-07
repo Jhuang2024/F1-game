@@ -39,8 +39,21 @@ namespace LocalFormulaRacing
                 driverName = "Player Driver";
             }
 
-            DriverData selected = data.FindDriver(selectedDriverId);
-            if (useExistingDriver && selected != null)
+            // Bug fix: this used to gate everything on the `useExistingDriver` flag
+            // at the moment StartNewCareer runs rather than on whether a real
+            // driver was actually resolved. Toggling the existing/custom mode
+            // button after picking a real driver (selectedDriverId stays set,
+            // useExistingDriver flips to false) used to leave that real driver
+            // fully in the AI roster while the player's name/team still matched
+            // them exactly - a visible duplicate (same name racing as both the
+            // player and an AI car). Keying off `selected != null` instead means
+            // "a real driver was actually picked" is the only thing that matters,
+            // regardless of how the toggle happens to be sitting. Guarding the
+            // FindDriver call against an empty id avoids its own fallback
+            // (returns some default driver rather than null for an unresolved id)
+            // ever masquerading as a real pick when the player never chose one.
+            DriverData selected = string.IsNullOrEmpty(selectedDriverId) ? null : data.FindDriver(selectedDriverId);
+            if (selected != null)
             {
                 driverName = selected.displayName;
                 teamId = selected.teamId;
@@ -52,17 +65,17 @@ namespace LocalFormulaRacing
                 currentRound = 1,
                 playerDriverName = driverName,
                 playerTeamId = teamId,
-                useExistingDriver = useExistingDriver,
-                selectedDriverId = useExistingDriver && selected != null ? selected.id : "",
+                useExistingDriver = selected != null,
+                selectedDriverId = selected != null ? selected.id : "",
                 rivalDriverId = PickRivalId(teamId, selectedDriverId),
                 contractTargetPosition = ContractTargetForTeam(teamId),
                 reputation = 25,
                 resourcePoints = 500,
                 difficultyIndex = 1,
-                driverStandings = data.CreateInitialDriverStandings(driverName, teamId, useExistingDriver && selected != null ? selected.id : ""),
+                driverStandings = data.CreateInitialDriverStandings(driverName, teamId, selected != null ? selected.id : ""),
                 constructorStandings = data.CreateInitialConstructorStandings()
             };
-            if (useExistingDriver && selected != null)
+            if (selected != null)
             {
                 Save.driverStandings.RemoveAll(entry => entry.id == selected.id);
             }

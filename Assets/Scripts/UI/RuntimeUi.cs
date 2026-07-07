@@ -318,6 +318,17 @@ namespace LocalFormulaRacing
             Button modeButton = UiFactory.CreateSecondaryButton(modeRow, useExistingDriver ? "Using existing driver" : "Using custom driver", () =>
             {
                 useExistingDriver = !useExistingDriver;
+                // Bug fix: switching back to "custom driver" used to leave the
+                // previously-picked real driver's id sitting in selectedDriverId,
+                // which could get saved as the player's identity and leave that
+                // same real driver unfixed in the AI roster - two cars with the
+                // same name/team. Clearing it here means the toggle actually
+                // means what its label says.
+                if (!useExistingDriver)
+                {
+                    selectedDriverId = "";
+                }
+
                 ShowCareerSetup(data, career, settings);
             });
             UiFactory.SetSize(modeButton, 300f, 40f);
@@ -917,12 +928,30 @@ namespace LocalFormulaRacing
             // Right: session actions grouped by what they actually are, instead of
             // one long vertical stack of eight identical-looking buttons.
             RectTransform actions = UiFactory.CreateRect(background, "Weekend actions", new Vector2(0.66f, 0.14f), new Vector2(0.95f, 0.76f), Vector2.zero, Vector2.zero);
-            UiFactory.AddVerticalLayout(actions, 12, new RectOffset(0, 0, 0, 0));
+            VerticalLayoutGroup actionsLayout = UiFactory.AddVerticalLayout(actions, 20, new RectOffset(0, 0, 0, 0));
+            // Centered instead of top-packed: this column always holds exactly
+            // three groups now (Race/Qualifying merge into one below), so the
+            // leftover vertical space is split evenly above and below rather
+            // than collecting as one dead gap under the last card.
+            actionsLayout.childAlignment = TextAnchor.MiddleLeft;
 
-            CreateWeekendActionGroup(actions, "Race", hasQualifying ? "Grid is set from qualifying." : "Runs qualifying first if needed.",
-                hasQualifying ? "Go to Race" : "Go to Race (runs qualifying)", bootstrap.StartCareerRace, null, null);
-            CreateWeekendActionGroup(actions, "Qualifying", "Drive the session yourself, or simulate it.",
-                "Go to Qualifying", bootstrap.StartCareerQualifying, "Sim Qualifying", bootstrap.StartCareerSimQualifying);
+            // The standalone "Go to Race" card used to duplicate the "Continue
+            // to Race" button already offered on the qualifying results screen
+            // once the grid is set - two differently-labeled buttons doing the
+            // same thing. This collapses them into a single forward action that
+            // reads as "qualify" before the session and "race" after it, so
+            // there is always exactly one way to advance from this screen.
+            if (hasQualifying)
+            {
+                CreateWeekendActionGroup(actions, "Race", "Grid is set from qualifying.",
+                    "Continue to Race", bootstrap.StartCareerRace, null, null);
+            }
+            else
+            {
+                CreateWeekendActionGroup(actions, "Qualifying", "Drive the session yourself, or simulate it.",
+                    "Go to Qualifying", bootstrap.StartCareerQualifying, "Sim Qualifying", bootstrap.StartCareerSimQualifying);
+            }
+
             CreateWeekendActionGroup(actions, "Practice", "Optional programs for resource points.",
                 "Practice Programs", () => ShowPracticePrograms(data, career, settings), null, null);
             CreateWeekendActionGroup(actions, "Preparation", "Car setup and circuit notes.",

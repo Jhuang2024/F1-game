@@ -262,6 +262,16 @@ namespace LocalFormulaRacing
         public const int PitBoxCount = 22;
         public const float PitBoxSpacing = 10.5f;
         const float PitLaneStartNormalized = 0.9f;
+        // Where the pit corridor's own drivable surface and outer wall begin (shared
+        // with TrackManager's PitZoneEntryRampEnd/BuildPitLane so both classes agree
+        // on the same seam instead of drifting apart behind two separate literals).
+        public const float PitCorridorStartNormalized = 0.885f;
+        // A held-back queue pose must never land before the pit corridor's own
+        // surface begins - on the shortest calendar tracks PitLaneStartNormalized
+        // leaves under 60m of margin ahead of PitCorridorStartNormalized, and the
+        // caller's holdback can be that large, which used to push the queue point
+        // off the built pit lane surface entirely.
+        const float PitQueueCorridorMargin = 10f;
 
         public float PitLaneLateral
         {
@@ -296,7 +306,9 @@ namespace LocalFormulaRacing
             Vector3 point;
             Vector3 forward;
             Vector3 right;
-            SampleAtDistance(PitBoxDistance(pitBoxIndex) - Mathf.Max(4f, holdBackMeters), out point, out forward, out right);
+            float minDistance = length * PitCorridorStartNormalized + PitQueueCorridorMargin;
+            float desired = PitBoxDistance(pitBoxIndex) - Mathf.Max(4f, holdBackMeters);
+            SampleAtDistance(Mathf.Max(minDistance, desired), out point, out forward, out right);
             position = point + right * PitLaneLateral + Vector3.up * 0.58f;
             rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
@@ -306,7 +318,7 @@ namespace LocalFormulaRacing
             Vector3 point;
             Vector3 forward;
             Vector3 right;
-            SampleAtDistance(length * 0.885f, out point, out forward, out right);
+            SampleAtDistance(length * PitCorridorStartNormalized, out point, out forward, out right);
             position = point + right * (roadHalfWidth + 5.6f) + Vector3.up * 0.58f;
             rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
@@ -406,6 +418,7 @@ namespace LocalFormulaRacing
         Material fenceMaterial;
         Material fencePostMaterial;
         Material foliageMaterial;
+        Material treeBarkMaterial;
         Material metalMaterial;
         Material glassMaterial;
         Material lightGlowMaterial;
@@ -482,8 +495,15 @@ namespace LocalFormulaRacing
             };
             Runtime = CreateLayout(eventData);
             string trackId = Runtime.trackId ?? "";
-            nightTrack = trackId.Contains("singapore") || trackId.Contains("las_vegas") || trackId.Contains("qatar");
-            twilightTrack = trackId.Contains("abu_dhabi");
+            string weatherProfile = eventData != null && eventData.weatherProfile != null ? eventData.weatherProfile.ToLowerInvariant() : "";
+            // Night/twilight now follow the calendar's own weatherProfile ("humid_night",
+            // "clear_night", "clear_twilight" in calendar.json) first, with the two
+            // historically-night circuits kept as a fallback for when eventData is
+            // unavailable (prototype/test builds). Qatar's profile is "clear_hot", not
+            // night, so the old hardcode here was giving it a night skin the rest of the
+            // game (UI weather icon, calendar text) never agreed was night.
+            nightTrack = weatherProfile.Contains("night") || trackId.Contains("singapore") || trackId.Contains("las_vegas");
+            twilightTrack = weatherProfile.Contains("twilight") || trackId.Contains("abu_dhabi");
             desertTrack = trackId.Contains("bahrain") || trackId.Contains("qatar") || trackId.Contains("abu_dhabi");
             streetTrack = Runtime.styleName.Contains("street") || Runtime.styleName.Contains("Street");
             monacoTrack = trackId.Contains("monaco");
@@ -1471,6 +1491,10 @@ namespace LocalFormulaRacing
             SetupCutoutTransparency(fenceMaterial, 0.35f);
             fencePostMaterial = CreateMaterial("Runtime Fence Post", new Color(0.4f, 0.44f, 0.47f), 0.55f, 0.66f);
             foliageMaterial = CreateMaterial("Runtime Foliage", spaTrack ? new Color(0.05f, 0.22f, 0.14f) : new Color(0.04f, 0.32f, 0.12f), 0f, 0.42f);
+            // Trees used to borrow the bright red scenery-accent material for their
+            // trunks (fine for kerb-style trim, glaring as bark) - a dedicated dull
+            // brown fixes that without touching the accent colour anywhere else it's used.
+            treeBarkMaterial = CreateMaterial("Runtime Tree Bark", desertTrack ? new Color(0.42f, 0.32f, 0.22f) : new Color(0.32f, 0.24f, 0.18f), 0f, 0.32f);
             metalMaterial = CreateMaterial("Runtime Brushed Metal", new Color(0.52f, 0.56f, 0.58f), 0.42f, 0.78f);
             glassMaterial = CreateMaterial("Runtime Glass", new Color(0.12f, 0.28f, 0.38f, 0.85f), 0.1f, 0.95f);
             lightGlowMaterial = CreateMaterial("Runtime Light Glow", new Color(1f, 0.85f, 0.4f), 0f, 0.92f, new Color(1f, 0.62f, 0.15f));
@@ -2121,20 +2145,29 @@ namespace LocalFormulaRacing
         void BuildContinuousEdgeBarriers()
         {
             float step = streetTrack ? StreetEdgeBarrierStep : EdgeBarrierStep;
-            float segmentLength = step + EdgeBarrierOverlap;
             bool highSpeedTrack = Runtime.length > HighSpeedTrackLength;
             List<CornerInfo> highRiskCorners = DetectCorners(HighRiskCornerAngle);
 
             bool previousElevated = IsElevatedAtDistance(-step);
             int stripeIndex = 0;
-            for (float d = 0f; d < Runtime.length; d += step)
+            for (float d = 0f; d < Runtime.length;)
             {
-                bool elevated = IsElevatedAtDistance(d) || IsElevatedAtDistance(d + step * 0.5f) || IsElevatedAtDistance(d + step);
-                float normalized = d / Mathf.Max(1f, Runtime.length);
                 bool nearHighRiskCorner = IsNearCorner(d, highRiskCorners, 45f);
 
-                BuildBarrierSegmentForSide(d, step, segmentLength, -1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
-                BuildBarrierSegmentForSide(d, step, segmentLength, 1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
+                // A hairpin's whole direction change is usually concentrated at one
+                // centerline vertex rather than spread evenly, so a fixed-length chord
+                // straddling that vertex swings its box away from the true arc on the
+                // outside of the corner - halving the step and doubling the overlap
+                // there keeps consecutive rotated segments physically overlapping
+                // instead of mitering open into a gap.
+                float localStep = nearHighRiskCorner ? step * 0.5f : step;
+                float localOverlap = nearHighRiskCorner ? EdgeBarrierOverlap * 2f : EdgeBarrierOverlap;
+                float segmentLength = localStep + localOverlap;
+                bool elevated = IsElevatedAtDistance(d) || IsElevatedAtDistance(d + localStep * 0.5f) || IsElevatedAtDistance(d + localStep);
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+
+                BuildBarrierSegmentForSide(d, localStep, segmentLength, -1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
+                BuildBarrierSegmentForSide(d, localStep, segmentLength, 1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
 
                 if (elevated && ElevationAboveGround(d) > 4f && Mathf.FloorToInt(d / step) % 3 == 0)
                 {
@@ -2150,6 +2183,7 @@ namespace LocalFormulaRacing
 
                 previousElevated = elevated;
                 stripeIndex++;
+                d += localStep;
             }
         }
 
@@ -2342,7 +2376,7 @@ namespace LocalFormulaRacing
         // into a dedicated pit-complex wall. Smooth ramps at the entry and exit keep
         // that fan-out from ever opening a gap of its own at the transition.
         const float PitZoneEntryRampStart = 0.85f;
-        const float PitZoneEntryRampEnd = 0.885f;
+        const float PitZoneEntryRampEnd = TrackRuntime.PitCorridorStartNormalized;
         const float PitZoneExitRampStart = 0.995f;
         const float PitZoneExitRampEnd = 0.045f;
 
@@ -2764,10 +2798,19 @@ namespace LocalFormulaRacing
         {
             Vector3 safePosition = PushSceneryClearOfTrack(position, 6.5f);
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
-            CreateVisualBox("Marshal post hut", safePosition + Vector3.up * 0.75f, rotation, new Vector3(1.7f, 1.5f, 1.7f), barrierMaterial);
+            // Parkland circuits get the same weathered-concrete tone as their
+            // grandstands so the hut reads as part of the same "old-school venue"
+            // rather than sharing the generic barrier grey every other archetype uses.
+            Material hutMaterial = parklandTrack ? weatheredConcreteMaterial : barrierMaterial;
+            CreateVisualBox("Marshal post plinth", safePosition + Vector3.up * 0.05f, rotation, new Vector3(1.85f, 0.1f, 1.85f), concreteMaterial);
+            CreateVisualBox("Marshal post hut", safePosition + Vector3.up * 0.75f, rotation, new Vector3(1.7f, 1.5f, 1.7f), hutMaterial);
             CreateVisualBox("Marshal post roof", safePosition + Vector3.up * 1.62f, rotation, new Vector3(1.95f, 0.16f, 1.95f), sceneryAccentMaterial);
             CreateVisualBox("Marshal flag pole", safePosition + Vector3.up * 2.6f, rotation, new Vector3(0.08f, 1.9f, 0.08f), metalMaterial);
             CreateVisualBox("Marshal flag", safePosition + Vector3.up * 3.3f + forward * 0.32f, rotation, new Vector3(0.05f, 0.4f, 0.62f), index % 2 == 0 ? sceneryAccentMaterial : lineMaterial);
+            if (nightTrack || twilightTrack)
+            {
+                CreateVisualBox("Marshal post beacon", safePosition + Vector3.up * 1.78f, rotation, new Vector3(0.18f, 0.18f, 0.18f), lightGlowMaterial);
+            }
 
             // Static yellow/green flag board bolted to the hut, angled toward the
             // approaching cars - separate from the pole flag above and cheap enough to
@@ -2922,7 +2965,7 @@ namespace LocalFormulaRacing
             // The pit corridor follows the track from just before pit entry to the
             // release point, so surfaces, walls, boxes, and buildings are sampled
             // along the lap distance instead of assuming one straight chord.
-            float corridorStart = Runtime.length * 0.885f;
+            float corridorStart = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
             float corridorEnd = Runtime.length * 0.995f;
 
             // Drivable service road, laid in curve-following segments.
@@ -3020,11 +3063,22 @@ namespace LocalFormulaRacing
             GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
             wall.name = "Pit wall";
             wall.transform.SetParent(transform);
-            wall.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
             Vector3 scale = new Vector3(0.42f, 0.84f, 6.2f);
             wall.transform.localScale = scale;
             wall.GetComponent<Renderer>().sharedMaterial = metalMaterial;
-            TryPlaceSolidObstacle(wall, "pit-wall", position, forward, scale, 0.42f, 0.9f);
+            if (!TryPlaceSolidObstacle(wall, "pit-wall", position, forward, scale, 0.42f, 0.9f))
+            {
+                return;
+            }
+
+            // Padded cap and a red/white marker stripe - the pit wall used to be one
+            // bare metal slab where every other barrier type already got a rail/rib
+            // treatment, so it read as unfinished next to them.
+            Vector3 placed = wall.transform.position;
+            Vector3 placedForward = wall.transform.forward;
+            Quaternion rotation = Quaternion.LookRotation(placedForward, Vector3.up);
+            CreateVisualBox("Pit wall pad", placed + Vector3.up * 0.46f, rotation, new Vector3(0.46f, 0.1f, 6.2f), sceneryAccentMaterial);
+            CreateVisualBox("Pit wall stripe", placed + Vector3.up * 0.05f, rotation, new Vector3(0.44f, 0.14f, 6.2f), lineMaterial);
         }
 
         void CreatePitBox(Vector3 position, Vector3 forward, Vector3 right, int index)
@@ -3224,7 +3278,31 @@ namespace LocalFormulaRacing
             Vector3 legBase = new Vector3(basePosition.x, groundTopY, basePosition.z);
             Vector3 platformCenter = legBase + Vector3.up * legHeight;
 
-            CreateVisualBox("Camera tower leg", legBase + Vector3.up * legHeight * 0.5f, rotation, new Vector3(0.6f, legHeight, 0.6f), metalMaterial);
+            // Four corner legs with two lattice bracing bands instead of one thick
+            // central pole - reads as a real broadcast mast rather than a fence post
+            // wearing a platform.
+            const float legSpread = 1.05f;
+            Vector3[] cornerOffsets =
+            {
+                right * legSpread + forward * legSpread,
+                right * legSpread - forward * legSpread,
+                -right * legSpread + forward * legSpread,
+                -right * legSpread - forward * legSpread
+            };
+
+            for (int corner = 0; corner < cornerOffsets.Length; corner++)
+            {
+                Vector3 footPosition = legBase + cornerOffsets[corner];
+                CreateVisualBox("Camera tower leg", footPosition + Vector3.up * legHeight * 0.5f, rotation, new Vector3(0.22f, legHeight, 0.22f), metalMaterial);
+            }
+
+            float lowerBand = legHeight * 0.35f;
+            float upperBand = legHeight * 0.72f;
+            CreateLatticeBraceRing(legBase, cornerOffsets, lowerBand);
+            CreateLatticeBraceRing(legBase, cornerOffsets, upperBand);
+            CreateHorizontalBrace(legBase + cornerOffsets[0] + Vector3.up * lowerBand, legBase + cornerOffsets[3] + Vector3.up * upperBand, 0.1f, fencePostMaterial);
+            CreateHorizontalBrace(legBase + cornerOffsets[1] + Vector3.up * lowerBand, legBase + cornerOffsets[2] + Vector3.up * upperBand, 0.1f, fencePostMaterial);
+
             CreateVisualBox("Camera tower platform", platformCenter, rotation, new Vector3(2.2f, 0.18f, 2.2f), metalMaterial);
             CreateVisualBox("Camera tower rail", platformCenter + Vector3.up * 0.55f, rotation, new Vector3(2.2f, 0.9f, 0.12f), fencePostMaterial);
 
@@ -3234,8 +3312,39 @@ namespace LocalFormulaRacing
             camHead.transform.position = platformCenter + Vector3.up * 1.1f;
             camHead.transform.rotation = rotation * Quaternion.Euler(90f, 0f, 0f);
             camHead.transform.localScale = new Vector3(0.3f, 0.5f, 0.3f);
-            camHead.GetComponent<Renderer>().sharedMaterial = concreteMaterial;
+            camHead.GetComponent<Renderer>().sharedMaterial = metalMaterial;
             MakeVisualOnly(camHead);
+            CreateVisualBox("Camera tower lens", platformCenter + Vector3.up * 1.1f + forward * 0.3f, rotation, new Vector3(0.16f, 0.16f, 0.16f), glassMaterial);
+            CreateVisualBox("Camera tower antenna", platformCenter + Vector3.up * 2.1f, rotation, new Vector3(0.05f, 1.8f, 0.05f), fencePostMaterial);
+            if (nightTrack || twilightTrack)
+            {
+                CreateVisualBox("Camera tower beacon", platformCenter + Vector3.up * 3.05f, rotation, new Vector3(0.22f, 0.22f, 0.22f), lightGlowMaterial);
+            }
+        }
+
+        // Horizontal brace along all four edges of the leg footprint at a given
+        // height, shared by both bracing bands so CreateCameraTower doesn't repeat
+        // the same four-call block twice.
+        void CreateLatticeBraceRing(Vector3 legBase, Vector3[] cornerOffsets, float height)
+        {
+            CreateHorizontalBrace(legBase + cornerOffsets[0] + Vector3.up * height, legBase + cornerOffsets[1] + Vector3.up * height, 0.09f, fencePostMaterial);
+            CreateHorizontalBrace(legBase + cornerOffsets[1] + Vector3.up * height, legBase + cornerOffsets[3] + Vector3.up * height, 0.09f, fencePostMaterial);
+            CreateHorizontalBrace(legBase + cornerOffsets[3] + Vector3.up * height, legBase + cornerOffsets[2] + Vector3.up * height, 0.09f, fencePostMaterial);
+            CreateHorizontalBrace(legBase + cornerOffsets[2] + Vector3.up * height, legBase + cornerOffsets[0] + Vector3.up * height, 0.09f, fencePostMaterial);
+        }
+
+        // Thin box stretched between two arbitrary points, used for tower cross-braces
+        // that aren't purely vertical or aligned with the track's forward/right axes.
+        void CreateHorizontalBrace(Vector3 a, Vector3 b, float thickness, Material material)
+        {
+            Vector3 delta = b - a;
+            float length = delta.magnitude;
+            if (length < 0.01f)
+            {
+                return;
+            }
+
+            CreateVisualBox("Tower lattice brace", a + delta * 0.5f, Quaternion.LookRotation(delta.normalized, Vector3.up), new Vector3(thickness, thickness, length), material);
         }
 
         void BuildScenery()
@@ -4399,7 +4508,7 @@ namespace LocalFormulaRacing
         void BuildParkingBlocks(float density)
         {
             int rows = Mathf.Max(1, Mathf.RoundToInt(3f * density));
-            float corridorStart = Runtime.length * 0.885f;
+            float corridorStart = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
             float corridorEnd = Runtime.length * 0.995f;
             for (int i = 0; i < rows; i++)
             {
@@ -4666,21 +4775,37 @@ namespace LocalFormulaRacing
             {
                 Vector3 offset = new Vector3((i - 1) * 2.3f, 0f, (index % 3 - 1) * 1.4f);
                 Vector3 treePosition = PushSceneryClearOfTrack(position + offset, 20f);
+                // Cheap per-tree size jitter (a cluster of three identically-sized trees
+                // used to read as one stamped prefab) keyed off index+i so it's stable
+                // across rebuilds without needing a stored seed.
+                float sizeJitter = 0.82f + ((index * 3 + i) % 5) * 0.09f;
+                float trunkHeight = 0.9f * sizeJitter;
+
                 GameObject trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
                 trunk.name = "Generic tree trunk";
                 trunk.transform.SetParent(transform);
-                trunk.transform.position = treePosition + Vector3.up * 0.9f;
-                trunk.transform.localScale = new Vector3(0.18f, 0.9f, 0.18f);
-                trunk.GetComponent<Renderer>().sharedMaterial = sceneryAccentMaterial;
+                trunk.transform.position = treePosition + Vector3.up * trunkHeight;
+                trunk.transform.localScale = new Vector3(0.18f * sizeJitter, trunkHeight, 0.18f * sizeJitter);
+                trunk.GetComponent<Renderer>().sharedMaterial = treeBarkMaterial;
                 MakeVisualOnly(trunk);
 
                 GameObject crown = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 crown.name = "Generic tree crown";
                 crown.transform.SetParent(transform);
-                crown.transform.position = treePosition + Vector3.up * 2.05f;
-                crown.transform.localScale = new Vector3(1.45f, 1.15f, 1.45f);
+                crown.transform.position = treePosition + Vector3.up * (trunkHeight * 2f + 0.25f);
+                crown.transform.localScale = new Vector3(1.45f, 1.15f, 1.45f) * sizeJitter;
                 crown.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
                 MakeVisualOnly(crown);
+
+                // Second, smaller lobe offset to one side so the canopy silhouette breaks
+                // out of "single perfect sphere" the moment the camera gets close.
+                GameObject lobe = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                lobe.name = "Generic tree crown lobe";
+                lobe.transform.SetParent(transform);
+                lobe.transform.position = treePosition + Vector3.up * (trunkHeight * 2f - 0.1f) + new Vector3(0.55f * sizeJitter, 0f, 0.4f * sizeJitter) * (i % 2 == 0 ? 1f : -1f);
+                lobe.transform.localScale = new Vector3(0.85f, 0.72f, 0.85f) * sizeJitter;
+                lobe.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
+                MakeVisualOnly(lobe);
             }
         }
 
@@ -5324,7 +5449,12 @@ namespace LocalFormulaRacing
         // text reads) that only need to happen when the state actually changes.
         void ApplyDiscreteState()
         {
-            Material marshalMaterial = currentState == 1 ? flagYellowMaterial : flagGreenMaterial;
+            // Bug fix (Part 5): this used to only go yellow for state 1 (a local
+            // sector yellow), so marshal posts around the rest of the circuit sat on
+            // green throughout an entire VSC/SC/Restart period - the opposite of
+            // real race control, where every post shows caution once anything other
+            // than a green flag is active. State 0 (Green) is the only green case now.
+            Material marshalMaterial = currentState == 0 ? flagGreenMaterial : flagYellowMaterial;
             for (int i = 0; i < marshalRenderers.Count; i++)
             {
                 if (marshalRenderers[i] != null)

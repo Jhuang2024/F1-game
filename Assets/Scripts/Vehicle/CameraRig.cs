@@ -17,6 +17,12 @@ namespace LocalFormulaRacing
         const float CollisionSpeedDropKph = 20f;
         const float ModeBlendDuration = 0.4f;
 
+        // Impulses below this magnitude are kerb-scale taps rather than real
+        // impacts (a genuine crash - self-detected below, or a real damage
+        // hit - always clears it), so AddImpulseShake routes them into their
+        // own faster, lighter-decaying pool instead of the sharp impact one.
+        const float ClatterImpulseThreshold = 0.03f;
+
         Camera followCamera;
         Rigidbody targetBody;
         VehicleController targetVehicle;
@@ -26,6 +32,7 @@ namespace LocalFormulaRacing
         float previousRawSpeedKph = -1f;
         float rollAngle;
         float impulseShake;
+        float clatterShake;
         float smoothedSteer;
         float smoothedYawRate;
         float modeBlend = 1f;
@@ -229,15 +236,18 @@ namespace LocalFormulaRacing
         }
 
         // Shake only when the situation earns it: very high speed, heavy braking,
-        // kerb strikes, tyre lockups, and collisions (via AddImpulseShake,
-        // including the internal speed-drop detection above). Cruise stays
-        // steady, and steering alone contributes nothing here. Impacts get
-        // their own higher-frequency, faster-decaying noise layer (below) so a
-        // wall strike reads as a sharp jolt rather than a bigger dose of the
-        // same rolling rumble used for braking/kerbs/lockups.
+        // kerb strikes, tyre lockups, off-track running, and collisions (via
+        // AddImpulseShake, including the internal speed-drop detection above).
+        // Cruise stays steady, and steering alone contributes nothing here.
+        // Each distinct event reads on its own noise layer rather than
+        // blending into one generic wobble: fine rumble for speed/braking/
+        // kerb, a slower judder for a locked tyre, a broad low bounce for
+        // off-track, a quick mid-frequency rattle for kerb-scale taps, and a
+        // sharp high-frequency snap reserved for genuine impacts.
         Vector3 ComputeShakeOffset(float speed01)
         {
             impulseShake = Mathf.MoveTowards(impulseShake, 0f, Time.deltaTime * 1.8f);
+            clatterShake = Mathf.MoveTowards(clatterShake, 0f, Time.deltaTime * 5f);
             if (!cameraShake || mode == 2 || shakeStrength <= 0.001f)
             {
                 return Vector3.zero;
@@ -247,6 +257,8 @@ namespace LocalFormulaRacing
             float highSpeed = Mathf.InverseLerp(0.86f, 1f, speed01);
             rumble += highSpeed * 0.012f;
 
+            float lockupSeverity = 0f;
+            float offTrackAmount = 0f;
             if (targetVehicle != null)
             {
                 float braking = targetVehicle.EffectiveBrake;
@@ -260,17 +272,15 @@ namespace LocalFormulaRacing
                     rumble += 0.016f;
                 }
 
-                // A light, fast tremor while the player's own front tyres are
-                // locked - folded into the same rumble blend rather than a
-                // parallel shake system.
-                float lockupSeverity = targetVehicle.Tyres != null ? targetVehicle.Tyres.LockupSeverity : 0f;
-                if (lockupSeverity > 0.05f)
+                lockupSeverity = targetVehicle.Tyres != null ? targetVehicle.Tyres.LockupSeverity : 0f;
+
+                if (targetVehicle.IsOffTrackSlowdown && speed01 > 0.1f)
                 {
-                    rumble += lockupSeverity * 0.014f;
+                    offTrackAmount = Mathf.Lerp(0.35f, 1f, speed01);
                 }
             }
 
-            if (rumble <= 0.001f && impulseShake <= 0.001f)
+            if (rumble <= 0.001f && impulseShake <= 0.001f && clatterShake <= 0.001f && lockupSeverity <= 0.05f && offTrackAmount <= 0.001f)
             {
                 return Vector3.zero;
             }
@@ -287,6 +297,29 @@ namespace LocalFormulaRacing
                 rumbleOffset = new Vector3(noiseX, noiseY, noiseZ) * rumble;
             }
 
+            // Lockup gets its own coarse, low-frequency judder rather than
+            // folding into the fine kerb/speed buzz above - a locked tyre
+            // thuds and drags along the tarmac, it doesn't vibrate finely
+            // like a kerb strip does.
+            Vector3 judderOffset = Vector3.zero;
+            if (lockupSeverity > 0.05f)
+            {
+                float judderX = Mathf.PerlinNoise(t * 6f + 2.3f, 9.1f) - 0.5f;
+                float judderZ = Mathf.PerlinNoise(4.4f, t * 6f + 1.1f) - 0.5f;
+                judderOffset = new Vector3(judderX, 0f, judderZ) * lockupSeverity * 0.05f;
+            }
+
+            // Off-track running is a broad, slow bounce over rough ground -
+            // lower frequency still and mostly vertical, distinct from both
+            // the kerb buzz and the lockup drag.
+            Vector3 offTrackOffset = Vector3.zero;
+            if (offTrackAmount > 0.001f)
+            {
+                float roughY = Mathf.PerlinNoise(t * 4.2f, 6.6f) - 0.5f;
+                float roughX = (Mathf.PerlinNoise(8.8f, t * 4.2f) - 0.5f) * 0.4f;
+                offTrackOffset = new Vector3(roughX, roughY, 0f) * offTrackAmount * 0.045f;
+            }
+
             // Impact snap: a distinctly higher-frequency noise sample, driven
             // only by impulseShake, which now also decays about twice as fast
             // as before - short and sharp instead of a slow rolling rumble.
@@ -299,7 +332,18 @@ namespace LocalFormulaRacing
                 impactOffset = new Vector3(impactX, impactY, impactZ) * impulseShake * 1.4f;
             }
 
-            return (rumbleOffset + impactOffset) * shakeStrength * 1.6f;
+            // Kerb-scale taps: a quicker, mid-frequency rattle sitting between
+            // the rumble and the impact snap in frequency - distinct from
+            // both so a string of kerb hits never reads like a crash.
+            Vector3 clatterOffset = Vector3.zero;
+            if (clatterShake > 0.001f)
+            {
+                float clatterX = Mathf.PerlinNoise(t * 21f, 2.9f) - 0.5f;
+                float clatterY = Mathf.PerlinNoise(1.4f, t * 23f) - 0.5f;
+                clatterOffset = new Vector3(clatterX, clatterY, 0f) * clatterShake * 1.1f;
+            }
+
+            return (rumbleOffset + judderOffset + offTrackOffset + impactOffset + clatterOffset) * shakeStrength * 1.6f;
         }
 
         public void AddImpulseShake(float amount)
@@ -309,7 +353,19 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            impulseShake = Mathf.Min(0.16f, impulseShake + Mathf.Clamp(amount, 0f, 0.15f));
+            float clamped = Mathf.Clamp(amount, 0f, 0.15f);
+
+            // Small taps (kerb strikes) get their own fast-clearing pool so
+            // they read as a quick rattle instead of blending into the
+            // sharp, slower-decaying snap reserved for real impacts.
+            if (clamped < ClatterImpulseThreshold)
+            {
+                clatterShake = Mathf.Min(0.05f, clatterShake + clamped);
+            }
+            else
+            {
+                impulseShake = Mathf.Min(0.16f, impulseShake + clamped);
+            }
         }
 
         void SnapToTarget()

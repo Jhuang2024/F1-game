@@ -954,6 +954,7 @@ namespace LocalFormulaRacing
             }
 
             RaceManager.RaceControlState state = race.CurrentRaceControlState;
+            bool nearLocalYellow = state == RaceManager.RaceControlState.YellowSector && race.PlayerParticipant != null && race.IsNearLocalYellowIncident(race.PlayerParticipant);
             bool visible = state != RaceManager.RaceControlState.Green;
             if (raceControlPill.root.gameObject.activeSelf != visible)
             {
@@ -962,23 +963,30 @@ namespace LocalFormulaRacing
 
             if (!visible)
             {
+                // Still refresh the pace pill on the green transition itself
+                // (nearLocalYellow is already false here) so it hides instead of
+                // lingering on whatever it last showed during the caution period.
+                UpdatePaceCompliancePill(false);
                 return;
             }
 
             switch (state)
             {
                 case RaceManager.RaceControlState.YellowSector:
-                    raceControlPill.SetState("YELLOW FLAG", UiFactory.AccentAmber, true);
+                    // Only reads "slow" for the car actually near the incident -
+                    // everyone else still sees the sector is flagged, but without
+                    // implying a speed restriction that doesn't apply to them.
+                    raceControlPill.SetState(nearLocalYellow ? "YELLOW FLAG - SLOW" : "YELLOW FLAG", UiFactory.AccentAmber, true);
                     break;
                 case RaceManager.RaceControlState.VirtualSafetyCar:
-                    raceControlPill.SetState("VSC", UiFactory.AccentCyan, true);
+                    raceControlPill.SetState("VSC - SPEED LIMITED", UiFactory.AccentCyan, true);
                     break;
                 case RaceManager.RaceControlState.SafetyCarDeploying:
                     bool deployLit = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f;
                     raceControlPill.SetState("SAFETY CAR", UiFactory.Accent, deployLit);
                     break;
                 case RaceManager.RaceControlState.SafetyCarActive:
-                    raceControlPill.SetState("SAFETY CAR", UiFactory.Accent, true);
+                    raceControlPill.SetState("SAFETY CAR - FOLLOW, NO OVERTAKING", UiFactory.Accent, true);
                     break;
                 case RaceManager.RaceControlState.SafetyCarInThisLap:
                     raceControlPill.SetState("SC ENDING THIS LAP", UiFactory.AccentAmber, true);
@@ -989,20 +997,21 @@ namespace LocalFormulaRacing
                     break;
             }
 
-            UpdatePaceCompliancePill();
+            UpdatePaceCompliancePill(nearLocalYellow);
         }
 
-        // Only meaningful while the player is actually pace-limited (VSC/full SC) -
-        // hidden the rest of the time, including during a plain sector yellow,
-        // which doesn't carry a hard pace requirement.
-        void UpdatePaceCompliancePill()
+        // Meaningful whenever the player's own car is actually under a
+        // race-control speed cap right now - VSC, full SC, or being near enough
+        // to a local yellow incident - hidden otherwise, including a sector
+        // yellow the player isn't actually near.
+        void UpdatePaceCompliancePill(bool nearLocalYellow)
         {
             if (paceCompliancePill == null)
             {
                 return;
             }
 
-            bool show = race.IsRaceControlPaceLimited;
+            bool show = race.IsRaceControlPaceLimited || nearLocalYellow;
             if (paceCompliancePill.root.gameObject.activeSelf != show)
             {
                 paceCompliancePill.root.gameObject.SetActive(show);
@@ -1013,18 +1022,24 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Target Delta (Part 2): the live speed cap the player is actually
+            // being held to right now, not just a status word.
+            string capLabel = race.PlayerParticipant != null
+                ? " " + race.RaceControlSpeedCapKphFor(race.PlayerParticipant).ToString("0") + " KPH"
+                : "";
+
             if (race.IsPlayerRaceControlWarningActive)
             {
                 bool lit = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f;
-                paceCompliancePill.SetState("PACE WARNING", UiFactory.Accent, lit);
+                paceCompliancePill.SetState("PACE WARNING" + capLabel, UiFactory.Accent, lit);
             }
             else if (race.IsPlayerOverRaceControlPace)
             {
-                paceCompliancePill.SetState("SLOW DOWN", UiFactory.AccentAmber, true);
+                paceCompliancePill.SetState("SLOW DOWN" + capLabel, UiFactory.AccentAmber, true);
             }
             else
             {
-                paceCompliancePill.SetState("DELTA OK", UiFactory.AccentGreen, false);
+                paceCompliancePill.SetState("DELTA OK" + capLabel, UiFactory.AccentGreen, false);
             }
         }
 
@@ -1658,10 +1673,11 @@ namespace LocalFormulaRacing
         // names the active strategy so BAL/Attack ready still reads clearly.
         void UpdateErsPill(VehicleController car)
         {
-            // Race control (VSC/SC) force-disables ERS deploy for the player exactly
-            // like it already does for AI - show that explicitly rather than letting
-            // it read as "ready but the driver chose not to deploy".
-            if (race != null && race.IsRaceControlPaceLimited)
+            // Race control (VSC/SC/local yellow) force-disables ERS deploy for the
+            // player exactly like it already does for AI - show that explicitly
+            // rather than letting it read as "ready but the driver chose not to
+            // deploy".
+            if (race != null && (race.IsRaceControlPaceLimited || (race.PlayerParticipant != null && race.IsNearLocalYellowIncident(race.PlayerParticipant))))
             {
                 ersPill.SetState("ERS DISABLED", UiFactory.TextMuted, false);
                 return;

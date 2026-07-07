@@ -48,8 +48,25 @@ namespace LocalFormulaRacing
         Material rimMaterial;
         bool rimMaterialSearched;
 
+        // Tyre compound look (soft/medium/hard/inter/wet), applied once per
+        // compound rather than every frame - only reapplied if a pit stop
+        // actually changes the compound underneath us.
+        Material tyreMaterial;
+        bool tyreMaterialSearched;
+        bool tyreLookApplied;
+        TyreCompound appliedTyreCompound;
+
+        // Bodywork picks up a wet sheen in the rain rather than staying one
+        // fixed dry finish all race; primaryMaterial is shared across most of
+        // the car's panels (see CreateOpenWheelCar), so one lookup covers them.
+        Material bodyMaterial;
+        bool bodyMaterialSearched;
+        float baseBodySmoothness = -1f;
+
         static readonly Color GlowColor = new Color(1f, 0.06f, 0.04f);
         static readonly Color DiscGlowColor = new Color(1f, 0.32f, 0.05f);
+        static readonly Color DiscCoolColor = new Color(0.42f, 0.05f, 0.02f);
+        static readonly Color DiscPeakColor = new Color(1f, 0.86f, 0.58f);
 
         public void Initialize(VehicleController controller, Material lightMaterial)
         {
@@ -96,6 +113,8 @@ namespace LocalFormulaRacing
             UpdateRainLight();
             UpdateDrsFlap();
             UpdateSkidTrails();
+            UpdateTyreCompoundLook();
+            UpdateWetBodySheen();
         }
 
         void UpdateDrsFlap()
@@ -174,13 +193,30 @@ namespace LocalFormulaRacing
             // Discs glow only under real braking energy: hard pedal at speed.
             float targetHeat = vehicle.EffectiveBrake * Mathf.InverseLerp(90f, 300f, Mathf.Abs(vehicle.CurrentSpeedKph));
 
-            // Quick to heat up under real braking, slow to cool back down -
-            // a brief lingering afterglow instead of an instant on/off value.
-            float rate = targetHeat > brakeGlowHeat ? 9f : 0.6f;
+            // Quick to heat up under real braking; cooling itself slows as heat
+            // drops (radiative-style falloff) so a glowing-hot disc sheds most
+            // of its heat fast at first and then lingers as a faint afterglow,
+            // instead of fading at one constant rate all the way to cold.
+            float coolRate = Mathf.Lerp(0.35f, 1.3f, brakeGlowHeat);
+            float rate = targetHeat > brakeGlowHeat ? 9f : coolRate;
             brakeGlowHeat = Mathf.MoveTowards(brakeGlowHeat, targetHeat, Time.deltaTime * rate);
 
-            brakeDiscMaterial.SetColor("_EmissionColor", DiscGlowColor * brakeGlowHeat * 1.4f);
-            UpdateRimHighlight(brakeGlowHeat);
+            Color rampColor = DiscTemperatureColor(brakeGlowHeat);
+            brakeDiscMaterial.SetColor("_EmissionColor", rampColor * brakeGlowHeat * 1.4f);
+            UpdateRimHighlight(rampColor, brakeGlowHeat);
+        }
+
+        // Colour, not just brightness, shifts with heat - dull red under a
+        // light dab, through the old fixed orange, up to a near-white peak
+        // under sustained heavy braking, closer to a real carbon disc.
+        static Color DiscTemperatureColor(float heat)
+        {
+            if (heat < 0.55f)
+            {
+                return Color.Lerp(DiscCoolColor, DiscGlowColor, Mathf.InverseLerp(0f, 0.55f, heat));
+            }
+
+            return Color.Lerp(DiscGlowColor, DiscPeakColor, Mathf.InverseLerp(0.55f, 1f, heat));
         }
 
         // The rim/cover material is shared across all four wheels (RaceManager
@@ -188,8 +224,9 @@ namespace LocalFormulaRacing
         // CreateWheel call), so tinting it once here lights up every wheel. Found
         // lazily by name, same approach as the DRS flap above, since this file
         // doesn't otherwise get a wheel Renderer reference. Kept to a faint
-        // glint rather than a full disc-strength glow.
-        void UpdateRimHighlight(float heat)
+        // glint rather than a full disc-strength glow, and now follows the same
+        // temperature colour ramp as the disc itself instead of one fixed hue.
+        void UpdateRimHighlight(Color rampColor, float heat)
         {
             if (!rimMaterialSearched && frontLeft != null)
             {
@@ -214,7 +251,7 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            rimMaterial.SetColor("_EmissionColor", DiscGlowColor * heat * 0.35f);
+            rimMaterial.SetColor("_EmissionColor", rampColor * heat * 0.35f);
         }
 
         void UpdateRainLight()
@@ -268,13 +305,15 @@ namespace LocalFormulaRacing
             }
         }
 
-        // Widens and darkens with LockupSeverity so a small lockup leaves a
-        // faint mark and a big one leaves an obvious dark stripe, instead of
-        // one fixed width/opacity regardless of how hard the tyre is locked.
+        // Widens, darkens and persists longer with LockupSeverity so a small
+        // lockup leaves a faint, quickly-fading mark and a big one leaves an
+        // obvious dark stripe that lingers on the tarmac, instead of one fixed
+        // width/opacity/duration regardless of how hard the tyre is locked.
         static void ApplySkidTrailSeverity(TrailRenderer trail, float severity)
         {
             trail.startWidth = Mathf.Lerp(0.07f, 0.32f, severity);
             trail.endWidth = Mathf.Lerp(0.01f, 0.05f, severity);
+            trail.time = Mathf.Lerp(1f, 2.6f, severity);
 
             float alpha = Mathf.Lerp(0.14f, 0.7f, severity);
             Gradient gradient = new Gradient();
@@ -346,6 +385,117 @@ namespace LocalFormulaRacing
             sharedSkidMaterial = new Material(shader);
             sharedSkidMaterial.color = new Color(0.05f, 0.05f, 0.05f, 1f);
             return sharedSkidMaterial;
+        }
+
+        // Soft/medium/hard/inter/wet each get a distinct tread tint and sheen -
+        // found lazily by name on the front-left tyre mesh, same pattern as the
+        // rim above, and re-applied only when the compound underneath actually
+        // changes (e.g. a pit stop) rather than every frame.
+        void UpdateTyreCompoundLook()
+        {
+            if (!tyreMaterialSearched && frontLeft != null)
+            {
+                tyreMaterialSearched = true;
+                Transform tyre = frontLeft.Find("open wheel");
+                if (tyre != null)
+                {
+                    Renderer tyreRenderer = tyre.GetComponent<Renderer>();
+                    if (tyreRenderer != null)
+                    {
+                        tyreMaterial = tyreRenderer.sharedMaterial;
+                    }
+                }
+            }
+
+            if (tyreMaterial == null || vehicle.Tyres == null)
+            {
+                return;
+            }
+
+            TyreCompound compound = vehicle.Tyres.Compound;
+            if (tyreLookApplied && compound == appliedTyreCompound)
+            {
+                return;
+            }
+
+            tyreLookApplied = true;
+            appliedTyreCompound = compound;
+            Color color;
+            float metallic;
+            float smoothness;
+            GetTyreLook(compound, out color, out metallic, out smoothness);
+            tyreMaterial.color = color;
+            tyreMaterial.SetFloat("_Metallic", metallic);
+            tyreMaterial.SetFloat("_Glossiness", smoothness);
+        }
+
+        // Deliberately subtle undertones and sheen differences rather than the
+        // bright sidewall bands real tyres carry - enough to tell compounds
+        // apart at a glance without reproducing any official colour marking.
+        static void GetTyreLook(TyreCompound compound, out Color color, out float metallic, out float smoothness)
+        {
+            metallic = 0.02f;
+            if (compound == TyreCompound.Soft)
+            {
+                color = new Color(0.05f, 0.014f, 0.013f);
+                smoothness = 0.34f;
+            }
+            else if (compound == TyreCompound.Hard)
+            {
+                color = new Color(0.05f, 0.05f, 0.054f);
+                smoothness = 0.18f;
+            }
+            else if (compound == TyreCompound.Intermediate)
+            {
+                color = new Color(0.018f, 0.032f, 0.02f);
+                smoothness = 0.24f;
+            }
+            else if (compound == TyreCompound.Wet)
+            {
+                color = new Color(0.014f, 0.02f, 0.045f);
+                smoothness = 0.3f;
+            }
+            else
+            {
+                color = new Color(0.028f, 0.028f, 0.03f);
+                smoothness = 0.26f;
+            }
+        }
+
+        // Bodywork gains a wet sheen in the rain instead of one fixed dry
+        // finish all race. primaryMaterial is shared across most panels (see
+        // RaceManager.CreateOpenWheelCar), so finding it once via "survival
+        // cell" brightens the whole car, not just one part.
+        void UpdateWetBodySheen()
+        {
+            if (!bodyMaterialSearched)
+            {
+                bodyMaterialSearched = true;
+                Transform cell = transform.Find("survival cell");
+                if (cell != null)
+                {
+                    Renderer cellRenderer = cell.GetComponent<Renderer>();
+                    if (cellRenderer != null)
+                    {
+                        bodyMaterial = cellRenderer.sharedMaterial;
+                    }
+                }
+            }
+
+            if (bodyMaterial == null)
+            {
+                return;
+            }
+
+            if (baseBodySmoothness < 0f)
+            {
+                baseBodySmoothness = bodyMaterial.GetFloat("_Glossiness");
+            }
+
+            bool wet = vehicle.Weather == WeatherState.LightRain || vehicle.Weather == WeatherState.HeavyRain;
+            float targetSmoothness = wet ? Mathf.Min(0.97f, baseBodySmoothness + 0.14f) : baseBodySmoothness;
+            float currentSmoothness = bodyMaterial.GetFloat("_Glossiness");
+            bodyMaterial.SetFloat("_Glossiness", Mathf.MoveTowards(currentSmoothness, targetSmoothness, Time.deltaTime * 0.6f));
         }
     }
 
@@ -464,8 +614,20 @@ namespace LocalFormulaRacing
 
             // Scales continuously with LockupSeverity so a small lockup puffs
             // lightly and a big one smokes hard, instead of one binary rate.
+            // Colour, plume size and lifetime scale with it too - a light
+            // scrub reads as a thin pale wisp, a hard lock as a bigger, darker,
+            // longer-hanging burnt-rubber cloud, rather than one fixed puff
+            // that only ever fires faster or slower.
             float lockupSeverity = vehicle.Tyres != null ? vehicle.Tyres.LockupSeverity : 0f;
             bool locking = lockupSeverity > 0.05f && speedKph > 60f;
+            if (locking)
+            {
+                ParticleSystem.MainModule smokeMain = lockupSmoke.main;
+                smokeMain.startColor = Color.Lerp(new Color(0.86f, 0.86f, 0.86f, 0.4f), new Color(0.3f, 0.27f, 0.25f, 0.62f), lockupSeverity);
+                smokeMain.startSize = Mathf.Lerp(0.65f, 1.55f, lockupSeverity);
+                smokeMain.startLifetime = Mathf.Lerp(0.7f, 1.7f, lockupSeverity);
+            }
+
             SetRate(lockupSmoke, locking ? Mathf.Lerp(15f, 90f, lockupSeverity) : 0f);
 
             // Only under real load - hard on the throttle and actually moving,

@@ -61,6 +61,19 @@ namespace LocalFormulaRacing
         float overtakeStateTimer;
         float attackSide = 1f;
 
+        // Stuck-recovery maneuver (Part 2/3): only engages while RaceManager's own
+        // recovery-state classification says this car is Recovering or already
+        // ActuallyStranded - never while merely Queued/PitSequence/RaceControlPacing,
+        // which are legitimate reasons to be slow that need no intervention at all.
+        enum RecoveryManeuver { None, ReverseAway, ReorientWrongWay }
+        RecoveryManeuver activeManeuver = RecoveryManeuver.None;
+        float maneuverTimer;
+        float maneuverTurnSide = 1f;
+        float stuckDetectTimer;
+        const float StuckManeuverTriggerSeconds = 2.5f;
+        const float ReverseAwayDuration = 1.1f;
+        const float ReorientDuration = 1.6f;
+
         // How long this car has been sitting in Following without forcing an attack -
         // a stuck Expert eventually raises its own attack-attempt probability instead
         // of orbiting the same 0.8-1.2s gap for the rest of the stint.
@@ -224,6 +237,51 @@ namespace LocalFormulaRacing
             lastProgressDistance = progress.distance;
             hasProgressReference = true;
             float speedKph = Mathf.Abs(vehicle.CurrentSpeedKph);
+
+            // Stuck-recovery maneuver (Part 2/3): runs to completion once triggered,
+            // fully overriding normal driving for its short duration, then hands
+            // straight back to the regular off-track recovery steering below (which
+            // already drives back toward the centerline on its own).
+            if (activeManeuver != RecoveryManeuver.None)
+            {
+                maneuverTimer -= Time.deltaTime;
+                vehicle.SetCommand(new VehicleCommand { reverseAssist = true, steer = maneuverTurnSide });
+                if (maneuverTimer <= 0f)
+                {
+                    activeManeuver = RecoveryManeuver.None;
+                    stuckDetectTimer = 0f;
+                    if (participant != null)
+                    {
+                        participant.recoveryAttemptCount++;
+                        GameLog.Info("[RaceControl] " + participant.driverName + " completed recovery maneuver attempt #" + participant.recoveryAttemptCount + ".");
+                    }
+                }
+
+                return;
+            }
+
+            bool eligibleForRecoveryManeuver = participant != null &&
+                (participant.recoveryState == CarRecoveryState.Recovering || participant.recoveryState == CarRecoveryState.ActuallyStranded);
+            if (eligibleForRecoveryManeuver && speedKph < 4f)
+            {
+                stuckDetectTimer += Time.deltaTime;
+                if (stuckDetectTimer > StuckManeuverTriggerSeconds)
+                {
+                    bool facingWrongWay = Vector3.Dot(transform.forward, progress.forward) < -0.4f;
+                    float turnSign = Mathf.Sign(Vector3.Cross(transform.forward, progress.forward).y);
+                    maneuverTurnSide = turnSign == 0f ? preferredSide : turnSign;
+                    activeManeuver = facingWrongWay ? RecoveryManeuver.ReorientWrongWay : RecoveryManeuver.ReverseAway;
+                    maneuverTimer = facingWrongWay ? ReorientDuration : ReverseAwayDuration;
+                    GameLog.Info("[RaceControl] " + participant.driverName + " attempting " + activeManeuver + " recovery maneuver (stuck " + stuckDetectTimer.ToString("0.0") + "s).");
+                    vehicle.SetCommand(new VehicleCommand { reverseAssist = true, steer = maneuverTurnSide });
+                    return;
+                }
+            }
+            else
+            {
+                stuckDetectTimer = Mathf.Max(0f, stuckDetectTimer - Time.deltaTime * 2f);
+            }
+
             DriverData driver = participant == null ? null : participant.driverData;
             int pace = driver == null ? 80 : (raceManager.CurrentSession == RaceWeekendSession.Qualifying ? driver.qualifying : driver.pace);
             int racecraft = driver == null ? 80 : driver.racecraft;
@@ -568,7 +626,38 @@ namespace LocalFormulaRacing
             wasDrsLegalLastFrame = drsLegal;
             command.drs = drsLegal && drsCommittedThisZone;
 
+            ApplySafetyCarFollowing(ref command);
+
             vehicle.SetCommand(command);
+        }
+
+        // Part 1: the real safety car isn't a RaceParticipant, so it never shows
+        // up in ApplyTrafficAvoidance's loop over raceManager.Participants above -
+        // this gives it the same "brake and back off the throttle as it gets
+        // close" treatment as a real car directly ahead, so the queue actually
+        // forms behind it instead of AI cars only being pace-capped in the
+        // abstract while treating the visible car itself as empty air.
+        void ApplySafetyCarFollowing(ref VehicleCommand command)
+        {
+            Transform safetyCar = raceManager.SafetyCarTransform;
+            if (safetyCar == null)
+            {
+                return;
+            }
+
+            Vector3 local = transform.InverseTransformPoint(safetyCar.position);
+            if (local.z <= 0f || local.z > 60f || Mathf.Abs(local.x) > 6f)
+            {
+                return;
+            }
+
+            float closeness = Mathf.Clamp01(1f - local.z / 60f);
+            if (local.z < 16f)
+            {
+                command.brake = Mathf.Max(command.brake, Mathf.Lerp(0.15f, 0.85f, closeness * closeness));
+            }
+
+            command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(1f, 0.1f, closeness));
         }
 
         float AiDamagePaceMultiplier(float damagePercent)

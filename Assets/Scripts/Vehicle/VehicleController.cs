@@ -207,6 +207,18 @@ namespace LocalFormulaRacing
             PitLimiterActive = active;
         }
 
+        // Race-control speed cap (Part 2): the same hard, physical speed-cap
+        // mechanism the pit limiter already uses, generalized to any race-control
+        // reason (local yellow / VSC / safety car) instead of only the fixed pit
+        // lane number. RaceManager calls this every tick for every car (player and
+        // AI alike) with whatever cap currently applies to that specific car;
+        // 9999 means "no cap", the sentinel ApplyForces checks against below.
+        public float RaceControlSpeedCapKph { get; private set; } = 9999f;
+        public void SetRaceControlSpeedCap(float capKph)
+        {
+            RaceControlSpeedCapKph = capKph;
+        }
+
         public void SnapToPitPose(Vector3 position, Quaternion rotation)
         {
             transform.position = position;
@@ -448,6 +460,17 @@ namespace LocalFormulaRacing
         {
             float speedMps = body.velocity.magnitude;
             float forwardSpeed = Vector3.Dot(body.velocity, transform.forward);
+
+            // AI stuck-recovery nudge (Part 2/3): a small, speed-capped rearward
+            // push so a car pressed against a barrier can actually back away
+            // instead of endlessly wheelspinning into it. Bounded to low speed so
+            // it can never be used as an actual reverse gear during racing.
+            if (activeCommand.reverseAssist && forwardSpeed > -14f)
+            {
+                body.AddForce(-transform.forward * 7.5f, ForceMode.Acceleration);
+                ActiveSlowdownReason = "RECOVERY REVERSE";
+            }
+
             DrsActive = activeCommand.drs && absoluteSpeedKph > 90f;
             TargetTopSpeedKph = CalculateTargetTopSpeedKph(activeCommand);
             if (PitLimiterActive)
@@ -455,6 +478,20 @@ namespace LocalFormulaRacing
                 DrsActive = false;
                 TargetTopSpeedKph = Mathf.Min(TargetTopSpeedKph, 80f);
             }
+
+            // Race-control cap uses the pit limiter's own gentle enforcement curve
+            // (a bled-off approach to the cap, not the harsher generic overspeed
+            // drag further below) rather than a second, differently-tuned limiter -
+            // one physical mechanism, driven by two different reasons.
+            bool raceControlCapActive = RaceControlSpeedCapKph < 900f;
+            if (raceControlCapActive)
+            {
+                DrsActive = false;
+                TargetTopSpeedKph = Mathf.Min(TargetTopSpeedKph, RaceControlSpeedCapKph);
+            }
+
+            float speedCapFloorKph = PitLimiterActive ? 80f : (raceControlCapActive ? RaceControlSpeedCapKph : 0f);
+            bool speedCapEngaged = PitLimiterActive || raceControlCapActive;
 
             float topSpeed = TargetTopSpeedKph / 3.6f;
             float tyreGrip = Tyres.GripMultiplier(Weather);
@@ -530,11 +567,11 @@ namespace LocalFormulaRacing
 
             float forwardSpeedKph = Mathf.Max(0f, forwardSpeed * 3.6f);
             float speedRatio = Mathf.Clamp01(forwardSpeedKph / Mathf.Max(1f, TargetTopSpeedKph));
-            if (PitLimiterActive && forwardSpeedKph > 82f)
+            if (speedCapEngaged && forwardSpeedKph > speedCapFloorKph + 2f)
             {
-                float limiterBrake = Mathf.Min(12f, (forwardSpeedKph - 80f) * 0.12f);
+                float limiterBrake = Mathf.Min(12f, (forwardSpeedKph - speedCapFloorKph) * 0.12f);
                 body.AddForce(-transform.forward * limiterBrake, ForceMode.Acceleration);
-                ActiveSlowdownReason = "PIT LIMITER";
+                ActiveSlowdownReason = PitLimiterActive ? "PIT LIMITER" : "RACE CONTROL LIMITER";
             }
 
             float highSpeedPower = Mathf.Lerp(1.2f, 0.82f, speedRatio);
@@ -543,7 +580,7 @@ namespace LocalFormulaRacing
                 highSpeedPower += 0.1f;
             }
 
-            float limiterWindow = PitLimiterActive ? 11f / 3.6f : 0.7f;
+            float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
             float speedLimiter = Mathf.Clamp01((topSpeed + limiterWindow - forwardSpeed) / limiterWindow);
             if (!IsHeldInPit && activeCommand.throttle > 0.01f && speedLimiter > 0.01f)
             {
@@ -621,7 +658,7 @@ namespace LocalFormulaRacing
             if (forwardSpeed > topSpeed)
             {
                 float excessSpeed = forwardSpeed - topSpeed;
-                float limiterDrag = PitLimiterActive ? Mathf.Min(5.5f, excessSpeed * 0.55f) : Mathf.Min(9f, excessSpeed * 2.2f);
+                float limiterDrag = speedCapEngaged ? Mathf.Min(5.5f, excessSpeed * 0.55f) : Mathf.Min(9f, excessSpeed * 2.2f);
                 body.AddForce(-transform.forward * limiterDrag, ForceMode.Acceleration);
             }
 
@@ -643,9 +680,9 @@ namespace LocalFormulaRacing
                 ActiveSlowdownReason = "DAMAGE";
             }
 
-            if (PitLimiterActive && ActiveSlowdownReason == "NONE")
+            if (ActiveSlowdownReason == "NONE" && speedCapEngaged)
             {
-                ActiveSlowdownReason = "PIT LIMITER";
+                ActiveSlowdownReason = PitLimiterActive ? "PIT LIMITER" : "RACE CONTROL LIMITER";
             }
         }
 
