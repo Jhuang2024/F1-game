@@ -935,22 +935,21 @@ namespace LocalFormulaRacing
             // than collecting as one dead gap under the last card.
             actionsLayout.childAlignment = TextAnchor.MiddleLeft;
 
-            // The standalone "Go to Race" card used to duplicate the "Continue
-            // to Race" button already offered on the qualifying results screen
-            // once the grid is set - two differently-labeled buttons doing the
-            // same thing. This collapses them into a single forward action that
-            // reads as "qualify" before the session and "race" after it, so
-            // there is always exactly one way to advance from this screen.
+            // The Qualifying group is ALWAYS present - driving qualifying yourself
+            // is a core session, so it must stay reachable even once a grid
+            // already exists (re-running it overwrites the provisional result).
+            // The Race group only appears once a grid is set, as the single
+            // forward action - the old always-visible "Go to Race (runs
+            // qualifying)" duplicate stays gone.
             if (hasQualifying)
             {
                 CreateWeekendActionGroup(actions, "Race", "Grid is set from qualifying.",
                     "Continue to Race", bootstrap.StartCareerRace, null, null);
             }
-            else
-            {
-                CreateWeekendActionGroup(actions, "Qualifying", "Drive the session yourself, or simulate it.",
-                    "Go to Qualifying", bootstrap.StartCareerQualifying, "Sim Qualifying", bootstrap.StartCareerSimQualifying);
-            }
+
+            CreateWeekendActionGroup(actions, "Qualifying",
+                hasQualifying ? "Grid is set. Re-run to replace the result." : "Drive the session yourself, or simulate it.",
+                "Go to Qualifying", bootstrap.StartCareerQualifying, "Sim Qualifying", bootstrap.StartCareerSimQualifying);
 
             CreateWeekendActionGroup(actions, "Practice", "Optional programs for resource points.",
                 "Practice Programs", () => ShowPracticePrograms(data, career, settings), null, null);
