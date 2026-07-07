@@ -262,6 +262,16 @@ namespace LocalFormulaRacing
         public const int PitBoxCount = 22;
         public const float PitBoxSpacing = 10.5f;
         const float PitLaneStartNormalized = 0.9f;
+        // Where the pit corridor's own drivable surface and outer wall begin (shared
+        // with TrackManager's PitZoneEntryRampEnd/BuildPitLane so both classes agree
+        // on the same seam instead of drifting apart behind two separate literals).
+        public const float PitCorridorStartNormalized = 0.885f;
+        // A held-back queue pose must never land before the pit corridor's own
+        // surface begins - on the shortest calendar tracks PitLaneStartNormalized
+        // leaves under 60m of margin ahead of PitCorridorStartNormalized, and the
+        // caller's holdback can be that large, which used to push the queue point
+        // off the built pit lane surface entirely.
+        const float PitQueueCorridorMargin = 10f;
 
         public float PitLaneLateral
         {
@@ -296,7 +306,9 @@ namespace LocalFormulaRacing
             Vector3 point;
             Vector3 forward;
             Vector3 right;
-            SampleAtDistance(PitBoxDistance(pitBoxIndex) - Mathf.Max(4f, holdBackMeters), out point, out forward, out right);
+            float minDistance = length * PitCorridorStartNormalized + PitQueueCorridorMargin;
+            float desired = PitBoxDistance(pitBoxIndex) - Mathf.Max(4f, holdBackMeters);
+            SampleAtDistance(Mathf.Max(minDistance, desired), out point, out forward, out right);
             position = point + right * PitLaneLateral + Vector3.up * 0.58f;
             rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
@@ -306,7 +318,7 @@ namespace LocalFormulaRacing
             Vector3 point;
             Vector3 forward;
             Vector3 right;
-            SampleAtDistance(length * 0.885f, out point, out forward, out right);
+            SampleAtDistance(length * PitCorridorStartNormalized, out point, out forward, out right);
             position = point + right * (roadHalfWidth + 5.6f) + Vector3.up * 0.58f;
             rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
@@ -2121,20 +2133,29 @@ namespace LocalFormulaRacing
         void BuildContinuousEdgeBarriers()
         {
             float step = streetTrack ? StreetEdgeBarrierStep : EdgeBarrierStep;
-            float segmentLength = step + EdgeBarrierOverlap;
             bool highSpeedTrack = Runtime.length > HighSpeedTrackLength;
             List<CornerInfo> highRiskCorners = DetectCorners(HighRiskCornerAngle);
 
             bool previousElevated = IsElevatedAtDistance(-step);
             int stripeIndex = 0;
-            for (float d = 0f; d < Runtime.length; d += step)
+            for (float d = 0f; d < Runtime.length;)
             {
-                bool elevated = IsElevatedAtDistance(d) || IsElevatedAtDistance(d + step * 0.5f) || IsElevatedAtDistance(d + step);
-                float normalized = d / Mathf.Max(1f, Runtime.length);
                 bool nearHighRiskCorner = IsNearCorner(d, highRiskCorners, 45f);
 
-                BuildBarrierSegmentForSide(d, step, segmentLength, -1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
-                BuildBarrierSegmentForSide(d, step, segmentLength, 1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
+                // A hairpin's whole direction change is usually concentrated at one
+                // centerline vertex rather than spread evenly, so a fixed-length chord
+                // straddling that vertex swings its box away from the true arc on the
+                // outside of the corner - halving the step and doubling the overlap
+                // there keeps consecutive rotated segments physically overlapping
+                // instead of mitering open into a gap.
+                float localStep = nearHighRiskCorner ? step * 0.5f : step;
+                float localOverlap = nearHighRiskCorner ? EdgeBarrierOverlap * 2f : EdgeBarrierOverlap;
+                float segmentLength = localStep + localOverlap;
+                bool elevated = IsElevatedAtDistance(d) || IsElevatedAtDistance(d + localStep * 0.5f) || IsElevatedAtDistance(d + localStep);
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+
+                BuildBarrierSegmentForSide(d, localStep, segmentLength, -1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
+                BuildBarrierSegmentForSide(d, localStep, segmentLength, 1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
 
                 if (elevated && ElevationAboveGround(d) > 4f && Mathf.FloorToInt(d / step) % 3 == 0)
                 {
@@ -2150,6 +2171,7 @@ namespace LocalFormulaRacing
 
                 previousElevated = elevated;
                 stripeIndex++;
+                d += localStep;
             }
         }
 
@@ -2342,7 +2364,7 @@ namespace LocalFormulaRacing
         // into a dedicated pit-complex wall. Smooth ramps at the entry and exit keep
         // that fan-out from ever opening a gap of its own at the transition.
         const float PitZoneEntryRampStart = 0.85f;
-        const float PitZoneEntryRampEnd = 0.885f;
+        const float PitZoneEntryRampEnd = TrackRuntime.PitCorridorStartNormalized;
         const float PitZoneExitRampStart = 0.995f;
         const float PitZoneExitRampEnd = 0.045f;
 
@@ -2922,7 +2944,7 @@ namespace LocalFormulaRacing
             // The pit corridor follows the track from just before pit entry to the
             // release point, so surfaces, walls, boxes, and buildings are sampled
             // along the lap distance instead of assuming one straight chord.
-            float corridorStart = Runtime.length * 0.885f;
+            float corridorStart = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
             float corridorEnd = Runtime.length * 0.995f;
 
             // Drivable service road, laid in curve-following segments.
@@ -4399,7 +4421,7 @@ namespace LocalFormulaRacing
         void BuildParkingBlocks(float density)
         {
             int rows = Mathf.Max(1, Mathf.RoundToInt(3f * density));
-            float corridorStart = Runtime.length * 0.885f;
+            float corridorStart = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
             float corridorEnd = Runtime.length * 0.995f;
             for (int i = 0; i < rows; i++)
             {
