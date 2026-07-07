@@ -43,7 +43,14 @@ namespace LocalFormulaRacing
             UiFactory.CreateBand(background, "Header wash", new Vector2(0f, 0.74f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.72f));
             UiFactory.CreateBand(background, "Garage floor", new Vector2(0f, 0f), new Vector2(1f, 0.24f), Vector2.zero, Vector2.zero, new Color(0.024f, 0.028f, 0.032f, 1f));
             UiFactory.CreateBand(background, "Track line left", new Vector2(0f, 0.275f), new Vector2(1f, 0.286f), new Vector2(0f, 0f), Vector2.zero, new Color(0.92f, 0.94f, 0.9f, 0.9f));
-            UiFactory.CreateBand(background, "Track line red", new Vector2(0f, 0.235f), new Vector2(1f, 0.245f), new Vector2(0f, 0f), Vector2.zero, new Color(0.85f, 0.04f, 0.035f, 0.82f));
+            RectTransform redLine = UiFactory.CreateBand(background, "Track line red", new Vector2(0f, 0.235f), new Vector2(1f, 0.245f), new Vector2(0f, 0f), Vector2.zero, new Color(0.85f, 0.04f, 0.035f, 0.82f));
+            if (UiFactory.AnimationsEnabled)
+            {
+                UiPulse pulse = redLine.gameObject.AddComponent<UiPulse>();
+                pulse.speed = 0.7f;
+                pulse.minAlpha = 0.45f;
+                pulse.maxAlpha = 0.85f;
+            }
             UiFactory.CreateBand(background, "Right paddock shadow", new Vector2(0.52f, 0.22f), new Vector2(1f, 0.98f), Vector2.zero, Vector2.zero, new Color(0.014f, 0.019f, 0.025f, 0.82f));
             UiFactory.CreateBand(background, "Bottom vignette", new Vector2(0f, 0f), new Vector2(1f, 0.08f), Vector2.zero, Vector2.zero, new Color(0f, 0f, 0f, 0.58f));
             BuildMenuCarSilhouette(background);
@@ -56,13 +63,15 @@ namespace LocalFormulaRacing
             Text seasonTag = UiFactory.CreateText(titleArea, "Season tag", data.Calendar.events.Count + " ROUND WORLD SEASON", 22, new Color(0.74f, 0.84f, 0.88f), TextAnchor.UpperLeft);
             seasonTag.GetComponent<RectTransform>().anchoredPosition = new Vector2(4f, -132f);
 
-            RectTransform menu = UiFactory.CreateRect(background, "Menu", new Vector2(0.06f, 0.12f), new Vector2(0.32f, 0.6f), Vector2.zero, Vector2.zero);
-            UiFactory.AddVerticalLayout(menu, 10, new RectOffset(0, 0, 0, 0));
+            RectTransform menu = UiFactory.CreateRect(background, "Menu", new Vector2(0.06f, 0.1f), new Vector2(0.32f, 0.6f), Vector2.zero, Vector2.zero);
+            UiFactory.AddVerticalLayout(menu, 9, new RectOffset(0, 0, 0, 0));
             UiFactory.CreateButton(menu, "Career", () => ShowCareerHub(data, career, settings));
+            UiFactory.CreateButton(menu, "Race Weekend", bootstrap.ShowRaceWeekend);
             UiFactory.CreateButton(menu, "Quick Race", bootstrap.StartQuickRace);
             UiFactory.CreateButton(menu, "Time Trial", bootstrap.ShowTimeTrialSetup);
             UiFactory.CreateSecondaryButton(menu, "Track Info", bootstrap.ShowTrackInfo);
             UiFactory.CreateSecondaryButton(menu, "Driver Ratings", () => ShowDriverRatings(data, career, settings));
+            UiFactory.CreateSecondaryButton(menu, "Career Stats", () => ShowCareerStats(data, career, settings));
             UiFactory.CreateSecondaryButton(menu, "Settings", () => ShowSettings(data, career, settings));
             UiFactory.CreateSecondaryButton(menu, "Quit", Application.Quit);
 
@@ -84,11 +93,13 @@ namespace LocalFormulaRacing
             heading.GetComponent<RectTransform>().anchoredPosition = new Vector2(28f, -24f);
             TeamData team = data.FindTeam(career.Save.playerTeamId);
             CalendarEventData current = career.CurrentEvent();
+            PlayerRecordsData records = PlayerRecordsStore.Data;
             Text details = UiFactory.CreateText(summary, "Summary", career.Save.playerDriverName + "\n" +
                 (team == null ? career.Save.playerTeamId : team.name) + "\n" +
                 "Season " + career.Save.currentSeason + "  Round " + career.Save.currentRound + "\n" +
                 (current == null ? "Prototype GP" : current.displayName) + "\n" +
-                "Resource points " + career.Save.resourcePoints,
+                "Resource points " + career.Save.resourcePoints + "\n" +
+                "Wins " + records.raceWins + "   Podiums " + records.podiums + "   Poles " + records.polePositions,
                 23, new Color(0.82f, 0.9f, 0.94f), TextAnchor.UpperLeft);
             RectTransform detailsRect = details.GetComponent<RectTransform>();
             detailsRect.anchorMin = new Vector2(0f, 0f);
@@ -220,17 +231,103 @@ namespace LocalFormulaRacing
                     UiFactory.SetSize(categoryText, 360f, 22f);
                 }
 
-                bool done = career.Save.completedUpgradeIds.Contains(upgrade.id);
-                bool failed = career.Save.failedUpgradeIds.Contains(upgrade.id);
-                bool locked = !string.IsNullOrEmpty(upgrade.requiredUpgradeId) && !career.Save.completedUpgradeIds.Contains(upgrade.requiredUpgradeId);
-                string state = done ? "DONE" : (failed ? "FAILED" : (locked ? "LOCKED" : upgrade.cost + " RP  " + Mathf.RoundToInt(upgrade.successChance * 100f) + "%"));
-                UnityEngine.UI.Button upgradeButton = UiFactory.CreateButton(right, upgrade.displayName + "   " + state, () =>
+                CreateUpgradeCard(right, data, career, settings, upgrade);
+            }
+        }
+
+        // One R&D node: name + state pill on top, stat deltas and cost underneath.
+        // Available nodes are clickable; done/failed/locked nodes explain themselves.
+        void CreateUpgradeCard(RectTransform parent, GameDataRepository data, CareerManager career, GameSettingsStore settings, UpgradeData upgrade)
+        {
+            bool done = career.Save.completedUpgradeIds.Contains(upgrade.id);
+            bool failed = career.Save.failedUpgradeIds.Contains(upgrade.id);
+            bool locked = !string.IsNullOrEmpty(upgrade.requiredUpgradeId) && !career.Save.completedUpgradeIds.Contains(upgrade.requiredUpgradeId);
+            bool affordable = career.Save.resourcePoints >= upgrade.cost;
+            bool available = !done && !failed && !locked;
+
+            RectTransform card = UiFactory.CreateRect(parent, upgrade.id + " card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(384f, 78f);
+            Image background = card.gameObject.AddComponent<Image>();
+            background.color = available ? UiFactory.PanelDark : new Color(0.014f, 0.02f, 0.026f, 0.7f);
+
+            Color stateColor = done ? UiFactory.AccentGreen : (failed ? UiFactory.Accent : (locked ? UiFactory.TextMuted : UiFactory.AccentCyan));
+            UiFactory.CreateBand(card, "Upgrade state rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), stateColor);
+
+            Text nameText = UiFactory.CreateText(card, "Upgrade name", upgrade.displayName, 16, available ? UiFactory.TextPrimary : UiFactory.TextMuted, TextAnchor.UpperLeft);
+            RectTransform nameRect = nameText.GetComponent<RectTransform>();
+            nameRect.anchorMin = new Vector2(0f, 1f);
+            nameRect.anchorMax = new Vector2(0.7f, 1f);
+            nameRect.offsetMin = new Vector2(14f, -28f);
+            nameRect.offsetMax = new Vector2(0f, -6f);
+
+            string state = done ? "DONE" : (failed ? "FAILED" : (locked ? "LOCKED" : (affordable ? "BUY" : "NEED RP")));
+            Text stateText = UiFactory.CreateText(card, "Upgrade state", state, 13, stateColor, TextAnchor.UpperRight);
+            RectTransform stateRect = stateText.GetComponent<RectTransform>();
+            stateRect.anchorMin = new Vector2(0.7f, 1f);
+            stateRect.anchorMax = new Vector2(1f, 1f);
+            stateRect.offsetMin = new Vector2(0f, -28f);
+            stateRect.offsetMax = new Vector2(-12f, -6f);
+
+            string costLine = locked
+                ? "Requires earlier project in this category"
+                : upgrade.cost + " RP   " + Mathf.RoundToInt(upgrade.successChance * 100f) + "% success";
+            Text costText = UiFactory.CreateText(card, "Upgrade cost", costLine, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            RectTransform costRect = costText.GetComponent<RectTransform>();
+            costRect.anchorMin = new Vector2(0f, 1f);
+            costRect.anchorMax = new Vector2(1f, 1f);
+            costRect.offsetMin = new Vector2(14f, -50f);
+            costRect.offsetMax = new Vector2(-12f, -30f);
+
+            Text deltaText = UiFactory.CreateText(card, "Upgrade deltas", BuildUpgradeDeltaText(upgrade), 13, new Color(0.55f, 0.95f, 0.65f), TextAnchor.UpperLeft);
+            RectTransform deltaRect = deltaText.GetComponent<RectTransform>();
+            deltaRect.anchorMin = new Vector2(0f, 1f);
+            deltaRect.anchorMax = new Vector2(1f, 1f);
+            deltaRect.offsetMin = new Vector2(14f, -72f);
+            deltaRect.offsetMax = new Vector2(-12f, -52f);
+
+            if (available && affordable)
+            {
+                Button buy = card.gameObject.AddComponent<Button>();
+                buy.targetGraphic = background;
+                ColorBlock colors = buy.colors;
+                colors.normalColor = UiFactory.PanelDark;
+                colors.highlightedColor = new Color(0.1f, 0.16f, 0.22f, 1f);
+                colors.pressedColor = new Color(0.006f, 0.01f, 0.014f, 1f);
+                colors.selectedColor = colors.highlightedColor;
+                buy.colors = colors;
+                buy.onClick.AddListener(() =>
                 {
+                    SimpleAudioManager.PlayClick();
                     career.TryPurchaseUpgrade(upgrade.id);
                     ShowCareerHub(data, career, settings);
                 });
-                UiFactory.SetSize(upgradeButton, 380f, 44f);
             }
+        }
+
+        string BuildUpgradeDeltaText(UpgradeData upgrade)
+        {
+            string text = "";
+            text += DeltaPart("TOP", upgrade.topSpeedDelta);
+            text += DeltaPart("ACC", upgrade.accelerationDelta);
+            text += DeltaPart("COR", upgrade.corneringDelta);
+            text += DeltaPart("BRK", upgrade.brakingDelta);
+            text += DeltaPart("REL", upgrade.reliabilityDelta);
+            text += DeltaPart("ERS", upgrade.ersDelta);
+            text += DeltaPart("TYR", upgrade.tyreDelta);
+            text += DeltaPart("AER", upgrade.aeroDelta);
+            text += DeltaPart("CHA", upgrade.chassisDelta);
+            text += DeltaPart("PWR", upgrade.engineDelta);
+            return string.IsNullOrEmpty(text) ? "No direct stat change" : text.TrimEnd();
+        }
+
+        string DeltaPart(string label, int delta)
+        {
+            if (delta == 0)
+            {
+                return "";
+            }
+
+            return label + (delta > 0 ? " +" : " ") + delta + "  ";
         }
 
         // Shared tab bar for the settings category screens.
@@ -319,6 +416,13 @@ namespace LocalFormulaRacing
                 settings.Save();
                 ShowDisplaySettings(data, career, settings);
             });
+            UiFactory.CreateText(leftList, "HUD scale note", "Scales every in-race panel around its own screen edge, so nothing clips off.", 15, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+            UiFactory.CreateButton(leftList, "Compact HUD: " + OnOff(settings.Current.compactHud), () =>
+            {
+                settings.Current.compactHud = !settings.Current.compactHud;
+                settings.Save();
+                ShowDisplaySettings(data, career, settings);
+            });
             UiFactory.CreateButton(leftList, "Speed Units: " + (settings.Current.useMphUnits ? "MPH" : "KM/H"), () =>
             {
                 settings.Current.useMphUnits = !settings.Current.useMphUnits;
@@ -355,10 +459,16 @@ namespace LocalFormulaRacing
             RectTransform rightList = UiFactory.CreateRect(right, "Graphics list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
             UiFactory.AddVerticalLayout(rightList, 12, new RectOffset(0, 0, 0, 0));
             UiFactory.CreateSubHeader(rightList, "Graphics");
-            string[] qualityNames = { "Low", "Medium", "High" };
-            UiFactory.CreateButton(rightList, "Quality: " + qualityNames[Mathf.Clamp(settings.Current.graphicsQuality, 0, 2)], () =>
+            string[] qualityNames = { "Low", "Medium", "High", "Ultra" };
+            UiFactory.CreateButton(rightList, "Quality: " + qualityNames[Mathf.Clamp(settings.Current.graphicsQuality, 0, 3)], () =>
             {
-                settings.Current.graphicsQuality = (settings.Current.graphicsQuality + 1) % 3;
+                settings.Current.graphicsQuality = (settings.Current.graphicsQuality + 1) % 4;
+                settings.Save();
+                ShowDisplaySettings(data, career, settings);
+            });
+            UiFactory.CreateButton(rightList, "Particles: " + OnOff(settings.Current.particlesEnabled), () =>
+            {
+                settings.Current.particlesEnabled = !settings.Current.particlesEnabled;
                 settings.Save();
                 ShowDisplaySettings(data, career, settings);
             });
@@ -532,9 +642,11 @@ namespace LocalFormulaRacing
                 hasQualifying ? "Qualifying complete. Grid is set." : "Qualifying required before the race.",
                 17, hasQualifying ? new Color(0.55f, 1f, 0.65f) : new Color(1f, 0.85f, 0.4f), TextAnchor.MiddleLeft);
             UiFactory.CreateBand(left, "Spacer", Vector2.zero, Vector2.zero, Vector2.zero, new Vector2(0f, 12f), new Color(0, 0, 0, 0));
+            UiFactory.CreateButton(left, "Practice Programs", () => ShowPracticePrograms(data, career, settings));
             UiFactory.CreateButton(left, "Go to Qualifying", bootstrap.StartCareerQualifying);
             UiFactory.CreateButton(left, hasQualifying ? "Go to Race" : "Go to Race (runs qualifying)", bootstrap.StartCareerRace);
             UiFactory.CreateSecondaryButton(left, "Sim Qualifying", bootstrap.StartCareerSimQualifying);
+            UiFactory.CreateSecondaryButton(left, "Car Setup", () => ShowCarSetup(data, career, settings, () => ShowRaceWeekend(data, career, settings)));
             UiFactory.CreateSecondaryButton(left, "Track Info", bootstrap.ShowTrackInfo);
             UiFactory.CreateSecondaryButton(left, "Back", () => ShowCareerHub(data, career, settings));
 
@@ -666,6 +778,31 @@ namespace LocalFormulaRacing
             CreateRaceTyreButton(tyreButtons, data, career, settings, "Intermediate", careerRace);
             CreateRaceTyreButton(tyreButtons, data, career, settings, "Wet", careerRace);
 
+            // Pit strategy plan: shown on the HUD pit card and used for the
+            // engineer's box calls during the race.
+            UiFactory.CreateText(panel, "Strategy title", "PIT STRATEGY", 20, new Color(0.95f, 0.04f, 0.035f), TextAnchor.MiddleLeft);
+            int raceLaps = Mathf.Max(3, settings.Current.laps);
+            string plannedLabel = settings.Current.plannedPitLap <= 0 ? "AUTO (engineer decides)" : "LAP " + settings.Current.plannedPitLap;
+            UiFactory.CreateButton(panel, "Planned Stop: " + plannedLabel, () =>
+            {
+                settings.Current.plannedPitLap = settings.Current.plannedPitLap >= raceLaps - 1 ? 0 : settings.Current.plannedPitLap + 1;
+                settings.Save();
+                ShowRaceTyreSelect(data, career, settings, careerRace);
+            });
+            UiFactory.CreateButton(panel, "Second Compound: " + settings.Current.plannedSecondCompound, () =>
+            {
+                settings.Current.plannedSecondCompound = NextTyreName(settings.Current.plannedSecondCompound);
+                settings.Save();
+                ShowRaceTyreSelect(data, career, settings, careerRace);
+            });
+            int stintLength = settings.Current.plannedPitLap <= 0 ? Mathf.Max(1, Mathf.RoundToInt(raceLaps * 0.55f)) : settings.Current.plannedPitLap;
+            UiFactory.CreateText(panel, "Strategy estimate",
+                "Mandatory stop is active. First stint ~" + stintLength + " of " + raceLaps + " laps, pit lane loss ~22s." +
+                (profileIsWet(current) ? " Rain risk: plan for Intermediates." : ""),
+                16, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+
+            UiFactory.CreateButton(panel, "Car Setup", () => ShowCarSetup(data, career, settings, () => ShowRaceTyreSelect(data, career, settings, careerRace)));
+
             UiFactory.CreateButton(panel, "Start Race", () =>
             {
                 if (careerRace)
@@ -734,8 +871,9 @@ namespace LocalFormulaRacing
                 UiFactory.SetSize(row, 1240f, 46f);
             }
 
-            RectTransform buttons = UiFactory.CreateRect(background, "Time trial buttons", new Vector2(0.06f, 0.03f), new Vector2(0.5f, 0.1f), Vector2.zero, Vector2.zero);
+            RectTransform buttons = UiFactory.CreateRect(background, "Time trial buttons", new Vector2(0.06f, 0.03f), new Vector2(0.6f, 0.1f), Vector2.zero, Vector2.zero);
             UiFactory.AddHorizontalLayout(buttons, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSecondaryButton(buttons, "Car Setup", () => ShowCarSetup(data, career, settings, () => ShowTimeTrialSetup(data, career, settings)));
             UiFactory.CreateSecondaryButton(buttons, "Back", () => ShowMainMenu(data, career, settings));
         }
 
@@ -745,23 +883,15 @@ namespace LocalFormulaRacing
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Track info background", new Color(0.012f, 0.016f, 0.021f, 1f));
             UiFactory.CreateTopNav(background, "Track Info");
 
-            RectTransform content = UiFactory.CreateScrollPanel(background, "Track info list", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.88f), 6, new RectOffset(18, 18, 14, 14));
-            string header = Pad("RND", 5) + Pad("CIRCUIT", 38) + Pad("COUNTRY", 26) + Pad("WEATHER", 18) + Pad("25% LAPS", 10) + "LOCAL BEST";
-            Text headerText = UiFactory.CreateText(content, "Track info header", header, 16, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.SetSize(headerText, 1240f, 28f);
+            Text infoSubtitle = UiFactory.CreateText(background, "Track info subtitle", "Select a circuit to start a time trial there. Traits describe how each layout races.", 17, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            infoSubtitle.GetComponent<RectTransform>().anchoredPosition = new Vector2(66f, -108f);
+            UiFactory.SetSize(infoSubtitle, 1300f, 28f);
+
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Track info list", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.86f), 6, new RectOffset(18, 18, 14, 14));
             for (int i = 0; i < data.Calendar.events.Count; i++)
             {
                 CalendarEventData raceEvent = data.Calendar.events[i];
-                float best = PlayerRecordsStore.GetBestLap(raceEvent.trackId);
-                string bestLabel = best > 0f ? UiFactory.FormatTime(best) : "--:--.---";
-                string line = Pad(raceEvent.round.ToString("00"), 5) +
-                              Pad(raceEvent.displayName, 38) +
-                              Pad(raceEvent.country, 26) +
-                              Pad(WeatherProfileText(raceEvent.weatherProfile), 18) +
-                              Pad(raceEvent.laps25Percent.ToString(), 10) +
-                              bestLabel;
-                Text rowText = UiFactory.CreateText(content, "Track info row " + i, line, 16, i % 2 == 0 ? new Color(0.9f, 0.95f, 0.98f) : UiFactory.TextMuted, TextAnchor.MiddleLeft);
-                UiFactory.SetSize(rowText, 1240f, 26f);
+                CreateTrackInfoRow(content, raceEvent);
             }
 
             RectTransform buttons = UiFactory.CreateRect(background, "Track info buttons", new Vector2(0.06f, 0.03f), new Vector2(0.7f, 0.1f), Vector2.zero, Vector2.zero);
@@ -773,6 +903,335 @@ namespace LocalFormulaRacing
             });
             UiFactory.SetSize(trackTest, 360f, 50f);
             UiFactory.CreateSecondaryButton(buttons, "Back", () => ShowMainMenu(data, career, settings));
+        }
+
+        // Garage setup screen: five simple 1..5 controls with a live trade-off
+        // summary. Values persist in settings and apply to the player car only.
+        public void ShowCarSetup(GameDataRepository data, CareerManager career, GameSettingsStore settings, UnityEngine.Events.UnityAction backAction)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Car setup background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateTopNav(background, "Car Setup");
+
+            UnityEngine.Events.UnityAction refresh = () => ShowCarSetup(data, career, settings, backAction);
+
+            RectTransform left = UiFactory.CreateCard(background, "Setup card", new Vector2(0.06f, 0.08f), new Vector2(0.5f, 0.82f));
+            RectTransform list = UiFactory.CreateRect(left, "Setup list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
+            UiFactory.AddVerticalLayout(list, 12, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSubHeader(list, "Garage Setup");
+            CreateSetupCycleButton(list, "Front Wing", settings.Current.setupFrontWing, value => settings.Current.setupFrontWing = value, settings, refresh);
+            CreateSetupCycleButton(list, "Rear Wing", settings.Current.setupRearWing, value => settings.Current.setupRearWing = value, settings, refresh);
+            CreateSetupCycleButton(list, "Brake Bias", settings.Current.setupBrakeBias, value => settings.Current.setupBrakeBias = value, settings, refresh);
+            CreateSetupCycleButton(list, "Suspension", settings.Current.setupSuspension, value => settings.Current.setupSuspension = value, settings, refresh);
+            CreateSetupCycleButton(list, "Ride Height", settings.Current.setupRideHeight, value => settings.Current.setupRideHeight = value, settings, refresh);
+            UiFactory.CreateButton(list, "Reset to Neutral", () =>
+            {
+                settings.Current.setupFrontWing = 3;
+                settings.Current.setupRearWing = 3;
+                settings.Current.setupBrakeBias = 3;
+                settings.Current.setupSuspension = 3;
+                settings.Current.setupRideHeight = 3;
+                settings.Save();
+                refresh();
+            });
+            UiFactory.CreateSecondaryButton(list, "Back", backAction);
+
+            RectTransform right = UiFactory.CreateCard(background, "Setup summary card", new Vector2(0.54f, 0.28f), new Vector2(0.94f, 0.82f));
+            RectTransform summaryList = UiFactory.CreateRect(right, "Setup summary list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
+            UiFactory.AddVerticalLayout(summaryList, 10, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSubHeader(summaryList, "Predicted Effect");
+            Text summary = UiFactory.CreateText(summaryList, "Setup summary", BuildSetupSummary(settings.Current), 19, new Color(0.84f, 0.91f, 0.95f), TextAnchor.UpperLeft);
+            summary.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(summary, 560f, 300f);
+        }
+
+        void CreateSetupCycleButton(RectTransform parent, string label, int value, System.Action<int> assign, GameSettingsStore settings, UnityEngine.Events.UnityAction refresh)
+        {
+            UiFactory.CreateButton(parent, label + ": " + SetupStepLabel(value), () =>
+            {
+                assign(value % 5 + 1);
+                settings.Save();
+                refresh();
+            });
+        }
+
+        string SetupStepLabel(int value)
+        {
+            string[] names = { "", "Very Low", "Low", "Neutral", "High", "Very High" };
+            int clamped = Mathf.Clamp(value, 1, 5);
+            return clamped + "/5  " + names[clamped];
+        }
+
+        // Mirrors the multipliers in VehicleController.ApplyCarSetup so the screen
+        // tells the truth about what the sliders do.
+        string BuildSetupSummary(GameSettingsData current)
+        {
+            float wing = (current.setupFrontWing + current.setupRearWing) * 0.5f - 3f;
+            float bias = current.setupBrakeBias - 3f;
+            float stiffness = current.setupSuspension - 3f;
+            float ride = current.setupRideHeight - 3f;
+            float gripPercent = (wing * 0.016f + stiffness * 0.004f - Mathf.Abs(bias) * 0.004f) * 100f;
+            float topSpeedPercent = (-wing * 0.011f - ride * 0.0045f) * 100f;
+            float brakePercent = bias * 1.4f;
+            string kerbs = stiffness > 0 || ride < 0 ? "Reduced" : (stiffness < 0 ? "Improved" : "Neutral");
+            string wear = stiffness > 0 ? "Higher" : (stiffness < 0 ? "Lower" : "Neutral");
+            return "Cornering grip:  " + SignedPercent(gripPercent) + "\n" +
+                   "Top speed:  " + SignedPercent(topSpeedPercent) + "\n" +
+                   "Braking power:  " + SignedPercent(brakePercent) + "\n" +
+                   "Kerb tolerance:  " + kerbs + "\n" +
+                   "Tyre wear:  " + wear + "\n\n" +
+                   "More wing gives cornering grip but costs straight-line speed.\n" +
+                   "Off-center brake bias stops harder but unsettles the car.\n" +
+                   "Stiff suspension and low ride height dislike kerbs.\n\n" +
+                   "Applies to your car in every session. AI cars run neutral setups.";
+        }
+
+        string SignedPercent(float value)
+        {
+            return (value >= 0f ? "+" : "") + value.ToString("0.0") + "%";
+        }
+
+        public void ShowCareerStats(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Career stats background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateTopNav(background, "Career Stats");
+            PlayerRecordsData records = PlayerRecordsStore.Data;
+
+            RectTransform rowOne = UiFactory.CreateRect(background, "Stats row one", new Vector2(0.06f, 0.76f), new Vector2(0.94f, 0.84f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(rowOne, 12, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(rowOne, "Races", records.racesFinished.ToString(), 190f);
+            UiFactory.CreateStatCard(rowOne, "Wins", records.raceWins.ToString(), 190f);
+            UiFactory.CreateStatCard(rowOne, "Podiums", records.podiums.ToString(), 190f);
+            UiFactory.CreateStatCard(rowOne, "Poles", records.polePositions.ToString(), 190f);
+            UiFactory.CreateStatCard(rowOne, "Fastest Laps", records.fastestLaps.ToString(), 210f);
+
+            RectTransform rowTwo = UiFactory.CreateRect(background, "Stats row two", new Vector2(0.06f, 0.66f), new Vector2(0.94f, 0.74f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(rowTwo, 12, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(rowTwo, "Points Scored", records.totalPoints.ToString(), 190f);
+            UiFactory.CreateStatCard(rowTwo, "Clean Races", records.cleanRaces.ToString(), 190f);
+            UiFactory.CreateStatCard(rowTwo, "Best Qualifying", records.bestQualifyingPosition > 0 ? "P" + records.bestQualifyingPosition : "--", 210f);
+            UiFactory.CreateStatCard(rowTwo, "Track Limit Warnings", records.trackLimitWarningsTotal.ToString(), 250f);
+
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Track record list", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.64f), 4, new RectOffset(18, 18, 12, 12));
+            UiFactory.CreateSubHeader(content, "Local Track Records");
+            if (records.trackRecords.Count == 0)
+            {
+                Text none = UiFactory.CreateText(content, "No records", "No lap records yet. Run a time trial to set benchmarks.", 17, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                UiFactory.SetSize(none, 900f, 28f);
+            }
+
+            for (int i = 0; i < records.trackRecords.Count; i++)
+            {
+                TrackRecordEntry entry = records.trackRecords[i];
+                string trackName = entry.trackId;
+                for (int e = 0; e < data.Calendar.events.Count; e++)
+                {
+                    if (data.Calendar.events[e].trackId == entry.trackId)
+                    {
+                        trackName = data.Calendar.events[e].displayName;
+                        break;
+                    }
+                }
+
+                string line = Pad(trackName, 40) + Pad(UiFactory.FormatTime(entry.bestLapTime), 14) + (string.IsNullOrEmpty(entry.context) ? "" : entry.context.ToUpperInvariant());
+                Text row = UiFactory.CreateText(content, "Record row " + i, line, 16, i % 2 == 0 ? new Color(0.9f, 0.95f, 0.98f) : UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                UiFactory.SetSize(row, 1100f, 26f);
+            }
+
+            RectTransform buttons = UiFactory.CreateRect(background, "Stats buttons", new Vector2(0.06f, 0.03f), new Vector2(0.5f, 0.1f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(buttons, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSecondaryButton(buttons, "Career", () => ShowCareerHub(data, career, settings));
+            UiFactory.CreateSecondaryButton(buttons, "Main Menu", () => ShowMainMenu(data, career, settings));
+        }
+
+        // Practice programs: once-per-round simulated running that pays out resource
+        // points and a little reputation, so weekends have more to do than qualify.
+        public void ShowPracticePrograms(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Practice background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateTopNav(background, "Practice Programs");
+            CalendarEventData current = career.CurrentEvent();
+            string eventName = current == null ? "Prototype GP" : current.displayName;
+            Text subtitle = UiFactory.CreateText(background, "Practice subtitle", "Round " + career.Save.currentRound + " — " + eventName + ". Each program can run once per round.", 18, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            subtitle.GetComponent<RectTransform>().anchoredPosition = new Vector2(66f, -112f);
+            UiFactory.SetSize(subtitle, 1300f, 30f);
+
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Practice list", new Vector2(0.06f, 0.14f), new Vector2(0.94f, 0.85f), 10, new RectOffset(18, 18, 14, 14));
+            CreatePracticeProgramRow(content, data, career, settings, "acclimatisation", "Track Acclimatisation", "Learn the braking points and kerbs. Steady laps, no risks.", 22, 1);
+            CreatePracticeProgramRow(content, data, career, settings, "tyreManagement", "Tyre Management", "Long-run stint watching temperatures and wear windows.", 20, 0);
+            CreatePracticeProgramRow(content, data, career, settings, "ersManagement", "ERS Management", "Deployment mapping over a full lap for better battery use.", 18, 0);
+            CreatePracticeProgramRow(content, data, career, settings, "qualifyingPace", "Qualifying Pace", "Low fuel, maximum attack simulation runs.", 24, 1);
+            CreatePracticeProgramRow(content, data, career, settings, "racePace", "Race Pace", "Heavy fuel race simulation with pit stop rehearsal.", 26, 1);
+
+            RectTransform buttons = UiFactory.CreateRect(background, "Practice buttons", new Vector2(0.06f, 0.03f), new Vector2(0.5f, 0.1f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(buttons, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSecondaryButton(buttons, "Race Weekend", bootstrap.ShowRaceWeekend);
+            UiFactory.CreateSecondaryButton(buttons, "Career", () => ShowCareerHub(data, career, settings));
+        }
+
+        void CreatePracticeProgramRow(RectTransform parent, GameDataRepository data, CareerManager career, GameSettingsStore settings, string programId, string title, string description, int resourceReward, int reputationReward)
+        {
+            string key = "s" + career.Save.currentSeason + "_r" + career.Save.currentRound + "_" + programId;
+            bool done = career.Save.completedPracticePrograms.Contains(key);
+
+            RectTransform card = UiFactory.CreateRect(parent, programId + " program card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(1180f, 84f);
+            Image background = card.gameObject.AddComponent<Image>();
+            background.color = done ? new Color(0.014f, 0.02f, 0.026f, 0.7f) : UiFactory.PanelDark;
+            UiFactory.CreateBand(card, "Program rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), done ? UiFactory.AccentGreen : UiFactory.AccentCyan);
+
+            Text titleText = UiFactory.CreateText(card, "Program title", title, 19, done ? UiFactory.TextMuted : UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            RectTransform titleRect = titleText.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0f, 1f);
+            titleRect.anchorMax = new Vector2(0.6f, 1f);
+            titleRect.offsetMin = new Vector2(16f, -32f);
+            titleRect.offsetMax = new Vector2(0f, -6f);
+
+            Text descriptionText = UiFactory.CreateText(card, "Program description", description, 15, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            RectTransform descriptionRect = descriptionText.GetComponent<RectTransform>();
+            descriptionRect.anchorMin = new Vector2(0f, 0f);
+            descriptionRect.anchorMax = new Vector2(0.6f, 1f);
+            descriptionRect.offsetMin = new Vector2(16f, 8f);
+            descriptionRect.offsetMax = new Vector2(0f, -36f);
+
+            Text rewardText = UiFactory.CreateText(card, "Program reward", done ? "COMPLETE" : "+" + resourceReward + " RP" + (reputationReward > 0 ? "  +" + reputationReward + " REP" : ""), 16, done ? UiFactory.AccentGreen : UiFactory.AccentAmber, TextAnchor.MiddleRight);
+            RectTransform rewardRect = rewardText.GetComponent<RectTransform>();
+            rewardRect.anchorMin = new Vector2(0.6f, 0f);
+            rewardRect.anchorMax = new Vector2(0.86f, 1f);
+            rewardRect.offsetMin = Vector2.zero;
+            rewardRect.offsetMax = Vector2.zero;
+
+            if (!done)
+            {
+                UnityEngine.UI.Button run = UiFactory.CreateButton(card, "Run", () =>
+                {
+                    career.Save.completedPracticePrograms.Add(key);
+                    career.Save.resourcePoints += resourceReward;
+                    career.Save.reputation += reputationReward;
+                    career.Write();
+                    ShowPracticePrograms(data, career, settings);
+                });
+                RectTransform runRect = run.GetComponent<RectTransform>();
+                runRect.anchorMin = new Vector2(0.88f, 0.5f);
+                runRect.anchorMax = new Vector2(0.88f, 0.5f);
+                runRect.sizeDelta = new Vector2(110f, 44f);
+                runRect.anchoredPosition = new Vector2(55f, 0f);
+            }
+        }
+
+        bool profileIsWet(CalendarEventData raceEvent)
+        {
+            if (raceEvent == null || string.IsNullOrEmpty(raceEvent.weatherProfile))
+            {
+                return false;
+            }
+
+            string profile = raceEvent.weatherProfile.ToLowerInvariant();
+            return profile.Contains("wet") || profile.Contains("mixed");
+        }
+
+        // One circuit card in the track info list: name, weather, laps, local best
+        // and layout traits; clicking it launches a time trial on that circuit.
+        void CreateTrackInfoRow(RectTransform parent, CalendarEventData raceEvent)
+        {
+            RectTransform card = UiFactory.CreateRect(parent, raceEvent.trackId + " info card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(1180f, 72f);
+            Image background = card.gameObject.AddComponent<Image>();
+            background.color = UiFactory.PanelDark;
+            UiFactory.CreateBand(card, "Track info rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.Accent);
+
+            Text titleText = UiFactory.CreateText(card, "Track title", "R" + raceEvent.round.ToString("00") + "  " + raceEvent.displayName, 18, UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            RectTransform titleRect = titleText.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0f, 1f);
+            titleRect.anchorMax = new Vector2(0.52f, 1f);
+            titleRect.offsetMin = new Vector2(16f, -30f);
+            titleRect.offsetMax = new Vector2(0f, -6f);
+
+            Text metaText = UiFactory.CreateText(card, "Track meta", raceEvent.country + "   ·   " + WeatherProfileText(raceEvent.weatherProfile).ToUpperInvariant() + "   ·   " + raceEvent.laps25Percent + " LAPS", 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            RectTransform metaRect = metaText.GetComponent<RectTransform>();
+            metaRect.anchorMin = new Vector2(0f, 0f);
+            metaRect.anchorMax = new Vector2(0.52f, 1f);
+            metaRect.offsetMin = new Vector2(16f, 8f);
+            metaRect.offsetMax = new Vector2(0f, -34f);
+
+            Text traitsText = UiFactory.CreateText(card, "Track traits", TrackTraits(raceEvent), 14, UiFactory.AccentCyan, TextAnchor.MiddleLeft);
+            RectTransform traitsRect = traitsText.GetComponent<RectTransform>();
+            traitsRect.anchorMin = new Vector2(0.52f, 0f);
+            traitsRect.anchorMax = new Vector2(0.84f, 1f);
+            traitsRect.offsetMin = Vector2.zero;
+            traitsRect.offsetMax = Vector2.zero;
+
+            float best = PlayerRecordsStore.GetBestLap(raceEvent.trackId);
+            Text bestText = UiFactory.CreateText(card, "Track best", best > 0f ? "BEST " + UiFactory.FormatTime(best) : "NO RECORD", 14, best > 0f ? UiFactory.AccentPurple : UiFactory.TextMuted, TextAnchor.MiddleRight);
+            RectTransform bestRect = bestText.GetComponent<RectTransform>();
+            bestRect.anchorMin = new Vector2(0.84f, 0f);
+            bestRect.anchorMax = new Vector2(1f, 1f);
+            bestRect.offsetMin = Vector2.zero;
+            bestRect.offsetMax = new Vector2(-14f, 0f);
+
+            Button launch = card.gameObject.AddComponent<Button>();
+            launch.targetGraphic = background;
+            ColorBlock colors = launch.colors;
+            colors.normalColor = UiFactory.PanelDark;
+            colors.highlightedColor = new Color(0.1f, 0.16f, 0.22f, 1f);
+            colors.pressedColor = new Color(0.006f, 0.01f, 0.014f, 1f);
+            colors.selectedColor = colors.highlightedColor;
+            launch.colors = colors;
+            launch.onClick.AddListener(() =>
+            {
+                SimpleAudioManager.PlayClick();
+                bootstrap.BeginTimeTrial(raceEvent);
+            });
+        }
+
+        // Heuristic layout traits by circuit family: enough for strategy flavor
+        // without pretending to be full telemetry.
+        string TrackTraits(CalendarEventData raceEvent)
+        {
+            string id = raceEvent == null || string.IsNullOrEmpty(raceEvent.trackId) ? "" : raceEvent.trackId;
+            string speed = "Balanced speed";
+            if (id.Contains("monza") || id.Contains("las_vegas") || id.Contains("jeddah") || id.Contains("baku") || id.Contains("spa") || id.Contains("silverstone"))
+            {
+                speed = "High top speed";
+            }
+            else if (id.Contains("monaco") || id.Contains("singapore") || id.Contains("hungary") || id.Contains("madrid"))
+            {
+                speed = "Low-speed technical";
+            }
+
+            string wear = "Wear medium";
+            if (id.Contains("bahrain") || id.Contains("suzuka") || id.Contains("barcelona") || id.Contains("silverstone") || id.Contains("qatar") || id.Contains("austin"))
+            {
+                wear = "Wear high";
+            }
+            else if (id.Contains("monza") || id.Contains("baku") || id.Contains("las_vegas") || id.Contains("canada"))
+            {
+                wear = "Wear low";
+            }
+
+            string overtaking = "Overtaking fair";
+            if (id.Contains("monaco") || id.Contains("singapore") || id.Contains("hungary") || id.Contains("zandvoort"))
+            {
+                overtaking = "Overtaking hard";
+            }
+            else if (id.Contains("monza") || id.Contains("baku") || id.Contains("jeddah") || id.Contains("las_vegas") || id.Contains("spa") || id.Contains("china"))
+            {
+                overtaking = "Overtaking easy";
+            }
+
+            string rain = "";
+            if (raceEvent != null && !string.IsNullOrEmpty(raceEvent.weatherProfile))
+            {
+                string profile = raceEvent.weatherProfile.ToLowerInvariant();
+                if (profile.Contains("wet") || profile.Contains("mixed"))
+                {
+                    rain = "\nRain risk high";
+                }
+            }
+
+            return speed + " · " + wear + "\n" + overtaking + rain;
         }
 
         public void ShowRaceHud(RaceManager race, RaceParticipant player)

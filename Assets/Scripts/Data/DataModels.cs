@@ -172,6 +172,10 @@ namespace LocalFormulaRacing
         public List<QualifyingResultEntry> lastQualifyingResults = new List<QualifyingResultEntry>();
         public List<string> completedUpgradeIds = new List<string>();
         public List<string> failedUpgradeIds = new List<string>();
+
+        // Practice program completion keys ("s1_r3_qualiPace"); defaults keep old
+        // saves loading cleanly.
+        public List<string> completedPracticePrograms = new List<string>();
     }
 
     [Serializable]
