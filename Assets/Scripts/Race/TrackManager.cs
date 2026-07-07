@@ -453,6 +453,7 @@ namespace LocalFormulaRacing
             BuildStartGantry();
             BuildScenery();
             BuildCircuitLandmarks();
+            BuildEnvironmentIdentity();
             BuildCameraTowers();
             if (wetTrack)
             {
@@ -477,7 +478,7 @@ namespace LocalFormulaRacing
             {
                 trackId = eventData != null ? eventData.trackId : "bahrain_desert",
                 displayName = eventData != null ? eventData.displayName : "Bahrain-style Desert GP",
-                roadHalfWidth = 13f,
+                roadHalfWidth = 19.5f,
                 kerbStart = 11.5f,
                 weather = DetermineWeather(eventData == null ? "clear_hot" : eventData.weatherProfile)
             };
@@ -659,33 +660,35 @@ namespace LocalFormulaRacing
             string id = runtime.trackId ?? "";
             string style = runtime.styleName ?? "";
 
-            // High-speed / long circuits.
+            // High-speed / long circuits. Lengths bumped ~50% over the original
+            // normalization targets so laps take longer and the widened road (see the
+            // per-track roadHalfWidth values below) has room to breathe.
             if (id.Contains("spa"))
             {
-                return 5600f;
+                return 8400f;
             }
 
             if (id.Contains("monza") || id.Contains("silverstone") || id.Contains("jeddah") ||
                 id.Contains("las_vegas") || id.Contains("baku") || id.Contains("qatar") || id.Contains("suzuka"))
             {
-                return 5150f;
+                return 7700f;
             }
 
             // Tight / street layouts stay shorter but never kart-track short.
             if (id.Contains("monaco"))
             {
-                return 3900f;
+                return 5850f;
             }
 
             if (id.Contains("singapore") || id.Contains("hungary") || id.Contains("zandvoort") ||
                 id.Contains("interlagos") || id.Contains("madrid") || id.Contains("monaco") ||
                 style.ToLowerInvariant().Contains("street"))
             {
-                return 4300f;
+                return 6450f;
             }
 
             // Standard circuits.
-            return 4650f;
+            return 7000f;
         }
 
         // Auto-repair pass: merge tiny segments, split very long segments, and smooth
@@ -771,7 +774,7 @@ namespace LocalFormulaRacing
         void BuildBahrainLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Desert power braking";
-            runtime.roadHalfWidth = 13.4f;
+            runtime.roadHalfWidth = 20.1f;
             runtime.kerbStart = 11.8f;
             runtime.drsZoneOne = new Vector2(0.91f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.57f);
@@ -789,7 +792,7 @@ namespace LocalFormulaRacing
         void BuildJeddahLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Fast coastal street";
-            runtime.roadHalfWidth = 12.8f;
+            runtime.roadHalfWidth = 19.2f;
             runtime.kerbStart = 11.3f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.56f, 0.73f);
@@ -806,7 +809,7 @@ namespace LocalFormulaRacing
         void BuildMonacoLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Tight harbour street";
-            runtime.roadHalfWidth = 11.6f;
+            runtime.roadHalfWidth = 17.4f;
             runtime.kerbStart = 10.2f;
             runtime.drsZoneOne = new Vector2(0.87f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.46f, 0.58f);
@@ -827,7 +830,7 @@ namespace LocalFormulaRacing
             // figure-eight anchors spanned ~3km, self-intersected at ground level, and broke
             // progress tracking, AI navigation, and object budgets.
             runtime.styleName = "Technical esses Park";
-            runtime.roadHalfWidth = 13.4f;
+            runtime.roadHalfWidth = 20.1f;
             runtime.kerbStart = 11.8f;
             runtime.drsZoneOne = new Vector2(0.9f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.5f, 0.63f);
@@ -851,7 +854,7 @@ namespace LocalFormulaRacing
         void BuildSilverstoneLayout(TrackRuntime runtime)
         {
             runtime.styleName = "High-speed airfield";
-            runtime.roadHalfWidth = 14.8f;
+            runtime.roadHalfWidth = 22.2f;
             runtime.kerbStart = 13.0f;
             runtime.drsZoneOne = new Vector2(0.89f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.64f);
@@ -869,7 +872,7 @@ namespace LocalFormulaRacing
         void BuildMonzaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Low-downforce park";
-            runtime.roadHalfWidth = 14.9f;
+            runtime.roadHalfWidth = 22.4f;
             runtime.kerbStart = 13.1f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.44f, 0.62f);
@@ -887,7 +890,7 @@ namespace LocalFormulaRacing
         void BuildSpaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Long Ardennes elevation";
-            runtime.roadHalfWidth = 14.2f;
+            runtime.roadHalfWidth = 21.3f;
             runtime.kerbStart = 12.5f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.18f, 0.36f);
@@ -905,7 +908,7 @@ namespace LocalFormulaRacing
         void BuildSingaporeLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Night street ninety";
-            runtime.roadHalfWidth = 12.2f;
+            runtime.roadHalfWidth = 18.3f;
             runtime.kerbStart = 10.7f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.55f, 0.69f);
@@ -922,7 +925,7 @@ namespace LocalFormulaRacing
         void BuildMelbourneLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Park circuit";
-            runtime.roadHalfWidth = 14.4f;
+            runtime.roadHalfWidth = 21.6f;
             runtime.kerbStart = 12.7f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.52f, 0.69f);
@@ -939,7 +942,7 @@ namespace LocalFormulaRacing
         void BuildInterlagosLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Short flowing hillside";
-            runtime.roadHalfWidth = 13.0f;
+            runtime.roadHalfWidth = 19.5f;
             runtime.kerbStart = 11.4f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.62f, 0.79f);
@@ -956,7 +959,7 @@ namespace LocalFormulaRacing
         void BuildAbuDhabiLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Twilight finale";
-            runtime.roadHalfWidth = 13.8f;
+            runtime.roadHalfWidth = 20.7f;
             runtime.kerbStart = 12.1f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.34f, 0.53f);
@@ -973,7 +976,7 @@ namespace LocalFormulaRacing
         void BuildChinaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Technical snail and back straight";
-            runtime.roadHalfWidth = 14.2f;
+            runtime.roadHalfWidth = 21.3f;
             runtime.kerbStart = 12.5f;
             runtime.drsZoneOne = new Vector2(0.83f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.58f);
@@ -991,7 +994,7 @@ namespace LocalFormulaRacing
         void BuildMiamiLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Stadium street rhythm";
-            runtime.roadHalfWidth = 13.4f;
+            runtime.roadHalfWidth = 20.1f;
             runtime.kerbStart = 11.8f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.64f);
@@ -1009,7 +1012,7 @@ namespace LocalFormulaRacing
         void BuildCanadaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Stop-go island";
-            runtime.roadHalfWidth = 12.9f;
+            runtime.roadHalfWidth = 19.4f;
             runtime.kerbStart = 11.4f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.09f);
             runtime.drsZoneTwo = new Vector2(0.56f, 0.72f);
@@ -1027,7 +1030,7 @@ namespace LocalFormulaRacing
         void BuildBarcelonaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Flowing test track";
-            runtime.roadHalfWidth = 14.0f;
+            runtime.roadHalfWidth = 21.0f;
             runtime.kerbStart = 12.3f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.5f, 0.65f);
@@ -1045,7 +1048,7 @@ namespace LocalFormulaRacing
         void BuildAustriaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Short alpine power";
-            runtime.roadHalfWidth = 13.8f;
+            runtime.roadHalfWidth = 20.7f;
             runtime.kerbStart = 12.1f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.18f, 0.36f);
@@ -1062,7 +1065,7 @@ namespace LocalFormulaRacing
         void BuildHungaryLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Twisty technical bowl";
-            runtime.roadHalfWidth = 12.9f;
+            runtime.roadHalfWidth = 19.4f;
             runtime.kerbStart = 11.4f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.34f, 0.45f);
@@ -1080,7 +1083,7 @@ namespace LocalFormulaRacing
         void BuildZandvoortLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Coastal banked flow";
-            runtime.roadHalfWidth = 12.6f;
+            runtime.roadHalfWidth = 18.9f;
             runtime.kerbStart = 11.1f;
             runtime.drsZoneOne = new Vector2(0.87f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.54f, 0.68f);
@@ -1097,7 +1100,7 @@ namespace LocalFormulaRacing
         void BuildMadridLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Hybrid street exhibition";
-            runtime.roadHalfWidth = 12.9f;
+            runtime.roadHalfWidth = 19.4f;
             runtime.kerbStart = 11.4f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.46f, 0.62f);
@@ -1115,7 +1118,7 @@ namespace LocalFormulaRacing
         void BuildBakuLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Castle straight street";
-            runtime.roadHalfWidth = 13.1f;
+            runtime.roadHalfWidth = 19.7f;
             runtime.kerbStart = 11.5f;
             runtime.drsZoneOne = new Vector2(0.78f, 0.1f);
             runtime.drsZoneTwo = new Vector2(0.52f, 0.67f);
@@ -1133,7 +1136,7 @@ namespace LocalFormulaRacing
         void BuildAustinLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Rollercoaster esses";
-            runtime.roadHalfWidth = 14.2f;
+            runtime.roadHalfWidth = 21.3f;
             runtime.kerbStart = 12.5f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.38f, 0.56f);
@@ -1151,7 +1154,7 @@ namespace LocalFormulaRacing
         void BuildMexicoLayout(TrackRuntime runtime)
         {
             runtime.styleName = "High-altitude stadium";
-            runtime.roadHalfWidth = 14.0f;
+            runtime.roadHalfWidth = 21.0f;
             runtime.kerbStart = 12.3f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.09f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.63f);
@@ -1169,7 +1172,7 @@ namespace LocalFormulaRacing
         void BuildLasVegasLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Neon strip street";
-            runtime.roadHalfWidth = 13.9f;
+            runtime.roadHalfWidth = 20.9f;
             runtime.kerbStart = 12.2f;
             runtime.drsZoneOne = new Vector2(0.74f, 0.13f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.58f);
@@ -1187,7 +1190,7 @@ namespace LocalFormulaRacing
         void BuildQatarLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Desert high-speed flow";
-            runtime.roadHalfWidth = 14.4f;
+            runtime.roadHalfWidth = 21.6f;
             runtime.kerbStart = 12.7f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.55f, 0.72f);
@@ -1243,14 +1246,14 @@ namespace LocalFormulaRacing
                 }
             }
 
-            if (runtime.roadHalfWidth < 6f || runtime.roadHalfWidth > 22f)
+            if (runtime.roadHalfWidth < 6f || runtime.roadHalfWidth > 26f)
             {
                 if (LastReport != null)
                 {
                     LastReport.Warn("road half width " + runtime.roadHalfWidth.ToString("0.0") + " out of range, clamping.");
                 }
 
-                runtime.roadHalfWidth = Mathf.Clamp(runtime.roadHalfWidth, 6f, 22f);
+                runtime.roadHalfWidth = Mathf.Clamp(runtime.roadHalfWidth, 6f, 26f);
             }
 
             if (runtime.kerbStart <= 0f || runtime.kerbStart >= runtime.roadHalfWidth)
@@ -1511,15 +1514,51 @@ namespace LocalFormulaRacing
             collider.isTrigger = false;
             collider.sharedMaterial = GetRunoffPhysicsMaterial();
 
-            // Add decorative height variation to the terrain edges
-            for (int i = 0; i < 12; i++)
+            // Add decorative height variation to the terrain edges. This used to spawn a
+            // handful of single spheres up to 180 units wide, gated only by an IsOnRoad
+            // check on the sphere's centre point - that let the sphere's actual 90-unit
+            // radius loom over the road, pit lane, and camera corridor even when its pivot
+            // read as clear. Low, elongated ridge clusters plus the radius-aware clearance
+            // helper (which skips the instance entirely if it can't be pushed clear) fix
+            // that without losing the horizon detail.
+            int hillClusters = Mathf.Max(3, Mathf.RoundToInt(6f * Mathf.Clamp(sceneryDensity, 0.25f, 2f)));
+            for (int i = 0; i < hillClusters; i++)
             {
-                Vector3 hillPos = center + new Vector3(Random.Range(-size.x, size.x) * 0.45f, 5f, Random.Range(-size.z, size.z) * 0.45f);
-                if (Runtime.IsOnRoad(hillPos)) continue;
+                Vector3 hillPos = new Vector3(center.x + Random.Range(-size.x, size.x) * 0.48f, groundTopY, center.z + Random.Range(-size.z, size.z) * 0.48f);
+                CreateDistantHillCluster(hillPos, i);
+            }
+        }
+
+        // Cluster of low, flattened, elongated spheres standing in for a distant hill or
+        // ridge silhouette. Replaces the old single wide dome: several smaller pieces read
+        // as a horizon feature without any one piece having a huge collision-relevant
+        // footprint, and each piece is independently clearance-checked and skipped (not
+        // just pushed) if it can't clear the corridor. Height is measured from groundTopY
+        // (not the sample point's own Y) so most of each sphere sinks below the terrain
+        // slab and only a rounded cap shows above it, the way the old dome's silhouette
+        // read before its bounding radius became the problem.
+        void CreateDistantHillCluster(Vector3 center, int seed)
+        {
+            int pieces = 3 + seed % 3;
+            for (int p = 0; p < pieces; p++)
+            {
+                float widthScale = 55f + (seed * 7 + p * 23) % 55;
+                float heightScale = 26f + (seed * 3 + p * 7) % 20;
+                Vector3 offset = new Vector3((p - (pieces - 1) * 0.5f) * widthScale * 0.6f, 0f, ((seed + p) % 3 - 1) * 20f);
+                Vector3 desired = center + offset;
+                float objectRadius = widthScale * 0.5f;
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, objectRadius, 12f, out safePosition))
+                {
+                    continue;
+                }
+
+                float hillCenterY = groundTopY - heightScale * 0.5f + heightScale * 0.55f;
                 GameObject hill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                hill.name = "Distant hill ridge";
                 hill.transform.SetParent(transform);
-                hill.transform.position = hillPos;
-                hill.transform.localScale = new Vector3(180f, 42f, 180f);
+                hill.transform.position = new Vector3(safePosition.x, hillCenterY, safePosition.z);
+                hill.transform.localScale = new Vector3(widthScale, heightScale, widthScale * 0.6f);
                 hill.GetComponent<Renderer>().sharedMaterial = grassMaterial;
                 MakeVisualOnly(hill);
             }
@@ -2586,6 +2625,392 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Large-scale environmental identity pass: distant mountains/skyline behind
+        // every circuit, plus archetype-specific flavour (desert paddocks, harbour city,
+        // neon skyline, modern street skyline, forested hills, stadium bowl, observation
+        // tower) keyed off trackId/styleName. Everything here is atmospheric backdrop -
+        // built through TryGetClearScenerySpot/IsClearOfTrackCorridor so nothing pops
+        // into the drivable corridor, kerbs, runoff, pit lane, or the racing line - and
+        // kept low/distant rather than towering right next to the road.
+        void BuildEnvironmentIdentity()
+        {
+            float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+            string id = Runtime.trackId ?? "";
+            string style = (Runtime.styleName ?? "").ToLowerInvariant();
+
+            bool parkland = id.Contains("spa") || id.Contains("austria") || id.Contains("red_bull_ring") ||
+                            id.Contains("suzuka") || id.Contains("silverstone") || id.Contains("monza");
+            bool cityStreet = streetTrack && !monacoTrack && !neonTrack;
+            bool nightNeon = neonTrack || style.Contains("night");
+
+            // Baseline distant ridge behind every circuit so nothing ever reads as flat;
+            // archetype passes below layer their own identity on top of this rather than
+            // replacing it.
+            Color ridgeTint = desertTrack ? new Color(0.62f, 0.5f, 0.34f) : (parkland ? new Color(0.24f, 0.3f, 0.24f) : new Color(0.34f, 0.38f, 0.46f));
+            BuildMountainBackdrop(density, ridgeTint);
+
+            if (desertTrack)
+            {
+                BuildDesertBackdrop(density);
+            }
+
+            if (monacoTrack)
+            {
+                BuildMonacoBackdrop(density);
+            }
+            else if (nightNeon)
+            {
+                BuildNeonSkylineBackdrop(density);
+            }
+            else if (cityStreet)
+            {
+                BuildCityStreetBackdrop(density);
+            }
+
+            if (parkland)
+            {
+                BuildParklandBackdrop(density);
+            }
+
+            if (id.Contains("mexico"))
+            {
+                CreateStadiumComplex();
+            }
+
+            if (id.Contains("austin") || id.Contains("cota") || id.Contains("united_states"))
+            {
+                CreateObservationTower();
+            }
+        }
+
+        // Ring of low, flattened, elongated spheres well outside the track bounds,
+        // standing in for a distant mountain/hill range on the horizon. Radius-aware
+        // clearance means a segment simply doesn't spawn if it can't clear the corridor
+        // rather than risking an oversized silhouette near the racing line.
+        void BuildMountainBackdrop(float density, Color tint)
+        {
+            Material ridgeMaterial = CreateMaterial("Runtime Mountain Ridge", tint, 0f, 0.15f);
+            Bounds bounds = new Bounds(Runtime.centerLine[0], Vector3.zero);
+            for (int i = 1; i < Runtime.centerLine.Count; i++)
+            {
+                bounds.Encapsulate(Runtime.centerLine[i]);
+            }
+
+            float ringRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) * 1.55f + 220f;
+            Vector3 ringCenter = new Vector3(bounds.center.x, groundTopY, bounds.center.z);
+            int segments = Mathf.Max(8, Mathf.RoundToInt(16f * density));
+            for (int i = 0; i < segments; i++)
+            {
+                float angle = (i / (float)segments) * Mathf.PI * 2f;
+                Vector3 direction = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+                Vector3 desired = ringCenter + direction * ringRadius;
+                float widthScale = 140f + (i % 5) * 40f;
+                float heightScale = 34f + (i % 4) * 14f;
+                float objectRadius = widthScale * 0.5f;
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, objectRadius, 20f, out safePosition))
+                {
+                    continue;
+                }
+
+                // Sit most of the sphere below groundTopY so only a rounded cap of
+                // roughly 0.6x its height reads above the terrain as a ridge silhouette.
+                float ridgeCenterY = groundTopY - heightScale * 0.5f + heightScale * 0.6f;
+                GameObject ridge = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                ridge.name = "Distant mountain ridge";
+                ridge.transform.SetParent(transform);
+                ridge.transform.position = new Vector3(safePosition.x, ridgeCenterY, safePosition.z);
+                ridge.transform.localScale = new Vector3(widthScale, heightScale, widthScale * 0.62f);
+                ridge.GetComponent<Renderer>().sharedMaterial = ridgeMaterial;
+                MakeVisualOnly(ridge);
+            }
+        }
+
+        // Bahrain/Qatar/Abu Dhabi-style desert dressing: floodlit paddock blocks well back
+        // from the corridor, plus a warm heat-haze band standing in for horizon shimmer.
+        void BuildDesertBackdrop(float density)
+        {
+            CreatePaddockComplex(0.08f, 1);
+            CreatePaddockComplex(0.58f, -1);
+
+            Material haze = CreateTranslucentMaterial("Runtime desert haze", new Color(0.85f, 0.72f, 0.5f), 0.12f);
+            int bands = Mathf.Max(3, Mathf.RoundToInt(6f * density));
+            for (int i = 0; i < bands; i++)
+            {
+                float d = Runtime.length * (i / (float)bands);
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 140f) + Vector3.up * 18f;
+                    Vector3 safePosition;
+                    if (!TryGetClearScenerySpot(desired, 60f, 10f, out safePosition))
+                    {
+                        continue;
+                    }
+
+                    CreateVisualBox("Desert heat haze bank", safePosition, Quaternion.LookRotation(forward, Vector3.up), new Vector3(120f, 30f, 4f), haze);
+                }
+            }
+        }
+
+        // Floodlit desert paddock building: a low wide block plus a row of light towers,
+        // echoing Bahrain/Qatar/Abu Dhabi's paddock architecture from well outside the
+        // corridor rather than right at the fence line.
+        void CreatePaddockComplex(float normalizedDistance, int side)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(Runtime.length * normalizedDistance, out point, out forward, out right);
+            Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 70f);
+            Vector3 basePosition;
+            if (!TryGetClearScenerySpot(desired, 40f, 8f, out basePosition))
+            {
+                return;
+            }
+
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            CreateVisualBox("Paddock building block", basePosition + Vector3.up * 5f, rotation, new Vector3(46f, 10f, 20f), concreteMaterial);
+            CreateVisualBox("Paddock building fascia", basePosition + Vector3.up * 10.2f, rotation, new Vector3(46.4f, 0.4f, 20.4f), sceneryAccentMaterial);
+            for (int i = -1; i <= 1; i++)
+            {
+                Vector3 towerBase = basePosition + forward * i * 16f - right * side * 6f;
+                CreateVisualBox("Paddock light tower pole", towerBase + Vector3.up * 9f, rotation, new Vector3(0.5f, 18f, 0.5f), metalMaterial);
+                CreateVisualBox("Paddock light tower head", towerBase + Vector3.up * 18.3f, rotation, new Vector3(3.2f, 0.6f, 1.4f), lightGlowMaterial);
+            }
+        }
+
+        // Denser Monaco harbour/city read: close-packed luxury building clusters along the
+        // hillside, layered behind BuildHarbourYachts so the promenade feels busier
+        // without duplicating it.
+        void BuildMonacoBackdrop(float density)
+        {
+            int clusters = Mathf.Max(3, Mathf.RoundToInt(6f * density));
+            for (int i = 0; i < clusters; i++)
+            {
+                float t = (i + 0.5f) / clusters;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 46f);
+                CreateProceduralBuildingCluster(anchor, forward, 3, 14f + (i % 3) * 6f, false);
+            }
+        }
+
+        // Denser lit skyline for Singapore/Las Vegas-style night circuits, building on the
+        // existing CreateNeonPylon trackside strips with a further-back row of taller neon
+        // towers so the horizon itself glows.
+        void BuildNeonSkylineBackdrop(float density)
+        {
+            int clusters = Mathf.Max(4, Mathf.RoundToInt(8f * density));
+            for (int i = 0; i < clusters; i++)
+            {
+                float t = (i + 0.5f) / clusters;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 60f);
+                CreateProceduralBuildingCluster(anchor, forward, 3, 26f + (i % 3) * 8f, true);
+            }
+        }
+
+        // Modern street-circuit skyline (Jeddah/Baku/Madrid/Miami-style): a further-back
+        // skyline row plus one or two sponsor bridges spanning the track on the longer
+        // straights.
+        void BuildCityStreetBackdrop(float density)
+        {
+            int clusters = Mathf.Max(3, Mathf.RoundToInt(6f * density));
+            for (int i = 0; i < clusters; i++)
+            {
+                float t = (i + 0.5f) / clusters;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 55f);
+                CreateProceduralBuildingCluster(anchor, forward, 3, 20f + (i % 3) * 7f, false);
+            }
+
+            CreateSponsorBridge(Runtime.length * 0.22f);
+            if (density > 0.6f)
+            {
+                CreateSponsorBridge(Runtime.length * 0.68f);
+            }
+        }
+
+        // Cluster of boxy buildings around a point, shared by the Monaco/city-street/neon
+        // skyline passes. Each building is individually clearance-checked (not just the
+        // cluster anchor) since the spread can push outer buildings back toward the
+        // corridor on tighter circuits.
+        void CreateProceduralBuildingCluster(Vector3 anchor, Vector3 forward, int count, float baseHeight, bool neonStyle)
+        {
+            Vector3 right = Vector3.Cross(Vector3.up, forward).normalized;
+            for (int i = 0; i < count; i++)
+            {
+                float spread = (i - (count - 1) * 0.5f) * 14f;
+                float depth = (i % 2) * 9f;
+                Vector3 desired = anchor + forward * spread + right * depth;
+                float height = baseHeight + (i % 4) * 5f;
+                float footprint = 9f + (i % 3) * 3f;
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, footprint * 0.75f, 4f, out safePosition))
+                {
+                    continue;
+                }
+
+                Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+                GameObject block = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                block.name = "Skyline building block";
+                block.transform.SetParent(transform);
+                block.transform.position = safePosition + Vector3.up * height * 0.5f;
+                block.transform.rotation = rotation;
+                block.transform.localScale = new Vector3(footprint, height, footprint * 0.85f);
+                block.GetComponent<Renderer>().sharedMaterial = neonStyle ? glassMaterial : (monacoTrack ? barrierMaterial : concreteMaterial);
+                MakeVisualOnly(block);
+
+                Material windowMaterial = neonStyle ? neonMaterials[i % neonMaterials.Length] : (nightTrack || twilightTrack ? lightGlowMaterial : glassMaterial);
+                int bands = Mathf.Clamp(Mathf.RoundToInt(height / 3f), 1, 4);
+                for (int band = 0; band < bands; band++)
+                {
+                    CreateVisualBox("Skyline window band", safePosition + Vector3.up * (1.5f + band * 2.6f), rotation, new Vector3(footprint * 0.8f, 0.6f, 0.08f), windowMaterial);
+                }
+            }
+        }
+
+        // Overhead sponsor bridge spanning the track, modelled on
+        // CreateSuzukaCrossoverBridge's visual-only deck (no collider, generous vertical
+        // clearance) so it can safely arc above the corridor instead of needing the
+        // lateral clearance ground-level scenery needs.
+        void CreateSponsorBridge(float distance)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            Quaternion deckRotation = Quaternion.LookRotation(forward, Vector3.up);
+            float span = Runtime.roadHalfWidth * 2f + 14f;
+            const float clearance = 9.5f;
+            float deckY = point.y + clearance;
+            Vector3 deckCenter = new Vector3(point.x, deckY, point.z);
+            Color panelColor = SponsorPalette[Mathf.Abs(Mathf.RoundToInt(distance)) % SponsorPalette.Length];
+            Material panelMaterial = CreateMaterial("Sponsor bridge banner", panelColor, 0.05f, 0.5f, (nightTrack || twilightTrack) ? panelColor * 0.4f : Color.black);
+
+            CreateVisualBox("Sponsor bridge deck", deckCenter, deckRotation, new Vector3(span, 1.1f, 5.5f), metalMaterial);
+            CreateVisualBox("Sponsor bridge banner panel", deckCenter - Vector3.up * 0.9f, deckRotation, new Vector3(span * 0.92f, 1.4f, 0.3f), panelMaterial);
+
+            for (int side = -1; side <= 1; side += 2)
+            {
+                Vector3 columnTop = point + right * side * (span * 0.5f - 1.4f);
+                float columnHeight = Mathf.Max(2f, deckY - groundTopY);
+                Vector3 columnCenter = new Vector3(columnTop.x, groundTopY + columnHeight * 0.5f, columnTop.z);
+                CreateVisualBox("Sponsor bridge column", columnCenter, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1.4f, columnHeight, 1.4f), metalMaterial);
+            }
+        }
+
+        // Forested hills and a distant treeline for Spa/Austria/Suzuka/Silverstone/Monza
+        // -style parkland circuits, layered behind the trackside tree clusters BuildScenery
+        // already scatters.
+        void BuildParklandBackdrop(float density)
+        {
+            int rings = Mathf.Max(6, Mathf.RoundToInt(12f * density));
+            for (int i = 0; i < rings; i++)
+            {
+                float t = (i + 0.5f) / rings;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 90f);
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, 30f, 10f, out safePosition))
+                {
+                    continue;
+                }
+
+                // Local point.y (not groundTopY) on purpose: parkland tracks like Spa and
+                // Austria have real elevation change, so a hillside should sit relative to
+                // the nearby road height rather than one flat global ground reference.
+                float heightScale = 24f + (i % 3) * 8f;
+                GameObject hill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                hill.name = "Forested hillside";
+                hill.transform.SetParent(transform);
+                hill.transform.position = safePosition + Vector3.down * (heightScale * 0.25f);
+                hill.transform.localScale = new Vector3(60f + (i % 4) * 12f, heightScale, 44f + (i % 3) * 10f);
+                hill.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
+                MakeVisualOnly(hill);
+
+                if (i % 2 == 0)
+                {
+                    CreateTreeCluster(safePosition + right * side * 14f, i + 40);
+                }
+            }
+        }
+
+        // Mexico's Foro Sol-style stadium section: a tight, tall grandstand bowl around
+        // the closing corner complex, denser than the standard BuildGrandstand rows.
+        void CreateStadiumComplex()
+        {
+            const float normalized = 0.94f;
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(Runtime.length * normalized, out point, out forward, out right);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                Vector3 basePosition = point + right * side * (Runtime.roadHalfWidth + 20f);
+                Vector3 lateral = right * side;
+                Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+                for (int row = 0; row < 9; row++)
+                {
+                    Vector3 rowCenter = basePosition + Vector3.up * (0.4f + row * 0.68f) + lateral * row * 1.3f;
+                    CreateVisualBox("Stadium bowl tier", rowCenter, rotation, new Vector3(1.3f, 0.55f, 46f), metalMaterial);
+                    CreateVisualBox("Stadium bowl crowd block", rowCenter + Vector3.up * 0.5f, rotation, new Vector3(0.95f, 0.46f, 45f), row % 2 == 0 ? sceneryAccentMaterial : glassMaterial);
+                }
+
+                Vector3 roofCenter = basePosition + Vector3.up * 8.2f + lateral * 4.6f;
+                CreateVisualBox("Stadium bowl roof", roofCenter, rotation, new Vector3(13f, 0.3f, 48f), metalMaterial);
+            }
+        }
+
+        // Austin/COTA's observation tower: a tall thin shaft with an angled marker deck
+        // near the top, kept as a distant silhouette well clear of the fence line rather
+        // than right at trackside.
+        void CreateObservationTower()
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(Runtime.length * 0.5f, out point, out forward, out right);
+            Vector3 desired = point + right * (Runtime.roadHalfWidth + 150f);
+            Vector3 basePosition;
+            if (!TryGetClearScenerySpot(desired, 8f, 10f, out basePosition))
+            {
+                return;
+            }
+
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            const float towerHeight = 70f;
+            CreateVisualBox("Observation tower shaft", basePosition + Vector3.up * towerHeight * 0.5f, rotation, new Vector3(3.2f, towerHeight, 3.2f), metalMaterial);
+            CreateVisualBox("Observation tower deck", basePosition + Vector3.up * (towerHeight + 2f), rotation, new Vector3(9f, 1.6f, 9f), concreteMaterial);
+            GameObject marker = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            marker.name = "Observation tower marker";
+            marker.transform.SetParent(transform);
+            marker.transform.position = basePosition + Vector3.up * (towerHeight + 8f);
+            marker.transform.rotation = rotation * Quaternion.Euler(18f, 0f, 6f);
+            marker.transform.localScale = new Vector3(0.6f, 4.5f, 0.6f);
+            marker.GetComponent<Renderer>().sharedMaterial = sceneryAccentMaterial;
+            MakeVisualOnly(marker);
+        }
+
         // Row of moored white "yachts" along a straight for Monaco's harbour promenade.
         void BuildHarbourYachts(float startNormalized, int count)
         {
@@ -2829,14 +3254,65 @@ namespace LocalFormulaRacing
             return new Vector3(moved.x, position.y, moved.z);
         }
 
+        // Baseline runoff/kerb buffer assumed beyond the painted road edge before "clear
+        // of the track" starts, used by the corridor-radius checks below.
+        const float TrackCorridorRunoffWidth = 9f;
+
+        // Robust clearance test for large-radius decorative scenery (hills, dunes,
+        // mountain ridges, landmark clusters). PushSceneryClearOfTrack only checks a
+        // single pivot point against the signed lateral distance of one local segment
+        // frame, which is how a 90-unit-radius sphere could pass while its far edge still
+        // loomed over the road. This instead measures the flat distance to the true
+        // nearest point on the whole centerline (TrackProgress already scans every
+        // segment, not just one sample) and requires room for the object's own footprint,
+        // not just its pivot.
+        bool IsClearOfTrackCorridor(Vector3 center, float objectRadius, float extraMargin)
+        {
+            TrackProgress progress = Runtime.GetProgress(center);
+            Vector3 flatCenter = new Vector3(center.x, progress.nearestPoint.y, center.z);
+            float distanceToCenterline = Vector3.Distance(flatCenter, progress.nearestPoint);
+            float required = Runtime.roadHalfWidth + TrackCorridorRunoffWidth + objectRadius + extraMargin;
+            return distanceToCenterline >= required;
+        }
+
+        // Generalized PushSceneryClearOfTrack for objects with real size: tries the
+        // desired spot first, then pushes straight out along the local track-right
+        // direction, and reports failure instead of guessing so callers can skip the
+        // instance rather than plant it too close to the corridor.
+        bool TryGetClearScenerySpot(Vector3 desiredPosition, float objectRadius, float extraMargin, out Vector3 result)
+        {
+            if (IsClearOfTrackCorridor(desiredPosition, objectRadius, extraMargin))
+            {
+                result = desiredPosition;
+                return true;
+            }
+
+            TrackProgress progress = Runtime.GetProgress(desiredPosition);
+            Vector3 right = Vector3.Cross(Vector3.up, progress.forward).normalized;
+            float side = progress.lateralDistance >= 0f ? 1f : -1f;
+            float required = Runtime.roadHalfWidth + TrackCorridorRunoffWidth + objectRadius + extraMargin;
+            Vector3 moved = progress.nearestPoint + right * side * required;
+            moved.y = desiredPosition.y;
+            result = moved;
+            return IsClearOfTrackCorridor(moved, objectRadius, extraMargin);
+        }
+
         void CreateDune(Vector3 position, int index)
         {
-            Vector3 safePosition = PushSceneryClearOfTrack(position, 15f);
+            float width = 8f + index % 5;
+            float depth = 4.6f + index % 4;
+            float objectRadius = Mathf.Max(width, depth) * 0.5f;
+            Vector3 safePosition;
+            if (!TryGetClearScenerySpot(position, objectRadius, 6f, out safePosition))
+            {
+                return;
+            }
+
             GameObject dune = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             dune.name = "Sculpted runoff dune";
             dune.transform.SetParent(transform);
             dune.transform.position = safePosition + Vector3.down * 0.28f;
-            dune.transform.localScale = new Vector3(8f + index % 5, 0.75f, 4.6f + index % 4);
+            dune.transform.localScale = new Vector3(width, 0.75f, depth);
             dune.GetComponent<Renderer>().sharedMaterial = grassMaterial;
             MakeVisualOnly(dune);
         }
@@ -2976,11 +3452,11 @@ namespace LocalFormulaRacing
                 report.roadColliderValid = Runtime.roadCollider != null && Runtime.roadCollider.sharedMesh != null && !Runtime.roadCollider.isTrigger;
             }
 
-            if (Runtime.length < 3800f)
+            if (Runtime.length < 5700f)
             {
-                report.Warn("track length " + Runtime.length.ToString("0") + "m is INVALID: circuits must normalize to at least 3.8 km for race pacing.");
+                report.Warn("track length " + Runtime.length.ToString("0") + "m is INVALID: circuits must normalize to at least 5.7 km for race pacing.");
             }
-            else if (Runtime.length > 6200f)
+            else if (Runtime.length > 9300f)
             {
                 report.Warn("track length " + Runtime.length.ToString("0") + "m exceeds the expected normalization ceiling.");
             }
