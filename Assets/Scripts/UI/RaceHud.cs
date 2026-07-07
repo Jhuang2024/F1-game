@@ -679,8 +679,8 @@ namespace LocalFormulaRacing
             RectTransform hintBand = UiFactory.CreateResponsivePanel(transform, "HUD hint bar", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(620f, 24f), new Vector2(0f, 154f), new Color(0.006f, 0.009f, 0.012f, 0.4f));
             ApplyPanelScale(hintBand);
             string hintText = race != null && race.IsTimeTrial
-                ? "Esc pause   R ERS (hold: reset car)   C camera   F1 debug   F2 next track"
-                : "Esc pause   Space DRS   R ERS (hold: reset car)   C camera   P pit   F1 debug";
+                ? "Esc pause   Shift ERS deploy   R mode (hold: reset car)   C camera   F1 debug   F2 next track"
+                : "Esc pause   Space DRS   Shift ERS deploy   R mode (hold: reset car)   C camera   P pit   F1 debug";
             hint = UiFactory.CreateText(hintBand, "Hint", hintText, 12, new Color(0.7f, 0.8f, 0.85f, 0.9f), TextAnchor.MiddleCenter);
             RectTransform hintRect = hint.GetComponent<RectTransform>();
             hintRect.anchorMin = Vector2.zero;
@@ -801,7 +801,11 @@ namespace LocalFormulaRacing
 
             UiFactory.SetVerticalBarValue(throttleBar, car.EffectiveThrottle);
             UiFactory.SetVerticalBarValue(brakeBar, car.EffectiveBrake);
-            UiFactory.SetVerticalBarValue(ersInputBar, car.ErsBattery);
+            // The ERS bar swaps color with what the battery is actually doing right
+            // now (draining vs regenerating) instead of staying flat cyan regardless
+            // of state, so a glance tells you which way the charge is moving.
+            Color ersBarColor = car.ErsDeploying ? UiFactory.AccentCyan : (car.ErsHarvesting ? UiFactory.AccentGreen : UiFactory.TextMuted);
+            UiFactory.SetVerticalBarValue(ersInputBar, car.ErsBattery, ersBarColor);
 
             UpdateStatePills(car);
 
@@ -851,19 +855,7 @@ namespace LocalFormulaRacing
                 drsPill.SetState("DRS OFF", UiFactory.TextMuted, false);
             }
 
-            string ersMode = ErsModeText();
-            if (ersMode == "DEPLOY")
-            {
-                ersPill.SetState("ERS DEPLOY", UiFactory.AccentCyan, true);
-            }
-            else if (ersMode == "HARVEST")
-            {
-                ersPill.SetState("ERS HARVEST", UiFactory.AccentAmber, false);
-            }
-            else
-            {
-                ersPill.SetState("ERS BALANCED", UiFactory.TextMuted, false);
-            }
+            UpdateErsPill(car);
 
             bool lowFuel = car.FuelKg < 7f;
             if (lowFuel)
@@ -1444,25 +1436,46 @@ namespace LocalFormulaRacing
             return UiFactory.AccentGreen;
         }
 
-        string ErsModeText()
+        // Reflects the car's real-time ERS state rather than just the strategy
+        // dial: DEPLOY only while actually drawing down the battery, HARVEST only
+        // while actually regenerating (or whenever the dial is set to Harvest),
+        // LOW/EMPTY when charge is running out, otherwise an idle state that still
+        // names the active strategy so BAL/Attack ready still reads clearly.
+        void UpdateErsPill(VehicleController car)
         {
-            if (race == null || race.Settings == null)
+            int mode = race == null || race.Settings == null ? (int)ErsStrategyMode.Balanced : race.Settings.Current.ersMode;
+            if (car.ErsDeploying)
             {
-                return "BAL";
+                ersPill.SetState("ERS DEPLOY", UiFactory.AccentCyan, true);
+                return;
             }
 
-            int mode = race.Settings.Current.ersMode;
-            if (mode == (int)ErsStrategyMode.Harvest)
+            if (car.ErsHarvesting || mode == (int)ErsStrategyMode.Harvest)
             {
-                return "HARVEST";
+                ersPill.SetState("ERS HARVEST", UiFactory.AccentAmber, false);
+                return;
+            }
+
+            if (car.ErsBattery < 0.05f)
+            {
+                bool lit = Mathf.PingPong(Time.time * 2.4f, 1f) > 0.5f;
+                ersPill.SetState("ERS EMPTY", UiFactory.AccentAmber, lit);
+                return;
+            }
+
+            if (car.ErsBattery < 0.2f)
+            {
+                ersPill.SetState("ERS LOW", UiFactory.AccentAmber, false);
+                return;
             }
 
             if (mode == (int)ErsStrategyMode.Attack)
             {
-                return "DEPLOY";
+                ersPill.SetState("ERS READY", UiFactory.AccentGreen, false);
+                return;
             }
 
-            return "BAL";
+            ersPill.SetState("ERS BAL", UiFactory.TextMuted, false);
         }
 
         string DriverCode(RaceParticipant participant)

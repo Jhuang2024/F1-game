@@ -479,6 +479,17 @@ namespace LocalFormulaRacing
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
             text.verticalOverflow = VerticalWrapMode.Truncate;
             RectTransform rect = text.GetComponent<RectTransform>();
+            // A GameObject.AddComponent<Text>() (as opposed to the Editor's GameObject
+            // > UI menu) leaves the RectTransform at Unity's raw default anchors,
+            // which are NOT top-left. Every call site in this codebase positions text
+            // with anchoredPosition assuming (x right, y down) from a top-left corner,
+            // so without this the whole file's positioning math silently misfires -
+            // this single default is the root cause behind more than one "overlap"
+            // report. Callers that need different anchors already set them explicitly
+            // afterward, so this only fixes the many call sites that didn't.
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(0f, 1f);
+            rect.pivot = new Vector2(0f, 1f);
             rect.sizeDelta = new Vector2(420f, 36f);
             return text;
         }
@@ -687,6 +698,87 @@ namespace LocalFormulaRacing
             layout.childForceExpandHeight = false;
             layout.childForceExpandWidth = false;
             return layout;
+        }
+
+        // A LayoutGroup ALWAYS overwrites its direct children's anchors, so any
+        // child that previously relied on a stretched/fractional anchor (e.g. "35%
+        // of parent width") silently collapses once it's placed inside one of the
+        // layout groups above - this was the root cause of tyre selection panels
+        // squeezing text to a single character per line. Use this pair instead for
+        // any horizontal split where a column needs a real, guaranteed width:
+        // AddResponsiveHorizontalLayout on the row, SetLayoutWidth on each column.
+        public static HorizontalLayoutGroup AddResponsiveHorizontalLayout(RectTransform rect, int spacing, RectOffset padding)
+        {
+            HorizontalLayoutGroup layout = rect.gameObject.AddComponent<HorizontalLayoutGroup>();
+            layout.spacing = spacing;
+            layout.padding = padding;
+            layout.childAlignment = TextAnchor.UpperLeft;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = false;
+            layout.childForceExpandHeight = true;
+            return layout;
+        }
+
+        // Fixed-width column: give it a firm preferred width so it never collapses.
+        public static LayoutElement SetFixedColumnWidth(Component component, float width)
+        {
+            LayoutElement element = component.GetComponent<LayoutElement>();
+            if (element == null)
+            {
+                element = component.gameObject.AddComponent<LayoutElement>();
+            }
+
+            element.minWidth = width;
+            element.preferredWidth = width;
+            element.flexibleWidth = 0f;
+            return element;
+        }
+
+        // Flexible column: takes whatever width remains after fixed columns and
+        // spacing, with a floor so it never gets squeezed below usability.
+        public static LayoutElement SetFlexibleColumnWidth(Component component, float minWidth)
+        {
+            LayoutElement element = component.GetComponent<LayoutElement>();
+            if (element == null)
+            {
+                element = component.gameObject.AddComponent<LayoutElement>();
+            }
+
+            element.minWidth = minWidth;
+            element.flexibleWidth = 1f;
+            return element;
+        }
+
+        // Fixed-height row for a VerticalLayoutGroup with childControlHeight=true -
+        // the vertical-axis counterpart to SetFixedColumnWidth.
+        public static LayoutElement SetFixedRowHeight(Component component, float height)
+        {
+            LayoutElement element = component.GetComponent<LayoutElement>();
+            if (element == null)
+            {
+                element = component.gameObject.AddComponent<LayoutElement>();
+            }
+
+            element.minHeight = height;
+            element.preferredHeight = height;
+            element.flexibleHeight = 0f;
+            return element;
+        }
+
+        // Flexible-height row: takes remaining vertical space after fixed rows,
+        // with a floor so it never collapses.
+        public static LayoutElement SetFlexibleRowHeight(Component component, float minHeight)
+        {
+            LayoutElement element = component.GetComponent<LayoutElement>();
+            if (element == null)
+            {
+                element = component.gameObject.AddComponent<LayoutElement>();
+            }
+
+            element.minHeight = minHeight;
+            element.flexibleHeight = 1f;
+            return element;
         }
 
         public static void SetSize(Component component, float width, float height)
@@ -1027,6 +1119,18 @@ namespace LocalFormulaRacing
             rect.anchorMax = new Vector2(1f, Mathf.Clamp01(value01));
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
+        }
+
+        // Overload that also recolors the fill - used by bars whose meaning changes
+        // with state (e.g. the ERS bar swapping color between drain and regen)
+        // instead of staying one flat color regardless of what's happening.
+        public static void SetVerticalBarValue(Image fill, float value01, Color color)
+        {
+            SetVerticalBarValue(fill, value01);
+            if (fill != null)
+            {
+                fill.color = color;
+            }
         }
 
         // Small state pill (background + label) for DRS/ERS style indicators.

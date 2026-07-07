@@ -10,6 +10,8 @@ namespace LocalFormulaRacing
         public float CurrentSpeedKph { get; private set; }
         public int CurrentGear { get; private set; }
         public float ErsBattery { get; private set; }
+        public bool ErsDeploying { get; private set; }
+        public bool ErsHarvesting { get; private set; }
         public bool DrsActive { get; private set; }
         public bool PitRequested { get; private set; }
         public bool IsOnRoad { get; private set; }
@@ -66,7 +68,7 @@ namespace LocalFormulaRacing
         // clamped away to nothing on cars whose base target is already near 350.
         const float DrsSpeedCeilingKph = 368f;
         const float DrsTopSpeedBonusKph = 15f;
-        const float ErsTopSpeedBonusKph = 5f;
+        const float ErsTopSpeedBonusKph = 12f;
         static readonly float[] AutoShiftUpKph = { 0f, 62f, 102f, 142f, 186f, 232f, 282f, 322f };
         static readonly float[] GearTorqueMultipliers = { 1.72f, 1.52f, 1.34f, 1.18f, 1.05f, 0.94f, 0.84f, 0.76f };
 
@@ -400,7 +402,7 @@ namespace LocalFormulaRacing
             // there is meaningful charge left - the mode is a strategy default, not
             // a hard lock on the driver's own overtake button.
             bool autoDeployRequested = false;
-            if (settings.ersMode == (int)ErsStrategyMode.Attack && ErsBattery > 0.12f && assisted.throttle > 0.75f)
+            if (settings.ersMode == (int)ErsStrategyMode.Attack && ErsBattery > 0.06f && assisted.throttle > 0.55f)
             {
                 autoDeployRequested = true;
             }
@@ -409,6 +411,11 @@ namespace LocalFormulaRacing
                 autoDeployRequested = true;
             }
 
+            // The manual overtake key always wins over the strategy mode's own
+            // auto-deploy logic (including Harvest, which has no auto-deploy branch
+            // above) as long as there is meaningful charge and throttle - a driver
+            // holding Shift should never find ERS refusing to fire just because the
+            // dial is set to Harvest, nor find it stuck on with no way to cut it.
             bool manualDeployRequested = raw.ers && ErsBattery > 0.03f && assisted.throttle > 0.05f;
             assisted.ers = autoDeployRequested || manualDeployRequested;
 
@@ -474,23 +481,47 @@ namespace LocalFormulaRacing
             float accelerationStat = Mathf.Lerp(11.4f, 20.4f, CarData.acceleration / 100f);
             float engineStat = Mathf.Lerp(0.96f, 1.24f, CarData.enginePower / 100f);
             float fuelPenalty = Mathf.Lerp(0.9f, 1f, Mathf.InverseLerp(42f, 5f, fuelKg));
+            // Harvest mode banks charge faster at the cost of a weaker deploy punch;
+            // Attack mode hits harder on deploy but recovers charge more slowly. Only
+            // the human player's own strategy dial drives this - AI cars run their
+            // own ShouldAiUseErs logic and always use the neutral multiplier.
+            float harvestModeMultiplier = 1f;
+            float deployModeMultiplier = 1f;
+            if (IsPlayerControlled && settings != null)
+            {
+                if (settings.ersMode == (int)ErsStrategyMode.Harvest)
+                {
+                    harvestModeMultiplier = 1.7f;
+                    deployModeMultiplier = 0.82f;
+                }
+                else if (settings.ersMode == (int)ErsStrategyMode.Attack)
+                {
+                    harvestModeMultiplier = 0.8f;
+                    deployModeMultiplier = 1.12f;
+                }
+            }
+
             float ersBoost = 0f;
-            if (activeCommand.ers && ErsBattery > 0.01f)
+            ErsDeploying = activeCommand.ers && ErsBattery > 0.01f;
+            ErsHarvesting = false;
+            if (ErsDeploying)
             {
                 // A real, felt push out of corners and down straights without being
-                // an arcade nitro button - roughly a quarter to a third of base
-                // acceleration on top, gated by remaining battery.
-                ersBoost = Mathf.Lerp(4.4f, 7.4f, CarData.ersEfficiency / 100f);
+                // an arcade nitro button - roughly half of base acceleration on top,
+                // gated by remaining battery.
+                ersBoost = Mathf.Lerp(7f, 13f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
                 ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.11f, 0.16f, activeCommand.throttle));
             }
 
             if (activeCommand.brake > 0.1f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.055f, 0.12f, CarData.ersEfficiency / 100f));
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.16f, 0.3f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsHarvesting = true;
             }
             else if (activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.006f, 0.018f, CarData.ersEfficiency / 100f));
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.012f, 0.03f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsHarvesting = true;
             }
 
             float forwardSpeedKph = Mathf.Max(0f, forwardSpeed * 3.6f);

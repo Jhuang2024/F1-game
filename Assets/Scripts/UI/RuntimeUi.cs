@@ -170,9 +170,12 @@ namespace LocalFormulaRacing
             PlayerRecordsData headerRecords = PlayerRecordsStore.Data;
             UiFactory.CreateStatCard(profile, "Wins / Podiums", headerRecords.raceWins + " / " + headerRecords.podiums, 210f);
 
-            // Left: the next event, framed as the primary thing to do, with the
-            // rest of the career screens reachable as compact secondary actions.
-            RectTransform left = UiFactory.CreateGlassPanel(background, "Next event card", new Vector2(0.05f, 0.14f), new Vector2(0.36f, 0.77f), Vector2.zero, Vector2.zero, UiFactory.PanelDark);
+            // Left column: the next event is the one primary action on this
+            // screen (also in the footer would be a duplicate path - it lives
+            // here only). A real vertical layout stacks label/name/condition so
+            // a long Grand Prix name that wraps to two lines can never collide
+            // with the button below it, which the old fixed-Y-offset version could.
+            RectTransform left = UiFactory.CreateGlassPanel(background, "Next event card", new Vector2(0.05f, 0.36f), new Vector2(0.36f, 0.77f), Vector2.zero, Vector2.zero, UiFactory.PanelDark);
             RectTransform leftAccent = UiFactory.CreateRect(left, "Next event accent", new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
             leftAccent.sizeDelta = new Vector2(64f, 4f);
             leftAccent.pivot = new Vector2(0f, 1f);
@@ -181,42 +184,49 @@ namespace LocalFormulaRacing
             UiFactory.StyleRoundedSmall(leftAccentImage, UiFactory.Accent);
 
             CalendarEventData current = career.CurrentEvent();
-            Text nextLabel = UiFactory.CreateText(left, "Next event label", "NEXT EVENT", 15, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            nextLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(24f, -42f);
-            Text eventName = UiFactory.CreateText(left, "Next event name", (current == null ? "Prototype GP" : current.displayName).ToUpperInvariant(), 27, Color.white, TextAnchor.UpperLeft);
-            RectTransform eventNameRect = eventName.GetComponent<RectTransform>();
-            eventNameRect.sizeDelta = new Vector2(360f, 60f);
-            eventNameRect.anchoredPosition = new Vector2(24f, -70f);
-            eventName.verticalOverflow = VerticalWrapMode.Overflow;
-
             bool hasQualifying = career.HasQualifyingForCurrentRound();
             string profile2 = current == null ? "" : current.weatherProfile.ToLower();
-            Text conditionText = UiFactory.CreateText(left, "Next event condition",
+
+            RectTransform infoStack = UiFactory.CreateRect(left, "Next event info stack", Vector2.zero, Vector2.one, new Vector2(24f, 84f), new Vector2(-24f, -32f));
+            VerticalLayoutGroup infoLayout = infoStack.gameObject.AddComponent<VerticalLayoutGroup>();
+            infoLayout.spacing = 6f;
+            infoLayout.childAlignment = TextAnchor.UpperLeft;
+            infoLayout.childControlWidth = true;
+            infoLayout.childControlHeight = true;
+            infoLayout.childForceExpandWidth = true;
+            infoLayout.childForceExpandHeight = false;
+
+            UiFactory.CreateText(infoStack, "Next event label", "NEXT EVENT", 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text eventName = UiFactory.CreateText(infoStack, "Next event name", (current == null ? "Prototype GP" : current.displayName).ToUpperInvariant(), 25, Color.white, TextAnchor.UpperLeft);
+            eventName.verticalOverflow = VerticalWrapMode.Overflow;
+            Text conditionText = UiFactory.CreateText(infoStack, "Next event condition",
                 WeatherProfileText(profile2) + "  ·  " + (hasQualifying ? "Grid set" : "Qualifying required"),
-                16, hasQualifying ? new Color(0.55f, 1f, 0.65f) : new Color(1f, 0.85f, 0.4f), TextAnchor.UpperLeft);
-            RectTransform conditionRect = conditionText.GetComponent<RectTransform>();
-            conditionRect.sizeDelta = new Vector2(360f, 26f);
-            conditionRect.anchoredPosition = new Vector2(24f, -132f);
+                15, hasQualifying ? new Color(0.55f, 1f, 0.65f) : new Color(1f, 0.85f, 0.4f), TextAnchor.UpperLeft);
+            conditionText.verticalOverflow = VerticalWrapMode.Overflow;
 
-            RectTransform primaryActionSlot = UiFactory.CreateRect(left, "Next event primary action", new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, Vector2.zero);
-            primaryActionSlot.pivot = new Vector2(0.5f, 0f);
-            primaryActionSlot.sizeDelta = new Vector2(-40f, 54f);
-            primaryActionSlot.anchoredPosition = new Vector2(0f, 20f);
+            // Fixed-height action band pinned to the card's bottom edge - always
+            // below the info stack no matter how many lines it wrapped to.
+            RectTransform primaryActionSlot = UiFactory.CreateRect(left, "Next event primary action", new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(24f, 18f), new Vector2(-24f, 72f));
             Button primaryAction = UiFactory.CreatePrimaryButton(primaryActionSlot, "Race Weekend", bootstrap.ShowRaceWeekend);
-            UiFactory.SetSize(primaryAction, 320f, 54f);
             RectTransform primaryRect = primaryAction.GetComponent<RectTransform>();
-            primaryRect.anchorMin = new Vector2(0.5f, 0.5f);
-            primaryRect.anchorMax = new Vector2(0.5f, 0.5f);
-            primaryRect.anchoredPosition = Vector2.zero;
+            primaryRect.anchorMin = Vector2.zero;
+            primaryRect.anchorMax = Vector2.one;
+            primaryRect.offsetMin = Vector2.zero;
+            primaryRect.offsetMax = Vector2.zero;
 
-            Text secondaryLabel = UiFactory.CreateText(left, "Secondary actions label", "MORE", 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            secondaryLabel.GetComponent<RectTransform>().anchoredPosition = new Vector2(24f, -192f);
-            RectTransform secondaryActions = UiFactory.CreateRect(left, "Secondary actions", new Vector2(0f, 0f), new Vector2(1f, 1f), new Vector2(24f, 90f), new Vector2(-24f, -210f));
-            UiFactory.AddVerticalLayout(secondaryActions, 8, new RectOffset(0, 0, 0, 0));
-            UiFactory.CreateSecondaryButton(secondaryActions, "Track Info", bootstrap.ShowTrackInfo);
-            UiFactory.CreateSecondaryButton(secondaryActions, "Driver Ratings", () => ShowDriverRatings(data, career, settings));
-            UiFactory.CreateSecondaryButton(secondaryActions, "Career Stats", () => ShowCareerStats(data, career, settings));
-            UiFactory.CreateSecondaryButton(secondaryActions, "Driver & Team", () => ShowCareerSetup(data, career, settings));
+            // Compact 2x2 grid of secondary screens below the event card, instead
+            // of four full-width buttons stacked inside it.
+            RectTransform secondaryCard = UiFactory.CreateGlassPanel(background, "Secondary actions card", new Vector2(0.05f, 0.14f), new Vector2(0.36f, 0.33f), Vector2.zero, Vector2.zero, UiFactory.PanelDarker);
+            RectTransform secondaryGrid = UiFactory.CreateRect(secondaryCard, "Secondary actions grid", Vector2.zero, Vector2.one, new Vector2(16f, 16f), new Vector2(-16f, -16f));
+            GridLayoutGroup secondaryLayout = secondaryGrid.gameObject.AddComponent<GridLayoutGroup>();
+            secondaryLayout.spacing = new Vector2(10f, 10f);
+            secondaryLayout.cellSize = new Vector2(255f, 46f);
+            secondaryLayout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            secondaryLayout.constraintCount = 2;
+            UiFactory.CreateSecondaryButton(secondaryGrid, "Track Info", bootstrap.ShowTrackInfo);
+            UiFactory.CreateSecondaryButton(secondaryGrid, "Driver Ratings", () => ShowDriverRatings(data, career, settings));
+            UiFactory.CreateSecondaryButton(secondaryGrid, "Career Stats", () => ShowCareerStats(data, career, settings));
+            UiFactory.CreateSecondaryButton(secondaryGrid, "Driver & Team", () => ShowCareerSetup(data, career, settings));
 
             RectTransform middle = UiFactory.CreateCard(background, "Standings panel", new Vector2(0.39f, 0.14f), new Vector2(0.66f, 0.77f));
             Text standings = UiFactory.CreateText(middle, "Standings", BuildStandingsText(career.Save.driverStandings, "Driver Standings") + "\n" + BuildStandingsText(career.Save.constructorStandings, "Constructors"), 18, Color.white, TextAnchor.UpperLeft);
@@ -254,11 +264,13 @@ namespace LocalFormulaRacing
                 CreateUpgradeCard(right, data, career, settings, upgrade);
             }
 
+            // Race Weekend already lives on the event card above - the footer is
+            // for navigation, not a second path to the same primary action.
             RectTransform footerLeft;
             RectTransform footerRight;
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
             UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
-            UiFactory.CreatePrimaryButton(footerRight, "Race Weekend", bootstrap.ShowRaceWeekend);
+            UiFactory.CreateSecondaryButton(footerLeft, "Settings", () => ShowSettings(data, career, settings));
         }
 
         // Separate onboarding/setup flow for choosing a driver name, team, or an
@@ -881,50 +893,62 @@ namespace LocalFormulaRacing
             }
 
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Qualifying tyre background", new Color(0.012f, 0.015f, 0.018f, 1f));
-            UiFactory.CreateBand(background, "Qualifying tyre accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -8f), Vector2.zero, new Color(0.95f, 0.04f, 0.035f, 1f));
+            UiFactory.CreateScreenHeader(background, (simulate ? "Sim Qualifying" : "Q" + Mathf.Clamp(phase, 1, 3)) + " Pre-Session Briefing", current.displayName);
 
-            Text title = UiFactory.CreateText(background, "Qualifying tyre title", (simulate ? "Sim Qualifying" : "Q" + Mathf.Clamp(phase, 1, 3)) + " Pre-Session Briefing", 44, Color.white, TextAnchor.UpperLeft);
-            title.GetComponent<RectTransform>().anchoredPosition = new Vector2(80f, -54f);
+            // A real responsive two-column layout: the row uses
+            // childControlWidth so it actually owns column sizing, and each
+            // column carries a LayoutElement so neither one can collapse to
+            // near-zero width (the old fixed-fraction anchors were silently
+            // discarded by the HorizontalLayoutGroup, which is what made the
+            // tyre guidance text wrap to a single character per line).
+            RectTransform main = UiFactory.CreateRect(background, "Qualifying main layout", new Vector2(0.06f, 0.14f), new Vector2(0.94f, 0.86f), Vector2.zero, Vector2.zero);
+            UiFactory.AddResponsiveHorizontalLayout(main, 24, new RectOffset(0, 0, 0, 0));
 
-            RectTransform main = UiFactory.CreateRect(background, "Qualifying main layout", new Vector2(0.08f, 0.12f), new Vector2(0.92f, 0.82f), Vector2.zero, Vector2.zero);
-            UiFactory.AddHorizontalLayout(main, 24, new RectOffset(0, 0, 0, 0));
-
-            RectTransform left = UiFactory.CreateBand(main, "Weather forecast", new Vector2(0f, 0f), new Vector2(0.35f, 1f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
-            left.sizeDelta = new Vector2(420f, 0f);
-            UiFactory.AddVerticalLayout(left, 12, new RectOffset(24, 24, 24, 24));
-            UiFactory.CreateText(left, "Condition title", "TRACK CONDITIONS", 22, new Color(0.95f, 0.04f, 0.035f), TextAnchor.MiddleLeft);
+            RectTransform left = UiFactory.CreateGlassPanel(main, "Weather forecast", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, UiFactory.PanelDark);
+            UiFactory.SetFixedColumnWidth(left, 440f);
+            RectTransform leftList = UiFactory.CreateRect(left, "Weather list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
+            UiFactory.AddVerticalLayout(leftList, 12, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSubHeader(leftList, "Track Conditions");
 
             string profile = current.weatherProfile.ToLower();
             string condition = WeatherProfileText(profile);
             float trackTemp = profile.Contains("hot") ? 42f : (profile.Contains("wet") ? 18f : (profile.Contains("cloud") ? 26f : 32f));
             float airTemp = trackTemp - 8f;
 
-            UiFactory.CreateText(left, "Current weather", "Condition: " + condition.ToUpper() + "\nTrack Temp: " + trackTemp.ToString("0") + "°C\nAir Temp: " + airTemp.ToString("0") + "°C\nHumidity: " + (profile.Contains("wet") ? "88%" : "42%"), 19, Color.white, TextAnchor.MiddleLeft);
-            UiFactory.CreateBand(left, "Weather spacer", Vector2.zero, Vector2.zero, Vector2.zero, new Vector2(0f, 20f), new Color(0, 0, 0, 0));
-            UiFactory.CreateText(left, "Forecast title", "SESSION FORECAST", 20, new Color(0.72f, 0.82f, 0.86f), TextAnchor.MiddleLeft);
+            Text weatherText = UiFactory.CreateText(leftList, "Current weather", "Condition   " + condition + "\nTrack Temp  " + trackTemp.ToString("0") + "°C\nAir Temp    " + airTemp.ToString("0") + "°C\nHumidity    " + (profile.Contains("wet") ? "88%" : "42%") + "\nDRS Zones   2", 18, Color.white, TextAnchor.UpperLeft);
+            UiFactory.SetSize(weatherText, 380f, 120f);
+            UiFactory.CreateDivider(leftList);
+            UiFactory.CreateSubHeader(leftList, "Session Forecast");
             string forecast = profile.Contains("mixed") ? "Expect variable rain intensity throughout the session." : (profile.Contains("wet") ? "Steady rain expected to continue." : "Dry track expected for the duration.");
-            Text forecastText = UiFactory.CreateText(left, "Forecast text", forecast, 17, new Color(0.82f, 0.9f, 0.94f), TextAnchor.UpperLeft);
+            Text forecastText = UiFactory.CreateText(leftList, "Forecast text", forecast, 16, new Color(0.82f, 0.9f, 0.94f), TextAnchor.UpperLeft);
             forecastText.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(forecastText, 380f, 60f);
+            UiFactory.CreateDivider(leftList);
+            UiFactory.CreateSubHeader(leftList, "Session Objective");
+            Text objectiveText = UiFactory.CreateText(leftList, "Qualifying objective", simulate ? "Bank a competitive grid slot for the race." : "Set the fastest clean lap you can - track position starts here.", 15, new Color(0.82f, 0.9f, 0.94f), TextAnchor.UpperLeft);
+            objectiveText.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(objectiveText, 380f, 44f);
 
-            RectTransform right = UiFactory.CreateBand(main, "Tyre Selection", new Vector2(0f, 0f), new Vector2(0.65f, 1f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
-            UiFactory.AddVerticalLayout(right, 14, new RectOffset(28, 28, 24, 24));
-            UiFactory.CreateText(right, "Tyre title", "TYRE SELECTION", 22, new Color(0.95f, 0.04f, 0.035f), TextAnchor.MiddleLeft);
+            RectTransform right = UiFactory.CreateGlassPanel(main, "Tyre Selection", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, UiFactory.PanelDark);
+            UiFactory.SetFlexibleColumnWidth(right, 560f);
+            RectTransform rightList = UiFactory.CreateRect(right, "Tyre list", Vector2.zero, Vector2.one, new Vector2(28f, 20f), new Vector2(-28f, -20f));
+            UiFactory.AddVerticalLayout(rightList, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSubHeader(rightList, "Tyre Selection");
 
             string currentCompound = settings.Current.tyreCompound;
-            string tyreGuidance = GetTyreGuidance(currentCompound, profile);
-            UiFactory.CreateText(right, "Selected tyre", "Compound: " + currentCompound.ToUpper(), 19, Color.white, TextAnchor.MiddleLeft);
-            Text guidanceText = UiFactory.CreateText(right, "Tyre guidance", tyreGuidance, 17, new Color(0.82f, 0.9f, 0.94f), TextAnchor.UpperLeft);
-            guidanceText.verticalOverflow = VerticalWrapMode.Overflow;
-            guidanceText.GetComponent<RectTransform>().sizeDelta = new Vector2(0f, 80f);
+            bool currentMismatch = IsTyreMismatch(currentCompound, profile);
+            if (currentMismatch)
+            {
+                Text warning = UiFactory.CreateText(rightList, "Tyre mismatch warning", "Warning: " + currentCompound + " is a poor choice for " + condition.ToLowerInvariant() + " conditions.", 15, UiFactory.AccentAmber, TextAnchor.UpperLeft);
+                UiFactory.SetSize(warning, 520f, 24f);
+            }
 
-            RectTransform tyreButtons = UiFactory.CreateRect(right, "Tyre buttons container", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            tyreButtons.sizeDelta = new Vector2(0f, 72f);
-            UiFactory.AddHorizontalLayout(tyreButtons, 10, new RectOffset(0, 0, 0, 0));
-            CreateQualifyingTyreButton(tyreButtons, data, career, settings, phase, "Soft", simulate);
-            CreateQualifyingTyreButton(tyreButtons, data, career, settings, phase, "Medium", simulate);
-            CreateQualifyingTyreButton(tyreButtons, data, career, settings, phase, "Hard", simulate);
-            CreateQualifyingTyreButton(tyreButtons, data, career, settings, phase, "Intermediate", simulate);
-            CreateQualifyingTyreButton(tyreButtons, data, career, settings, phase, "Wet", simulate);
+            CreateTyreCompoundGrid(rightList, currentCompound, profile, true, tyreName =>
+            {
+                settings.Current.tyreCompound = tyreName;
+                settings.Save();
+                ShowQualifyingTyreSelect(data, career, settings, phase, simulate);
+            });
 
             RectTransform footerLeft;
             RectTransform footerRight;
@@ -943,17 +967,6 @@ namespace LocalFormulaRacing
             });
         }
 
-        string GetTyreGuidance(string compound, string weatherProfile)
-        {
-            bool isWet = weatherProfile.Contains("wet") || weatherProfile.Contains("mixed");
-            if (compound == "Soft") return "Maximum grip for qualifying pace. Very high degradation. Recommended only for dry, cool tracks.";
-            if (compound == "Medium") return "Balanced performance and durability. Good operating window for most dry conditions.";
-            if (compound == "Hard") return "Highest durability but lower peak grip. Best for hot track surfaces and long stints.";
-            if (compound == "Intermediate") return isWet ? "Optimal for damp tracks or light rain. Clears moderate water volume." : "Informational: Overheats quickly on dry asphalt.";
-            if (compound == "Wet") return isWet ? "Required for heavy rain. Prevents aquaplaning in deep standing water." : "Informational: Massive performance loss on dry tracks.";
-            return "";
-        }
-
         public void ShowRaceTyreSelect(GameDataRepository data, CareerManager career, GameSettingsStore settings, bool careerRace)
         {
             Clear();
@@ -963,34 +976,73 @@ namespace LocalFormulaRacing
                 current = new CalendarEventData { displayName = "Prototype GP", weatherProfile = "clear" };
             }
 
-            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Race tyre background", new Color(0.015f, 0.02f, 0.025f, 1f));
-            UiFactory.CreateBand(background, "Race tyre accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -8f), Vector2.zero, new Color(0.95f, 0.04f, 0.035f, 1f));
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Race tyre background", new Color(0.012f, 0.015f, 0.018f, 1f));
+            UiFactory.CreateScreenHeader(background, "Race Tyre Selection", current.displayName);
 
-            Text title = UiFactory.CreateText(background, "Race tyre title", "Race Tyre Selection", 44, Color.white, TextAnchor.UpperLeft);
-            title.GetComponent<RectTransform>().anchoredPosition = new Vector2(80f, -54f);
+            // Body sections are stacked with a real VerticalLayoutGroup instead of
+            // fixed-size panels crammed together - the briefing card, tyre grid and
+            // pit strategy row each get guaranteed space instead of overlapping
+            // once any one of them needed more room than a hand-picked pixel size.
+            RectTransform body = UiFactory.CreateScreenBody(background, 108f, 78f);
+            RectTransform bodyMargin = UiFactory.CreateRect(body, "Race tyre body margin", Vector2.zero, Vector2.one, new Vector2(48f, 24f), new Vector2(-48f, -24f));
+            VerticalLayoutGroup bodyLayout = UiFactory.AddVerticalLayout(bodyMargin, 20, new RectOffset(0, 0, 0, 0));
+            bodyLayout.childControlWidth = true;
+            bodyLayout.childControlHeight = true;
+            bodyLayout.childForceExpandWidth = true;
+            bodyLayout.childForceExpandHeight = false;
 
-            RectTransform panel = UiFactory.CreateBand(background, "Race tyre panel", new Vector2(0.12f, 0.13f), new Vector2(0.78f, 0.86f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.96f));
-            UiFactory.AddVerticalLayout(panel, 10, new RectOffset(28, 28, 22, 22));
-            Text briefing = UiFactory.CreateText(panel, "Race weather briefing", BuildWeatherBriefing(current, "Race", settings.Current.tyreCompound), 19, new Color(0.84f, 0.91f, 0.95f), TextAnchor.UpperLeft);
+            string profile = current.weatherProfile == null ? "" : current.weatherProfile.ToLowerInvariant();
+            string currentCompound = settings.Current.tyreCompound;
+
+            // Top row: briefing (left) + tyre selection (right).
+            RectTransform topRow = UiFactory.CreateRect(bodyMargin, "Race tyre top row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetFlexibleRowHeight(topRow, 320f);
+            UiFactory.AddResponsiveHorizontalLayout(topRow, 20, new RectOffset(0, 0, 0, 0));
+
+            RectTransform left = UiFactory.CreateGlassPanel(topRow, "Race briefing card", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, UiFactory.PanelDark);
+            UiFactory.SetFixedColumnWidth(left, 420f);
+            RectTransform leftList = UiFactory.CreateRect(left, "Race briefing list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
+            UiFactory.AddVerticalLayout(leftList, 10, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSubHeader(leftList, "Race Briefing");
+            string raceObjectiveText = !careerRace
+                ? "Post a strong, clean result."
+                : (career.Save != null && !string.IsNullOrEmpty(career.Save.rivalDriverId) ? "Beat your rival and score points." : "Score points and keep it clean.");
+            Text briefing = UiFactory.CreateText(leftList, "Race weather briefing", BuildWeatherBriefing(current, "Race", currentCompound, raceObjectiveText), 16, new Color(0.84f, 0.91f, 0.95f), TextAnchor.UpperLeft);
             briefing.verticalOverflow = VerticalWrapMode.Overflow;
-            UiFactory.SetSize(briefing, 820f, 168f);
+            UiFactory.SetSize(briefing, 372f, 280f);
 
-            RectTransform tyreButtons = UiFactory.CreateRect(panel, "Race tyre buttons", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            tyreButtons.sizeDelta = new Vector2(780f, 78f);
-            UiFactory.AddHorizontalLayout(tyreButtons, 10, new RectOffset(0, 0, 0, 0));
-            CreateRaceTyreButton(tyreButtons, data, career, settings, "Soft", careerRace);
-            CreateRaceTyreButton(tyreButtons, data, career, settings, "Medium", careerRace);
-            CreateRaceTyreButton(tyreButtons, data, career, settings, "Hard", careerRace);
-            CreateRaceTyreButton(tyreButtons, data, career, settings, "Intermediate", careerRace);
-            CreateRaceTyreButton(tyreButtons, data, career, settings, "Wet", careerRace);
+            RectTransform right = UiFactory.CreateGlassPanel(topRow, "Race tyre selection card", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, UiFactory.PanelDark);
+            UiFactory.SetFlexibleColumnWidth(right, 560f);
+            RectTransform rightList = UiFactory.CreateRect(right, "Race tyre list", Vector2.zero, Vector2.one, new Vector2(28f, 20f), new Vector2(-28f, -20f));
+            UiFactory.AddVerticalLayout(rightList, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSubHeader(rightList, "Tyre Selection");
 
-            // Pit strategy plan: shown on the HUD pit card and used for the
-            // engineer's box calls during the race.
-            UiFactory.CreateSubHeader(panel, "Pit Strategy");
+            bool currentMismatch = IsTyreMismatch(currentCompound, profile);
+            if (currentMismatch)
+            {
+                Text warning = UiFactory.CreateText(rightList, "Race tyre mismatch warning", "Warning: " + currentCompound + " is a poor choice for " + WeatherProfileText(profile).ToLowerInvariant() + " conditions.", 15, UiFactory.AccentAmber, TextAnchor.UpperLeft);
+                UiFactory.SetSize(warning, 500f, 24f);
+            }
+
+            CreateTyreCompoundGrid(rightList, currentCompound, profile, false, tyreName =>
+            {
+                settings.Current.tyreCompound = tyreName;
+                settings.Save();
+                ShowRaceTyreSelect(data, career, settings, careerRace);
+            });
+
+            // Bottom row: pit strategy plan, shown on the HUD pit card and used
+            // for the engineer's box calls during the race.
+            RectTransform pitCard = UiFactory.CreateGlassPanel(bodyMargin, "Pit strategy card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, UiFactory.PanelDarker);
+            UiFactory.SetFixedRowHeight(pitCard, 196f);
+            RectTransform pitList = UiFactory.CreateRect(pitCard, "Pit strategy list", Vector2.zero, Vector2.one, new Vector2(28f, 16f), new Vector2(-28f, -16f));
+            UiFactory.AddVerticalLayout(pitList, 6, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSubHeader(pitList, "Pit Strategy");
+
             int raceLaps = Mathf.Max(3, settings.Current.laps);
             string plannedLabel = settings.Current.plannedPitLap <= 0 ? "Auto" : "Lap " + settings.Current.plannedPitLap;
             RectTransform plannedControl;
-            UiFactory.CreateSettingRow(panel, "Planned Stop", "Leave on Auto to let the engineer call the window.", out plannedControl);
+            UiFactory.CreateSettingRow(pitList, "Planned Stop", "Leave on Auto to let the engineer call the window.", out plannedControl);
             UiFactory.CreateCycleControl(plannedControl, plannedLabel, () =>
             {
                 settings.Current.plannedPitLap = settings.Current.plannedPitLap >= raceLaps - 1 ? 0 : settings.Current.plannedPitLap + 1;
@@ -999,7 +1051,7 @@ namespace LocalFormulaRacing
             });
 
             RectTransform secondCompoundControl;
-            UiFactory.CreateSettingRow(panel, "Second Compound", "Tyre fitted at the mandatory stop.", out secondCompoundControl);
+            UiFactory.CreateSettingRow(pitList, "Second Compound", "Tyre fitted at the mandatory stop.", out secondCompoundControl);
             UiFactory.CreateCycleControl(secondCompoundControl, settings.Current.plannedSecondCompound, () =>
             {
                 settings.Current.plannedSecondCompound = NextTyreName(settings.Current.plannedSecondCompound);
@@ -1008,10 +1060,12 @@ namespace LocalFormulaRacing
             });
 
             int stintLength = settings.Current.plannedPitLap <= 0 ? Mathf.Max(1, Mathf.RoundToInt(raceLaps * 0.55f)) : settings.Current.plannedPitLap;
-            UiFactory.CreateText(panel, "Strategy estimate",
+            Text estimate = UiFactory.CreateText(pitList, "Strategy estimate",
                 "Mandatory stop is active. First stint ~" + stintLength + " of " + raceLaps + " laps, pit lane loss ~22s." +
                 (profileIsWet(current) ? " Rain risk: plan for Intermediates." : ""),
-                15, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                14, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            estimate.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(estimate, 900f, 40f);
 
             RectTransform footerLeft;
             RectTransform footerRight;
@@ -1041,28 +1095,142 @@ namespace LocalFormulaRacing
             });
         }
 
-        void CreateQualifyingTyreButton(RectTransform parent, GameDataRepository data, CareerManager career, GameSettingsStore settings, int phase, string tyreName, bool simulate)
+        static readonly string[] TyreCompoundOrder = { "Soft", "Medium", "Hard", "Intermediate", "Wet" };
+
+        string TyreShortDescriptor(string tyreName)
         {
-            UnityEngine.UI.Button button = UiFactory.CreateButton(parent, tyreName, () =>
-            {
-                settings.Current.tyreCompound = tyreName;
-                settings.Save();
-                ShowQualifyingTyreSelect(data, career, settings, phase, simulate);
-            });
-            UiFactory.SetSize(button, 150f, 56f);
-            UiFactory.SetButtonSelected(button, settings.Current.tyreCompound == tyreName);
+            if (tyreName == "Soft") return "Peak grip, fastest wear";
+            if (tyreName == "Medium") return "Balanced grip and life";
+            if (tyreName == "Hard") return "Durable, lower grip";
+            if (tyreName == "Intermediate") return "Damp track, light rain";
+            if (tyreName == "Wet") return "Heavy rain, max clearance";
+            return "";
         }
 
-        void CreateRaceTyreButton(RectTransform parent, GameDataRepository data, CareerManager career, GameSettingsStore settings, string tyreName, bool careerRace)
+        bool IsTyreRecommended(string tyreName, string profile, bool qualifying)
         {
-            UnityEngine.UI.Button button = UiFactory.CreateButton(parent, tyreName, () =>
+            string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
+            if (normalized.Contains("wet"))
             {
-                settings.Current.tyreCompound = tyreName;
-                settings.Save();
-                ShowRaceTyreSelect(data, career, settings, careerRace);
+                return tyreName == "Wet";
+            }
+
+            if (normalized.Contains("mixed"))
+            {
+                return tyreName == "Intermediate";
+            }
+
+            if (normalized.Contains("hot"))
+            {
+                return qualifying ? tyreName == "Soft" : tyreName == "Hard";
+            }
+
+            return qualifying ? tyreName == "Soft" : tyreName == "Medium";
+        }
+
+        // A clear mismatch: slicks on a wet/mixed session, or wet-weather tyres
+        // on a session with no rain in the forecast at all.
+        bool IsTyreMismatch(string tyreName, string profile)
+        {
+            string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
+            bool rainy = normalized.Contains("wet") || normalized.Contains("mixed");
+            bool slick = tyreName == "Soft" || tyreName == "Medium" || tyreName == "Hard";
+            bool wetWeatherTyre = tyreName == "Intermediate" || tyreName == "Wet";
+            return rainy ? slick : (wetWeatherTyre && !rainy);
+        }
+
+        // Compact compound card: color dot, name, one-line descriptor, a
+        // recommended tag for the current conditions, and a clear selected
+        // highlight. Replaces plain "Soft"/"Medium" buttons everywhere tyres
+        // are chosen. Laid out in a GridLayoutGroup by the caller so five cards
+        // never depend on fragile manual width math.
+        void CreateTyreCompoundCard(RectTransform parent, string tyreName, string selectedCompound, string weatherProfile, bool qualifying, UnityEngine.Events.UnityAction onSelect)
+        {
+            bool selected = selectedCompound == tyreName;
+            bool recommended = IsTyreRecommended(tyreName, weatherProfile, qualifying);
+            bool mismatch = selected && IsTyreMismatch(tyreName, weatherProfile);
+
+            RectTransform card = UiFactory.CreateRect(parent, tyreName + " compound card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            Image cardImage = card.gameObject.AddComponent<Image>();
+            UiFactory.StyleRounded(cardImage, selected ? new Color(0.6f, 0.06f, 0.05f, 0.98f) : UiFactory.PanelDark);
+
+            RectTransform accent = UiFactory.CreateRect(card, tyreName + " card accent", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+            accent.sizeDelta = new Vector2(3f, 0f);
+            Image accentImage = accent.gameObject.AddComponent<Image>();
+            accentImage.color = TyreDotColor(tyreName);
+
+            Image dot = UiFactory.CreateIconDot(card, tyreName + " dot", 16f, TyreDotColor(tyreName));
+            RectTransform dotRect = dot.rectTransform;
+            dotRect.anchorMin = new Vector2(0f, 1f);
+            dotRect.anchorMax = new Vector2(0f, 1f);
+            dotRect.pivot = new Vector2(0f, 1f);
+            dotRect.anchoredPosition = new Vector2(14f, -14f);
+
+            Text nameText = UiFactory.CreateText(card, tyreName + " name", tyreName.ToUpperInvariant(), 16, selected ? Color.white : UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            RectTransform nameRect = nameText.GetComponent<RectTransform>();
+            nameRect.anchorMin = new Vector2(0f, 1f);
+            nameRect.anchorMax = new Vector2(1f, 1f);
+            nameRect.offsetMin = new Vector2(36f, -30f);
+            nameRect.offsetMax = new Vector2(-8f, -10f);
+
+            Text descriptorText = UiFactory.CreateText(card, tyreName + " descriptor", TyreShortDescriptor(tyreName), 12, selected ? new Color(1f, 0.88f, 0.86f) : UiFactory.TextMuted, TextAnchor.UpperLeft);
+            RectTransform descriptorRect = descriptorText.GetComponent<RectTransform>();
+            descriptorRect.anchorMin = new Vector2(0f, 1f);
+            descriptorRect.anchorMax = new Vector2(1f, 1f);
+            descriptorRect.offsetMin = new Vector2(14f, -68f);
+            descriptorRect.offsetMax = new Vector2(-10f, -34f);
+            descriptorText.verticalOverflow = VerticalWrapMode.Overflow;
+
+            if (recommended)
+            {
+                PositionTyreCardTag(UiFactory.CreatePillLabel(card, "Best", UiFactory.AccentGreen));
+            }
+            else if (mismatch)
+            {
+                PositionTyreCardTag(UiFactory.CreatePillLabel(card, "Risky", UiFactory.Accent));
+            }
+
+            Button button = card.gameObject.AddComponent<Button>();
+            button.targetGraphic = cardImage;
+            ColorBlock colors = button.colors;
+            colors.normalColor = cardImage.color;
+            colors.highlightedColor = selected ? new Color(0.85f, 0.1f, 0.08f, 1f) : new Color(0.1f, 0.16f, 0.22f, 1f);
+            colors.pressedColor = new Color(colors.normalColor.r * 0.6f, colors.normalColor.g * 0.6f, colors.normalColor.b * 0.6f, 1f);
+            colors.selectedColor = colors.highlightedColor;
+            button.colors = colors;
+            button.onClick.AddListener(() =>
+            {
+                SimpleAudioManager.PlayClick();
+                onSelect();
             });
-            UiFactory.SetSize(button, 150f, 60f);
-            UiFactory.SetButtonSelected(button, settings.Current.tyreCompound == tyreName);
+        }
+
+        void PositionTyreCardTag(Text tag)
+        {
+            RectTransform tagRect = (RectTransform)tag.transform.parent;
+            tagRect.anchorMin = new Vector2(0f, 0f);
+            tagRect.anchorMax = new Vector2(0f, 0f);
+            tagRect.pivot = new Vector2(0f, 0f);
+            tagRect.anchoredPosition = new Vector2(12f, 10f);
+        }
+
+        // 3+2 grid of tyre compound cards - always sized by a GridLayoutGroup
+        // (which fully owns child size/position) rather than a horizontal stack
+        // of fixed-width buttons that can overflow its container.
+        void CreateTyreCompoundGrid(RectTransform parent, string selectedCompound, string weatherProfile, bool qualifying, System.Action<string> onSelect)
+        {
+            RectTransform grid = UiFactory.CreateRect(parent, "Tyre compound grid", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            grid.sizeDelta = new Vector2(3f * 168f + 2f * 10f, 2f * 96f + 10f);
+            GridLayoutGroup layout = grid.gameObject.AddComponent<GridLayoutGroup>();
+            layout.cellSize = new Vector2(168f, 96f);
+            layout.spacing = new Vector2(10f, 10f);
+            layout.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            layout.constraintCount = 3;
+            for (int i = 0; i < TyreCompoundOrder.Length; i++)
+            {
+                string tyreName = TyreCompoundOrder[i];
+                CreateTyreCompoundCard(grid, tyreName, selectedCompound, weatherProfile, qualifying, () => onSelect(tyreName));
+            }
         }
 
         public void ShowTimeTrialSetup(GameDataRepository data, CareerManager career, GameSettingsStore settings)
@@ -1126,6 +1294,17 @@ namespace LocalFormulaRacing
             RectTransform left = UiFactory.CreateCard(background, "Setup card", new Vector2(0.06f, 0.14f), new Vector2(0.52f, 0.82f));
             RectTransform list = UiFactory.CreateRect(left, "Setup list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
             UiFactory.AddVerticalLayout(list, 8, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSubHeader(list, "Quick Presets");
+            RectTransform presetRow = UiFactory.CreateRect(list, "Setup preset row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            presetRow.sizeDelta = new Vector2(560f, 40f);
+            UiFactory.AddHorizontalLayout(presetRow, 6, new RectOffset(0, 0, 0, 0));
+            CreateSetupPresetButton(presetRow, "Balanced", settings, refresh, 3, 3, 3, 3, 3);
+            CreateSetupPresetButton(presetRow, "High Downforce", settings, refresh, 5, 5, 3, 4, 4);
+            CreateSetupPresetButton(presetRow, "Low Drag", settings, refresh, 1, 1, 3, 2, 2);
+            CreateSetupPresetButton(presetRow, "Wet", settings, refresh, 4, 4, 3, 2, 4);
+            CreateSetupPresetButton(presetRow, "Kerb Friendly", settings, refresh, 3, 3, 3, 1, 4);
+
+            UiFactory.CreateDivider(list);
             UiFactory.CreateSubHeader(list, "Garage Setup");
             CreateSetupCycleButton(list, "Front Wing", "More wing: cornering grip up, top speed down.", settings.Current.setupFrontWing, value => settings.Current.setupFrontWing = value, settings, refresh);
             CreateSetupCycleButton(list, "Rear Wing", "More wing: cornering grip up, top speed down.", settings.Current.setupRearWing, value => settings.Current.setupRearWing = value, settings, refresh);
@@ -1158,6 +1337,24 @@ namespace LocalFormulaRacing
             RectTransform footerRight;
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
             UiFactory.CreateSecondaryButton(footerLeft, "Back", backAction);
+        }
+
+        // One-tap presets covering the common trade-offs so a player who doesn't
+        // want to reason about five separate sliders still gets a sensible setup
+        // for the conditions ahead, without adding a whole new screen for it.
+        void CreateSetupPresetButton(RectTransform parent, string label, GameSettingsStore settings, UnityEngine.Events.UnityAction refresh, int frontWing, int rearWing, int brakeBias, int suspension, int rideHeight)
+        {
+            Button button = UiFactory.CreateSecondaryButton(parent, label, () =>
+            {
+                settings.Current.setupFrontWing = frontWing;
+                settings.Current.setupRearWing = rearWing;
+                settings.Current.setupBrakeBias = brakeBias;
+                settings.Current.setupSuspension = suspension;
+                settings.Current.setupRideHeight = rideHeight;
+                settings.Save();
+                refresh();
+            });
+            UiFactory.SetSize(button, 104f, 38f);
         }
 
         void CreateSetupCycleButton(RectTransform parent, string label, string description, int value, System.Action<int> assign, GameSettingsStore settings, UnityEngine.Events.UnityAction refresh)
@@ -1873,19 +2070,34 @@ namespace LocalFormulaRacing
 
         string BuildWeatherBriefing(CalendarEventData current, string sessionName, string selectedCompound)
         {
+            return BuildWeatherBriefing(current, sessionName, selectedCompound, "");
+        }
+
+        // Every circuit runs exactly two DRS zones (see the drsZoneOne/drsZoneTwo
+        // pair set per track in TrackManager), so that line is a constant fact
+        // rather than something that needs a live TrackRuntime at menu time.
+        string BuildWeatherBriefing(CalendarEventData current, string sessionName, string selectedCompound, string objectiveText)
+        {
             string profile = current == null ? "" : current.weatherProfile;
             int air;
             int track;
             WeatherTemperatures(profile, out air, out track);
-            return
+            string text =
                 (current == null ? "Prototype GP" : current.displayName) + "\n" +
                 "Session: " + sessionName + "\n" +
                 "Current weather: " + CurrentWeatherText(profile) + "\n" +
                 "Forecast: " + ForecastText(profile) + "\n" +
                 "Track condition: " + TrackConditionText(profile) + "\n" +
                 "Track temp: " + track + " C   Air temp: " + air + " C\n" +
+                "DRS zones: 2\n" +
                 "Recommended compound: " + RecommendedTyreText(profile) + "\n" +
                 "Selected compound: " + selectedCompound;
+            if (!string.IsNullOrEmpty(objectiveText))
+            {
+                text += "\nObjective: " + objectiveText;
+            }
+
+            return text;
         }
 
         string CurrentWeatherText(string profile)
