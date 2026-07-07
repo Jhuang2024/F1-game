@@ -997,17 +997,17 @@ namespace LocalFormulaRacing
                 return "N/A";
             }
 
-            GameSettingsData settings = race.Settings != null ? race.Settings.Current : null;
-            int planned = race.PlannedPitLapFor(player);
-            string compound = settings == null || string.IsNullOrEmpty(settings.plannedSecondCompound) ? "Medium" : settings.plannedSecondCompound;
-            if (player.pitStops > 0)
+            int nextLap = race.NextPlannedPitLapFor(player);
+            if (nextLap <= 0)
             {
-                return "STOP DONE";
+                return "STOPS DONE";
             }
 
+            TyreCompound compound = race.NextPlannedPitCompoundFor(player);
             int currentLap = player.lapTracker != null ? player.lapTracker.DisplayLap : 1;
-            string status = currentLap > planned ? "  <color=#FFC85C>LATE</color>" : "";
-            return "Lap " + planned + "  ·  " + compound.ToUpperInvariant() + status;
+            string status = currentLap > nextLap ? "  <color=#FFC85C>LATE</color>" : "";
+            string stopLabel = race.GetPlannedStopCount() >= 2 ? (player.pitStops == 0 ? "STOP 1  " : "STOP 2  ") : "";
+            return stopLabel + "Lap " + nextLap + "  ·  " + compound.ToString().ToUpperInvariant() + status;
         }
 
         void UpdateQualifyingCard()
@@ -1109,7 +1109,7 @@ namespace LocalFormulaRacing
 
                 watchedFinalLap = finalLap;
 
-                bool pitWindow = player.pitStops == 0 && lap.CompletedLaps >= race.RecommendedPitLap(player);
+                bool pitWindow = race.ShouldPromptPlannedStop(player) && lap.CompletedLaps >= race.NextPlannedPitLapFor(player);
                 if (pitWindow && !watchedPitWindow)
                 {
                     PushNotification("PIT WINDOW OPEN", UiFactory.AccentCyan);
