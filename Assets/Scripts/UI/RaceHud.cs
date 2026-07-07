@@ -950,7 +950,7 @@ namespace LocalFormulaRacing
             tyreTempValue.color = temp == "HOT" ? UiFactory.Accent : (temp == "COLD" ? UiFactory.AccentCyan : UiFactory.AccentGreen);
 
             float wear01 = Mathf.Clamp01(car.Tyres.WearPercent / 100f);
-            UiFactory.SetMeterValue(tyreWearFill, wear01);
+            UiFactory.SetMeterValueAnimated(tyreWearFill, wear01);
             tyreWearFill.color = wear01 > 0.62f ? UiFactory.Accent : UiFactory.AccentAmber;
             tyreWearValue.text = Mathf.RoundToInt(car.Tyres.WearPercent) + "%";
         }
@@ -962,18 +962,18 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            UiFactory.SetMeterValue(ersFill, car.ErsBattery);
+            UiFactory.SetMeterValueAnimated(ersFill, car.ErsBattery);
             ersValue.text = Mathf.RoundToInt(car.ErsBattery * 100f) + "%";
 
             float fuel01 = Mathf.Clamp01(car.FuelKg / 42f);
-            UiFactory.SetMeterValue(fuelFill, fuel01);
+            UiFactory.SetMeterValueAnimated(fuelFill, fuel01);
             fuelValue.text = car.FuelKg.ToString("0.0") + "kg";
             fuelFill.color = car.FuelKg < 7f && Mathf.PingPong(Time.time * 2.4f, 1f) > 0.5f
                 ? UiFactory.AccentAmber
                 : new Color(0.7f, 0.95f, 1f);
 
             float damage01 = Mathf.Clamp01(car.Damage.OverallPercent / 100f);
-            UiFactory.SetMeterValue(damageFill, damage01);
+            UiFactory.SetMeterValueAnimated(damageFill, damage01);
             damageValue.text = Mathf.RoundToInt(car.Damage.OverallPercent) + "%";
             bool critical = car.Damage.OverallPercent > 55f;
             damageFill.color = critical && Mathf.PingPong(Time.time * 3f, 1f) > 0.5f
@@ -986,7 +986,7 @@ namespace LocalFormulaRacing
             pitStatusValue.text = car.PitLimiterActive ? "LIMITER 80" : race.PitStatusText(player);
             pitPlanValue.text = BuildPitPlanText();
             float progress = race.PitStopProgress01(player);
-            UiFactory.SetMeterValue(pitFill, progress);
+            UiFactory.SetMeterValueAnimated(pitFill, progress);
             pitFillValue.text = progress > 0.001f ? Mathf.RoundToInt(progress * 100f) + "%" : "";
         }
 

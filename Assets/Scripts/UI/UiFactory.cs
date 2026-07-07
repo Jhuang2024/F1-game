@@ -111,6 +111,38 @@ namespace LocalFormulaRacing
         }
     }
 
+    // Glides a meter fill's right edge (anchorMax.x) toward a target value each
+    // frame instead of letting callers snap it, so tyre wear/fuel/damage/pit
+    // meters read as animating rather than teleporting between states.
+    public class UiFillLerp : MonoBehaviour
+    {
+        public float target = 1f;
+        public float speed = 5f;
+        RectTransform rect;
+
+        void Awake()
+        {
+            rect = GetComponent<RectTransform>();
+        }
+
+        void Update()
+        {
+            if (rect == null)
+            {
+                return;
+            }
+
+            float current = rect.anchorMax.x;
+            if (Mathf.Abs(current - target) < 0.0008f)
+            {
+                return;
+            }
+
+            float next = Mathf.Lerp(current, target, Time.unscaledDeltaTime * speed);
+            rect.anchorMax = new Vector2(Mathf.Clamp01(next), rect.anchorMax.y);
+        }
+    }
+
     // Button microinteractions: hover pop, press squash, and a light sheen band
     // that sweeps across the face on pointer enter. Pure transform/alpha work on
     // unscaled time, so it stays responsive in pause menus.
@@ -644,6 +676,92 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Mode-selection card: title, optional one-line description, full hover
+        // pop/press/sheen feedback via the same UiButtonFx used by buttons, but
+        // shaped and styled as a small designed card rather than a bar. Used for
+        // the main menu's primary entry points so the front door reads as a set
+        // of choices, not a stacked button list.
+        public static Button CreateModeCard(Transform parent, string title, string description, Color accentColor, bool primary, UnityAction action)
+        {
+            GameObject cardObject = new GameObject(title + " mode card");
+            cardObject.transform.SetParent(parent, false);
+            Image image = cardObject.AddComponent<Image>();
+
+            Color face = primary ? new Color(0.55f, 0.048f, 0.04f, 0.96f) : new Color(0.035f, 0.05f, 0.068f, 0.92f);
+            Color hover = primary ? new Color(0.78f, 0.09f, 0.07f, 1f) : new Color(0.08f, 0.12f, 0.16f, 1f);
+            StyleRounded(image, face);
+
+            Button button = cardObject.AddComponent<Button>();
+            button.targetGraphic = image;
+            ColorBlock colors = button.colors;
+            colors.normalColor = face;
+            colors.highlightedColor = hover;
+            colors.pressedColor = new Color(face.r * 0.55f, face.g * 0.55f, face.b * 0.55f, 1f);
+            colors.selectedColor = hover;
+            colors.disabledColor = new Color(face.r, face.g, face.b, 0.32f);
+            colors.fadeDuration = 0.08f;
+            button.colors = colors;
+            button.onClick.AddListener(() =>
+            {
+                SimpleAudioManager.PlayClick();
+                action.Invoke();
+            });
+
+            RectTransform rect = cardObject.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(440f, string.IsNullOrEmpty(description) ? 54f : 72f);
+
+            RectTransform accent = CreateRect(cardObject.transform, "Accent", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 8f), new Vector2(4f, -8f));
+            Image accentImage = accent.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(accentImage, accentColor);
+            accentImage.raycastTarget = false;
+
+            RectTransform sheenMask = CreateRect(cardObject.transform, "Sheen mask", Vector2.zero, Vector2.one, new Vector2(2f, 2f), new Vector2(-2f, -2f));
+            sheenMask.gameObject.AddComponent<RectMask2D>();
+            RectTransform sheen = CreateRect(sheenMask, "Sheen", new Vector2(0.5f, 0f), new Vector2(0.5f, 1f), Vector2.zero, Vector2.zero);
+            sheen.sizeDelta = new Vector2(72f, 0f);
+            sheen.localRotation = Quaternion.Euler(0f, 0f, 14f);
+            Image sheenImage = sheen.gameObject.AddComponent<Image>();
+            sheenImage.color = new Color(1f, 1f, 1f, 0.3f);
+            sheenImage.raycastTarget = false;
+            CanvasGroup sheenGroup = sheen.gameObject.AddComponent<CanvasGroup>();
+            sheenGroup.alpha = 0f;
+            sheenGroup.blocksRaycasts = false;
+
+            UiButtonFx fx = cardObject.AddComponent<UiButtonFx>();
+            fx.hoverScale = 1.018f;
+            fx.sheen = sheen;
+            fx.sheenGroup = sheenGroup;
+
+            Text titleText = CreateText(cardObject.transform, "Title", title, 21, primary ? Color.white : TextPrimary, TextAnchor.UpperLeft);
+            titleText.fontStyle = FontStyle.Bold;
+            titleText.raycastTarget = false;
+            RectTransform titleRect = titleText.GetComponent<RectTransform>();
+            if (string.IsNullOrEmpty(description))
+            {
+                titleRect.anchorMin = new Vector2(0f, 0f);
+                titleRect.anchorMax = new Vector2(1f, 1f);
+                titleRect.offsetMin = new Vector2(24f, 0f);
+                titleRect.offsetMax = new Vector2(-16f, 0f);
+            }
+            else
+            {
+                titleRect.anchorMin = new Vector2(0f, 0.5f);
+                titleRect.anchorMax = new Vector2(1f, 1f);
+                titleRect.offsetMin = new Vector2(24f, 0f);
+                titleRect.offsetMax = new Vector2(-16f, -8f);
+
+                Text descriptionText = CreateText(cardObject.transform, "Description", description, 13, primary ? new Color(1f, 0.86f, 0.82f) : TextMuted, TextAnchor.UpperLeft);
+                descriptionText.raycastTarget = false;
+                RectTransform descriptionRect = descriptionText.GetComponent<RectTransform>();
+                descriptionRect.anchorMin = new Vector2(0f, 0f);
+                descriptionRect.anchorMax = new Vector2(1f, 0.5f);
+                descriptionRect.offsetMin = new Vector2(24f, 4f);
+                descriptionRect.offsetMax = new Vector2(-16f, 0f);
+            }
+
+            return button;
+        }
+
         public static InputField CreateInputField(Transform parent, string defaultText)
         {
             GameObject inputObject = new GameObject("Driver name input");
@@ -810,6 +928,32 @@ namespace LocalFormulaRacing
             Image accentImage = accentBar.gameObject.AddComponent<Image>();
             StyleRoundedSmall(accentImage, Accent);
             accentImage.raycastTarget = false;
+            return card;
+        }
+
+        // Card with a real header row (accent-colored title) plus a returned
+        // content area beneath it, for panels that show a list or stat block
+        // under a heading - replaces the older pattern of a bare CreateCard
+        // with a Text dumped straight onto it with hand-tuned offsets.
+        public static RectTransform CreateModernCard(Transform parent, string title, Color accentColor, Vector2 anchorMin, Vector2 anchorMax, out RectTransform contentArea)
+        {
+            RectTransform card = CreateGlassPanel(parent, title + " modern card", anchorMin, anchorMax, Vector2.zero, Vector2.zero, PanelDark);
+            RectTransform accent = CreateRect(card, "Modern card accent", new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+            accent.sizeDelta = new Vector2(56f, 3f);
+            accent.pivot = new Vector2(0f, 1f);
+            accent.anchoredPosition = new Vector2(20f, -14f);
+            Image accentImage = accent.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(accentImage, accentColor);
+            accentImage.raycastTarget = false;
+
+            Text titleText = CreateText(card, "Modern card title", title.ToUpperInvariant(), 16, accentColor, TextAnchor.UpperLeft);
+            RectTransform titleRect = titleText.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0f, 1f);
+            titleRect.anchorMax = new Vector2(1f, 1f);
+            titleRect.offsetMin = new Vector2(20f, -44f);
+            titleRect.offsetMax = new Vector2(-16f, -20f);
+
+            contentArea = CreateRect(card, "Modern card content", Vector2.zero, Vector2.one, new Vector2(0f, 8f), new Vector2(0f, -52f));
             return card;
         }
 
@@ -1007,6 +1151,30 @@ namespace LocalFormulaRacing
             return image;
         }
 
+        // Label + value row for itemized breakdowns (qualifying lap composition,
+        // strategy deltas, anything that used to be one dense multi-line Text
+        // block). Caller decides the value color so signed-delta callers can
+        // tint by sign while flat informational rows stay neutral.
+        public static RectTransform CreateBreakdownRow(Transform parent, string label, string value, Color valueColor, float width)
+        {
+            RectTransform row = CreateRect(parent, label + " breakdown row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            row.sizeDelta = new Vector2(width, 24f);
+            Text labelText = CreateText(row, "Breakdown label", label, 14, TextMuted, TextAnchor.MiddleLeft);
+            RectTransform labelRect = labelText.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 0f);
+            labelRect.anchorMax = new Vector2(0.6f, 1f);
+            labelRect.offsetMin = Vector2.zero;
+            labelRect.offsetMax = Vector2.zero;
+            Text valueText = CreateText(row, "Breakdown value", value, 14, valueColor, TextAnchor.MiddleRight);
+            RectTransform valueRect = valueText.GetComponent<RectTransform>();
+            valueRect.anchorMin = new Vector2(0.6f, 0f);
+            valueRect.anchorMax = new Vector2(1f, 1f);
+            valueRect.offsetMin = Vector2.zero;
+            valueRect.offsetMax = new Vector2(-4f, 0f);
+            valueText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            return row;
+        }
+
         // ---------- HUD component helpers ----------
         // These build the compact card widgets used by the in-race HUD so RaceHud
         // composes small pieces instead of giant text dumps.
@@ -1087,6 +1255,31 @@ namespace LocalFormulaRacing
             rect.anchorMax = new Vector2(Mathf.Clamp01(value01), 1f);
             rect.offsetMin = Vector2.zero;
             rect.offsetMax = Vector2.zero;
+        }
+
+        // Smoothly glides a meter fill toward a target instead of snapping - use
+        // for slow-changing readouts (tyre wear, fuel, damage, pit progress)
+        // where an instant jump reads as a glitch. Fast telemetry (rev counter,
+        // throttle/brake bars) should keep calling SetMeterValue directly so it
+        // stays perfectly responsive.
+        public static void SetMeterValueAnimated(Image fill, float value01)
+        {
+            if (fill == null)
+            {
+                return;
+            }
+
+            float target = Mathf.Clamp01(value01);
+            UiFillLerp lerp = fill.GetComponent<UiFillLerp>();
+            if (lerp == null)
+            {
+                // First call: snap to the real value so the widget doesn't sweep
+                // in from empty the moment the HUD appears.
+                SetMeterValue(fill, target);
+                lerp = fill.gameObject.AddComponent<UiFillLerp>();
+            }
+
+            lerp.target = target;
         }
 
         // Thin vertical input/telemetry bar (throttle, brake, ERS). Returns the
