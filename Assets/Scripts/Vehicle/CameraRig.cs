@@ -9,23 +9,35 @@ namespace LocalFormulaRacing
         public float shakeStrength = 1f;
         public float baseFov = 60f;
 
+        // A frame-to-frame speed loss bigger than this reads as an impact
+        // rather than braking (max braking loses only a few kph per physics
+        // step, a collision loses tens to hundreds), so it doubles as a
+        // self-contained collision-shake trigger with no collision callback
+        // needed on this component.
+        const float CollisionSpeedDropKph = 20f;
+        const float ModeBlendDuration = 0.4f;
+
         Camera followCamera;
         Rigidbody targetBody;
         VehicleController targetVehicle;
         int mode;
         Vector3 velocitySmoothed;
+        float smoothedSpeedKph;
+        float previousRawSpeedKph = -1f;
         float rollAngle;
         float impulseShake;
         float smoothedSteer;
+        float smoothedYawRate;
+        float modeBlend = 1f;
 
         // Chase, cockpit/halo, high TV, rear chase, low nose cam.
         readonly Vector3[] offsets =
         {
-            new Vector3(0f, 4.35f, -12.6f),
+            new Vector3(0f, 4.1f, -11.4f),
             new Vector3(0f, 2.02f, 1.55f),
             new Vector3(0f, 26f, -11f),
             new Vector3(0f, 4.6f, 14.5f),
-            new Vector3(0f, 0.72f, 2.5f)
+            new Vector3(0f, 0.58f, 2.3f)
         };
 
         public void Initialize(Transform followTarget, bool shake)
@@ -67,6 +79,10 @@ namespace LocalFormulaRacing
         public void NextMode()
         {
             mode = (mode + 1) % offsets.Length;
+
+            // Start the blend timer fresh so the cut into the new angle eases
+            // in over ModeBlendDuration instead of snapping straight there.
+            modeBlend = 0f;
         }
 
         float ModeFov(float speed01)
@@ -84,13 +100,15 @@ namespace LocalFormulaRacing
 
             if (mode == 4)
             {
-                return baseFov + 6f + speed01 * 7f;
+                // Nose cam: tarmac-level and close to the action, so let the
+                // lens stretch hard at speed for a proper flat-out feel.
+                return baseFov + 7f + speed01 * 10f;
             }
 
             // Chase: a non-linear widen so the last 100 km/h really stretch the view
             // without the mid-range constantly pumping the lens.
             float curve = Mathf.Pow(speed01, 1.6f);
-            return Mathf.Lerp(baseFov - 3f, baseFov + 11f, curve);
+            return Mathf.Lerp(baseFov - 3f, baseFov + 14f, curve);
         }
 
         void LateUpdate()
@@ -103,7 +121,33 @@ namespace LocalFormulaRacing
             float dt = Mathf.Max(Time.deltaTime, 0.0001f);
             Vector3 targetVelocity = targetBody != null ? targetBody.velocity : Vector3.zero;
             velocitySmoothed = Vector3.Lerp(velocitySmoothed, targetVelocity, dt * 4.5f);
-            float speed01 = Mathf.Clamp01(velocitySmoothed.magnitude / 88f);
+
+            // Speed comes straight from the vehicle (kph, sign-aware so
+            // reversing doesn't read as flat-out) rather than re-derived from
+            // the rigidbody, and is normalised against that car's own top
+            // speed so setup/DRS/ERS changes don't skew the FOV/damping feel.
+            float rawSpeedKph = targetVehicle != null ? Mathf.Abs(targetVehicle.CurrentSpeedKph) : targetVelocity.magnitude * 3.6f;
+            smoothedSpeedKph = Mathf.Lerp(smoothedSpeedKph, rawSpeedKph, dt * 4.5f);
+            float topSpeedKph = targetVehicle != null ? Mathf.Max(200f, targetVehicle.TargetTopSpeedKph) : 316f;
+            float speed01 = Mathf.Clamp01(smoothedSpeedKph / topSpeedKph);
+
+            // Self-contained impact detection: a big instantaneous speed loss
+            // (a wall, another car) trips the same impulse shake used for
+            // kerbs, without needing a collision event wired into this file.
+            if (previousRawSpeedKph >= 0f)
+            {
+                float speedDrop = previousRawSpeedKph - rawSpeedKph;
+                if (speedDrop > CollisionSpeedDropKph)
+                {
+                    float impact = Mathf.Clamp01((speedDrop - CollisionSpeedDropKph) / CollisionSpeedDropKph);
+                    AddImpulseShake(0.05f + impact * 0.09f);
+                }
+            }
+
+            previousRawSpeedKph = rawSpeedKph;
+
+            modeBlend = Mathf.Min(1f, modeBlend + dt / ModeBlendDuration);
+            float blendEase = Mathf.SmoothStep(0f, 1f, modeBlend);
 
             Vector3 offset = offsets[mode];
             Vector3 desired;
@@ -119,13 +163,18 @@ namespace LocalFormulaRacing
             {
                 desired = target.TransformPoint(offset);
 
-                // Steering influence is heavily smoothed and kept subtle: a light
-                // hint of corner look-ahead, not a camera that whips sideways every
-                // time the wheel turns.
+                // Steering and actual yaw rate both feed the corner look-ahead:
+                // steering alone can lead the turn before the car has really
+                // started rotating, while yaw rate catches the moment it's
+                // genuinely sliding or rotating harder than the wheel angle
+                // suggests. Both are heavily smoothed and kept subtle overall.
                 float rawSteer = targetVehicle != null ? targetVehicle.CurrentCommand.steer : 0f;
+                float rawYawRate = targetBody != null ? target.InverseTransformDirection(targetBody.angularVelocity).y : 0f;
                 smoothedSteer = Mathf.Lerp(smoothedSteer, rawSteer, 1f - Mathf.Exp(-dt * 5f));
+                smoothedYawRate = Mathf.Lerp(smoothedYawRate, rawYawRate, 1f - Mathf.Exp(-dt * 6f));
+                float cornerSignal = smoothedSteer * 0.7f + Mathf.Clamp(smoothedYawRate * 0.45f, -1f, 1f) * 0.3f;
                 float cornerBiasScale = mode == 1 || mode == 4 ? Mathf.Lerp(0.12f, 0.5f, speed01) : Mathf.Lerp(0.25f, 1.4f, speed01);
-                Vector3 cornerBias = target.right * smoothedSteer * cornerBiasScale;
+                Vector3 cornerBias = target.right * cornerSignal * cornerBiasScale;
                 Vector3 lookTarget = target.position + Vector3.up * 1.05f + velocitySmoothed * (mode == 1 ? 0.07f : 0.2f) + cornerBias;
                 Vector3 lookDirection = lookTarget - desired;
                 if (mode == 3)
@@ -155,18 +204,34 @@ namespace LocalFormulaRacing
 
             desired += ComputeShakeOffset(speed01);
 
-            float followRate = mode == 1 || mode == 4 ? 17f : (mode == 2 ? 3.2f : 7.4f);
-            transform.position = Vector3.Lerp(transform.position, desired, 1f - Mathf.Exp(-followRate * dt));
-            transform.rotation = Quaternion.Slerp(transform.rotation, desiredRotation, 1f - Mathf.Exp(-8.2f * dt));
+            // Chase and rear-chase get quick, precise response at low speed
+            // (good for threading a chicane) that loosens into a trailing,
+            // slightly-behind feel at speed, which is what actually reads as
+            // fast on screen rather than robotically glued in place. Cockpit
+            // and nose stay rigidly mounted, and the TV crane stays slow and
+            // floaty on purpose. Right after a mode switch, blendEase eases
+            // both rates in from a slower start so the cut glides rather than
+            // snaps into the new angle.
+            bool chaseLike = mode == 0 || mode == 3;
+            float baseFollowRate = mode == 1 || mode == 4 ? 17f : (mode == 2 ? 3.2f : Mathf.Lerp(11.5f, 5.6f, speed01));
+            float baseRotRate = chaseLike ? Mathf.Lerp(9.6f, 6.6f, speed01) : 8.2f;
+            float followRate = Mathf.Lerp(baseFollowRate * 0.35f, baseFollowRate, blendEase);
+            float rotRate = Mathf.Lerp(baseRotRate * 0.35f, baseRotRate, blendEase);
 
-            followCamera.fieldOfView = Mathf.Lerp(followCamera.fieldOfView, ModeFov(speed01), dt * 3f);
+            transform.position = Vector3.Lerp(transform.position, desired, 1f - Mathf.Exp(-followRate * dt));
+            transform.rotation = Quaternion.Slerp(transform.rotation, desiredRotation, 1f - Mathf.Exp(-rotRate * dt));
+
+            float fovBlendRate = Mathf.Lerp(1.4f, 3f, blendEase);
+            float desiredFov = Mathf.Lerp(followCamera.fieldOfView, ModeFov(speed01), dt * fovBlendRate);
+            followCamera.fieldOfView = Mathf.Clamp(desiredFov, 40f, 100f);
             followCamera.transform.localPosition = Vector3.zero;
             followCamera.transform.localRotation = Quaternion.identity;
         }
 
         // Shake only when the situation earns it: very high speed, heavy braking,
-        // kerb strikes, and collisions (via AddImpulseShake). Cruise stays steady,
-        // and steering alone contributes nothing here.
+        // kerb strikes, and collisions (via AddImpulseShake, including the
+        // internal speed-drop detection above). Cruise stays steady, and
+        // steering alone contributes nothing here.
         Vector3 ComputeShakeOffset(float speed01)
         {
             impulseShake = Mathf.MoveTowards(impulseShake, 0f, Time.deltaTime * 0.9f);
@@ -224,6 +289,7 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            modeBlend = 1f;
             Vector3 desired = target.TransformPoint(offsets[0]);
             transform.position = desired;
             transform.rotation = Quaternion.LookRotation(target.position + Vector3.up * 1.25f - desired, Vector3.up);
