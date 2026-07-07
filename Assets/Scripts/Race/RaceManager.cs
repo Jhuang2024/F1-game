@@ -132,7 +132,6 @@ namespace LocalFormulaRacing
         readonly List<RaceParticipant> emptyParticipants = new List<RaceParticipant>();
         GameObject raceWorld;
         float raceStartTime;
-        int finishedCount;
         List<QualifyingResultEntry> lastQualifyingResults = new List<QualifyingResultEntry>();
         List<QualifyingSimEntry> qualifyingEntries = new List<QualifyingSimEntry>();
         readonly string[] playerSectorColors = new string[3];
@@ -333,7 +332,6 @@ namespace LocalFormulaRacing
             qualifyingTransitionPending = false;
             qualifyingTransitionTimer = 0f;
             QualifyingFeedbackText = "";
-            finishedCount = 0;
             lastQualifyingResultWasSimulated = false;
             lightsOutTime = 0f;
             playerReactionTime = -1f;

@@ -1669,22 +1669,22 @@ namespace LocalFormulaRacing
             {
                 Text roleBadge = UiFactory.CreateText(card, "Driver card role badge", isPlayer ? "YOU" : "TEAMMATE", 11, isPlayer ? UiFactory.AccentGreen : UiFactory.AccentCyan, TextAnchor.UpperLeft);
                 roleBadge.fontStyle = FontStyle.Bold;
-                SetTopLeft(roleBadge, 88f, 8f);
+                SetTopLeft(roleBadge.rectTransform, 88f, 8f);
                 UiFactory.SetSize(roleBadge, 150f, 16f);
             }
 
             Text numberText = UiFactory.CreateText(card, "Driver card number", "#" + driver.number + "  " + driver.abbreviation.ToUpperInvariant(), 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            SetTopLeft(numberText, 88f, 30f);
+            SetTopLeft(numberText.rectTransform, 88f, 30f);
             UiFactory.SetSize(numberText, 160f, 18f);
 
             Text nameText = UiFactory.CreateText(card, "Driver card name", driver.displayName, 17, Color.white, TextAnchor.UpperLeft);
             nameText.fontStyle = FontStyle.Bold;
-            SetTopLeft(nameText, 88f, 48f);
+            SetTopLeft(nameText.rectTransform, 88f, 48f);
             UiFactory.SetSize(nameText, 160f, 24f);
 
             string teamName = team == null ? driver.teamId : team.name;
             Text teamText = UiFactory.CreateText(card, "Driver card team", teamName, 12, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            SetTopLeft(teamText, 88f, 72f);
+            SetTopLeft(teamText.rectTransform, 88f, 72f);
             UiFactory.SetSize(teamText, 160f, 16f);
 
             int overall = driver.OverallRating;
@@ -1891,17 +1891,17 @@ namespace LocalFormulaRacing
             {
                 Text yourTeamBadge = UiFactory.CreateText(card, "Team card your team badge", "YOUR TEAM", 11, UiFactory.AccentGreen, TextAnchor.UpperLeft);
                 yourTeamBadge.fontStyle = FontStyle.Bold;
-                SetTopLeft(yourTeamBadge, 66f, 8f);
+                SetTopLeft(yourTeamBadge.rectTransform, 66f, 8f);
                 UiFactory.SetSize(yourTeamBadge, 180f, 16f);
             }
 
             Text nameText = UiFactory.CreateText(card, "Team card name", team.name, 18, Color.white, TextAnchor.UpperLeft);
             nameText.fontStyle = FontStyle.Bold;
-            SetTopLeft(nameText, 66f, 26f);
+            SetTopLeft(nameText.rectTransform, 66f, 26f);
             UiFactory.SetSize(nameText, 190f, 24f);
 
             Text shortText = UiFactory.CreateText(card, "Team card short", team.shortName.ToUpperInvariant(), 12, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            SetTopLeft(shortText, 66f, 50f);
+            SetTopLeft(shortText.rectTransform, 66f, 50f);
             UiFactory.SetSize(shortText, 190f, 16f);
 
             float overall = ComputeCarOverall(car);
@@ -1916,7 +1916,7 @@ namespace LocalFormulaRacing
             StretchFull(overallText.GetComponent<RectTransform>());
 
             Text repText = UiFactory.CreateText(card, "Team card reputation", "REP " + team.reputation + "   ·   RELIABILITY " + team.reliability, 12, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            SetTopLeft(repText, 16f, 78f);
+            SetTopLeft(repText.rectTransform, 16f, 78f);
             UiFactory.SetSize(repText, 310f, 18f);
 
             string archetype = ComputeCarArchetype(car, overall);
