@@ -66,9 +66,9 @@ namespace LocalFormulaRacing
         const float RaceSpeedCeilingKph = 350f;
         // DRS needs headroom above the normal ceiling or its top-speed bonus gets
         // clamped away to nothing on cars whose base target is already near 350.
-        const float DrsSpeedCeilingKph = 368f;
-        const float DrsTopSpeedBonusKph = 15f;
-        const float ErsTopSpeedBonusKph = 12f;
+        const float DrsSpeedCeilingKph = 392f;
+        const float DrsTopSpeedBonusKph = 32f;
+        const float ErsTopSpeedBonusKph = 20f;
         static readonly float[] AutoShiftUpKph = { 0f, 62f, 102f, 142f, 186f, 232f, 282f, 322f };
         static readonly float[] GearTorqueMultipliers = { 1.72f, 1.52f, 1.34f, 1.18f, 1.05f, 0.94f, 0.84f, 0.76f };
 
@@ -491,13 +491,13 @@ namespace LocalFormulaRacing
             {
                 if (settings.ersMode == (int)ErsStrategyMode.Harvest)
                 {
-                    harvestModeMultiplier = 1.7f;
+                    harvestModeMultiplier = 1.9f;
                     deployModeMultiplier = 0.82f;
                 }
                 else if (settings.ersMode == (int)ErsStrategyMode.Attack)
                 {
                     harvestModeMultiplier = 0.8f;
-                    deployModeMultiplier = 1.12f;
+                    deployModeMultiplier = 1.2f;
                 }
             }
 
@@ -509,18 +509,18 @@ namespace LocalFormulaRacing
                 // A real, felt push out of corners and down straights without being
                 // an arcade nitro button - roughly half of base acceleration on top,
                 // gated by remaining battery.
-                ersBoost = Mathf.Lerp(7f, 13f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
+                ersBoost = Mathf.Lerp(11f, 18f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
                 ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.11f, 0.16f, activeCommand.throttle));
             }
 
             if (activeCommand.brake > 0.1f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.16f, 0.3f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.28f, 0.42f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.012f, 0.03f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.022f, 0.05f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
@@ -551,7 +551,11 @@ namespace LocalFormulaRacing
                                           LastGearTorqueMultiplier *
                                           highSpeedPower *
                                           Mathf.Lerp(0.72f, 1f, Mathf.InverseLerp(32f, 145f, forwardSpeedKph));
-                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost), ForceMode.Acceleration);
+                // ERS deploy is throttled down at low speed so the extra shove doesn't
+                // turn corner exits into wheelspin chaos - it ramps up to full strength
+                // by the time the car is doing meaningful straight-line speed.
+                float ersSpeedRamp = Mathf.Lerp(0.35f, 1f, Mathf.InverseLerp(40f, 140f, forwardSpeedKph));
+                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp), ForceMode.Acceleration);
                 if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
                 {
                     float pullThrough = Mathf.Lerp(5.6f, 2.0f, speedRatio) * activeCommand.throttle * speedLimiter;
@@ -599,7 +603,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            float dragCoefficient = DrsActive ? 0.00034f : 0.00054f;
+            float dragCoefficient = DrsActive ? 0.0003f : 0.00054f;
             dragCoefficient *= Mathf.Lerp(1.1f, 0.84f, CarData.aeroEfficiency / 100f);
             dragCoefficient *= Mathf.Lerp(1.02f, 0.88f, Mathf.InverseLerp(1, GearCount, CurrentGear));
             dragCoefficient /= Mathf.Max(0.55f, Damage.AeroMultiplier);

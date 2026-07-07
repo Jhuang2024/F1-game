@@ -26,7 +26,7 @@ namespace LocalFormulaRacing
             if (compound == TyreCompound.Soft)
             {
                 baseGrip = 1.11f;
-                baseWear = 1.88f;
+                baseWear = 1.5f;
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
@@ -36,7 +36,7 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Medium)
             {
                 baseGrip = 1f;
-                baseWear = 1.34f;
+                baseWear = 1.08f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
@@ -46,7 +46,7 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Hard)
             {
                 baseGrip = 0.93f;
-                baseWear = 0.9f;
+                baseWear = 0.74f;
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;
@@ -56,7 +56,7 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Intermediate)
             {
                 baseGrip = 0.9f;
-                baseWear = 1.42f;
+                baseWear = 1.15f;
                 targetMin = 58f;
                 targetMax = 82f;
                 warmup = 1.05f;
@@ -66,7 +66,7 @@ namespace LocalFormulaRacing
             else
             {
                 baseGrip = 0.78f;
-                baseWear = 1.55f;
+                baseWear = 1.25f;
                 targetMin = 45f;
                 targetMax = 70f;
                 warmup = 1.1f;
@@ -93,18 +93,18 @@ namespace LocalFormulaRacing
             float weatherWear = weather == WeatherState.Clear || weather == WeatherState.Cloudy ? 1.08f : 1.32f;
             if ((weather == WeatherState.Clear || weather == WeatherState.Cloudy) && (Compound == TyreCompound.Intermediate || Compound == TyreCompound.Wet))
             {
-                weatherWear *= Compound == TyreCompound.Wet ? 2.2f : 1.75f;
+                weatherWear *= Compound == TyreCompound.Wet ? 1.9f : 1.55f;
             }
             else if ((weather == WeatherState.LightRain || weather == WeatherState.HeavyRain) && Compound != TyreCompound.Intermediate && Compound != TyreCompound.Wet)
             {
-                weatherWear *= 1.42f;
+                weatherWear *= 1.3f;
             }
 
-            float lockupWear = IsLocked ? 0.026f : 0f;
-            float overheatWear = Mathf.Lerp(1f, 2.35f, Mathf.InverseLerp(targetMax - 2f, targetMax + 32f, Temperature));
-            float wornHeatWear = Mathf.Lerp(1f, 1.42f, Mathf.InverseLerp(0.62f, 0.18f, Wear));
-            float slideWear = slipEnergy * 0.00195f;
-            float baselineWear = speedHeat * 0.00135f + Mathf.Abs(steer) * 0.00082f + brake * 0.00062f + slideWear;
+            float lockupWear = IsLocked ? 0.02f : 0f;
+            float overheatWear = Mathf.Lerp(1f, 2.0f, Mathf.InverseLerp(targetMax - 2f, targetMax + 32f, Temperature));
+            float wornHeatWear = Mathf.Lerp(1f, 1.3f, Mathf.InverseLerp(0.62f, 0.18f, Wear));
+            float slideWear = slipEnergy * 0.0016f;
+            float baselineWear = speedHeat * 0.00115f + Mathf.Abs(steer) * 0.0007f + brake * 0.00052f + slideWear;
             baselineWear *= Mathf.Lerp(0.86f, 1.28f, Mathf.InverseLerp(110f, 315f, speedKph));
             float wearLoss = (baselineWear * baseWear * management * weatherWear * overheatWear * wornHeatWear) + lockupWear;
             Wear = Mathf.Clamp01(Wear - wearLoss * deltaTime);
