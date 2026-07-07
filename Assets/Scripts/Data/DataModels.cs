@@ -149,6 +149,29 @@ namespace LocalFormulaRacing
         public int aeroDelta;
         public int chassisDelta;
         public int engineDelta;
+
+        // Field initializer keeps upgrades from data files without a tier key
+        // usable as tier-1 projects.
+        public int tier = 1;
+    }
+
+    [Serializable]
+    public class ActiveUpgradeProject
+    {
+        public string upgradeId;
+        public string category;
+        public int startRound;
+        public int remainingRaceWeeks;
+        public int totalRaceWeeks;
+        public int cost;
+        public float successChance;
+
+        // 0 Conservative, 1 Standard, 2 Rush, 3 Experimental.
+        public int riskMode = 1;
+
+        // 0 InDevelopment, 1 Completed, 2 Failed, 3 ReworkAvailable.
+        public int status;
+        public bool bonusApplied;
     }
 
     [Serializable]
@@ -176,6 +199,14 @@ namespace LocalFormulaRacing
         // Practice program completion keys ("s1_r3_qualiPace"); defaults keep old
         // saves loading cleanly.
         public List<string> completedPracticePrograms = new List<string>();
+
+        // R&D management state. Initializers are the old-save defaults; the
+        // matching null/size guards live in CareerManager.EnsureStandingLists.
+        public List<ActiveUpgradeProject> activeUpgradeProjects = new List<ActiveUpgradeProject>();
+        public List<string> pendingRndMessages = new List<string>();
+        public List<int> departmentLevels = new List<int>();
+        public List<string> regulationAffectedCategories = new List<string>();
+        public int practiceQualityThisRound;
     }
 
     [Serializable]

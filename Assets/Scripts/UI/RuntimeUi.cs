@@ -242,9 +242,10 @@ namespace LocalFormulaRacing
             UiFactory.CreateSubHeader(standingsPanel, "Constructors");
             BuildStandingsRows(data, standingsPanel, career.Save.constructorStandings, 380f);
 
-            // R&D: scrollable upgrade list grouped by category, with cost/state pills.
-            RectTransform right = UiFactory.CreateScrollPanel(background, "Upgrades panel", new Vector2(0.69f, 0.14f), new Vector2(0.95f, 0.77f), 8, new RectOffset(20, 20, 18, 18));
-            UiFactory.CreateSubHeader(right, "R&D Development");
+            // R&D: overview card with pending report messages; the full command
+            // center lives on its own screen behind the button below.
+            RectTransform right = UiFactory.CreateScrollPanel(background, "Rnd overview panel", new Vector2(0.69f, 0.14f), new Vector2(0.95f, 0.77f), 10, new RectOffset(20, 20, 18, 18));
+            UiFactory.CreateSubHeader(right, "R&D Division");
             TeamData careerTeam = data.FindTeam(career.Save.playerTeamId);
             CarPerformanceData baseCar = careerTeam == null ? null : data.FindCar(careerTeam.carPerformanceId);
             CarPerformanceData tunedCar = baseCar == null ? null : career.ApplyCareerUpgrades(baseCar);
@@ -255,19 +256,21 @@ namespace LocalFormulaRacing
                 UiFactory.SetSize(carStats, 390f, 104f);
             }
 
-            string lastCategory = null;
-            for (int i = 0; i < data.Upgrades.upgrades.Count; i++)
-            {
-                UpgradeData upgrade = data.Upgrades.upgrades[i];
-                if (!string.IsNullOrEmpty(upgrade.category) && upgrade.category != lastCategory)
-                {
-                    lastCategory = upgrade.category;
-                    Text categoryText = UiFactory.CreateText(right, "Upgrade category " + i, lastCategory.ToUpperInvariant(), 14, UiFactory.Accent, TextAnchor.MiddleLeft);
-                    UiFactory.SetSize(categoryText, 360f, 22f);
-                }
+            BuildRndReportCard(right, career);
 
-                CreateUpgradeCard(right, data, career, settings, upgrade);
-            }
+            string regulationRisk = career.Save.regulationAffectedCategories == null || career.Save.regulationAffectedCategories.Count == 0
+                ? "None announced"
+                : string.Join(", ", career.Save.regulationAffectedCategories.ToArray());
+            Text rndSummary = UiFactory.CreateText(right, "Rnd summary",
+                "Active projects: " + career.ActiveProjectCount() + " / " + career.MaxActiveProjects() +
+                "\nCompleted upgrades: " + career.Save.completedUpgradeIds.Count +
+                "\nRegulation risk: " + regulationRisk,
+                15, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            rndSummary.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(rndSummary, 384f, 68f);
+
+            Button openRnd = UiFactory.CreatePrimaryButton(right, "R&D Command Center", () => ShowRndCenter(data, career, settings));
+            UiFactory.SetSize(openRnd, 384f, 52f);
 
             // Race Weekend already lives on the event card above - the footer is
             // for navigation, not a second path to the same primary action.
@@ -365,48 +368,415 @@ namespace LocalFormulaRacing
             });
         }
 
-        // One R&D node: name + state pill on top, stat deltas and cost underneath.
-        // Available nodes are clickable; done/failed/locked nodes explain themselves.
-        void CreateUpgradeCard(RectTransform parent, GameDataRepository data, CareerManager career, GameSettingsStore settings, UpgradeData upgrade)
+        // Pending R&D results surface once on the career hub, then the queue is
+        // cleared - rendering the card consumes the report.
+        void BuildRndReportCard(RectTransform parent, CareerManager career)
+        {
+            if (career.Save.pendingRndMessages == null || career.Save.pendingRndMessages.Count == 0)
+            {
+                return;
+            }
+
+            Text header = UiFactory.CreateText(parent, "Rnd report header", "R&D REPORT", 14, UiFactory.AccentAmber, TextAnchor.MiddleLeft);
+            UiFactory.SetSize(header, 384f, 22f);
+            for (int i = 0; i < career.Save.pendingRndMessages.Count; i++)
+            {
+                RectTransform card = UiFactory.CreateRect(parent, "Rnd report " + i, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                card.sizeDelta = new Vector2(384f, 56f);
+                Image cardBackground = card.gameObject.AddComponent<Image>();
+                cardBackground.color = UiFactory.PanelDark;
+                UiFactory.CreateBand(card, "Report rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.AccentAmber);
+                Text message = UiFactory.CreateText(card, "Report message", career.Save.pendingRndMessages[i], 14, UiFactory.TextPrimary, TextAnchor.MiddleLeft);
+                RectTransform messageRect = message.GetComponent<RectTransform>();
+                messageRect.anchorMin = Vector2.zero;
+                messageRect.anchorMax = Vector2.one;
+                messageRect.offsetMin = new Vector2(14f, 4f);
+                messageRect.offsetMax = new Vector2(-10f, -4f);
+            }
+
+            career.Save.pendingRndMessages.Clear();
+            career.Write();
+        }
+
+        // Full R&D management screen: department facilities, live projects with
+        // progress, the rework bench and the risk-mode upgrade tree.
+        public void ShowRndCenter(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Rnd background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateScreenHeader(background, "R&D Command Center",
+                "Season " + career.Save.currentSeason + ", Round " + career.Save.currentRound + "  ·  Facilities, live projects and the upgrade tree.");
+
+            string regulationRisk = career.Save.regulationAffectedCategories == null || career.Save.regulationAffectedCategories.Count == 0
+                ? "None announced"
+                : string.Join(", ", career.Save.regulationAffectedCategories.ToArray());
+
+            RectTransform stats = UiFactory.CreateRect(background, "Rnd stat strip", new Vector2(0.05f, 0.79f), new Vector2(0.95f, 0.85f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(stats, 12, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(stats, "Resources", career.Save.resourcePoints + " RP", 200f);
+            UiFactory.CreateStatCard(stats, "Project Slots", career.ActiveProjectCount() + " / " + career.MaxActiveProjects(), 200f);
+            UiFactory.CreateStatCard(stats, "Season", "S" + career.Save.currentSeason + " · R" + career.Save.currentRound, 180f);
+            Text riskValue = UiFactory.CreateStatCard(stats, "Regulation Risk At Season End", regulationRisk, 560f);
+            riskValue.fontSize = 18;
+            riskValue.color = UiFactory.AccentAmber;
+
+            RectTransform departments = UiFactory.CreateScrollPanel(background, "Departments panel", new Vector2(0.05f, 0.14f), new Vector2(0.30f, 0.77f), 8, new RectOffset(16, 16, 14, 14));
+            UiFactory.CreateSubHeader(departments, "Departments");
+            Text departmentHint = UiFactory.CreateText(departments, "Department hint", "Each level: -10% dev time, +4% success, higher tiers. Every 2 levels add a project slot.", 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            departmentHint.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(departmentHint, 430f, 36f);
+            for (int i = 0; i < CareerManager.DepartmentNames.Length; i++)
+            {
+                CreateDepartmentCard(departments, data, career, settings, i);
+            }
+
+            RectTransform projects = UiFactory.CreateScrollPanel(background, "Projects panel", new Vector2(0.32f, 0.14f), new Vector2(0.57f, 0.77f), 8, new RectOffset(16, 16, 14, 14));
+            UiFactory.CreateSubHeader(projects, "Active Projects");
+            int activeShown = 0;
+            for (int i = 0; i < career.Save.activeUpgradeProjects.Count; i++)
+            {
+                ActiveUpgradeProject project = career.Save.activeUpgradeProjects[i];
+                if (project.status == CareerManager.ProjectInDevelopment)
+                {
+                    CreateActiveProjectCard(projects, data, project);
+                    activeShown++;
+                }
+            }
+
+            if (activeShown == 0)
+            {
+                Text noProjects = UiFactory.CreateText(projects, "No projects", "No projects in development.\nStart one from the upgrade tree.", 15, UiFactory.TextMuted, TextAnchor.UpperLeft);
+                noProjects.verticalOverflow = VerticalWrapMode.Overflow;
+                UiFactory.SetSize(noProjects, 430f, 48f);
+            }
+
+            bool anyRework = false;
+            for (int i = 0; i < career.Save.activeUpgradeProjects.Count; i++)
+            {
+                if (career.Save.activeUpgradeProjects[i].status == CareerManager.ProjectReworkAvailable)
+                {
+                    anyRework = true;
+                }
+            }
+
+            if (anyRework)
+            {
+                UiFactory.CreateDivider(projects);
+                UiFactory.CreateSubHeader(projects, "Rework Bench");
+                for (int i = 0; i < career.Save.activeUpgradeProjects.Count; i++)
+                {
+                    ActiveUpgradeProject project = career.Save.activeUpgradeProjects[i];
+                    if (project.status == CareerManager.ProjectReworkAvailable)
+                    {
+                        CreateReworkCard(projects, data, career, settings, project);
+                    }
+                }
+            }
+
+            RectTransform tree = UiFactory.CreateScrollPanel(background, "Upgrade tree panel", new Vector2(0.59f, 0.14f), new Vector2(0.95f, 0.77f), 8, new RectOffset(16, 16, 14, 14));
+            UiFactory.CreateSubHeader(tree, "Upgrade Tree");
+            string lastCategory = null;
+            for (int i = 0; i < data.Upgrades.upgrades.Count; i++)
+            {
+                UpgradeData upgrade = data.Upgrades.upgrades[i];
+                if (!string.IsNullOrEmpty(upgrade.category) && upgrade.category != lastCategory)
+                {
+                    lastCategory = upgrade.category;
+                    bool affected = career.Save.regulationAffectedCategories != null && career.Save.regulationAffectedCategories.Contains(lastCategory);
+                    int level = career.GetDepartmentLevel(career.GetDepartmentIndex(lastCategory));
+                    string headerLine = lastCategory.ToUpperInvariant() + "  ·  LV " + level + (affected ? "  ·  REGULATION RISK" : "");
+                    Text categoryText = UiFactory.CreateText(tree, "Upgrade category " + i, headerLine, 14, affected ? UiFactory.AccentAmber : UiFactory.Accent, TextAnchor.MiddleLeft);
+                    UiFactory.SetSize(categoryText, 600f, 22f);
+                }
+
+                CreateRndUpgradeCard(tree, data, career, settings, upgrade);
+            }
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Career", () => ShowCareerHub(data, career, settings));
+            UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
+        }
+
+        // Department facility card: level pips, per-level effect, upgrade button.
+        void CreateDepartmentCard(RectTransform parent, GameDataRepository data, CareerManager career, GameSettingsStore settings, int departmentIndex)
+        {
+            string departmentName = CareerManager.DepartmentNames[departmentIndex];
+            int level = career.GetDepartmentLevel(departmentIndex);
+            int cost = career.GetDepartmentUpgradeCost(departmentIndex);
+            bool maxed = level >= CareerManager.MaxDepartmentLevel;
+            bool affordable = career.Save.resourcePoints >= cost;
+            bool affected = career.Save.regulationAffectedCategories != null && career.Save.regulationAffectedCategories.Contains(departmentName);
+
+            RectTransform card = UiFactory.CreateRect(parent, departmentName + " department card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(430f, 96f);
+            Image cardBackground = card.gameObject.AddComponent<Image>();
+            cardBackground.color = UiFactory.PanelDark;
+            UiFactory.CreateBand(card, "Department rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), affected ? UiFactory.AccentAmber : UiFactory.AccentCyan);
+
+            Text nameText = UiFactory.CreateText(card, "Department name", departmentName + (affected ? "  ·  REG RISK" : ""), 16, UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            RectTransform nameRect = nameText.GetComponent<RectTransform>();
+            nameRect.anchorMin = new Vector2(0f, 1f);
+            nameRect.anchorMax = new Vector2(0.72f, 1f);
+            nameRect.offsetMin = new Vector2(14f, -28f);
+            nameRect.offsetMax = new Vector2(0f, -6f);
+
+            for (int i = 0; i < CareerManager.MaxDepartmentLevel; i++)
+            {
+                RectTransform pip = UiFactory.CreateRect(card, "Level pip " + i, new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+                pip.sizeDelta = new Vector2(18f, 8f);
+                pip.pivot = new Vector2(0f, 1f);
+                pip.anchoredPosition = new Vector2(14f + i * 24f, -34f);
+                Image pipImage = pip.gameObject.AddComponent<Image>();
+                UiFactory.StyleRoundedSmall(pipImage, i < level ? UiFactory.AccentCyan : UiFactory.MeterTrack);
+            }
+
+            Text effectText = UiFactory.CreateText(card, "Department effect",
+                level > 1
+                    ? "-" + (level - 1) * 10 + "% dev time  ·  +" + (level - 1) * 4 + "% success  ·  tier " + level + " unlocked"
+                    : "Level 1  ·  tier 1 projects only",
+                13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            RectTransform effectRect = effectText.GetComponent<RectTransform>();
+            effectRect.anchorMin = new Vector2(0f, 0f);
+            effectRect.anchorMax = new Vector2(0.62f, 0f);
+            effectRect.offsetMin = new Vector2(14f, 8f);
+            effectRect.offsetMax = new Vector2(0f, 34f);
+
+            if (maxed)
+            {
+                Text maxText = UiFactory.CreateText(card, "Department max", "MAX LEVEL", 14, UiFactory.AccentGreen, TextAnchor.MiddleRight);
+                RectTransform maxRect = maxText.GetComponent<RectTransform>();
+                maxRect.anchorMin = new Vector2(0.62f, 0f);
+                maxRect.anchorMax = new Vector2(1f, 0.55f);
+                maxRect.offsetMin = Vector2.zero;
+                maxRect.offsetMax = new Vector2(-12f, 0f);
+            }
+            else if (!affordable)
+            {
+                Text needText = UiFactory.CreateText(card, "Department need rp", "NEED " + cost + " RP", 14, UiFactory.TextMuted, TextAnchor.MiddleRight);
+                RectTransform needRect = needText.GetComponent<RectTransform>();
+                needRect.anchorMin = new Vector2(0.55f, 0f);
+                needRect.anchorMax = new Vector2(1f, 0.55f);
+                needRect.offsetMin = Vector2.zero;
+                needRect.offsetMax = new Vector2(-12f, 0f);
+            }
+            else
+            {
+                Button upgradeButton = UiFactory.CreateButton(card, "Upgrade  " + cost + " RP", () =>
+                {
+                    career.TryUpgradeDepartment(departmentIndex);
+                    ShowRndCenter(data, career, settings);
+                });
+                RectTransform buttonRect = upgradeButton.GetComponent<RectTransform>();
+                buttonRect.anchorMin = new Vector2(1f, 0f);
+                buttonRect.anchorMax = new Vector2(1f, 0f);
+                buttonRect.pivot = new Vector2(1f, 0f);
+                buttonRect.sizeDelta = new Vector2(160f, 34f);
+                buttonRect.anchoredPosition = new Vector2(-12f, 8f);
+            }
+        }
+
+        // Live project card: name, risk mode, week progress bar, success odds.
+        void CreateActiveProjectCard(RectTransform parent, GameDataRepository data, ActiveUpgradeProject project)
+        {
+            UpgradeData upgrade = data.Upgrades.upgrades.Find(item => item.id == project.upgradeId);
+            string projectName = upgrade != null ? upgrade.displayName : project.upgradeId;
+
+            RectTransform card = UiFactory.CreateRect(parent, project.upgradeId + " project card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(430f, 92f);
+            Image cardBackground = card.gameObject.AddComponent<Image>();
+            cardBackground.color = UiFactory.PanelDark;
+            UiFactory.CreateBand(card, "Project rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.AccentCyan);
+
+            Text nameText = UiFactory.CreateText(card, "Project name", projectName, 16, UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            RectTransform nameRect = nameText.GetComponent<RectTransform>();
+            nameRect.anchorMin = new Vector2(0f, 1f);
+            nameRect.anchorMax = new Vector2(0.68f, 1f);
+            nameRect.offsetMin = new Vector2(14f, -28f);
+            nameRect.offsetMax = new Vector2(0f, -6f);
+
+            Text modeText = UiFactory.CreateText(card, "Project mode", RiskModeName(project.riskMode), 13, RiskModeColor(project.riskMode), TextAnchor.UpperRight);
+            RectTransform modeRect = modeText.GetComponent<RectTransform>();
+            modeRect.anchorMin = new Vector2(0.68f, 1f);
+            modeRect.anchorMax = new Vector2(1f, 1f);
+            modeRect.offsetMin = new Vector2(0f, -28f);
+            modeRect.offsetMax = new Vector2(-12f, -6f);
+
+            int doneWeeks = project.totalRaceWeeks - project.remainingRaceWeeks;
+            Text progressText = UiFactory.CreateText(card, "Project progress",
+                project.category + "  ·  " + doneWeeks + " / " + project.totalRaceWeeks + " weeks  ·  " + Mathf.RoundToInt(project.successChance * 100f) + "% success",
+                13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            RectTransform progressRect = progressText.GetComponent<RectTransform>();
+            progressRect.anchorMin = new Vector2(0f, 1f);
+            progressRect.anchorMax = new Vector2(1f, 1f);
+            progressRect.offsetMin = new Vector2(14f, -52f);
+            progressRect.offsetMax = new Vector2(-12f, -32f);
+
+            Image fill = UiFactory.CreateProgressBar(card, "Project bar", 400f, 10f, UiFactory.AccentCyan, project.totalRaceWeeks <= 0 ? 0f : (float)doneWeeks / project.totalRaceWeeks);
+            RectTransform barRect = fill.transform.parent.GetComponent<RectTransform>();
+            barRect.anchorMin = new Vector2(0f, 0f);
+            barRect.anchorMax = new Vector2(0f, 0f);
+            barRect.pivot = new Vector2(0f, 0f);
+            barRect.anchoredPosition = new Vector2(14f, 12f);
+        }
+
+        // Failed project on the rework bench: retry at 40% cost or abandon it.
+        void CreateReworkCard(RectTransform parent, GameDataRepository data, CareerManager career, GameSettingsStore settings, ActiveUpgradeProject project)
+        {
+            UpgradeData upgrade = data.Upgrades.upgrades.Find(item => item.id == project.upgradeId);
+            string projectName = upgrade != null ? upgrade.displayName : project.upgradeId;
+            int reworkCost = career.GetReworkCost(project);
+            bool affordable = career.Save.resourcePoints >= reworkCost;
+
+            RectTransform card = UiFactory.CreateRect(parent, project.upgradeId + " rework card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(430f, 92f);
+            Image cardBackground = card.gameObject.AddComponent<Image>();
+            cardBackground.color = UiFactory.PanelDark;
+            UiFactory.CreateBand(card, "Rework rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.Accent);
+
+            Text nameText = UiFactory.CreateText(card, "Rework name", projectName, 16, UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            RectTransform nameRect = nameText.GetComponent<RectTransform>();
+            nameRect.anchorMin = new Vector2(0f, 1f);
+            nameRect.anchorMax = new Vector2(0.68f, 1f);
+            nameRect.offsetMin = new Vector2(14f, -28f);
+            nameRect.offsetMax = new Vector2(0f, -6f);
+
+            Text infoText = UiFactory.CreateText(card, "Rework info",
+                "Failed  ·  retry " + Mathf.Max(1, project.totalRaceWeeks / 2) + " wk  ·  " + Mathf.RoundToInt(Mathf.Min(0.95f, project.successChance + 0.12f) * 100f) + "% success",
+                13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            RectTransform infoRect = infoText.GetComponent<RectTransform>();
+            infoRect.anchorMin = new Vector2(0f, 1f);
+            infoRect.anchorMax = new Vector2(1f, 1f);
+            infoRect.offsetMin = new Vector2(14f, -52f);
+            infoRect.offsetMax = new Vector2(-12f, -32f);
+
+            if (affordable)
+            {
+                Button reworkButton = UiFactory.CreateButton(card, "Rework  " + reworkCost + " RP", () =>
+                {
+                    career.TryReworkProject(project.upgradeId);
+                    ShowRndCenter(data, career, settings);
+                });
+                RectTransform reworkRect = reworkButton.GetComponent<RectTransform>();
+                reworkRect.anchorMin = new Vector2(0f, 0f);
+                reworkRect.anchorMax = new Vector2(0f, 0f);
+                reworkRect.pivot = new Vector2(0f, 0f);
+                reworkRect.sizeDelta = new Vector2(170f, 32f);
+                reworkRect.anchoredPosition = new Vector2(14f, 8f);
+            }
+            else
+            {
+                Text needText = UiFactory.CreateText(card, "Rework need rp", "NEED " + reworkCost + " RP", 13, UiFactory.TextMuted, TextAnchor.LowerLeft);
+                RectTransform needRect = needText.GetComponent<RectTransform>();
+                needRect.anchorMin = new Vector2(0f, 0f);
+                needRect.anchorMax = new Vector2(0.5f, 0f);
+                needRect.offsetMin = new Vector2(14f, 8f);
+                needRect.offsetMax = new Vector2(0f, 40f);
+            }
+
+            Button abandonButton = UiFactory.CreateDangerButton(card, "Abandon", () =>
+            {
+                career.AbandonProject(project.upgradeId);
+                ShowRndCenter(data, career, settings);
+            });
+            RectTransform abandonRect = abandonButton.GetComponent<RectTransform>();
+            abandonRect.anchorMin = new Vector2(1f, 0f);
+            abandonRect.anchorMax = new Vector2(1f, 0f);
+            abandonRect.pivot = new Vector2(1f, 0f);
+            abandonRect.sizeDelta = new Vector2(130f, 32f);
+            abandonRect.anchoredPosition = new Vector2(-12f, 8f);
+        }
+
+        // Upgrade tree node: tier/cost/time/odds plus a risk-mode launcher row
+        // when the project can actually be started.
+        void CreateRndUpgradeCard(RectTransform parent, GameDataRepository data, CareerManager career, GameSettingsStore settings, UpgradeData upgrade)
         {
             bool done = career.Save.completedUpgradeIds.Contains(upgrade.id);
-            bool failed = career.Save.failedUpgradeIds.Contains(upgrade.id);
-            bool locked = !string.IsNullOrEmpty(upgrade.requiredUpgradeId) && !career.Save.completedUpgradeIds.Contains(upgrade.requiredUpgradeId);
-            bool affordable = career.Save.resourcePoints >= upgrade.cost;
-            bool available = !done && !failed && !locked;
+            bool abandoned = career.Save.failedUpgradeIds.Contains(upgrade.id);
+            ActiveUpgradeProject project = career.FindProject(upgrade.id);
+            bool inDevelopment = project != null && project.status == CareerManager.ProjectInDevelopment;
+            bool reworkable = project != null && project.status == CareerManager.ProjectReworkAvailable;
+            bool prereqMissing = !string.IsNullOrEmpty(upgrade.requiredUpgradeId) && !career.Save.completedUpgradeIds.Contains(upgrade.requiredUpgradeId);
+            bool tierLocked = career.GetDepartmentLevel(career.GetDepartmentIndex(upgrade.category)) < Mathf.Max(1, upgrade.tier);
+            bool locked = prereqMissing || tierLocked;
+            bool available = !done && !abandoned && !inDevelopment && !reworkable && !locked;
+            bool slotsFull = career.ActiveProjectCount() >= career.MaxActiveProjects();
 
             RectTransform card = UiFactory.CreateRect(parent, upgrade.id + " card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            card.sizeDelta = new Vector2(384f, 78f);
-            Image background = card.gameObject.AddComponent<Image>();
-            background.color = available ? UiFactory.PanelDark : new Color(0.014f, 0.02f, 0.026f, 0.7f);
+            card.sizeDelta = new Vector2(640f, available ? 116f : 82f);
+            Image cardBackground = card.gameObject.AddComponent<Image>();
+            cardBackground.color = available ? UiFactory.PanelDark : new Color(0.014f, 0.02f, 0.026f, 0.7f);
 
-            Color stateColor = done ? UiFactory.AccentGreen : (failed ? UiFactory.Accent : (locked ? UiFactory.TextMuted : UiFactory.AccentCyan));
+            Color stateColor = done ? UiFactory.AccentGreen
+                : (inDevelopment ? UiFactory.AccentCyan
+                : (reworkable ? UiFactory.Accent
+                : (abandoned ? UiFactory.Accent
+                : (locked ? UiFactory.TextMuted : UiFactory.AccentPurple))));
             UiFactory.CreateBand(card, "Upgrade state rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), stateColor);
 
             Text nameText = UiFactory.CreateText(card, "Upgrade name", upgrade.displayName, 16, available ? UiFactory.TextPrimary : UiFactory.TextMuted, TextAnchor.UpperLeft);
             RectTransform nameRect = nameText.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0f, 1f);
-            nameRect.anchorMax = new Vector2(0.7f, 1f);
+            nameRect.anchorMax = new Vector2(0.72f, 1f);
             nameRect.offsetMin = new Vector2(14f, -28f);
             nameRect.offsetMax = new Vector2(0f, -6f);
 
-            string state = done ? "DONE" : (failed ? "FAILED" : (locked ? "LOCKED" : (affordable ? "BUY" : "NEED RP")));
+            string state;
+            if (done)
+            {
+                state = project != null && project.bonusApplied ? "COMPLETED +30%" : "COMPLETED";
+            }
+            else if (inDevelopment)
+            {
+                state = project.remainingRaceWeeks + "/" + project.totalRaceWeeks + " WK LEFT";
+            }
+            else if (reworkable)
+            {
+                state = "REWORK";
+            }
+            else if (abandoned)
+            {
+                state = "ABANDONED";
+            }
+            else if (locked)
+            {
+                state = "LOCKED";
+            }
+            else
+            {
+                state = slotsFull ? "SLOTS FULL" : "AVAILABLE";
+            }
+
             Text stateText = UiFactory.CreateText(card, "Upgrade state", state, 13, stateColor, TextAnchor.UpperRight);
             RectTransform stateRect = stateText.GetComponent<RectTransform>();
-            stateRect.anchorMin = new Vector2(0.7f, 1f);
+            stateRect.anchorMin = new Vector2(0.6f, 1f);
             stateRect.anchorMax = new Vector2(1f, 1f);
             stateRect.offsetMin = new Vector2(0f, -28f);
             stateRect.offsetMax = new Vector2(-12f, -6f);
 
-            string costLine = locked
-                ? "Requires earlier project in this category"
-                : upgrade.cost + " RP   " + Mathf.RoundToInt(upgrade.successChance * 100f) + "% success";
-            Text costText = UiFactory.CreateText(card, "Upgrade cost", costLine, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            RectTransform costRect = costText.GetComponent<RectTransform>();
-            costRect.anchorMin = new Vector2(0f, 1f);
-            costRect.anchorMax = new Vector2(1f, 1f);
-            costRect.offsetMin = new Vector2(14f, -50f);
-            costRect.offsetMax = new Vector2(-12f, -30f);
+            string infoLine;
+            if (prereqMissing)
+            {
+                UpgradeData required = data.Upgrades.upgrades.Find(item => item.id == upgrade.requiredUpgradeId);
+                infoLine = "Requires " + (required != null ? required.displayName : upgrade.requiredUpgradeId);
+            }
+            else if (tierLocked)
+            {
+                infoLine = "Requires " + upgrade.category + " department level " + upgrade.tier;
+            }
+            else
+            {
+                infoLine = "Tier " + upgrade.tier + "  ·  " + upgrade.cost + " RP  ·  " + career.ComputeProjectWeeks(upgrade, CareerManager.RiskStandard) + " wk  ·  " +
+                    Mathf.RoundToInt(career.ComputeProjectSuccessChance(upgrade, CareerManager.RiskStandard) * 100f) + "% std success";
+            }
+
+            Text infoText = UiFactory.CreateText(card, "Upgrade info", infoLine, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            RectTransform infoRect = infoText.GetComponent<RectTransform>();
+            infoRect.anchorMin = new Vector2(0f, 1f);
+            infoRect.anchorMax = new Vector2(1f, 1f);
+            infoRect.offsetMin = new Vector2(14f, -50f);
+            infoRect.offsetMax = new Vector2(-12f, -30f);
 
             Text deltaText = UiFactory.CreateText(card, "Upgrade deltas", BuildUpgradeDeltaText(upgrade), 13, new Color(0.55f, 0.95f, 0.65f), TextAnchor.UpperLeft);
             RectTransform deltaRect = deltaText.GetComponent<RectTransform>();
@@ -415,23 +785,106 @@ namespace LocalFormulaRacing
             deltaRect.offsetMin = new Vector2(14f, -72f);
             deltaRect.offsetMax = new Vector2(-12f, -52f);
 
-            if (available && affordable)
+            if (available)
             {
-                Button buy = card.gameObject.AddComponent<Button>();
-                buy.targetGraphic = background;
-                ColorBlock colors = buy.colors;
-                colors.normalColor = UiFactory.PanelDark;
-                colors.highlightedColor = new Color(0.1f, 0.16f, 0.22f, 1f);
-                colors.pressedColor = new Color(0.006f, 0.01f, 0.014f, 1f);
-                colors.selectedColor = colors.highlightedColor;
-                buy.colors = colors;
-                buy.onClick.AddListener(() =>
-                {
-                    SimpleAudioManager.PlayClick();
-                    career.TryPurchaseUpgrade(upgrade.id);
-                    ShowCareerHub(data, career, settings);
-                });
+                CreateRiskModeButton(card, data, career, settings, upgrade, CareerManager.RiskConservative, 0);
+                CreateRiskModeButton(card, data, career, settings, upgrade, CareerManager.RiskStandard, 1);
+                CreateRiskModeButton(card, data, career, settings, upgrade, CareerManager.RiskRush, 2);
+                CreateRiskModeButton(card, data, career, settings, upgrade, CareerManager.RiskExperimental, 3);
             }
+        }
+
+        void CreateRiskModeButton(RectTransform card, GameDataRepository data, CareerManager career, GameSettingsStore settings, UpgradeData upgrade, int riskMode, int slot)
+        {
+            int cost = career.ComputeProjectCost(upgrade, riskMode);
+            bool affordable = career.Save.resourcePoints >= cost;
+            bool slotsFull = career.ActiveProjectCount() >= career.MaxActiveProjects();
+            string label = RiskModeShortName(riskMode) + " " + career.ComputeProjectWeeks(upgrade, riskMode) + "wk " +
+                Mathf.RoundToInt(career.ComputeProjectSuccessChance(upgrade, riskMode) * 100f) + "%";
+
+            if (!affordable || slotsFull)
+            {
+                Text lockedText = UiFactory.CreateText(card, upgrade.id + " risk " + slot, label, 12, UiFactory.TextMuted, TextAnchor.MiddleCenter);
+                RectTransform lockedRect = lockedText.GetComponent<RectTransform>();
+                PositionRiskModeControl(lockedRect, slot);
+                return;
+            }
+
+            Button riskButton = UiFactory.CreateButton(card, label, () =>
+            {
+                career.TryStartUpgradeProject(upgrade.id, riskMode);
+                ShowRndCenter(data, career, settings);
+            });
+            PositionRiskModeControl(riskButton.GetComponent<RectTransform>(), slot);
+        }
+
+        void PositionRiskModeControl(RectTransform rect, int slot)
+        {
+            rect.anchorMin = new Vector2(0f, 0f);
+            rect.anchorMax = new Vector2(0f, 0f);
+            rect.pivot = new Vector2(0f, 0f);
+            rect.sizeDelta = new Vector2(148f, 30f);
+            rect.anchoredPosition = new Vector2(14f + slot * 154f, 8f);
+        }
+
+        string RiskModeName(int riskMode)
+        {
+            if (riskMode == CareerManager.RiskConservative)
+            {
+                return "CONSERVATIVE";
+            }
+
+            if (riskMode == CareerManager.RiskRush)
+            {
+                return "RUSH";
+            }
+
+            if (riskMode == CareerManager.RiskExperimental)
+            {
+                return "EXPERIMENTAL";
+            }
+
+            return "STANDARD";
+        }
+
+        string RiskModeShortName(int riskMode)
+        {
+            if (riskMode == CareerManager.RiskConservative)
+            {
+                return "CONS";
+            }
+
+            if (riskMode == CareerManager.RiskRush)
+            {
+                return "RUSH";
+            }
+
+            if (riskMode == CareerManager.RiskExperimental)
+            {
+                return "EXP";
+            }
+
+            return "STD";
+        }
+
+        Color RiskModeColor(int riskMode)
+        {
+            if (riskMode == CareerManager.RiskConservative)
+            {
+                return UiFactory.AccentGreen;
+            }
+
+            if (riskMode == CareerManager.RiskRush)
+            {
+                return UiFactory.AccentAmber;
+            }
+
+            if (riskMode == CareerManager.RiskExperimental)
+            {
+                return UiFactory.AccentPurple;
+            }
+
+            return UiFactory.AccentCyan;
         }
 
         string BuildUpgradeDeltaText(UpgradeData upgrade)
@@ -1738,6 +2191,9 @@ namespace LocalFormulaRacing
                     career.Save.completedPracticePrograms.Add(key);
                     career.Save.resourcePoints += resourceReward;
                     career.Save.reputation += reputationReward;
+                    // Practice running feeds correlation data to the factory:
+                    // projects finishing this round get a small success bonus.
+                    career.Save.practiceQualityThisRound++;
                     career.Write();
                     ShowPracticePrograms(data, career, settings);
                 });

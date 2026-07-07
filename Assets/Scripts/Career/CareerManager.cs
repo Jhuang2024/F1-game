@@ -8,6 +8,24 @@ namespace LocalFormulaRacing
         const string CareerFile = "formula_racing_career.json";
         static readonly int[] Points = { 25, 18, 15, 12, 10, 8, 6, 4, 2, 1 };
         const float UpgradeEffectScale = 2.25f;
+        const float ExperimentalBonusScale = 1.3f;
+
+        // Order matters: index into CareerSaveData.departmentLevels, names match
+        // the upgrade `category` strings in upgrades.json exactly.
+        public static readonly string[] DepartmentNames =
+        {
+            "Aerodynamics", "Chassis", "Power Unit", "Durability", "Tyre Management", "ERS"
+        };
+
+        public const int MaxDepartmentLevel = 5;
+        public const int RiskConservative = 0;
+        public const int RiskStandard = 1;
+        public const int RiskRush = 2;
+        public const int RiskExperimental = 3;
+        public const int ProjectInDevelopment = 0;
+        public const int ProjectCompleted = 1;
+        public const int ProjectFailed = 2;
+        public const int ProjectReworkAvailable = 3;
 
         readonly GameDataRepository data;
 
@@ -79,6 +97,7 @@ namespace LocalFormulaRacing
             {
                 Save.driverStandings.RemoveAll(entry => entry.id == selected.id);
             }
+            EnsureRndState();
             Write();
         }
 
@@ -146,6 +165,8 @@ namespace LocalFormulaRacing
                 Save.resourcePoints += Mathf.Max(0, targetDelta) * 12;
             }
 
+            AdvanceUpgradeProjects();
+
             Save.currentRound++;
             if (Save.currentRound > data.Calendar.events.Count)
             {
@@ -184,8 +205,18 @@ namespace LocalFormulaRacing
 
         public bool TryPurchaseUpgrade(string upgradeId)
         {
+            return TryStartUpgradeProject(upgradeId, RiskStandard);
+        }
+
+        public bool TryStartUpgradeProject(string upgradeId, int riskMode)
+        {
             UpgradeData upgrade = data.Upgrades.upgrades.Find(item => item.id == upgradeId);
             if (upgrade == null || Save.completedUpgradeIds.Contains(upgradeId) || Save.failedUpgradeIds.Contains(upgradeId))
+            {
+                return false;
+            }
+
+            if (FindProject(upgradeId) != null)
             {
                 return false;
             }
@@ -195,25 +226,287 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            if (Save.resourcePoints < upgrade.cost)
+            if (GetDepartmentLevel(GetDepartmentIndex(upgrade.category)) < Mathf.Max(1, upgrade.tier))
             {
                 return false;
             }
 
-            Save.resourcePoints -= upgrade.cost;
-            float roll = Random.value;
-            if (roll <= upgrade.successChance)
+            if (ActiveProjectCount() >= MaxActiveProjects())
             {
-                Save.completedUpgradeIds.Add(upgradeId);
-                Save.reputation += 1;
+                return false;
             }
-            else
+
+            int cost = ComputeProjectCost(upgrade, riskMode);
+            if (Save.resourcePoints < cost)
+            {
+                return false;
+            }
+
+            int weeks = ComputeProjectWeeks(upgrade, riskMode);
+            Save.resourcePoints -= cost;
+            Save.activeUpgradeProjects.Add(new ActiveUpgradeProject
+            {
+                upgradeId = upgradeId,
+                category = upgrade.category,
+                startRound = Save.currentRound,
+                remainingRaceWeeks = weeks,
+                totalRaceWeeks = weeks,
+                cost = cost,
+                successChance = ComputeProjectSuccessChance(upgrade, riskMode),
+                riskMode = riskMode,
+                status = ProjectInDevelopment
+            });
+            Write();
+            return true;
+        }
+
+        public bool TryReworkProject(string upgradeId)
+        {
+            ActiveUpgradeProject project = FindProject(upgradeId);
+            if (project == null || project.status != ProjectReworkAvailable)
+            {
+                return false;
+            }
+
+            if (ActiveProjectCount() >= MaxActiveProjects())
+            {
+                return false;
+            }
+
+            int cost = GetReworkCost(project);
+            if (Save.resourcePoints < cost)
+            {
+                return false;
+            }
+
+            Save.resourcePoints -= cost;
+            project.status = ProjectInDevelopment;
+            project.startRound = Save.currentRound;
+            project.totalRaceWeeks = Mathf.Max(1, project.totalRaceWeeks / 2);
+            project.remainingRaceWeeks = project.totalRaceWeeks;
+            project.successChance = Mathf.Min(0.95f, project.successChance + 0.12f);
+            Write();
+            return true;
+        }
+
+        public void AbandonProject(string upgradeId)
+        {
+            ActiveUpgradeProject project = FindProject(upgradeId);
+            if (project == null || project.status != ProjectReworkAvailable)
+            {
+                return;
+            }
+
+            Save.activeUpgradeProjects.Remove(project);
+            if (!Save.failedUpgradeIds.Contains(upgradeId))
             {
                 Save.failedUpgradeIds.Add(upgradeId);
             }
 
             Write();
+        }
+
+        public int GetReworkCost(ActiveUpgradeProject project)
+        {
+            return Mathf.RoundToInt(project.cost * 0.4f);
+        }
+
+        public ActiveUpgradeProject FindProject(string upgradeId)
+        {
+            if (Save.activeUpgradeProjects == null)
+            {
+                return null;
+            }
+
+            return Save.activeUpgradeProjects.Find(item => item.upgradeId == upgradeId);
+        }
+
+        public int ActiveProjectCount()
+        {
+            int count = 0;
+            for (int i = 0; i < Save.activeUpgradeProjects.Count; i++)
+            {
+                if (Save.activeUpgradeProjects[i].status == ProjectInDevelopment)
+                {
+                    count++;
+                }
+            }
+
+            return count;
+        }
+
+        // Base 2 slots; every two facility levels bought across the six
+        // departments frees one more engineering slot, capped at 5.
+        public int MaxActiveProjects()
+        {
+            int extraLevels = 0;
+            for (int i = 0; i < Save.departmentLevels.Count; i++)
+            {
+                extraLevels += Mathf.Max(0, Save.departmentLevels[i] - 1);
+            }
+
+            return Mathf.Min(5, 2 + extraLevels / 2);
+        }
+
+        public int GetDepartmentIndex(string category)
+        {
+            for (int i = 0; i < DepartmentNames.Length; i++)
+            {
+                if (DepartmentNames[i] == category)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
+        public int GetDepartmentLevel(int departmentIndex)
+        {
+            if (departmentIndex < 0 || Save.departmentLevels == null || departmentIndex >= Save.departmentLevels.Count)
+            {
+                return 1;
+            }
+
+            return Save.departmentLevels[departmentIndex];
+        }
+
+        public int GetDepartmentUpgradeCost(int departmentIndex)
+        {
+            return GetDepartmentLevel(departmentIndex) * 400;
+        }
+
+        public bool TryUpgradeDepartment(int departmentIndex)
+        {
+            if (departmentIndex < 0 || departmentIndex >= Save.departmentLevels.Count)
+            {
+                return false;
+            }
+
+            int level = Save.departmentLevels[departmentIndex];
+            if (level >= MaxDepartmentLevel)
+            {
+                return false;
+            }
+
+            int cost = level * 400;
+            if (Save.resourcePoints < cost)
+            {
+                return false;
+            }
+
+            Save.resourcePoints -= cost;
+            Save.departmentLevels[departmentIndex] = level + 1;
+            Write();
             return true;
+        }
+
+        public int ComputeProjectWeeks(UpgradeData upgrade, int riskMode)
+        {
+            int weeks = Mathf.Max(1, Mathf.CeilToInt(upgrade.developmentDays / 10f));
+            int level = GetDepartmentLevel(GetDepartmentIndex(upgrade.category));
+            if (level > 1)
+            {
+                weeks = Mathf.Max(1, Mathf.CeilToInt(weeks * (1f - 0.1f * (level - 1))));
+            }
+
+            if (riskMode == RiskConservative)
+            {
+                weeks = Mathf.CeilToInt(weeks * 1.25f);
+            }
+            else if (riskMode == RiskRush)
+            {
+                weeks = Mathf.Max(1, Mathf.RoundToInt(weeks * 0.65f));
+            }
+
+            return weeks;
+        }
+
+        public float ComputeProjectSuccessChance(UpgradeData upgrade, int riskMode)
+        {
+            float chance = upgrade.successChance;
+            int level = GetDepartmentLevel(GetDepartmentIndex(upgrade.category));
+            chance += 0.04f * (level - 1);
+            if (riskMode == RiskConservative)
+            {
+                chance = Mathf.Min(0.97f, chance + 0.10f);
+            }
+            else
+            {
+                if (riskMode == RiskRush)
+                {
+                    chance -= 0.15f;
+                }
+                else if (riskMode == RiskExperimental)
+                {
+                    chance -= 0.12f;
+                }
+
+                chance = Mathf.Min(0.95f, chance);
+            }
+
+            return Mathf.Max(0.05f, chance);
+        }
+
+        public int ComputeProjectCost(UpgradeData upgrade, int riskMode)
+        {
+            if (riskMode == RiskConservative)
+            {
+                return Mathf.RoundToInt(upgrade.cost * 1.15f);
+            }
+
+            return upgrade.cost;
+        }
+
+        public void AdvanceUpgradeProjects()
+        {
+            float practiceBonus = Save.practiceQualityThisRound > 0 ? 0.03f : 0f;
+            for (int i = 0; i < Save.activeUpgradeProjects.Count; i++)
+            {
+                ActiveUpgradeProject project = Save.activeUpgradeProjects[i];
+                if (project.status != ProjectInDevelopment)
+                {
+                    continue;
+                }
+
+                project.remainingRaceWeeks--;
+                if (project.remainingRaceWeeks > 0)
+                {
+                    continue;
+                }
+
+                project.remainingRaceWeeks = 0;
+                string projectId = project.upgradeId;
+                UpgradeData upgrade = data.Upgrades.upgrades.Find(item => item.id == projectId);
+                string projectName = upgrade != null ? upgrade.displayName : projectId;
+                float chance = Mathf.Min(0.97f, project.successChance + practiceBonus);
+                if (Random.value <= chance)
+                {
+                    project.status = ProjectCompleted;
+                    if (!Save.completedUpgradeIds.Contains(projectId))
+                    {
+                        Save.completedUpgradeIds.Add(projectId);
+                    }
+
+                    Save.reputation += 1;
+                    if (project.riskMode == RiskExperimental && Random.value <= 0.25f)
+                    {
+                        project.bonusApplied = true;
+                        Save.pendingRndMessages.Add(projectName + " delivered with an experimental breakthrough - effect boosted 30%.");
+                    }
+                    else
+                    {
+                        Save.pendingRndMessages.Add(projectName + " development complete - fitted to the car.");
+                    }
+                }
+                else
+                {
+                    project.status = ProjectReworkAvailable;
+                    Save.pendingRndMessages.Add(projectName + " development failed - rework available at 40% cost.");
+                }
+            }
+
+            Save.practiceQualityThisRound = 0;
         }
 
         public CarPerformanceData ApplyCareerUpgrades(CarPerformanceData baseCar)
@@ -241,16 +534,19 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                tuned.topSpeed += Mathf.RoundToInt(upgrade.topSpeedDelta * 1.7f);
-                tuned.acceleration += Mathf.RoundToInt(upgrade.accelerationDelta * UpgradeEffectScale);
-                tuned.cornering += Mathf.RoundToInt(upgrade.corneringDelta * UpgradeEffectScale);
-                tuned.braking += Mathf.RoundToInt(upgrade.brakingDelta * UpgradeEffectScale);
-                tuned.reliability += Mathf.RoundToInt(upgrade.reliabilityDelta * 1.6f);
-                tuned.ersEfficiency += Mathf.RoundToInt(upgrade.ersDelta * UpgradeEffectScale);
-                tuned.tyreManagement += Mathf.RoundToInt(upgrade.tyreDelta * UpgradeEffectScale);
-                tuned.aeroEfficiency += Mathf.RoundToInt(upgrade.aeroDelta * UpgradeEffectScale);
-                tuned.chassisBalance += Mathf.RoundToInt(upgrade.chassisDelta * UpgradeEffectScale);
-                tuned.enginePower += Mathf.RoundToInt(upgrade.engineDelta * UpgradeEffectScale);
+                ActiveUpgradeProject project = FindProject(upgrade.id);
+                float bonus = project != null && project.bonusApplied ? ExperimentalBonusScale : 1f;
+
+                tuned.topSpeed += Mathf.RoundToInt(upgrade.topSpeedDelta * 1.7f * bonus);
+                tuned.acceleration += Mathf.RoundToInt(upgrade.accelerationDelta * UpgradeEffectScale * bonus);
+                tuned.cornering += Mathf.RoundToInt(upgrade.corneringDelta * UpgradeEffectScale * bonus);
+                tuned.braking += Mathf.RoundToInt(upgrade.brakingDelta * UpgradeEffectScale * bonus);
+                tuned.reliability += Mathf.RoundToInt(upgrade.reliabilityDelta * 1.6f * bonus);
+                tuned.ersEfficiency += Mathf.RoundToInt(upgrade.ersDelta * UpgradeEffectScale * bonus);
+                tuned.tyreManagement += Mathf.RoundToInt(upgrade.tyreDelta * UpgradeEffectScale * bonus);
+                tuned.aeroEfficiency += Mathf.RoundToInt(upgrade.aeroDelta * UpgradeEffectScale * bonus);
+                tuned.chassisBalance += Mathf.RoundToInt(upgrade.chassisDelta * UpgradeEffectScale * bonus);
+                tuned.enginePower += Mathf.RoundToInt(upgrade.engineDelta * UpgradeEffectScale * bonus);
             }
 
             tuned.topSpeed = Mathf.Clamp(tuned.topSpeed, 315, 360);
@@ -376,7 +672,73 @@ namespace LocalFormulaRacing
                 Save.contractTargetPosition = ContractTargetForTeam(Save.playerTeamId);
             }
 
+            EnsureRndState();
             EnsurePlayerReplacesDriverSeat();
+        }
+
+        // Backwards-compatible defaults for the R&D fields: JsonUtility leaves
+        // list fields missing from an old save file as the field initializer,
+        // but a save written by an older build can still deserialize with nulls
+        // when the whole object graph predates these fields.
+        void EnsureRndState()
+        {
+            if (Save.completedUpgradeIds == null)
+            {
+                Save.completedUpgradeIds = new List<string>();
+            }
+
+            if (Save.failedUpgradeIds == null)
+            {
+                Save.failedUpgradeIds = new List<string>();
+            }
+
+            if (Save.activeUpgradeProjects == null)
+            {
+                Save.activeUpgradeProjects = new List<ActiveUpgradeProject>();
+            }
+
+            if (Save.pendingRndMessages == null)
+            {
+                Save.pendingRndMessages = new List<string>();
+            }
+
+            if (Save.departmentLevels == null)
+            {
+                Save.departmentLevels = new List<int>();
+            }
+
+            while (Save.departmentLevels.Count < DepartmentNames.Length)
+            {
+                Save.departmentLevels.Add(1);
+            }
+
+            for (int i = 0; i < Save.departmentLevels.Count; i++)
+            {
+                Save.departmentLevels[i] = Mathf.Clamp(Save.departmentLevels[i], 1, MaxDepartmentLevel);
+            }
+
+            if (Save.regulationAffectedCategories == null)
+            {
+                Save.regulationAffectedCategories = new List<string>();
+            }
+
+            if (Save.regulationAffectedCategories.Count == 0)
+            {
+                PickRegulationTargets();
+            }
+        }
+
+        void PickRegulationTargets()
+        {
+            Save.regulationAffectedCategories = new List<string>();
+            int count = Random.value < 0.5f ? 1 : 2;
+            List<string> pool = new List<string>(DepartmentNames);
+            for (int i = 0; i < count; i++)
+            {
+                int index = Random.Range(0, pool.Count);
+                Save.regulationAffectedCategories.Add(pool[index]);
+                pool.RemoveAt(index);
+            }
         }
 
         void EnsurePlayerReplacesDriverSeat()
@@ -431,16 +793,36 @@ namespace LocalFormulaRacing
 
         void ApplyRegulationReset()
         {
-            if (Save.completedUpgradeIds.Count == 0)
+            EnsureRndState();
+            int removed = 0;
+            for (int i = Save.completedUpgradeIds.Count - 1; i >= 0; i--)
             {
-                return;
+                string upgradeId = Save.completedUpgradeIds[i];
+                UpgradeData upgrade = data.Upgrades.upgrades.Find(item => item.id == upgradeId);
+                if (upgrade == null || !Save.regulationAffectedCategories.Contains(upgrade.category))
+                {
+                    continue;
+                }
+
+                // Removing the project entry too lets the upgrade be developed
+                // again under the new regulations.
+                Save.activeUpgradeProjects.RemoveAll(item => item.upgradeId == upgradeId);
+                Save.completedUpgradeIds.RemoveAt(i);
+                removed++;
             }
 
-            int removals = Mathf.Max(1, Mathf.RoundToInt(Save.completedUpgradeIds.Count * 0.25f));
-            for (int i = 0; i < removals && Save.completedUpgradeIds.Count > 0; i++)
+            string affected = string.Join(", ", Save.regulationAffectedCategories.ToArray());
+            if (removed > 0)
             {
-                Save.completedUpgradeIds.RemoveAt(Random.Range(0, Save.completedUpgradeIds.Count));
+                Save.pendingRndMessages.Add("Regulation change hit " + affected + ": " + removed + " development project" + (removed == 1 ? "" : "s") + " scrapped for Season " + Save.currentSeason + ".");
             }
+            else
+            {
+                Save.pendingRndMessages.Add("Season " + Save.currentSeason + " regulation change in " + affected + " arrived - no completed projects affected.");
+            }
+
+            PickRegulationTargets();
+            Save.pendingRndMessages.Add("Next regulation focus: " + string.Join(", ", Save.regulationAffectedCategories.ToArray()) + " projects are at risk at season end.");
         }
 
         string PickRivalId(string teamId, string selectedDriverId)
