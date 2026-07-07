@@ -11,6 +11,20 @@ namespace LocalFormulaRacing
         QualifyingReturn
     }
 
+    // Race-control recovery classification (RaceManager.DetectIncidents). Only
+    // ActuallyStranded may ever escalate into a yellow/VSC/SC incident - every
+    // other state describes a car that is slow/stopped for a legitimate reason
+    // and should be left alone.
+    public enum CarRecoveryState
+    {
+        Normal,
+        Recovering,
+        Queued,
+        PitSequence,
+        RaceControlPacing,
+        ActuallyStranded
+    }
+
     public class RaceParticipant : MonoBehaviour
     {
         public string driverId;
@@ -63,6 +77,16 @@ namespace LocalFormulaRacing
         public float stoppedOnTrackTimer;
         public float wrongWayTimer;
         public float incidentCooldownTimer;
+        // Recovery-state classification (Part 2): the car's current category and
+        // how long it's held it, a short grace window after a spin/off-track/
+        // contact event during which it can never be declared stranded, a count
+        // of how many times its own recovery maneuver has failed, and a one-shot
+        // guard so the "ignored a false stranded case" debug log doesn't spam
+        // once per 0.35s tick for the whole time a car is legitimately slow.
+        public CarRecoveryState recoveryState = CarRecoveryState.Normal;
+        public float recoveryGraceTimer;
+        public int recoveryAttemptCount;
+        public bool falseStrandedLogged;
         public float previousSpeedKphForIncident;
         public float previousDamagePercentForIncident;
         // Short rolling history (three RaceManager.RaceControlCheckInterval-sized

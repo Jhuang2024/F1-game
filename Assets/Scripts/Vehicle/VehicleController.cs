@@ -448,6 +448,17 @@ namespace LocalFormulaRacing
         {
             float speedMps = body.velocity.magnitude;
             float forwardSpeed = Vector3.Dot(body.velocity, transform.forward);
+
+            // AI stuck-recovery nudge (Part 2/3): a small, speed-capped rearward
+            // push so a car pressed against a barrier can actually back away
+            // instead of endlessly wheelspinning into it. Bounded to low speed so
+            // it can never be used as an actual reverse gear during racing.
+            if (activeCommand.reverseAssist && forwardSpeed > -14f)
+            {
+                body.AddForce(-transform.forward * 7.5f, ForceMode.Acceleration);
+                ActiveSlowdownReason = "RECOVERY REVERSE";
+            }
+
             DrsActive = activeCommand.drs && absoluteSpeedKph > 90f;
             TargetTopSpeedKph = CalculateTargetTopSpeedKph(activeCommand);
             if (PitLimiterActive)

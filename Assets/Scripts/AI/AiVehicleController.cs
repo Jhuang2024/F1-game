@@ -61,6 +61,19 @@ namespace LocalFormulaRacing
         float overtakeStateTimer;
         float attackSide = 1f;
 
+        // Stuck-recovery maneuver (Part 2/3): only engages while RaceManager's own
+        // recovery-state classification says this car is Recovering or already
+        // ActuallyStranded - never while merely Queued/PitSequence/RaceControlPacing,
+        // which are legitimate reasons to be slow that need no intervention at all.
+        enum RecoveryManeuver { None, ReverseAway, ReorientWrongWay }
+        RecoveryManeuver activeManeuver = RecoveryManeuver.None;
+        float maneuverTimer;
+        float maneuverTurnSide = 1f;
+        float stuckDetectTimer;
+        const float StuckManeuverTriggerSeconds = 2.5f;
+        const float ReverseAwayDuration = 1.1f;
+        const float ReorientDuration = 1.6f;
+
         // How long this car has been sitting in Following without forcing an attack -
         // a stuck Expert eventually raises its own attack-attempt probability instead
         // of orbiting the same 0.8-1.2s gap for the rest of the stint.
@@ -224,6 +237,51 @@ namespace LocalFormulaRacing
             lastProgressDistance = progress.distance;
             hasProgressReference = true;
             float speedKph = Mathf.Abs(vehicle.CurrentSpeedKph);
+
+            // Stuck-recovery maneuver (Part 2/3): runs to completion once triggered,
+            // fully overriding normal driving for its short duration, then hands
+            // straight back to the regular off-track recovery steering below (which
+            // already drives back toward the centerline on its own).
+            if (activeManeuver != RecoveryManeuver.None)
+            {
+                maneuverTimer -= Time.deltaTime;
+                vehicle.SetCommand(new VehicleCommand { reverseAssist = true, steer = maneuverTurnSide });
+                if (maneuverTimer <= 0f)
+                {
+                    activeManeuver = RecoveryManeuver.None;
+                    stuckDetectTimer = 0f;
+                    if (participant != null)
+                    {
+                        participant.recoveryAttemptCount++;
+                        GameLog.Info("[RaceControl] " + participant.driverName + " completed recovery maneuver attempt #" + participant.recoveryAttemptCount + ".");
+                    }
+                }
+
+                return;
+            }
+
+            bool eligibleForRecoveryManeuver = participant != null &&
+                (participant.recoveryState == CarRecoveryState.Recovering || participant.recoveryState == CarRecoveryState.ActuallyStranded);
+            if (eligibleForRecoveryManeuver && speedKph < 4f)
+            {
+                stuckDetectTimer += Time.deltaTime;
+                if (stuckDetectTimer > StuckManeuverTriggerSeconds)
+                {
+                    bool facingWrongWay = Vector3.Dot(transform.forward, progress.forward) < -0.4f;
+                    float turnSign = Mathf.Sign(Vector3.Cross(transform.forward, progress.forward).y);
+                    maneuverTurnSide = turnSign == 0f ? preferredSide : turnSign;
+                    activeManeuver = facingWrongWay ? RecoveryManeuver.ReorientWrongWay : RecoveryManeuver.ReverseAway;
+                    maneuverTimer = facingWrongWay ? ReorientDuration : ReverseAwayDuration;
+                    GameLog.Info("[RaceControl] " + participant.driverName + " attempting " + activeManeuver + " recovery maneuver (stuck " + stuckDetectTimer.ToString("0.0") + "s).");
+                    vehicle.SetCommand(new VehicleCommand { reverseAssist = true, steer = maneuverTurnSide });
+                    return;
+                }
+            }
+            else
+            {
+                stuckDetectTimer = Mathf.Max(0f, stuckDetectTimer - Time.deltaTime * 2f);
+            }
+
             DriverData driver = participant == null ? null : participant.driverData;
             int pace = driver == null ? 80 : (raceManager.CurrentSession == RaceWeekendSession.Qualifying ? driver.qualifying : driver.pace);
             int racecraft = driver == null ? 80 : driver.racecraft;

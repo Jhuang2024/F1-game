@@ -5324,7 +5324,12 @@ namespace LocalFormulaRacing
         // text reads) that only need to happen when the state actually changes.
         void ApplyDiscreteState()
         {
-            Material marshalMaterial = currentState == 1 ? flagYellowMaterial : flagGreenMaterial;
+            // Bug fix (Part 5): this used to only go yellow for state 1 (a local
+            // sector yellow), so marshal posts around the rest of the circuit sat on
+            // green throughout an entire VSC/SC/Restart period - the opposite of
+            // real race control, where every post shows caution once anything other
+            // than a green flag is active. State 0 (Green) is the only green case now.
+            Material marshalMaterial = currentState == 0 ? flagGreenMaterial : flagYellowMaterial;
             for (int i = 0; i < marshalRenderers.Count; i++)
             {
                 if (marshalRenderers[i] != null)

@@ -96,7 +96,21 @@ namespace LocalFormulaRacing
         // Green, so one incident's aftermath can't chain into a second SC/VSC the
         // moment the first ends - yellow flags themselves are unaffected.
         float postEscalationCooldownTimer;
-        const float PostEscalationCooldownSeconds = 30f;
+        // Part 1 retune: lengthened from 30s so back-to-back incidents in the laps
+        // right after a restart can't immediately chain into another SC/VSC.
+        const float PostEscalationCooldownSeconds = 45f;
+
+        // Part 1/2 retune: how long a car must be nearly stationary, with none of
+        // the legitimate exclusions active, before race control ever calls it
+        // ActuallyStranded - and how much longer still before it is retired
+        // outright. Both raised well past the old 5s/12s so a normal brief stop
+        // (gathering the car after a spin, waiting for a gap) never reaches this
+        // far. RecoveryGraceSeconds is the window after a spin/contact event
+        // during which the sustained-stop timer can't accumulate at all, giving
+        // the car a real chance to drive away before it's ever considered.
+        const float StrandedDeclareSeconds = 8f;
+        const float StrandedRetireSeconds = 20f;
+        const float RecoveryGraceSeconds = 4f;
 
         // Player race-control pace-limiter compliance tracking (Task 2/3): how long
         // the player has been meaningfully over the current VSC/SC cap, and whether
@@ -894,22 +908,126 @@ namespace LocalFormulaRacing
                 // count here (a hit that happens mid-braking is still caught by
                 // damageSignal below, which has no such gate).
                 bool speedSignal = speedDrop > 15f && participant.vehicle.EffectiveBrake < 0.3f;
-                bool damageSignal = damageJump > 1.5f;
+                // Part 1 retune: raised from 1.5 - a light scrape/graze shouldn't read
+                // as a collision-class incident at all; this now takes a real hit.
+                bool damageSignal = damageJump > 4f;
                 bool collision = !preRace && !inPitPhaseOrPitting && (speedSignal || damageSignal);
                 participant.previousSpeedKphForIncident = speedKph;
                 participant.previousDamagePercentForIncident = damagePercent;
-
-                // Bug fix (Part B.2): thresholds shortened so a genuinely stuck car
-                // surfaces faster - nothing else in the codebase was found to reset
-                // stoppedOnTrackTimer besides this detector itself (audited against
-                // track-limit recovery and fall-respawn handling, neither of which
-                // touches it), so the old 8s/20s values were simply too slow.
-                bool stoppedCandidate = speedKph < 8f && !preRace && !inPitPhaseOrPitting;
-                participant.stoppedOnTrackTimer = stoppedCandidate ? participant.stoppedOnTrackTimer + RaceControlCheckInterval : 0f;
+                if (collision)
+                {
+                    // A spin/contact event earns a grace window before the stranded
+                    // timer can ever accumulate again - the car gets a real chance to
+                    // gather itself and drive away before race control considers it.
+                    participant.recoveryGraceTimer = RecoveryGraceSeconds;
+                }
 
                 TrackProgress progress = State.GetCurrentProgress(participant);
                 float facingDot = Vector3.Dot(participant.transform.forward, progress.forward);
-                bool wrongWayCandidate = !preRace && !inPitPhaseOrPitting && speedKph > 5f && facingDot < -0.35f;
+
+                // Recovery-state classification (Part 2): a naive "speed < 8kph for a
+                // few seconds" check flagged every ordinary spin, brief blockage or
+                // SC-pace crawl as "stranded", which was the actual root cause of
+                // race control escalating far too often - not the escalation-chance
+                // math itself. Only a car that is nearly stationary for a sustained
+                // duration AND excluded from every legitimate reason to be slow can
+                // ever reach ActuallyStranded; everything else is Recovering/Queued/
+                // PitSequence/RaceControlPacing and never registers an incident.
+                bool offTrackNow = Mathf.Abs(progress.lateralDistance) > Track.roadHalfWidth + 1.5f;
+                // A car off track but still aimed roughly the right way (not spun
+                // fully backward) and crawling is actively working its way back,
+                // not stuck - this is the single biggest source of the old false
+                // positives, since running wide through gravel routinely dips under
+                // 10kph for a couple of seconds while genuinely recovering.
+                bool pointedTowardTrack = facingDot > -0.15f;
+                bool creepingWithPurpose = speedKph > 3.5f && pointedTowardTrack;
+                bool paceLimited = IsRaceControlPaceLimited ||
+                    CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
+                    CurrentRaceControlState == RaceControlState.Restart;
+
+                // Directly behind a car that is itself slow (SC bunching, a first-lap
+                // squeeze, a queue at a re-join point) means this car is queued in
+                // traffic, not stuck on its own - checked against on-track cars only,
+                // since a car buried in the gravel isn't "queued" behind anyone.
+                RaceParticipant blockerAhead = !offTrackNow ? FindCarAhead(participant, 9f) : null;
+                bool queuedBehindTraffic = blockerAhead != null && blockerAhead.vehicle != null &&
+                    Mathf.Abs(blockerAhead.vehicle.CurrentSpeedKph) < 30f && speedKph < 30f;
+
+                bool recoveryGraceActive = participant.recoveryGraceTimer > 0f;
+                participant.recoveryGraceTimer = Mathf.Max(0f, participant.recoveryGraceTimer - RaceControlCheckInterval);
+
+                bool nearStationary = speedKph < 8f;
+                bool strandedExcluded = preRace || inPitPhaseOrPitting || paceLimited || queuedBehindTraffic || creepingWithPurpose || recoveryGraceActive;
+                bool stoppedCandidate = nearStationary && !strandedExcluded;
+                participant.stoppedOnTrackTimer = stoppedCandidate ? participant.stoppedOnTrackTimer + RaceControlCheckInterval : 0f;
+
+                // Debug: a car that would have tripped the old blunt check (slow,
+                // not pre-race/pitting) but is excused by one of the new reasons -
+                // logged once per continuous slow episode, not every 0.35s tick.
+                if (nearStationary && !preRace && !inPitPhaseOrPitting && strandedExcluded)
+                {
+                    if (!participant.falseStrandedLogged)
+                    {
+                        participant.falseStrandedLogged = true;
+                        string reason = paceLimited ? "race-control pace" : (queuedBehindTraffic ? "queued behind traffic" : (creepingWithPurpose ? "creeping back with purpose" : "recovery grace period"));
+                        GameLog.Info("[RaceControl] Ignoring false stranded case for " + participant.driverName + ": " + reason + " (speed=" + speedKph.ToString("0") + "kph)");
+                    }
+                }
+                else if (!nearStationary)
+                {
+                    participant.falseStrandedLogged = false;
+                }
+
+                CarRecoveryState previousRecoveryState = participant.recoveryState;
+                CarRecoveryState newRecoveryState;
+                if (inPitPhaseOrPitting)
+                {
+                    newRecoveryState = CarRecoveryState.PitSequence;
+                }
+                else if (paceLimited)
+                {
+                    newRecoveryState = CarRecoveryState.RaceControlPacing;
+                }
+                else if (queuedBehindTraffic)
+                {
+                    newRecoveryState = CarRecoveryState.Queued;
+                }
+                else if (participant.stoppedOnTrackTimer > StrandedDeclareSeconds)
+                {
+                    newRecoveryState = CarRecoveryState.ActuallyStranded;
+                }
+                else if (nearStationary || recoveryGraceActive || offTrackNow)
+                {
+                    newRecoveryState = CarRecoveryState.Recovering;
+                }
+                else
+                {
+                    newRecoveryState = CarRecoveryState.Normal;
+                }
+
+                participant.recoveryState = newRecoveryState;
+                if (newRecoveryState != previousRecoveryState)
+                {
+                    if (newRecoveryState == CarRecoveryState.Recovering)
+                    {
+                        GameLog.Info("[RaceControl] " + participant.driverName + " entering recovery (speed=" + speedKph.ToString("0") + "kph, offTrack=" + offTrackNow + ").");
+                    }
+                    else if (newRecoveryState == CarRecoveryState.Queued)
+                    {
+                        GameLog.Info("[RaceControl] " + participant.driverName + " considered queued behind traffic, not stranded.");
+                    }
+                    else if (newRecoveryState == CarRecoveryState.ActuallyStranded)
+                    {
+                        GameLog.Info("[RaceControl] " + participant.driverName + " declared ActuallyStranded: stoppedTimer=" + participant.stoppedOnTrackTimer.ToString("0.0") +
+                            "s offTrack=" + offTrackNow + " facingDot=" + facingDot.ToString("0.00"));
+                    }
+                }
+
+                // Wrong-way is excluded by the same legitimate-reasons list, plus a
+                // longer sustained duration (Part 1) so a car merely gathering itself
+                // out of a spin - briefly pointed backward while it turns back around -
+                // isn't flagged the instant it starts rolling again.
+                bool wrongWayCandidate = !preRace && !inPitPhaseOrPitting && !paceLimited && !recoveryGraceActive && speedKph > 5f && facingDot < -0.35f;
                 participant.wrongWayTimer = wrongWayCandidate ? participant.wrongWayTimer + RaceControlCheckInterval : 0f;
 
                 participant.incidentCooldownTimer = Mathf.Max(0f, participant.incidentCooldownTimer - RaceControlCheckInterval);
@@ -953,7 +1071,9 @@ namespace LocalFormulaRacing
                     }
 
                     RegisterIncident(participant, severity, progress, freqScale, escalationAllowed, "Collision (speedDrop=" + speedDrop.ToString("0") + " damageJump=" + damageJump.ToString("0.0") + ")");
-                    participant.incidentCooldownTimer = 12f;
+                    // Part 1: longer per-incident suppression (was 12s) so the same
+                    // scrape/spin can't repeatedly re-roll an escalation chance.
+                    participant.incidentCooldownTimer = 18f;
                     continue;
                 }
 
@@ -964,23 +1084,33 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                bool offTrackStranded = Mathf.Abs(progress.lateralDistance) > Track.roadHalfWidth + 3f && speedKph < 10f && !preRace && !inPitPhaseOrPitting;
-                if (participant.stoppedOnTrackTimer > 5f || (offTrackStranded && participant.stoppedOnTrackTimer > 3f))
+                // Part 2: only the ActuallyStranded classification above (which already
+                // required the sustained StrandedDeclareSeconds duration with every
+                // legitimate exclusion checked) can ever reach race control - no
+                // separate, laxer off-track-only path any more.
+                if (newRecoveryState == CarRecoveryState.ActuallyStranded)
                 {
-                    if (participant.stoppedOnTrackTimer > 12f)
+                    if (participant.stoppedOnTrackTimer > StrandedRetireSeconds)
                     {
                         RetireParticipant(participant, "Stranded");
                     }
 
                     RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Stopped/stranded");
-                    participant.incidentCooldownTimer = 15f;
+                    // Part 1: longer per-incident suppression so a car still sitting in
+                    // the same stranded episode doesn't re-register (and re-roll a VSC/
+                    // SC chance) every few seconds while race control already knows.
+                    participant.incidentCooldownTimer = 25f;
                     continue;
                 }
 
-                if (participant.wrongWayTimer > 3f)
+                // Part 1 retune: longer sustained duration (was 3s) so a car briefly
+                // pointed backward while gathering itself out of a spin - already
+                // excluded above while recoveryGraceActive - isn't flagged the moment
+                // the grace window lapses if it's still slowly correcting.
+                if (participant.wrongWayTimer > 5f)
                 {
                     RegisterIncident(participant, IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Wrong way");
-                    participant.incidentCooldownTimer = 10f;
+                    participant.incidentCooldownTimer = 15f;
                     continue;
                 }
 
@@ -1061,12 +1191,16 @@ namespace LocalFormulaRacing
             // Reduced/Standard/High at "rare" / "occasional" / "more frequent but not
             // constant". A failed full-SC roll now only has a further chance of a VSC
             // fallback rather than defaulting to it deterministically.
+            // Part 1 (third retune): with the stranded-classification false positives
+            // fixed above, most Medium/Major incidents reaching this point are now
+            // genuine - so these baselines are cut further still (was 0.40/0.5/0.55)
+            // to keep a full SC rare and VSC uncommon, not just "less common".
             if (severity == IncidentSeverity.Medium)
             {
                 if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar)
                 {
                     float roll = Random.value;
-                    float chance = Mathf.Clamp01(0.40f * freqScale);
+                    float chance = Mathf.Clamp01(0.28f * freqScale);
                     bool escalate = roll < chance;
                     GameLog.Info("[RaceControl] Medium incident escalation: roll=" + roll.ToString("0.00") + " chance=" + chance.ToString("0.00") + " result=" + (escalate ? "VSC deployed" : "no escalation"));
                     if (escalate)
@@ -1080,7 +1214,7 @@ namespace LocalFormulaRacing
 
             // Major.
             float scRoll = Random.value;
-            float scChance = Mathf.Clamp01(0.5f * freqScale);
+            float scChance = Mathf.Clamp01(0.35f * freqScale);
             bool deploySc = scRoll < scChance;
             if (deploySc)
             {
@@ -1096,7 +1230,7 @@ namespace LocalFormulaRacing
             if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar)
             {
                 float vscFallbackRoll = Random.value;
-                float vscFallbackChance = Mathf.Clamp01(0.55f * freqScale);
+                float vscFallbackChance = Mathf.Clamp01(0.42f * freqScale);
                 bool vscFallback = vscFallbackRoll < vscFallbackChance;
                 GameLog.Info("[RaceControl] Major incident escalation: scRoll=" + scRoll.ToString("0.00") + " scChance=" + scChance.ToString("0.00") +
                     " (no SC) vscFallbackRoll=" + vscFallbackRoll.ToString("0.00") + " vscFallbackChance=" + vscFallbackChance.ToString("0.00") +
