@@ -376,6 +376,7 @@ namespace LocalFormulaRacing
         Material asphaltPatchMaterial;
         Material skidMarkMaterial;
         Material barrierMaterial;
+        Material armcoMaterial;
         Material tireBarrierMaterial;
         Material concreteMaterial;
         Material fenceMaterial;
@@ -386,6 +387,9 @@ namespace LocalFormulaRacing
         Material lightGlowMaterial;
         Material sceneryAccentMaterial;
         Material trafficConeMaterial;
+        Material flagGreenMaterial;
+        Material flagYellowMaterial;
+        Material raceControlBoardMaterial;
         PhysicMaterial roadPhysicsMaterial;
         PhysicMaterial runoffPhysicsMaterial;
         Mesh visualBoxMesh;
@@ -397,7 +401,6 @@ namespace LocalFormulaRacing
         float groundTopY;
         const float ElevationThreshold = 1.35f;
         const float TallFenceElevation = 3f;
-        const float SafetyBarrierSpacing = 9f;
 
         // Visual identity flags derived from the event so night circuits glow and
         // desert circuits bake, instead of everything sharing one look.
@@ -467,8 +470,7 @@ namespace LocalFormulaRacing
             BuildAsphaltDetail();
             BuildGridPaint();
             BuildKerbs();
-            BuildBarriers();
-            BuildSafetyBarriers();
+            BuildContinuousEdgeBarriers();
             BuildTrackMarkers();
             BuildDrsZoneBoards();
             BuildPitLane();
@@ -1387,11 +1389,21 @@ namespace LocalFormulaRacing
             barrierMaterial = CreateMaterial("Runtime Barrier", monacoTrack ? new Color(0.86f, 0.85f, 0.8f) : new Color(0.68f, 0.72f, 0.74f), 0.12f, monacoTrack ? 0.55f : 0.62f);
             barrierMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.87f, 0.87f, 0.87f), 0.1f);
             barrierMaterial.mainTextureScale = new Vector2(4f, 1.5f);
+            // Brighter, more metallic than the concrete/painted barrierMaterial so the
+            // continuous Armco/guardrail sections read as steel rail rather than a wall.
+            armcoMaterial = CreateMaterial("Runtime Armco Guardrail", new Color(0.72f, 0.74f, 0.76f), 0.72f, 0.58f);
+            armcoMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.8f, 0.8f, 0.82f), 0.07f);
+            armcoMaterial.mainTextureScale = new Vector2(5f, 1f);
             tireBarrierMaterial = CreateMaterial("Runtime Tyre Barrier", new Color(0.015f, 0.016f, 0.017f), 0.02f, 0.28f);
             concreteMaterial = CreateMaterial("Runtime Concrete Wall", desertTrack ? new Color(0.72f, 0.66f, 0.5f) : new Color(0.56f, 0.58f, 0.59f), 0.04f, desertTrack ? 0.5f : 0.32f, desertTrack ? new Color(0.06f, 0.05f, 0.02f) : Color.black);
             concreteMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.85f, 0.85f, 0.85f), 0.09f);
             concreteMaterial.mainTextureScale = new Vector2(3f, 1f);
-            fenceMaterial = CreateMaterial("Runtime Catch Fence", new Color(0.14f, 0.16f, 0.18f), 0.42f, 0.44f);
+            fenceMaterial = CreateMaterial("Runtime Catch Fence", new Color(0.75f, 0.78f, 0.8f), 0.42f, 0.44f);
+            // Cutout lattice instead of a flat opaque colour so the catch fence reads as
+            // fine mesh you can see through rather than a second solid wall.
+            fenceMaterial.mainTexture = GetChainLinkTexture();
+            fenceMaterial.mainTextureScale = new Vector2(14f, 3.5f);
+            SetupCutoutTransparency(fenceMaterial, 0.35f);
             fencePostMaterial = CreateMaterial("Runtime Fence Post", new Color(0.4f, 0.44f, 0.47f), 0.55f, 0.66f);
             foliageMaterial = CreateMaterial("Runtime Foliage", spaTrack ? new Color(0.05f, 0.22f, 0.14f) : new Color(0.04f, 0.32f, 0.12f), 0f, 0.42f);
             metalMaterial = CreateMaterial("Runtime Brushed Metal", new Color(0.52f, 0.56f, 0.58f), 0.42f, 0.78f);
@@ -1399,6 +1411,9 @@ namespace LocalFormulaRacing
             lightGlowMaterial = CreateMaterial("Runtime Light Glow", new Color(1f, 0.85f, 0.4f), 0f, 0.92f, new Color(1f, 0.62f, 0.15f));
             sceneryAccentMaterial = CreateMaterial("Runtime Scenery Accent", new Color(0.92f, 0.03f, 0.025f), 0.05f, 0.65f);
             trafficConeMaterial = CreateMaterial("Runtime Traffic Cone", new Color(0.95f, 0.42f, 0.03f), 0f, 0.5f);
+            flagGreenMaterial = CreateMaterial("Runtime Marshal Flag Green", new Color(0.08f, 0.68f, 0.16f), 0f, 0.5f, new Color(0.02f, 0.18f, 0.04f));
+            flagYellowMaterial = CreateMaterial("Runtime Marshal Flag Yellow", new Color(0.95f, 0.82f, 0.05f), 0f, 0.5f, new Color(0.22f, 0.18f, 0.01f));
+            raceControlBoardMaterial = CreateMaterial("Runtime Race Control Board", new Color(0.08f, 0.09f, 0.1f), 0.1f, 0.6f, new Color(0.35f, 0.05f, 0.03f));
             edgeGlowMaterial = nightTrack || twilightTrack
                 ? CreateMaterial("Runtime Edge Glow", new Color(0.85f, 0.95f, 1f), 0.05f, 0.85f, new Color(0.32f, 0.42f, 0.6f))
                 : roadEdgeMaterial;
@@ -1562,6 +1577,55 @@ namespace LocalFormulaRacing
             windowStripTexture.SetPixels(pixels);
             windowStripTexture.Apply(true);
             return windowStripTexture;
+        }
+
+        static Texture2D chainLinkTexture;
+
+        // Diagonal lattice with transparent gaps so the catch fence material can read as
+        // fine mesh instead of a flat coloured slab once combined with SetupCutoutTransparency.
+        static Texture2D GetChainLinkTexture()
+        {
+            if (chainLinkTexture != null)
+            {
+                return chainLinkTexture;
+            }
+
+            const int size = 32;
+            chainLinkTexture = new Texture2D(size, size, TextureFormat.RGBA32, true);
+            chainLinkTexture.name = "Runtime chain link";
+            chainLinkTexture.wrapMode = TextureWrapMode.Repeat;
+            chainLinkTexture.filterMode = FilterMode.Bilinear;
+            Color[] pixels = new Color[size * size];
+            int cell = Mathf.Max(4, size / 4);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    int diagA = ((x + y) % cell + cell) % cell;
+                    int diagB = ((x - y) % cell + cell) % cell;
+                    bool strand = diagA <= 1 || diagB <= 1;
+                    pixels[y * size + x] = strand ? new Color(0.85f, 0.87f, 0.88f, 1f) : new Color(0f, 0f, 0f, 0f);
+                }
+            }
+
+            chainLinkTexture.SetPixels(pixels);
+            chainLinkTexture.Apply(true);
+            return chainLinkTexture;
+        }
+
+        // Switches a Standard-shader material to cutout (alpha-tested) transparency so a
+        // texture's alpha channel actually punches holes instead of just tinting the color.
+        void SetupCutoutTransparency(Material material, float cutoff)
+        {
+            material.SetFloat("_Mode", 1f);
+            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
+            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
+            material.SetInt("_ZWrite", 1);
+            material.EnableKeyword("_ALPHATEST_ON");
+            material.DisableKeyword("_ALPHABLEND_ON");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            material.SetFloat("_Cutoff", cutoff);
+            material.renderQueue = 2450;
         }
 
         static readonly Dictionary<string, Texture2D> noiseTextureCache = new Dictionary<string, Texture2D>();
@@ -1954,36 +2018,332 @@ namespace LocalFormulaRacing
             }
         }
 
-        void BuildBarriers()
+        // ---------- continuous edge barriers ----------
+        // BuildBarriers (sparse 18-30m markers) and BuildSafetyBarriers (continuous 9m
+        // walls, elevated sections only) used to be two independent passes that never
+        // agreed on where one handed off to the other. Off the elevated sections the
+        // sparse pass left gaps wide enough for a spinning car to slip through sideways,
+        // and the pit corridor's right side was skipped outright. This single pass walks
+        // the whole lap, both sides, every lap, at a tight step with every segment
+        // overlapping its neighbour, so there is never a seam to find.
+        const float EdgeBarrierStep = 10f;
+        const float StreetEdgeBarrierStep = 8f;
+        const float EdgeBarrierOverlap = 2f;
+        const float EdgeBarrierMinHeight = 1.1f;
+        const float HighRiskCornerAngle = 55f;
+        const float HighSpeedTrackLength = 5000f;
+
+        enum EdgeBarrierStyle
         {
-            bool streetCircuit = Runtime.roadHalfWidth < 8f || Runtime.styleName.Contains("street") || Runtime.styleName.Contains("Street");
-            float spacing = streetCircuit ? 18f : 30f;
-            for (float d = 0f; d < Runtime.length; d += spacing)
+            Armco,
+            StreetWall,
+            Elevated
+        }
+
+        struct CornerInfo
+        {
+            public float distance;
+            public float angle;
+        }
+
+        void BuildContinuousEdgeBarriers()
+        {
+            float step = streetTrack ? StreetEdgeBarrierStep : EdgeBarrierStep;
+            float segmentLength = step + EdgeBarrierOverlap;
+            bool highSpeedTrack = Runtime.length > HighSpeedTrackLength;
+            List<CornerInfo> highRiskCorners = DetectCorners(HighRiskCornerAngle);
+
+            bool previousElevated = IsElevatedAtDistance(-step);
+            int stripeIndex = 0;
+            for (float d = 0f; d < Runtime.length; d += step)
             {
-                // Elevated stretches get continuous walls and fences from
-                // BuildSafetyBarriers instead of these sparse markers.
-                if (IsElevatedAtDistance(d) || IsElevatedAtDistance(d + spacing * 0.5f))
+                bool elevated = IsElevatedAtDistance(d) || IsElevatedAtDistance(d + step * 0.5f) || IsElevatedAtDistance(d + step);
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+                bool nearHighRiskCorner = IsNearCorner(d, highRiskCorners, 45f);
+
+                BuildBarrierSegmentForSide(d, step, segmentLength, -1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
+                BuildBarrierSegmentForSide(d, step, segmentLength, 1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
+
+                if (elevated && ElevationAboveGround(d) > 4f && Mathf.FloorToInt(d / step) % 3 == 0)
                 {
-                    continue;
+                    CreateBridgeSupports(d);
                 }
 
-                Vector3 point;
-                Vector3 forward;
-                Vector3 right;
-                Runtime.SampleAtDistance(d, out point, out forward, out right);
-                bool street = streetCircuit;
-                int stripeIndex = Mathf.FloorToInt(d / spacing);
-                CreateBarrier(point - right * (Runtime.roadHalfWidth + (street ? 2f : 5.5f)), forward, street, stripeIndex);
-
-                // Leave the right side clear where the pit lane runs (entry through exit),
-                // otherwise barrier segments spawn straight across the pit corridor.
-                float normalized = d / Mathf.Max(1f, Runtime.length);
-                bool insidePitCorridor = normalized > 0.83f || normalized < 0.06f;
-                if (!insidePitCorridor)
+                // Soften the transition into and out of an elevated stretch with tyre
+                // barrier stacks so run-off areas funnel cars back before the drop.
+                if (elevated != previousElevated)
                 {
-                    CreateBarrier(point + right * (Runtime.roadHalfWidth + (street ? 2f : 5.5f)), forward, street, stripeIndex + 1);
+                    CreateTransitionTyreStacks(d);
+                }
+
+                previousElevated = elevated;
+                stripeIndex++;
+            }
+        }
+
+        // Decides style/offset for one side at one step, including the pit-corridor
+        // fan-out on the right side, then hands off to the shared segment builder.
+        void BuildBarrierSegmentForSide(float distance, float step, float segmentLength, int side, bool elevated, float normalized, bool highSpeedTrack, bool nearHighRiskCorner, int stripeIndex)
+        {
+            EdgeBarrierStyle style;
+            float baseLateral;
+            bool catchFence;
+            bool tyreStack;
+
+            if (elevated)
+            {
+                style = EdgeBarrierStyle.Elevated;
+                baseLateral = Runtime.roadHalfWidth + 1.15f;
+                catchFence = NeedsCatchFence(distance);
+                tyreStack = false;
+            }
+            else if (streetTrack)
+            {
+                style = EdgeBarrierStyle.StreetWall;
+                baseLateral = Runtime.roadHalfWidth + 2f;
+                catchFence = true;
+                tyreStack = false;
+            }
+            else
+            {
+                style = EdgeBarrierStyle.Armco;
+                baseLateral = Runtime.roadHalfWidth + 5.5f;
+                // High-speed circuits get a catch fence along their fast (non-corner)
+                // stretches specifically; every circuit gets tyre stacks at its worst corners.
+                catchFence = highSpeedTrack && !nearHighRiskCorner;
+                tyreStack = nearHighRiskCorner;
+            }
+
+            float lateral = baseLateral;
+
+            // The pit lane only ever runs down the right side (Runtime.PitLaneLateral is a
+            // positive offset), so only that side needs to fan out into the wall guarding
+            // the whole pit complex. The blend is a smooth ramp rather than a step so the
+            // fan-out itself has no gap for a car to find at the transition.
+            if (side > 0)
+            {
+                float pitBlend = PitZoneBlend(normalized);
+                if (pitBlend > 0f)
+                {
+                    lateral = Mathf.Lerp(baseLateral, PitOuterLateral(), pitBlend);
+                    style = EdgeBarrierStyle.StreetWall;
+                    catchFence = false;
+                    tyreStack = false;
                 }
             }
+
+            CreateEdgeBarrierSegment(distance, step, side, lateral, segmentLength, style, catchFence, tyreStack, stripeIndex);
+        }
+
+        // One barrier segment on one side, sampled along the local chord (the same
+        // technique the old bridge-fence pass used) so tight corners get a tangent
+        // segment instead of a straight line cutting across the corridor.
+        void CreateEdgeBarrierSegment(float distance, float step, int side, float lateral, float segmentLength, EdgeBarrierStyle style, bool wantsCatchFence, bool wantsTyreStack, int stripeIndex)
+        {
+            Vector3 a;
+            Vector3 b;
+            Vector3 mid;
+            Vector3 forward;
+            Vector3 right;
+            Vector3 discard;
+            Runtime.SampleAtDistance(distance, out a, out discard, out right);
+            Runtime.SampleAtDistance(distance + step, out b, out discard, out right);
+            Runtime.SampleAtDistance(distance + step * 0.5f, out mid, out forward, out right);
+
+            Vector3 chord = b - a;
+            Vector3 chordForward = chord.sqrMagnitude > 0.01f ? chord.normalized : forward;
+            Vector3 basePosition = mid + right * side * lateral;
+
+            switch (style)
+            {
+                case EdgeBarrierStyle.Elevated:
+                    CreateConcreteWall(basePosition, chordForward, segmentLength);
+                    if (wantsCatchFence)
+                    {
+                        CreateCatchFence(basePosition, chordForward, segmentLength);
+                    }
+
+                    break;
+                case EdgeBarrierStyle.StreetWall:
+                    CreateStreetWallSegment(basePosition, chordForward, segmentLength, stripeIndex);
+                    if (wantsCatchFence)
+                    {
+                        CreateCatchFence(basePosition, chordForward, segmentLength);
+                    }
+
+                    break;
+                default:
+                    CreateArmcoSegment(basePosition, chordForward, segmentLength, stripeIndex);
+                    if (wantsCatchFence)
+                    {
+                        CreateCatchFence(basePosition, chordForward, segmentLength);
+                    }
+
+                    break;
+            }
+
+            if (wantsTyreStack)
+            {
+                CreateTyreBarrierStack(basePosition + right * side * 1.6f, chordForward, Mathf.Min(segmentLength, 4.6f));
+            }
+        }
+
+        // Painted concrete-style wall used for street circuits and the pit-complex
+        // fan-out; alternating stripe segments so it reads as trackside furniture
+        // instead of one endless grey slab.
+        void CreateStreetWallSegment(Vector3 basePosition, Vector3 forward, float segmentLength, int stripeIndex)
+        {
+            GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            wall.name = "Continuous street wall";
+            wall.transform.SetParent(transform);
+            Vector3 scale = new Vector3(0.45f, EdgeBarrierMinHeight, segmentLength);
+            wall.transform.localScale = scale;
+            wall.GetComponent<Renderer>().sharedMaterial = stripeIndex % 2 == 0 ? barrierMaterial : sceneryAccentMaterial;
+            if (!TryPlaceSolidObstacle(wall, "street-wall", basePosition, forward, scale, EdgeBarrierMinHeight * 0.5f, 1.15f))
+            {
+                return;
+            }
+
+            Vector3 placed = wall.transform.position;
+            Vector3 placedForward = wall.transform.forward;
+            Quaternion rotation = Quaternion.LookRotation(placedForward, Vector3.up);
+            CreateVisualBox("Street wall rub rail", placed + Vector3.up * 0.62f, rotation, new Vector3(0.5f, 0.12f, segmentLength), metalMaterial);
+            if (nightTrack || twilightTrack)
+            {
+                CreateVisualBox("Street wall light strip", placed + Vector3.up * 1.05f, rotation, new Vector3(0.4f, 0.08f, segmentLength - 0.3f), lightGlowMaterial);
+            }
+        }
+
+        // Armco/guardrail look: one real collidable rail band plus two thinner ribs
+        // above and below it - a cheap stand-in for a corrugated profile instead of a
+        // single flat slab.
+        void CreateArmcoSegment(Vector3 basePosition, Vector3 forward, float segmentLength, int stripeIndex)
+        {
+            GameObject rail = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            rail.name = "Armco guardrail";
+            rail.transform.SetParent(transform);
+            Vector3 scale = new Vector3(0.16f, EdgeBarrierMinHeight, segmentLength);
+            rail.transform.localScale = scale;
+            rail.GetComponent<Renderer>().sharedMaterial = armcoMaterial;
+            if (!TryPlaceSolidObstacle(rail, "armco-rail", basePosition, forward, scale, EdgeBarrierMinHeight * 0.5f, 3f))
+            {
+                return;
+            }
+
+            Vector3 placed = rail.transform.position;
+            Vector3 placedForward = rail.transform.forward;
+            Quaternion rotation = Quaternion.LookRotation(placedForward, Vector3.up);
+            CreateVisualBox("Armco rib upper", placed + Vector3.up * (EdgeBarrierMinHeight * 0.3f), rotation, new Vector3(0.2f, 0.15f, segmentLength - 0.2f), armcoMaterial);
+            CreateVisualBox("Armco rib lower", placed - Vector3.up * (EdgeBarrierMinHeight * 0.28f), rotation, new Vector3(0.2f, 0.15f, segmentLength - 0.2f), armcoMaterial);
+            if (stripeIndex % 2 == 0)
+            {
+                CreateVisualBox("Armco post", placed - Vector3.up * (EdgeBarrierMinHeight * 0.5f - 0.02f), rotation, new Vector3(0.1f, 0.42f, 0.12f), fencePostMaterial);
+            }
+        }
+
+        void CreateTyreBarrierStack(Vector3 position, Vector3 forward, float length)
+        {
+            GameObject stack = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            stack.name = "Runoff tyre barrier stack";
+            stack.transform.SetParent(transform);
+            Vector3 scale = new Vector3(1.2f, 1f, length);
+            stack.transform.localScale = scale;
+            stack.GetComponent<Renderer>().sharedMaterial = tireBarrierMaterial;
+            TryPlaceSolidObstacle(stack, "tyre-barrier", position, forward, scale, 0.5f, 0.7f);
+        }
+
+        void CreateTransitionTyreStacks(float distance)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                CreateTyreBarrierStack(point + right * side * (Runtime.roadHalfWidth + 2.6f), forward, 4.6f);
+            }
+        }
+
+        // ---------- pit corridor sealing ----------
+        // The pit lane only exists on the right side (Runtime.PitLaneLateral is a
+        // positive offset), so only the right side needs to fan the main barrier out
+        // into a dedicated pit-complex wall. Smooth ramps at the entry and exit keep
+        // that fan-out from ever opening a gap of its own at the transition.
+        const float PitZoneEntryRampStart = 0.85f;
+        const float PitZoneEntryRampEnd = 0.885f;
+        const float PitZoneExitRampStart = 0.995f;
+        const float PitZoneExitRampEnd = 0.045f;
+
+        float PitZoneBlend(float normalized)
+        {
+            if (normalized >= PitZoneEntryRampEnd && normalized <= PitZoneExitRampStart)
+            {
+                return 1f;
+            }
+
+            if (normalized >= PitZoneEntryRampStart && normalized < PitZoneEntryRampEnd)
+            {
+                return Mathf.InverseLerp(PitZoneEntryRampStart, PitZoneEntryRampEnd, normalized);
+            }
+
+            float wrapTotal = (1f - PitZoneExitRampStart) + PitZoneExitRampEnd;
+            if (normalized > PitZoneExitRampStart)
+            {
+                float wrapped = normalized - PitZoneExitRampStart;
+                return 1f - Mathf.Clamp01(wrapped / wrapTotal);
+            }
+
+            if (normalized <= PitZoneExitRampEnd)
+            {
+                float wrapped = (1f - PitZoneExitRampStart) + normalized;
+                return 1f - Mathf.Clamp01(wrapped / wrapTotal);
+            }
+
+            return 0f;
+        }
+
+        // Just past the garage block's outer face: garages (BuildPitLane) are centred
+        // at PitLaneLateral + 15 with an 11m footprint, so their far edge sits at
+        // +15+5.5. Push a couple more metres past that so the wall never clips them.
+        float PitOuterLateral()
+        {
+            return Runtime.PitLaneLateral + 15f + 5.5f + 2.5f;
+        }
+
+        // ---------- corner severity ----------
+        // Shared with the braking-board placement in BuildTrackMarkers so "high-risk
+        // corner" means the same thing everywhere in this file.
+        List<CornerInfo> DetectCorners(float angleThreshold)
+        {
+            List<CornerInfo> corners = new List<CornerInfo>();
+            for (int i = 0; i < Runtime.centerLine.Count; i++)
+            {
+                Vector3 current = Runtime.centerLine[i];
+                Vector3 next = Runtime.centerLine[(i + 1) % Runtime.centerLine.Count];
+                Vector3 afterNext = Runtime.centerLine[(i + 2) % Runtime.centerLine.Count];
+                float angle = Vector3.Angle((next - current).normalized, (afterNext - next).normalized);
+                if (angle > angleThreshold)
+                {
+                    corners.Add(new CornerInfo { distance = Runtime.cumulativeDistances[i], angle = angle });
+                }
+            }
+
+            return corners;
+        }
+
+        bool IsNearCorner(float distance, List<CornerInfo> corners, float radius)
+        {
+            for (int i = 0; i < corners.Count; i++)
+            {
+                float delta = Mathf.Abs(Runtime.WrapDistance(distance - corners[i].distance));
+                float wrapped = Mathf.Min(delta, Runtime.length - delta);
+                if (wrapped <= radius)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         // ---------- elevated-section safety ----------
@@ -2011,71 +2371,6 @@ namespace LocalFormulaRacing
 
             return IsElevatedAtDistance(distance) &&
                    (Runtime.styleName.Contains("street") || Runtime.styleName.Contains("Street"));
-        }
-
-        // Continuous concrete wall + catch fence along every elevated stretch, both
-        // sides, chord-following so curves stay sealed. Respawn remains only as a
-        // fallback; these are the primary containment.
-        void BuildSafetyBarriers()
-        {
-            bool previousElevated = IsElevatedAtDistance(-SafetyBarrierSpacing);
-            for (float d = 0f; d < Runtime.length; d += SafetyBarrierSpacing)
-            {
-                bool elevated = IsElevatedAtDistance(d) || IsElevatedAtDistance(d + SafetyBarrierSpacing * 0.5f) || IsElevatedAtDistance(d + SafetyBarrierSpacing);
-                if (elevated)
-                {
-                    float normalized = d / Mathf.Max(1f, Runtime.length);
-                    bool insidePitCorridor = normalized > 0.83f || normalized < 0.06f;
-
-                    CreateBridgeFenceSegment(d, -1f, Runtime.roadHalfWidth + 1.15f);
-
-                    // Elevated safety overrides the pit-lane visual gap, but the wall
-                    // moves outward past the whole pit complex (service road, boxes,
-                    // crew) so the corridor stays usable while the drop stays sealed.
-                    float rightLateral = insidePitCorridor ? Mathf.Max(Runtime.roadHalfWidth + 17f, 30f) : Runtime.roadHalfWidth + 1.15f;
-                    CreateBridgeFenceSegment(d, 1f, rightLateral);
-
-                    if (ElevationAboveGround(d) > 4f && Mathf.FloorToInt(d / SafetyBarrierSpacing) % 3 == 0)
-                    {
-                        CreateBridgeSupports(d);
-                    }
-                }
-
-                // Soften the transition into and out of an elevated stretch with tyre
-                // barrier stacks so run-off areas funnel cars back before the drop.
-                if (elevated != previousElevated)
-                {
-                    CreateTransitionTyreStacks(d);
-                }
-
-                previousElevated = elevated;
-            }
-        }
-
-        // One chord-aligned protection segment on one side: low concrete wall plus a
-        // tall collidable catch fence with visual posts and rails.
-        void CreateBridgeFenceSegment(float distance, float side, float lateral)
-        {
-            Vector3 a;
-            Vector3 b;
-            Vector3 mid;
-            Vector3 forward;
-            Vector3 right;
-            Vector3 discard;
-            Runtime.SampleAtDistance(distance, out a, out discard, out right);
-            Runtime.SampleAtDistance(distance + SafetyBarrierSpacing, out b, out discard, out right);
-            Runtime.SampleAtDistance(distance + SafetyBarrierSpacing * 0.5f, out mid, out forward, out right);
-
-            Vector3 chord = b - a;
-            float segmentLength = Mathf.Max(4f, chord.magnitude) + 1.6f;
-            Vector3 chordForward = chord.sqrMagnitude > 0.01f ? chord.normalized : forward;
-            Vector3 basePosition = mid + right * side * lateral;
-
-            CreateConcreteWall(basePosition, chordForward, segmentLength);
-            if (NeedsCatchFence(distance))
-            {
-                CreateCatchFence(basePosition, chordForward, segmentLength);
-            }
         }
 
         void CreateConcreteWall(Vector3 basePosition, Vector3 forward, float segmentLength)
@@ -2133,24 +2428,6 @@ namespace LocalFormulaRacing
             Vector3 columnCenter = new Vector3(point.x, groundTopY + height * 0.5f, point.z);
             CreateVisualBox("Bridge support column", columnCenter, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1.7f, height, 1.7f), concreteMaterial);
             CreateVisualBox("Bridge support crossbeam", new Vector3(point.x, point.y - 0.55f, point.z), Quaternion.LookRotation(forward, Vector3.up), new Vector3(Runtime.roadHalfWidth * 2f + 1.6f, 0.5f, 1.9f), concreteMaterial);
-        }
-
-        void CreateTransitionTyreStacks(float distance)
-        {
-            Vector3 point;
-            Vector3 forward;
-            Vector3 right;
-            Runtime.SampleAtDistance(distance, out point, out forward, out right);
-            for (int side = -1; side <= 1; side += 2)
-            {
-                GameObject stack = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                stack.name = "Runoff tyre barrier stack";
-                stack.transform.SetParent(transform);
-                Vector3 scale = new Vector3(1.2f, 1f, 4.6f);
-                stack.transform.localScale = scale;
-                stack.GetComponent<Renderer>().sharedMaterial = tireBarrierMaterial;
-                TryPlaceSolidObstacle(stack, "tyre-barrier", point + right * side * (Runtime.roadHalfWidth + 2.6f), forward, scale, 0.5f, 0.7f);
-            }
         }
 
         // Audit pass: every elevated sample must have solid protection close by on
@@ -2213,44 +2490,114 @@ namespace LocalFormulaRacing
             return false;
         }
 
-        void CreateBarrier(Vector3 position, Vector3 forward, bool street, int stripeIndex)
+        // Full-perimeter gap sweep, independent of how a segment actually got placed:
+        // samples both sides at a finer step than the barrier spacing itself and asks
+        // how far away the nearest real protection is, so any seam left behind by the
+        // placement/repositioning logic in TryPlaceSolidObstacle still gets caught and
+        // logged instead of shipping silently.
+        const float BarrierGapCheckStep = 8f;
+        const float BarrierGapThreshold = 18f;
+
+        void ValidateBarrierCoverage(TrackValidationReport report)
         {
-            GameObject barrier = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            barrier.name = street ? "Street wall" : "Runoff marker";
-            barrier.transform.SetParent(transform);
-            Vector3 scale = street ? new Vector3(0.45f, 1.1f, 7.5f) : new Vector3(0.35f, 0.35f, 4.6f);
-            barrier.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
-            barrier.transform.localScale = scale;
-
-            // Alternating painted segments so walls and markers read as trackside
-            // furniture instead of one endless grey slab.
-            Material segmentMaterial = street
-                ? (stripeIndex % 2 == 0 ? barrierMaterial : sceneryAccentMaterial)
-                : (stripeIndex % 3 == 0 ? sceneryAccentMaterial : tireBarrierMaterial);
-            barrier.GetComponent<Renderer>().sharedMaterial = segmentMaterial;
-            if (!TryPlaceSolidObstacle(barrier, street ? "street-wall" : "runoff-barrier", position, forward, scale, street ? 0.55f : 0.18f, street ? 1.15f : 6.25f))
+            int gaps = 0;
+            for (float d = 0f; d < Runtime.length; d += BarrierGapCheckStep)
             {
-                return;
-            }
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+                float baseLateral = IsElevatedAtDistance(d)
+                    ? Runtime.roadHalfWidth + 1.15f
+                    : (streetTrack ? Runtime.roadHalfWidth + 2f : Runtime.roadHalfWidth + 5.5f);
 
-            // Low rub-rail strip on street walls for depth.
-            if (street)
-            {
-                Vector3 placed = barrier.transform.position;
-                Vector3 placedForward = barrier.transform.forward;
-                CreateVisualBox("Street wall rub rail", placed + Vector3.up * 0.62f, Quaternion.LookRotation(placedForward, Vector3.up), new Vector3(0.5f, 0.12f, 7.5f), metalMaterial);
-
-                if (nightTrack || twilightTrack)
+                for (int side = -1; side <= 1; side += 2)
                 {
-                    CreateVisualBox("Street wall light strip", placed + Vector3.up * 1.05f, Quaternion.LookRotation(placedForward, Vector3.up), new Vector3(0.4f, 0.08f, 7.2f), lightGlowMaterial);
+                    float lateral = baseLateral;
+                    if (side > 0)
+                    {
+                        float blend = PitZoneBlend(normalized);
+                        if (blend > 0f)
+                        {
+                            lateral = Mathf.Lerp(baseLateral, PitOuterLateral(), blend);
+                        }
+                    }
+
+                    Vector3 expected = point + right * side * lateral;
+                    float gap = NearestSolidProtectionDistance(expected);
+                    if (gap > BarrierGapThreshold)
+                    {
+                        gaps++;
+                        report.Warn("Barrier gap at " + d.ToString("0") + "m " + (side < 0 ? "left" : "right") +
+                                    " side, nearest protection " + gap.ToString("0.0") + "m away");
+                    }
                 }
             }
-            else if (nightTrack || twilightTrack)
+
+            if (gaps == 0)
             {
-                Vector3 placed = barrier.transform.position;
-                Vector3 placedForward = barrier.transform.forward;
-                CreateVisualBox("Runoff marker light strip", placed + Vector3.up * 0.55f, Quaternion.LookRotation(placedForward, Vector3.up), new Vector3(0.34f, 0.07f, 4.4f), lightGlowMaterial);
+                GameLog.Info("[TrackValidation] Continuous edge barriers fully sealed on " + Runtime.displayName);
             }
+        }
+
+        // Same gap-distance measure as ValidateBarrierCoverage, focused specifically on
+        // the pit corridor's outer wall (entry fan-out, mid-corridor, exit fan-out) so a
+        // pit-lane-only regression is called out by name instead of blending into the
+        // generic per-8m sweep above.
+        void ValidatePitCorridorSealed(TrackValidationReport report)
+        {
+            float[] checkpoints = { PitZoneEntryRampEnd, (PitZoneEntryRampEnd + PitZoneExitRampStart) * 0.5f, PitZoneExitRampStart };
+            bool allSealed = true;
+            for (int i = 0; i < checkpoints.Length; i++)
+            {
+                float d = Mathf.Repeat(checkpoints[i], 1f) * Runtime.length;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                Vector3 expected = point + right * PitOuterLateral();
+                float gap = NearestSolidProtectionDistance(expected);
+                if (gap > BarrierGapThreshold + 4f)
+                {
+                    allSealed = false;
+                    report.Warn("Pit corridor outer wall gap near " + d.ToString("0") + "m, nearest protection " + gap.ToString("0.0") + "m away");
+                }
+            }
+
+            if (allSealed)
+            {
+                GameLog.Info("[TrackValidation] Pit corridor outer wall sealed on " + Runtime.displayName);
+            }
+        }
+
+        float NearestSolidProtectionDistance(Vector3 position)
+        {
+            float best = float.MaxValue;
+            for (int i = 0; i < solidObstacles.Count; i++)
+            {
+                TrackSolidObstacle obstacle = solidObstacles[i];
+                if (obstacle == null)
+                {
+                    continue;
+                }
+
+                string type = obstacle.obstacleType ?? "";
+                if (!type.Contains("wall") && !type.Contains("fence") && !type.Contains("barrier") && !type.Contains("rail"))
+                {
+                    continue;
+                }
+
+                Vector3 flatDelta = obstacle.transform.position - position;
+                flatDelta.y = 0f;
+                float distance = flatDelta.magnitude;
+                if (distance < best)
+                {
+                    best = distance;
+                }
+            }
+
+            return best;
         }
 
         void CreateKerbBlock(Vector3 position, Vector3 forward, float seed)
@@ -2277,19 +2624,17 @@ namespace LocalFormulaRacing
             CreateSectorBoard(Runtime.length * 0.333f, new Color(0.1f, 0.75f, 1f));
             CreateSectorBoard(Runtime.length * 0.666f, new Color(0.1f, 1f, 0.45f));
 
-            // Distance boards for major braking zones
-            for (int i = 0; i < Runtime.centerLine.Count; i++)
+            // Distance boards for major braking zones - same corner-severity detection
+            // the continuous barrier pass uses for tyre-stack placement, so "this is a
+            // real corner" means one thing across the whole file.
+            List<CornerInfo> brakingCorners = DetectCorners(35f);
+            for (int i = 0; i < brakingCorners.Count; i++)
             {
-                Vector3 current = Runtime.centerLine[i];
-                Vector3 next = Runtime.centerLine[(i + 1) % Runtime.centerLine.Count];
-                if (Vector3.Angle((next - current).normalized, (Runtime.centerLine[(i + 2) % Runtime.centerLine.Count] - next).normalized) > 35f)
-                {
-                    float dist = Runtime.cumulativeDistances[i];
-                    CreateBrakingBoard(dist - 150f, "150");
-                    CreateBrakingBoard(dist - 100f, "100");
-                    CreateBrakingBoard(dist - 50f, "50");
-                    CreateApexCones(dist);
-                }
+                float dist = brakingCorners[i].distance;
+                CreateBrakingBoard(dist - 150f, "150");
+                CreateBrakingBoard(dist - 100f, "100");
+                CreateBrakingBoard(dist - 50f, "50");
+                CreateApexCones(dist);
             }
         }
 
@@ -2313,6 +2658,14 @@ namespace LocalFormulaRacing
             CreateVisualBox("Marshal post roof", safePosition + Vector3.up * 1.62f, rotation, new Vector3(1.95f, 0.16f, 1.95f), sceneryAccentMaterial);
             CreateVisualBox("Marshal flag pole", safePosition + Vector3.up * 2.6f, rotation, new Vector3(0.08f, 1.9f, 0.08f), metalMaterial);
             CreateVisualBox("Marshal flag", safePosition + Vector3.up * 3.3f + forward * 0.32f, rotation, new Vector3(0.05f, 0.4f, 0.62f), index % 2 == 0 ? sceneryAccentMaterial : lineMaterial);
+
+            // Static yellow/green flag board bolted to the hut, angled toward the
+            // approaching cars - separate from the pole flag above and cheap enough to
+            // put on every post. No live wiring in this pass; a caution slot every fifth
+            // post just breaks up an otherwise uniform row of green boards.
+            bool caution = index % 5 == 0;
+            Quaternion boardRotation = rotation * Quaternion.Euler(0f, 0f, 16f);
+            CreateVisualBox("Marshal flag board", safePosition + Vector3.up * 1.9f + forward * 0.55f, boardRotation, new Vector3(0.04f, 0.5f, 0.72f), caution ? flagYellowMaterial : flagGreenMaterial);
         }
 
         void CreateBrakingBoard(float distance, string label)
@@ -2656,6 +3009,16 @@ namespace LocalFormulaRacing
             // Backlit event panel above the lights.
             CreateVisualBox("Start gantry panel", point + Vector3.up * 8.5f - forward * 0.2f, gantryRotation, new Vector3(Mathf.Min(10f, span * 0.6f), 1.1f, 0.2f), nightTrack || twilightTrack ? lightGlowMaterial : sceneryAccentMaterial);
 
+            // Thin always-on emissive strip along the lower boom, standing in for the
+            // gantry's flashing warning lights - static glow rather than real blink
+            // logic, which is plenty for this pass.
+            CreateVisualBox("Start gantry light strip", point + Vector3.up * 6.9f - forward * 0.42f, gantryRotation, new Vector3(span * 0.92f, 0.06f, 0.08f), lightGlowMaterial);
+
+            // Static SC/VSC board beside the gantry. Visual presence only in this pass -
+            // a parallel race-control system can restyle raceControlBoardMaterial or the
+            // text later without needing anything else from this file.
+            CreateRaceControlBoard(point, forward, right);
+
             // Double row of start lights
             for (int row = 0; row < 2; row++)
             {
@@ -2682,6 +3045,28 @@ namespace LocalFormulaRacing
             post.transform.localScale = new Vector3(0.5f, 6.2f, 0.5f);
             post.GetComponent<Renderer>().sharedMaterial = metalMaterial;
             MakeVisualOnly(post);
+        }
+
+        // Static safety-car/VSC board on its own post beside the gantry, following the
+        // same post + board + text layout as CreateDrsZoneBoard/CreateSectorBoard.
+        void CreateRaceControlBoard(Vector3 point, Vector3 forward, Vector3 right)
+        {
+            Vector3 basePosition = point + right * (Runtime.roadHalfWidth + 5.5f) + Vector3.up * 4.4f;
+            Quaternion rotation = Quaternion.LookRotation(right, Vector3.up);
+            CreateVisualBox("Race control board post", basePosition - Vector3.up * 2.2f, rotation, new Vector3(0.14f, 4.4f, 0.14f), metalMaterial);
+            CreateVisualBox("Race control board", basePosition, rotation, new Vector3(0.16f, 1f, 1.9f), raceControlBoardMaterial);
+
+            GameObject text = new GameObject("Race control board text");
+            text.transform.SetParent(transform);
+            text.transform.position = basePosition - forward.normalized * 0.11f;
+            text.transform.rotation = Quaternion.LookRotation(-forward, Vector3.up);
+            TextMesh textMesh = text.AddComponent<TextMesh>();
+            textMesh.text = "SC";
+            textMesh.fontSize = 44;
+            textMesh.characterSize = 0.14f;
+            textMesh.anchor = TextAnchor.MiddleCenter;
+            textMesh.alignment = TextAlignment.Center;
+            textMesh.color = new Color(0.95f, 0.75f, 0.15f, 0.95f);
         }
 
         void BuildCameraTowers()
@@ -4478,6 +4863,8 @@ namespace LocalFormulaRacing
             report.gridSpawnValid = ValidateGridSlots(report);
             report.pitPosesValid = ValidatePitPoses(report);
             ValidateElevatedProtection(report);
+            ValidateBarrierCoverage(report);
+            ValidatePitCorridorSealed(report);
             Debug.Log(report.Summary());
         }
 
