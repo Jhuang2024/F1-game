@@ -63,6 +63,24 @@ namespace LocalFormulaRacing
         bool bodyMaterialSearched;
         float baseBodySmoothness = -1f;
 
+        // Front wing droop under accumulated front-end damage: found lazily by
+        // name the same way the rain light/rim/tyre materials above are, and
+        // its undamaged local transform captured on first lookup so the droop
+        // can be blended back toward "as built" after a pit repair instead of
+        // only ever sagging further.
+        Transform frontWingBase;
+        bool frontWingSearched;
+        Quaternion frontWingRestRotation;
+        Vector3 frontWingRestPosition;
+
+        // Flat-spotted tyres thump once per revolution rather than vibrating
+        // smoothly, so this drives a small wheel-pivot bounce synced to
+        // wheelSpinAngle (the same angle UpdateWheels spins the mesh with)
+        // instead of a separate timer that could drift out of sync with the
+        // visible rotation.
+        bool wheelRestPositionsCaptured;
+        Vector3 flRestLocalPos, frRestLocalPos, rlRestLocalPos, rrRestLocalPos;
+
         static readonly Color GlowColor = new Color(1f, 0.06f, 0.04f);
         static readonly Color DiscGlowColor = new Color(1f, 0.32f, 0.05f);
         static readonly Color DiscCoolColor = new Color(0.42f, 0.05f, 0.02f);
@@ -109,12 +127,14 @@ namespace LocalFormulaRacing
             }
 
             UpdateWheels();
+            UpdateFlatSpotWobble();
             UpdateBrakeGlow();
             UpdateRainLight();
             UpdateDrsFlap();
             UpdateSkidTrails();
             UpdateTyreCompoundLook();
             UpdateWetBodySheen();
+            UpdateFrontWingDamage();
         }
 
         void UpdateDrsFlap()
@@ -269,6 +289,16 @@ namespace LocalFormulaRacing
             if (harvesting && brake < 0.2f)
             {
                 intensity = Mathf.PingPong(Time.time * 6f, 1f) * 0.6f;
+            }
+
+            // Real wet-weather running keeps the rain light lit throughout, not just
+            // under braking - it's a visibility aid for cars behind, mandatory any
+            // time the track is wet. Braking/harvesting still glow brighter on top
+            // of this floor rather than being masked by it.
+            bool wet = vehicle.Weather == WeatherState.LightRain || vehicle.Weather == WeatherState.HeavyRain;
+            if (wet)
+            {
+                intensity = Mathf.Max(intensity, 0.32f);
             }
 
             brakeLightMaterial.SetColor("_EmissionColor", GlowColor * Mathf.Clamp01(intensity) * 1.6f);
@@ -496,6 +526,125 @@ namespace LocalFormulaRacing
             float targetSmoothness = wet ? Mathf.Min(0.97f, baseBodySmoothness + 0.14f) : baseBodySmoothness;
             float currentSmoothness = bodyMaterial.GetFloat("_Glossiness");
             bodyMaterial.SetFloat("_Glossiness", Mathf.MoveTowards(currentSmoothness, targetSmoothness, Time.deltaTime * 0.6f));
+        }
+
+        // A knocked-about front wing visibly sags rather than staying rigid while
+        // Damage.frontWing climbs toward destroyed - "front wing base" is the widest,
+        // most visible of the front wing elements RaceManager builds (see
+        // CreateOpenWheelCar), so droop reads clearly without needing to touch every
+        // flap/endplate individually. Repairs (RepairPitDamage lowering frontWing)
+        // ease the wing back toward its rest pose the same way it sagged, instead of
+        // snapping instantly on either end.
+        void UpdateFrontWingDamage()
+        {
+            if (!frontWingSearched)
+            {
+                frontWingSearched = true;
+                Transform found = transform.Find("front wing base");
+                if (found != null)
+                {
+                    frontWingBase = found;
+                    frontWingRestRotation = found.localRotation;
+                    frontWingRestPosition = found.localPosition;
+                }
+            }
+
+            if (frontWingBase == null || vehicle.Damage == null)
+            {
+                return;
+            }
+
+            float damage = Mathf.Clamp01(vehicle.Damage.frontWing);
+            Quaternion targetRotation = frontWingRestRotation * Quaternion.Euler(damage * 22f, 0f, 0f);
+            Vector3 targetPosition = frontWingRestPosition + new Vector3(0f, -damage * 0.09f, 0f);
+            frontWingBase.localRotation = Quaternion.Slerp(frontWingBase.localRotation, targetRotation, Time.deltaTime * 4f);
+            frontWingBase.localPosition = Vector3.MoveTowards(frontWingBase.localPosition, targetPosition, Time.deltaTime * 0.3f);
+        }
+
+        // A flat-spotted tyre thumps once per revolution rather than smoothly
+        // vibrating - the bump is synced to wheelSpinAngle (the same angle driving
+        // the visible spin in UpdateWheels) via a rectified sine, so it always lands
+        // twice per full turn regardless of how fast the wheel is currently
+        // spinning, scaled by both FlatSpotLevel and road speed so a stationary or
+        // barely-moving car with a flat spot doesn't visibly bounce in the pits.
+        void UpdateFlatSpotWobble()
+        {
+            if (vehicle.Tyres == null)
+            {
+                return;
+            }
+
+            float flatSpot = Mathf.Clamp01(vehicle.Tyres.FlatSpotLevel);
+            float speedKph = Mathf.Abs(vehicle.CurrentSpeedKph);
+            if (flatSpot <= 0.01f || speedKph < 8f)
+            {
+                if (wheelRestPositionsCaptured)
+                {
+                    ResetWheelBump();
+                }
+
+                return;
+            }
+
+            CaptureWheelRestPositions();
+            float amplitude = Mathf.Lerp(0f, 0.02f, flatSpot) * Mathf.InverseLerp(8f, 65f, speedKph);
+            float bump = Mathf.Abs(Mathf.Sin(wheelSpinAngle * Mathf.Deg2Rad)) * amplitude;
+            ApplyWheelBump(frontLeft, flRestLocalPos, bump);
+            ApplyWheelBump(frontRight, frRestLocalPos, bump);
+            ApplyWheelBump(rearLeft, rlRestLocalPos, bump);
+            ApplyWheelBump(rearRight, rrRestLocalPos, bump);
+        }
+
+        void CaptureWheelRestPositions()
+        {
+            if (wheelRestPositionsCaptured)
+            {
+                return;
+            }
+
+            if (frontLeft == null || frontRight == null || rearLeft == null || rearRight == null)
+            {
+                return;
+            }
+
+            wheelRestPositionsCaptured = true;
+            flRestLocalPos = frontLeft.localPosition;
+            frRestLocalPos = frontRight.localPosition;
+            rlRestLocalPos = rearLeft.localPosition;
+            rrRestLocalPos = rearRight.localPosition;
+        }
+
+        void ResetWheelBump()
+        {
+            if (frontLeft != null)
+            {
+                frontLeft.localPosition = flRestLocalPos;
+            }
+
+            if (frontRight != null)
+            {
+                frontRight.localPosition = frRestLocalPos;
+            }
+
+            if (rearLeft != null)
+            {
+                rearLeft.localPosition = rlRestLocalPos;
+            }
+
+            if (rearRight != null)
+            {
+                rearRight.localPosition = rrRestLocalPos;
+            }
+        }
+
+        static void ApplyWheelBump(Transform wheel, Vector3 restLocalPos, float bump)
+        {
+            if (wheel == null)
+            {
+                return;
+            }
+
+            wheel.localPosition = restLocalPos + new Vector3(0f, bump, 0f);
         }
     }
 

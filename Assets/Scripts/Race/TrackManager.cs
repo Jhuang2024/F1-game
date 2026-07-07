@@ -481,6 +481,11 @@ namespace LocalFormulaRacing
         Material coastalSandMaterial;
         Material[] hillsideBuildingMaterials;
 
+        // Dedicated tropical frond tone for the coastal palm clusters below - distinct
+        // from the deep-forest foliageMaterial so a seaside circuit doesn't borrow the
+        // same dark-green canopy colour a parkland track uses.
+        Material palmFrondMaterial;
+
         public TrackRuntime Build(CalendarEventData eventData)
         {
             return Build(eventData, true);
@@ -1498,12 +1503,16 @@ namespace LocalFormulaRacing
             treeBarkMaterial = CreateMaterial("Runtime Tree Bark", desertTrack ? new Color(0.42f, 0.32f, 0.22f) : new Color(0.32f, 0.24f, 0.18f), 0f, 0.32f);
             metalMaterial = CreateMaterial("Runtime Brushed Metal", new Color(0.52f, 0.56f, 0.58f), 0.42f, 0.78f);
             glassMaterial = CreateMaterial("Runtime Glass", new Color(0.12f, 0.28f, 0.38f, 0.85f), 0.1f, 0.95f);
-            lightGlowMaterial = CreateMaterial("Runtime Light Glow", new Color(1f, 0.85f, 0.4f), 0f, 0.92f, new Color(1f, 0.62f, 0.15f));
+            // Night/twilight races push the floodlight emissive noticeably brighter -
+            // the same fixture geometry needs to read as the primary light source once
+            // the sun is gone, rather than a dim afterthought lit mostly by the sky.
+            float nightGlowBoost = (nightTrack || twilightTrack) ? 1.55f : 1f;
+            lightGlowMaterial = CreateMaterial("Runtime Light Glow", new Color(1f, 0.85f, 0.4f), 0f, 0.92f, new Color(1f, 0.62f, 0.15f) * nightGlowBoost);
             sceneryAccentMaterial = CreateMaterial("Runtime Scenery Accent", new Color(0.92f, 0.03f, 0.025f), 0.05f, 0.65f);
             trafficConeMaterial = CreateMaterial("Runtime Traffic Cone", new Color(0.95f, 0.42f, 0.03f), 0f, 0.5f);
             flagGreenMaterial = CreateMaterial("Runtime Marshal Flag Green", new Color(0.08f, 0.68f, 0.16f), 0f, 0.5f, new Color(0.02f, 0.18f, 0.04f));
             flagYellowMaterial = CreateMaterial("Runtime Marshal Flag Yellow", new Color(0.95f, 0.82f, 0.05f), 0f, 0.5f, new Color(0.22f, 0.18f, 0.01f));
-            raceControlBoardMaterial = CreateMaterial("Runtime Race Control Board", new Color(0.08f, 0.09f, 0.1f), 0.1f, 0.6f, new Color(0.35f, 0.05f, 0.03f));
+            raceControlBoardMaterial = CreateMaterial("Runtime Race Control Board", new Color(0.08f, 0.09f, 0.1f), 0.1f, 0.6f, new Color(0.35f, 0.05f, 0.03f) * nightGlowBoost);
 
             // Extra board states + a dedicated gantry light material so race control
             // can be driven live (SetRaceControlVisual) without disturbing every other
@@ -1512,7 +1521,7 @@ namespace LocalFormulaRacing
             raceControlBoardScMaterial = CreateMaterial("Runtime Race Control Board SC", new Color(0.09f, 0.05f, 0.05f), 0.1f, 0.6f, new Color(0.9f, 0.12f, 0.08f));
             gantryRaceControlLightMaterial = CreateMaterial("Runtime Gantry Race Control Light", new Color(0.1f, 0.1f, 0.1f), 0f, 0.8f, new Color(0.03f, 0.03f, 0.03f));
             edgeGlowMaterial = nightTrack || twilightTrack
-                ? CreateMaterial("Runtime Edge Glow", new Color(0.85f, 0.95f, 1f), 0.05f, 0.85f, new Color(0.32f, 0.42f, 0.6f))
+                ? CreateMaterial("Runtime Edge Glow", new Color(0.85f, 0.95f, 1f), 0.05f, 0.85f, new Color(0.32f, 0.42f, 0.6f) * nightGlowBoost)
                 : roadEdgeMaterial;
 
             // Vegas/Singapore neon palette; kept small and shared rather than one
@@ -1559,6 +1568,11 @@ namespace LocalFormulaRacing
             coastalSandMaterial = CreateMaterial("Runtime Coastal Sand", new Color(0.82f, 0.76f, 0.6f), 0.02f, 0.28f);
             coastalSandMaterial.mainTexture = BuildNoiseTexture(128, new Color(0.86f, 0.83f, 0.72f), 0.14f);
             coastalSandMaterial.mainTextureScale = new Vector2(60f, 60f);
+
+            // Brighter, warmer-yellow-green than the parkland foliageMaterial so palm
+            // fronds along the boardwalk read as tropical rather than borrowing the
+            // same dark forest canopy tone.
+            palmFrondMaterial = CreateMaterial("Runtime Palm Frond", new Color(0.16f, 0.42f, 0.16f), 0f, 0.38f);
 
             // Small cycled palette for Interlagos' hillside district blocks, standing in
             // for a favela-style mix of building tones instead of one flat colour.
@@ -4193,6 +4207,13 @@ namespace LocalFormulaRacing
 
                 CreateVisualBox("Coastal boardwalk deck", safePosition + Vector3.up * 0.2f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(6f, 0.3f, 26f), weatheredConcreteMaterial);
                 CreateVisualBox("Coastal boardwalk rail", safePosition + Vector3.up * 0.9f + right * 2.9f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(0.14f, 1.1f, 26f), fencePostMaterial);
+
+                // A palm or two behind the rail on alternating deck segments so the
+                // promenade reads as tropical rather than just a bare concrete strip.
+                if (i % 2 == 0)
+                {
+                    CreatePalmCluster(safePosition + right * 5.4f, i);
+                }
             }
 
             // Cool blue sea-haze bank, distinct from the desert's warm heat-haze tint.
@@ -4898,6 +4919,55 @@ namespace LocalFormulaRacing
                 lobe.transform.localScale = new Vector3(0.85f, 0.72f, 0.85f) * sizeJitter;
                 lobe.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
                 MakeVisualOnly(lobe);
+            }
+        }
+
+        // Coastal-only companion to CreateTreeCluster: a couple of tall leaning trunks
+        // topped with a fan of flattened frond blades rather than a round crown, so a
+        // seaside promenade reads as tropical rather than reusing the forest tree
+        // silhouette with a different tint. Frond blades are thin scaled cubes rotated
+        // out from a shared top point and tipped downward, cheap to build and readable
+        // at speed the same way the rest of this file favours primitive stacks over
+        // detailed meshes.
+        void CreatePalmCluster(Vector3 position, int index)
+        {
+            int count = 1 + index % 2;
+            for (int p = 0; p < count; p++)
+            {
+                Vector3 offset = new Vector3((p - (count - 1) * 0.5f) * 3.2f, 0f, (index % 3 - 1) * 1.6f);
+                Vector3 palmPosition = PushSceneryClearOfTrack(position + offset, 12f);
+                float sizeJitter = 0.85f + ((index * 5 + p) % 4) * 0.1f;
+                float trunkHeight = 3.6f * sizeJitter;
+                float lean = ((index + p) % 2 == 0 ? 1f : -1f) * 6f;
+
+                GameObject trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                trunk.name = "Palm trunk";
+                trunk.transform.SetParent(transform);
+                trunk.transform.position = palmPosition + Vector3.up * trunkHeight * 0.5f;
+                trunk.transform.rotation = Quaternion.Euler(0f, (index * 47 + p * 19) % 360, lean);
+                trunk.transform.localScale = new Vector3(0.16f * sizeJitter, trunkHeight, 0.16f * sizeJitter);
+                trunk.GetComponent<Renderer>().sharedMaterial = treeBarkMaterial;
+                MakeVisualOnly(trunk);
+
+                Vector3 crownCenter = palmPosition + Vector3.up * (trunkHeight + 0.1f) + new Vector3(Mathf.Sin(lean * Mathf.Deg2Rad) * trunkHeight, 0f, 0f);
+                int fronds = 6;
+                for (int f = 0; f < fronds; f++)
+                {
+                    float angle = (f / (float)fronds) * 360f;
+                    GameObject frond = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    frond.name = "Palm frond";
+                    frond.transform.SetParent(transform);
+                    frond.transform.position = crownCenter;
+                    // Fronds fan outward and droop down from the crown point rather than
+                    // sitting flat, so the silhouette reads as hanging leaves, not a disc.
+                    frond.transform.rotation = Quaternion.Euler(28f, angle, 0f);
+                    frond.transform.localScale = new Vector3(0.14f, 0.05f, 1.8f * sizeJitter);
+                    // Offset the frond outward along its own rotated forward axis so the
+                    // blades radiate from the crown point instead of overlapping at its centre.
+                    frond.transform.position += frond.transform.forward * 0.9f * sizeJitter;
+                    frond.GetComponent<Renderer>().sharedMaterial = palmFrondMaterial;
+                    MakeVisualOnly(frond);
+                }
             }
         }
 

@@ -240,7 +240,10 @@ namespace LocalFormulaRacing
             float fovTarget = ModeFov(speed01);
             if (mode != 2)
             {
-                fovTarget += smoothedDrsBoost * 2.6f - impulseShake * 22f;
+                // Same curved punch as the shake offset below (see ImpactPunchCurve)
+                // so a solid hit snaps the lens in noticeably harder than a graze,
+                // instead of the old flat linear pull that barely told them apart.
+                fovTarget += smoothedDrsBoost * 2.6f - ImpactPunchCurve(impulseShake) * 26f;
             }
 
             float fovBlendRate = Mathf.Lerp(1.4f, 3f, blendEase);
@@ -338,13 +341,18 @@ namespace LocalFormulaRacing
             // Impact snap: a distinctly higher-frequency noise sample, driven
             // only by impulseShake, which now also decays about twice as fast
             // as before - short and sharp instead of a slow rolling rumble.
+            // Run through ImpactPunchCurve rather than a flat multiply so the
+            // response is front-loaded toward real hits: a light kerb-adjacent
+            // tap barely registers here (that's what clatterShake is for) while
+            // a genuine crash punches noticeably harder than the old linear
+            // scaling ever let it.
             Vector3 impactOffset = Vector3.zero;
             if (impulseShake > 0.001f)
             {
                 float impactX = Mathf.PerlinNoise(t * 37f, 5.7f) - 0.5f;
                 float impactY = Mathf.PerlinNoise(3.1f, t * 41f) - 0.5f;
                 float impactZ = (Mathf.PerlinNoise(t * 29f + 1.7f, t * 29f) - 0.5f) * 0.4f;
-                impactOffset = new Vector3(impactX, impactY, impactZ) * impulseShake * 1.4f;
+                impactOffset = new Vector3(impactX, impactY, impactZ) * ImpactPunchCurve(impulseShake) * 1.9f;
             }
 
             // Kerb-scale taps: a quicker, mid-frequency rattle sitting between
@@ -359,6 +367,19 @@ namespace LocalFormulaRacing
             }
 
             return (rumbleOffset + judderOffset + offTrackOffset + impactOffset + clatterOffset) * shakeStrength * 1.6f;
+        }
+
+        // Curves a raw impulseShake reading (0-MaxImpulseShake) so small taps
+        // stay subdued while big hits punch disproportionately harder, rather
+        // than the shake/FOV response scaling in a flat straight line with
+        // impact size. Shared by the position shake and the FOV kick above so
+        // both read as the same underlying "how hard was that" signal.
+        const float MaxImpulseShake = 0.16f;
+
+        static float ImpactPunchCurve(float raw)
+        {
+            float normalized = Mathf.Clamp01(raw / MaxImpulseShake);
+            return Mathf.Pow(normalized, 1.7f) * MaxImpulseShake;
         }
 
         public void AddImpulseShake(float amount)
