@@ -65,6 +65,22 @@ namespace LocalFormulaRacing
         public float incidentCooldownTimer;
         public float previousSpeedKphForIncident;
         public float previousDamagePercentForIncident;
+        // Short rolling history (three RaceManager.RaceControlCheckInterval-sized
+        // ticks, roughly one second) so DetectIncidents compares the current sample
+        // against the recent peak speed / lowest damage in that window rather than
+        // only the immediately previous 0.35s tick - a crash whose speed loss and
+        // damage registration straddle two poll windows is still caught reliably.
+        public float incidentSpeedHistory0;
+        public float incidentSpeedHistory1;
+        public float incidentSpeedHistory2;
+        public float incidentDamageHistory0;
+        public float incidentDamageHistory1;
+        public float incidentDamageHistory2;
+        // Illegal-overtake-under-yellow detection (Part B.7): who was immediately
+        // ahead of this car last tick, so a pass that inverts that specific pair's
+        // order while overtaking is banned can be penalized once, without needing
+        // full running-order history tracking.
+        public RaceParticipant previousCarAheadForOvertakeCheck;
         // Completed AI overtakes this race (AiVehicleController increments this on
         // the CompletingPass transition) - surfaced in the post-race diagnostics log.
         public int overtakesCompleted;

@@ -70,11 +70,22 @@ namespace LocalFormulaRacing
         public int SafetyCarDeploymentCount { get; private set; }
         public int AiOvertakesCompletedCount { get; private set; }
 
+        // Expert-only determinism switch (Part A.2): a handful of specific RNG gates
+        // - the overtake attack-trigger roll, the ERS attack/defend racecraft-timing
+        // roll, the defend-cover roll and the DRS commit-per-zone roll - resolve to
+        // "always act once the surrounding condition is met" for Expert instead of
+        // rolling dice for permission to race. Kept as one named constant + property
+        // so every Expert-specific branch reads clearly instead of scattering an
+        // unexplained `difficulty == RaceDifficulty.Expert` check at each site.
+        const bool ExpertIsRuthless = true;
+        public bool IsExpertDifficulty { get { return ExpertIsRuthless && Settings != null && Settings.Difficulty == RaceDifficulty.Expert; } }
+
         float raceControlCheckTimer;
         const float RaceControlCheckInterval = 0.35f;
         float safetyCarTimer;
         float restartControlTimer;
         bool safetyCarInThisLapMessageSent;
+        bool coldTyresRestartWarningSent;
         bool playerScPitPromptSent;
         float yellowSectorClearTimer;
         float drsRestartCooldownTimer;
@@ -117,6 +128,9 @@ namespace LocalFormulaRacing
         bool engineerDamageWarningSent;
         bool engineerRivalSent;
         bool engineerTrackLimitsSent;
+        // Part C.1: Expert-only radio warnings.
+        bool engineerExpertWarningSent;
+        float engineerDrsWarningCooldown;
         int lastGapReportLap = -1;
         bool weatherTransitionDone;
         float lastRecordedPlayerBestLap;
@@ -538,6 +552,7 @@ namespace LocalFormulaRacing
 
             ResolveLowSpeedStacks();
             SortRunningOrder();
+            CheckIllegalOvertakesUnderYellow();
             UpdateRaceEngineer();
             UpdateWeatherTransition();
             UpdateRaceControl();
@@ -725,6 +740,7 @@ namespace LocalFormulaRacing
             safetyCarTimer = 0f;
             restartControlTimer = 0f;
             safetyCarInThisLapMessageSent = false;
+            coldTyresRestartWarningSent = false;
             playerScPitPromptSent = false;
             yellowSectorClearTimer = 0f;
             drsRestartCooldownTimer = 0f;
@@ -746,7 +762,14 @@ namespace LocalFormulaRacing
                     participant.incidentCooldownTimer = 0f;
                     participant.previousSpeedKphForIncident = 0f;
                     participant.previousDamagePercentForIncident = 0f;
+                    participant.incidentSpeedHistory0 = 0f;
+                    participant.incidentSpeedHistory1 = 0f;
+                    participant.incidentSpeedHistory2 = 0f;
+                    participant.incidentDamageHistory0 = 0f;
+                    participant.incidentDamageHistory1 = 0f;
+                    participant.incidentDamageHistory2 = 0f;
                     participant.overtakesCompleted = 0;
+                    participant.previousCarAheadForOvertakeCheck = null;
                 }
             }
         }
@@ -786,6 +809,12 @@ namespace LocalFormulaRacing
             }
 
             DriveRaceControlStateMachine();
+            if (Track != null)
+            {
+                // Safe to call every tick - TrackRuntime.SetRaceControlVisual no-ops
+                // internally when the state hasn't actually changed.
+                Track.SetRaceControlVisual((int)CurrentRaceControlState);
+            }
         }
 
         // Scans every active participant for the incident types the brief calls
@@ -812,12 +841,49 @@ namespace LocalFormulaRacing
                 float damagePercent = participant.vehicle.Damage == null ? 0f : participant.vehicle.Damage.OverallPercent;
                 bool inPitPhaseOrPitting = participant.isPitting || participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit;
 
-                float speedDrop = participant.previousSpeedKphForIncident - speedKph;
-                float damageJump = damagePercent - participant.previousDamagePercentForIncident;
-                bool collision = !preRace && !inPitPhaseOrPitting && speedDrop > 25f && damageJump > 3f;
+                // Bug fix (Part B.1): the previous version required BOTH a >25kph
+                // speed-drop AND a >3-point damage-jump landing in the exact same
+                // 0.35s poll tick, comparing only against the immediately previous
+                // tick. A real crash's speed loss and damage registration can easily
+                // straddle two poll windows, a hard hit that already-slow car takes
+                // might never show a full 25kph drop, and a spin that scrubs speed
+                // without wall contact produces no damage at all - the AND-gate on a
+                // single-tick comparison could miss all three. Now either signal
+                // alone (OR, not AND) over a rolling ~1s window (peak speed / lowest
+                // damage across the last three ticks, not just the last one) is
+                // enough to register a collision-class incident.
+                float recentPeakSpeed = Mathf.Max(participant.previousSpeedKphForIncident,
+                    Mathf.Max(participant.incidentSpeedHistory0, Mathf.Max(participant.incidentSpeedHistory1, participant.incidentSpeedHistory2)));
+                float recentMinDamage = Mathf.Min(participant.previousDamagePercentForIncident,
+                    Mathf.Min(participant.incidentDamageHistory0, Mathf.Min(participant.incidentDamageHistory1, participant.incidentDamageHistory2)));
+                participant.incidentSpeedHistory2 = participant.incidentSpeedHistory1;
+                participant.incidentSpeedHistory1 = participant.incidentSpeedHistory0;
+                participant.incidentSpeedHistory0 = participant.previousSpeedKphForIncident;
+                participant.incidentDamageHistory2 = participant.incidentDamageHistory1;
+                participant.incidentDamageHistory1 = participant.incidentDamageHistory0;
+                participant.incidentDamageHistory0 = participant.previousDamagePercentForIncident;
+
+                float speedDrop = recentPeakSpeed - speedKph;
+                float damageJump = damagePercent - recentMinDamage;
+                // speedSignal must NOT fire on ordinary hard braking: a normal
+                // braking zone easily loses 40+ kph within this ~1s rolling window
+                // (well past the old 15kph bar), which would otherwise flag every
+                // hairpin on every lap as a "collision". Require the speed loss to
+                // be largely unexplained by the driver's own brake input - a real
+                // spin/impact loses speed involuntarily, intentional braking doesn't
+                // count here (a hit that happens mid-braking is still caught by
+                // damageSignal below, which has no such gate).
+                bool speedSignal = speedDrop > 15f && participant.vehicle.EffectiveBrake < 0.3f;
+                bool damageSignal = damageJump > 1.5f;
+                bool collision = !preRace && !inPitPhaseOrPitting && (speedSignal || damageSignal);
                 participant.previousSpeedKphForIncident = speedKph;
                 participant.previousDamagePercentForIncident = damagePercent;
 
+                // Bug fix (Part B.2): thresholds shortened so a genuinely stuck car
+                // surfaces faster - nothing else in the codebase was found to reset
+                // stoppedOnTrackTimer besides this detector itself (audited against
+                // track-limit recovery and fall-respawn handling, neither of which
+                // touches it), so the old 8s/20s values were simply too slow.
                 bool stoppedCandidate = speedKph < 8f && !preRace && !inPitPhaseOrPitting;
                 participant.stoppedOnTrackTimer = stoppedCandidate ? participant.stoppedOnTrackTimer + RaceControlCheckInterval : 0f;
 
@@ -838,42 +904,58 @@ namespace LocalFormulaRacing
                 if (destroyed)
                 {
                     RetireParticipant(participant, "Collision damage");
-                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Major : IncidentSeverity.Minor, progress, freqScale, escalationAllowed);
+                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Major : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Destroyed");
                     participant.incidentCooldownTimer = 20f;
                     continue;
                 }
 
                 if (collision)
                 {
-                    IncidentSeverity severity = damageJump > 22f ? IncidentSeverity.Major : (damageJump > 10f ? IncidentSeverity.Medium : IncidentSeverity.Minor);
-                    RegisterIncident(participant, severity, progress, freqScale, escalationAllowed);
+                    // Severity now reflects either signal, not damageJump alone - a
+                    // hard speed-only spin (no wall contact) can still read Medium,
+                    // and a big simultaneous hit is always at least Medium.
+                    IncidentSeverity severity;
+                    if (damageJump > 22f || speedDrop > 90f)
+                    {
+                        severity = IncidentSeverity.Major;
+                    }
+                    else if (damageJump > 10f || speedDrop > 45f || (speedSignal && damageSignal))
+                    {
+                        severity = IncidentSeverity.Medium;
+                    }
+                    else
+                    {
+                        severity = IncidentSeverity.Minor;
+                    }
+
+                    RegisterIncident(participant, severity, progress, freqScale, escalationAllowed, "Collision (speedDrop=" + speedDrop.ToString("0") + " damageJump=" + damageJump.ToString("0.0") + ")");
                     participant.incidentCooldownTimer = 12f;
                     continue;
                 }
 
                 if (damagePercent >= 85f)
                 {
-                    RegisterIncident(participant, IncidentSeverity.Major, progress, freqScale, escalationAllowed);
+                    RegisterIncident(participant, IncidentSeverity.Major, progress, freqScale, escalationAllowed, "Severe damage");
                     participant.incidentCooldownTimer = 25f;
                     continue;
                 }
 
                 bool offTrackStranded = Mathf.Abs(progress.lateralDistance) > Track.roadHalfWidth + 3f && speedKph < 10f && !preRace && !inPitPhaseOrPitting;
-                if (participant.stoppedOnTrackTimer > 8f || (offTrackStranded && participant.stoppedOnTrackTimer > 5f))
+                if (participant.stoppedOnTrackTimer > 5f || (offTrackStranded && participant.stoppedOnTrackTimer > 3f))
                 {
-                    if (participant.stoppedOnTrackTimer > 20f)
+                    if (participant.stoppedOnTrackTimer > 12f)
                     {
                         RetireParticipant(participant, "Stranded");
                     }
 
-                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed);
+                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Stopped/stranded");
                     participant.incidentCooldownTimer = 15f;
                     continue;
                 }
 
                 if (participant.wrongWayTimer > 3f)
                 {
-                    RegisterIncident(participant, IncidentSeverity.Minor, progress, freqScale, escalationAllowed);
+                    RegisterIncident(participant, IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Wrong way");
                     participant.incidentCooldownTimer = 10f;
                     continue;
                 }
@@ -889,7 +971,7 @@ namespace LocalFormulaRacing
                     if (Random.value < perSecondChance * RaceControlCheckInterval)
                     {
                         RetireParticipant(participant, "Mechanical failure");
-                        RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed);
+                        RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Mechanical failure");
                         participant.incidentCooldownTimer = 30f;
                     }
                 }
@@ -899,7 +981,7 @@ namespace LocalFormulaRacing
         // Groups incidents that land within a few seconds and a short stretch of
         // track into one escalated event (a simple pileup approximation) rather
         // than full physics collision-graph analysis.
-        void RegisterIncident(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed)
+        void RegisterIncident(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause)
         {
             IncidentCount++;
             bool pileup = (RaceElapsed - lastIncidentTime) < 6f && Mathf.Abs(Track.WrapDistance(progress.distance - lastIncidentDistance)) < 40f;
@@ -909,6 +991,9 @@ namespace LocalFormulaRacing
             {
                 severity = severity == IncidentSeverity.Minor ? IncidentSeverity.Medium : IncidentSeverity.Major;
             }
+
+            GameLog.Info("[RaceControl] Incident: " + (participant == null ? "?" : participant.driverName) +
+                " cause=" + cause + " severity=" + severity + " sector=" + progress.sector + (pileup ? " (pileup-escalated)" : ""));
 
             ApplyIncidentSeverity(participant, severity, progress, freqScale, escalationAllowed);
         }
@@ -929,18 +1014,36 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Bug fix (Part B.4): the previous 0.55x/0.7x baseline chances, stacked on
+            // top of detection that was already too conservative, compounded into
+            // "almost never see SC in a real race." Raised so Medium -> VSC is very
+            // likely (deterministic at High) and Major -> SC is very likely
+            // (deterministic at High, falling back to VSC mainly on Reduced) - the
+            // safetyCarFrequency setting's Off/Reduced/Standard/High scaling (0/0.5/1/2)
+            // still works exactly as before, just against a much higher baseline.
             if (severity == IncidentSeverity.Medium)
             {
-                if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar && Random.value < 0.55f * freqScale)
+                if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar)
                 {
-                    BeginVirtualSafetyCar();
+                    float roll = Random.value;
+                    float chance = Mathf.Clamp01(0.85f * freqScale);
+                    bool escalate = roll < chance;
+                    GameLog.Info("[RaceControl] Medium incident escalation: roll=" + roll.ToString("0.00") + " chance=" + chance.ToString("0.00") + " result=" + (escalate ? "VSC deployed" : "no escalation"));
+                    if (escalate)
+                    {
+                        BeginVirtualSafetyCar();
+                    }
                 }
 
                 return;
             }
 
             // Major.
-            if (Random.value < 0.7f * freqScale)
+            float scRoll = Random.value;
+            float scChance = Mathf.Clamp01(0.9f * freqScale);
+            bool deploySc = scRoll < scChance;
+            GameLog.Info("[RaceControl] Major incident escalation: roll=" + scRoll.ToString("0.00") + " chance=" + scChance.ToString("0.00") + " result=" + (deploySc ? "Safety car deployed" : "VSC fallback"));
+            if (deploySc)
             {
                 BeginSafetyCarDeployment();
             }
@@ -963,9 +1066,13 @@ namespace LocalFormulaRacing
             yellowSectorNumber = sector;
             YellowFlagSector = sector;
             yellowSectorClearTimer = 10f;
-            if (freshFlag && Settings != null && Settings.Current.raceControlMessages)
+            if (freshFlag)
             {
-                PostEngineerMessage("Yellow flag, sector " + sector + ".", false);
+                GameLog.Info("[RaceControl] Yellow flag, sector " + sector + ".");
+                if (Settings != null && Settings.Current.raceControlMessages)
+                {
+                    PostEngineerMessage("Yellow flag, sector " + sector + ".", false);
+                }
             }
         }
 
@@ -975,6 +1082,7 @@ namespace LocalFormulaRacing
             safetyCarTimer = Random.Range(14f, 24f);
             IsOvertakingAllowed = false;
             playerScPitPromptSent = false;
+            GameLog.Info("[RaceControl] Virtual safety car deployed. duration=" + safetyCarTimer.ToString("0.0") + "s");
             if (Settings != null && Settings.Current.raceControlMessages)
             {
                 PostEngineerMessage("Virtual safety car deployed.", true);
@@ -991,6 +1099,7 @@ namespace LocalFormulaRacing
             playerScPitPromptSent = false;
             List<RaceParticipant> order = GetRunningOrderSnapshot();
             safetyCarQueueLeader = order.Count > 0 ? order[0] : null;
+            GameLog.Info("[RaceControl] Safety car deployment triggered. targetSpeed=" + SafetyCarTargetSpeedKph.ToString("0") + "kph deploymentCount=" + SafetyCarDeploymentCount);
             if (Settings != null && Settings.Current.raceControlMessages)
             {
                 PostEngineerMessage("Safety car deployed.", true);
@@ -1017,6 +1126,7 @@ namespace LocalFormulaRacing
                     {
                         CurrentRaceControlState = RaceControlState.Green;
                         IsOvertakingAllowed = true;
+                        GameLog.Info("[RaceControl] VSC ending, green flag.");
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
                             PostEngineerMessage("VSC ending, green flag.", true);
@@ -1032,6 +1142,7 @@ namespace LocalFormulaRacing
                     {
                         CurrentRaceControlState = RaceControlState.SafetyCarActive;
                         safetyCarTimer = Random.Range(28f, 55f);
+                        GameLog.Info("[RaceControl] Safety car now active on track. period=" + safetyCarTimer.ToString("0.0") + "s");
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
                             PostEngineerMessage("Safety car is now in position.", true);
@@ -1047,6 +1158,7 @@ namespace LocalFormulaRacing
                     {
                         CurrentRaceControlState = RaceControlState.SafetyCarInThisLap;
                         safetyCarInThisLapMessageSent = false;
+                        coldTyresRestartWarningSent = false;
                     }
                     break;
 
@@ -1055,6 +1167,7 @@ namespace LocalFormulaRacing
                     {
                         safetyCarInThisLapMessageSent = true;
                         restartControlTimer = 12f;
+                        GameLog.Info("[RaceControl] Safety car in this lap, preparing restart.");
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
                             PostEngineerMessage("Safety car in this lap.", true);
@@ -1062,10 +1175,23 @@ namespace LocalFormulaRacing
                     }
 
                     restartControlTimer -= Time.deltaTime;
+                    // Part C.2: a one-shot cold tyres/brakes warning partway through
+                    // the "in this lap" window so it doesn't collide with the message
+                    // right above it.
+                    if (!coldTyresRestartWarningSent && restartControlTimer <= 8f)
+                    {
+                        coldTyresRestartWarningSent = true;
+                        if (Settings != null && Settings.Current.raceControlMessages)
+                        {
+                            PostEngineerMessage("Tyres will be cold at the restart, be careful on the first lap.", false);
+                        }
+                    }
+
                     if (restartControlTimer <= 0f)
                     {
                         CurrentRaceControlState = RaceControlState.Restart;
                         restartControlTimer = 4f;
+                        GameLog.Info("[RaceControl] Restart imminent.");
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
                             PostEngineerMessage("Green flag imminent, get ready.", true);
@@ -1082,6 +1208,7 @@ namespace LocalFormulaRacing
                         drsRestartCooldownTimer = 45f;
                         playerScPitPromptSent = false;
                         safetyCarQueueLeader = null;
+                        GameLog.Info("[RaceControl] Restart complete, green flag.");
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
                             PostEngineerMessage("Green flag, go go go!", true);
@@ -1107,6 +1234,61 @@ namespace LocalFormulaRacing
             if (Settings != null && Settings.Current.raceControlMessages)
             {
                 PostEngineerMessage("Safety car deployed. Box now for reduced time loss?", true);
+            }
+        }
+
+        // Illegal-overtake-under-yellow penalty (Part B.7): reuses the existing
+        // AddPenalty pattern rather than inventing a new penalty mechanism.
+        // Deliberately simple - a one-shot penalty fires the instant a specific
+        // pair's order inverts while overtaking is banned (full SC/VSC ban, or
+        // either car sitting in the locally yellow-flagged sector), with no
+        // repeated-warning bookkeeping. Only fires when that pair genuinely wasn't
+        // already inverted the tick before (previousAhead was ahead last tick and
+        // is found immediately behind this tick), so an established running order
+        // or a pit-cycle shuffle can never be falsely flagged.
+        void CheckIllegalOvertakesUnderYellow()
+        {
+            if (State == null || CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial || StartCountdown > 0f)
+            {
+                return;
+            }
+
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant participant = Participants[i];
+                if (participant == null || participant.vehicle == null || participant.retired || participant.finished || participant.lapTracker == null ||
+                    participant.isPitting || participant.pitPhase != PitPhase.None)
+                {
+                    continue;
+                }
+
+                RaceParticipant currentAhead = FindCarAhead(participant, 40f);
+                RaceParticipant previousAhead = participant.previousCarAheadForOvertakeCheck;
+
+                if (previousAhead != null && previousAhead != currentAhead && !previousAhead.retired && !previousAhead.finished &&
+                    previousAhead.vehicle != null && !previousAhead.isPitting && previousAhead.pitPhase == PitPhase.None)
+                {
+                    RaceParticipant nowBehind = FindCarBehind(participant, 40f);
+                    if (nowBehind == previousAhead)
+                    {
+                        TrackProgress selfProgress = State.GetCurrentProgress(participant);
+                        TrackProgress aheadProgress = State.GetCurrentProgress(previousAhead);
+                        bool overtakingBannedNow = !IsOvertakingAllowed ||
+                            selfProgress.sector == YellowFlagSector ||
+                            aheadProgress.sector == YellowFlagSector;
+                        if (overtakingBannedNow)
+                        {
+                            AddPenalty(participant, 5f, "Overtake under yellow/SC");
+                            GameLog.Warn("[RaceControl] Illegal overtake penalty: " + participant.driverName + " passed " + previousAhead.driverName + " while overtaking was not allowed (+5s).");
+                            if (participant.isPlayer)
+                            {
+                                SessionMessage = "Overtake under yellow: +5s";
+                            }
+                        }
+                    }
+                }
+
+                participant.previousCarAheadForOvertakeCheck = currentAhead;
             }
         }
 
@@ -1156,6 +1338,26 @@ namespace LocalFormulaRacing
                 return false;
             }
 
+            // Part A.9: avoid double-stacking two SC-triggered pit calls into the
+            // same box at once - if another car is already servicing or entering a
+            // box at or adjacent to this car's own box index, hold this request back
+            // (re-checked every tick, so it releases the moment that box clears)
+            // instead of sending both cars down pit lane into the same slot.
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant other = Participants[i];
+                if (other == null || other == participant)
+                {
+                    continue;
+                }
+
+                bool otherOccupyingBox = other.pitPhase == PitPhase.Service || other.pitPhase == PitPhase.Entry;
+                if (otherOccupyingBox && Mathf.Abs(other.pitBoxIndex - participant.pitBoxIndex) <= 1)
+                {
+                    return false;
+                }
+            }
+
             bool mandatoryStopOwed = participant.pitStops == 0;
             bool tyresWorn = wear < 0.55f;
 
@@ -1203,6 +1405,8 @@ namespace LocalFormulaRacing
             engineerDamageWarningSent = false;
             engineerRivalSent = false;
             engineerTrackLimitsSent = false;
+            engineerExpertWarningSent = false;
+            engineerDrsWarningCooldown = 0f;
             lastGapReportLap = -1;
             weatherTransitionDone = false;
         }
@@ -1333,6 +1537,7 @@ namespace LocalFormulaRacing
             engineerCooldown = Mathf.Max(0f, engineerCooldown - Time.deltaTime);
             reactionDisplayTimer = Mathf.Max(0f, reactionDisplayTimer - Time.deltaTime);
             playerResetCooldown = Mathf.Max(0f, playerResetCooldown - Time.deltaTime);
+            engineerDrsWarningCooldown = Mathf.Max(0f, engineerDrsWarningCooldown - Time.deltaTime);
         }
 
         void PostEngineerMessage(string message, bool priority)
@@ -1426,6 +1631,30 @@ namespace LocalFormulaRacing
             if (IsTimeTrial)
             {
                 return;
+            }
+
+            // Part C.1: Expert-only radio warning, once, early in the race - staged
+            // behind a short RaceElapsed gate so it doesn't collide with the opening
+            // weather/strategy message's own display window.
+            if (!engineerExpertWarningSent && Settings != null && Settings.Difficulty == RaceDifficulty.Expert && RaceElapsed > 2f)
+            {
+                engineerExpertWarningSent = true;
+                PostEngineerMessage("Expert AI on track. It won't back off - defend hard and pick your moments to attack.", false);
+                return;
+            }
+
+            // Part C.1: Expert-only "car behind has DRS and is closing" warning,
+            // repeatable on a cooldown rather than a one-shot flag since the threat
+            // can come and go several times over a race.
+            if (Settings != null && Settings.Difficulty == RaceDifficulty.Expert && engineerDrsWarningCooldown <= 0f)
+            {
+                RaceParticipant chaserForDrsWarning = FindCarBehind(PlayerParticipant, 60f);
+                if (chaserForDrsWarning != null && IsDrsAvailable(chaserForDrsWarning))
+                {
+                    engineerDrsWarningCooldown = 15f;
+                    PostEngineerMessage("Car behind has DRS and is closing. Defend the inside line.", false);
+                    return;
+                }
             }
 
             int completedLaps = PlayerParticipant.lapTracker.CompletedLaps;
@@ -1969,7 +2198,15 @@ namespace LocalFormulaRacing
             RaceParticipant behind = FindCarBehind(participant, 70f);
             bool attacking = aheadInterval < 1.6f;
             bool behindHasDrs = behind != null && IsDrsAvailable(behind);
-            bool defending = behind != null && (battery > 0.32f || behindHasDrs);
+            bool isExpert = IsExpertDifficulty;
+
+            // Part A.4: Expert's defend trigger is far more sensitive - a chasing car
+            // with DRS, a healthily-charged battery, or simply closing fast all count
+            // as a real threat, not only a comfortably-charged battery alone.
+            bool closingFast = isExpert && behind != null && behind.vehicle != null &&
+                (Mathf.Abs(behind.vehicle.CurrentSpeedKph) - Mathf.Abs(participant.vehicle.CurrentSpeedKph)) > 6f;
+            float defendBatteryThreshold = isExpert ? 0.15f : 0.32f;
+            bool defending = behind != null && (battery > defendBatteryThreshold || behindHasDrs || closingFast);
 
             if (!attacking && !defending)
             {
@@ -1978,7 +2215,9 @@ namespace LocalFormulaRacing
                 // Kept modest and scaled by difficulty so it never becomes constant spam.
                 if (battery > 0.5f)
                 {
-                    return Random.value < profile.ersDeploymentQuality * 0.5f;
+                    // Part A.2: Expert-only, deterministic - a push-lap deploy with
+                    // battery to spare is an obvious call, not a coin flip.
+                    return isExpert || Random.value < profile.ersDeploymentQuality * 0.5f;
                 }
 
                 return false;
@@ -1986,8 +2225,10 @@ namespace LocalFormulaRacing
 
             // Racecraft calls (attack/defend timing) are where difficulty and driver
             // awareness actually show up: Expert nails them almost every time, Easy
-            // fluffs a meaningful share.
-            return Random.value < ersQuality;
+            // fluffs a meaningful share. Part A.2: Expert is fully deterministic here
+            // - once attacking/defending is true the condition itself is the decision,
+            // not a dice roll on top of it.
+            return isExpert || Random.value < ersQuality;
         }
 
         // Difficulty as decision-making quality, never a raw speed/grip multiplier.
@@ -2089,53 +2330,61 @@ namespace LocalFormulaRacing
 
             if (difficulty == RaceDifficulty.Hard)
             {
+                // Nudged up from the previous Hard tier so the Hard -> Expert gap stays
+                // meaningful once Expert is pushed to its ceiling below - Hard is now a
+                // clearly strong, but not ruthless, tier of its own.
                 return new AiDifficultyProfile
                 {
                     brakeDistanceMultiplier = 1.04f,
-                    minimumCornerSpeedConfidence = 0.94f,
-                    apexErrorMeters = 0.7f,
-                    throttleDelay = 0.14f,
-                    exitThrottleConfidence = 0.90f,
-                    lineOffsetNoise = 0.35f,
-                    reactionTimeSeconds = 0.32f,
-                    overtakeCommitment = 0.75f,
-                    defendCommitment = 0.78f,
-                    ersDeploymentQuality = 0.85f,
-                    drsUsageQuality = 0.95f,
-                    mistakeChancePerLap = 0.045f,
-                    trafficAvoidanceCaution = 0.85f,
-                    wetWeatherCaution = 1.0f,
-                    tyreSavingBias = 0.12f,
-                    paceMultiplier = 1.09f,
-                    cornerSpeedMultiplier = 1.08f,
+                    minimumCornerSpeedConfidence = 0.96f,
+                    apexErrorMeters = 0.55f,
+                    throttleDelay = 0.11f,
+                    exitThrottleConfidence = 0.93f,
+                    lineOffsetNoise = 0.28f,
+                    reactionTimeSeconds = 0.26f,
+                    overtakeCommitment = 0.82f,
+                    defendCommitment = 0.84f,
+                    ersDeploymentQuality = 0.90f,
+                    drsUsageQuality = 0.97f,
+                    mistakeChancePerLap = 0.032f,
+                    trafficAvoidanceCaution = 0.65f,
+                    wetWeatherCaution = 0.95f,
+                    tyreSavingBias = 0.10f,
+                    paceMultiplier = 1.12f,
+                    cornerSpeedMultiplier = 1.10f,
                     straightSpeedMultiplier = 1.00f,
-                    brakeConfidenceMultiplier = 1.10f,
-                    throttleAggressionMultiplier = 1.20f
+                    brakeConfidenceMultiplier = 1.18f,
+                    throttleAggressionMultiplier = 1.32f
                 };
             }
 
+            // Expert - pushed to the practical ceiling on every decision-quality axis
+            // (Part A.1). straightSpeedMultiplier is the one hard rule that can never
+            // move past 1.0 since it scales against vehicle.TargetTopSpeedKph, the
+            // same DRS/ERS-aware physics ceiling the player's own car uses; every
+            // other axis here is at or effectively at its practical maximum.
             return new AiDifficultyProfile
             {
                 brakeDistanceMultiplier = 1.10f,
-                minimumCornerSpeedConfidence = 0.99f,
-                apexErrorMeters = 0.22f,
-                throttleDelay = 0.04f,
-                exitThrottleConfidence = 0.99f,
-                lineOffsetNoise = 0.12f,
-                reactionTimeSeconds = 0.14f,
-                overtakeCommitment = 0.92f,
-                defendCommitment = 0.93f,
-                ersDeploymentQuality = 0.97f,
-                drsUsageQuality = 0.99f,
-                mistakeChancePerLap = 0.008f,
-                trafficAvoidanceCaution = 0.50f,
+                minimumCornerSpeedConfidence = 1.00f,
+                apexErrorMeters = 0.05f,
+                throttleDelay = 0.01f,
+                exitThrottleConfidence = 1.00f,
+                lineOffsetNoise = 0.05f,
+                reactionTimeSeconds = 0.04f,
+                overtakeCommitment = 0.99f,
+                defendCommitment = 0.99f,
+                ersDeploymentQuality = 1.00f,
+                drsUsageQuality = 1.00f,
+                mistakeChancePerLap = 0.0015f,
+                trafficAvoidanceCaution = 0.22f,
                 wetWeatherCaution = 0.85f,
                 tyreSavingBias = 0.05f,
-                paceMultiplier = 1.15f,
-                cornerSpeedMultiplier = 1.14f,
+                paceMultiplier = 1.20f,
+                cornerSpeedMultiplier = 1.20f,
                 straightSpeedMultiplier = 1.00f,
-                brakeConfidenceMultiplier = 1.32f,
-                throttleAggressionMultiplier = 1.50f
+                brakeConfidenceMultiplier = 1.50f,
+                throttleAggressionMultiplier = 1.80f
             };
         }
 
