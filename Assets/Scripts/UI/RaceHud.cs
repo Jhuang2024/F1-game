@@ -804,8 +804,7 @@ namespace LocalFormulaRacing
             }
 
             GameSettingsData settings = race.Settings != null ? race.Settings.Current : null;
-            int planned = settings != null && settings.plannedPitLap > 0 ? settings.plannedPitLap : race.RecommendedPitLap(player);
-            planned = Mathf.Clamp(planned, 1, Mathf.Max(1, race.RaceLaps));
+            int planned = race.PlannedPitLapFor(player);
             string compound = settings == null || string.IsNullOrEmpty(settings.plannedSecondCompound) ? "Medium" : settings.plannedSecondCompound;
             if (player.pitStops > 0)
             {
