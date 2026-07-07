@@ -28,6 +28,29 @@ namespace LocalFormulaRacing
         public WeatherState weather = WeatherState.Clear;
         public MeshCollider roadCollider;
 
+        // Race-control visual furniture (marshal flag boards, SC/VSC board, gantry
+        // lights) built by TrackManager and wired up here so RaceManager can drive it
+        // live without needing a cross-file dependency on TrackManager itself, or on
+        // RaceManager.RaceControlState - hence the plain int rather than that enum.
+        RaceControlVisualDriver raceControlVisualDriver;
+
+        public void AssignRaceControlVisualDriver(RaceControlVisualDriver driver)
+        {
+            raceControlVisualDriver = driver;
+        }
+
+        // state ordinals match RaceManager.RaceControlState: 0=Green, 1=YellowSector,
+        // 2=VirtualSafetyCar, 3=SafetyCarDeploying, 4=SafetyCarActive,
+        // 5=SafetyCarInThisLap, 6=Restart. Safe to call every frame or only on change;
+        // the driver no-ops when the state hasn't actually changed.
+        public void SetRaceControlVisual(int state)
+        {
+            if (raceControlVisualDriver != null)
+            {
+                raceControlVisualDriver.SetState(state);
+            }
+        }
+
         public void RecalculateDistances()
         {
             cumulativeDistances.Clear();
@@ -373,6 +396,7 @@ namespace LocalFormulaRacing
         Material roadEdgeMaterial;
         Material drsPaintMaterial;
         Material rubberMaterial;
+        Material tyreMarbleMaterial;
         Material asphaltPatchMaterial;
         Material skidMarkMaterial;
         Material barrierMaterial;
@@ -390,10 +414,22 @@ namespace LocalFormulaRacing
         Material flagGreenMaterial;
         Material flagYellowMaterial;
         Material raceControlBoardMaterial;
+        Material raceControlBoardVscMaterial;
+        Material raceControlBoardScMaterial;
+        Material gantryRaceControlLightMaterial;
         PhysicMaterial roadPhysicsMaterial;
         PhysicMaterial runoffPhysicsMaterial;
         Mesh visualBoxMesh;
         readonly List<TrackSolidObstacle> solidObstacles = new List<TrackSolidObstacle>();
+
+        // Race-control visual wiring: renderers/text captured while building the
+        // marshal posts, SC/VSC board and start gantry so SetRaceControlVisual (via
+        // the RaceControlVisualDriver component) can restyle them later without
+        // RaceManager needing to know how any of this furniture was constructed.
+        readonly List<Renderer> marshalFlagBoardRenderers = new List<Renderer>();
+        Renderer raceControlBoardRenderer;
+        TextMesh raceControlBoardText;
+        RaceControlVisualDriver raceControlVisualDriver;
 
         // World Y of the flat terrain surface; road above this by more than the
         // threshold counts as elevated (bridge/overpass/hillside) and gets full
@@ -493,9 +529,31 @@ namespace LocalFormulaRacing
             AuditVisualMarkingColliders();
             ValidateDecorativeObjectsClearTrack();
             ValidateGeneratedTrack();
+            SetupRaceControlVisualDriver();
             return Runtime;
         }
 
+        // Wires the marshal flag boards / SC-VSC board / gantry lights captured while
+        // building the track above into a small dedicated driver component, and hands
+        // Runtime a reference so RaceManager can call Runtime.SetRaceControlVisual(int)
+        // without needing to know anything about how this furniture was built.
+        void SetupRaceControlVisualDriver()
+        {
+            GameObject driverObject = new GameObject("Race Control Visual Driver");
+            driverObject.transform.SetParent(transform);
+            raceControlVisualDriver = driverObject.AddComponent<RaceControlVisualDriver>();
+            raceControlVisualDriver.Configure(
+                marshalFlagBoardRenderers,
+                raceControlBoardRenderer,
+                raceControlBoardText,
+                flagGreenMaterial,
+                flagYellowMaterial,
+                raceControlBoardMaterial,
+                raceControlBoardVscMaterial,
+                raceControlBoardScMaterial,
+                gantryRaceControlLightMaterial);
+            Runtime.AssignRaceControlVisualDriver(raceControlVisualDriver);
+        }
 
         TrackRuntime CreateLayout(CalendarEventData eventData)
         {
@@ -1384,6 +1442,13 @@ namespace LocalFormulaRacing
             roadEdgeMaterial = CreateMaterial("Runtime Painted Edge", new Color(1f, 0.98f, 0.9f), 0.04f, 0.76f);
             drsPaintMaterial = CreateMaterial("Runtime DRS Paint", new Color(0.02f, 0.32f, 0.95f), 0.06f, 0.82f, new Color(0.01f, 0.05f, 0.18f));
             rubberMaterial = CreateMaterial("Runtime Rubber", new Color(0.003f, 0.003f, 0.003f), 0.01f, 0.24f);
+
+            // Light-coloured tyre marbles that build up off the racing line rather than
+            // rubbered-in (dark) - speckled the same way concrete/kerb/grass are, just
+            // tan/grey and tiled tighter so it reads as scattered debris, not a smooth patch.
+            tyreMarbleMaterial = CreateMaterial("Runtime Tyre Marbles", new Color(0.63f, 0.59f, 0.49f), 0f, 0.18f);
+            tyreMarbleMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.68f, 0.63f, 0.5f), 0.24f);
+            tyreMarbleMaterial.mainTextureScale = new Vector2(5f, 2f);
             asphaltPatchMaterial = CreateMaterial("Runtime Asphalt Patch", new Color(0.033f, 0.036f, 0.039f), 0f, rain ? 0.72f : 0.5f);
             skidMarkMaterial = CreateMaterial("Runtime Skid Mark", new Color(0.001f, 0.001f, 0.001f, 0.92f), 0f, 0.16f);
             barrierMaterial = CreateMaterial("Runtime Barrier", monacoTrack ? new Color(0.86f, 0.85f, 0.8f) : new Color(0.68f, 0.72f, 0.74f), 0.12f, monacoTrack ? 0.55f : 0.62f);
@@ -1414,6 +1479,13 @@ namespace LocalFormulaRacing
             flagGreenMaterial = CreateMaterial("Runtime Marshal Flag Green", new Color(0.08f, 0.68f, 0.16f), 0f, 0.5f, new Color(0.02f, 0.18f, 0.04f));
             flagYellowMaterial = CreateMaterial("Runtime Marshal Flag Yellow", new Color(0.95f, 0.82f, 0.05f), 0f, 0.5f, new Color(0.22f, 0.18f, 0.01f));
             raceControlBoardMaterial = CreateMaterial("Runtime Race Control Board", new Color(0.08f, 0.09f, 0.1f), 0.1f, 0.6f, new Color(0.35f, 0.05f, 0.03f));
+
+            // Extra board states + a dedicated gantry light material so race control
+            // can be driven live (SetRaceControlVisual) without disturbing every other
+            // object sharing lightGlowMaterial elsewhere on the track.
+            raceControlBoardVscMaterial = CreateMaterial("Runtime Race Control Board VSC", new Color(0.05f, 0.08f, 0.09f), 0.1f, 0.6f, new Color(0.05f, 0.55f, 0.6f));
+            raceControlBoardScMaterial = CreateMaterial("Runtime Race Control Board SC", new Color(0.09f, 0.05f, 0.05f), 0.1f, 0.6f, new Color(0.9f, 0.12f, 0.08f));
+            gantryRaceControlLightMaterial = CreateMaterial("Runtime Gantry Race Control Light", new Color(0.1f, 0.1f, 0.1f), 0f, 0.8f, new Color(0.03f, 0.03f, 0.03f));
             edgeGlowMaterial = nightTrack || twilightTrack
                 ? CreateMaterial("Runtime Edge Glow", new Color(0.85f, 0.95f, 1f), 0.05f, 0.85f, new Color(0.32f, 0.42f, 0.6f))
                 : roadEdgeMaterial;
@@ -2635,6 +2707,44 @@ namespace LocalFormulaRacing
                 CreateBrakingBoard(dist - 100f, "100");
                 CreateBrakingBoard(dist - 50f, "50");
                 CreateApexCones(dist);
+                CreateTyreMarbles(dist);
+            }
+        }
+
+        // Light-coloured rubber "marbles" scattered off the racing line toward corner
+        // exit - cheap decals reusing the same CreateRoadStripe/paint-layer approach as
+        // the dark racing-line rubber above, just tinted light and pushed to the
+        // outside of the corner where cars actually run wide on exit. Scales with
+        // sceneryDensity like the rest of the per-corner cosmetic detail.
+        void CreateTyreMarbles(float apexDistance)
+        {
+            Vector3 apexPoint;
+            Vector3 apexForward;
+            Vector3 apexRight;
+            Runtime.SampleAtDistance(apexDistance, out apexPoint, out apexForward, out apexRight);
+            Vector3 approachPoint;
+            Vector3 approachForward;
+            Vector3 approachRight;
+            Runtime.SampleAtDistance(apexDistance - 10f, out approachPoint, out approachForward, out approachRight);
+
+            // Sign of the turn so marbles land on the outside of the corner. Same
+            // entry/exit-vector cross-product convention BuildKerbs uses to pick its
+            // "outer" kerb side (+turnSign), so this agrees with the kerb placement
+            // above instead of guessing independently at which side is outside.
+            float turnSign = Mathf.Sign(Vector3.Cross(approachForward, apexForward).y);
+            float outsideSide = turnSign;
+
+            float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+            int patches = Mathf.Max(1, Mathf.RoundToInt(3f * density));
+            for (int p = 0; p < patches; p++)
+            {
+                float exitDistance = apexDistance + 18f + p * 7.5f;
+                Vector3 patchPoint;
+                Vector3 patchForward;
+                Vector3 patchRight;
+                Runtime.SampleAtDistance(exitDistance, out patchPoint, out patchForward, out patchRight);
+                float lateral = outsideSide * (Runtime.roadHalfWidth * 0.7f + p * 0.4f);
+                CreateRoadStripe(patchPoint + patchRight * lateral, patchForward, 1.5f + p * 0.12f, 4.6f, tyreMarbleMaterial, "Tyre marbles", 7);
             }
         }
 
@@ -2665,7 +2775,12 @@ namespace LocalFormulaRacing
             // post just breaks up an otherwise uniform row of green boards.
             bool caution = index % 5 == 0;
             Quaternion boardRotation = rotation * Quaternion.Euler(0f, 0f, 16f);
-            CreateVisualBox("Marshal flag board", safePosition + Vector3.up * 1.9f + forward * 0.55f, boardRotation, new Vector3(0.04f, 0.5f, 0.72f), caution ? flagYellowMaterial : flagGreenMaterial);
+            GameObject flagBoard = CreateVisualBox("Marshal flag board", safePosition + Vector3.up * 1.9f + forward * 0.55f, boardRotation, new Vector3(0.04f, 0.5f, 0.72f), caution ? flagYellowMaterial : flagGreenMaterial);
+
+            // Captured so SetRaceControlVisual can flip every post to green/yellow live
+            // once race control actually drives this instead of the static per-index
+            // caution pattern above (which only sets the initial look).
+            marshalFlagBoardRenderers.Add(flagBoard.GetComponent<Renderer>());
         }
 
         void CreateBrakingBoard(float distance, string label)
@@ -3009,14 +3124,15 @@ namespace LocalFormulaRacing
             // Backlit event panel above the lights.
             CreateVisualBox("Start gantry panel", point + Vector3.up * 8.5f - forward * 0.2f, gantryRotation, new Vector3(Mathf.Min(10f, span * 0.6f), 1.1f, 0.2f), nightTrack || twilightTrack ? lightGlowMaterial : sceneryAccentMaterial);
 
-            // Thin always-on emissive strip along the lower boom, standing in for the
-            // gantry's flashing warning lights - static glow rather than real blink
-            // logic, which is plenty for this pass.
-            CreateVisualBox("Start gantry light strip", point + Vector3.up * 6.9f - forward * 0.42f, gantryRotation, new Vector3(span * 0.92f, 0.06f, 0.08f), lightGlowMaterial);
+            // Thin emissive strip along the lower boom standing in for the gantry's
+            // warning lights. Uses its own dedicated gantryRaceControlLightMaterial
+            // (rather than the shared lightGlowMaterial used all over the rest of the
+            // track) so RaceControlVisualDriver can pulse/flash it live without also
+            // flashing every pit-building light, lamp post and glow strip elsewhere.
+            CreateVisualBox("Start gantry light strip", point + Vector3.up * 6.9f - forward * 0.42f, gantryRotation, new Vector3(span * 0.92f, 0.06f, 0.08f), gantryRaceControlLightMaterial);
 
-            // Static SC/VSC board beside the gantry. Visual presence only in this pass -
-            // a parallel race-control system can restyle raceControlBoardMaterial or the
-            // text later without needing anything else from this file.
+            // SC/VSC board beside the gantry, wired up (via CreateRaceControlBoard) so
+            // RaceManager can drive it live through Runtime.SetRaceControlVisual.
             CreateRaceControlBoard(point, forward, right);
 
             // Double row of start lights
@@ -3047,26 +3163,36 @@ namespace LocalFormulaRacing
             MakeVisualOnly(post);
         }
 
-        // Static safety-car/VSC board on its own post beside the gantry, following the
-        // same post + board + text layout as CreateDrsZoneBoard/CreateSectorBoard.
+        // Safety-car/VSC board on its own post beside the gantry, following the same
+        // post + board + text layout as CreateDrsZoneBoard/CreateSectorBoard. Renderer,
+        // text and a pair of flanking strobe pods are captured on TrackManager so
+        // RaceControlVisualDriver can restyle/animate them from SetRaceControlVisual.
         void CreateRaceControlBoard(Vector3 point, Vector3 forward, Vector3 right)
         {
             Vector3 basePosition = point + right * (Runtime.roadHalfWidth + 5.5f) + Vector3.up * 4.4f;
             Quaternion rotation = Quaternion.LookRotation(right, Vector3.up);
             CreateVisualBox("Race control board post", basePosition - Vector3.up * 2.2f, rotation, new Vector3(0.14f, 4.4f, 0.14f), metalMaterial);
-            CreateVisualBox("Race control board", basePosition, rotation, new Vector3(0.16f, 1f, 1.9f), raceControlBoardMaterial);
+            GameObject board = CreateVisualBox("Race control board", basePosition, rotation, new Vector3(0.16f, 1f, 1.9f), raceControlBoardMaterial);
+            raceControlBoardRenderer = board.GetComponent<Renderer>();
+
+            // Thin strobe pods above/below the board, sharing gantryRaceControlLightMaterial
+            // with the gantry light strip so a restart/SC flash reads clearly even from
+            // a distance, not just as a colour change on the board face itself.
+            CreateVisualBox("Race control strobe light", basePosition + Vector3.up * 0.75f, rotation, new Vector3(0.14f, 0.12f, 1.9f), gantryRaceControlLightMaterial);
+            CreateVisualBox("Race control strobe light", basePosition - Vector3.up * 0.75f, rotation, new Vector3(0.14f, 0.12f, 1.9f), gantryRaceControlLightMaterial);
 
             GameObject text = new GameObject("Race control board text");
             text.transform.SetParent(transform);
             text.transform.position = basePosition - forward.normalized * 0.11f;
             text.transform.rotation = Quaternion.LookRotation(-forward, Vector3.up);
             TextMesh textMesh = text.AddComponent<TextMesh>();
-            textMesh.text = "SC";
+            textMesh.text = "";
             textMesh.fontSize = 44;
             textMesh.characterSize = 0.14f;
             textMesh.anchor = TextAnchor.MiddleCenter;
             textMesh.alignment = TextAlignment.Center;
             textMesh.color = new Color(0.95f, 0.75f, 0.15f, 0.95f);
+            raceControlBoardText = textMesh;
         }
 
         void BuildCameraTowers()
@@ -5126,6 +5252,166 @@ namespace LocalFormulaRacing
                 Destroy(transform.GetChild(i).gameObject);
             }
             solidObstacles.Clear();
+            marshalFlagBoardRenderers.Clear();
+            raceControlBoardRenderer = null;
+            raceControlBoardText = null;
+            raceControlVisualDriver = null;
+        }
+    }
+
+    // Small self-contained component that owns all per-frame animation for the
+    // race-control trackside visuals (marshal flag boards, SC/VSC board, gantry
+    // lights). Nothing else in TrackManager/TrackRuntime runs an Update() loop, so
+    // this is the one place that does - discrete state changes (which material a
+    // renderer uses, what the board text says) happen once in SetState, while the
+    // continuous pulsing/strobing is driven every frame here off Time.time, the same
+    // Mathf.PingPong-based approach used for other glow/pulse effects in this file.
+    public class RaceControlVisualDriver : MonoBehaviour
+    {
+        List<Renderer> marshalRenderers = new List<Renderer>();
+        Renderer boardRenderer;
+        TextMesh boardText;
+        Material flagGreenMaterial;
+        Material flagYellowMaterial;
+        Material boardOffMaterial;
+        Material boardVscMaterial;
+        Material boardScMaterial;
+        Material gantryLightMaterial;
+
+        int currentState = -1;
+
+        static readonly Color GantryOffColor = new Color(0.03f, 0.03f, 0.03f);
+        static readonly Color AmberDim = new Color(0.25f, 0.16f, 0.02f);
+        static readonly Color AmberBright = new Color(1.1f, 0.78f, 0.05f);
+        static readonly Color CyanDim = new Color(0.02f, 0.14f, 0.16f);
+        static readonly Color CyanBright = new Color(0.1f, 0.95f, 1.1f);
+        static readonly Color RedDim = new Color(0.18f, 0.02f, 0.01f);
+        static readonly Color RedBright = new Color(1.3f, 0.08f, 0.04f);
+        static readonly Color VscDim = new Color(0.03f, 0.12f, 0.13f);
+        static readonly Color VscBright = new Color(0.15f, 0.85f, 0.95f);
+        static readonly Color ScDim = new Color(0.15f, 0.02f, 0.01f);
+        static readonly Color ScBright = new Color(1.4f, 0.1f, 0.05f);
+        static readonly Color StrobeWhite = new Color(1.6f, 1.55f, 1.4f);
+
+        public void Configure(List<Renderer> marshalFlagBoardRenderers, Renderer raceControlBoardRenderer, TextMesh raceControlBoardText,
+            Material flagGreen, Material flagYellow, Material boardOff, Material boardVsc, Material boardSc, Material gantryLight)
+        {
+            marshalRenderers = marshalFlagBoardRenderers;
+            boardRenderer = raceControlBoardRenderer;
+            boardText = raceControlBoardText;
+            flagGreenMaterial = flagGreen;
+            flagYellowMaterial = flagYellow;
+            boardOffMaterial = boardOff;
+            boardVscMaterial = boardVsc;
+            boardScMaterial = boardSc;
+            gantryLightMaterial = gantryLight;
+            SetState(0);
+        }
+
+        // state ordinals match RaceManager.RaceControlState - see TrackRuntime.SetRaceControlVisual.
+        public void SetState(int state)
+        {
+            if (state == currentState)
+            {
+                return;
+            }
+
+            currentState = state;
+            ApplyDiscreteState();
+        }
+
+        // One-off swaps (which shared material a renderer points at, what the board
+        // text reads) that only need to happen when the state actually changes.
+        void ApplyDiscreteState()
+        {
+            Material marshalMaterial = currentState == 1 ? flagYellowMaterial : flagGreenMaterial;
+            for (int i = 0; i < marshalRenderers.Count; i++)
+            {
+                if (marshalRenderers[i] != null)
+                {
+                    marshalRenderers[i].sharedMaterial = marshalMaterial;
+                }
+            }
+
+            if (boardRenderer != null)
+            {
+                Material boardMaterial = boardOffMaterial;
+                if (currentState == 2)
+                {
+                    boardMaterial = boardVscMaterial;
+                }
+                else if (currentState >= 3)
+                {
+                    boardMaterial = boardScMaterial;
+                }
+                boardRenderer.sharedMaterial = boardMaterial;
+            }
+
+            if (boardText != null)
+            {
+                boardText.text = currentState == 2 ? "VSC" : (currentState >= 3 ? "SC" : "");
+            }
+        }
+
+        // Continuous pulsing/strobing. Mutates the shared emissive materials directly
+        // rather than touching individual renderers, so every object sharing
+        // gantryLightMaterial (the boom strip + the two board strobe pods) animates
+        // together for free.
+        void Update()
+        {
+            if (gantryLightMaterial == null)
+            {
+                return;
+            }
+
+            switch (currentState)
+            {
+                case 1: // YellowSector: amber pulse
+                    ApplyPulse(gantryLightMaterial, AmberDim, AmberBright, 2.2f);
+                    break;
+                case 2: // VirtualSafetyCar: cyan/amber alternating pulse, board gently activates
+                    bool cyanPhase = Mathf.PingPong(Time.time * 0.5f, 1f) < 0.5f;
+                    ApplyPulse(gantryLightMaterial, cyanPhase ? CyanDim : AmberDim, cyanPhase ? CyanBright : AmberBright, 2.8f);
+                    ApplyPulse(boardVscMaterial, VscDim, VscBright, 1.6f);
+                    break;
+                case 3: // SafetyCarDeploying
+                case 4: // SafetyCarActive
+                    ApplyPulse(gantryLightMaterial, RedDim, RedBright, 4.5f);
+                    ApplyPulse(boardScMaterial, ScDim, ScBright, 2.2f);
+                    break;
+                case 5: // SafetyCarInThisLap: same SC visual, faster "final lap" flash
+                    ApplyPulse(gantryLightMaterial, RedDim, RedBright, 7f);
+                    ApplyPulse(boardScMaterial, ScDim, ScBright, 3.4f);
+                    break;
+                case 6: // Restart: hard bright strobe distinct from the steady SC pulse
+                    float strobe = Mathf.PingPong(Time.time * 14f, 1f) > 0.5f ? 1f : 0f;
+                    SetEmission(gantryLightMaterial, Color.Lerp(Color.black, StrobeWhite, strobe));
+                    SetEmission(boardScMaterial, Color.Lerp(ScDim, StrobeWhite, strobe));
+                    break;
+                default: // Green (0) and any unrecognized state: steady/off
+                    SetEmission(gantryLightMaterial, GantryOffColor);
+                    break;
+            }
+        }
+
+        void ApplyPulse(Material material, Color dim, Color bright, float rate)
+        {
+            if (material == null)
+            {
+                return;
+            }
+            float t = Mathf.PingPong(Time.time * rate, 1f);
+            SetEmission(material, Color.Lerp(dim, bright, t));
+        }
+
+        static void SetEmission(Material material, Color emission)
+        {
+            if (material == null)
+            {
+                return;
+            }
+            material.EnableKeyword("_EMISSION");
+            material.SetColor("_EmissionColor", emission);
         }
     }
 
