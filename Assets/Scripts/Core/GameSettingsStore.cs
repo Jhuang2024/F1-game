@@ -57,6 +57,9 @@ namespace LocalFormulaRacing
             {
                 Current.plannedStopTwoCompound = "Medium";
             }
+
+            Current.safetyCarFrequency = Mathf.Clamp(Current.safetyCarFrequency, 0, 3);
+            Current.mechanicalFailureMode = Mathf.Clamp(Current.mechanicalFailureMode, 0, 2);
         }
 
         // Older saves only know plannedPitLap/plannedSecondCompound (single mandatory

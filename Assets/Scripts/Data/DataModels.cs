@@ -295,6 +295,15 @@ namespace LocalFormulaRacing
         public int plannedPitLapTwo;
         public string plannedStopOneCompound = "Hard";
         public string plannedStopTwoCompound = "Medium";
+
+        // Race control / safety car pass. safetyCarFrequency: 0=Off, 1=Reduced,
+        // 2=Standard, 3=High. mechanicalFailureMode: 0=Off, 1=PlayerOff (AI can still
+        // fail, player never does), 2=Standard. particlesEnabled (above) already
+        // gates lockup smoke/skid visuals - no separate toggle needed for that.
+        public int safetyCarFrequency = 2;
+        public int mechanicalFailureMode = 2;
+        public bool lockupsEnabled = true;
+        public bool raceControlMessages = true;
     }
 
     [Serializable]
