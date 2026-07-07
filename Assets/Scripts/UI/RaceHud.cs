@@ -81,6 +81,14 @@ namespace LocalFormulaRacing
         Text radioText;
         GameObject qualifyingCard;
         Text qualifyingDeltaValue;
+        Text tyreTagText;
+        GameObject scWindowCard;
+        Text scWindowText;
+
+        // Race control state pill (yellow flag / VSC / safety car), pinned near
+        // the top session strip. Hidden entirely under green-flag racing so it
+        // never clutters the normal case.
+        HudPill raceControlPill;
 
         // Center overlays.
         Text drsFlash;
@@ -120,6 +128,7 @@ namespace LocalFormulaRacing
         int watchedDamageBand;
         bool watchedFinalLap;
         bool watchedPitWindow;
+        int watchedTotalLockups;
 
         // Track progress strip (minimap-lite): start/finish marker plus live dots.
         RectTransform progressStrip;
@@ -164,6 +173,7 @@ namespace LocalFormulaRacing
             visibleTowerRows = compact ? 10 : TowerRowCount;
 
             BuildTopBand();
+            BuildRaceControlPill();
             BuildProgressStrip();
             BuildTrackMap();
             BuildNotificationPanel();
@@ -222,6 +232,22 @@ namespace LocalFormulaRacing
         {
             RectTransform divider = UiFactory.CreateBand(band, "Top band divider", new Vector2(anchorX, 0.22f), new Vector2(anchorX, 0.78f), new Vector2(-0.5f, 0f), new Vector2(0.5f, 0f), new Color(1f, 1f, 1f, 0.1f));
             divider.sizeDelta = new Vector2(1.5f, 0f);
+        }
+
+        // Compact pill for non-green race control states (yellow flag, VSC, safety
+        // car, restart). Reuses the exact CreatePill/HudPill widget already used
+        // for the DRS/ERS/Fuel dash pills, pinned top-left where it can't collide
+        // with the top band, progress strip, or notification panel. Starts hidden
+        // and only appears while a state is actually active.
+        void BuildRaceControlPill()
+        {
+            raceControlPill = UiFactory.CreatePill(transform, "Race Control", 220f, 36f);
+            raceControlPill.root.anchorMin = new Vector2(0f, 1f);
+            raceControlPill.root.anchorMax = new Vector2(0f, 1f);
+            raceControlPill.root.pivot = new Vector2(0f, 1f);
+            raceControlPill.root.anchoredPosition = new Vector2(16f, -10f);
+            ApplyPanelScale(raceControlPill.root);
+            raceControlPill.root.gameObject.SetActive(false);
         }
 
         void BuildProgressStrip()
@@ -534,13 +560,18 @@ namespace LocalFormulaRacing
             }
 
             BuildPitCard();
+            BuildScWindowCard();
             BuildQualifyingCard();
             BuildRadioCard();
         }
 
         void BuildTyreCard()
         {
-            RectTransform card = UiFactory.CreateHudCard(rightStack, "Tyres", RightStackWidth, 128f, UiFactory.Accent);
+            // Card grows by 24px over its original height to fit one extra tag
+            // line (lockup / flat spot state) between the Temp row and the wear
+            // meter; only the wear meter below it shifts down to match, nothing
+            // else in the card moves.
+            RectTransform card = UiFactory.CreateHudCard(rightStack, "Tyres", RightStackWidth, 152f, UiFactory.Accent);
 
             // 2x2 corner grid on the left half of the card.
             tyreFl = CreateTyreCorner(card, "FL", new Vector2(24f, -36f));
@@ -553,7 +584,16 @@ namespace LocalFormulaRacing
             UiFactory.CreateHudLabelValueRow(card, "Temp", 56f, out tyreTempValue);
             MoveRowToRightHalf(tyreTempValue, "Temp row label", card);
 
-            tyreWearFill = UiFactory.CreateHudMeter(card, "Wear", 92f, UiFactory.AccentAmber, out tyreWearValue);
+            // Lockup / flat spot tags: blank most of the time, so it reads as
+            // empty space rather than a widget until there's something to say.
+            tyreTagText = UiFactory.CreateText(card, "Tyre condition tags", "", 12, UiFactory.AccentAmber, TextAnchor.MiddleLeft);
+            RectTransform tagRect = tyreTagText.GetComponent<RectTransform>();
+            tagRect.anchorMin = new Vector2(0f, 1f);
+            tagRect.anchorMax = new Vector2(1f, 1f);
+            tagRect.offsetMin = new Vector2(14f, -98f);
+            tagRect.offsetMax = new Vector2(-10f, -80f);
+
+            tyreWearFill = UiFactory.CreateHudMeter(card, "Wear", 116f, UiFactory.AccentAmber, out tyreWearValue);
         }
 
         // The tyre card shares its left half with the corner grid, so shift the
@@ -605,6 +645,23 @@ namespace LocalFormulaRacing
             UiFactory.CreateHudLabelValueRow(card, "Status", 28f, out pitStatusValue);
             UiFactory.CreateHudLabelValueRow(card, "Plan", 50f, out pitPlanValue);
             pitFill = UiFactory.CreateHudMeter(card, "Stop", 76f, UiFactory.AccentAmber, out pitFillValue);
+        }
+
+        // Non-intrusive box-now suggestion during a safety car / VSC period.
+        // Built exactly like the radio card (title + free text) and, like the
+        // qualifying card, starts inactive so it contributes nothing to the
+        // right stack's vertical layout until it actually has something to say.
+        void BuildScWindowCard()
+        {
+            RectTransform card = UiFactory.CreateHudCard(rightStack, "SC Window", RightStackWidth, 72f, UiFactory.AccentAmber);
+            scWindowCard = card.gameObject;
+            scWindowText = UiFactory.CreateText(card, "SC window message", "", 14, UiFactory.AccentAmber, TextAnchor.UpperLeft);
+            RectTransform scRect = scWindowText.GetComponent<RectTransform>();
+            scRect.anchorMin = Vector2.zero;
+            scRect.anchorMax = Vector2.one;
+            scRect.offsetMin = new Vector2(14f, 6f);
+            scRect.offsetMax = new Vector2(-10f, -26f);
+            scWindowCard.SetActive(false);
         }
 
         void BuildQualifyingCard()
@@ -737,6 +794,7 @@ namespace LocalFormulaRacing
             watchedDamageBand = 0;
             watchedFinalLap = false;
             watchedPitWindow = false;
+            watchedTotalLockups = 0;
             seenTrackLimitWarnings = 0;
         }
 
@@ -808,6 +866,7 @@ namespace LocalFormulaRacing
             UiFactory.SetVerticalBarValue(ersInputBar, car.ErsBattery, ersBarColor);
 
             UpdateStatePills(car);
+            UpdateRaceControlBanner();
 
             string feedbackText = race.QualifyingFeedbackText;
             bool showFeedback = !string.IsNullOrEmpty(feedbackText);
@@ -869,6 +928,53 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Reflects RaceManager's race control state machine. Hidden entirely on
+        // Green so a normal race never shows anything here; only the handful of
+        // caution/safety-car/restart states light the pill up.
+        void UpdateRaceControlBanner()
+        {
+            if (raceControlPill == null)
+            {
+                return;
+            }
+
+            RaceManager.RaceControlState state = race.CurrentRaceControlState;
+            bool visible = state != RaceManager.RaceControlState.Green;
+            if (raceControlPill.root.gameObject.activeSelf != visible)
+            {
+                raceControlPill.root.gameObject.SetActive(visible);
+            }
+
+            if (!visible)
+            {
+                return;
+            }
+
+            switch (state)
+            {
+                case RaceManager.RaceControlState.YellowSector:
+                    raceControlPill.SetState("YELLOW FLAG", UiFactory.AccentAmber, true);
+                    break;
+                case RaceManager.RaceControlState.VirtualSafetyCar:
+                    raceControlPill.SetState("VSC", UiFactory.AccentCyan, true);
+                    break;
+                case RaceManager.RaceControlState.SafetyCarDeploying:
+                    bool deployLit = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f;
+                    raceControlPill.SetState("SAFETY CAR", UiFactory.Accent, deployLit);
+                    break;
+                case RaceManager.RaceControlState.SafetyCarActive:
+                    raceControlPill.SetState("SAFETY CAR", UiFactory.Accent, true);
+                    break;
+                case RaceManager.RaceControlState.SafetyCarInThisLap:
+                    raceControlPill.SetState("SC ENDING THIS LAP", UiFactory.AccentAmber, true);
+                    break;
+                case RaceManager.RaceControlState.Restart:
+                    bool restartLit = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f;
+                    raceControlPill.SetState("RESTART", Color.white, restartLit);
+                    break;
+            }
+        }
+
         void UpdateSlowElements(VehicleController car, LapTracker lap)
         {
             string session = race.IsTimeTrial ? "TIME TRIAL" : (race.CurrentSession == RaceWeekendSession.Qualifying ? "QUALIFYING" : "RACE");
@@ -887,6 +993,7 @@ namespace LocalFormulaRacing
             UpdateTyreCard(car);
             UpdateCarCard(car);
             UpdatePitCard(car);
+            UpdateScWindowCard();
             UpdateQualifyingCard();
             UpdateTowerRows();
         }
@@ -949,6 +1056,22 @@ namespace LocalFormulaRacing
             tyreTempValue.text = temp;
             tyreTempValue.color = temp == "HOT" ? UiFactory.Accent : (temp == "COLD" ? UiFactory.AccentCyan : UiFactory.AccentGreen);
 
+            if (tyreTagText != null)
+            {
+                string tags = "";
+                if (car.Tyres.LockupSeverity > 0.12f)
+                {
+                    tags = "<color=#FFC85C>LOCKUP</color>";
+                }
+
+                if (car.Tyres.FlatSpotLevel > 0.15f)
+                {
+                    tags += (string.IsNullOrEmpty(tags) ? "" : "   ") + "<color=#FF6C6C>FLAT SPOT</color>";
+                }
+
+                tyreTagText.text = tags;
+            }
+
             float wear01 = Mathf.Clamp01(car.Tyres.WearPercent / 100f);
             UiFactory.SetMeterValueAnimated(tyreWearFill, wear01);
             tyreWearFill.color = wear01 > 0.62f ? UiFactory.Accent : UiFactory.AccentAmber;
@@ -1008,6 +1131,36 @@ namespace LocalFormulaRacing
             string status = currentLap > nextLap ? "  <color=#FFC85C>LATE</color>" : "";
             string stopLabel = race.GetPlannedStopCount() >= 2 ? (player.pitStops == 0 ? "STOP 1  " : "STOP 2  ") : "";
             return stopLabel + "Lap " + nextLap + "  ·  " + compound.ToString().ToUpperInvariant() + status;
+        }
+
+        // Surfaces the pit-under-safety-car recommendation from RaceManager next
+        // to the existing pit card. Purely informational - the player still uses
+        // the existing pit request input to actually box, this just tells them
+        // when the strategy call favors it.
+        void UpdateScWindowCard()
+        {
+            if (scWindowCard == null)
+            {
+                return;
+            }
+
+            RaceManager.RaceControlState state = race.CurrentRaceControlState;
+            bool scPeriod = state == RaceManager.RaceControlState.SafetyCarActive ||
+                            state == RaceManager.RaceControlState.SafetyCarDeploying ||
+                            state == RaceManager.RaceControlState.VirtualSafetyCar;
+            bool recommend = scPeriod && !race.IsTimeTrial && race.CurrentSession != RaceWeekendSession.Qualifying &&
+                              !player.isPitting && race.RecommendedPitUnderSafetyCar(player);
+
+            if (scWindowCard.activeSelf != recommend)
+            {
+                scWindowCard.SetActive(recommend);
+            }
+
+            if (recommend)
+            {
+                TyreCompound compound = race.NextPlannedPitCompoundFor(player);
+                scWindowText.text = "SC WINDOW: BOX NOW?\n" + compound.ToString().ToUpperInvariant();
+            }
         }
 
         void UpdateQualifyingCard()
@@ -1090,6 +1243,15 @@ namespace LocalFormulaRacing
             }
 
             watchedLowFuel = lowFuel;
+
+            if (car.Tyres.TotalLockups > watchedTotalLockups)
+            {
+                watchedTotalLockups = car.Tyres.TotalLockups;
+                if (car.Tyres.LastLockupSeverity > 0.35f)
+                {
+                    PushNotification("HEAVY LOCKUP", UiFactory.AccentAmber);
+                }
+            }
 
             int damageBand = car.Damage.OverallPercent > 55f ? 2 : (car.Damage.OverallPercent > 25f ? 1 : 0);
             if (damageBand > watchedDamageBand)

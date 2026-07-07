@@ -544,6 +544,71 @@ namespace LocalFormulaRacing
                 settings.Save();
                 ShowSettings(data, career, settings);
             });
+
+            // Race control / safety car pass: its own card in the unused right
+            // portion of the Gameplay tab, mirroring the left/right two-card split
+            // already used on the Display & HUD tab rather than opening a new tab.
+            RectTransform raceControlPanel = UiFactory.CreateCard(background, "Race Control card", new Vector2(0.64f, 0.12f), new Vector2(0.94f, 0.76f));
+            RectTransform raceControlList = UiFactory.CreateRect(raceControlPanel, "Race Control list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
+            UiFactory.AddVerticalLayout(raceControlList, 8, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateSubHeader(raceControlList, "Race Control");
+
+            RectTransform safetyCarControl;
+            UiFactory.CreateSettingRow(raceControlList, "Safety Car", "How often full/virtual safety cars are triggered by incidents.", out safetyCarControl);
+            UiFactory.CreateCycleControl(safetyCarControl, SafetyCarFrequencyLabel(settings.Current.safetyCarFrequency), () =>
+            {
+                settings.Current.safetyCarFrequency = (settings.Current.safetyCarFrequency + 1) % 4;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
+            RectTransform mechanicalControl;
+            UiFactory.CreateSettingRow(raceControlList, "Mechanical Failures", "Whether cars can suffer race-ending mechanical failures.", out mechanicalControl);
+            UiFactory.CreateCycleControl(mechanicalControl, MechanicalFailureModeLabel(settings.Current.mechanicalFailureMode), () =>
+            {
+                settings.Current.mechanicalFailureMode = (settings.Current.mechanicalFailureMode + 1) % 3;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
+            RectTransform lockupsControl;
+            UiFactory.CreateSettingRow(raceControlList, "Lockups", "Locked front wheels under heavy braking cause flat spots and vibration.", out lockupsControl);
+            UiFactory.CreateToggleControl(lockupsControl, settings.Current.lockupsEnabled, () =>
+            {
+                settings.Current.lockupsEnabled = !settings.Current.lockupsEnabled;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
+            RectTransform raceControlMessagesControl;
+            UiFactory.CreateSettingRow(raceControlList, "Race Control Messages", "Yellow flag, safety car, and incident radio calls from the pit wall.", out raceControlMessagesControl);
+            UiFactory.CreateToggleControl(raceControlMessagesControl, settings.Current.raceControlMessages, () =>
+            {
+                settings.Current.raceControlMessages = !settings.Current.raceControlMessages;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+        }
+
+        string SafetyCarFrequencyLabel(int value)
+        {
+            switch (value)
+            {
+                case 0: return "Off";
+                case 1: return "Reduced";
+                case 3: return "High";
+                default: return "Standard";
+            }
+        }
+
+        string MechanicalFailureModeLabel(int value)
+        {
+            switch (value)
+            {
+                case 0: return "Off";
+                case 1: return "AI Only";
+                default: return "Standard";
+            }
         }
 
         public void ShowDisplaySettings(GameDataRepository data, CareerManager career, GameSettingsStore settings)
@@ -1809,9 +1874,13 @@ namespace LocalFormulaRacing
             UiFactory.AddRowCell(headerRow, "H team", "TEAM", 0.36f, 0.5f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
             UiFactory.AddRowCell(headerRow, "H tyre", "TYRE", 0.5f, 0.55f, 13, UiFactory.Accent, TextAnchor.MiddleCenter);
             UiFactory.AddRowCell(headerRow, "H gap", "TOTAL / GAP", 0.56f, 0.69f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H best", "BEST LAP", 0.69f, 0.81f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H pen", "PEN", 0.81f, 0.88f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H pts", "PTS", 0.88f, 0.97f, 13, UiFactory.Accent, TextAnchor.MiddleRight);
+            UiFactory.AddRowCell(headerRow, "H best", "BEST LAP", 0.69f, 0.79f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            // Widened from the original 0.81-0.88 so a retired car's DNF reason
+            // (collision damage, mechanical failure, stranded, ...) actually has
+            // room to render instead of being silently dropped in favor of the
+            // bare "DNF" tag already shown in the Gap column.
+            UiFactory.AddRowCell(headerRow, "H pen", "PEN / STATUS", 0.79f, 0.9f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            UiFactory.AddRowCell(headerRow, "H pts", "PTS", 0.9f, 0.97f, 13, UiFactory.Accent, TextAnchor.MiddleRight);
             if (results != null && results.Count > 0)
             {
                 float winnerTime = results[0].totalTime + results[0].penaltiesSeconds;
@@ -1821,7 +1890,12 @@ namespace LocalFormulaRacing
                     float classifiedTime = entry.totalTime + entry.penaltiesSeconds;
                     bool dnf = !string.IsNullOrEmpty(entry.penaltyReason) && entry.penaltyReason.Contains("DNF");
                     string gap = dnf ? "DNF" : (i == 0 ? UiFactory.FormatTime(classifiedTime) : "+" + (classifiedTime - winnerTime).ToString("0.0") + "s");
-                    string penalties = entry.penaltiesSeconds > 0f ? "+" + entry.penaltiesSeconds.ToString("0") + "s" : "--";
+                    // For classified cars this is just the time penalty, same as
+                    // before. For retired cars it now shows the actual reason
+                    // (collision damage, mechanical failure, stranded, ...)
+                    // instead of leaving the column at a wasted "--".
+                    string penColumnText = dnf ? DnfReasonLabel(entry.penaltyReason) : (entry.penaltiesSeconds > 0f ? "+" + entry.penaltiesSeconds.ToString("0") + "s" : "--");
+                    Color penColumnColor = dnf ? UiFactory.TextMuted : (entry.penaltiesSeconds > 0f ? UiFactory.AccentAmber : UiFactory.TextMuted);
                     RectTransform row = UiFactory.CreateTableRow(content, "Result row " + i, 1240f, 32f, entry.isPlayer, i);
                     UiFactory.AddPositionBadge(row, entry.finishingPosition, entry.isPlayer);
                     Color textColor = entry.isPlayer ? Color.white : (dnf ? UiFactory.TextMuted : new Color(0.9f, 0.95f, 0.98f));
@@ -1830,9 +1904,9 @@ namespace LocalFormulaRacing
                     UiFactory.AddRowCell(row, "Team", TeamLabel(race, entry.teamId), 0.36f, 0.5f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
                     UiFactory.AddRowDot(row, "Tyre dot", 0.525f, 13f, TyreDotColor(entry.tyreCompound));
                     UiFactory.AddRowCell(row, "Gap", gap, 0.56f, 0.69f, 14, dnf ? UiFactory.Accent : textColor, TextAnchor.MiddleLeft);
-                    UiFactory.AddRowCell(row, "Best", UiFactory.FormatTime(entry.bestLapTime), 0.69f, 0.81f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
-                    UiFactory.AddRowCell(row, "Pen", penalties, 0.81f, 0.88f, 14, entry.penaltiesSeconds > 0f ? UiFactory.AccentAmber : UiFactory.TextMuted, TextAnchor.MiddleLeft);
-                    UiFactory.AddRowCell(row, "Pts", entry.points.ToString(), 0.88f, 0.97f, 15, entry.points > 0 ? UiFactory.AccentGreen : UiFactory.TextMuted, TextAnchor.MiddleRight);
+                    UiFactory.AddRowCell(row, "Best", UiFactory.FormatTime(entry.bestLapTime), 0.69f, 0.79f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                    UiFactory.AddRowCell(row, "Pen", penColumnText, 0.79f, 0.9f, dnf ? 12 : 14, penColumnColor, TextAnchor.MiddleLeft);
+                    UiFactory.AddRowCell(row, "Pts", entry.points.ToString(), 0.9f, 0.97f, 15, entry.points > 0 ? UiFactory.AccentGreen : UiFactory.TextMuted, TextAnchor.MiddleRight);
                 }
             }
             else
@@ -2150,6 +2224,27 @@ namespace LocalFormulaRacing
             }
 
             return string.IsNullOrEmpty(teamId) ? "--" : teamId.ToUpperInvariant();
+        }
+
+        // RaceParticipant.ResultPenaltyReason() bakes the retirement reason into
+        // penaltyReason as either "DNF <reason>" or "<penalty>, DNF <reason>".
+        // The results row already shows the bare "DNF" tag in the Gap column;
+        // this pulls out just the human reason (e.g. "Collision damage",
+        // "Mechanical failure", "Stranded") for the Pen/Status column.
+        string DnfReasonLabel(string penaltyReason)
+        {
+            if (string.IsNullOrEmpty(penaltyReason))
+            {
+                return "Retired";
+            }
+
+            int index = penaltyReason.IndexOf("DNF ");
+            if (index < 0)
+            {
+                return "Retired";
+            }
+
+            return penaltyReason.Substring(index + 4);
         }
 
         Color TyreDotColor(string tyreName)
