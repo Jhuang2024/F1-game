@@ -563,7 +563,7 @@ namespace LocalFormulaRacing
             UiFactory.CreateSubHeader(raceControlList, "Race Control");
 
             RectTransform safetyCarControl;
-            UiFactory.CreateSettingRow(raceControlList, "Safety Car", "How often full/virtual safety cars are triggered by incidents.", out safetyCarControl);
+            UiFactory.CreateSettingRow(raceControlList, "Safety Car", "Off: local yellows only. Reduced: rare VSC/SC. Standard: occasional. High: more frequent, still not constant.", out safetyCarControl);
             UiFactory.CreateCycleControl(safetyCarControl, SafetyCarFrequencyLabel(settings.Current.safetyCarFrequency), () =>
             {
                 settings.Current.safetyCarFrequency = (settings.Current.safetyCarFrequency + 1) % 4;

@@ -179,6 +179,16 @@ namespace LocalFormulaRacing
                 raceManager.RecordPlayerLaunchInput(participant, command.throttle);
             }
 
+            // Race control pace parity (Task 2/3): AI has been VSC/SC pace-clamped
+            // for several passes, the player never was. This shapes throttle/brake
+            // toward the current cap and force-disables ERS/DRS while pace-limited,
+            // so holding Shift or a latched DRS press can never bypass race control.
+            command = raceManager.ApplyPlayerRaceControlLimiter(participant, command, Mathf.Abs(vehicle.CurrentSpeedKph));
+            if (!command.drs)
+            {
+                drsLatched = false;
+            }
+
             vehicle.SetCommand(command);
 
             // Kerb vibration: a tiny camera impulse sells the rumble without nausea.

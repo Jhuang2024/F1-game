@@ -92,6 +92,20 @@ namespace LocalFormulaRacing
         RaceParticipant safetyCarQueueLeader;
         float lastIncidentTime = -999f;
         float lastIncidentDistance = -99999f;
+        // Blocks a NEW VSC/SC escalation for a while after the field returns to
+        // Green, so one incident's aftermath can't chain into a second SC/VSC the
+        // moment the first ends - yellow flags themselves are unaffected.
+        float postEscalationCooldownTimer;
+        const float PostEscalationCooldownSeconds = 30f;
+
+        // Player race-control pace-limiter compliance tracking (Task 2/3): how long
+        // the player has been meaningfully over the current VSC/SC cap, and whether
+        // a warning has already been issued this violation - escalates to a time
+        // penalty only if they stay grossly over after being warned.
+        float playerRaceControlOverspeedTimer;
+        bool playerRaceControlWarningSent;
+        public bool IsPlayerOverRaceControlPace { get; private set; }
+        public bool IsPlayerRaceControlWarningActive { get; private set; }
 
         RuntimeUi ui;
         readonly List<RaceParticipant> emptyParticipants = new List<RaceParticipant>();
@@ -786,6 +800,7 @@ namespace LocalFormulaRacing
             }
 
             drsRestartCooldownTimer = Mathf.Max(0f, drsRestartCooldownTimer - Time.deltaTime);
+            postEscalationCooldownTimer = Mathf.Max(0f, postEscalationCooldownTimer - Time.deltaTime);
 
             if (yellowSectorNumber >= 0)
             {
@@ -825,7 +840,12 @@ namespace LocalFormulaRacing
         {
             int freqSetting = Settings == null ? 2 : Mathf.Clamp(Settings.Current.safetyCarFrequency, 0, 3);
             bool escalationAllowed = freqSetting > 0;
-            float freqScale = freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.5f : (freqSetting == 3 ? 2f : 1f));
+            // Retuned (Task 1): the old 0/0.5/1/2 scale stacked on top of an
+            // 0.85/0.9 baseline chance made Standard/High escalate almost every
+            // time. Off still fully disables VSC/SC escalation; Reduced/Standard/
+            // High now land at "rare" / "occasional" / "more frequent but not
+            // constant" against the lower baseline chances below.
+            float freqScale = freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.22f : (freqSetting == 3 ? 0.85f : 0.48f));
             bool preRace = StartCountdown > 0f;
             int mechanicalMode = Settings == null ? 2 : Settings.Current.mechanicalFailureMode;
 
@@ -904,7 +924,11 @@ namespace LocalFormulaRacing
                 if (destroyed)
                 {
                     RetireParticipant(participant, "Collision damage");
-                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Major : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Destroyed");
+                    // Truly catastrophic (a destroyed car actually blocking the racing
+                    // line) bypasses the escalation roll entirely rather than risking
+                    // "no response" to a car sitting dead in the road - still fully
+                    // subject to escalationAllowed, so Off never escalates regardless.
+                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Major : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Destroyed", blockingLine);
                     participant.incidentCooldownTimer = 20f;
                     continue;
                 }
@@ -981,7 +1005,7 @@ namespace LocalFormulaRacing
         // Groups incidents that land within a few seconds and a short stretch of
         // track into one escalated event (a simple pileup approximation) rather
         // than full physics collision-graph analysis.
-        void RegisterIncident(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause)
+        void RegisterIncident(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause, bool forceEscalate = false)
         {
             IncidentCount++;
             bool pileup = (RaceElapsed - lastIncidentTime) < 6f && Mathf.Abs(Track.WrapDistance(progress.distance - lastIncidentDistance)) < 40f;
@@ -993,12 +1017,12 @@ namespace LocalFormulaRacing
             }
 
             GameLog.Info("[RaceControl] Incident: " + (participant == null ? "?" : participant.driverName) +
-                " cause=" + cause + " severity=" + severity + " sector=" + progress.sector + (pileup ? " (pileup-escalated)" : ""));
+                " cause=" + cause + " severity=" + severity + " sector=" + progress.sector + (pileup ? " (pileup-escalated)" : "") + (forceEscalate ? " (force-escalate)" : ""));
 
-            ApplyIncidentSeverity(participant, severity, progress, freqScale, escalationAllowed);
+            ApplyIncidentSeverity(participant, severity, progress, freqScale, escalationAllowed, forceEscalate);
         }
 
-        void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed)
+        void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, bool forceEscalate = false)
         {
             // A local sector yellow always applies regardless of the safety-car
             // frequency setting - it is the lightest-weight signal and Off only
@@ -1014,19 +1038,35 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            // Bug fix (Part B.4): the previous 0.55x/0.7x baseline chances, stacked on
-            // top of detection that was already too conservative, compounded into
-            // "almost never see SC in a real race." Raised so Medium -> VSC is very
-            // likely (deterministic at High) and Major -> SC is very likely
-            // (deterministic at High, falling back to VSC mainly on Reduced) - the
-            // safetyCarFrequency setting's Off/Reduced/Standard/High scaling (0/0.5/1/2)
-            // still works exactly as before, just against a much higher baseline.
+            // Truly catastrophic cases (a destroyed car actually blocking the racing
+            // line) skip the roll and the post-escalation cooldown entirely - every
+            // other case still respects both, so one incident can't chain into
+            // repeated SC/VSC periods.
+            if (forceEscalate)
+            {
+                GameLog.Info("[RaceControl] Forced escalation (catastrophic, blocking): deploying safety car.");
+                BeginSafetyCarDeployment();
+                return;
+            }
+
+            if (postEscalationCooldownTimer > 0f)
+            {
+                GameLog.Info("[RaceControl] Escalation suppressed: post-escalation cooldown active (" + postEscalationCooldownTimer.ToString("0.0") + "s remaining).");
+                return;
+            }
+
+            // Retuned (Task 1): the previous 0.85/0.9 baseline chances, stacked on the
+            // old 0/0.5/1/2 frequency scale, made Standard/High escalate almost every
+            // time. Lower baselines + the lower freqScale above land Off at zero,
+            // Reduced/Standard/High at "rare" / "occasional" / "more frequent but not
+            // constant". A failed full-SC roll now only has a further chance of a VSC
+            // fallback rather than defaulting to it deterministically.
             if (severity == IncidentSeverity.Medium)
             {
                 if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar)
                 {
                     float roll = Random.value;
-                    float chance = Mathf.Clamp01(0.85f * freqScale);
+                    float chance = Mathf.Clamp01(0.40f * freqScale);
                     bool escalate = roll < chance;
                     GameLog.Info("[RaceControl] Medium incident escalation: roll=" + roll.ToString("0.00") + " chance=" + chance.ToString("0.00") + " result=" + (escalate ? "VSC deployed" : "no escalation"));
                     if (escalate)
@@ -1040,16 +1080,31 @@ namespace LocalFormulaRacing
 
             // Major.
             float scRoll = Random.value;
-            float scChance = Mathf.Clamp01(0.9f * freqScale);
+            float scChance = Mathf.Clamp01(0.5f * freqScale);
             bool deploySc = scRoll < scChance;
-            GameLog.Info("[RaceControl] Major incident escalation: roll=" + scRoll.ToString("0.00") + " chance=" + scChance.ToString("0.00") + " result=" + (deploySc ? "Safety car deployed" : "VSC fallback"));
             if (deploySc)
             {
+                GameLog.Info("[RaceControl] Major incident escalation: roll=" + scRoll.ToString("0.00") + " chance=" + scChance.ToString("0.00") + " result=Safety car deployed");
                 BeginSafetyCarDeployment();
+                return;
             }
-            else if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar)
+
+            // A failed full-SC roll no longer defaults deterministically to VSC -
+            // it gets its own (separate, still freqScale-scaled) fallback chance, so
+            // a Major incident can also resolve to "yellow only" rather than always
+            // producing at least a VSC.
+            if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar)
             {
-                BeginVirtualSafetyCar();
+                float vscFallbackRoll = Random.value;
+                float vscFallbackChance = Mathf.Clamp01(0.55f * freqScale);
+                bool vscFallback = vscFallbackRoll < vscFallbackChance;
+                GameLog.Info("[RaceControl] Major incident escalation: scRoll=" + scRoll.ToString("0.00") + " scChance=" + scChance.ToString("0.00") +
+                    " (no SC) vscFallbackRoll=" + vscFallbackRoll.ToString("0.00") + " vscFallbackChance=" + vscFallbackChance.ToString("0.00") +
+                    " result=" + (vscFallback ? "VSC deployed" : "no escalation, yellow only"));
+                if (vscFallback)
+                {
+                    BeginVirtualSafetyCar();
+                }
             }
         }
 
@@ -1126,6 +1181,7 @@ namespace LocalFormulaRacing
                     {
                         CurrentRaceControlState = RaceControlState.Green;
                         IsOvertakingAllowed = true;
+                        postEscalationCooldownTimer = PostEscalationCooldownSeconds;
                         GameLog.Info("[RaceControl] VSC ending, green flag.");
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
@@ -1206,6 +1262,7 @@ namespace LocalFormulaRacing
                         CurrentRaceControlState = RaceControlState.Green;
                         IsOvertakingAllowed = true;
                         drsRestartCooldownTimer = 45f;
+                        postEscalationCooldownTimer = PostEscalationCooldownSeconds;
                         playerScPitPromptSent = false;
                         safetyCarQueueLeader = null;
                         GameLog.Info("[RaceControl] Restart complete, green flag.");
@@ -2092,6 +2149,130 @@ namespace LocalFormulaRacing
             participant.pitTyreSelectionActive = participant.vehicle != null && participant.vehicle.PitRequested && !participant.isPitting;
             SessionMessage = "Pit tyre selected: " + compound;
             PostEngineerMessage("Pit tyres selected: " + compound + ".", true);
+        }
+
+        // ---------- Player race-control pace parity (Task 2/3/5) ----------
+        // AI has been pace-clamped under VSC/SC in AiVehicleController for several
+        // passes; the player was never held to the same rule and could just drive
+        // flat-out through a safety car period. These give the player the same
+        // physical constraint instead of relying on penalties alone.
+        public bool IsVirtualSafetyCarActive { get { return CurrentRaceControlState == RaceControlState.VirtualSafetyCar; } }
+
+        public bool IsFullSafetyCarPeriod
+        {
+            get
+            {
+                return CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
+                       CurrentRaceControlState == RaceControlState.SafetyCarActive ||
+                       CurrentRaceControlState == RaceControlState.SafetyCarInThisLap;
+            }
+        }
+
+        public bool IsRaceControlPaceLimited { get { return IsVirtualSafetyCarActive || IsFullSafetyCarPeriod; } }
+
+        // The allowed speed cap for the current race-control state. Deploying and
+        // "in this lap" allow a little more than the steady active/VSC caps since
+        // the field is still catching up to the queue or about to go green.
+        public float PlayerRaceControlSpeedLimitKph(RaceParticipant participant)
+        {
+            switch (CurrentRaceControlState)
+            {
+                case RaceControlState.VirtualSafetyCar:
+                    return 190f;
+                case RaceControlState.SafetyCarDeploying:
+                    return SafetyCarTargetSpeedKph + 30f;
+                case RaceControlState.SafetyCarActive:
+                    return SafetyCarTargetSpeedKph;
+                case RaceControlState.SafetyCarInThisLap:
+                    return SafetyCarTargetSpeedKph + 15f;
+                default:
+                    return 9999f;
+            }
+        }
+
+        // Soft pace limiter applied to the PLAYER's own command, mirroring the AI
+        // speed clamp in AiVehicleController.Update(). Never touches the AI's
+        // command (they're already clamped elsewhere), never fights pit entry/
+        // exit/limiter, and always forces ERS/DRS off while pace-limited - it is
+        // the single place both of those get enforced for the player, so a Shift-
+        // key press or a still-latched DRS press can never bypass race control.
+        public VehicleCommand ApplyPlayerRaceControlLimiter(RaceParticipant participant, VehicleCommand command, float currentSpeedKph)
+        {
+            IsPlayerOverRaceControlPace = false;
+            if (participant == null || !participant.isPlayer || CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
+            {
+                return command;
+            }
+
+            if (participant.isPitting || participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit)
+            {
+                // Pit limiter/guidance already governs speed here - don't stack a
+                // second, conflicting speed rule on top of it.
+                playerRaceControlOverspeedTimer = 0f;
+                playerRaceControlWarningSent = false;
+                IsPlayerRaceControlWarningActive = false;
+                return command;
+            }
+
+            if (!IsRaceControlPaceLimited)
+            {
+                playerRaceControlOverspeedTimer = 0f;
+                playerRaceControlWarningSent = false;
+                IsPlayerRaceControlWarningActive = false;
+                return command;
+            }
+
+            command.ers = false;
+            command.drs = false;
+
+            float cap = PlayerRaceControlSpeedLimitKph(participant);
+            float overspeed = currentSpeedKph - cap;
+            if (overspeed <= 0f)
+            {
+                playerRaceControlOverspeedTimer = 0f;
+                playerRaceControlWarningSent = false;
+                IsPlayerRaceControlWarningActive = false;
+                return command;
+            }
+
+            IsPlayerOverRaceControlPace = true;
+
+            // Soft shaping, not a pit-limiter-style hard wall: throttle bleeds off
+            // over the first 15kph of overspeed, and only meaningfully-over cars
+            // (>15kph) get proportional brake on top, capped well short of a full
+            // stomp so it never fights the player violently mid-corner.
+            float throttleCut = Mathf.Clamp01(overspeed / 15f);
+            command.throttle = Mathf.Min(command.throttle, 1f - throttleCut);
+            if (overspeed > 15f)
+            {
+                float brakeAmount = Mathf.Clamp01((overspeed - 15f) / 40f) * 0.55f;
+                command.brake = Mathf.Max(command.brake, brakeAmount);
+            }
+
+            // Warn first, then penalize only if the player stays grossly over the
+            // cap after the warning - never an instant penalty.
+            playerRaceControlOverspeedTimer += Time.deltaTime;
+            if (!playerRaceControlWarningSent && playerRaceControlOverspeedTimer > 2.5f)
+            {
+                playerRaceControlWarningSent = true;
+                IsPlayerRaceControlWarningActive = true;
+                SessionMessage = "Slow down: over the race control pace limit";
+                if (Settings != null && Settings.Current.raceControlMessages)
+                {
+                    PostEngineerMessage("You're over the pace limit, slow down.", true);
+                }
+            }
+            else if (playerRaceControlWarningSent && overspeed > 25f && playerRaceControlOverspeedTimer > 6f)
+            {
+                AddPenalty(participant, 5f, "Ignored safety car pace");
+                GameLog.Warn("[RaceControl] Player pace penalty: " + overspeed.ToString("0") + "kph over cap for " + playerRaceControlOverspeedTimer.ToString("0.0") + "s (+5s).");
+                SessionMessage = "Pace limit ignored: +5s";
+                playerRaceControlOverspeedTimer = 0f;
+                playerRaceControlWarningSent = false;
+                IsPlayerRaceControlWarningActive = false;
+            }
+
+            return command;
         }
 
         public bool IsDrsAvailable(RaceParticipant participant)

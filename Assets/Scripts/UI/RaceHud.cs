@@ -89,6 +89,10 @@ namespace LocalFormulaRacing
         // the top session strip. Hidden entirely under green-flag racing so it
         // never clutters the normal case.
         HudPill raceControlPill;
+        // Pace-limiter compliance readout, directly beneath the state pill - only
+        // ever visible alongside it, since compliance is meaningless outside a
+        // pace-limited period.
+        HudPill paceCompliancePill;
 
         // Center overlays.
         Text drsFlash;
@@ -248,6 +252,17 @@ namespace LocalFormulaRacing
             raceControlPill.root.anchoredPosition = new Vector2(16f, -10f);
             ApplyPanelScale(raceControlPill.root);
             raceControlPill.root.gameObject.SetActive(false);
+
+            // Smaller companion pill directly under the state pill: only ever
+            // shown while the state pill is, so it never appears as an orphaned
+            // "DELTA OK" during a normal green-flag race.
+            paceCompliancePill = UiFactory.CreatePill(transform, "Pace Compliance", 220f, 30f);
+            paceCompliancePill.root.anchorMin = new Vector2(0f, 1f);
+            paceCompliancePill.root.anchorMax = new Vector2(0f, 1f);
+            paceCompliancePill.root.pivot = new Vector2(0f, 1f);
+            paceCompliancePill.root.anchoredPosition = new Vector2(16f, -50f);
+            ApplyPanelScale(paceCompliancePill.root);
+            paceCompliancePill.root.gameObject.SetActive(false);
         }
 
         void BuildProgressStrip()
@@ -973,6 +988,44 @@ namespace LocalFormulaRacing
                     raceControlPill.SetState("RESTART", Color.white, restartLit);
                     break;
             }
+
+            UpdatePaceCompliancePill();
+        }
+
+        // Only meaningful while the player is actually pace-limited (VSC/full SC) -
+        // hidden the rest of the time, including during a plain sector yellow,
+        // which doesn't carry a hard pace requirement.
+        void UpdatePaceCompliancePill()
+        {
+            if (paceCompliancePill == null)
+            {
+                return;
+            }
+
+            bool show = race.IsRaceControlPaceLimited;
+            if (paceCompliancePill.root.gameObject.activeSelf != show)
+            {
+                paceCompliancePill.root.gameObject.SetActive(show);
+            }
+
+            if (!show)
+            {
+                return;
+            }
+
+            if (race.IsPlayerRaceControlWarningActive)
+            {
+                bool lit = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f;
+                paceCompliancePill.SetState("PACE WARNING", UiFactory.Accent, lit);
+            }
+            else if (race.IsPlayerOverRaceControlPace)
+            {
+                paceCompliancePill.SetState("SLOW DOWN", UiFactory.AccentAmber, true);
+            }
+            else
+            {
+                paceCompliancePill.SetState("DELTA OK", UiFactory.AccentGreen, false);
+            }
         }
 
         void UpdateSlowElements(VehicleController car, LapTracker lap)
@@ -1605,6 +1658,15 @@ namespace LocalFormulaRacing
         // names the active strategy so BAL/Attack ready still reads clearly.
         void UpdateErsPill(VehicleController car)
         {
+            // Race control (VSC/SC) force-disables ERS deploy for the player exactly
+            // like it already does for AI - show that explicitly rather than letting
+            // it read as "ready but the driver chose not to deploy".
+            if (race != null && race.IsRaceControlPaceLimited)
+            {
+                ersPill.SetState("ERS DISABLED", UiFactory.TextMuted, false);
+                return;
+            }
+
             int mode = race == null || race.Settings == null ? (int)ErsStrategyMode.Balanced : race.Settings.Current.ersMode;
             if (car.ErsDeploying)
             {
