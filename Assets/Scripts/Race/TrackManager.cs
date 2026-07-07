@@ -314,6 +314,9 @@ namespace LocalFormulaRacing
         Material skidMarkMaterial;
         Material barrierMaterial;
         Material tireBarrierMaterial;
+        Material concreteMaterial;
+        Material fenceMaterial;
+        Material fencePostMaterial;
         Material foliageMaterial;
         Material metalMaterial;
         Material glassMaterial;
@@ -323,6 +326,20 @@ namespace LocalFormulaRacing
         PhysicMaterial runoffPhysicsMaterial;
         Mesh visualBoxMesh;
         readonly List<TrackSolidObstacle> solidObstacles = new List<TrackSolidObstacle>();
+
+        // World Y of the flat terrain surface; road above this by more than the
+        // threshold counts as elevated (bridge/overpass/hillside) and gets full
+        // side containment instead of sparse runoff markers.
+        float groundTopY;
+        const float ElevationThreshold = 1.35f;
+        const float TallFenceElevation = 3f;
+        const float SafetyBarrierSpacing = 9f;
+
+        // Visual identity flags derived from the event so night circuits glow and
+        // desert circuits bake, instead of everything sharing one look.
+        bool nightTrack;
+        bool twilightTrack;
+        Material edgeGlowMaterial;
 
         public TrackRuntime Build(CalendarEventData eventData)
         {
@@ -337,6 +354,9 @@ namespace LocalFormulaRacing
                 trackName = eventData != null ? eventData.displayName : "Prototype GP"
             };
             Runtime = CreateLayout(eventData);
+            string trackId = Runtime.trackId ?? "";
+            nightTrack = trackId.Contains("singapore") || trackId.Contains("las_vegas") || trackId.Contains("qatar");
+            twilightTrack = trackId.Contains("abu_dhabi");
             CreateMaterials();
             BuildGround();
             BuildRoadMesh();
@@ -345,6 +365,7 @@ namespace LocalFormulaRacing
             BuildGridPaint();
             BuildKerbs();
             BuildBarriers();
+            BuildSafetyBarriers();
             BuildTrackMarkers();
             BuildPitLane();
             BuildStartGantry();
@@ -1150,11 +1171,17 @@ namespace LocalFormulaRacing
             skidMarkMaterial = CreateMaterial("Runtime Skid Mark", new Color(0.001f, 0.001f, 0.001f, 0.92f), 0f, 0.16f);
             barrierMaterial = CreateMaterial("Runtime Barrier", new Color(0.68f, 0.72f, 0.74f), 0.12f, 0.62f);
             tireBarrierMaterial = CreateMaterial("Runtime Tyre Barrier", new Color(0.015f, 0.016f, 0.017f), 0.02f, 0.28f);
+            concreteMaterial = CreateMaterial("Runtime Concrete Wall", new Color(0.56f, 0.58f, 0.59f), 0.04f, 0.32f);
+            fenceMaterial = CreateMaterial("Runtime Catch Fence", new Color(0.14f, 0.16f, 0.18f), 0.42f, 0.44f);
+            fencePostMaterial = CreateMaterial("Runtime Fence Post", new Color(0.4f, 0.44f, 0.47f), 0.55f, 0.66f);
             foliageMaterial = CreateMaterial("Runtime Foliage", new Color(0.04f, 0.32f, 0.12f), 0f, 0.42f);
             metalMaterial = CreateMaterial("Runtime Brushed Metal", new Color(0.52f, 0.56f, 0.58f), 0.42f, 0.78f);
             glassMaterial = CreateMaterial("Runtime Glass", new Color(0.12f, 0.28f, 0.38f, 0.85f), 0.1f, 0.95f);
             lightGlowMaterial = CreateMaterial("Runtime Light Glow", new Color(1f, 0.85f, 0.4f), 0f, 0.92f, new Color(1f, 0.62f, 0.15f));
             sceneryAccentMaterial = CreateMaterial("Runtime Scenery Accent", new Color(0.92f, 0.03f, 0.025f), 0.05f, 0.65f);
+            edgeGlowMaterial = nightTrack || twilightTrack
+                ? CreateMaterial("Runtime Edge Glow", new Color(0.85f, 0.95f, 1f), 0.05f, 0.85f, new Color(0.32f, 0.42f, 0.6f))
+                : roadEdgeMaterial;
         }
 
         Material CreateMaterial(string materialName, Color color)
@@ -1225,6 +1252,7 @@ namespace LocalFormulaRacing
             Vector3 center = bounds.center;
             center.y = bounds.min.y - 1.25f;
             Vector3 size = new Vector3(Mathf.Max(1200f, bounds.size.x * 1.5f), 1.0f, Mathf.Max(1200f, bounds.size.z * 1.5f));
+            groundTopY = center.y + size.y * 0.5f;
             GameObject ground = CreateVisualBox(Runtime.styleName + " terrain base", center, Quaternion.identity, size, grassMaterial);
             ground.layer = 0;
             BoxCollider collider = ground.AddComponent<BoxCollider>();
@@ -1315,9 +1343,9 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
 
-                // Edge lines
-                CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, roadEdgeMaterial, "Left edge line");
-                CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, roadEdgeMaterial, "Right edge line");
+                // Edge lines; emissive at night so the circuit reads under floodlights.
+                CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, edgeGlowMaterial, "Left edge line");
+                CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, edgeGlowMaterial, "Right edge line");
 
                 // Racing line rubbering
                 if (Mathf.FloorToInt(d / spacing) % 2 == 0)
@@ -1439,6 +1467,13 @@ namespace LocalFormulaRacing
             float spacing = streetCircuit ? 18f : 30f;
             for (float d = 0f; d < Runtime.length; d += spacing)
             {
+                // Elevated stretches get continuous walls and fences from
+                // BuildSafetyBarriers instead of these sparse markers.
+                if (IsElevatedAtDistance(d) || IsElevatedAtDistance(d + spacing * 0.5f))
+                {
+                    continue;
+                }
+
                 Vector3 point;
                 Vector3 forward;
                 Vector3 right;
@@ -1455,6 +1490,233 @@ namespace LocalFormulaRacing
                     CreateBarrier(point + right * (Runtime.roadHalfWidth + (street ? 2f : 5.5f)), forward, street);
                 }
             }
+        }
+
+        // ---------- elevated-section safety ----------
+
+        public float ElevationAboveGround(float distance)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            return point.y - groundTopY;
+        }
+
+        public bool IsElevatedAtDistance(float distance)
+        {
+            return ElevationAboveGround(distance) > ElevationThreshold;
+        }
+
+        public bool NeedsCatchFence(float distance)
+        {
+            if (ElevationAboveGround(distance) > TallFenceElevation)
+            {
+                return true;
+            }
+
+            return IsElevatedAtDistance(distance) &&
+                   (Runtime.styleName.Contains("street") || Runtime.styleName.Contains("Street"));
+        }
+
+        // Continuous concrete wall + catch fence along every elevated stretch, both
+        // sides, chord-following so curves stay sealed. Respawn remains only as a
+        // fallback; these are the primary containment.
+        void BuildSafetyBarriers()
+        {
+            bool previousElevated = IsElevatedAtDistance(-SafetyBarrierSpacing);
+            for (float d = 0f; d < Runtime.length; d += SafetyBarrierSpacing)
+            {
+                bool elevated = IsElevatedAtDistance(d) || IsElevatedAtDistance(d + SafetyBarrierSpacing * 0.5f) || IsElevatedAtDistance(d + SafetyBarrierSpacing);
+                if (elevated)
+                {
+                    float normalized = d / Mathf.Max(1f, Runtime.length);
+                    bool insidePitCorridor = normalized > 0.83f || normalized < 0.06f;
+
+                    CreateBridgeFenceSegment(d, -1f, Runtime.roadHalfWidth + 1.15f);
+
+                    // Elevated safety overrides the pit-lane visual gap, but the wall
+                    // moves outward past the whole pit complex (service road, boxes,
+                    // crew) so the corridor stays usable while the drop stays sealed.
+                    float rightLateral = insidePitCorridor ? Mathf.Max(Runtime.roadHalfWidth + 17f, 30f) : Runtime.roadHalfWidth + 1.15f;
+                    CreateBridgeFenceSegment(d, 1f, rightLateral);
+
+                    if (ElevationAboveGround(d) > 4f && Mathf.FloorToInt(d / SafetyBarrierSpacing) % 3 == 0)
+                    {
+                        CreateBridgeSupports(d);
+                    }
+                }
+
+                // Soften the transition into and out of an elevated stretch with tyre
+                // barrier stacks so run-off areas funnel cars back before the drop.
+                if (elevated != previousElevated)
+                {
+                    CreateTransitionTyreStacks(d);
+                }
+
+                previousElevated = elevated;
+            }
+        }
+
+        // One chord-aligned protection segment on one side: low concrete wall plus a
+        // tall collidable catch fence with visual posts and rails.
+        void CreateBridgeFenceSegment(float distance, float side, float lateral)
+        {
+            Vector3 a;
+            Vector3 b;
+            Vector3 mid;
+            Vector3 forward;
+            Vector3 right;
+            Vector3 discard;
+            Runtime.SampleAtDistance(distance, out a, out discard, out right);
+            Runtime.SampleAtDistance(distance + SafetyBarrierSpacing, out b, out discard, out right);
+            Runtime.SampleAtDistance(distance + SafetyBarrierSpacing * 0.5f, out mid, out forward, out right);
+
+            Vector3 chord = b - a;
+            float segmentLength = Mathf.Max(4f, chord.magnitude) + 1.6f;
+            Vector3 chordForward = chord.sqrMagnitude > 0.01f ? chord.normalized : forward;
+            Vector3 basePosition = mid + right * side * lateral;
+
+            CreateConcreteWall(basePosition, chordForward, segmentLength);
+            if (NeedsCatchFence(distance))
+            {
+                CreateCatchFence(basePosition, chordForward, segmentLength);
+            }
+        }
+
+        void CreateConcreteWall(Vector3 basePosition, Vector3 forward, float segmentLength)
+        {
+            GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            wall.name = "Bridge concrete wall";
+            wall.transform.SetParent(transform);
+            Vector3 scale = new Vector3(0.5f, 1.25f, segmentLength);
+            wall.transform.localScale = scale;
+            wall.GetComponent<Renderer>().sharedMaterial = concreteMaterial;
+            TryPlaceSolidObstacle(wall, "bridge-wall", basePosition, forward, scale, 0.62f, 0.5f);
+        }
+
+        void CreateCatchFence(Vector3 basePosition, Vector3 forward, float segmentLength)
+        {
+            GameObject fence = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            fence.name = "Catch fence";
+            fence.transform.SetParent(transform);
+            Vector3 scale = new Vector3(0.18f, 2.6f, segmentLength);
+            fence.transform.localScale = scale;
+            fence.GetComponent<Renderer>().sharedMaterial = fenceMaterial;
+            if (!TryPlaceSolidObstacle(fence, "catch-fence", basePosition, forward, scale, 2.5f, 0.5f))
+            {
+                return;
+            }
+
+            // Visual posts and a top rail keyed off the placed fence so they follow
+            // any lateral repair the placement pass applied.
+            Vector3 placed = fence.transform.position;
+            Vector3 placedForward = fence.transform.forward;
+            float detail = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+            int posts = detail < 0.6f ? 1 : 2;
+            for (int i = 0; i <= posts; i++)
+            {
+                float t = posts == 0 ? 0f : (i / (float)posts) - 0.5f;
+                Vector3 postPosition = placed + placedForward * t * (segmentLength - 1f);
+                CreateVisualBox("Catch fence post", new Vector3(postPosition.x, placed.y, postPosition.z), Quaternion.LookRotation(placedForward, Vector3.up), new Vector3(0.14f, 2.6f, 0.14f), fencePostMaterial);
+            }
+
+            CreateVisualBox("Catch fence rail", placed + Vector3.up * 1.28f, Quaternion.LookRotation(placedForward, Vector3.up), new Vector3(0.2f, 0.09f, segmentLength), fencePostMaterial);
+        }
+
+        void CreateBridgeSupports(float distance)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            float height = point.y - groundTopY - 0.2f;
+            if (height < 2f)
+            {
+                return;
+            }
+
+            Vector3 columnCenter = new Vector3(point.x, groundTopY + height * 0.5f, point.z);
+            CreateVisualBox("Bridge support column", columnCenter, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1.7f, height, 1.7f), concreteMaterial);
+            CreateVisualBox("Bridge support crossbeam", new Vector3(point.x, point.y - 0.55f, point.z), Quaternion.LookRotation(forward, Vector3.up), new Vector3(Runtime.roadHalfWidth * 2f + 1.6f, 0.5f, 1.9f), concreteMaterial);
+        }
+
+        void CreateTransitionTyreStacks(float distance)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            for (int side = -1; side <= 1; side += 2)
+            {
+                GameObject stack = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                stack.name = "Runoff tyre barrier stack";
+                stack.transform.SetParent(transform);
+                Vector3 scale = new Vector3(1.2f, 1f, 4.6f);
+                stack.transform.localScale = scale;
+                stack.GetComponent<Renderer>().sharedMaterial = tireBarrierMaterial;
+                TryPlaceSolidObstacle(stack, "tyre-barrier", point + right * side * (Runtime.roadHalfWidth + 2.6f), forward, scale, 0.5f, 0.7f);
+            }
+        }
+
+        // Audit pass: every elevated sample must have solid protection close by on
+        // both sides, otherwise the report flags the gap loudly.
+        void ValidateElevatedProtection(TrackValidationReport report)
+        {
+            int unprotectedSamples = 0;
+            for (float d = 0f; d < Runtime.length; d += 22f)
+            {
+                if (!IsElevatedAtDistance(d))
+                {
+                    continue;
+                }
+
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    Vector3 expected = point + right * side * (Runtime.roadHalfWidth + 1.15f);
+                    if (!HasSolidProtectionNear(expected, 26f))
+                    {
+                        unprotectedSamples++;
+                        report.Warn("elevated road at distance " + d.ToString("0") + "m has no side protection on " + (side < 0 ? "left" : "right") + " side.");
+                    }
+                }
+            }
+
+            if (unprotectedSamples == 0)
+            {
+                GameLog.Info("[TrackValidation] Elevated sections fully protected on " + Runtime.displayName);
+            }
+        }
+
+        bool HasSolidProtectionNear(Vector3 position, float radius)
+        {
+            for (int i = 0; i < solidObstacles.Count; i++)
+            {
+                TrackSolidObstacle obstacle = solidObstacles[i];
+                if (obstacle == null)
+                {
+                    continue;
+                }
+
+                string type = obstacle.obstacleType ?? "";
+                if (!type.Contains("wall") && !type.Contains("fence") && !type.Contains("barrier") && !type.Contains("rail"))
+                {
+                    continue;
+                }
+
+                Vector3 flatDelta = obstacle.transform.position - position;
+                flatDelta.y = 0f;
+                if (flatDelta.sqrMagnitude < radius * radius)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         void CreateBarrier(Vector3 position, Vector3 forward, bool street)
@@ -1487,6 +1749,8 @@ namespace LocalFormulaRacing
             CreateTrackLine(0f, "Start finish", Color.white, 2.4f);
             CreateTrackLine(Runtime.length * 0.333f, "Sector 1 line", new Color(0.1f, 0.75f, 1f), 1.2f);
             CreateTrackLine(Runtime.length * 0.666f, "Sector 2 line", new Color(0.1f, 1f, 0.45f), 1.2f);
+            CreateSectorBoard(Runtime.length * 0.333f, new Color(0.1f, 0.75f, 1f));
+            CreateSectorBoard(Runtime.length * 0.666f, new Color(0.1f, 1f, 0.45f));
 
             // Distance boards for major braking zones
             for (int i = 0; i < Runtime.centerLine.Count; i++)
@@ -1501,6 +1765,28 @@ namespace LocalFormulaRacing
                     CreateBrakingBoard(dist - 50f, "50");
                 }
             }
+        }
+
+        void CreateSectorBoard(float distance, Color color)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            Material boardMaterial = CreateMaterial("Sector board material", color, 0.05f, 0.7f, nightTrack ? color * 0.4f : Color.black);
+            CreateVisualBox("Sector board", point - right * (Runtime.roadHalfWidth + 3.2f) + Vector3.up * 2.1f, Quaternion.LookRotation(right, Vector3.up), new Vector3(0.14f, 1f, 1.6f), boardMaterial);
+            CreateVisualBox("Sector board post", point - right * (Runtime.roadHalfWidth + 3.2f) + Vector3.up * 0.8f, Quaternion.LookRotation(right, Vector3.up), new Vector3(0.12f, 1.6f, 0.12f), metalMaterial);
+        }
+
+        // Small marshal hut with a flag pole; placed sparsely around the lap.
+        void CreateMarshalPost(Vector3 position, Vector3 forward, int index)
+        {
+            Vector3 safePosition = PushSceneryClearOfTrack(position, 6.5f);
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            CreateVisualBox("Marshal post hut", safePosition + Vector3.up * 0.75f, rotation, new Vector3(1.7f, 1.5f, 1.7f), barrierMaterial);
+            CreateVisualBox("Marshal post roof", safePosition + Vector3.up * 1.62f, rotation, new Vector3(1.95f, 0.16f, 1.95f), sceneryAccentMaterial);
+            CreateVisualBox("Marshal flag pole", safePosition + Vector3.up * 2.6f, rotation, new Vector3(0.08f, 1.9f, 0.08f), metalMaterial);
+            CreateVisualBox("Marshal flag", safePosition + Vector3.up * 3.3f + forward * 0.32f, rotation, new Vector3(0.05f, 0.4f, 0.62f), index % 2 == 0 ? sceneryAccentMaterial : lineMaterial);
         }
 
         void CreateBrakingBoard(float distance, string label)
@@ -1631,14 +1917,21 @@ namespace LocalFormulaRacing
             CreateGantryPost(left, forward);
             CreateGantryPost(rightSide, forward);
 
-            GameObject crossbar = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            crossbar.name = "Start gantry crossbar";
-            crossbar.transform.SetParent(transform);
-            crossbar.transform.position = point + Vector3.up * 7.2f;
-            crossbar.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
-            crossbar.transform.localScale = new Vector3(Runtime.roadHalfWidth * 2.2f, 0.85f, 1.4f);
-            crossbar.GetComponent<Renderer>().sharedMaterial = metalMaterial;
-            MakeVisualOnly(crossbar);
+            Quaternion gantryRotation = Quaternion.LookRotation(forward, Vector3.up);
+            float span = Runtime.roadHalfWidth * 2.2f;
+
+            // Double-boom truss with diagonal braces instead of one blank block.
+            CreateVisualBox("Start gantry boom lower", point + Vector3.up * 6.7f, gantryRotation, new Vector3(span, 0.32f, 0.9f), metalMaterial);
+            CreateVisualBox("Start gantry boom upper", point + Vector3.up * 7.7f, gantryRotation, new Vector3(span, 0.32f, 0.9f), metalMaterial);
+            int braces = Mathf.Max(4, Mathf.RoundToInt(span / 3.2f));
+            for (int i = 0; i < braces; i++)
+            {
+                float t = (i + 0.5f) / braces - 0.5f;
+                CreateVisualBox("Start gantry brace", point + Vector3.up * 7.2f + Vector3.Cross(Vector3.up, forward).normalized * t * span, gantryRotation * Quaternion.Euler(0f, 0f, i % 2 == 0 ? 32f : -32f), new Vector3(0.14f, 1.1f, 0.14f), metalMaterial);
+            }
+
+            // Backlit event panel above the lights.
+            CreateVisualBox("Start gantry panel", point + Vector3.up * 8.5f - forward * 0.2f, gantryRotation, new Vector3(Mathf.Min(10f, span * 0.6f), 1.1f, 0.2f), nightTrack || twilightTrack ? lightGlowMaterial : sceneryAccentMaterial);
 
             // Double row of start lights
             for (int row = 0; row < 2; row++)
@@ -1697,10 +1990,15 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                // Trackside detail: marshal posts and towers
+                // Trackside detail: floodlights and marshal posts.
                 if (i % 8 == 0)
                 {
-                    CreateFloodlight(point + right * side * (Runtime.roadHalfWidth + 6.5f), forward, night || street);
+                    CreateFloodlight(point + right * side * (Runtime.roadHalfWidth + 6.5f), forward, night || nightTrack || street);
+                }
+
+                if (i % 12 == 4)
+                {
+                    CreateMarshalPost(point + right * side * (Runtime.roadHalfWidth + 9f), forward, i);
                 }
 
                 Vector3 basePosition = point + right * side * (Runtime.roadHalfWidth + (street ? 18f : 32f));
@@ -1728,29 +2026,59 @@ namespace LocalFormulaRacing
             Vector3 right;
             Runtime.SampleAtDistance(Runtime.length * normalizedDistance, out point, out forward, out right);
             Vector3 basePosition = point + right * side * (Runtime.roadHalfWidth + 18f);
-            for (int row = 0; row < 4; row++)
+            Vector3 lateral = right * side;
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+
+            // Tiered seating stepping up and away from the track, with colored crowd
+            // blocks so the stands read as full rather than as bare metal shelves.
+            for (int row = 0; row < 6; row++)
             {
-                GameObject step = GameObject.CreatePrimitive(PrimitiveType.Cube);
-                step.name = "Generic grandstand row";
-                step.transform.SetParent(transform);
-                step.transform.position = basePosition + Vector3.up * (0.35f + row * 0.38f) - forward * row * 1.1f;
-                step.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
-                step.transform.localScale = new Vector3(16f, 0.32f, 1.05f);
-                step.GetComponent<Renderer>().sharedMaterial = row % 2 == 0 ? metalMaterial : glassMaterial;
-                MakeVisualOnly(step);
+                Vector3 rowCenter = basePosition + Vector3.up * (0.4f + row * 0.62f) + lateral * row * 1.15f;
+                CreateVisualBox("Grandstand tier", rowCenter, rotation, new Vector3(1.25f, 0.5f, 22f), metalMaterial);
+                CreateVisualBox("Grandstand crowd block", rowCenter + Vector3.up * 0.45f, rotation, new Vector3(0.9f, 0.42f, 21f), row % 2 == 0 ? sceneryAccentMaterial : glassMaterial);
+            }
+
+            // Roof canopy on slender pylons.
+            Vector3 roofCenter = basePosition + Vector3.up * 5.4f + lateral * 3.4f;
+            CreateVisualBox("Grandstand roof", roofCenter, rotation, new Vector3(9.6f, 0.28f, 23.5f), metalMaterial);
+            CreateVisualBox("Grandstand roof fascia", roofCenter - lateral * 4.6f - Vector3.up * 0.5f, rotation, new Vector3(0.22f, 0.9f, 23.5f), sceneryAccentMaterial);
+            for (int pylon = -1; pylon <= 1; pylon++)
+            {
+                CreateVisualBox("Grandstand pylon", basePosition + lateral * 7.2f + forward * pylon * 9.5f + Vector3.up * 2.7f, rotation, new Vector3(0.4f, 5.4f, 0.4f), metalMaterial);
             }
         }
 
         void CreateCityBlock(Vector3 position, Vector3 forward, int index, bool night)
         {
+            float height = 5.2f + index % 5;
+            Vector3 scale = new Vector3(5f + index % 4, height, 4.8f + index % 3);
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            Vector3 center = position + Vector3.up * (height * 0.5f);
             GameObject block = GameObject.CreatePrimitive(PrimitiveType.Cube);
             block.name = "Generic city block";
             block.transform.SetParent(transform);
-            block.transform.position = position + Vector3.up * (2.6f + index % 3);
-            block.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
-            block.transform.localScale = new Vector3(5f + index % 4, 5.2f + index % 5, 4.8f + index % 3);
-            block.GetComponent<Renderer>().sharedMaterial = night ? glassMaterial : barrierMaterial;
+            block.transform.position = center;
+            block.transform.rotation = rotation;
+            block.transform.localScale = scale;
+            block.GetComponent<Renderer>().sharedMaterial = night || nightTrack ? glassMaterial : barrierMaterial;
             MakeVisualOnly(block);
+
+            // Window bands facing the track; emissive at night so street circuits
+            // feel inhabited instead of like grey crates.
+            Vector3 flatPosition = new Vector3(position.x, 0f, position.z);
+            Vector3 towardTrack = flatPosition.sqrMagnitude > 1f ? -flatPosition.normalized : forward;
+            Material windowMaterial = night || nightTrack ? lightGlowMaterial : glassMaterial;
+            int bands = Mathf.Clamp(Mathf.RoundToInt(height / 2.4f), 1, 3);
+            for (int band = 0; band < bands; band++)
+            {
+                CreateVisualBox("City window band", center + Vector3.up * (band * 1.9f - height * 0.24f) + towardTrack * (scale.z * 0.5f + 0.06f), rotation, new Vector3(scale.x * 0.84f, 0.7f, 0.08f), windowMaterial);
+            }
+
+            // Occasional rooftop neon sign for the neon street styles.
+            if ((night || nightTrack) && index % 4 == 0)
+            {
+                CreateVisualBox("Rooftop neon sign", center + Vector3.up * (height * 0.5f + 0.7f), rotation, new Vector3(scale.x * 0.6f, 1.1f, 0.18f), lightGlowMaterial);
+            }
         }
 
         void CreateFloodlight(Vector3 position, Vector3 forward, bool bright)
@@ -1989,6 +2317,7 @@ namespace LocalFormulaRacing
 
             report.gridSpawnValid = ValidateGridSlots(report);
             report.pitPosesValid = ValidatePitPoses(report);
+            ValidateElevatedProtection(report);
             Debug.Log(report.Summary());
         }
 
@@ -2155,7 +2484,8 @@ namespace LocalFormulaRacing
                    objectName.Contains("sector") ||
                    objectName.Contains("racing line") ||
                    objectName.Contains("gantry") ||
-                   objectName.Contains("start light");
+                   objectName.Contains("start light") ||
+                   objectName.Contains("bridge support");
         }
 
         void AuditVisualMarkingColliders()

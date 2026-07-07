@@ -172,6 +172,10 @@ namespace LocalFormulaRacing
         public List<QualifyingResultEntry> lastQualifyingResults = new List<QualifyingResultEntry>();
         public List<string> completedUpgradeIds = new List<string>();
         public List<string> failedUpgradeIds = new List<string>();
+
+        // Practice program completion keys ("s1_r3_qualiPace"); defaults keep old
+        // saves loading cleanly.
+        public List<string> completedPracticePrograms = new List<string>();
     }
 
     [Serializable]
@@ -265,12 +269,38 @@ namespace LocalFormulaRacing
         public float sceneryDensity = 1f;
         public int graphicsQuality = 2;
         public bool uiAnimations = true;
+
+        // HUD / visual additions.
+        public bool compactHud;
+        public bool particlesEnabled = true;
+
+        // Car setup (1..5, 3 = neutral). Applied as small physics trade-offs.
+        public int setupFrontWing = 3;
+        public int setupRearWing = 3;
+        public int setupBrakeBias = 3;
+        public int setupSuspension = 3;
+        public int setupRideHeight = 3;
+
+        // Pit strategy plan. plannedPitLap 0 = engineer's recommendation.
+        public int plannedPitLap;
+        public string plannedSecondCompound = "Medium";
     }
 
     [Serializable]
     public class PlayerRecordsData
     {
         public List<TrackRecordEntry> trackRecords = new List<TrackRecordEntry>();
+
+        // Career-wide statistics. Field defaults keep old record files loading cleanly.
+        public int racesFinished;
+        public int raceWins;
+        public int podiums;
+        public int polePositions;
+        public int fastestLaps;
+        public int totalPoints;
+        public int cleanRaces;
+        public int trackLimitWarningsTotal;
+        public int bestQualifyingPosition;
     }
 
     [Serializable]

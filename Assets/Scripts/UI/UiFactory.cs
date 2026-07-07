@@ -36,6 +36,58 @@ namespace LocalFormulaRacing
         }
     }
 
+    // Handle for a HUD pill widget so callers can restyle background and label together.
+    public class HudPill
+    {
+        public RectTransform root;
+        public Image background;
+        public Text label;
+
+        public void SetState(string text, Color color, bool lit)
+        {
+            if (label != null)
+            {
+                label.text = text;
+                label.color = lit ? Color.white : color;
+            }
+
+            if (background != null)
+            {
+                background.color = lit
+                    ? new Color(color.r, color.g, color.b, 0.92f)
+                    : new Color(color.r * 0.24f, color.g * 0.24f, color.b * 0.24f, 0.6f);
+            }
+        }
+    }
+
+    // Slow alpha pulse used for animated menu accents; runs on unscaled time so it
+    // keeps breathing while the game is paused.
+    public class UiPulse : MonoBehaviour
+    {
+        public float speed = 1.2f;
+        public float minAlpha = 0.25f;
+        public float maxAlpha = 0.8f;
+        Graphic graphic;
+
+        void Awake()
+        {
+            graphic = GetComponent<Graphic>();
+        }
+
+        void Update()
+        {
+            if (graphic == null)
+            {
+                return;
+            }
+
+            float wave = (Mathf.Sin(Time.unscaledTime * speed) + 1f) * 0.5f;
+            Color color = graphic.color;
+            color.a = Mathf.Lerp(minAlpha, maxAlpha, wave);
+            graphic.color = color;
+        }
+    }
+
     public static class UiFactory
     {
         // Set from settings; screens fade in briefly when enabled.
@@ -44,8 +96,13 @@ namespace LocalFormulaRacing
         // Shared dark-motorsport theme so every screen reads as one product.
         public static readonly Color Accent = new Color(0.95f, 0.08f, 0.06f, 1f);
         public static readonly Color AccentCyan = new Color(0.2f, 0.72f, 1f, 1f);
+        public static readonly Color AccentGreen = new Color(0.35f, 0.95f, 0.5f, 1f);
+        public static readonly Color AccentAmber = new Color(1f, 0.78f, 0.22f, 1f);
+        public static readonly Color AccentPurple = new Color(0.72f, 0.42f, 1f, 1f);
         public static readonly Color PanelDark = new Color(0.018f, 0.026f, 0.034f, 0.94f);
         public static readonly Color PanelDarker = new Color(0.006f, 0.009f, 0.012f, 0.82f);
+        public static readonly Color HudCardBackground = new Color(0.008f, 0.012f, 0.017f, 0.86f);
+        public static readonly Color MeterTrack = new Color(0.1f, 0.13f, 0.155f, 0.9f);
         public static readonly Color TextPrimary = new Color(0.94f, 0.97f, 1f, 1f);
         public static readonly Color TextMuted = new Color(0.68f, 0.78f, 0.84f, 1f);
         public static readonly Color RowEven = new Color(0.04f, 0.055f, 0.064f, 0.74f);
@@ -423,6 +480,126 @@ namespace LocalFormulaRacing
             RectTransform content = CreateRect(card, "Modal content", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -70f));
             AddVerticalLayout(content, 10, new RectOffset(0, 0, 0, 0));
             return content;
+        }
+
+        // ---------- HUD component helpers ----------
+        // These build the compact card widgets used by the in-race HUD so RaceHud
+        // composes small pieces instead of giant text dumps.
+
+        // Card with a small uppercase header and a colored side accent. Children are
+        // positioned inside using the returned rect; the card itself is sized by the caller.
+        public static RectTransform CreateHudCard(Transform parent, string title, float width, float height, Color accentColor)
+        {
+            RectTransform card = CreateRect(parent, title + " hud card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(width, height);
+            Image background = card.gameObject.AddComponent<Image>();
+            background.color = HudCardBackground;
+            CreateBand(card, title + " card accent", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), accentColor);
+            Text header = CreateText(card, title + " card title", title.ToUpperInvariant(), 12, TextMuted, TextAnchor.UpperLeft);
+            RectTransform headerRect = header.GetComponent<RectTransform>();
+            headerRect.anchorMin = new Vector2(0f, 1f);
+            headerRect.anchorMax = new Vector2(1f, 1f);
+            headerRect.offsetMin = new Vector2(14f, -24f);
+            headerRect.offsetMax = new Vector2(-10f, -6f);
+            return card;
+        }
+
+        // Label on the left, value on the right, placed at a vertical offset from the card top.
+        public static Text CreateHudLabelValueRow(RectTransform card, string label, float topOffset, out Text valueText)
+        {
+            Text labelText = CreateText(card, label + " row label", label.ToUpperInvariant(), 13, TextMuted, TextAnchor.MiddleLeft);
+            RectTransform labelRect = labelText.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 1f);
+            labelRect.anchorMax = new Vector2(0.5f, 1f);
+            labelRect.offsetMin = new Vector2(14f, -topOffset - 20f);
+            labelRect.offsetMax = new Vector2(0f, -topOffset);
+
+            valueText = CreateText(card, label + " row value", "", 14, TextPrimary, TextAnchor.MiddleRight);
+            RectTransform valueRect = valueText.GetComponent<RectTransform>();
+            valueRect.anchorMin = new Vector2(0.5f, 1f);
+            valueRect.anchorMax = new Vector2(1f, 1f);
+            valueRect.offsetMin = new Vector2(0f, -topOffset - 20f);
+            valueRect.offsetMax = new Vector2(-12f, -topOffset);
+            return labelText;
+        }
+
+        // Small labeled horizontal meter inside a HUD card. Returns the fill image;
+        // resize with SetMeterValue so anchors stay clean.
+        public static Image CreateHudMeter(RectTransform card, string label, float topOffset, Color fillColor, out Text valueText)
+        {
+            Text labelText = CreateText(card, label + " meter label", label.ToUpperInvariant(), 12, TextMuted, TextAnchor.MiddleLeft);
+            RectTransform labelRect = labelText.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 1f);
+            labelRect.anchorMax = new Vector2(0f, 1f);
+            labelRect.offsetMin = new Vector2(14f, -topOffset - 18f);
+            labelRect.offsetMax = new Vector2(64f, -topOffset);
+
+            valueText = CreateText(card, label + " meter value", "", 12, TextPrimary, TextAnchor.MiddleRight);
+            RectTransform valueRect = valueText.GetComponent<RectTransform>();
+            valueRect.anchorMin = new Vector2(1f, 1f);
+            valueRect.anchorMax = new Vector2(1f, 1f);
+            valueRect.offsetMin = new Vector2(-62f, -topOffset - 18f);
+            valueRect.offsetMax = new Vector2(-12f, -topOffset);
+
+            RectTransform track = CreateBand(card, label + " meter track", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(68f, -topOffset - 14f), new Vector2(-66f, -topOffset - 4f), MeterTrack);
+            RectTransform fill = CreateBand(track, label + " meter fill", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, fillColor);
+            return fill.GetComponent<Image>();
+        }
+
+        public static void SetMeterValue(Image fill, float value01)
+        {
+            if (fill == null)
+            {
+                return;
+            }
+
+            RectTransform rect = fill.rectTransform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = new Vector2(Mathf.Clamp01(value01), 1f);
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+        }
+
+        // Small state pill (background + label) for DRS/ERS style indicators.
+        public static HudPill CreatePill(Transform parent, string name, float width, float height)
+        {
+            RectTransform rect = CreateRect(parent, name + " pill", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            rect.sizeDelta = new Vector2(width, height);
+            Image background = rect.gameObject.AddComponent<Image>();
+            background.color = MeterTrack;
+            Text label = CreateText(rect, name + " pill label", name.ToUpperInvariant(), 13, TextMuted, TextAnchor.MiddleCenter);
+            RectTransform labelRect = label.GetComponent<RectTransform>();
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = Vector2.zero;
+            labelRect.offsetMax = Vector2.zero;
+            return new HudPill { root = rect, background = background, label = label };
+        }
+
+        public static Image CreateIconDot(Transform parent, string name, float size, Color color)
+        {
+            RectTransform dot = CreateRect(parent, name + " dot", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            dot.sizeDelta = new Vector2(size, size);
+            Image image = dot.gameObject.AddComponent<Image>();
+            image.color = color;
+            return image;
+        }
+
+        // Panel pinned to a screen edge/corner by anchor + pivot so it can never sit
+        // half offscreen regardless of resolution or HUD scale.
+        public static RectTransform CreateResponsivePanel(Transform parent, string name, Vector2 anchor, Vector2 pivot, Vector2 size, Vector2 margin, Color color)
+        {
+            RectTransform rect = CreateRect(parent, name, anchor, anchor, Vector2.zero, Vector2.zero);
+            rect.pivot = pivot;
+            rect.sizeDelta = size;
+            rect.anchoredPosition = margin;
+            if (color.a > 0.001f)
+            {
+                Image image = rect.gameObject.AddComponent<Image>();
+                image.color = color;
+            }
+
+            return rect;
         }
 
         public static RectTransform CreateTopNav(Transform parent, string title)

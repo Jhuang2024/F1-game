@@ -15,13 +15,14 @@ namespace LocalFormulaRacing
         Vector3 velocitySmoothed;
         float rollAngle;
 
-        // Chase, cockpit/halo, high TV, rear chase.
+        // Chase, cockpit/halo, high TV, rear chase, low nose cam.
         readonly Vector3[] offsets =
         {
             new Vector3(0f, 5.4f, -16.5f),
             new Vector3(0f, 2.05f, 1.6f),
             new Vector3(0f, 28f, -12f),
-            new Vector3(0f, 5.4f, 16.5f)
+            new Vector3(0f, 5.4f, 16.5f),
+            new Vector3(0f, 0.85f, 2.45f)
         };
 
         public void Initialize(Transform followTarget, bool shake)
@@ -76,6 +77,11 @@ namespace LocalFormulaRacing
                 return baseFov - 6f;
             }
 
+            if (mode == 4)
+            {
+                return baseFov + 6f + speed01 * 6f;
+            }
+
             // Chase and rear chase widen smoothly with speed for a sense of pace.
             return Mathf.Lerp(baseFov - 2f, baseFov + 8f, speed01 * speed01);
         }
@@ -111,6 +117,11 @@ namespace LocalFormulaRacing
                 {
                     lookDirection = target.position + Vector3.up * 1.05f - desired;
                 }
+                else if (mode == 4)
+                {
+                    // Nose cam always looks down the road, never back at the car.
+                    lookDirection = target.forward * 10f + velocitySmoothed * 0.25f + Vector3.up * 0.12f;
+                }
 
                 if (lookDirection.sqrMagnitude < 0.01f)
                 {
@@ -135,7 +146,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            float followRate = mode == 1 ? 16f : (mode == 2 ? 3.5f : 6.2f);
+            float followRate = mode == 1 || mode == 4 ? 16f : (mode == 2 ? 3.5f : 6.2f);
             transform.position = Vector3.Lerp(transform.position, desired, 1f - Mathf.Exp(-followRate * dt));
             transform.rotation = Quaternion.Slerp(transform.rotation, desiredRotation, 1f - Mathf.Exp(-7.5f * dt));
 

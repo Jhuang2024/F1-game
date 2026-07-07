@@ -83,6 +83,10 @@ namespace LocalFormulaRacing
         bool engineerFinalLapSent;
         bool engineerFuelWarningSent;
         bool engineerDamageWarningSent;
+        bool engineerRivalSent;
+        bool engineerTrackLimitsSent;
+        int lastGapReportLap = -1;
+        bool weatherTransitionDone;
         float lastRecordedPlayerBestLap;
         bool pendingTimeTrial;
         float playerResetCooldown;
@@ -379,6 +383,7 @@ namespace LocalFormulaRacing
 
             SortRunningOrder();
             UpdateRaceEngineer();
+            UpdateWeatherTransition();
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
                 if (ShouldCompleteQualifyingRun())
@@ -508,6 +513,45 @@ namespace LocalFormulaRacing
             return Mathf.Clamp(recommended, 1, maxPitLap);
         }
 
+        // Simple dynamic weather: on mixed-forecast races the conditions flip once
+        // past half distance — rain arrives on a dry track, or a wet track starts
+        // drying. Grip, tyre wear, audio and lighting mood all follow.
+        void UpdateWeatherTransition()
+        {
+            if (weatherTransitionDone || IsTimeTrial || CurrentSession == RaceWeekendSession.Qualifying ||
+                Track == null || EventData == null || string.IsNullOrEmpty(EventData.weatherProfile) ||
+                !EventData.weatherProfile.ToLowerInvariant().Contains("mixed") ||
+                PlayerParticipant == null || PlayerParticipant.lapTracker == null)
+            {
+                return;
+            }
+
+            if (PlayerParticipant.lapTracker.CompletedLaps < Mathf.Max(1, RaceLaps / 2))
+            {
+                return;
+            }
+
+            weatherTransitionDone = true;
+            bool wasRaining = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
+            WeatherState next = wasRaining ? WeatherState.Cloudy : WeatherState.LightRain;
+            Track.weather = next;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                if (Participants[i] != null && Participants[i].vehicle != null)
+                {
+                    Participants[i].vehicle.SetWeather(next);
+                }
+            }
+
+            bool raining = next == WeatherState.LightRain || next == WeatherState.HeavyRain;
+            SimpleAudioManager.SetRain(raining);
+            RenderSettings.fogColor = raining ? new Color(0.28f, 0.34f, 0.36f) : RenderSettings.fogColor;
+            RenderSettings.reflectionIntensity = raining ? 0.78f : 0.46f;
+            PostEngineerMessage(raining
+                ? "Rain is arriving. Grip is dropping, intermediates will come alive."
+                : "The rain has stopped and the track is drying. Slicks will come to you.", true);
+        }
+
         void ResetEngineerState()
         {
             engineerMessageText = "";
@@ -521,6 +565,22 @@ namespace LocalFormulaRacing
             engineerFinalLapSent = false;
             engineerFuelWarningSent = false;
             engineerDamageWarningSent = false;
+            engineerRivalSent = false;
+            engineerTrackLimitsSent = false;
+            lastGapReportLap = -1;
+            weatherTransitionDone = false;
+        }
+
+        // Player pit plan: the strategy screen choice wins, otherwise the
+        // engineer's recommended window.
+        public int PlannedPitLapFor(RaceParticipant participant)
+        {
+            if (participant != null && participant.isPlayer && Settings != null && Settings.Current.plannedPitLap > 0)
+            {
+                return Mathf.Clamp(Settings.Current.plannedPitLap, 1, Mathf.Max(1, RaceLaps - 1));
+            }
+
+            return RecommendedPitLap(participant);
         }
 
         void TickEngineerTimers()
@@ -641,13 +701,15 @@ namespace LocalFormulaRacing
                 PostEngineerMessage("We are seeing damage on the car. Consider a stop for repairs.", false);
                 return;
             }
-            int targetLap = RecommendedPitLap(PlayerParticipant);
+            int targetLap = PlannedPitLapFor(PlayerParticipant);
             if (PlayerParticipant.pitStops == 0 && !PlayerParticipant.isPitting)
             {
                 if (completedLaps >= targetLap && lastEngineerPitLapPrompt != completedLaps)
                 {
                     lastEngineerPitLapPrompt = completedLaps;
-                    PostEngineerMessage("Box this lap. Mandatory stop still required.", true);
+                    float undercutGap = GetIntervalToAheadSeconds(PlayerParticipant);
+                    string undercut = undercutGap > 0f && undercutGap < 2.5f ? " The undercut on the car ahead is live." : "";
+                    PostEngineerMessage("Box this lap. Mandatory stop still required." + undercut, true);
                     return;
                 }
 
@@ -657,6 +719,64 @@ namespace LocalFormulaRacing
                     PostEngineerMessage("Pit window opens next lap. Think about the undercut.", false);
                     return;
                 }
+            }
+
+            if (PlayerParticipant.trackLimitWarnings >= 2 && !engineerTrackLimitsSent)
+            {
+                engineerTrackLimitsSent = true;
+                PostEngineerMessage("Careful with track limits. One more warning is a time penalty.", true);
+                return;
+            }
+
+            if (!engineerRivalSent && IsCareerRace && Career != null && Career.Save != null && !string.IsNullOrEmpty(Career.Save.rivalDriverId))
+            {
+                RaceParticipant rivalAhead = FindCarAhead(PlayerParticipant, 70f);
+                RaceParticipant rivalBehind = FindCarBehind(PlayerParticipant, 70f);
+                if (rivalAhead != null && rivalAhead.driverId == Career.Save.rivalDriverId)
+                {
+                    engineerRivalSent = true;
+                    PostEngineerMessage("That's your rival ahead. Beat him and the team will notice.", false);
+                    return;
+                }
+
+                if (rivalBehind != null && rivalBehind.driverId == Career.Save.rivalDriverId)
+                {
+                    engineerRivalSent = true;
+                    PostEngineerMessage("Your rival is right behind. Keep it clean, hold the position.", false);
+                    return;
+                }
+            }
+
+            // Periodic pace report every couple of laps when nothing urgent is up.
+            if (completedLaps >= 2 && completedLaps % 2 == 0 && lastGapReportLap != completedLaps && engineerCooldown <= 0f)
+            {
+                lastGapReportLap = completedLaps;
+                if (GetPosition(PlayerParticipant) == 1)
+                {
+                    float gapBehind = 0f;
+                    RaceParticipant chaser = FindCarBehind(PlayerParticipant, 400f);
+                    if (chaser != null)
+                    {
+                        gapBehind = GetIntervalToAheadSeconds(chaser);
+                    }
+
+                    PostEngineerMessage(gapBehind > 0.05f
+                        ? "You're leading, gap behind " + gapBehind.ToString("0.0") + "s. Manage the tyres."
+                        : "You're leading. Manage the tyres and keep it clean.", false);
+                    return;
+                }
+
+                float interval = GetIntervalToAheadSeconds(PlayerParticipant);
+                if (interval > 0.05f && interval < 1.2f)
+                {
+                    PostEngineerMessage("Car ahead " + interval.ToString("0.0") + "s. You're in DRS range, go get him.", false);
+                }
+                else if (interval > 0.05f)
+                {
+                    PostEngineerMessage("Gap to the car ahead " + interval.ToString("0.0") + "s. Consistent laps now.", false);
+                }
+
+                return;
             }
 
             if (car.Tyres.WearPercent > 42f && !engineerTyreWarningSent)
@@ -1828,6 +1948,11 @@ namespace LocalFormulaRacing
 
             VehicleAudio audio = carObject.AddComponent<VehicleAudio>();
             audio.Initialize(Settings.Current.audioEnabled, player ? 0.55f : 0.28f);
+            if (Settings.Current.particlesEnabled)
+            {
+                VehicleEffects effects = carObject.AddComponent<VehicleEffects>();
+                effects.Initialize(controller);
+            }
             lapTracker.Initialize(Track, CurrentSession == RaceWeekendSession.Qualifying ? 2 : RaceLaps);
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
@@ -2061,6 +2186,16 @@ namespace LocalFormulaRacing
             CreateChildSphere(root.transform, "driver helmet", new Vector3(0f, 0.88f, 0.2f), new Vector3(0.32f, 0.32f, 0.32f), helmetMaterial);
             CreateChildCube(root.transform, "steering wheel", new Vector3(0f, 0.76f, 0.62f), new Vector3(0.24f, 0.18f, 0.05f), detailMaterial);
 
+            // Detail pass: mirrors, bargeboards, and livery accents that make each
+            // team car read as designed rather than assembled from crates.
+            CreateChildCube(root.transform, "left mirror", new Vector3(-0.5f, 0.72f, 0.72f), new Vector3(0.14f, 0.07f, 0.06f), secondaryMaterial);
+            CreateChildCube(root.transform, "right mirror", new Vector3(0.5f, 0.72f, 0.72f), new Vector3(0.14f, 0.07f, 0.06f), secondaryMaterial);
+            CreateChildCube(root.transform, "left bargeboard", new Vector3(-0.58f, 0.26f, 0.62f), new Vector3(0.035f, 0.24f, 0.5f), detailMaterial);
+            CreateChildCube(root.transform, "right bargeboard", new Vector3(0.58f, 0.26f, 0.62f), new Vector3(0.035f, 0.24f, 0.5f), detailMaterial);
+            CreateChildCube(root.transform, "engine cover stripe", new Vector3(0f, 0.86f, -0.66f), new Vector3(0.1f, 0.05f, 1.3f), secondaryMaterial);
+            CreateChildCube(root.transform, "nose number panel", new Vector3(0f, 0.42f, 2.1f), new Vector3(0.24f, 0.03f, 0.3f), CreateMaterial(driverName + " number panel", Color.Lerp(Color.white, secondary, 0.15f), 0.1f, 0.7f));
+            CreateChildCube(root.transform, "cockpit surround pad", new Vector3(0f, 0.72f, 0.34f), new Vector3(0.58f, 0.08f, 0.5f), inletMaterial);
+
             // Rear rain light: glows under braking, blinks while harvesting.
             Material rainLightMaterial = CreateMaterial(driverName + " rain light", new Color(0.28f, 0.02f, 0.02f), 0.1f, 0.6f);
             CreateChildCube(root.transform, "rear rain light", new Vector3(0f, 0.42f, -2.12f), new Vector3(0.1f, 0.22f, 0.05f), rainLightMaterial);
@@ -2173,6 +2308,21 @@ namespace LocalFormulaRacing
             if (rimCollider != null)
             {
                 Destroy(rimCollider);
+            }
+
+            // Aero wheel cover on the outboard face.
+            float outboard = localPosition.x < 0f ? -0.27f : 0.27f;
+            GameObject cover = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            cover.name = "wheel cover";
+            cover.transform.SetParent(parent);
+            cover.transform.localPosition = localPosition + new Vector3(outboard, 0f, 0f);
+            cover.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            cover.transform.localScale = new Vector3(0.3f, 0.012f, 0.3f);
+            cover.GetComponent<Renderer>().sharedMaterial = rimMaterial;
+            Collider coverCollider = cover.GetComponent<Collider>();
+            if (coverCollider != null)
+            {
+                Destroy(coverCollider);
             }
 
             float inboard = localPosition.x < 0f ? 0.14f : -0.14f;
@@ -2291,7 +2441,8 @@ namespace LocalFormulaRacing
         void CreateLighting()
         {
             string trackId = EventData == null || string.IsNullOrEmpty(EventData.trackId) ? "" : EventData.trackId;
-            bool night = trackId.Contains("singapore") || trackId.Contains("las_vegas");
+            bool night = trackId.Contains("singapore") || trackId.Contains("las_vegas") || trackId.Contains("qatar");
+            bool twilight = trackId.Contains("abu_dhabi");
             bool desert = trackId.Contains("bahrain") || trackId.Contains("abu_dhabi") || trackId.Contains("qatar");
             bool coastal = trackId.Contains("jeddah") || trackId.Contains("miami") || trackId.Contains("zandvoort") || trackId.Contains("monaco") || trackId.Contains("baku");
             bool mountain = trackId.Contains("austria") || trackId.Contains("spa") || trackId.Contains("austin") || trackId.Contains("mexico");
@@ -2299,16 +2450,26 @@ namespace LocalFormulaRacing
             string weatherProfile = EventData == null || string.IsNullOrEmpty(EventData.weatherProfile) ? "" : EventData.weatherProfile.ToLowerInvariant();
             bool rainThreat = weatherProfile.Contains("wet") || weatherProfile.Contains("mixed");
 
-            int quality = Settings == null ? 2 : Mathf.Clamp(Settings.Current.graphicsQuality, 0, 2);
-            QualitySettings.antiAliasing = quality == 0 ? 0 : (quality == 1 ? 4 : 8);
+            int quality = Settings == null ? 2 : Mathf.Clamp(Settings.Current.graphicsQuality, 0, 3);
+            QualitySettings.antiAliasing = quality == 0 ? 0 : (quality == 1 ? 2 : (quality == 2 ? 4 : 8));
             QualitySettings.shadows = quality == 0 ? ShadowQuality.HardOnly : ShadowQuality.All;
-            QualitySettings.shadowDistance = quality == 0 ? 180f : (quality == 1 ? 300f : 450f);
-            QualitySettings.shadowResolution = quality == 0 ? ShadowResolution.Medium : (quality == 1 ? ShadowResolution.High : ShadowResolution.VeryHigh);
+            QualitySettings.shadowDistance = 140f + quality * 120f;
+            QualitySettings.shadowResolution = quality <= 1 ? ShadowResolution.Medium : (quality == 2 ? ShadowResolution.High : ShadowResolution.VeryHigh);
 
             RenderSettings.ambientMode = UnityEngine.Rendering.AmbientMode.Trilight;
-            RenderSettings.ambientSkyColor = night ? new Color(0.08f, 0.12f, 0.22f) : (rainThreat ? new Color(0.28f, 0.36f, 0.42f) : new Color(0.42f, 0.58f, 0.74f));
-            RenderSettings.ambientEquatorColor = night ? new Color(0.05f, 0.08f, 0.14f) : (rainThreat ? new Color(0.28f, 0.32f, 0.34f) : new Color(0.45f, 0.42f, 0.38f));
-            RenderSettings.ambientGroundColor = night ? new Color(0.01f, 0.01f, 0.02f) : (rainThreat ? new Color(0.08f, 0.09f, 0.1f) : (park ? new Color(0.12f, 0.18f, 0.12f) : new Color(0.18f, 0.16f, 0.14f)));
+            if (twilight)
+            {
+                RenderSettings.ambientSkyColor = new Color(0.3f, 0.2f, 0.34f);
+                RenderSettings.ambientEquatorColor = new Color(0.42f, 0.24f, 0.2f);
+                RenderSettings.ambientGroundColor = new Color(0.1f, 0.07f, 0.09f);
+            }
+            else
+            {
+                RenderSettings.ambientSkyColor = night ? new Color(0.08f, 0.12f, 0.22f) : (rainThreat ? new Color(0.28f, 0.36f, 0.42f) : new Color(0.42f, 0.58f, 0.74f));
+                RenderSettings.ambientEquatorColor = night ? new Color(0.05f, 0.08f, 0.14f) : (rainThreat ? new Color(0.28f, 0.32f, 0.34f) : new Color(0.45f, 0.42f, 0.38f));
+                RenderSettings.ambientGroundColor = night ? new Color(0.01f, 0.01f, 0.02f) : (rainThreat ? new Color(0.08f, 0.09f, 0.1f) : (park ? new Color(0.12f, 0.18f, 0.12f) : new Color(0.18f, 0.16f, 0.14f)));
+            }
+
             RenderSettings.reflectionIntensity = rainThreat ? 0.78f : 0.46f;
 
             RenderSettings.fog = true;
@@ -2318,20 +2479,26 @@ namespace LocalFormulaRacing
                 : (coastal ? new Color(0.5f, 0.62f, 0.68f)
                 : (mountain ? new Color(0.4f, 0.5f, 0.46f)
                 : new Color(0.44f, 0.54f, 0.52f)));
+            if (twilight)
+            {
+                dryFog = new Color(0.48f, 0.3f, 0.3f);
+            }
+
             RenderSettings.fogColor = night ? new Color(0.015f, 0.02f, 0.035f) : (rainThreat ? new Color(0.28f, 0.34f, 0.36f) : dryFog);
             RenderSettings.skybox = null;
 
             GameObject lightObject = new GameObject("Primary Sun");
             lightObject.transform.SetParent(raceWorld.transform);
-            lightObject.transform.rotation = Quaternion.Euler(night ? -15f : (desert ? 32f : (mountain ? 38f : 48f)), desert ? -42f : (coastal ? -30f : -56f), 0f);
+            lightObject.transform.rotation = Quaternion.Euler(night ? -15f : (twilight ? 12f : (desert ? 32f : (mountain ? 38f : 48f))), desert ? -42f : (coastal ? -30f : -56f), 0f);
             Light light = lightObject.AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = night ? 0.08f : (rainThreat ? 0.92f : (desert ? 1.55f : (coastal ? 1.4f : 1.25f)));
+            light.intensity = night ? 0.08f : (twilight ? 0.85f : (rainThreat ? 0.92f : (desert ? 1.55f : (coastal ? 1.4f : 1.25f))));
             light.color = night ? new Color(0.6f, 0.7f, 1f)
+                : (twilight ? new Color(1f, 0.62f, 0.4f)
                 : (rainThreat ? new Color(0.76f, 0.86f, 0.92f)
                 : (desert ? new Color(1f, 0.85f, 0.65f)
                 : (coastal ? new Color(1f, 0.94f, 0.85f)
-                : new Color(0.98f, 0.96f, 0.94f))));
+                : new Color(0.98f, 0.96f, 0.94f)))));
             light.shadows = LightShadows.Soft;
             light.shadowStrength = rainThreat ? 0.68f : 0.92f;
             light.shadowBias = 0.035f;
@@ -2842,7 +3009,35 @@ namespace LocalFormulaRacing
                 Career.ApplyRaceResults(EventData, results);
             }
 
+            RecordPlayerRaceStats(results);
             ui.ShowResults(this, results, IsCareerRace);
+        }
+
+        void RecordPlayerRaceStats(List<RaceResultEntry> results)
+        {
+            RaceResultEntry playerResult = results == null ? null : results.Find(entry => entry.isPlayer);
+            if (playerResult == null)
+            {
+                return;
+            }
+
+            RaceResultEntry fastest = null;
+            for (int i = 0; i < results.Count; i++)
+            {
+                if (results[i].bestLapTime > 0f && (fastest == null || results[i].bestLapTime < fastest.bestLapTime))
+                {
+                    fastest = results[i];
+                }
+            }
+
+            bool fastestLap = fastest != null && fastest.isPlayer;
+            int trackLimitWarnings = PlayerParticipant != null ? PlayerParticipant.trackLimitWarnings : 0;
+            bool cleanRace = playerResult.penaltiesSeconds <= 0.01f &&
+                             trackLimitWarnings == 0 &&
+                             PlayerParticipant != null &&
+                             PlayerParticipant.vehicle != null &&
+                             PlayerParticipant.vehicle.Damage.OverallPercent < 20f;
+            PlayerRecordsStore.RecordRaceFinish(playerResult.finishingPosition, playerResult.points, fastestLap, cleanRace, trackLimitWarnings);
         }
 
         void CompleteQualifyingRun()
@@ -2939,6 +3134,12 @@ namespace LocalFormulaRacing
             if (IsCareerRace)
             {
                 Career.ApplyQualifyingResults(EventData, results);
+            }
+
+            QualifyingResultEntry playerQualifying = results.Find(entry => entry.isPlayer);
+            if (playerQualifying != null)
+            {
+                PlayerRecordsStore.RecordQualifyingResult(playerQualifying.position);
             }
 
             ui.ShowQualifyingResults(this, results, IsCareerRace);
