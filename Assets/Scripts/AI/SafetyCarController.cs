@@ -3,12 +3,17 @@ using UnityEngine;
 namespace LocalFormulaRacing
 {
     // Drives the real, visible safety car object along the track's own
-    // centerline via direct kinematic transform/rigidbody movement rather than
-    // engine/tyre physics - it never races, it only needs to look right, block
-    // the road as a real physical obstacle, and slow down convincingly for
-    // corners. Time.timeScale is 0 while the race is paused, which already
-    // zeroes every Time.deltaTime-scaled step below, so no separate pause guard
-    // is needed here.
+    // centerline as a deterministic scripted mover - it never races, it only
+    // needs to look right, block the road as a real physical obstacle, and
+    // slow down convincingly for corners. Movement uses exactly one
+    // application path: ProgressDistance advances every frame, a smoothed
+    // visual position/rotation chases the sampled target, and the kinematic
+    // Rigidbody is a passive mirror of the transform (for collision geometry
+    // only) rather than an independent mover - it is never used to actually
+    // move the car, so there is nothing left for transform and physics
+    // movement to fight over. Time.timeScale is 0 while the race is paused,
+    // which already zeroes every Time.deltaTime-scaled step below, so no
+    // separate pause guard is needed here.
     public class SafetyCarController : MonoBehaviour
     {
         TrackRuntime track;
@@ -23,6 +28,15 @@ namespace LocalFormulaRacing
         public float CurrentSpeedKph { get; private set; }
         public bool IsActive { get; private set; }
         public bool IsReturningToPits { get; private set; }
+
+        // Internal visual state - the only thing ever written to
+        // transform.position/rotation. Kept separate from ProgressDistance so
+        // the two can never silently diverge: the visual is always a smoothed
+        // chase of whatever ProgressDistance currently samples to, never an
+        // independent value that can drift and then need a corrective snap.
+        Vector3 visualPosition;
+        Quaternion visualRotation;
+        bool visualInitialized;
 
         float previousSpeedKph;
         float despawnTimer;
@@ -45,6 +59,13 @@ namespace LocalFormulaRacing
             {
                 body.isKinematic = true;
                 body.detectCollisions = true;
+                // Kinematic rigidbodies used purely as passive collision
+                // geometry should never be nudged by the solver - interpolation
+                // is irrelevant here since we hard-sync body.position/rotation
+                // to the transform every frame ourselves rather than calling
+                // MovePosition/MoveRotation, which would otherwise schedule a
+                // second, independent movement path racing the transform one.
+                body.interpolation = RigidbodyInterpolation.None;
             }
 
             // sharedMaterial, not .material: these materials were built fresh for
@@ -69,7 +90,9 @@ namespace LocalFormulaRacing
 
         // Called when race control deploys the safety car - positions it ahead
         // of the current race leader (RaceManager resolves the distance) so the
-        // leader immediately has to slow and queue up behind it.
+        // leader immediately has to slow and queue up behind it. This is the
+        // ONLY normal entry point that hard-snaps the visual - a brand new
+        // deployment is expected to simply appear on track, not drive there.
         public void EnterTrack(float atDistance)
         {
             if (track == null)
@@ -116,19 +139,35 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Hard-repositions the visual to exactly where ProgressDistance samples
+        // to. Only ever called from EnterTrack (first spawn / re-deployment) -
+        // normal per-frame movement in Update() never calls this, so the car
+        // can never visibly teleport while it is already active and running.
         void SnapToProgress()
         {
             Vector3 point;
             Vector3 forward;
             Vector3 right;
             track.SampleAtDistance(ProgressDistance, out point, out forward, out right);
-            transform.position = point + Vector3.up * 0.08f;
-            transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+            visualPosition = point + Vector3.up * 0.08f;
+            visualRotation = Quaternion.LookRotation(forward, Vector3.up);
+            visualInitialized = true;
+            ApplyVisualToTransformAndBody();
+        }
+
+        void ApplyVisualToTransformAndBody()
+        {
+            transform.position = visualPosition;
+            transform.rotation = visualRotation;
             transform.localScale = Vector3.one;
+            // Passive sync only - never MovePosition/MoveRotation, which would
+            // create a second, independently-timed movement path for the same
+            // object. Direct assignment on a kinematic body just relocates its
+            // collider to match the transform we already committed to this frame.
             if (body != null)
             {
-                body.position = transform.position;
-                body.rotation = transform.rotation;
+                body.position = visualPosition;
+                body.rotation = visualRotation;
             }
         }
 
@@ -137,6 +176,11 @@ namespace LocalFormulaRacing
             if (!IsActive || track == null)
             {
                 return;
+            }
+
+            if (!visualInitialized)
+            {
+                SnapToProgress();
             }
 
             float severity = EstimateSeverityAhead();
@@ -173,6 +217,8 @@ namespace LocalFormulaRacing
                 beaconMaterial.SetColor("_EmissionColor", lit ? beaconBaseColor * 2.6f : beaconBaseColor * 0.2f);
             }
 
+            // Advance progress at exactly the car's own pace - this is the single
+            // source of truth for where the safety car "is" along the track.
             ProgressDistance = track.WrapDistance(ProgressDistance + CurrentSpeedKph / 3.6f * Time.deltaTime);
             Vector3 point;
             Vector3 forward;
@@ -182,7 +228,8 @@ namespace LocalFormulaRacing
             // centerline segment boundary (where SampleAtDistance's forward can
             // jump slightly between linear segments) doesn't read as a visible
             // snap in the car's rotation - this smooths cornering without
-            // affecting the position track, which is already MoveTowards'd.
+            // affecting the position track, which chases the sampled point
+            // continuously below.
             Vector3 lookaheadPoint;
             Vector3 lookaheadForward;
             Vector3 lookaheadRight;
@@ -190,20 +237,18 @@ namespace LocalFormulaRacing
             Vector3 blendedForward = (forward + lookaheadForward).normalized;
             Vector3 targetPosition = point + Vector3.up * 0.08f;
             Quaternion targetRotation = Quaternion.LookRotation(blendedForward, Vector3.up);
-            transform.position = Vector3.MoveTowards(transform.position, targetPosition, Time.deltaTime * (CurrentSpeedKph / 3.6f + 8f));
-            transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, Time.deltaTime * 160f);
-            // If the smoothing ever falls far behind the sampled point (a teleport,
-            // a respawn, a long pause), snap rather than drift through scenery.
-            if ((transform.position - targetPosition).sqrMagnitude > 40f * 40f)
-            {
-                SnapToProgress();
-            }
 
-            if (body != null)
-            {
-                body.MovePosition(transform.position);
-                body.MoveRotation(transform.rotation);
-            }
+            // Position chases the sampled target at a rate that always at least
+            // matches the car's own advancing speed (+ a small buffer), so under
+            // normal continuous movement the visual can never fall behind the
+            // sampled point in the first place - there is no accumulating gap
+            // left over to "catch up" on with a snap. Angular corners are
+            // absorbed by smoothing rotation aggressively instead of snapping
+            // position, per the brief.
+            float chaseSpeed = CurrentSpeedKph / 3.6f + 12f;
+            visualPosition = Vector3.MoveTowards(visualPosition, targetPosition, Time.deltaTime * chaseSpeed);
+            visualRotation = Quaternion.RotateTowards(visualRotation, targetRotation, Time.deltaTime * 220f);
+            ApplyVisualToTransformAndBody();
 
             if (IsReturningToPits)
             {
@@ -232,6 +277,7 @@ namespace LocalFormulaRacing
         {
             IsActive = false;
             IsReturningToPits = false;
+            visualInitialized = false;
             gameObject.SetActive(false);
         }
     }

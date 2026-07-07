@@ -88,6 +88,17 @@ namespace LocalFormulaRacing
         bool coldTyresRestartWarningSent;
         bool playerScPitPromptSent;
         float yellowSectorClearTimer;
+        // Part 2: per-sector and global cooldowns so yellow flags read as
+        // localized, occasional warnings instead of a constant banner spam -
+        // a sector that just cleared can't immediately re-trigger a fresh
+        // episode, and a run of minor incidents anywhere on track can't chain
+        // into back-to-back banners either.
+        readonly Dictionary<int, float> yellowSectorCooldownUntil = new Dictionary<int, float>();
+        float globalMinorYellowCooldownUntil;
+        float yellowSectorEpisodeStartTime = -999f;
+        const float YellowSectorCooldownAfterClearSeconds = 20f;
+        const float GlobalMinorYellowCooldownSeconds = 25f;
+        const float MaxYellowEpisodeSeconds = 30f;
         float drsRestartCooldownTimer;
         RaceParticipant safetyCarQueueLeader;
         float lastIncidentTime = -999f;
@@ -103,9 +114,10 @@ namespace LocalFormulaRacing
         // Green, so one incident's aftermath can't chain into a second SC/VSC the
         // moment the first ends - yellow flags themselves are unaffected.
         float postEscalationCooldownTimer;
-        // Part 1 retune: lengthened from 30s so back-to-back incidents in the laps
-        // right after a restart can't immediately chain into another SC/VSC.
-        const float PostEscalationCooldownSeconds = 45f;
+        // Part 2 retune: lengthened again (was 45s) so back-to-back incidents in
+        // the laps right after a restart can't immediately chain into another
+        // SC/VSC - a real cooling-off period, not just a few corners' grace.
+        const float PostEscalationCooldownSeconds = 90f;
 
         // Part 1/2 retune: how long a car must be nearly stationary, with none of
         // the legitimate exclusions active, before race control ever calls it
@@ -115,8 +127,11 @@ namespace LocalFormulaRacing
         // far. RecoveryGraceSeconds is the window after a spin/contact event
         // during which the sustained-stop timer can't accumulate at all, giving
         // the car a real chance to drive away before it's ever considered.
-        const float StrandedDeclareSeconds = 8f;
-        const float StrandedRetireSeconds = 20f;
+        // Part 2 retune: raised again (was 8/20) so declaring a car genuinely
+        // stranded takes a real, sustained stop rather than a long-but-not-that-
+        // long pause.
+        const float StrandedDeclareSeconds = 11f;
+        const float StrandedRetireSeconds = 26f;
         const float RecoveryGraceSeconds = 4f;
 
         // Player race-control pace-limiter compliance tracking (Task 2/3): how long
@@ -884,6 +899,9 @@ namespace LocalFormulaRacing
             coldTyresRestartWarningSent = false;
             playerScPitPromptSent = false;
             yellowSectorClearTimer = 0f;
+            yellowSectorCooldownUntil.Clear();
+            globalMinorYellowCooldownUntil = 0f;
+            yellowSectorEpisodeStartTime = -999f;
             drsRestartCooldownTimer = 0f;
             safetyCarQueueLeader = null;
             lastIncidentTime = -999f;
@@ -901,6 +919,7 @@ namespace LocalFormulaRacing
             restrictionActiveAtLastSnapshot = false;
             orderSnapshotTimer = 0f;
             safetyCarWatchdogTimer = 0f;
+            safetyCarWatchdogRespawnCount = 0;
             if (State != null)
             {
                 for (int i = 0; i < State.Participants.Count; i++)
@@ -982,12 +1001,13 @@ namespace LocalFormulaRacing
         {
             int freqSetting = Settings == null ? 2 : Mathf.Clamp(Settings.Current.safetyCarFrequency, 0, 3);
             bool escalationAllowed = freqSetting > 0;
-            // Retuned (Task 1): the old 0/0.5/1/2 scale stacked on top of an
-            // 0.85/0.9 baseline chance made Standard/High escalate almost every
-            // time. Off still fully disables VSC/SC escalation; Reduced/Standard/
-            // High now land at "rare" / "occasional" / "more frequent but not
-            // constant" against the lower baseline chances below.
-            float freqScale = freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.22f : (freqSetting == 3 ? 0.85f : 0.48f));
+            // Retuned (Part 2, second pass): cut roughly in half again from the
+            // previous 0/0.22/0.48/0.85 scale. Off still fully disables VSC/SC
+            // escalation; Reduced/Standard/High now land at "very rare" /
+            // "rare" / "occasional, never chaotic" against the lower baseline
+            // chances below - Standard should not feel like every race has
+            // multiple yellows/VSC/SC.
+            float freqScale = freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.12f : (freqSetting == 3 ? 0.55f : 0.26f));
             bool preRace = StartCountdown > 0f;
             int mechanicalMode = Settings == null ? 2 : Settings.Current.mechanicalFailureMode;
 
@@ -1002,6 +1022,15 @@ namespace LocalFormulaRacing
                 float speedKph = Mathf.Abs(participant.vehicle.CurrentSpeedKph);
                 float damagePercent = participant.vehicle.Damage == null ? 0f : participant.vehicle.Damage.OverallPercent;
                 bool inPitPhaseOrPitting = participant.isPitting || participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit;
+                // Computed early (Part 3) so it can gate collision detection too,
+                // not just the stranded/wrong-way checks further down - a car
+                // race control is actively pacing/driving under SC/VSC must be
+                // fully exempt from incident detection, not just from a subset
+                // of the checks.
+                bool paceLimited = IsRaceControlPaceLimited ||
+                    CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
+                    CurrentRaceControlState == RaceControlState.Restart ||
+                    participant.isRaceControlAutopilot;
 
                 // Bug fix (Part B.1): the previous version required BOTH a >25kph
                 // speed-drop AND a >3-point damage-jump landing in the exact same
@@ -1035,11 +1064,16 @@ namespace LocalFormulaRacing
                 // spin/impact loses speed involuntarily, intentional braking doesn't
                 // count here (a hit that happens mid-braking is still caught by
                 // damageSignal below, which has no such gate).
-                bool speedSignal = speedDrop > 15f && participant.vehicle.EffectiveBrake < 0.3f;
-                // Part 1 retune: raised from 1.5 - a light scrape/graze shouldn't read
-                // as a collision-class incident at all; this now takes a real hit.
-                bool damageSignal = damageJump > 4f;
-                bool collision = !preRace && !inPitPhaseOrPitting && (speedSignal || damageSignal);
+                // Part 2 retune: raised again (was 15) - collision-class detection
+                // needs a bigger, clearly-involuntary speed loss before it counts.
+                bool speedSignal = speedDrop > 20f && participant.vehicle.EffectiveBrake < 0.3f;
+                // Part 2 retune: raised from 4 - only a real hit registers, not a
+                // graze.
+                bool damageSignal = damageJump > 6f;
+                // Part 3: a car under SC/VSC pacing or race-control autopilot is
+                // fully exempt from collision detection - its speed/pace is race
+                // control's own doing, never a driver incident.
+                bool collision = !preRace && !inPitPhaseOrPitting && !paceLimited && (speedSignal || damageSignal);
                 participant.previousSpeedKphForIncident = speedKph;
                 participant.previousDamagePercentForIncident = damagePercent;
                 if (collision)
@@ -1069,9 +1103,6 @@ namespace LocalFormulaRacing
                 // 10kph for a couple of seconds while genuinely recovering.
                 bool pointedTowardTrack = facingDot > -0.15f;
                 bool creepingWithPurpose = speedKph > 3.5f && pointedTowardTrack;
-                bool paceLimited = IsRaceControlPaceLimited ||
-                    CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
-                    CurrentRaceControlState == RaceControlState.Restart;
 
                 // Directly behind a car that is itself slow (SC bunching, a first-lap
                 // squeeze, a queue at a re-join point) means this car is queued in
@@ -1158,10 +1189,12 @@ namespace LocalFormulaRacing
                 }
 
                 // Wrong-way is excluded by the same legitimate-reasons list, plus a
-                // longer sustained duration (Part 1) so a car merely gathering itself
-                // out of a spin - briefly pointed backward while it turns back around -
-                // isn't flagged the instant it starts rolling again.
-                bool wrongWayCandidate = !preRace && !inPitPhaseOrPitting && !paceLimited && !recoveryGraceActive && speedKph > 5f && facingDot < -0.35f;
+                // longer sustained duration (Part 2) so a car merely gathering itself
+                // out of a spin - briefly pointed backward while it turns back around,
+                // or already in the Recovering state - isn't flagged the instant it
+                // starts rolling again.
+                bool wrongWayCandidate = !preRace && !inPitPhaseOrPitting && !paceLimited && !recoveryGraceActive &&
+                    newRecoveryState != CarRecoveryState.Recovering && speedKph > 5f && facingDot < -0.35f;
                 participant.wrongWayTimer = wrongWayCandidate ? participant.wrongWayTimer + RaceControlCheckInterval : 0f;
 
                 participant.incidentCooldownTimer = Mathf.Max(0f, participant.incidentCooldownTimer - RaceControlCheckInterval);
@@ -1180,8 +1213,10 @@ namespace LocalFormulaRacing
                     // line) bypasses the escalation roll entirely rather than risking
                     // "no response" to a car sitting dead in the road - still fully
                     // subject to escalationAllowed, so Off never escalates regardless.
-                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Major : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Destroyed", blockingLine);
-                    participant.incidentCooldownTimer = 20f;
+                    // A destroyed car that ISN'T blocking the line is Minor and does
+                    // NOT need a yellow flag - it is off the racing line, not a hazard.
+                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Major : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Destroyed", blockingLine, false);
+                    participant.incidentCooldownTimer = 26f;
                     continue;
                 }
 
@@ -1189,13 +1224,16 @@ namespace LocalFormulaRacing
                 {
                     // Severity now reflects either signal, not damageJump alone - a
                     // hard speed-only spin (no wall contact) can still read Medium,
-                    // and a big simultaneous hit is always at least Medium.
+                    // and a big simultaneous hit is always at least Medium. Part 2
+                    // retune: bars raised again so only genuinely hard hits reach
+                    // Medium/Major - a light scrape stays Minor and, per the Minor
+                    // yellow policy below, does not flag race control at all.
                     IncidentSeverity severity;
-                    if (damageJump > 22f || speedDrop > 90f)
+                    if (damageJump > 28f || speedDrop > 105f)
                     {
                         severity = IncidentSeverity.Major;
                     }
-                    else if (damageJump > 10f || speedDrop > 45f || (speedSignal && damageSignal))
+                    else if (damageJump > 15f || speedDrop > 55f || (speedSignal && damageSignal))
                     {
                         severity = IncidentSeverity.Medium;
                     }
@@ -1204,24 +1242,28 @@ namespace LocalFormulaRacing
                         severity = IncidentSeverity.Minor;
                     }
 
-                    RegisterIncident(participant, severity, progress, freqScale, escalationAllowed, "Collision (speedDrop=" + speedDrop.ToString("0") + " damageJump=" + damageJump.ToString("0.0") + ")");
-                    // Part 1: longer per-incident suppression (was 12s) so the same
+                    // Minor-severity collisions are, by definition, not "significant" -
+                    // they are logged for stats but never raise a yellow flag.
+                    RegisterIncident(participant, severity, progress, freqScale, escalationAllowed, "Collision (speedDrop=" + speedDrop.ToString("0") + " damageJump=" + damageJump.ToString("0.0") + ")", false, false);
+                    // Part 2: longer per-incident suppression (was 18s) so the same
                     // scrape/spin can't repeatedly re-roll an escalation chance.
-                    participant.incidentCooldownTimer = 18f;
+                    participant.incidentCooldownTimer = 24f;
                     continue;
                 }
 
                 if (damagePercent >= 85f)
                 {
                     RegisterIncident(participant, IncidentSeverity.Major, progress, freqScale, escalationAllowed, "Severe damage");
-                    participant.incidentCooldownTimer = 25f;
+                    participant.incidentCooldownTimer = 32f;
                     continue;
                 }
 
                 // Part 2: only the ActuallyStranded classification above (which already
                 // required the sustained StrandedDeclareSeconds duration with every
                 // legitimate exclusion checked) can ever reach race control - no
-                // separate, laxer off-track-only path any more.
+                // separate, laxer off-track-only path any more. Minor (not blocking
+                // the line) never raises a yellow - only a stranded car sitting in
+                // or very near the racing line is an actual hazard.
                 if (newRecoveryState == CarRecoveryState.ActuallyStranded)
                 {
                     if (participant.stoppedOnTrackTimer > StrandedRetireSeconds)
@@ -1229,38 +1271,45 @@ namespace LocalFormulaRacing
                         RetireParticipant(participant, "Stranded");
                     }
 
-                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Stopped/stranded");
-                    // Part 1: longer per-incident suppression so a car still sitting in
+                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Stopped/stranded", false, false);
+                    // Part 2: longer per-incident suppression so a car still sitting in
                     // the same stranded episode doesn't re-register (and re-roll a VSC/
                     // SC chance) every few seconds while race control already knows.
-                    participant.incidentCooldownTimer = 25f;
+                    participant.incidentCooldownTimer = 32f;
                     continue;
                 }
 
-                // Part 1 retune: longer sustained duration (was 3s) so a car briefly
+                // Part 2 retune: longer sustained duration (was 5s) so a car briefly
                 // pointed backward while gathering itself out of a spin - already
-                // excluded above while recoveryGraceActive - isn't flagged the moment
-                // the grace window lapses if it's still slowly correcting.
-                if (participant.wrongWayTimer > 5f)
+                // excluded above while recoveryGraceActive/Recovering - isn't flagged
+                // the moment it lapses if it's still slowly correcting.
+                if (participant.wrongWayTimer > 7f)
                 {
-                    RegisterIncident(participant, IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Wrong way");
-                    participant.incidentCooldownTimer = 15f;
+                    // A wrong-way car only warrants a yellow if it is actually near
+                    // other traffic - alone on an empty stretch of track it is not
+                    // yet a hazard to anyone, even though it still counts as an
+                    // incident and still retires/cools down normally.
+                    bool nearTraffic = FindCarAhead(participant, 100f) != null || FindCarBehind(participant, 100f) != null;
+                    RegisterIncident(participant, IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Wrong way", false, nearTraffic);
+                    participant.incidentCooldownTimer = 22f;
                     continue;
                 }
 
                 // Rare mechanical failure spice, gated by the settings toggle and this
-                // car's reliability stat. Kept deliberately small: over a full 5-lap
-                // quick race this is a handful of percent chance per car, not per lap.
-                bool mechanicalEligible = mechanicalMode != 0 && !(mechanicalMode == 1 && participant.isPlayer) && !preRace;
+                // car's reliability stat. Kept deliberately small and further halved
+                // (Part 2) - over a full race this should be a rare talking point, not
+                // a routine occurrence, and a car under SC/VSC pacing is excluded
+                // entirely since its pace is race control's own doing.
+                bool mechanicalEligible = mechanicalMode != 0 && !(mechanicalMode == 1 && participant.isPlayer) && !preRace && !paceLimited;
                 if (mechanicalEligible)
                 {
                     float reliability = participant.carData == null ? 88f : participant.carData.reliability;
-                    float perSecondChance = Mathf.Lerp(0.00006f, 0.000004f, Mathf.Clamp01(reliability / 100f));
+                    float perSecondChance = Mathf.Lerp(0.00003f, 0.000002f, Mathf.Clamp01(reliability / 100f));
                     if (Random.value < perSecondChance * RaceControlCheckInterval)
                     {
                         RetireParticipant(participant, "Mechanical failure");
-                        RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Mechanical failure");
-                        participant.incidentCooldownTimer = 30f;
+                        RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Mechanical failure", false, false);
+                        participant.incidentCooldownTimer = 42f;
                     }
                 }
             }
@@ -1269,7 +1318,7 @@ namespace LocalFormulaRacing
         // Groups incidents that land within a few seconds and a short stretch of
         // track into one escalated event (a simple pileup approximation) rather
         // than full physics collision-graph analysis.
-        void RegisterIncident(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause, bool forceEscalate = false)
+        void RegisterIncident(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause, bool forceEscalate = false, bool minorYellowJustified = false)
         {
             IncidentCount++;
             bool pileup = (RaceElapsed - lastIncidentTime) < 6f && Mathf.Abs(Track.WrapDistance(progress.distance - lastIncidentDistance)) < 40f;
@@ -1278,20 +1327,49 @@ namespace LocalFormulaRacing
             if (pileup && severity != IncidentSeverity.Major)
             {
                 severity = severity == IncidentSeverity.Minor ? IncidentSeverity.Medium : IncidentSeverity.Major;
+                // A pileup that escalated a Minor incident's severity is, by
+                // construction, no longer an isolated minor case - it now
+                // qualifies for a yellow on its own merits.
+                minorYellowJustified = true;
             }
 
             GameLog.Info("[RaceControl] Incident: " + (participant == null ? "?" : participant.driverName) +
                 " cause=" + cause + " severity=" + severity + " sector=" + progress.sector + (pileup ? " (pileup-escalated)" : "") + (forceEscalate ? " (force-escalate)" : ""));
 
-            ApplyIncidentSeverity(participant, severity, progress, freqScale, escalationAllowed, forceEscalate);
+            ApplyIncidentSeverity(participant, severity, progress, freqScale, escalationAllowed, forceEscalate, minorYellowJustified);
         }
 
-        void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, bool forceEscalate = false)
+        void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, bool forceEscalate = false, bool minorYellowJustified = false)
         {
-            // A local sector yellow always applies regardless of the safety-car
-            // frequency setting - it is the lightest-weight signal and Off only
-            // disables VSC/SC escalation, not flags entirely.
-            TriggerYellowSector(progress.sector);
+            // Part 3: Medium/Major incidents are real hazards and always raise
+            // the local sector yellow regardless of the safety-car frequency
+            // setting (Off only disables VSC/SC escalation, not flags
+            // entirely). Minor incidents only ever raise a yellow when the
+            // call site has judged them still genuinely dangerous (blocking
+            // the line, near traffic, etc) AND the global minor-incident
+            // cooldown has lapsed - most minor incidents are simply logged for
+            // stats with no race-control flag at all.
+            if (severity != IncidentSeverity.Minor)
+            {
+                TriggerYellowSector(progress.sector);
+            }
+            else if (minorYellowJustified)
+            {
+                if (RaceElapsed >= globalMinorYellowCooldownUntil)
+                {
+                    TriggerYellowSector(progress.sector);
+                    globalMinorYellowCooldownUntil = RaceElapsed + GlobalMinorYellowCooldownSeconds;
+                }
+                else
+                {
+                    GameLog.Info("[RaceControl] Minor incident yellow suppressed by global minor-yellow cooldown (" +
+                        (globalMinorYellowCooldownUntil - RaceElapsed).ToString("0.0") + "s remaining).");
+                }
+            }
+            else
+            {
+                GameLog.Info("[RaceControl] Minor incident logged without a race-control flag (not near the racing line / not significant).");
+            }
 
             bool alreadyEscalated = CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
                                      CurrentRaceControlState == RaceControlState.SafetyCarActive ||
@@ -1319,22 +1397,17 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            // Retuned (Task 1): the previous 0.85/0.9 baseline chances, stacked on the
-            // old 0/0.5/1/2 frequency scale, made Standard/High escalate almost every
-            // time. Lower baselines + the lower freqScale above land Off at zero,
-            // Reduced/Standard/High at "rare" / "occasional" / "more frequent but not
-            // constant". A failed full-SC roll now only has a further chance of a VSC
-            // fallback rather than defaulting to it deterministically.
-            // Part 1 (third retune): with the stranded-classification false positives
-            // fixed above, most Medium/Major incidents reaching this point are now
-            // genuine - so these baselines are cut further still (was 0.40/0.5/0.55)
-            // to keep a full SC rare and VSC uncommon, not just "less common".
+            // Part 2 (fourth retune): cut again from 0.28/0.35/0.42 - with false
+            // positives fixed and thresholds raised upstream, incidents reaching
+            // this point are essentially all genuine, so the roll itself can be
+            // much stingier and still produce a meaningful, rare event. VSC
+            // should read as "occasional", full SC as "rare and meaningful".
             if (severity == IncidentSeverity.Medium)
             {
                 if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar)
                 {
                     float roll = Random.value;
-                    float chance = Mathf.Clamp01(0.28f * freqScale);
+                    float chance = Mathf.Clamp01(0.15f * freqScale);
                     bool escalate = roll < chance;
                     GameLog.Info("[RaceControl] Medium incident escalation: roll=" + roll.ToString("0.00") + " chance=" + chance.ToString("0.00") + " result=" + (escalate ? "VSC deployed" : "no escalation"));
                     if (escalate)
@@ -1348,7 +1421,7 @@ namespace LocalFormulaRacing
 
             // Major.
             float scRoll = Random.value;
-            float scChance = Mathf.Clamp01(0.35f * freqScale);
+            float scChance = Mathf.Clamp01(0.20f * freqScale);
             bool deploySc = scRoll < scChance;
             if (deploySc)
             {
@@ -1364,7 +1437,7 @@ namespace LocalFormulaRacing
             if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar)
             {
                 float vscFallbackRoll = Random.value;
-                float vscFallbackChance = Mathf.Clamp01(0.42f * freqScale);
+                float vscFallbackChance = Mathf.Clamp01(0.28f * freqScale);
                 bool vscFallback = vscFallbackRoll < vscFallbackChance;
                 GameLog.Info("[RaceControl] Major incident escalation: scRoll=" + scRoll.ToString("0.00") + " scChance=" + scChance.ToString("0.00") +
                     " (no SC) vscFallbackRoll=" + vscFallbackRoll.ToString("0.00") + " vscFallbackChance=" + vscFallbackChance.ToString("0.00") +
@@ -1380,6 +1453,31 @@ namespace LocalFormulaRacing
 
         void TriggerYellowSector(int sector)
         {
+            bool sameActiveSector = yellowSectorNumber == sector && yellowSectorClearTimer > 0f;
+
+            // Part 2: don't refresh the same persistent hazard's yellow forever -
+            // once an episode has run for MaxYellowEpisodeSeconds, let it clear
+            // naturally even if the underlying incident keeps re-registering
+            // (by then the stranded-retire / cooldown logic elsewhere has
+            // almost always already resolved it anyway).
+            if (sameActiveSector && RaceElapsed - yellowSectorEpisodeStartTime > MaxYellowEpisodeSeconds)
+            {
+                return;
+            }
+
+            if (!sameActiveSector)
+            {
+                float cooldownUntil;
+                if (yellowSectorCooldownUntil.TryGetValue(sector, out cooldownUntil) && RaceElapsed < cooldownUntil)
+                {
+                    GameLog.Info("[RaceControl] Yellow flag suppressed for sector " + sector + " - per-sector cooldown active (" +
+                        (cooldownUntil - RaceElapsed).ToString("0.0") + "s remaining).");
+                    return;
+                }
+
+                yellowSectorEpisodeStartTime = RaceElapsed;
+            }
+
             if (CurrentRaceControlState == RaceControlState.Green)
             {
                 CurrentRaceControlState = RaceControlState.YellowSector;
@@ -1388,7 +1486,11 @@ namespace LocalFormulaRacing
             bool freshFlag = yellowSectorNumber != sector || yellowSectorClearTimer <= 0f;
             yellowSectorNumber = sector;
             YellowFlagSector = sector;
-            yellowSectorClearTimer = 10f;
+            // Part 2: shorter default duration (was 10s) - a yellow reads as a
+            // brief, localized warning unless the hazard keeps re-registering,
+            // which still refreshes this timer (up to the episode cap above).
+            yellowSectorClearTimer = 7f;
+            yellowSectorCooldownUntil[sector] = RaceElapsed + yellowSectorClearTimer + YellowSectorCooldownAfterClearSeconds;
             if (freshFlag)
             {
                 GameLog.Info("[RaceControl] Yellow flag, sector " + sector + ".");
@@ -1465,6 +1567,7 @@ namespace LocalFormulaRacing
             }
 
             safetyCarWatchdogTimer = 0f;
+            safetyCarWatchdogRespawnCount = 0;
             GameLog.Info("[RaceControl] Safety car deployment triggered. targetSpeed=" + SafetyCarTargetSpeedKph.ToString("0") + "kph deploymentCount=" + SafetyCarDeploymentCount);
             if (Settings != null && Settings.Current.raceControlMessages)
             {
@@ -1498,47 +1601,79 @@ namespace LocalFormulaRacing
         }
 
         float safetyCarWatchdogTimer;
-        const float SafetyCarWatchdogMissingThresholdSeconds = 2f;
+        int safetyCarWatchdogRespawnCount;
+        // Sustained-duration bar before ANY watchdog respawn fires, including
+        // the unambiguous null/inactive cases - a single skipped frame during a
+        // scene transition, a renderer toggle, or brief physics hiccup must
+        // never be enough on its own to trigger a visible respawn/teleport.
+        const float SafetyCarWatchdogMissingThresholdSeconds = 4f;
+        // A full SC period should essentially never need more than one genuine
+        // respawn. If the watchdog wants to fire again after that, something is
+        // structurally wrong (or the check itself is too loose) - repeated
+        // respawns are themselves the visible "jumping" bug, so refuse to keep
+        // respawning and log a warning instead of hiding the real problem.
+        const int MaxWatchdogRespawnsPerScPeriod = 1;
 
-        // A loose "!activeInHierarchy" check alone can flicker true for reasons
+        // Only real, unrecoverable failures count as "missing" - a loose
+        // "!activeInHierarchy" check alone can flicker true for reasons
         // unrelated to a real failure (a single skipped frame during a scene
-        // transition, a renderer toggle, etc.) - require the reference to
-        // actually be null/inactive, or every renderer to have vanished, or the
-        // car to have ended up implausibly far from where the leader-relative
-        // spawn logic put it, before treating it as genuinely missing.
-        bool IsSafetyCarGenuinelyMissing()
+        // transition, a renderer toggle, etc.), and being far ahead of the
+        // leader is NORMAL during queue formation on a long track, not a sign
+        // of a lost car - so it is deliberately not checked here at all.
+        bool IsSafetyCarGenuinelyMissing(out string reason)
         {
             if (safetyCarController == null || safetyCarObject == null)
             {
+                reason = "null controller/object";
                 return true;
             }
 
             if (!safetyCarController.IsActive || !safetyCarObject.activeInHierarchy)
             {
+                reason = "inactive object";
                 return true;
             }
 
             Renderer[] renderers = safetyCarObject.GetComponentsInChildren<Renderer>(true);
             if (renderers.Length == 0)
             {
+                reason = "no renderers";
                 return true;
             }
 
-            if (safetyCarQueueLeader != null && State != null && Track != null)
+            Vector3 pos = safetyCarObject.transform.position;
+            if (float.IsNaN(pos.x) || float.IsNaN(pos.y) || float.IsNaN(pos.z) ||
+                float.IsInfinity(pos.x) || float.IsInfinity(pos.y) || float.IsInfinity(pos.z))
             {
-                float leaderDistance = State.GetProgressDistance(safetyCarQueueLeader);
-                // WrapDistance already folds this into [0, track length) - the
-                // safety car is always spawned/held a short distance ahead of the
-                // leader, so a gap far beyond any plausible queue formation
-                // distance indicates a genuinely lost/derailed car rather than
-                // normal queue-forming movement.
-                float gapAheadOfLeader = Track.WrapDistance(safetyCarController.ProgressDistance - leaderDistance);
-                if (gapAheadOfLeader > 500f)
+                reason = "NaN/invalid position";
+                return true;
+            }
+
+            if (pos.y < -25f)
+            {
+                reason = "under terrain (y=" + pos.y.ToString("0.0") + ")";
+                return true;
+            }
+
+            if (Track != null)
+            {
+                // Compare the visible object against where its OWN progress
+                // distance says it should be - this catches a genuinely
+                // derailed/desynced car without ever depending on the leader's
+                // position, so normal queue-formation gaps can never trip it.
+                Vector3 expectedPoint;
+                Vector3 expectedForward;
+                Vector3 expectedRight;
+                Track.SampleAtDistance(safetyCarController.ProgressDistance, out expectedPoint, out expectedForward, out expectedRight);
+                float distanceFromExpected = Vector3.Distance(pos, expectedPoint);
+                if (distanceFromExpected > 150f)
                 {
+                    reason = "absurd distance from track (" + distanceFromExpected.ToString("0") + "m from expected)";
                     return true;
                 }
             }
 
+            reason = null;
             return false;
         }
 
@@ -1577,7 +1712,8 @@ namespace LocalFormulaRacing
 
             if (IsFullSafetyCarPeriod)
             {
-                bool visibleCarMissing = IsSafetyCarGenuinelyMissing();
+                string missingReason;
+                bool visibleCarMissing = IsSafetyCarGenuinelyMissing(out missingReason);
                 if (visibleCarMissing)
                 {
                     bool wasAlreadyCounting = safetyCarWatchdogTimer > 0f;
@@ -1590,13 +1726,28 @@ namespace LocalFormulaRacing
                         // signal of a flickering/loose "missing" check rather
                         // than an actual failure, without the noise of a
                         // respawn (which is logged at Warn) happening every time.
-                        GameLog.Info("[RaceControl] Safety car watchdog started counting - visible car appears missing.");
+                        GameLog.Info("[RaceControl] Safety car watchdog started counting - reason=" + missingReason);
                     }
 
                     if (safetyCarWatchdogTimer > SafetyCarWatchdogMissingThresholdSeconds)
                     {
                         safetyCarWatchdogTimer = 0f;
-                        RespawnMissingSafetyCar();
+                        if (safetyCarWatchdogRespawnCount >= MaxWatchdogRespawnsPerScPeriod)
+                        {
+                            // Repeated respawns are themselves the visible
+                            // "car jumping around" symptom - refuse to keep
+                            // doing it. One respawn per SC period is already a
+                            // generous last resort; a second request in the
+                            // same period means the underlying cause needs a
+                            // real fix, not another teleport.
+                            GameLog.Warn("[RaceControl] Safety car watchdog wants to respawn again this SC period (reason=" + missingReason +
+                                ") but the per-period respawn cap (" + MaxWatchdogRespawnsPerScPeriod + ") was already reached - refusing to avoid visible jumping.");
+                        }
+                        else
+                        {
+                            safetyCarWatchdogRespawnCount++;
+                            RespawnMissingSafetyCar(missingReason);
+                        }
                     }
                 }
                 else
@@ -1653,7 +1804,7 @@ namespace LocalFormulaRacing
 
         bool playerScQueueWarningSent;
 
-        void RespawnMissingSafetyCar()
+        void RespawnMissingSafetyCar(string reason)
         {
             if (safetyCarController == null || safetyCarObject == null)
             {
@@ -1664,7 +1815,7 @@ namespace LocalFormulaRacing
 
             if (safetyCarController == null)
             {
-                GameLog.Warn("[RaceControl] Safety car respawn FAILED: controller could not be rebuilt.");
+                GameLog.Warn("[RaceControl] Safety car respawn FAILED: controller could not be rebuilt. reason=" + reason);
                 return;
             }
 
@@ -1672,7 +1823,7 @@ namespace LocalFormulaRacing
             RaceParticipant leader = order.Count > 0 ? order[0] : safetyCarQueueLeader;
             float leaderDistance = leader != null && State != null ? State.GetProgressDistance(leader) : 0f;
             safetyCarController.EnterTrack(Track != null ? Track.WrapDistance(leaderDistance + 60f) : leaderDistance + 60f);
-            GameLog.Warn("[RaceControl] Safety car respawned because visible object was missing.");
+            GameLog.Warn("[RaceControl] Safety car respawned (last resort). reason=" + reason + " respawnCountThisPeriod=" + safetyCarWatchdogRespawnCount);
             LogSafetyCarSpawnState("watchdog-respawn");
         }
 
@@ -2019,7 +2170,17 @@ namespace LocalFormulaRacing
             playerScPitPromptSent = true;
             if (Settings != null && Settings.Current.raceControlMessages)
             {
-                PostEngineerMessage("Safety car deployed. Box now for reduced time loss?", true);
+                // Feature: the prompt now reads correctly for whichever period is
+                // actually active, and gives a rough strategic delta rather than a
+                // generic "reduced time loss" line reused for both - a full SC
+                // convoy is nearly free to pit into (the whole field is crawling)
+                // while a VSC still costs the fixed pit-lane time-loss delta
+                // relative to the reduced-pace field outside.
+                bool fullSc = CurrentRaceControlState == RaceControlState.SafetyCarActive || CurrentRaceControlState == RaceControlState.SafetyCarDeploying;
+                string message = fullSc
+                    ? "Safety car deployed. Box now - the field is bunched, this is close to a free stop."
+                    : "VSC deployed. Box now - the delta is much smaller than a green-flag stop.";
+                PostEngineerMessage(message, true);
             }
         }
 
@@ -4936,60 +5097,93 @@ namespace LocalFormulaRacing
         // clipping through, while SafetyCarController drives it directly via
         // transform/rigidbody movement instead of engine/tyre physics - it never
         // races, it only needs to look right and block the road.
+        // Generic, unbranded high-visibility "safety car" livery: bright
+        // fluorescent body with black contrast panels and an amber light bar -
+        // deliberately NOT any real series' colour scheme, just built to read
+        // clearly and instantly as "official car, not a competitor" from far
+        // down the straight, per the graphics brief (larger/readable
+        // silhouette, smoother body, clear generic livery, no branding).
         GameObject CreateSafetyCarVisual(out Renderer beaconRenderer, out Renderer brakeLightRenderer)
         {
             GameObject root = new GameObject("Safety car");
             root.layer = 0;
             Rigidbody body = root.AddComponent<Rigidbody>();
             body.isKinematic = true;
-            body.interpolation = RigidbodyInterpolation.Interpolate;
+            body.interpolation = RigidbodyInterpolation.None;
             BoxCollider collider = root.AddComponent<BoxCollider>();
-            collider.size = new Vector3(1.9f, 1.15f, 4.5f);
-            collider.center = new Vector3(0f, 0.58f, 0f);
+            collider.size = new Vector3(2f, 1.2f, 4.7f);
+            collider.center = new Vector3(0f, 0.6f, 0f);
             collider.sharedMaterial = GetCarBodyPhysicsMaterial();
 
-            Color bodyColor = new Color(0.05f, 0.06f, 0.08f);
-            Color accentColor = new Color(1f, 0.62f, 0.05f);
-            Material bodyMaterial = CreateMaterial("Safety car body", bodyColor, 0.55f, 0.82f);
+            // Fluorescent lime-yellow with black contrast roof/skirt - high
+            // visibility, unmistakably not a competitor's livery, and easy to
+            // read as an "official" car at a glance.
+            Color bodyColor = new Color(0.62f, 0.95f, 0.06f);
+            Color contrastColor = new Color(0.03f, 0.03f, 0.04f);
+            Color accentColor = new Color(1f, 0.55f, 0.02f);
+            Material bodyMaterial = CreateMaterial("Safety car body", bodyColor, 0.35f, 0.65f);
+            Material contrastMaterial = CreateMaterial("Safety car contrast", contrastColor, 0.4f, 0.75f);
             Material accentMaterial = CreateMaterial("Safety car accent", accentColor, 0.1f, 0.7f);
             Material glassMaterial = CreateMaterial("Safety car glass", new Color(0.08f, 0.12f, 0.16f, 0.9f), 0.2f, 0.95f);
             Material wheelMaterial = CreateMaterial("Safety car wheel", new Color(0.02f, 0.02f, 0.02f), 0.05f, 0.3f);
-            Material rimMaterial = CreateMaterial("Safety car rim", new Color(0.7f, 0.7f, 0.68f), 0.7f, 0.8f);
-            Material headlightMaterial = CreateMaterial("Safety car headlight", new Color(1.2f, 1.2f, 1f), 0f, 0.9f, new Color(1f, 1f, 0.85f));
+            Material rimMaterial = CreateMaterial("Safety car rim", new Color(0.78f, 0.78f, 0.76f), 0.7f, 0.85f);
+            Material headlightMaterial = CreateMaterial("Safety car headlight", new Color(1.3f, 1.3f, 1.1f), 0f, 0.9f, new Color(1f, 1f, 0.85f));
             Material beaconMaterial = CreateMaterial("Safety car beacon", accentColor, 0f, 0.9f, accentColor);
+            Material blueMarkerMaterial = CreateMaterial("Safety car marker", new Color(0.1f, 0.35f, 1f), 0f, 0.8f, new Color(0.15f, 0.4f, 1.4f));
             Material brakeLightMaterial = CreateMaterial("Safety car brake light", new Color(0.12f, 0.01f, 0.01f), 0.1f, 0.6f, new Color(0.12f, 0.01f, 0.01f));
+            Material markerPanelMaterial = CreateMaterial("Safety car marker panel", Color.white, 0.05f, 0.5f);
 
-            CreateChildCube(root.transform, "SC body lower", new Vector3(0f, 0.42f, 0f), new Vector3(1.82f, 0.62f, 4.3f), bodyMaterial);
-            CreateChildCube(root.transform, "SC cabin", new Vector3(0f, 0.94f, -0.1f), new Vector3(1.5f, 0.5f, 2.2f), bodyMaterial);
-            CreateChildCube(root.transform, "SC windshield", new Vector3(0f, 0.98f, 0.98f), new Vector3(1.4f, 0.42f, 0.06f), Quaternion.Euler(-24f, 0f, 0f), glassMaterial);
-            CreateChildCube(root.transform, "SC rear glass", new Vector3(0f, 0.98f, -1.18f), new Vector3(1.4f, 0.4f, 0.06f), Quaternion.Euler(20f, 0f, 0f), glassMaterial);
-            CreateChildCube(root.transform, "SC side glass left", new Vector3(-0.75f, 1.0f, -0.1f), new Vector3(0.04f, 0.32f, 1.9f), glassMaterial);
-            CreateChildCube(root.transform, "SC side glass right", new Vector3(0.75f, 1.0f, -0.1f), new Vector3(0.04f, 0.32f, 1.9f), glassMaterial);
-            CreateChildCube(root.transform, "SC front bumper", new Vector3(0f, 0.28f, 2.18f), new Vector3(1.86f, 0.32f, 0.22f), accentMaterial);
-            CreateChildCube(root.transform, "SC rear bumper", new Vector3(0f, 0.28f, -2.18f), new Vector3(1.86f, 0.32f, 0.22f), accentMaterial);
-            CreateChildCube(root.transform, "SC livery stripe left", new Vector3(-0.92f, 0.5f, 0f), new Vector3(0.02f, 0.14f, 4.2f), accentMaterial);
-            CreateChildCube(root.transform, "SC livery stripe right", new Vector3(0.92f, 0.5f, 0f), new Vector3(0.02f, 0.14f, 4.2f), accentMaterial);
-            CreateChildCube(root.transform, "SC hood accent", new Vector3(0f, 0.74f, 1.5f), new Vector3(0.9f, 0.03f, 1.1f), accentMaterial);
+            // Smoother, less boxy shell: a tapered nose/tail instead of flat
+            // cube fronts/rears, slightly larger than a standard car for a
+            // bigger, more readable silhouette.
+            CreateTaperedBox(root.transform, "SC body lower", new Vector3(0f, 0.42f, 0.2f), 1.7f, 1.9f, 0.62f, 4.0f, bodyMaterial);
+            CreateTaperedBox(root.transform, "SC nose", new Vector3(0f, 0.34f, 2.55f), 1.2f, 1.9f, 0.46f, 0.9f, bodyMaterial);
+            CreateChildCube(root.transform, "SC cabin", new Vector3(0f, 0.96f, -0.15f), new Vector3(1.55f, 0.5f, 2.3f), contrastMaterial);
+            CreateChildCube(root.transform, "SC roof panel", new Vector3(0f, 1.22f, -0.15f), new Vector3(1.5f, 0.06f, 2.1f), contrastMaterial);
+            CreateChildCube(root.transform, "SC windshield", new Vector3(0f, 1.0f, 1.0f), new Vector3(1.44f, 0.42f, 0.06f), Quaternion.Euler(-24f, 0f, 0f), glassMaterial);
+            CreateChildCube(root.transform, "SC rear glass", new Vector3(0f, 1.0f, -1.24f), new Vector3(1.44f, 0.4f, 0.06f), Quaternion.Euler(20f, 0f, 0f), glassMaterial);
+            CreateChildCube(root.transform, "SC side glass left", new Vector3(-0.78f, 1.02f, -0.15f), new Vector3(0.04f, 0.32f, 1.95f), glassMaterial);
+            CreateChildCube(root.transform, "SC side glass right", new Vector3(0.78f, 1.02f, -0.15f), new Vector3(0.04f, 0.32f, 1.95f), glassMaterial);
+            CreateChildCube(root.transform, "SC front bumper", new Vector3(0f, 0.28f, 2.3f), new Vector3(1.96f, 0.3f, 0.22f), contrastMaterial);
+            CreateChildCube(root.transform, "SC rear bumper", new Vector3(0f, 0.28f, -2.28f), new Vector3(1.96f, 0.3f, 0.22f), contrastMaterial);
+            CreateChildCube(root.transform, "SC skirt left", new Vector3(-0.96f, 0.24f, 0.1f), new Vector3(0.05f, 0.16f, 3.9f), contrastMaterial);
+            CreateChildCube(root.transform, "SC skirt right", new Vector3(0.96f, 0.24f, 0.1f), new Vector3(0.05f, 0.16f, 3.9f), contrastMaterial);
+            CreateChildCube(root.transform, "SC bonnet stripe", new Vector3(0f, 0.66f, 1.7f), new Vector3(0.5f, 0.03f, 1.6f), contrastMaterial);
 
-            GameObject headlightLeft = CreateChildCubeReturn(root.transform, "SC headlight left", new Vector3(-0.62f, 0.42f, 2.24f), new Vector3(0.26f, 0.14f, 0.08f), headlightMaterial);
-            GameObject headlightRight = CreateChildCubeReturn(root.transform, "SC headlight right", new Vector3(0.62f, 0.42f, 2.24f), new Vector3(0.26f, 0.14f, 0.08f), headlightMaterial);
+            // Generic bold door marker panels - a clear "this is an official
+            // car" identity read without any real branding/text/logos.
+            CreateChildCube(root.transform, "SC door marker left", new Vector3(-0.99f, 0.62f, -0.2f), new Vector3(0.03f, 0.34f, 0.9f), markerPanelMaterial);
+            CreateChildCube(root.transform, "SC door marker right", new Vector3(0.99f, 0.62f, -0.2f), new Vector3(0.03f, 0.34f, 0.9f), markerPanelMaterial);
+            CreateChildCube(root.transform, "SC door marker accent left", new Vector3(-1.0f, 0.62f, -0.2f), new Vector3(0.01f, 0.34f, 0.9f), accentMaterial);
+            CreateChildCube(root.transform, "SC door marker accent right", new Vector3(1.0f, 0.62f, -0.2f), new Vector3(0.01f, 0.34f, 0.9f), accentMaterial);
+
+            // Wing mirrors - a small detail pass that reads well in chase cam.
+            CreateChildCube(root.transform, "SC mirror left", new Vector3(-0.92f, 0.86f, 1.1f), new Vector3(0.14f, 0.1f, 0.22f), contrastMaterial);
+            CreateChildCube(root.transform, "SC mirror right", new Vector3(0.92f, 0.86f, 1.1f), new Vector3(0.14f, 0.1f, 0.22f), contrastMaterial);
+
+            GameObject headlightLeft = CreateChildCubeReturn(root.transform, "SC headlight left", new Vector3(-0.66f, 0.42f, 2.34f), new Vector3(0.28f, 0.15f, 0.08f), headlightMaterial);
+            GameObject headlightRight = CreateChildCubeReturn(root.transform, "SC headlight right", new Vector3(0.66f, 0.42f, 2.34f), new Vector3(0.28f, 0.15f, 0.08f), headlightMaterial);
             MakeVisualOnlyIfPossible(headlightLeft);
             MakeVisualOnlyIfPossible(headlightRight);
 
-            GameObject brakeLightLeft = CreateChildCubeReturn(root.transform, "SC brake light left", new Vector3(-0.62f, 0.46f, -2.24f), new Vector3(0.3f, 0.16f, 0.06f), brakeLightMaterial);
-            CreateChildCubeReturn(root.transform, "SC brake light right", new Vector3(0.62f, 0.46f, -2.24f), new Vector3(0.3f, 0.16f, 0.06f), brakeLightMaterial);
+            GameObject brakeLightLeft = CreateChildCubeReturn(root.transform, "SC brake light left", new Vector3(-0.64f, 0.46f, -2.34f), new Vector3(0.32f, 0.17f, 0.06f), brakeLightMaterial);
+            CreateChildCubeReturn(root.transform, "SC brake light right", new Vector3(0.64f, 0.46f, -2.34f), new Vector3(0.32f, 0.17f, 0.06f), brakeLightMaterial);
             brakeLightRenderer = brakeLightLeft.GetComponent<Renderer>();
 
             // Roof light bar: the clearest "this is the safety car" identity read
-            // from a distance, and the pulsing beacon SafetyCarController drives.
-            CreateChildCube(root.transform, "SC roof bar mount", new Vector3(0f, 1.24f, -0.2f), new Vector3(0.9f, 0.06f, 0.34f), wheelMaterial);
-            GameObject beacon = CreateChildCubeReturn(root.transform, "SC roof beacon", new Vector3(0f, 1.32f, -0.2f), new Vector3(0.86f, 0.14f, 0.3f), beaconMaterial);
+            // from a distance - wider and taller than before for a bigger
+            // silhouette, plus static blue corner markers flanking the pulsing
+            // amber beacon SafetyCarController drives for extra contrast.
+            CreateChildCube(root.transform, "SC roof bar mount", new Vector3(0f, 1.26f, -0.2f), new Vector3(1.1f, 0.06f, 0.4f), wheelMaterial);
+            GameObject beacon = CreateChildCubeReturn(root.transform, "SC roof beacon", new Vector3(0f, 1.36f, -0.2f), new Vector3(1.0f, 0.16f, 0.34f), beaconMaterial);
             beaconRenderer = beacon.GetComponent<Renderer>();
+            CreateChildCubeReturn(root.transform, "SC roof marker left", new Vector3(-0.58f, 1.34f, -0.2f), new Vector3(0.14f, 0.12f, 0.28f), blueMarkerMaterial);
+            CreateChildCubeReturn(root.transform, "SC roof marker right", new Vector3(0.58f, 1.34f, -0.2f), new Vector3(0.14f, 0.12f, 0.28f), blueMarkerMaterial);
 
-            CreateSafetyCarWheel(root.transform, new Vector3(-0.98f, 0.34f, 1.42f), wheelMaterial, rimMaterial);
-            CreateSafetyCarWheel(root.transform, new Vector3(0.98f, 0.34f, 1.42f), wheelMaterial, rimMaterial);
-            CreateSafetyCarWheel(root.transform, new Vector3(-0.98f, 0.34f, -1.42f), wheelMaterial, rimMaterial);
-            CreateSafetyCarWheel(root.transform, new Vector3(0.98f, 0.34f, -1.42f), wheelMaterial, rimMaterial);
+            CreateSafetyCarWheel(root.transform, new Vector3(-1.0f, 0.34f, 1.48f), wheelMaterial, rimMaterial);
+            CreateSafetyCarWheel(root.transform, new Vector3(1.0f, 0.34f, 1.48f), wheelMaterial, rimMaterial);
+            CreateSafetyCarWheel(root.transform, new Vector3(-1.0f, 0.34f, -1.48f), wheelMaterial, rimMaterial);
+            CreateSafetyCarWheel(root.transform, new Vector3(1.0f, 0.34f, -1.48f), wheelMaterial, rimMaterial);
 
             return root;
         }
