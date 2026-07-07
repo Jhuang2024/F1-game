@@ -483,8 +483,13 @@ namespace LocalFormulaRacing
             BuildSettingsTabBar(background, data, career, settings, 0);
 
             RectTransform panel = UiFactory.CreateCard(background, "Gameplay card", new Vector2(0.06f, 0.12f), new Vector2(0.6f, 0.76f));
-            RectTransform list = UiFactory.CreateRect(panel, "Gameplay list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
-            UiFactory.AddVerticalLayout(list, 8, new RectOffset(0, 0, 0, 0));
+            // Scroll-wrapped instead of a plain stretched rect: this card has
+            // accumulated enough rows across passes that it can exceed the card's
+            // fixed height, and CreateSettingRow rows no longer carry their own
+            // hardcoded width, so StretchListChildrenWidth makes the list fill
+            // whatever width the card actually has instead of collapsing to zero.
+            RectTransform list = UiFactory.CreateScrollPanel(panel, "Gameplay list", new Vector2(0.035f, 0.03f), new Vector2(0.965f, 0.97f), 8, new RectOffset(20, 20, 16, 16));
+            UiFactory.StretchListChildrenWidth(list);
             UiFactory.CreateSubHeader(list, "Session");
 
             RectTransform lapsControl;
@@ -549,8 +554,12 @@ namespace LocalFormulaRacing
             // portion of the Gameplay tab, mirroring the left/right two-card split
             // already used on the Display & HUD tab rather than opening a new tab.
             RectTransform raceControlPanel = UiFactory.CreateCard(background, "Race Control card", new Vector2(0.64f, 0.12f), new Vector2(0.94f, 0.76f));
-            RectTransform raceControlList = UiFactory.CreateRect(raceControlPanel, "Race Control list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
-            UiFactory.AddVerticalLayout(raceControlList, 8, new RectOffset(0, 0, 0, 0));
+            // This card is only ~30% of the canvas width (~576px at the 1920
+            // reference) - the exact case that used to overflow when every
+            // CreateSettingRow was hardcoded to 760px regardless of its container.
+            // Scroll-wrapped for the same reason as the Gameplay list above.
+            RectTransform raceControlList = UiFactory.CreateScrollPanel(raceControlPanel, "Race Control list", new Vector2(0.035f, 0.03f), new Vector2(0.965f, 0.97f), 8, new RectOffset(20, 20, 16, 16));
+            UiFactory.StretchListChildrenWidth(raceControlList);
             UiFactory.CreateSubHeader(raceControlList, "Race Control");
 
             RectTransform safetyCarControl;
@@ -618,8 +627,8 @@ namespace LocalFormulaRacing
             BuildSettingsTabBar(background, data, career, settings, 2);
 
             RectTransform left = UiFactory.CreateCard(background, "HUD card", new Vector2(0.06f, 0.12f), new Vector2(0.5f, 0.76f));
-            RectTransform leftList = UiFactory.CreateRect(left, "HUD list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
-            UiFactory.AddVerticalLayout(leftList, 8, new RectOffset(0, 0, 0, 0));
+            RectTransform leftList = UiFactory.CreateScrollPanel(left, "HUD list", new Vector2(0.035f, 0.03f), new Vector2(0.965f, 0.97f), 8, new RectOffset(20, 20, 16, 16));
+            UiFactory.StretchListChildrenWidth(leftList);
             UiFactory.CreateSubHeader(leftList, "HUD & Camera");
 
             RectTransform hudScaleControl;
@@ -667,13 +676,16 @@ namespace LocalFormulaRacing
                 ShowDisplaySettings(data, career, settings);
             });
 
+            // A 6-segment row doesn't fit next to a label in a card this size once
+            // the row genuinely respects the card's width instead of floating at a
+            // fixed 760px - switched to the same single-button cycle control used by
+            // every other numeric setting on this screen (HUD Scale, Camera FOV,
+            // Scenery Density).
             RectTransform shakeAmountControl;
             UiFactory.CreateSettingRow(leftList, "Camera Movement", "How strongly speed, kerbs, braking, and impacts move the camera.", out shakeAmountControl);
-            string[] shakeLabels = { "0.0", "0.1", "0.2", "0.3", "0.4", "0.5" };
-            int shakeIndex = Mathf.Clamp(Mathf.RoundToInt(settings.Current.cameraShakeStrength * 10f), 0, 5);
-            UiFactory.CreateSegmentedControl(shakeAmountControl, shakeLabels, shakeIndex, index =>
+            UiFactory.CreateCycleControl(shakeAmountControl, settings.Current.cameraShakeStrength.ToString("0.0"), () =>
             {
-                settings.Current.cameraShakeStrength = index * 0.1f;
+                settings.Current.cameraShakeStrength = CycleFloat(settings.Current.cameraShakeStrength, 0f, 0.5f, 0.1f);
                 settings.Save();
                 ShowDisplaySettings(data, career, settings);
             });
@@ -689,8 +701,8 @@ namespace LocalFormulaRacing
             });
 
             RectTransform right = UiFactory.CreateCard(background, "Graphics card", new Vector2(0.54f, 0.12f), new Vector2(0.94f, 0.76f));
-            RectTransform rightList = UiFactory.CreateRect(right, "Graphics list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
-            UiFactory.AddVerticalLayout(rightList, 8, new RectOffset(0, 0, 0, 0));
+            RectTransform rightList = UiFactory.CreateScrollPanel(right, "Graphics list", new Vector2(0.035f, 0.03f), new Vector2(0.965f, 0.97f), 8, new RectOffset(20, 20, 16, 16));
+            UiFactory.StretchListChildrenWidth(rightList);
             UiFactory.CreateSubHeader(rightList, "Graphics");
 
             RectTransform qualityControl;
@@ -799,8 +811,8 @@ namespace LocalFormulaRacing
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Assists background", new Color(0.012f, 0.016f, 0.021f, 1f));
             BuildSettingsTabBar(background, data, career, settings, 1);
             RectTransform card = UiFactory.CreateCard(background, "Assists card", new Vector2(0.06f, 0.12f), new Vector2(0.6f, 0.76f));
-            RectTransform panel = UiFactory.CreateRect(card, "Assists panel", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
-            UiFactory.AddVerticalLayout(panel, 8, new RectOffset(0, 0, 0, 0));
+            RectTransform panel = UiFactory.CreateScrollPanel(card, "Assists panel", new Vector2(0.035f, 0.03f), new Vector2(0.965f, 0.97f), 8, new RectOffset(20, 20, 16, 16));
+            UiFactory.StretchListChildrenWidth(panel);
             UiFactory.CreateSubHeader(panel, "Driving Assists");
 
             RectTransform autoBrakeControl;
@@ -1116,12 +1128,14 @@ namespace LocalFormulaRacing
             // for the engineer's box calls during the race. Supports both a
             // 1-stop and a 2-stop plan; the "Strategy" row toggles whether the
             // stop-2 rows exist at all (they're omitted, not just disabled, to
-            // keep a 1-stop plan compact). Card height below is sized for the
-            // worst case (2-stop, every row present) so it never clips.
+            // keep a 1-stop plan compact). The card height below is a reasonable
+            // fixed default rather than a worst-case-safe one - the list is
+            // scroll-wrapped so the 2-stop case (5 description rows at their
+            // current height) simply scrolls instead of clipping.
             RectTransform pitCard = UiFactory.CreateGlassPanel(bodyMargin, "Pit strategy card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, UiFactory.PanelDarker);
             UiFactory.SetFixedRowHeight(pitCard, 452f);
-            RectTransform pitList = UiFactory.CreateRect(pitCard, "Pit strategy list", Vector2.zero, Vector2.one, new Vector2(28f, 16f), new Vector2(-28f, -16f));
-            UiFactory.AddVerticalLayout(pitList, 6, new RectOffset(0, 0, 0, 0));
+            RectTransform pitList = UiFactory.CreateScrollPanel(pitCard, "Pit strategy list", new Vector2(0.02f, 0.03f), new Vector2(0.98f, 0.96f), 6, new RectOffset(20, 20, 12, 12));
+            UiFactory.StretchListChildrenWidth(pitList);
             UiFactory.CreateSubHeader(pitList, "Pit Strategy");
 
             int raceLaps = Mathf.Max(3, settings.Current.laps);
@@ -1461,8 +1475,11 @@ namespace LocalFormulaRacing
             UnityEngine.Events.UnityAction refresh = () => ShowCarSetup(data, career, settings, backAction);
 
             RectTransform left = UiFactory.CreateCard(background, "Setup card", new Vector2(0.06f, 0.14f), new Vector2(0.52f, 0.82f));
-            RectTransform list = UiFactory.CreateRect(left, "Setup list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
-            UiFactory.AddVerticalLayout(list, 8, new RectOffset(0, 0, 0, 0));
+            // Scroll-wrapped: six description rows at their current (taller, wrap
+            // safe) height plus the preset row and header can exceed this card's
+            // fixed height, so the list scrolls instead of clipping the bottom rows.
+            RectTransform list = UiFactory.CreateScrollPanel(left, "Setup list", new Vector2(0.035f, 0.03f), new Vector2(0.965f, 0.97f), 8, new RectOffset(20, 20, 16, 16));
+            UiFactory.StretchListChildrenWidth(list);
             UiFactory.CreateSubHeader(list, "Quick Presets");
             RectTransform presetRow = UiFactory.CreateRect(list, "Setup preset row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             presetRow.sizeDelta = new Vector2(560f, 40f);

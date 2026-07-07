@@ -88,19 +88,26 @@ namespace LocalFormulaRacing
         // very different confidence curves, not the same eased Lerp toward one floor.
         enum CornerType { HighSpeed, Medium, Slow, Hairpin }
 
-        CornerType ClassifyUpcomingCorner(float apexSeverity)
+        // Part A.5: Expert gets wider HighSpeed/Medium buckets so it stops treating
+        // flowing bends as real corners the way lower tiers correctly still do -
+        // Easy/Medium/Hard keep the original thresholds untouched.
+        CornerType ClassifyUpcomingCorner(float apexSeverity, bool isExpert)
         {
-            if (apexSeverity < 0.25f)
+            float highSpeedCeiling = isExpert ? 0.30f : 0.25f;
+            float mediumCeiling = isExpert ? 0.55f : 0.5f;
+            float slowCeiling = isExpert ? 0.72f : 0.75f;
+
+            if (apexSeverity < highSpeedCeiling)
             {
                 return CornerType.HighSpeed;
             }
 
-            if (apexSeverity < 0.5f)
+            if (apexSeverity < mediumCeiling)
             {
                 return CornerType.Medium;
             }
 
-            if (apexSeverity < 0.75f)
+            if (apexSeverity < slowCeiling)
             {
                 return CornerType.Slow;
             }
@@ -115,25 +122,34 @@ namespace LocalFormulaRacing
         // bend instead of being dragged toward hairpin pace the moment severity
         // crosses one broad threshold. apexConfidence (already difficulty+driver
         // derived) blends the floor upward for a sharper driver on the same corner.
-        float EstimateApexSpeedForCornerType(CornerType type, float apexSeverity, float straightTargetSpeed, float hairpinSpeedKph, float gripMultiplier, float apexConfidence)
+        float EstimateApexSpeedForCornerType(CornerType type, float apexSeverity, float straightTargetSpeed, float hairpinSpeedKph, float gripMultiplier, float apexConfidence, bool isExpert)
         {
             float floorSpeed;
             float easePower;
             switch (type)
             {
                 case CornerType.HighSpeed:
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.84f, straightTargetSpeed * 0.94f, apexConfidence);
-                    easePower = 2.6f;
+                    // Part A.5: Expert's ceiling pushed to 98% of straight-line speed
+                    // (from 94%) and the ease power raised so a high-speed kink stays
+                    // close to flat through most of its severity range, only bleeding
+                    // toward the floor right at the peak - "nearly flat" per the brief,
+                    // not the same curve as Hard just with a higher confidence input.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.84f, straightTargetSpeed * (isExpert ? 0.98f : 0.94f), apexConfidence);
+                    easePower = isExpert ? 3.4f : 2.6f;
                     break;
                 case CornerType.Medium:
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.58f, straightTargetSpeed * 0.72f, apexConfidence);
-                    easePower = 1.8f;
+                    // Materially higher minimum speed floor for Expert (80% vs 72%).
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.58f, straightTargetSpeed * (isExpert ? 0.80f : 0.72f), apexConfidence);
+                    easePower = isExpert ? 2.1f : 1.8f;
                     break;
                 case CornerType.Slow:
                     floorSpeed = Mathf.Lerp(hairpinSpeedKph * 1.15f, hairpinSpeedKph * 1.4f, apexConfidence);
                     easePower = 1.4f;
                     break;
                 default:
+                    // Hairpin floor deliberately untouched by isExpert - a hairpin is
+                    // still a hairpin. Expert only benefits here via the already-maxed
+                    // apexConfidence blend above (Part A.1), never a corner-type bonus.
                     floorSpeed = hairpinSpeedKph;
                     easePower = 1.2f;
                     break;
@@ -164,8 +180,15 @@ namespace LocalFormulaRacing
             RaceManager.AiDifficultyProfile startupProfile = manager.GetAiDifficultyProfile();
             DriverData startupDriver = participant == null ? null : participant.driverData;
             float launchSkill = startupDriver == null ? 0.5f : Mathf.Clamp01((startupDriver.awareness + startupDriver.consistency) / 200f);
-            launchConfidence = Mathf.Clamp01(Mathf.Lerp(0.55f, 0.95f, launchSkill) - startupProfile.reactionTimeSeconds * 0.12f);
-            launchSettleDuration = Mathf.Lerp(0.3f, 1.3f, 1f - launchSkill) + startupProfile.reactionTimeSeconds * 0.35f;
+            // Part A.7: the 0.95 confidence ceiling and 0.3s settle floor below were
+            // diluting Expert's near-zero reactionTimeSeconds - a perfect-skill driver
+            // on Expert should reach genuinely near-instant full confidence, not cap
+            // out at the same ceiling a merely-good Hard-tier driver would.
+            bool isExpertStart = manager.IsExpertDifficulty;
+            float launchSkillCeiling = isExpertStart ? 0.99f : 0.95f;
+            float settleFloor = isExpertStart ? 0.05f : 0.3f;
+            launchConfidence = Mathf.Clamp01(Mathf.Lerp(0.55f, launchSkillCeiling, launchSkill) - startupProfile.reactionTimeSeconds * 0.12f);
+            launchSettleDuration = Mathf.Lerp(settleFloor, 1.3f, 1f - launchSkill) + startupProfile.reactionTimeSeconds * 0.35f;
         }
 
         void Update()
@@ -213,6 +236,10 @@ namespace LocalFormulaRacing
             int wetSkill = driver == null ? 75 : driver.wetSkill;
 
             RaceManager.AiDifficultyProfile profile = raceManager.GetAiDifficultyProfile();
+            // Part A: the single source of truth for every Expert-only branch below -
+            // corner classification, corner-speed ceilings, traffic caution floor,
+            // DRS commit and the overtake/defend RNG bypasses all read this once.
+            bool isExpert = raceManager.IsExpertDifficulty;
 
             float severityHere = EstimateCornerSeverity(progress.distance);
             // Look further ahead with speed, but shorten in corners so the AI hits apexes
@@ -260,8 +287,8 @@ namespace LocalFormulaRacing
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
             // genuine hairpin need very different confidence curves (Part 2).
-            CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity);
-            float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, straightTargetSpeed, hairpinSpeedKph, gripMultiplier, apexConfidence);
+            CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity, isExpert);
+            float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, straightTargetSpeed, hairpinSpeedKph, gripMultiplier, apexConfidence, isExpert);
 
             // cornerSpeedMultiplier may exceed 1.0 for Hard/Expert: how much of the
             // tyre's real available grip a confident driver carries through the apex is
@@ -271,7 +298,9 @@ namespace LocalFormulaRacing
             // Driver-quality variance is the per-driver pace differentiator, independent
             // of difficulty; profile.paceMultiplier is the difficulty-tier pace scaler
             // layered on top so Hard/Expert are meaningfully quicker than Easy/Medium.
-            float driverPaceVariance = Mathf.Lerp(0.89f, 1.11f, pace / 100f) * Mathf.Lerp(0.95f, 1.05f, racecraft / 100f);
+            // Part A.8: racecraft's spread widened slightly (was 0.95-1.05) - the
+            // thinnest driver-stat blend found in the verification pass.
+            float driverPaceVariance = Mathf.Lerp(0.89f, 1.11f, pace / 100f) * Mathf.Lerp(0.92f, 1.08f, racecraft / 100f);
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             float brakingApexSpeed = apexTargetSpeed * driverPaceVariance * profile.paceMultiplier;
 
@@ -300,7 +329,7 @@ namespace LocalFormulaRacing
             }
 
             UpdateMistake(consistency, aggression, profile);
-            UpdateOvertakeState(progress, severityHere, apexDistanceAhead, apexSeverity, turnSign, aggression, overtaking, defending, profile);
+            UpdateOvertakeState(progress, severityHere, apexDistanceAhead, apexSeverity, turnSign, aggression, overtaking, defending, profile, isExpert, driver);
 
             // Off-track recovery: drive straight back toward the centerline at reduced pace
             // instead of chasing the racing line offset from the grass.
@@ -465,15 +494,18 @@ namespace LocalFormulaRacing
             {
                 RaceDifficulty difficulty = raceManager.Settings == null ? RaceDifficulty.Medium : raceManager.Settings.Difficulty;
                 bool confidentTier = difficulty == RaceDifficulty.Hard || difficulty == RaceDifficulty.Expert;
-                float openingCapDuration = confidentTier ? (difficulty == RaceDifficulty.Expert ? 1.1f : 1.8f) : 3.5f;
-                float openingCapFloor = confidentTier ? (difficulty == RaceDifficulty.Expert ? 0.92f : 0.85f) : 0.72f;
+                // Part A.7: Expert's pileup-safety cap shrunk further still (was
+                // 1.1s/0.92) - just enough margin to not cause a first-corner pileup
+                // by itself, no more.
+                float openingCapDuration = confidentTier ? (isExpert ? 0.6f : 1.8f) : 3.5f;
+                float openingCapFloor = confidentTier ? (isExpert ? 0.95f : 0.85f) : 0.72f;
                 if (raceManager.RaceElapsed < openingCapDuration)
                 {
                     command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(openingCapFloor, 1f, raceManager.RaceElapsed / openingCapDuration));
                 }
             }
 
-            ApplyTrafficAvoidance(ref command, progress, speedKph, profile);
+            ApplyTrafficAvoidance(ref command, progress, speedKph, profile, isExpert);
 
             // Driver-pressure model: a car actively attacking or defending under
             // close pressure pushes slightly harder - the tyre lockup model already
@@ -485,10 +517,21 @@ namespace LocalFormulaRacing
                 command.steer = Mathf.Clamp(command.steer * (1f + pressureFactor * 0.06f), -1f, 1f);
             }
 
-            float tyrePitThreshold = Mathf.Lerp(0.68f, 0.52f, tyreManagement / 100f) + profile.tyreSavingBias * 0.05f;
+            // Part A.9: reacts a bit earlier than before (was Lerp(0.68, 0.52, ...)) -
+            // the old threshold let strategy hang on for slightly too long before
+            // requesting a stop.
+            float tyrePitThreshold = Mathf.Lerp(0.72f, 0.58f, tyreManagement / 100f) + profile.tyreSavingBias * 0.05f;
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                 vehicle.Tyres.Wear < tyrePitThreshold &&
                 participant.lapTracker.CompletedLaps > 0)
+            {
+                command.pitRequest = true;
+            }
+
+            // Part A.9: never stay out on destroyed/near-destroyed tyres regardless of
+            // planned lap or the threshold above - strategy timing should never keep a
+            // car circulating on tyres that are essentially gone.
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && vehicle.Tyres.Wear < 0.12f)
             {
                 command.pitRequest = true;
             }
@@ -519,7 +562,8 @@ namespace LocalFormulaRacing
             bool drsLegal = raceManager.IsDrsAvailable(participant);
             if (drsLegal && !wasDrsLegalLastFrame)
             {
-                drsCommittedThisZone = Random.value < profile.drsUsageQuality;
+                // Part A.2: Expert-only, deterministic - if DRS is legal, use it.
+                drsCommittedThisZone = isExpert || Random.value < profile.drsUsageQuality;
             }
             wasDrsLegalLastFrame = drsLegal;
             command.drs = drsLegal && drsCommittedThisZone;
@@ -572,7 +616,7 @@ namespace LocalFormulaRacing
             }
         }
 
-        void ApplyTrafficAvoidance(ref VehicleCommand command, TrackProgress progress, float speedKph, RaceManager.AiDifficultyProfile profile)
+        void ApplyTrafficAvoidance(ref VehicleCommand command, TrackProgress progress, float speedKph, RaceManager.AiDifficultyProfile profile, bool isExpert)
         {
             float brakeDemand = 0f;
             float throttleLimit = 1f;
@@ -580,7 +624,18 @@ namespace LocalFormulaRacing
             bool blockedLeft = false;
             bool blockedRight = false;
             bool carDirectlyAhead = false;
-            float cautionFactor = Mathf.Clamp(profile.trafficAvoidanceCaution, 0.5f, 1.4f);
+            // Bug fix (Part A.6): the old fixed 0.5 floor here silently clamped
+            // Expert's much lower trafficAvoidanceCaution (0.22) right back up to 0.5,
+            // neutering the difficulty profile's own number. Expert gets its own,
+            // much lower, floor plus an additional reduction on top so a confident
+            // Expert actually commits to a real gap instead of lifting for traffic it
+            // can beat.
+            float cautionFloor = isExpert ? 0.15f : 0.5f;
+            float cautionFactor = Mathf.Clamp(profile.trafficAvoidanceCaution, cautionFloor, 1.4f);
+            if (isExpert)
+            {
+                cautionFactor *= 0.7f;
+            }
             bool legalDrsHere = raceManager.IsDrsAvailable(participant);
 
             dodgeMemoryTimer = Mathf.Max(0f, dodgeMemoryTimer - Time.deltaTime);
@@ -658,7 +713,9 @@ namespace LocalFormulaRacing
                         {
                             dodgeMemorySide = rawDodgeSide;
                         }
-                        dodgeMemoryTimer = 1.1f;
+                        // Part A.6: Expert resolves a dodge decision faster instead of
+                        // lingering on a stale side-choice that's no longer relevant.
+                        dodgeMemoryTimer = isExpert ? 0.6f : 1.1f;
                         float dodgeStrength = Mathf.Clamp01(1f - local.z / (forwardWindow * 0.7f));
                         steerAdjust += dodgeMemorySide * Mathf.Lerp(0.08f, 0.4f, dodgeStrength);
                     }
@@ -799,13 +856,21 @@ namespace LocalFormulaRacing
         // context, DRS availability and the driver's commitment/aggression stats;
         // the actual lateral commitment is written into aggressionOffset, which the
         // existing legal-line clamp and traffic-avoidance safety logic still bound.
-        void UpdateOvertakeState(TrackProgress progress, float severityHere, float apexDistanceAhead, float apexSeverity, float turnSign, int aggression, int overtaking, int defending, RaceManager.AiDifficultyProfile profile)
+        void UpdateOvertakeState(TrackProgress progress, float severityHere, float apexDistanceAhead, float apexSeverity, float turnSign, int aggression, int overtaking, int defending, RaceManager.AiDifficultyProfile profile, bool isExpert, DriverData driver)
         {
             RaceParticipant ahead = raceManager.FindCarAhead(participant, 46f);
             RaceParticipant behind = raceManager.FindCarBehind(participant, 32f);
             float legalLimit = LegalOffsetLimit(severityHere);
             float commitment = Mathf.Clamp01(profile.overtakeCommitment * Mathf.Lerp(0.7f, 1.15f, (aggression + overtaking) / 200f));
             float defendCommitment = Mathf.Clamp01(profile.defendCommitment * Mathf.Lerp(0.7f, 1.15f, defending / 100f));
+
+            // Part A.3/A.4: extended state timers so Expert doesn't bail out of an
+            // attack or a defend cover early. Everything else keeps the previous
+            // fixed durations.
+            float preparingAttackTimer = isExpert ? 3.2f : 2.2f;
+            float attackingTimer = isExpert ? 4.2f : 2.6f;
+            float sideBySideTimer = isExpert ? 4.5f : 3f;
+            float backingOutTimer = isExpert ? 0.4f : 1f;
 
             // Part 8: a lap or two of extra eagerness right after a safety car
             // restart - detected as a Restart -> Green edge on the race control
@@ -853,6 +918,17 @@ namespace LocalFormulaRacing
                         float speedDeltaKph = Mathf.Abs(vehicle.CurrentSpeedKph) - Mathf.Abs(ahead.vehicle.CurrentSpeedKph);
                         bool clearlySlower = speedDeltaKph > Mathf.Lerp(9f, 2.5f, commitment);
 
+                        // Part A.3: Expert alone can trigger an attack on a genuine
+                        // positive speed delta by itself, without needing DRS, a
+                        // braking zone or the wider "clearly slower" margin above.
+                        bool positiveSpeedDeltaExpert = isExpert && speedDeltaKph > 0.5f;
+
+                        // Part A.3: a clearly-slower backmarker (large pace gap) gets
+                        // attacked almost immediately on Expert - widen the gap
+                        // threshold below rather than waiting for the normal window.
+                        DriverData aheadDriver = ahead.driverData;
+                        bool aheadIsBackmarker = isExpert && driver != null && aheadDriver != null && (driver.pace - aheadDriver.pace) > 8;
+
                         // Patience timer: stuck following the same 0.8-1.2s gap for a
                         // while raises the attack-attempt probability over time instead
                         // of orbiting it for the rest of the stint. Resets on any state
@@ -865,11 +941,18 @@ namespace LocalFormulaRacing
                         // more often than a tentative Easy/Medium driver does.
                         float drsBonus = drsHelp ? Mathf.Lerp(1.2f, 2.6f, commitment) : 1f;
 
-                        bool attackTrigger = gapSeconds < 1.1f && (approachingBrakeZone || drsHelp || clearlySlower) && hasPace;
-                        if (attackTrigger && Random.value < commitment * Time.deltaTime * (3f + patienceBonus) * drsBonus)
+                        // Part A.3: Expert's attack-trigger gap threshold is far wider
+                        // (1.8s vs 1.1s, 3.0s against a clear backmarker) than the
+                        // other tiers, which keep the original threshold untouched.
+                        float attackGapThreshold = isExpert ? (aheadIsBackmarker ? 3.0f : 1.8f) : 1.1f;
+                        bool attackTrigger = gapSeconds < attackGapThreshold && (approachingBrakeZone || drsHelp || clearlySlower || positiveSpeedDeltaExpert) && hasPace;
+
+                        // Part A.2: Expert is fully deterministic once attackTrigger is
+                        // true - no dice roll for permission to attack.
+                        if (attackTrigger && (isExpert || Random.value < commitment * Time.deltaTime * (3f + patienceBonus) * drsBonus))
                         {
                             overtakeState = OvertakeState.PreparingAttack;
-                            overtakeStateTimer = 2.2f;
+                            overtakeStateTimer = preparingAttackTimer;
                             followingTimer = 0f;
                             attackSide = Mathf.Sign(Vector3.Dot(transform.position - ahead.transform.position, transform.right));
                             if (Mathf.Abs(attackSide) < 0.1f)
@@ -893,15 +976,17 @@ namespace LocalFormulaRacing
                     bool stillThere = ahead != null && raceManager.GetIntervalToAheadSeconds(participant) < 1.4f;
                     if (!stillThere || overtakeStateTimer <= 0f)
                     {
-                        if (stillThere && Random.value < commitment)
+                        // Part A.2: Expert commits to the attack whenever the target is
+                        // still there, no roll.
+                        if (stillThere && (isExpert || Random.value < commitment))
                         {
                             overtakeState = attackSide < 0f ? OvertakeState.AttackingOutside : OvertakeState.AttackingInside;
-                            overtakeStateTimer = 2.6f;
+                            overtakeStateTimer = attackingTimer;
                         }
                         else
                         {
                             overtakeState = OvertakeState.BackingOut;
-                            overtakeStateTimer = 1f;
+                            overtakeStateTimer = backingOutTimer;
                         }
                     }
                     break;
@@ -917,7 +1002,7 @@ namespace LocalFormulaRacing
                     if (sideBySideNow)
                     {
                         overtakeState = OvertakeState.SideBySide;
-                        overtakeStateTimer = 3f;
+                        overtakeStateTimer = sideBySideTimer;
                     }
                     else if (ahead == null)
                     {
@@ -925,10 +1010,30 @@ namespace LocalFormulaRacing
                         overtakeStateTimer = 1.4f;
                         raceManager.ReportAiOvertakeCompleted(participant);
                     }
-                    else if (raceManager.GetIntervalToAheadSeconds(participant) > 1.8f || overtakeStateTimer <= 0f)
+                    else
                     {
-                        overtakeState = OvertakeState.BackingOut;
-                        overtakeStateTimer = 1f;
+                        // Part A.3: Expert only bails into BackingOut when the gap has
+                        // genuinely opened back up (a wider threshold than the other
+                        // tiers); if only the attack-state timer expired and the gap
+                        // hasn't opened, Expert refreshes the timer and keeps pressing
+                        // instead of giving up a still-live attack. This is not
+                        // repeated weaving - aggressionOffset above is unchanged, this
+                        // only decides whether to keep holding the current line.
+                        float currentGap = raceManager.GetIntervalToAheadSeconds(participant);
+                        float abortGapThreshold = isExpert ? 2.6f : 1.8f;
+                        bool gapOpening = currentGap > abortGapThreshold;
+                        if (gapOpening || overtakeStateTimer <= 0f)
+                        {
+                            if (isExpert && !gapOpening && overtakeStateTimer <= 0f)
+                            {
+                                overtakeStateTimer = attackingTimer;
+                            }
+                            else
+                            {
+                                overtakeState = OvertakeState.BackingOut;
+                                overtakeStateTimer = backingOutTimer;
+                            }
+                        }
                     }
                     break;
                 }
@@ -947,7 +1052,7 @@ namespace LocalFormulaRacing
                     else if (overtakeStateTimer <= 0f)
                     {
                         overtakeState = OvertakeState.BackingOut;
-                        overtakeStateTimer = 0.8f;
+                        overtakeStateTimer = backingOutTimer * 0.8f;
                     }
                     break;
 
@@ -960,7 +1065,8 @@ namespace LocalFormulaRacing
                     break;
 
                 case OvertakeState.BackingOut:
-                    // Higher overtakeCommitment backs out less readily/later.
+                    // Higher overtakeCommitment backs out less readily/later; Expert's
+                    // own backingOutTimer above is also much shorter to begin with.
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, 0f, Time.deltaTime * Mathf.Lerp(3f, 6f, 1f - commitment));
                     if (overtakeStateTimer <= 0f)
                     {
@@ -971,8 +1077,11 @@ namespace LocalFormulaRacing
 
             // Defend once per approaching braking zone: cover the inside line if a
             // real threat is close behind, then leave it alone until the next corner
-            // instead of weaving repeatedly.
-            bool approaching = apexDistanceAhead < 70f && apexSeverity > 0.16f;
+            // instead of weaving repeatedly. Part A.4: Expert covers from much
+            // further out (110m vs 70m) - earlier inside-cover before the braking
+            // zone - while still only ever committing once per zone.
+            float approachTriggerDistance = isExpert ? 110f : 70f;
+            bool approaching = apexDistanceAhead < approachTriggerDistance && apexSeverity > 0.16f;
             if (!approaching)
             {
                 hasCoveredThisApex = false;
@@ -982,9 +1091,14 @@ namespace LocalFormulaRacing
                 float behindGap = raceManager.GetIntervalToAheadSeconds(behind);
                 bool behindHasDrs = raceManager.IsDrsAvailable(behind);
                 bool threatClose = behindGap > 0f && (behindGap < 1.3f || behindHasDrs);
-                if (threatClose && Random.value < defendCommitment)
+                // Part A.2: Expert commits to the cover whenever a real threat is
+                // close, no roll.
+                if (threatClose && (isExpert || Random.value < defendCommitment))
                 {
-                    float coverOffset = turnSign * Mathf.Lerp(1f, 2.3f, defendCommitment);
+                    // Part A.4: a stronger cover offset ceiling for Expert specifically
+                    // (clamped by legalLimit like every other tier, same as before).
+                    float coverCeiling = isExpert ? 2.7f : 2.3f;
+                    float coverOffset = turnSign * Mathf.Lerp(1f, coverCeiling, defendCommitment);
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, Mathf.Clamp(coverOffset, -legalLimit, legalLimit), Time.deltaTime * 5f);
                     hasCoveredThisApex = true;
                     pressureFactor = Mathf.Max(pressureFactor, Mathf.Lerp(0.3f, 0.8f, defendCommitment));
