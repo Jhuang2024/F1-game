@@ -155,6 +155,42 @@ namespace LocalFormulaRacing
             IsHeldInPit = held;
         }
 
+        public bool IsPitGuided { get; private set; }
+
+        // While a car is animated through the pit lane it moves on rails: kinematic
+        // and non-colliding so queued cars can never physics-fight, spin each other,
+        // or take damage in the lane. Always restored on release.
+        public void SetPitGuidance(bool guided)
+        {
+            if (IsPitGuided == guided)
+            {
+                return;
+            }
+
+            IsPitGuided = guided;
+            if (body == null)
+            {
+                body = GetComponent<Rigidbody>();
+            }
+
+            if (body != null)
+            {
+                if (guided)
+                {
+                    body.velocity = Vector3.zero;
+                    body.angularVelocity = Vector3.zero;
+                    body.isKinematic = true;
+                    body.detectCollisions = false;
+                }
+                else
+                {
+                    body.isKinematic = false;
+                    body.detectCollisions = true;
+                    body.velocity = transform.forward * 14f;
+                }
+            }
+        }
+
         public void SetPitLimiter(bool active)
         {
             PitLimiterActive = active;
@@ -168,8 +204,11 @@ namespace LocalFormulaRacing
             {
                 body.position = position;
                 body.rotation = rotation;
-                body.velocity = Vector3.zero;
-                body.angularVelocity = Vector3.zero;
+                if (!body.isKinematic)
+                {
+                    body.velocity = Vector3.zero;
+                    body.angularVelocity = Vector3.zero;
+                }
             }
 
             smoothedThrottle = 0f;
@@ -179,6 +218,7 @@ namespace LocalFormulaRacing
         public float GuideToPitPose(Vector3 position, Quaternion rotation, float moveSpeed, float rotateSpeed)
         {
             float dt = Mathf.Max(Time.deltaTime, 0.001f);
+            Vector3 previousPosition = transform.position;
             Vector3 nextPosition = Vector3.MoveTowards(transform.position, position, moveSpeed * dt);
             Quaternion nextRotation = Quaternion.RotateTowards(transform.rotation, rotation, rotateSpeed * dt);
             transform.position = nextPosition;
@@ -187,13 +227,16 @@ namespace LocalFormulaRacing
             {
                 body.position = nextPosition;
                 body.rotation = nextRotation;
-                body.velocity = Vector3.MoveTowards(body.velocity, Vector3.zero, 18f * dt);
-                body.angularVelocity = Vector3.zero;
+                if (!body.isKinematic)
+                {
+                    body.velocity = Vector3.MoveTowards(body.velocity, Vector3.zero, 18f * dt);
+                    body.angularVelocity = Vector3.zero;
+                }
             }
 
             smoothedThrottle = 0f;
             smoothedBrake = 1f;
-            CurrentSpeedKph = body == null ? 0f : body.velocity.magnitude * 3.6f;
+            CurrentSpeedKph = Vector3.Distance(previousPosition, nextPosition) / dt * 3.6f;
             return Vector3.Distance(nextPosition, position);
         }
 
@@ -216,6 +259,16 @@ namespace LocalFormulaRacing
             }
 
             float dt = Time.fixedDeltaTime;
+            if (IsPitGuided)
+            {
+                // On rails through the pit lane: RaceManager drives the transform,
+                // physics stays out of it entirely.
+                EffectiveThrottle = 0f;
+                EffectiveBrake = 1f;
+                ActiveSlowdownReason = "PIT GUIDE";
+                return;
+            }
+
             if (IsHeldOnGrid)
             {
                 body.velocity = Vector3.zero;
@@ -562,9 +615,11 @@ namespace LocalFormulaRacing
             Vector3 pointB;
             Vector3 forwardB;
             Vector3 rightB;
-            Track.SampleAtDistance(distance + 20f, out pointA, out forwardA, out rightA);
-            Track.SampleAtDistance(distance + 72f, out pointB, out forwardB, out rightB);
-            return Mathf.Clamp01(Vector3.Angle(forwardA, forwardB) / 82f);
+            // Windows sized for normalized 4-5.6 km circuits: braking assist needs to
+            // see the corner from further out now that straights are full length.
+            Track.SampleAtDistance(distance + 26f, out pointA, out forwardA, out rightA);
+            Track.SampleAtDistance(distance + 98f, out pointB, out forwardB, out rightB);
+            return Mathf.Clamp01(Vector3.Angle(forwardA, forwardB) / 74f);
         }
 
         void StabilizeChassis(float dt)

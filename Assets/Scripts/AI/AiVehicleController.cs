@@ -18,6 +18,15 @@ namespace LocalFormulaRacing
         float lastProgressDistance;
         bool hasProgressReference;
 
+        // Deterministic side preference so two cars meeting nose-to-tail never
+        // both dive the same way; assigned from grid slot at spawn.
+        float preferredSide = 1f;
+
+        // Opening-lap fan-out: a per-car lane the AI holds for the first seconds
+        // so the pack spreads across the full road instead of forming a train.
+        float openingFanOffset;
+        const float OpeningFanDuration = 7f;
+
         public void Initialize(RaceManager manager, RaceParticipant raceParticipant, TrackRuntime raceTrack)
         {
             raceManager = manager;
@@ -27,6 +36,14 @@ namespace LocalFormulaRacing
             lateralOffset = Random.Range(-0.8f, 0.8f);
             mistakeTimer = Random.Range(3f, 8f);
             hasProgressReference = false;
+
+            int gridSlot = participant != null ? Mathf.Max(0, participant.gridPosition - 1) : 0;
+            preferredSide = gridSlot % 2 == 0 ? -1f : 1f;
+
+            // Spread the field over four lanes at the start; the road is wide
+            // enough now for genuine side-by-side into turn one.
+            float laneSpread = Mathf.Min(3.4f, raceTrack.roadHalfWidth * 0.24f);
+            openingFanOffset = ((gridSlot % 4) - 1.5f) * laneSpread;
         }
 
         void Update()
@@ -74,7 +91,7 @@ namespace LocalFormulaRacing
             float cornerSeverity = EstimateCornerSeverity(progress.distance);
             // Look further ahead with speed, but shorten in corners so the AI hits apexes
             // instead of cutting across them.
-            float lookAhead = Mathf.Lerp(20f, 54f, Mathf.Clamp01(speedKph / 350f)) * Mathf.Lerp(1.12f, 0.62f, cornerSeverity);
+            float lookAhead = Mathf.Lerp(22f, 62f, Mathf.Clamp01(speedKph / 350f)) * Mathf.Lerp(1.12f, 0.62f, cornerSeverity);
             Vector3 targetPoint;
             Vector3 forward;
             Vector3 right;
@@ -110,7 +127,16 @@ namespace LocalFormulaRacing
                 mistakeSteer = 0f;
             }
 
-            float desiredOffset = offTrack ? 0f : ConstrainLegalLineOffset(progress, lateralOffset + aggressionOffset + mistakeSteer, cornerSeverity);
+            // Opening seconds: hold the assigned fan-out lane, blending back to the
+            // racing line as the field strings out.
+            float requestedOffset = lateralOffset + aggressionOffset + mistakeSteer;
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.RaceElapsed < OpeningFanDuration)
+            {
+                float fanBlend = 1f - Mathf.Clamp01(raceManager.RaceElapsed / OpeningFanDuration);
+                requestedOffset = Mathf.Lerp(requestedOffset, openingFanOffset, fanBlend * 0.85f);
+            }
+
+            float desiredOffset = offTrack ? 0f : ConstrainLegalLineOffset(progress, requestedOffset, cornerSeverity);
             targetPoint += right * desiredOffset;
             TrackProgress targetProgress = track.GetProgress(targetPoint);
             float legalTargetLimit = LegalOffsetLimit(cornerSeverity);
@@ -217,46 +243,112 @@ namespace LocalFormulaRacing
             float brakeDemand = 0f;
             float throttleLimit = 1f;
             float steerAdjust = 0f;
+            bool blockedLeft = false;
+            bool blockedRight = false;
+            bool carDirectlyAhead = false;
+
+            // The forward window grows with speed so anticipation starts early
+            // enough to matter at 300+ km/h instead of five car lengths out.
+            float forwardWindow = Mathf.Lerp(18f, 52f, Mathf.Clamp01(speedKph / 320f));
+
             for (int i = 0; i < raceManager.Participants.Count; i++)
             {
                 RaceParticipant other = raceManager.Participants[i];
-                if (other == null || other == participant || other.retired || other.vehicle == null)
+                if (other == null || other == participant || other.retired || other.vehicle == null || !other.gameObject.activeSelf)
+                {
+                    continue;
+                }
+
+                // Cars on pit guidance rails are non-colliding ghosts; ignore them.
+                if (other.vehicle.IsPitGuided)
                 {
                     continue;
                 }
 
                 Vector3 local = transform.InverseTransformPoint(other.transform.position);
                 float absX = Mathf.Abs(local.x);
-                if (local.z > -5f && local.z < 20f && absX < 7.4f)
+                if (local.z <= -6f || local.z >= forwardWindow || absX >= 8.5f)
                 {
-                    float overlap = Mathf.Clamp01(1f - absX / 7.4f);
-                    if (local.z > 0f)
+                    continue;
+                }
+
+                float overlap = Mathf.Clamp01(1f - absX / 8.5f);
+                if (local.z > 0.5f)
+                {
+                    // Brake proportionally to how fast the gap is actually shrinking,
+                    // not just distance: high closing speed means brake much earlier.
+                    float otherSpeedKph = Mathf.Abs(other.vehicle.CurrentSpeedKph);
+                    float closingKph = Mathf.Max(0f, speedKph - otherSpeedKph);
+                    float timeToContact = local.z / Mathf.Max(1.5f, closingKph / 3.6f);
+                    if (timeToContact < 2.4f && absX < 3.2f)
                     {
-                        float closing = Mathf.Clamp01((20f - local.z) / 20f) * overlap;
-                        brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.08f, 0.72f, closing));
-                        throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(1f, 0.38f, closing));
+                        float urgency = Mathf.Clamp01(1f - timeToContact / 2.4f);
+                        brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.12f, 0.95f, urgency * urgency) * overlap);
+                        throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.85f, 0.15f, urgency) );
                     }
 
-                    if (absX < 3.8f && Mathf.Abs(local.z) < 9.5f)
+                    float proximity = Mathf.Clamp01((forwardWindow - local.z) / forwardWindow) * overlap;
+                    throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(1f, 0.42f, proximity * Mathf.Clamp01(closingKph / 40f)));
+
+                    // Car parked in our lane: commit to a stronger lateral move.
+                    if (absX < 2.6f && local.z < forwardWindow * 0.7f)
                     {
-                        float side = Mathf.Abs(local.x) < 0.05f ? Mathf.Sign(Mathf.Sin(progress.distance * 0.07f + Time.time)) : -Mathf.Sign(local.x);
-                        float sideOverlap = Mathf.Clamp01(1f - absX / 3.8f);
-                        steerAdjust += side * Mathf.Lerp(0.06f, 0.28f, sideOverlap) * Mathf.Lerp(0.8f, 1.15f, Mathf.InverseLerp(60f, 240f, speedKph));
-                        throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(1f, 0.62f, sideOverlap));
+                        carDirectlyAhead = true;
+                        float dodgeSide = Mathf.Abs(local.x) < 0.4f ? preferredSide : -Mathf.Sign(local.x);
+                        float dodgeStrength = Mathf.Clamp01(1f - local.z / (forwardWindow * 0.7f));
+                        steerAdjust += dodgeSide * Mathf.Lerp(0.08f, 0.4f, dodgeStrength);
                     }
+                }
+
+                // Side-by-side: never steer into the car alongside, and remember
+                // which flanks are occupied so we don't dodge into a sandwich.
+                if (Mathf.Abs(local.z) < 6.5f && absX < 4.2f)
+                {
+                    if (local.x < 0f)
+                    {
+                        blockedLeft = true;
+                    }
+                    else
+                    {
+                        blockedRight = true;
+                    }
+
+                    float sideOverlap = Mathf.Clamp01(1f - absX / 4.2f);
+                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.05f, 0.24f, sideOverlap);
+                    throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(1f, 0.66f, sideOverlap));
+                }
+            }
+
+            // Boxed in on both sides with a car ahead: lift cleanly and wait for a
+            // gap instead of forcing a three-wide wedge.
+            if (blockedLeft && blockedRight)
+            {
+                steerAdjust = 0f;
+                if (carDirectlyAhead)
+                {
+                    throttleLimit = Mathf.Min(throttleLimit, 0.34f);
+                    brakeDemand = Mathf.Max(brakeDemand, 0.16f);
+                }
+            }
+            else if (carDirectlyAhead)
+            {
+                // Don't dodge toward an occupied flank.
+                if (steerAdjust < 0f && blockedLeft)
+                {
+                    steerAdjust = blockedRight ? 0f : Mathf.Abs(steerAdjust);
+                }
+                else if (steerAdjust > 0f && blockedRight)
+                {
+                    steerAdjust = blockedLeft ? 0f : -Mathf.Abs(steerAdjust);
                 }
             }
 
             if (brakeDemand > 0f)
             {
                 command.brake = Mathf.Max(command.brake, brakeDemand);
-                command.throttle = Mathf.Min(command.throttle, throttleLimit);
-            }
-            else
-            {
-                command.throttle = Mathf.Min(command.throttle, throttleLimit);
             }
 
+            command.throttle = Mathf.Min(command.throttle, throttleLimit);
             command.steer = Mathf.Clamp(command.steer + steerAdjust, -1f, 1f);
         }
 
@@ -268,9 +360,10 @@ namespace LocalFormulaRacing
             Vector3 pointB;
             Vector3 forwardB;
             Vector3 rightB;
-            track.SampleAtDistance(distance + 16f, out pointA, out forwardA, out rightA);
-            track.SampleAtDistance(distance + 58f, out pointB, out forwardB, out rightB);
-            return Mathf.Clamp01(Vector3.Angle(forwardA, forwardB) / 78f);
+            // Windows retuned for normalized full-length circuits.
+            track.SampleAtDistance(distance + 20f, out pointA, out forwardA, out rightA);
+            track.SampleAtDistance(distance + 78f, out pointB, out forwardB, out rightB);
+            return Mathf.Clamp01(Vector3.Angle(forwardA, forwardB) / 70f);
         }
 
         void UpdateMistake(int consistency, int aggression)
@@ -366,8 +459,8 @@ namespace LocalFormulaRacing
             Vector3 pointB;
             Vector3 forwardB;
             Vector3 rightB;
-            track.SampleAtDistance(distance + 12f, out pointA, out forwardA, out rightA);
-            track.SampleAtDistance(distance + 48f, out pointB, out forwardB, out rightB);
+            track.SampleAtDistance(distance + 16f, out pointA, out forwardA, out rightA);
+            track.SampleAtDistance(distance + 64f, out pointB, out forwardB, out rightB);
             return Mathf.Sign(Vector3.Cross(forwardA, forwardB).y);
         }
     }

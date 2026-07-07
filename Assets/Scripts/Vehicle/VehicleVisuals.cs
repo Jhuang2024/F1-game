@@ -8,9 +8,20 @@ namespace LocalFormulaRacing
     {
         VehicleController vehicle;
         Material brakeLightMaterial;
+        Material brakeDiscMaterial;
         float previousErs;
 
+        // Wheel spin pivots; fronts also steer visually with the current command.
+        Transform frontLeft;
+        Transform frontRight;
+        Transform rearLeft;
+        Transform rearRight;
+        float wheelSpinAngle;
+        float visualSteerAngle;
+        const float WheelRadius = 0.31f;
+
         static readonly Color GlowColor = new Color(1f, 0.06f, 0.04f);
+        static readonly Color DiscGlowColor = new Color(1f, 0.32f, 0.05f);
 
         public void Initialize(VehicleController controller, Material lightMaterial)
         {
@@ -22,6 +33,23 @@ namespace LocalFormulaRacing
             }
         }
 
+        public void SetWheels(Transform fl, Transform fr, Transform rl, Transform rr)
+        {
+            frontLeft = fl;
+            frontRight = fr;
+            rearLeft = rl;
+            rearRight = rr;
+        }
+
+        public void SetBrakeGlowMaterial(Material discMaterial)
+        {
+            brakeDiscMaterial = discMaterial;
+            if (brakeDiscMaterial != null)
+            {
+                brakeDiscMaterial.EnableKeyword("_EMISSION");
+            }
+        }
+
         void Update()
         {
             // The car body is built before VehicleController is attached, so bind lazily.
@@ -30,7 +58,63 @@ namespace LocalFormulaRacing
                 vehicle = GetComponent<VehicleController>();
             }
 
-            if (vehicle == null || brakeLightMaterial == null)
+            if (vehicle == null)
+            {
+                return;
+            }
+
+            UpdateWheels();
+            UpdateBrakeGlow();
+            UpdateRainLight();
+        }
+
+        void UpdateWheels()
+        {
+            float speedMps = vehicle.CurrentSpeedKph / 3.6f;
+            wheelSpinAngle += speedMps / WheelRadius * Mathf.Rad2Deg * Time.deltaTime;
+            wheelSpinAngle = Mathf.Repeat(wheelSpinAngle, 360f);
+
+            float targetSteer = vehicle.CurrentCommand.steer * 16f;
+            visualSteerAngle = Mathf.Lerp(visualSteerAngle, targetSteer, Time.deltaTime * 10f);
+
+            Quaternion spin = Quaternion.Euler(wheelSpinAngle, 0f, 0f);
+            Quaternion steer = Quaternion.Euler(0f, visualSteerAngle, 0f);
+            if (frontLeft != null)
+            {
+                frontLeft.localRotation = steer * spin;
+            }
+
+            if (frontRight != null)
+            {
+                frontRight.localRotation = steer * spin;
+            }
+
+            if (rearLeft != null)
+            {
+                rearLeft.localRotation = spin;
+            }
+
+            if (rearRight != null)
+            {
+                rearRight.localRotation = spin;
+            }
+        }
+
+        void UpdateBrakeGlow()
+        {
+            if (brakeDiscMaterial == null)
+            {
+                return;
+            }
+
+            // Discs glow only under real braking energy: hard pedal at speed.
+            float heat = vehicle.EffectiveBrake * Mathf.InverseLerp(90f, 300f, Mathf.Abs(vehicle.CurrentSpeedKph));
+            brakeDiscMaterial.SetColor("_EmissionColor", DiscGlowColor * heat * 1.4f);
+        }
+
+        void UpdateRainLight()
+        {
+            if (brakeLightMaterial == null)
             {
                 return;
             }

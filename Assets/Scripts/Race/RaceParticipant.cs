@@ -33,6 +33,11 @@ namespace LocalFormulaRacing
         public bool isPitting;
         public PitPhase pitPhase;
         public bool pitEntryAligned;
+        // Unique pit box slot assigned at spawn; cars are guided to their own box
+        // instead of one shared service pose.
+        public int pitBoxIndex;
+        // Set while the car is waiting for a safe release gap after service.
+        public bool pitAwaitingRelease;
         public float pitTimer;
         public float pitServiceDuration;
         public bool pitLimiterUntilExit;

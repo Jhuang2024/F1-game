@@ -6,13 +6,17 @@ using UnityEngine.UI;
 
 namespace LocalFormulaRacing
 {
-    // One-shot fade-in used for screen transitions; removes itself when done so
-    // repeated activations (e.g. the pause overlay) stay cheap.
+    // Screen transition: fade plus a short upward slide so screens arrive with
+    // motion instead of popping. Removes itself when done so repeated
+    // activations (e.g. the pause overlay) stay cheap.
     public class UiFadeIn : MonoBehaviour
     {
         CanvasGroup group;
+        RectTransform rect;
+        Vector2 restPosition;
         float elapsed;
-        const float Duration = 0.18f;
+        const float Duration = 0.22f;
+        const float SlideDistance = 18f;
 
         void Awake()
         {
@@ -22,15 +26,34 @@ namespace LocalFormulaRacing
                 group = gameObject.AddComponent<CanvasGroup>();
             }
 
+            rect = GetComponent<RectTransform>();
+            if (rect != null)
+            {
+                restPosition = rect.anchoredPosition;
+                rect.anchoredPosition = restPosition - new Vector2(0f, SlideDistance);
+            }
+
             group.alpha = 0f;
         }
 
         void Update()
         {
             elapsed += Time.unscaledDeltaTime;
-            group.alpha = Mathf.Clamp01(elapsed / Duration);
-            if (elapsed >= Duration)
+            float t = Mathf.Clamp01(elapsed / Duration);
+            float eased = 1f - (1f - t) * (1f - t);
+            group.alpha = eased;
+            if (rect != null)
             {
+                rect.anchoredPosition = Vector2.Lerp(restPosition - new Vector2(0f, SlideDistance), restPosition, eased);
+            }
+
+            if (t >= 1f)
+            {
+                if (rect != null)
+                {
+                    rect.anchoredPosition = restPosition;
+                }
+
                 Destroy(this);
             }
         }
@@ -60,8 +83,8 @@ namespace LocalFormulaRacing
         }
     }
 
-    // Slow alpha pulse used for animated menu accents; runs on unscaled time so it
-    // keeps breathing while the game is paused.
+    // Slow alpha pulse used for animated accents and live status dots; runs on
+    // unscaled time so it keeps breathing while the game is paused.
     public class UiPulse : MonoBehaviour
     {
         public float speed = 1.2f;
@@ -88,25 +111,117 @@ namespace LocalFormulaRacing
         }
     }
 
+    // Button microinteractions: hover pop, press squash, and a light sheen band
+    // that sweeps across the face on pointer enter. Pure transform/alpha work on
+    // unscaled time, so it stays responsive in pause menus.
+    public class UiButtonFx : MonoBehaviour, IPointerEnterHandler, IPointerExitHandler, IPointerDownHandler, IPointerUpHandler
+    {
+        public float hoverScale = 1.025f;
+        public float pressScale = 0.97f;
+        public RectTransform sheen;
+        public CanvasGroup sheenGroup;
+
+        RectTransform rect;
+        bool hovered;
+        bool pressed;
+        float sheenProgress = 1f;
+        float faceWidth = 300f;
+
+        void Awake()
+        {
+            rect = GetComponent<RectTransform>();
+        }
+
+        void OnEnable()
+        {
+            if (rect != null)
+            {
+                rect.localScale = Vector3.one;
+            }
+
+            sheenProgress = 1f;
+            if (sheenGroup != null)
+            {
+                sheenGroup.alpha = 0f;
+            }
+        }
+
+        public void OnPointerEnter(PointerEventData eventData)
+        {
+            hovered = true;
+            if (UiFactory.AnimationsEnabled)
+            {
+                sheenProgress = 0f;
+            }
+        }
+
+        public void OnPointerExit(PointerEventData eventData)
+        {
+            hovered = false;
+            pressed = false;
+        }
+
+        public void OnPointerDown(PointerEventData eventData)
+        {
+            pressed = true;
+        }
+
+        public void OnPointerUp(PointerEventData eventData)
+        {
+            pressed = false;
+        }
+
+        void Update()
+        {
+            if (rect == null)
+            {
+                return;
+            }
+
+            float dt = Time.unscaledDeltaTime;
+            float targetScale = pressed ? pressScale : (hovered ? hoverScale : 1f);
+            float current = Mathf.Lerp(rect.localScale.x, targetScale, dt * 14f);
+            rect.localScale = new Vector3(current, current, 1f);
+
+            if (sheen == null || sheenGroup == null)
+            {
+                return;
+            }
+
+            if (sheenProgress < 1f)
+            {
+                faceWidth = Mathf.Max(80f, rect.rect.width);
+                sheenProgress = Mathf.Min(1f, sheenProgress + dt * 2.4f);
+                sheen.anchoredPosition = new Vector2(Mathf.Lerp(-faceWidth * 0.55f, faceWidth * 0.55f, sheenProgress), 0f);
+                sheenGroup.alpha = Mathf.Sin(sheenProgress * Mathf.PI) * 0.55f;
+            }
+            else if (sheenGroup.alpha > 0f)
+            {
+                sheenGroup.alpha = 0f;
+            }
+        }
+    }
+
     public static class UiFactory
     {
         // Set from settings; screens fade in briefly when enabled.
         public static bool AnimationsEnabled = true;
 
-        // Shared dark-motorsport theme so every screen reads as one product.
+        // Shared dark-glass motorsport theme so every screen reads as one product.
         public static readonly Color Accent = new Color(0.95f, 0.08f, 0.06f, 1f);
         public static readonly Color AccentCyan = new Color(0.2f, 0.72f, 1f, 1f);
         public static readonly Color AccentGreen = new Color(0.35f, 0.95f, 0.5f, 1f);
         public static readonly Color AccentAmber = new Color(1f, 0.78f, 0.22f, 1f);
         public static readonly Color AccentPurple = new Color(0.72f, 0.42f, 1f, 1f);
-        public static readonly Color PanelDark = new Color(0.018f, 0.026f, 0.034f, 0.94f);
-        public static readonly Color PanelDarker = new Color(0.006f, 0.009f, 0.012f, 0.82f);
-        public static readonly Color HudCardBackground = new Color(0.008f, 0.012f, 0.017f, 0.86f);
+        public static readonly Color PanelDark = new Color(0.028f, 0.038f, 0.05f, 0.93f);
+        public static readonly Color PanelDarker = new Color(0.012f, 0.017f, 0.024f, 0.86f);
+        public static readonly Color HudCardBackground = new Color(0.014f, 0.02f, 0.028f, 0.84f);
         public static readonly Color MeterTrack = new Color(0.1f, 0.13f, 0.155f, 0.9f);
         public static readonly Color TextPrimary = new Color(0.94f, 0.97f, 1f, 1f);
-        public static readonly Color TextMuted = new Color(0.68f, 0.78f, 0.84f, 1f);
-        public static readonly Color RowEven = new Color(0.04f, 0.055f, 0.064f, 0.74f);
-        public static readonly Color RowOdd = new Color(0.04f, 0.055f, 0.064f, 0.42f);
+        public static readonly Color TextMuted = new Color(0.62f, 0.72f, 0.8f, 1f);
+        public static readonly Color RowEven = new Color(0.055f, 0.075f, 0.095f, 0.78f);
+        public static readonly Color RowOdd = new Color(0.045f, 0.06f, 0.078f, 0.5f);
+        public static readonly Color GlassHighlight = new Color(1f, 1f, 1f, 0.07f);
 
         static UnityEngine.Font cachedFont;
 
@@ -145,6 +260,132 @@ namespace LocalFormulaRacing
                 return null;
             }
         }
+
+        // ---------- generated sprites ----------
+        // All chrome is generated at runtime: rounded glass rectangles with a baked
+        // vertical gradient, a small-radius variant for pills, and a soft radial
+        // glow for status dots. One texture each, cached forever, tinted per use.
+
+        static Sprite roundedSprite;
+        static Sprite roundedSmallSprite;
+        static Sprite glowSprite;
+
+        public static Sprite RoundedSprite
+        {
+            get
+            {
+                if (roundedSprite == null)
+                {
+                    roundedSprite = BuildRoundedSprite(64, 16, 1.0f, 0.82f, "Ui rounded glass");
+                }
+
+                return roundedSprite;
+            }
+        }
+
+        public static Sprite RoundedSmallSprite
+        {
+            get
+            {
+                if (roundedSmallSprite == null)
+                {
+                    roundedSmallSprite = BuildRoundedSprite(32, 8, 1.0f, 0.9f, "Ui rounded small");
+                }
+
+                return roundedSmallSprite;
+            }
+        }
+
+        public static Sprite GlowSprite
+        {
+            get
+            {
+                if (glowSprite == null)
+                {
+                    glowSprite = BuildGlowSprite(64);
+                }
+
+                return glowSprite;
+            }
+        }
+
+        static Sprite BuildRoundedSprite(int size, int radius, float topBrightness, float bottomBrightness, string spriteName)
+        {
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.name = spriteName;
+            texture.wrapMode = TextureWrapMode.Clamp;
+            texture.filterMode = FilterMode.Bilinear;
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                float brightness = Mathf.Lerp(bottomBrightness, topBrightness, y / (float)(size - 1));
+                for (int x = 0; x < size; x++)
+                {
+                    float alpha = RoundedRectAlpha(x + 0.5f, y + 0.5f, size, radius);
+                    pixels[y * size + x] = new Color(brightness, brightness, brightness, alpha);
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+            float border = radius + 4;
+            return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(border, border, border, border));
+        }
+
+        static float RoundedRectAlpha(float x, float y, int size, int radius)
+        {
+            float left = radius;
+            float right = size - radius;
+            float bottom = radius;
+            float top = size - radius;
+            float cx = Mathf.Clamp(x, left, right);
+            float cy = Mathf.Clamp(y, bottom, top);
+            float distance = Mathf.Sqrt((x - cx) * (x - cx) + (y - cy) * (y - cy));
+            return Mathf.Clamp01(radius - distance + 1f);
+        }
+
+        static Sprite BuildGlowSprite(int size)
+        {
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.name = "Ui soft glow";
+            texture.wrapMode = TextureWrapMode.Clamp;
+            texture.filterMode = FilterMode.Bilinear;
+            Color[] pixels = new Color[size * size];
+            float half = (size - 1) * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = (x - half) / half;
+                    float dy = (y - half) / half;
+                    float falloff = Mathf.Clamp01(1f - Mathf.Sqrt(dx * dx + dy * dy));
+                    pixels[y * size + x] = new Color(1f, 1f, 1f, falloff * falloff);
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+            return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
+
+        // Applies the rounded glass sprite to an image and tints it.
+        public static Image StyleRounded(Image image, Color color)
+        {
+            image.sprite = RoundedSprite;
+            image.type = Image.Type.Sliced;
+            image.color = color;
+            return image;
+        }
+
+        public static Image StyleRoundedSmall(Image image, Color color)
+        {
+            image.sprite = RoundedSmallSprite;
+            image.type = Image.Type.Sliced;
+            image.color = color;
+            return image;
+        }
+
+        // ---------- canvas / primitives ----------
 
         public static Canvas CreateCanvas(string name)
         {
@@ -211,6 +452,20 @@ namespace LocalFormulaRacing
             return rect;
         }
 
+        // Rounded glass panel: gradient face, hairline top highlight. The building
+        // block for every card/panel in menus and HUD.
+        public static RectTransform CreateGlassPanel(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax, Color color)
+        {
+            RectTransform rect = CreateRect(parent, name, anchorMin, anchorMax, offsetMin, offsetMax);
+            Image image = rect.gameObject.AddComponent<Image>();
+            StyleRounded(image, color);
+            RectTransform highlight = CreateRect(rect, name + " glass highlight", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(10f, -3f), new Vector2(-10f, -1f));
+            Image highlightImage = highlight.gameObject.AddComponent<Image>();
+            highlightImage.color = GlassHighlight;
+            highlightImage.raycastTarget = false;
+            return rect;
+        }
+
         public static Text CreateText(Transform parent, string name, string value, int size, Color color, TextAnchor alignment)
         {
             GameObject textObject = new GameObject(name);
@@ -228,19 +483,81 @@ namespace LocalFormulaRacing
             return text;
         }
 
+        // ---------- buttons ----------
+
+        enum ButtonVariant
+        {
+            Standard,
+            Primary,
+            Secondary,
+            Danger
+        }
+
         public static Button CreateButton(Transform parent, string label, UnityAction action)
+        {
+            return CreateStyledButton(parent, label, action, ButtonVariant.Standard);
+        }
+
+        public static Button CreatePrimaryButton(Transform parent, string label, UnityAction action)
+        {
+            return CreateStyledButton(parent, label, action, ButtonVariant.Primary);
+        }
+
+        public static Button CreateSecondaryButton(Transform parent, string label, UnityAction action)
+        {
+            return CreateStyledButton(parent, label, action, ButtonVariant.Secondary);
+        }
+
+        public static Button CreateDangerButton(Transform parent, string label, UnityAction action)
+        {
+            return CreateStyledButton(parent, label, action, ButtonVariant.Danger);
+        }
+
+        static Button CreateStyledButton(Transform parent, string label, UnityAction action, ButtonVariant variant)
         {
             GameObject buttonObject = new GameObject(label + " button");
             buttonObject.transform.SetParent(parent, false);
             Image image = buttonObject.AddComponent<Image>();
-            image.color = new Color(0.018f, 0.026f, 0.033f, 0.96f);
+
+            Color face;
+            Color hover;
+            Color accentColor;
+            Color textColor = new Color(0.93f, 0.96f, 0.99f);
+            switch (variant)
+            {
+                case ButtonVariant.Primary:
+                    face = new Color(0.62f, 0.05f, 0.045f, 0.98f);
+                    hover = new Color(0.85f, 0.1f, 0.08f, 1f);
+                    accentColor = new Color(1f, 0.42f, 0.32f, 1f);
+                    break;
+                case ButtonVariant.Secondary:
+                    face = new Color(0.05f, 0.075f, 0.1f, 0.88f);
+                    hover = new Color(0.11f, 0.17f, 0.23f, 0.98f);
+                    accentColor = new Color(0.4f, 0.52f, 0.62f, 0.9f);
+                    textColor = new Color(0.78f, 0.86f, 0.92f);
+                    break;
+                case ButtonVariant.Danger:
+                    face = new Color(0.16f, 0.03f, 0.03f, 0.94f);
+                    hover = new Color(0.4f, 0.05f, 0.05f, 1f);
+                    accentColor = new Color(1f, 0.25f, 0.2f, 1f);
+                    break;
+                default:
+                    face = new Color(0.04f, 0.06f, 0.085f, 0.94f);
+                    hover = new Color(0.62f, 0.07f, 0.06f, 0.98f);
+                    accentColor = Accent;
+                    break;
+            }
+
+            StyleRounded(image, face);
             Button button = buttonObject.AddComponent<Button>();
             button.targetGraphic = image;
             ColorBlock colors = button.colors;
-            colors.normalColor = new Color(0.018f, 0.026f, 0.033f, 0.96f);
-            colors.highlightedColor = new Color(0.78f, 0.06f, 0.055f, 1f);
-            colors.pressedColor = new Color(0.006f, 0.01f, 0.014f, 1f);
-            colors.selectedColor = colors.highlightedColor;
+            colors.normalColor = face;
+            colors.highlightedColor = hover;
+            colors.pressedColor = new Color(face.r * 0.55f, face.g * 0.55f, face.b * 0.55f, 1f);
+            colors.selectedColor = hover;
+            colors.disabledColor = new Color(face.r, face.g, face.b, 0.32f);
+            colors.fadeDuration = 0.08f;
             button.colors = colors;
             button.onClick.AddListener(() =>
             {
@@ -250,17 +567,70 @@ namespace LocalFormulaRacing
             RectTransform rect = buttonObject.GetComponent<RectTransform>();
             rect.sizeDelta = new Vector2(296f, 50f);
 
-            CreateBand(buttonObject.transform, "Button top sheen", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -2f), Vector2.zero, new Color(1f, 1f, 1f, 0.16f));
-            RectTransform accent = CreateBand(buttonObject.transform, "Accent", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(5f, 0f), new Color(0.92f, 0.08f, 0.06f, 0.95f));
-            accent.SetAsFirstSibling();
+            // Accent chip on the left edge.
+            RectTransform accent = CreateRect(buttonObject.transform, "Accent", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, Vector2.zero);
+            accent.sizeDelta = new Vector2(4f, 26f);
+            accent.pivot = new Vector2(0f, 0.5f);
+            accent.anchoredPosition = new Vector2(7f, 0f);
+            Image accentImage = accent.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(accentImage, accentColor);
+            accentImage.raycastTarget = false;
 
-            Text text = CreateText(buttonObject.transform, "Label", label, 20, new Color(0.92f, 0.96f, 0.98f), TextAnchor.MiddleCenter);
+            // Sheen band swept by UiButtonFx on hover.
+            RectTransform sheenMask = CreateRect(buttonObject.transform, "Sheen mask", Vector2.zero, Vector2.one, new Vector2(2f, 2f), new Vector2(-2f, -2f));
+            sheenMask.gameObject.AddComponent<RectMask2D>();
+            RectTransform sheen = CreateRect(sheenMask, "Sheen", new Vector2(0.5f, 0f), new Vector2(0.5f, 1f), Vector2.zero, Vector2.zero);
+            sheen.sizeDelta = new Vector2(58f, 0f);
+            sheen.localRotation = Quaternion.Euler(0f, 0f, 14f);
+            Image sheenImage = sheen.gameObject.AddComponent<Image>();
+            sheenImage.color = new Color(1f, 1f, 1f, 0.35f);
+            sheenImage.raycastTarget = false;
+            CanvasGroup sheenGroup = sheen.gameObject.AddComponent<CanvasGroup>();
+            sheenGroup.alpha = 0f;
+            sheenGroup.blocksRaycasts = false;
+
+            UiButtonFx fx = buttonObject.AddComponent<UiButtonFx>();
+            fx.sheen = sheen;
+            fx.sheenGroup = sheenGroup;
+
+            Text text = CreateText(buttonObject.transform, "Label", label, 19, textColor, TextAnchor.MiddleCenter);
+            text.raycastTarget = false;
             RectTransform textRect = text.GetComponent<RectTransform>();
             textRect.anchorMin = Vector2.zero;
             textRect.anchorMax = Vector2.one;
-            textRect.offsetMin = new Vector2(12f, 0f);
+            textRect.offsetMin = new Vector2(16f, 0f);
             textRect.offsetMax = new Vector2(-12f, 0f);
             return button;
+        }
+
+        // Marks a button as the currently active choice (tab, selected tyre, etc.).
+        public static void SetButtonSelected(Button button, bool selected)
+        {
+            if (button == null)
+            {
+                return;
+            }
+
+            Image face = button.targetGraphic as Image;
+            if (face != null && selected)
+            {
+                face.color = new Color(0.62f, 0.05f, 0.045f, 0.98f);
+                ColorBlock colors = button.colors;
+                colors.normalColor = face.color;
+                colors.highlightedColor = new Color(0.85f, 0.1f, 0.08f, 1f);
+                colors.selectedColor = colors.highlightedColor;
+                button.colors = colors;
+            }
+
+            Transform accent = button.transform.Find("Accent");
+            if (accent != null)
+            {
+                Image accentImage = accent.GetComponent<Image>();
+                if (accentImage != null)
+                {
+                    accentImage.color = selected ? Color.white : Accent;
+                }
+            }
         }
 
         public static InputField CreateInputField(Transform parent, string defaultText)
@@ -268,7 +638,7 @@ namespace LocalFormulaRacing
             GameObject inputObject = new GameObject("Driver name input");
             inputObject.transform.SetParent(parent, false);
             Image image = inputObject.AddComponent<Image>();
-            image.color = new Color(0.02f, 0.028f, 0.034f, 0.98f);
+            StyleRounded(image, new Color(0.03f, 0.045f, 0.06f, 0.98f));
             InputField input = inputObject.AddComponent<InputField>();
             RectTransform rect = inputObject.GetComponent<RectTransform>();
             rect.sizeDelta = new Vector2(340f, 48f);
@@ -336,12 +706,18 @@ namespace LocalFormulaRacing
             return span.Minutes.ToString("00") + ":" + span.Seconds.ToString("00") + "." + span.Milliseconds.ToString("000");
         }
 
-        // ---------- Modern component helpers ----------
+        // ---------- modern component helpers ----------
 
         public static RectTransform CreateCard(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax)
         {
-            RectTransform card = CreateBand(parent, name, anchorMin, anchorMax, Vector2.zero, Vector2.zero, PanelDark);
-            CreateBand(card, name + " accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -3f), Vector2.zero, Accent);
+            RectTransform card = CreateGlassPanel(parent, name, anchorMin, anchorMax, Vector2.zero, Vector2.zero, PanelDark);
+            RectTransform accentBar = CreateRect(card, name + " accent", new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+            accentBar.sizeDelta = new Vector2(64f, 3f);
+            accentBar.pivot = new Vector2(0f, 1f);
+            accentBar.anchoredPosition = new Vector2(18f, -8f);
+            Image accentImage = accentBar.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(accentImage, Accent);
+            accentImage.raycastTarget = false;
             return card;
         }
 
@@ -354,40 +730,15 @@ namespace LocalFormulaRacing
 
         public static Text CreateSubHeader(Transform parent, string value)
         {
-            Text header = CreateText(parent, value + " subheader", value.ToUpperInvariant(), 20, Accent, TextAnchor.MiddleLeft);
-            SetSize(header, 620f, 30f);
+            Text header = CreateText(parent, value + " subheader", value.ToUpperInvariant(), 18, Accent, TextAnchor.MiddleLeft);
+            SetSize(header, 620f, 28f);
             return header;
-        }
-
-        public static Button CreatePrimaryButton(Transform parent, string label, UnityAction action)
-        {
-            return CreateButton(parent, label, action);
-        }
-
-        public static Button CreateSecondaryButton(Transform parent, string label, UnityAction action)
-        {
-            Button button = CreateButton(parent, label, action);
-            ColorBlock colors = button.colors;
-            colors.highlightedColor = new Color(0.1f, 0.16f, 0.22f, 1f);
-            colors.selectedColor = colors.highlightedColor;
-            button.colors = colors;
-            Transform accent = button.transform.Find("Accent");
-            if (accent != null)
-            {
-                Image accentImage = accent.GetComponent<Image>();
-                if (accentImage != null)
-                {
-                    accentImage.color = new Color(0.4f, 0.5f, 0.58f, 0.9f);
-                }
-            }
-
-            return button;
         }
 
         public static RectTransform CreateDivider(Transform parent)
         {
-            RectTransform divider = CreateBand(parent, "Divider", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, new Color(1f, 1f, 1f, 0.1f));
-            divider.sizeDelta = new Vector2(560f, 2f);
+            RectTransform divider = CreateBand(parent, "Divider", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero, new Color(1f, 1f, 1f, 0.08f));
+            divider.sizeDelta = new Vector2(560f, 1.5f);
             return divider;
         }
 
@@ -396,9 +747,11 @@ namespace LocalFormulaRacing
             RectTransform card = CreateRect(parent, label + " stat card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             card.sizeDelta = new Vector2(width, 74f);
             Image background = card.gameObject.AddComponent<Image>();
-            background.color = PanelDarker;
-            CreateBand(card, "Stat rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), Accent);
-            Text labelText = CreateText(card, "Stat label", label.ToUpperInvariant(), 13, TextMuted, TextAnchor.UpperLeft);
+            StyleRounded(background, PanelDarker);
+            RectTransform rule = CreateRect(card, "Stat rule", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 10f), new Vector2(3f, -10f));
+            Image ruleImage = rule.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(ruleImage, Accent);
+            Text labelText = CreateText(card, "Stat label", label.ToUpperInvariant(), 12, TextMuted, TextAnchor.UpperLeft);
             RectTransform labelRect = labelText.GetComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0f, 1f);
             labelRect.anchorMax = new Vector2(1f, 1f);
@@ -418,7 +771,7 @@ namespace LocalFormulaRacing
             RectTransform track = CreateRect(parent, name + " bar", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             track.sizeDelta = new Vector2(width, height);
             Image trackImage = track.gameObject.AddComponent<Image>();
-            trackImage.color = new Color(0.12f, 0.15f, 0.17f, 0.9f);
+            StyleRoundedSmall(trackImage, new Color(0.12f, 0.15f, 0.17f, 0.9f));
             RectTransform fill = CreateBand(track, name + " fill", Vector2.zero, new Vector2(Mathf.Clamp01(value01), 1f), Vector2.zero, Vector2.zero, fillColor);
             return fill.GetComponent<Image>();
         }
@@ -428,7 +781,7 @@ namespace LocalFormulaRacing
             RectTransform pill = CreateRect(parent, value + " pill", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             pill.sizeDelta = new Vector2(Mathf.Max(64f, value.Length * 11f + 26f), 26f);
             Image background = pill.gameObject.AddComponent<Image>();
-            background.color = new Color(color.r, color.g, color.b, 0.2f);
+            StyleRoundedSmall(background, new Color(color.r, color.g, color.b, 0.2f));
             Text text = CreateText(pill, "Pill text", value.ToUpperInvariant(), 13, color, TextAnchor.MiddleCenter);
             RectTransform textRect = text.GetComponent<RectTransform>();
             textRect.anchorMin = Vector2.zero;
@@ -438,11 +791,32 @@ namespace LocalFormulaRacing
             return text;
         }
 
+        // Small breathing status dot for live/attention states.
+        public static Image CreatePulsingDot(Transform parent, string name, float size, Color color)
+        {
+            RectTransform dot = CreateRect(parent, name + " status dot", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            dot.sizeDelta = new Vector2(size, size);
+            Image image = dot.gameObject.AddComponent<Image>();
+            image.sprite = GlowSprite;
+            image.color = color;
+            if (AnimationsEnabled)
+            {
+                UiPulse pulse = dot.gameObject.AddComponent<UiPulse>();
+                pulse.speed = 2.2f;
+                pulse.minAlpha = 0.35f;
+                pulse.maxAlpha = 1f;
+            }
+
+            return image;
+        }
+
         // Scrollable vertical panel. Returns the content RectTransform; add children to it,
         // they stack top-down and the panel scrolls when content overflows.
         public static RectTransform CreateScrollPanel(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, int spacing, RectOffset padding)
         {
-            RectTransform viewport = CreateBand(parent, name, anchorMin, anchorMax, Vector2.zero, Vector2.zero, PanelDarker);
+            RectTransform viewport = CreateRect(parent, name, anchorMin, anchorMax, Vector2.zero, Vector2.zero);
+            Image viewportImage = viewport.gameObject.AddComponent<Image>();
+            StyleRounded(viewportImage, PanelDarker);
             viewport.gameObject.AddComponent<RectMask2D>();
             ScrollRect scroll = viewport.gameObject.AddComponent<ScrollRect>();
             RectTransform content = CreateRect(viewport, name + " content", new Vector2(0f, 1f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
@@ -482,6 +856,65 @@ namespace LocalFormulaRacing
             return content;
         }
 
+        // ---------- data table rows ----------
+        // Real row components for classification screens: position badge, cells,
+        // tyre dots. Replaces the old monospace padded-string tables.
+
+        public static RectTransform CreateTableRow(Transform parent, string name, float width, float height, bool highlight, int zebraIndex)
+        {
+            RectTransform row = CreateRect(parent, name, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            row.sizeDelta = new Vector2(width, height);
+            Image background = row.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(background, highlight
+                ? new Color(0.62f, 0.06f, 0.05f, 0.66f)
+                : (zebraIndex % 2 == 0 ? RowEven : RowOdd));
+            return row;
+        }
+
+        // Text cell positioned by fractional horizontal anchors inside a row.
+        public static Text AddRowCell(RectTransform row, string name, string value, float anchorX0, float anchorX1, int size, Color color, TextAnchor alignment)
+        {
+            Text cell = CreateText(row, name, value, size, color, alignment);
+            RectTransform rect = cell.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(anchorX0, 0f);
+            rect.anchorMax = new Vector2(anchorX1, 1f);
+            rect.offsetMin = new Vector2(4f, 0f);
+            rect.offsetMax = new Vector2(-4f, 0f);
+            return cell;
+        }
+
+        // Rounded position chip at the left edge of a row: P1-P3 get medal tints.
+        public static void AddPositionBadge(RectTransform row, int position, bool isPlayer)
+        {
+            RectTransform badge = CreateRect(row, "Position badge", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, Vector2.zero);
+            badge.sizeDelta = new Vector2(34f, 24f);
+            badge.pivot = new Vector2(0f, 0.5f);
+            badge.anchoredPosition = new Vector2(8f, 0f);
+            Image image = badge.gameObject.AddComponent<Image>();
+            Color badgeColor = position == 1 ? new Color(1f, 0.8f, 0.2f, 0.92f)
+                : position == 2 ? new Color(0.78f, 0.82f, 0.88f, 0.85f)
+                : position == 3 ? new Color(0.82f, 0.52f, 0.25f, 0.85f)
+                : (isPlayer ? new Color(0.95f, 0.08f, 0.06f, 0.9f) : new Color(0.14f, 0.18f, 0.23f, 0.9f));
+            StyleRoundedSmall(image, badgeColor);
+            Text label = CreateText(badge, "Badge label", position.ToString(), 14, position <= 3 ? new Color(0.06f, 0.06f, 0.07f) : Color.white, TextAnchor.MiddleCenter);
+            RectTransform labelRect = label.GetComponent<RectTransform>();
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = Vector2.zero;
+            labelRect.offsetMax = Vector2.zero;
+        }
+
+        // Small colored dot cell (tyre compound, team color).
+        public static Image AddRowDot(RectTransform row, string name, float anchorX, float size, Color color)
+        {
+            RectTransform dot = CreateRect(row, name, new Vector2(anchorX, 0.5f), new Vector2(anchorX, 0.5f), Vector2.zero, Vector2.zero);
+            dot.sizeDelta = new Vector2(size, size);
+            Image image = dot.gameObject.AddComponent<Image>();
+            image.sprite = GlowSprite;
+            image.color = color;
+            return image;
+        }
+
         // ---------- HUD component helpers ----------
         // These build the compact card widgets used by the in-race HUD so RaceHud
         // composes small pieces instead of giant text dumps.
@@ -493,8 +926,10 @@ namespace LocalFormulaRacing
             RectTransform card = CreateRect(parent, title + " hud card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             card.sizeDelta = new Vector2(width, height);
             Image background = card.gameObject.AddComponent<Image>();
-            background.color = HudCardBackground;
-            CreateBand(card, title + " card accent", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), accentColor);
+            StyleRounded(background, HudCardBackground);
+            RectTransform accent = CreateRect(card, title + " card accent", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 8f), new Vector2(3f, -8f));
+            Image accentImage = accent.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(accentImage, accentColor);
             Text header = CreateText(card, title + " card title", title.ToUpperInvariant(), 12, TextMuted, TextAnchor.UpperLeft);
             RectTransform headerRect = header.GetComponent<RectTransform>();
             headerRect.anchorMin = new Vector2(0f, 1f);
@@ -541,7 +976,9 @@ namespace LocalFormulaRacing
             valueRect.offsetMin = new Vector2(-62f, -topOffset - 18f);
             valueRect.offsetMax = new Vector2(-12f, -topOffset);
 
-            RectTransform track = CreateBand(card, label + " meter track", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(68f, -topOffset - 14f), new Vector2(-66f, -topOffset - 4f), MeterTrack);
+            RectTransform track = CreateRect(card, label + " meter track", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(68f, -topOffset - 14f), new Vector2(-66f, -topOffset - 4f));
+            Image trackImage = track.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(trackImage, MeterTrack);
             RectTransform fill = CreateBand(track, label + " meter fill", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, fillColor);
             return fill.GetComponent<Image>();
         }
@@ -560,13 +997,45 @@ namespace LocalFormulaRacing
             rect.offsetMax = Vector2.zero;
         }
 
+        // Thin vertical input/telemetry bar (throttle, brake, ERS). Returns the
+        // fill image; drive it with SetVerticalBarValue.
+        public static Image CreateVerticalBar(Transform parent, string name, float width, float height, Color fillColor, out Text label)
+        {
+            RectTransform track = CreateRect(parent, name + " vbar", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            track.sizeDelta = new Vector2(width, height);
+            Image trackImage = track.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(trackImage, MeterTrack);
+            RectTransform fill = CreateBand(track, name + " vbar fill", Vector2.zero, new Vector2(1f, 0f), Vector2.zero, Vector2.zero, fillColor);
+            label = CreateText(track, name + " vbar label", name.ToUpperInvariant(), 10, TextMuted, TextAnchor.UpperCenter);
+            RectTransform labelRect = label.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 0f);
+            labelRect.anchorMax = new Vector2(1f, 0f);
+            labelRect.offsetMin = new Vector2(-14f, -16f);
+            labelRect.offsetMax = new Vector2(14f, -2f);
+            return fill.GetComponent<Image>();
+        }
+
+        public static void SetVerticalBarValue(Image fill, float value01)
+        {
+            if (fill == null)
+            {
+                return;
+            }
+
+            RectTransform rect = fill.rectTransform;
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = new Vector2(1f, Mathf.Clamp01(value01));
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+        }
+
         // Small state pill (background + label) for DRS/ERS style indicators.
         public static HudPill CreatePill(Transform parent, string name, float width, float height)
         {
             RectTransform rect = CreateRect(parent, name + " pill", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             rect.sizeDelta = new Vector2(width, height);
             Image background = rect.gameObject.AddComponent<Image>();
-            background.color = MeterTrack;
+            StyleRoundedSmall(background, MeterTrack);
             Text label = CreateText(rect, name + " pill label", name.ToUpperInvariant(), 13, TextMuted, TextAnchor.MiddleCenter);
             RectTransform labelRect = label.GetComponent<RectTransform>();
             labelRect.anchorMin = Vector2.zero;
@@ -581,6 +1050,7 @@ namespace LocalFormulaRacing
             RectTransform dot = CreateRect(parent, name + " dot", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             dot.sizeDelta = new Vector2(size, size);
             Image image = dot.gameObject.AddComponent<Image>();
+            image.sprite = GlowSprite;
             image.color = color;
             return image;
         }
@@ -596,7 +1066,7 @@ namespace LocalFormulaRacing
             if (color.a > 0.001f)
             {
                 Image image = rect.gameObject.AddComponent<Image>();
-                image.color = color;
+                StyleRounded(image, color);
             }
 
             return rect;
@@ -606,6 +1076,12 @@ namespace LocalFormulaRacing
         {
             RectTransform nav = CreateBand(parent, "Top nav", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -92f), Vector2.zero, PanelDarker);
             CreateBand(nav, "Top nav rule", new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 3f), Accent);
+            RectTransform accentTab = CreateRect(nav, "Nav accent tab", new Vector2(0f, 0f), new Vector2(0f, 0f), Vector2.zero, Vector2.zero);
+            accentTab.sizeDelta = new Vector2(58f, 6f);
+            accentTab.pivot = new Vector2(0f, 0f);
+            accentTab.anchoredPosition = new Vector2(64f, 0f);
+            Image accentTabImage = accentTab.gameObject.AddComponent<Image>();
+            accentTabImage.color = Color.white;
             Text heading = CreateText(nav, "Nav title", title, 38, TextPrimary, TextAnchor.MiddleLeft);
             RectTransform headingRect = heading.GetComponent<RectTransform>();
             headingRect.anchorMin = new Vector2(0f, 0f);

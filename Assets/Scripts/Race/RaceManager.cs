@@ -90,6 +90,10 @@ namespace LocalFormulaRacing
         float lastRecordedPlayerBestLap;
         bool pendingTimeTrial;
         float playerResetCooldown;
+        // Pit lane release control: one car released at a time with a safe gap.
+        float nextPitReleaseAllowedTime;
+        const float PitReleaseGapSeconds = 1.6f;
+        float stackResolveTimer;
         static PhysicMaterial carBodyPhysicsMaterial;
         const int FullWeekendDriverCount = 22;
         const int FullWeekendAiCount = FullWeekendDriverCount - 1;
@@ -255,6 +259,12 @@ namespace LocalFormulaRacing
             lastQualifyingResultWasSimulated = true;
             qualifyingPhase = 1;
             qualifyingEntries.Clear();
+            SimQualifyingExplanation = "";
+            for (int i = 0; i < playerSimBreakdowns.Length; i++)
+            {
+                playerSimBreakdowns[i] = null;
+            }
+
             ResetPlayerQualifyingCaptures();
             ResetQualifyingSectorState();
 
@@ -265,6 +275,15 @@ namespace LocalFormulaRacing
             SimpleAudioManager.SetRain(Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain);
 
             BuildSimulatedQualifyingField(playerName, playerTeamId);
+
+            // Deterministic seed: the same weekend simulated twice produces the same
+            // session, so results are reproducible and debuggable rather than dice.
+            Random.State previousRandomState = Random.state;
+            int seasonPart = Career != null && Career.Save != null ? Career.Save.currentSeason * 8887 + Career.Save.currentRound * 331 : 17;
+            int trackPart = eventData != null && !string.IsNullOrEmpty(eventData.trackId) ? eventData.trackId.GetHashCode() : 0;
+            int teamPart = string.IsNullOrEmpty(playerTeamId) ? 0 : playerTeamId.GetHashCode();
+            Random.InitState(seasonPart ^ (trackPart * 31) ^ teamPart);
+
             for (int phase = 1; phase <= 3; phase++)
             {
                 qualifyingPhase = phase;
@@ -290,14 +309,111 @@ namespace LocalFormulaRacing
                 ApplyQualifyingElimination(active, phase);
             }
 
+            Random.state = previousRandomState;
+
             List<QualifyingResultEntry> results = BuildFinalQualifyingResults();
             lastQualifyingResults = results;
+            SimQualifyingExplanation = BuildSimQualifyingExplanation(results);
             if (IsCareerRace && Career != null)
             {
                 Career.ApplyQualifyingResults(EventData, results);
             }
 
             ui.ShowQualifyingResults(this, results, IsCareerRace);
+        }
+
+        // Full transparency for the simulated player lap: every contribution to the
+        // final time, plus the exact elimination reason if the player went out.
+        public string SimQualifyingExplanation { get; private set; }
+
+        string BuildSimQualifyingExplanation(List<QualifyingResultEntry> results)
+        {
+            QualifyingSimEntry player = qualifyingEntries.Find(item => item.isPlayer);
+            if (player == null)
+            {
+                return "";
+            }
+
+            int decisivePhase = string.IsNullOrEmpty(player.eliminatedIn) ? 3 : int.Parse(player.eliminatedIn.Substring(1));
+            QualifyingLapBreakdown breakdown = playerSimBreakdowns[Mathf.Clamp(decisivePhase, 1, 3) - 1];
+            QualifyingResultEntry playerResult = results == null ? null : results.Find(entry => entry.isPlayer);
+            int position = playerResult != null ? playerResult.position : 0;
+
+            System.Text.StringBuilder text = new System.Text.StringBuilder();
+            text.Append("YOUR ").Append("Q").Append(decisivePhase).Append(" LAP, ITEMIZED\n");
+            if (breakdown != null)
+            {
+                text.Append("Circuit reference lap    ").Append(UiFactory.FormatTime(breakdown.baseLap)).Append("\n");
+                text.Append("Car package              ").Append(SignedSeconds(breakdown.carEffect)).Append("\n");
+                text.Append("Driver qualifying craft  ").Append(SignedSeconds(breakdown.driverEffect)).Append("\n");
+                text.Append("AI difficulty setting    ").Append(SignedSeconds(breakdown.difficultyEffect)).Append("\n");
+                text.Append("Track evolution (Q").Append(decisivePhase).Append(")     ").Append(SignedSeconds(breakdown.phaseEffect)).Append("\n");
+                text.Append("Tyre preparation         ").Append(SignedSeconds(breakdown.tyrePrep)).Append("\n");
+                text.Append("Tyre choice (").Append(Settings == null ? "Medium" : Settings.SelectedTyreCompound.ToString()).Append(")     ").Append(SignedSeconds(breakdown.tyreChoicePenalty)).Append("\n");
+                text.Append("Weather                  ").Append(SignedSeconds(breakdown.weatherPenalty)).Append("\n");
+                if (breakdown.mistakePenalty > 0.001f)
+                {
+                    text.Append("Driver mistake           ").Append(SignedSeconds(breakdown.mistakePenalty)).Append(breakdown.mistakePenalty > 1.8f ? "  (major error)" : "  (small error)").Append("\n");
+                }
+                else
+                {
+                    text.Append("Driver mistake           clean lap\n");
+                }
+
+                text.Append("Natural variance         ").Append(SignedSeconds(breakdown.variance)).Append("\n");
+                text.Append("FINAL LAP                ").Append(UiFactory.FormatTime(breakdown.finalTime)).Append("\n\n");
+            }
+
+            text.Append("Classified P").Append(position > 0 ? position.ToString() : "--");
+            if (!string.IsNullOrEmpty(player.eliminatedIn))
+            {
+                float cutoff = QualifyingCutoffTime(decisivePhase);
+                float playerTime = GetQualifyingPhaseTime(player, decisivePhase);
+                text.Append("  |  ELIMINATED IN ").Append(player.eliminatedIn);
+                if (cutoff > 0f && playerTime > 0f && playerTime < 9998f)
+                {
+                    text.Append("  (missed the cut by ").Append(Mathf.Max(0f, playerTime - cutoff).ToString("0.000")).Append("s)");
+                }
+                else if (playerTime >= 9998f)
+                {
+                    text.Append("  (no valid time set)");
+                }
+            }
+            else
+            {
+                text.Append("  |  Advanced to the final shootout");
+            }
+
+            return text.ToString();
+        }
+
+        // Slowest surviving time in a phase: the reference a player had to beat.
+        float QualifyingCutoffTime(int phase)
+        {
+            int survivors = phase == 1 ? Q1SurvivorCount : (phase == 2 ? Q2SurvivorCount : qualifyingEntries.Count);
+            List<QualifyingSimEntry> ranked = new List<QualifyingSimEntry>();
+            for (int i = 0; i < qualifyingEntries.Count; i++)
+            {
+                float time = GetQualifyingPhaseTime(qualifyingEntries[i], phase);
+                if (time > 0f)
+                {
+                    ranked.Add(qualifyingEntries[i]);
+                }
+            }
+
+            ranked.Sort((a, b) => GetQualifyingPhaseTime(a, phase).CompareTo(GetQualifyingPhaseTime(b, phase)));
+            if (ranked.Count == 0 || survivors <= 0 || survivors > ranked.Count)
+            {
+                return 0f;
+            }
+
+            float cutoff = GetQualifyingPhaseTime(ranked[survivors - 1], phase);
+            return cutoff >= 9998f ? 0f : cutoff;
+        }
+
+        static string SignedSeconds(float value)
+        {
+            return (value >= 0f ? "+" : "") + value.ToString("0.000") + "s";
         }
 
         void Update()
@@ -381,6 +497,7 @@ namespace LocalFormulaRacing
                 HandleFinish(participant);
             }
 
+            ResolveLowSpeedStacks();
             SortRunningOrder();
             UpdateRaceEngineer();
             UpdateWeatherTransition();
@@ -484,6 +601,7 @@ namespace LocalFormulaRacing
             qualifyingTransitionTimer = 0f;
             QualifyingFeedbackText = "";
             lastQualifyingResultWasSimulated = false;
+            SimQualifyingExplanation = "";
             ResetPlayerQualifyingCaptures();
             ResetQualifyingSectorState();
         }
@@ -903,6 +1021,11 @@ namespace LocalFormulaRacing
 
             if (participant.pitPhase == PitPhase.Service)
             {
+                if (participant.pitAwaitingRelease)
+                {
+                    return "PIT HOLD  AWAITING RELEASE GAP";
+                }
+
                 float elapsed = Mathf.Max(0f, participant.pitServiceDuration - participant.pitTimer);
                 return "PIT STOP  " + elapsed.ToString("0.0") + "s / " + participant.pitServiceDuration.ToString("0.0") + "s  " + participant.nextPitCompound;
             }
@@ -1905,17 +2028,17 @@ namespace LocalFormulaRacing
             Vector3 point;
             Vector3 forward;
             Vector3 right;
-            int row = gridIndex / 2;
-            bool leftSlot = gridIndex % 2 == 0;
-            float gridDistance = Track.length - 42f - row * 15.5f - (leftSlot ? 0f : 7.7f);
+            float gridDistance;
+            float lane;
+            Track.GetGridSlot(gridIndex, out gridDistance, out lane);
             Track.SampleAtDistance(gridDistance, out point, out forward, out right);
-            float laneWidth = Mathf.Min(4.2f, Track.roadHalfWidth * 0.46f);
-            float lane = leftSlot ? -laneWidth : laneWidth;
             Vector3 spawnPosition = FindRoadSpawnPosition(point + right * lane, driverName, out bool hitRoad);
             Quaternion spawnRotation = Quaternion.LookRotation(forward, Vector3.up);
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
-                Track.GetPitReleasePose(out spawnPosition, out spawnRotation);
+                // Qualifying runs launch from the car's own pit box, not a shared point.
+                Track.GetPitServicePose(Mathf.Clamp(gridIndex, 0, TrackRuntime.PitBoxCount - 1), out spawnPosition, out spawnRotation);
+                spawnPosition += Vector3.up * 0.1f;
             }
 
             GameObject carObject = CreateOpenWheelCar(driverName, team.PrimaryUnityColor, team.SecondaryUnityColor);
@@ -1932,6 +2055,7 @@ namespace LocalFormulaRacing
             RaceParticipant participant = carObject.AddComponent<RaceParticipant>();
             participant.Initialize(driverId, driverName, teamId, teamShort, player, driver, team, car);
             participant.gridPosition = gridIndex + 1;
+            participant.pitBoxIndex = Mathf.Clamp(gridIndex, 0, TrackRuntime.PitBoxCount - 1);
             participant.startReactionDelay = player ? 0f : Random.Range(0.12f, 0.62f);
             participant.hasLastSafePosition = true;
             participant.lastSafePosition = spawnPosition;
@@ -2159,19 +2283,23 @@ namespace LocalFormulaRacing
             CreateChildCube(root.transform, "nose detail upper", new Vector3(0f, 0.46f, 1.63f), new Vector3(0.18f, 0.055f, 1.52f), secondaryMaterial);
             CreateChildCube(root.transform, "nose detail tip", new Vector3(0f, 0.22f, 2.58f), new Vector3(0.12f, 0.08f, 0.18f), detailMaterial);
 
-            CreateChildCube(root.transform, "front wing base", new Vector3(0f, 0.17f, 2.55f), new Vector3(1.95f, 0.06f, 0.42f), secondaryMaterial);
-            CreateChildCube(root.transform, "front wing upper flap", new Vector3(0f, 0.28f, 2.68f), new Vector3(1.85f, 0.04f, 0.22f), primaryMaterial);
-            CreateChildCube(root.transform, "front wing carbon element", new Vector3(0f, 0.34f, 2.86f), new Vector3(1.58f, 0.045f, 0.16f), detailMaterial);
-            CreateChildCube(root.transform, "left front endplate", new Vector3(-1.02f, 0.24f, 2.55f), new Vector3(0.06f, 0.35f, 0.48f), secondaryMaterial);
-            CreateChildCube(root.transform, "right front endplate", new Vector3(1.02f, 0.24f, 2.55f), new Vector3(0.06f, 0.35f, 0.48f), secondaryMaterial);
+            // Front wing: cascaded elements at increasing attack angles so it reads
+            // as an aero surface, not a stack of shelves.
+            CreateChildCube(root.transform, "front wing base", new Vector3(0f, 0.15f, 2.55f), new Vector3(2.0f, 0.05f, 0.5f), Quaternion.Euler(-4f, 0f, 0f), secondaryMaterial);
+            CreateChildCube(root.transform, "front wing mid flap", new Vector3(0f, 0.24f, 2.66f), new Vector3(1.9f, 0.04f, 0.3f), Quaternion.Euler(-11f, 0f, 0f), primaryMaterial);
+            CreateChildCube(root.transform, "front wing upper flap", new Vector3(0f, 0.33f, 2.78f), new Vector3(1.72f, 0.035f, 0.22f), Quaternion.Euler(-18f, 0f, 0f), detailMaterial);
+            CreateChildCube(root.transform, "left front endplate", new Vector3(-1.04f, 0.26f, 2.6f), new Vector3(0.05f, 0.36f, 0.56f), Quaternion.Euler(0f, -6f, 0f), secondaryMaterial);
+            CreateChildCube(root.transform, "right front endplate", new Vector3(1.04f, 0.26f, 2.6f), new Vector3(0.05f, 0.36f, 0.56f), Quaternion.Euler(0f, 6f, 0f), secondaryMaterial);
+            CreateChildCube(root.transform, "left endplate winglet", new Vector3(-1.02f, 0.42f, 2.62f), new Vector3(0.16f, 0.03f, 0.4f), Quaternion.Euler(0f, 0f, 14f), primaryMaterial);
+            CreateChildCube(root.transform, "right endplate winglet", new Vector3(1.02f, 0.42f, 2.62f), new Vector3(0.16f, 0.03f, 0.4f), Quaternion.Euler(0f, 0f, -14f), primaryMaterial);
 
-            CreateChildCube(root.transform, "rear wing pillar left", new Vector3(-0.25f, 0.65f, -1.95f), new Vector3(0.05f, 0.35f, 0.08f), detailMaterial);
-            CreateChildCube(root.transform, "rear wing pillar right", new Vector3(0.25f, 0.65f, -1.95f), new Vector3(0.05f, 0.35f, 0.08f), detailMaterial);
-            CreateChildCube(root.transform, "rear wing main plane", new Vector3(0f, 0.62f, -2.02f), new Vector3(1.72f, 0.12f, 0.38f), secondaryMaterial);
-            CreateChildCube(root.transform, "rear wing flap", new Vector3(0f, 0.82f, -2.18f), new Vector3(1.65f, 0.08f, 0.24f), primaryMaterial);
-            CreateChildCube(root.transform, "rear beam wing", new Vector3(0f, 0.41f, -2.04f), new Vector3(1.52f, 0.07f, 0.2f), detailMaterial);
-            CreateChildCube(root.transform, "left rear endplate", new Vector3(-0.92f, 0.72f, -2.08f), new Vector3(0.08f, 0.65f, 0.42f), secondaryMaterial);
-            CreateChildCube(root.transform, "right rear endplate", new Vector3(0.92f, 0.72f, -2.08f), new Vector3(0.08f, 0.65f, 0.42f), secondaryMaterial);
+            // Rear wing with swan-neck pillar, angled flap, and beam wing.
+            CreateChildCube(root.transform, "rear wing pillar", new Vector3(0f, 0.68f, -1.9f), new Vector3(0.07f, 0.42f, 0.1f), Quaternion.Euler(16f, 0f, 0f), detailMaterial);
+            CreateChildCube(root.transform, "rear wing main plane", new Vector3(0f, 0.66f, -2.04f), new Vector3(1.72f, 0.07f, 0.42f), Quaternion.Euler(9f, 0f, 0f), secondaryMaterial);
+            CreateChildCube(root.transform, "rear wing flap", new Vector3(0f, 0.85f, -2.16f), new Vector3(1.66f, 0.05f, 0.3f), Quaternion.Euler(24f, 0f, 0f), primaryMaterial);
+            CreateChildCube(root.transform, "rear beam wing", new Vector3(0f, 0.42f, -2.02f), new Vector3(1.5f, 0.05f, 0.24f), Quaternion.Euler(14f, 0f, 0f), detailMaterial);
+            CreateChildCube(root.transform, "left rear endplate", new Vector3(-0.9f, 0.72f, -2.06f), new Vector3(0.06f, 0.66f, 0.52f), Quaternion.Euler(0f, 0f, 4f), secondaryMaterial);
+            CreateChildCube(root.transform, "right rear endplate", new Vector3(0.9f, 0.72f, -2.06f), new Vector3(0.06f, 0.66f, 0.52f), Quaternion.Euler(0f, 0f, -4f), secondaryMaterial);
 
             CreateTaperedBox(root.transform, "engine cover", new Vector3(0f, 0.66f, -0.72f), 0.42f, 0.72f, 0.58f, 1.38f, primaryMaterial);
             CreateChildCube(root.transform, "shark fin", new Vector3(0f, 0.88f, -1.15f), new Vector3(0.035f, 0.32f, 0.85f), secondaryMaterial);
@@ -2196,17 +2324,23 @@ namespace LocalFormulaRacing
             CreateChildCube(root.transform, "nose number panel", new Vector3(0f, 0.42f, 2.1f), new Vector3(0.24f, 0.03f, 0.3f), CreateMaterial(driverName + " number panel", Color.Lerp(Color.white, secondary, 0.15f), 0.1f, 0.7f));
             CreateChildCube(root.transform, "cockpit surround pad", new Vector3(0f, 0.72f, 0.34f), new Vector3(0.58f, 0.08f, 0.5f), inletMaterial);
 
+            // Nose tip cone softens the front silhouette.
+            CreateChildSphere(root.transform, "nose tip", new Vector3(0f, 0.28f, 2.62f), new Vector3(0.2f, 0.18f, 0.42f), primaryMaterial);
+
             // Rear rain light: glows under braking, blinks while harvesting.
             Material rainLightMaterial = CreateMaterial(driverName + " rain light", new Color(0.28f, 0.02f, 0.02f), 0.1f, 0.6f);
             CreateChildCube(root.transform, "rear rain light", new Vector3(0f, 0.42f, -2.12f), new Vector3(0.1f, 0.22f, 0.05f), rainLightMaterial);
-            VehicleVisuals visuals = root.AddComponent<VehicleVisuals>();
-            visuals.Initialize(root.GetComponent<VehicleController>(), rainLightMaterial);
 
             CreateSuspension(root.transform, floorMaterial, detailMaterial);
-            CreateWheel(root.transform, new Vector3(-1.08f, 0.22f, 1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
-            CreateWheel(root.transform, new Vector3(1.08f, 0.22f, 1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
-            CreateWheel(root.transform, new Vector3(-1.08f, 0.22f, -1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
-            CreateWheel(root.transform, new Vector3(1.08f, 0.22f, -1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
+            Transform wheelFl = CreateWheel(root.transform, new Vector3(-1.06f, 0.24f, 1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
+            Transform wheelFr = CreateWheel(root.transform, new Vector3(1.06f, 0.24f, 1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
+            Transform wheelRl = CreateWheel(root.transform, new Vector3(-1.06f, 0.24f, -1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
+            Transform wheelRr = CreateWheel(root.transform, new Vector3(1.06f, 0.24f, -1.35f), tyreMaterial, rimMaterial, brakeDiscMaterial, caliperMaterial);
+
+            VehicleVisuals visuals = root.AddComponent<VehicleVisuals>();
+            visuals.Initialize(root.GetComponent<VehicleController>(), rainLightMaterial);
+            visuals.SetWheels(wheelFl, wheelFr, wheelRl, wheelRr);
+            visuals.SetBrakeGlowMaterial(brakeDiscMaterial);
 
             return root;
         }
@@ -2252,11 +2386,16 @@ namespace LocalFormulaRacing
 
         void CreateChildCube(Transform parent, string objectName, Vector3 localPosition, Vector3 localScale, Material material)
         {
+            CreateChildCube(parent, objectName, localPosition, localScale, Quaternion.identity, material);
+        }
+
+        void CreateChildCube(Transform parent, string objectName, Vector3 localPosition, Vector3 localScale, Quaternion localRotation, Material material)
+        {
             GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
             cube.name = objectName;
             cube.transform.SetParent(parent);
             cube.transform.localPosition = localPosition;
-            cube.transform.localRotation = Quaternion.identity;
+            cube.transform.localRotation = localRotation;
             cube.transform.localScale = localScale;
             cube.GetComponent<Renderer>().sharedMaterial = material;
             Collider collider = cube.GetComponent<Collider>();
@@ -2282,74 +2421,55 @@ namespace LocalFormulaRacing
             }
         }
 
-        void CreateWheel(Transform parent, Vector3 localPosition, Material tyreMaterial, Material rimMaterial, Material brakeDiscMaterial, Material caliperMaterial)
+        // Builds one wheel assembly under a spin pivot so VehicleVisuals can rotate
+        // the whole wheel with road speed and steer the fronts. Returns the pivot.
+        Transform CreateWheel(Transform parent, Vector3 localPosition, Material tyreMaterial, Material rimMaterial, Material brakeDiscMaterial, Material caliperMaterial)
         {
-            GameObject wheel = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            wheel.name = "open wheel";
-            wheel.transform.SetParent(parent);
-            wheel.transform.localPosition = localPosition;
-            wheel.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
-            wheel.transform.localScale = new Vector3(0.38f, 0.25f, 0.38f);
-            wheel.GetComponent<Renderer>().sharedMaterial = tyreMaterial;
-            Collider collider = wheel.GetComponent<Collider>();
-            if (collider != null)
-            {
-                Destroy(collider);
-            }
+            GameObject pivot = new GameObject(localPosition.z > 0f ? "wheel pivot front" : "wheel pivot rear");
+            pivot.transform.SetParent(parent);
+            pivot.transform.localPosition = localPosition;
+            pivot.transform.localRotation = Quaternion.identity;
 
-            GameObject rim = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            rim.name = "wheel rim";
-            rim.transform.SetParent(parent);
-            rim.transform.localPosition = localPosition;
-            rim.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
-            rim.transform.localScale = new Vector3(0.22f, 0.265f, 0.22f);
-            rim.GetComponent<Renderer>().sharedMaterial = rimMaterial;
-            Collider rimCollider = rim.GetComponent<Collider>();
-            if (rimCollider != null)
-            {
-                Destroy(rimCollider);
-            }
+            CreateWheelPart(pivot.transform, "open wheel", Vector3.zero, new Vector3(0.62f, 0.24f, 0.62f), tyreMaterial);
+            CreateWheelPart(pivot.transform, "wheel rim", Vector3.zero, new Vector3(0.4f, 0.245f, 0.4f), rimMaterial);
 
             // Aero wheel cover on the outboard face.
-            float outboard = localPosition.x < 0f ? -0.27f : 0.27f;
-            GameObject cover = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            cover.name = "wheel cover";
-            cover.transform.SetParent(parent);
-            cover.transform.localPosition = localPosition + new Vector3(outboard, 0f, 0f);
-            cover.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
-            cover.transform.localScale = new Vector3(0.3f, 0.012f, 0.3f);
-            cover.GetComponent<Renderer>().sharedMaterial = rimMaterial;
-            Collider coverCollider = cover.GetComponent<Collider>();
-            if (coverCollider != null)
-            {
-                Destroy(coverCollider);
-            }
+            float outboard = localPosition.x < 0f ? -0.25f : 0.25f;
+            CreateWheelPart(pivot.transform, "wheel cover", new Vector3(outboard, 0f, 0f), new Vector3(0.5f, 0.012f, 0.5f), rimMaterial);
 
             float inboard = localPosition.x < 0f ? 0.14f : -0.14f;
-            GameObject disc = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-            disc.name = "brake disc";
-            disc.transform.SetParent(parent);
-            disc.transform.localPosition = localPosition + new Vector3(inboard, 0f, 0f);
-            disc.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
-            disc.transform.localScale = new Vector3(0.17f, 0.035f, 0.17f);
-            disc.GetComponent<Renderer>().sharedMaterial = brakeDiscMaterial;
-            Collider discCollider = disc.GetComponent<Collider>();
-            if (discCollider != null)
-            {
-                Destroy(discCollider);
-            }
+            CreateWheelPart(pivot.transform, "brake disc", new Vector3(inboard, 0f, 0f), new Vector3(0.3f, 0.035f, 0.3f), brakeDiscMaterial);
 
+            // Caliper stays on the upright (parent), it must not spin with the wheel.
             GameObject caliper = GameObject.CreatePrimitive(PrimitiveType.Cube);
             caliper.name = "brake caliper";
             caliper.transform.SetParent(parent);
-            caliper.transform.localPosition = localPosition + new Vector3(inboard * 1.08f, 0.1f, 0.04f);
+            caliper.transform.localPosition = localPosition + new Vector3(inboard * 1.08f, 0.12f, 0.07f);
             caliper.transform.localRotation = Quaternion.identity;
-            caliper.transform.localScale = new Vector3(0.07f, 0.16f, 0.12f);
+            caliper.transform.localScale = new Vector3(0.07f, 0.2f, 0.16f);
             caliper.GetComponent<Renderer>().sharedMaterial = caliperMaterial;
             Collider caliperCollider = caliper.GetComponent<Collider>();
             if (caliperCollider != null)
             {
                 Destroy(caliperCollider);
+            }
+
+            return pivot.transform;
+        }
+
+        void CreateWheelPart(Transform pivot, string partName, Vector3 localOffset, Vector3 localScale, Material material)
+        {
+            GameObject part = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            part.name = partName;
+            part.transform.SetParent(pivot);
+            part.transform.localPosition = localOffset;
+            part.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            part.transform.localScale = localScale;
+            part.GetComponent<Renderer>().sharedMaterial = material;
+            Collider collider = part.GetComponent<Collider>();
+            if (collider != null)
+            {
+                Destroy(collider);
             }
         }
 
@@ -2564,6 +2684,7 @@ namespace LocalFormulaRacing
             participant.vehicle.ClearPitRequest();
             participant.vehicle.SetPitLimiter(true);
             participant.vehicle.SetPitServiceHold(true);
+            participant.vehicle.SetPitGuidance(true);
             if (participant.isPlayer)
             {
                 SessionMessage = "Q" + qualifyingPhase + " complete: returning to pits";
@@ -2573,11 +2694,13 @@ namespace LocalFormulaRacing
 
         void UpdateQualifyingPitReturn(RaceParticipant participant)
         {
+            // Each car returns to its own garage box, never a shared stack point.
             Vector3 servicePosition;
             Quaternion serviceRotation;
-            Track.GetPitServicePose(out servicePosition, out serviceRotation);
+            Track.GetPitServicePose(participant.pitBoxIndex, out servicePosition, out serviceRotation);
             participant.vehicle.SetPitLimiter(true);
             participant.vehicle.SetPitServiceHold(true);
+            participant.vehicle.SetPitGuidance(true);
             float distance = participant.vehicle.GuideToPitPose(servicePosition, serviceRotation, 22f, 220f);
             if (distance <= 0.45f)
             {
@@ -2693,17 +2816,19 @@ namespace LocalFormulaRacing
             participant.pitEntryAligned = false;
             participant.isPitting = true;
             participant.pitLimiterUntilExit = false;
+            participant.pitAwaitingRelease = false;
             participant.pitTimer = 0f;
             participant.pitServiceDuration = 0f;
             participant.nextPitCompound = participant.requestedPitCompoundSet ? participant.requestedPitCompound : NextPitCompound(participant);
             participant.pitTyreSelectionActive = false;
             participant.vehicle.SetPitLimiter(true);
             participant.vehicle.SetPitServiceHold(true);
+            participant.vehicle.SetPitGuidance(true);
             participant.vehicle.ClearPitRequest();
             if (participant.isPlayer)
             {
                 SessionMessage = "Pit entry: limiter active";
-                PostEngineerMessage("Pit entry. Hold steady, we are turning into the lane for " + participant.nextPitCompound + ".", true);
+                PostEngineerMessage("Pit entry. Hold steady, box " + (participant.pitBoxIndex + 1) + " is ready with " + participant.nextPitCompound + ".", true);
             }
         }
 
@@ -2716,7 +2841,7 @@ namespace LocalFormulaRacing
                 Track.GetPitEntryPose(out entryPosition, out entryRotation);
                 participant.vehicle.SetPitLimiter(true);
                 participant.vehicle.SetPitServiceHold(true);
-                float entryDistance = participant.vehicle.GuideToPitPose(entryPosition, entryRotation, 11.5f, 115f);
+                float entryDistance = participant.vehicle.GuideToPitPose(entryPosition, entryRotation, 14f, 130f);
                 if (participant.isPlayer)
                 {
                     SessionMessage = "Pit entry: turning into lane";
@@ -2731,28 +2856,85 @@ namespace LocalFormulaRacing
                 participant.pitEntryAligned = true;
             }
 
+            // Queue behind any car still rolling to a deeper box: hold a lane gap
+            // so cars process through the pit lane like beads on a string.
+            RaceParticipant blocking = FindPitLaneCarAhead(participant);
             Vector3 servicePosition;
             Quaternion serviceRotation;
-            Track.GetPitServicePose(out servicePosition, out serviceRotation);
-            participant.vehicle.SetPitLimiter(true);
-            participant.vehicle.SetPitServiceHold(true);
-            float distance = participant.vehicle.GuideToPitPose(servicePosition, serviceRotation, 13.5f, 145f);
-            if (participant.isPlayer)
+            if (blocking != null)
             {
-                SessionMessage = "Pit lane: rolling to box";
+                Track.GetPitQueuePose(participant.pitBoxIndex, PitQueueHoldback(participant, blocking), out servicePosition, out serviceRotation);
+            }
+            else
+            {
+                Track.GetPitServicePose(participant.pitBoxIndex, out servicePosition, out serviceRotation);
             }
 
-            if (distance <= 0.45f)
+            participant.vehicle.SetPitLimiter(true);
+            participant.vehicle.SetPitServiceHold(true);
+            float distance = participant.vehicle.GuideToPitPose(servicePosition, serviceRotation, 15f, 150f);
+            if (participant.isPlayer)
+            {
+                SessionMessage = blocking != null ? "Pit lane: queueing for box " + (participant.pitBoxIndex + 1) : "Pit lane: rolling to box " + (participant.pitBoxIndex + 1);
+            }
+
+            if (blocking == null && distance <= 0.45f)
             {
                 participant.vehicle.SnapToPitPose(servicePosition, serviceRotation);
                 BeginPitStop(participant);
             }
         }
 
+        // Nearest other car occupying the pit lane directly ahead of this one
+        // (between this car and its box). Used for simple queue spacing.
+        RaceParticipant FindPitLaneCarAhead(RaceParticipant participant)
+        {
+            float ownTarget = Track.PitBoxDistance(participant.pitBoxIndex);
+            TrackProgress own = Track.GetProgress(participant.transform.position);
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant other = Participants[i];
+                if (other == null || other == participant || other.vehicle == null)
+                {
+                    continue;
+                }
+
+                bool inLane = other.pitPhase == PitPhase.Entry || other.pitPhase == PitPhase.Service ||
+                              (other.pitPhase == PitPhase.Release && other.pitAwaitingRelease);
+                if (!inLane)
+                {
+                    continue;
+                }
+
+                float gap = Vector3.Distance(other.transform.position, participant.transform.position);
+                if (gap > 14f)
+                {
+                    continue;
+                }
+
+                TrackProgress otherProgress = Track.GetProgress(other.transform.position);
+                float aheadBy = Track.WrapDistance(otherProgress.distance - own.distance);
+                if (aheadBy > 0.5f && aheadBy < 13f && otherProgress.distance <= ownTarget + 1f)
+                {
+                    return other;
+                }
+            }
+
+            return null;
+        }
+
+        float PitQueueHoldback(RaceParticipant participant, RaceParticipant blocking)
+        {
+            float ownDistance = Track.GetProgress(participant.transform.position).distance;
+            float target = Track.PitBoxDistance(participant.pitBoxIndex);
+            return Mathf.Clamp(target - ownDistance + 8f, 8f, 60f);
+        }
+
         void BeginPitStop(RaceParticipant participant)
         {
             participant.pitPhase = PitPhase.Service;
             participant.isPitting = true;
+            participant.pitAwaitingRelease = false;
             participant.pitServiceDuration = participant.isPlayer ? Random.Range(2.7f, 4.3f) : Random.Range(2.8f, 4.4f);
             participant.pitTimer = participant.pitServiceDuration;
             participant.vehicle.SetPitServiceHold(true);
@@ -2760,7 +2942,7 @@ namespace LocalFormulaRacing
             participant.vehicle.ClearPitRequest();
             if (participant.isPlayer)
             {
-                SessionMessage = "Pit box: changing to " + participant.nextPitCompound;
+                SessionMessage = "Pit box " + (participant.pitBoxIndex + 1) + ": changing to " + participant.nextPitCompound;
                 PostEngineerMessage("Pit stop in progress. Tyres ready: " + participant.nextPitCompound + ".", true);
             }
         }
@@ -2780,6 +2962,22 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Hold the car in its box until the lane grants a safe release gap, so
+            // back-to-back stops never dump two cars onto the same release point.
+            if (Time.time < nextPitReleaseAllowedTime)
+            {
+                participant.pitTimer = 0f;
+                participant.pitAwaitingRelease = true;
+                if (participant.isPlayer)
+                {
+                    SessionMessage = "Held in box: waiting for release gap";
+                }
+
+                return;
+            }
+
+            nextPitReleaseAllowedTime = Time.time + PitReleaseGapSeconds;
+            participant.pitAwaitingRelease = false;
             participant.vehicle.CompletePitStop(participant.nextPitCompound);
             participant.pitStops++;
             participant.requestedPitCompoundSet = false;
@@ -2801,17 +2999,19 @@ namespace LocalFormulaRacing
             Track.GetPitReleasePose(out releasePosition, out releaseRotation);
             participant.vehicle.SetPitServiceHold(true);
             participant.vehicle.SetPitLimiter(true);
-            float distance = participant.vehicle.GuideToPitPose(releasePosition, releaseRotation, 20f, 200f);
+            float distance = participant.vehicle.GuideToPitPose(releasePosition, releaseRotation, 21f, 210f);
             if (distance > 0.55f)
             {
                 return;
             }
 
             participant.vehicle.SnapToPitPose(releasePosition, releaseRotation);
+            participant.vehicle.SetPitGuidance(false);
             participant.vehicle.SetPitServiceHold(false);
             participant.vehicle.SetPitLimiter(true);
             participant.pitPhase = PitPhase.None;
             participant.isPitting = false;
+            participant.pitAwaitingRelease = false;
             participant.pitLimiterUntilExit = true;
             if (participant.isPlayer)
             {
@@ -2963,6 +3163,100 @@ namespace LocalFormulaRacing
             if (State != null) State.Tick();
         }
 
+        // Gentle anti-pile pass: when two active cars end up nearly stationary and
+        // overlapping (turn-one scrums, restart concertinas), ease them apart along
+        // track-right instead of letting physics grind them together. The nudge is
+        // damage-free and far too small to launch a car.
+        void ResolveLowSpeedStacks()
+        {
+            stackResolveTimer -= Time.deltaTime;
+            if (stackResolveTimer > 0f)
+            {
+                return;
+            }
+
+            stackResolveTimer = 0.12f;
+            const float overlapDistance = 3.4f;
+            const float maxSpeedKph = 34f;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant a = Participants[i];
+                if (!IsStackResolveCandidate(a))
+                {
+                    continue;
+                }
+
+                for (int j = i + 1; j < Participants.Count; j++)
+                {
+                    RaceParticipant b = Participants[j];
+                    if (!IsStackResolveCandidate(b))
+                    {
+                        continue;
+                    }
+
+                    Vector3 delta = b.transform.position - a.transform.position;
+                    delta.y = 0f;
+                    if (delta.sqrMagnitude > overlapDistance * overlapDistance)
+                    {
+                        continue;
+                    }
+
+                    if (Mathf.Abs(a.vehicle.CurrentSpeedKph) > maxSpeedKph || Mathf.Abs(b.vehicle.CurrentSpeedKph) > maxSpeedKph)
+                    {
+                        continue;
+                    }
+
+                    TrackProgress progress = Track.GetProgress(a.transform.position);
+                    Vector3 trackRight = Vector3.Cross(Vector3.up, progress.forward).normalized;
+                    float side = Vector3.Dot(delta, trackRight);
+                    if (Mathf.Abs(side) < 0.05f)
+                    {
+                        side = (i + j) % 2 == 0 ? 1f : -1f;
+                    }
+
+                    Vector3 separation = trackRight * Mathf.Sign(side) * 0.55f;
+                    NudgeStackedCar(a, -separation, progress);
+                    NudgeStackedCar(b, separation, progress);
+                }
+            }
+        }
+
+        bool IsStackResolveCandidate(RaceParticipant participant)
+        {
+            return participant != null &&
+                   participant.vehicle != null &&
+                   !participant.retired &&
+                   !participant.finished &&
+                   !participant.isPitting &&
+                   participant.pitPhase == PitPhase.None &&
+                   !participant.vehicle.IsHeldOnGrid &&
+                   !participant.vehicle.IsPitGuided &&
+                   participant.gameObject.activeSelf;
+        }
+
+        void NudgeStackedCar(RaceParticipant participant, Vector3 separation, TrackProgress reference)
+        {
+            // Never push a car off the road; clamp the nudge inside the surface.
+            Vector3 target = participant.transform.position + separation;
+            TrackProgress targetProgress = Track.GetProgress(target);
+            if (Mathf.Abs(targetProgress.lateralDistance) > Track.roadHalfWidth - 1.2f)
+            {
+                return;
+            }
+
+            Rigidbody body = participant.GetComponent<Rigidbody>();
+            if (body == null || body.isKinematic)
+            {
+                return;
+            }
+
+            body.position = target;
+            Vector3 velocity = body.velocity;
+            velocity.x *= 0.9f;
+            velocity.z *= 0.9f;
+            body.velocity = velocity;
+        }
+
         void FinishRace()
         {
             IsRaceFinished = true;
@@ -2987,7 +3281,7 @@ namespace LocalFormulaRacing
                 if (!participant.finished && participant.lapTracker != null)
                 {
                     int lapsRemaining = Mathf.Max(0, RaceLaps - participant.lapTracker.CompletedLaps);
-                    entry.totalTime = RaceElapsed + lapsRemaining * Mathf.Max(65f, Track.length / 72f);
+                    entry.totalTime = RaceElapsed + lapsRemaining * Mathf.Max(72f, Track.length / 56f);
                 }
                 results.Add(entry);
             }
@@ -3288,18 +3582,59 @@ namespace LocalFormulaRacing
             return Mathf.Min(firstRun, secondRun);
         }
 
+        // One fully-itemized simulated lap so the result screen can show the player
+        // exactly where their time came from. Same model the AI runs through, plus
+        // the player's actual tyre choice.
+        class QualifyingLapBreakdown
+        {
+            public int phase;
+            public float baseLap;
+            public float carEffect;
+            public float driverEffect;
+            public float difficultyEffect;
+            public float phaseEffect;
+            public float tyrePrep;
+            public float weatherPenalty;
+            public float mistakePenalty;
+            public float variance;
+            public float tyreChoicePenalty;
+            public float finalTime;
+        }
+
+        readonly QualifyingLapBreakdown[] playerSimBreakdowns = new QualifyingLapBreakdown[3];
+
         float SimulatePlayerQualifyingTime(QualifyingSimEntry entry, int phase)
         {
-            float firstRun = SimulateAiQualifyingRun(entry, phase, false);
-            float secondRun = SimulateAiQualifyingRun(entry, phase, true);
-            float qualifying = entry.driverData == null ? 78f : entry.driverData.qualifying;
-            float consistency = entry.driverData == null ? 78f : entry.driverData.consistency;
-            float secondRunGain = Mathf.Lerp(0.03f, 0.34f, Mathf.Clamp01((qualifying + consistency) / 200f));
-            secondRun -= Random.Range(0f, secondRunGain);
-            float best = Mathf.Min(firstRun, secondRun);
-            best += PlayerQualifyingTyreWeatherPenalty(Settings == null ? TyreCompound.Medium : Settings.SelectedTyreCompound);
-            best += Random.Range(-0.06f, 0.12f);
-            return Mathf.Max(20f, best);
+            QualifyingLapBreakdown best = null;
+            for (int run = 0; run < 2; run++)
+            {
+                QualifyingLapBreakdown attempt = SimulateQualifyingRunDetailed(entry, phase, run == 1);
+                if (run == 1)
+                {
+                    // Second run improvement scales with craft, mirroring the AI model.
+                    float qualifying = entry.driverData == null ? 78f : entry.driverData.qualifying;
+                    float consistency = entry.driverData == null ? 78f : entry.driverData.consistency;
+                    float secondRunGain = Mathf.Lerp(0.03f, 0.34f, Mathf.Clamp01((qualifying + consistency) / 200f));
+                    float gain = Random.Range(0f, secondRunGain);
+                    attempt.variance -= gain;
+                    attempt.finalTime -= gain;
+                }
+
+                attempt.tyreChoicePenalty = PlayerQualifyingTyreWeatherPenalty(Settings == null ? TyreCompound.Medium : Settings.SelectedTyreCompound);
+                attempt.finalTime += attempt.tyreChoicePenalty;
+                if (best == null || attempt.finalTime < best.finalTime)
+                {
+                    best = attempt;
+                }
+            }
+
+            best.finalTime = Mathf.Max(20f, best.finalTime);
+            if (phase >= 1 && phase <= 3)
+            {
+                playerSimBreakdowns[phase - 1] = best;
+            }
+
+            return best.finalTime;
         }
 
         float PlayerQualifyingTyreWeatherPenalty(TyreCompound compound)
@@ -3355,7 +3690,13 @@ namespace LocalFormulaRacing
 
         float SimulateAiQualifyingRun(QualifyingSimEntry entry, int phase, bool secondRun)
         {
-            float baseLap = Mathf.Max(22f, Track.length / 52f);
+            return SimulateQualifyingRunDetailed(entry, phase, secondRun).finalTime;
+        }
+
+        QualifyingLapBreakdown SimulateQualifyingRunDetailed(QualifyingSimEntry entry, int phase, bool secondRun)
+        {
+            QualifyingLapBreakdown breakdown = new QualifyingLapBreakdown { phase = phase };
+            breakdown.baseLap = Mathf.Max(60f, Track.length / 52f);
             DriverData driver = entry.driverData;
             CarPerformanceData car = entry.carData;
             float consistency = driver == null ? 80f : driver.consistency;
@@ -3364,15 +3705,19 @@ namespace LocalFormulaRacing
             float confidence = driver == null ? 80f : driver.experience;
             float tyreManagement = driver == null ? 80f : driver.tyreManagement;
             float carRating = car == null ? 84f : car.cornering * 0.34f + car.enginePower * 0.24f + car.aeroEfficiency * 0.24f + car.braking * 0.18f;
-            float driverEffect = (qualifying - 88f) * -0.048f + (pace - 88f) * -0.016f + (confidence - 80f) * -0.005f;
-            float carEffect = (carRating - 86f) * -0.052f;
-            float difficulty = Settings.Difficulty == RaceDifficulty.Easy ? 0.85f : Settings.Difficulty == RaceDifficulty.Medium ? 0.05f : Settings.Difficulty == RaceDifficulty.Hard ? -0.35f : -0.65f;
-            float phaseEffect = phase == 1 ? 0.08f : (phase == 2 ? -0.18f : -0.36f);
-            float tyrePrep = Mathf.Lerp(0.14f, 0.0f, tyreManagement / 100f) + Random.Range(0f, 0.04f);
+            breakdown.driverEffect = (qualifying - 88f) * -0.048f + (pace - 88f) * -0.016f + (confidence - 80f) * -0.005f;
+            breakdown.carEffect = (carRating - 86f) * -0.052f;
+            breakdown.difficultyEffect = Settings.Difficulty == RaceDifficulty.Easy ? 0.85f : Settings.Difficulty == RaceDifficulty.Medium ? 0.05f : Settings.Difficulty == RaceDifficulty.Hard ? -0.35f : -0.65f;
+            breakdown.phaseEffect = phase == 1 ? 0.08f : (phase == 2 ? -0.18f : -0.36f);
+            breakdown.tyrePrep = Mathf.Lerp(0.14f, 0.0f, tyreManagement / 100f) + Random.Range(0f, 0.04f);
+            breakdown.weatherPenalty = WeatherQualifyingPenalty(driver);
+            breakdown.mistakePenalty = QualifyingMistakePenalty(driver, phase);
             float variance = Mathf.Lerp(0.24f, 0.035f, consistency / 100f);
-            float runVariance = Random.Range(-variance, variance);
-            float secondRunPressure = secondRun ? Random.Range(-0.08f, 0.05f) : 0f;
-            return baseLap + driverEffect + carEffect + difficulty + phaseEffect + tyrePrep + WeatherQualifyingPenalty(driver) + QualifyingMistakePenalty(driver, phase) + runVariance + secondRunPressure;
+            breakdown.variance = Random.Range(-variance, variance) + (secondRun ? Random.Range(-0.08f, 0.05f) : 0f);
+            breakdown.finalTime = breakdown.baseLap + breakdown.driverEffect + breakdown.carEffect +
+                                  breakdown.difficultyEffect + breakdown.phaseEffect + breakdown.tyrePrep +
+                                  breakdown.weatherPenalty + breakdown.mistakePenalty + breakdown.variance;
+            return breakdown;
         }
 
         float WeatherQualifyingPenalty(DriverData driver)

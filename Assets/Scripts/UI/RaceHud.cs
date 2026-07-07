@@ -123,6 +123,20 @@ namespace LocalFormulaRacing
         readonly List<Image> aiProgressDots = new List<Image>();
         const float ProgressStripWidth = 460f;
 
+        // Real track-shape minimap built from Track.centerLine projected to UI space.
+        RectTransform trackMap;
+        Image mapPlayerDot;
+        readonly List<Image> mapCarDots = new List<Image>();
+        readonly List<RaceParticipant> mapCarOwners = new List<RaceParticipant>();
+        Vector3 mapWorldCenter;
+        float mapWorldScale;
+        const float TrackMapSize = 196f;
+
+        // Driver input telemetry bars beside the dash.
+        Image throttleBar;
+        Image brakeBar;
+        Image ersInputBar;
+
         // Debug overlay (F1).
         GameObject debugPanel;
         Text debugText;
@@ -147,9 +161,11 @@ namespace LocalFormulaRacing
 
             BuildTopBand();
             BuildProgressStrip();
+            BuildTrackMap();
             BuildNotificationPanel();
             BuildTimingTower();
             BuildBottomDash();
+            BuildInputTelemetry();
             BuildTimingCard();
             BuildRightStack();
             BuildCenterOverlays();
@@ -194,6 +210,153 @@ namespace LocalFormulaRacing
             if (compact)
             {
                 progressStrip.gameObject.SetActive(false);
+            }
+        }
+
+        // Top-right minimap: the actual circuit outline drawn from centerLine
+        // samples, with live car dots in team colors and the player highlighted.
+        void BuildTrackMap()
+        {
+            if (race.Track == null || race.Track.centerLine.Count < 8)
+            {
+                return;
+            }
+
+            trackMap = UiFactory.CreateResponsivePanel(transform, "Track map", new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(TrackMapSize + 20f, TrackMapSize + 20f), new Vector2(-14f, -10f), new Color(0.008f, 0.012f, 0.018f, 0.74f));
+            ApplyPanelScale(trackMap);
+
+            // Fit the layout into the panel preserving aspect.
+            List<Vector3> line = race.Track.centerLine;
+            Vector3 min = line[0];
+            Vector3 max = line[0];
+            for (int i = 1; i < line.Count; i++)
+            {
+                min = Vector3.Min(min, line[i]);
+                max = Vector3.Max(max, line[i]);
+            }
+
+            mapWorldCenter = (min + max) * 0.5f;
+            float span = Mathf.Max(1f, Mathf.Max(max.x - min.x, max.z - min.z));
+            mapWorldScale = (TrackMapSize - 26f) / span;
+
+            // Track ribbon as dense dots; cheap, readable, and shape-accurate.
+            int step = Mathf.Max(1, line.Count / 110);
+            for (int i = 0; i < line.Count; i += step)
+            {
+                Image dot = CreateMapDot("Map track dot", 3.4f, new Color(0.55f, 0.66f, 0.76f, 0.6f));
+                dot.rectTransform.anchoredPosition = WorldToMap(line[i]);
+                dot.raycastTarget = false;
+            }
+
+            // Start/finish marker.
+            Image startDot = CreateMapDot("Map start marker", 7f, Color.white);
+            startDot.rectTransform.anchoredPosition = WorldToMap(line[0]);
+
+            // One dot per live car, tinted by team.
+            for (int i = 0; i < race.Participants.Count; i++)
+            {
+                RaceParticipant entry = race.Participants[i];
+                if (entry == null)
+                {
+                    continue;
+                }
+
+                if (entry == player)
+                {
+                    continue;
+                }
+
+                Color teamColor = entry.teamData != null ? entry.teamData.PrimaryUnityColor : new Color(0.8f, 0.85f, 0.9f);
+                Image carDot = CreateMapDot("Map car " + i, 6f, teamColor);
+                mapCarDots.Add(carDot);
+                mapCarOwners.Add(entry);
+            }
+
+            mapPlayerDot = CreateMapDot("Map player dot", 9.5f, UiFactory.Accent);
+            if (compact)
+            {
+                trackMap.gameObject.SetActive(false);
+            }
+        }
+
+        Image CreateMapDot(string name, float size, Color color)
+        {
+            RectTransform dot = UiFactory.CreateRect(trackMap, name, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            dot.sizeDelta = new Vector2(size, size);
+            Image image = dot.gameObject.AddComponent<Image>();
+            image.sprite = UiFactory.GlowSprite;
+            image.color = color;
+            return image;
+        }
+
+        Vector2 WorldToMap(Vector3 world)
+        {
+            return new Vector2((world.x - mapWorldCenter.x) * mapWorldScale, (world.z - mapWorldCenter.z) * mapWorldScale);
+        }
+
+        void UpdateTrackMap()
+        {
+            if (trackMap == null || !trackMap.gameObject.activeSelf)
+            {
+                return;
+            }
+
+            if (mapPlayerDot != null && player != null)
+            {
+                mapPlayerDot.rectTransform.anchoredPosition = WorldToMap(player.transform.position);
+            }
+
+            for (int i = 0; i < mapCarDots.Count; i++)
+            {
+                RaceParticipant entry = mapCarOwners[i];
+                Image dot = mapCarDots[i];
+                if (entry == null || !entry.gameObject.activeSelf || entry.retired)
+                {
+                    if (dot.gameObject.activeSelf)
+                    {
+                        dot.gameObject.SetActive(false);
+                    }
+
+                    continue;
+                }
+
+                dot.rectTransform.anchoredPosition = WorldToMap(entry.transform.position);
+            }
+        }
+
+        // Throttle/brake/ERS bars beside the dash: instant read of what the car is
+        // being asked to do, like a broadcast telemetry insert.
+        void BuildInputTelemetry()
+        {
+            RectTransform panel = UiFactory.CreateResponsivePanel(transform, "Input telemetry", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(96f, 138f), new Vector2(-292f, 12f), new Color(0.008f, 0.012f, 0.018f, 0.8f));
+            ApplyPanelScale(panel);
+            Text throttleLabel;
+            Text brakeLabel;
+            Text ersLabel;
+            throttleBar = UiFactory.CreateVerticalBar(panel, "T", 16f, 92f, UiFactory.AccentGreen, out throttleLabel);
+            RectTransform throttleRect = throttleBar.rectTransform.parent.GetComponent<RectTransform>();
+            throttleRect.anchorMin = new Vector2(0f, 0.5f);
+            throttleRect.anchorMax = new Vector2(0f, 0.5f);
+            throttleRect.anchoredPosition = new Vector2(22f, 10f);
+
+            brakeBar = UiFactory.CreateVerticalBar(panel, "B", 16f, 92f, UiFactory.Accent, out brakeLabel);
+            RectTransform brakeRect = brakeBar.rectTransform.parent.GetComponent<RectTransform>();
+            brakeRect.anchorMin = new Vector2(0f, 0.5f);
+            brakeRect.anchorMax = new Vector2(0f, 0.5f);
+            brakeRect.anchoredPosition = new Vector2(48f, 10f);
+
+            ersInputBar = UiFactory.CreateVerticalBar(panel, "E", 16f, 92f, UiFactory.AccentCyan, out ersLabel);
+            RectTransform ersRect = ersInputBar.rectTransform.parent.GetComponent<RectTransform>();
+            ersRect.anchorMin = new Vector2(0f, 0.5f);
+            ersRect.anchorMax = new Vector2(0f, 0.5f);
+            ersRect.anchoredPosition = new Vector2(74f, 10f);
+
+            if (compact)
+            {
+                panel.gameObject.SetActive(false);
+                throttleBar = null;
+                brakeBar = null;
+                ersInputBar = null;
             }
         }
 
@@ -562,6 +725,7 @@ namespace LocalFormulaRacing
             UpdateNotificationAnimation();
             UpdateRaceStartLights();
             UpdateProgressStrip();
+            UpdateTrackMap();
             UpdateGoFlash();
             UpdateTopAccentFlash();
 
@@ -604,6 +768,10 @@ namespace LocalFormulaRacing
             if (car.CurrentGear == 8) revs = speedRatio;
             UiFactory.SetMeterValue(revBar, revs);
             revBar.color = revs > 0.9f ? UiFactory.Accent : (revs > 0.7f ? UiFactory.AccentAmber : UiFactory.AccentGreen);
+
+            UiFactory.SetVerticalBarValue(throttleBar, car.EffectiveThrottle);
+            UiFactory.SetVerticalBarValue(brakeBar, car.EffectiveBrake);
+            UiFactory.SetVerticalBarValue(ersInputBar, car.ErsBattery);
 
             UpdateStatePills(car);
 
