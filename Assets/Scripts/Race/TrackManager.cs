@@ -402,7 +402,17 @@ namespace LocalFormulaRacing
         // desert circuits bake, instead of everything sharing one look.
         bool nightTrack;
         bool twilightTrack;
+        bool desertTrack;
+        bool streetTrack;
+        bool monacoTrack;
+        bool suzukaTrack;
+        bool spaTrack;
+        bool neonTrack;
+        bool wetTrack;
         Material edgeGlowMaterial;
+        Material[] neonMaterials;
+        Material yachtMaterial;
+        Material toriiMaterial;
 
         public TrackRuntime Build(CalendarEventData eventData)
         {
@@ -420,6 +430,13 @@ namespace LocalFormulaRacing
             string trackId = Runtime.trackId ?? "";
             nightTrack = trackId.Contains("singapore") || trackId.Contains("las_vegas") || trackId.Contains("qatar");
             twilightTrack = trackId.Contains("abu_dhabi");
+            desertTrack = trackId.Contains("bahrain") || trackId.Contains("qatar") || trackId.Contains("abu_dhabi");
+            streetTrack = Runtime.styleName.Contains("street") || Runtime.styleName.Contains("Street");
+            monacoTrack = trackId.Contains("monaco");
+            suzukaTrack = trackId.Contains("suzuka");
+            spaTrack = trackId.Contains("spa");
+            neonTrack = trackId.Contains("singapore") || trackId.Contains("las_vegas");
+            wetTrack = Runtime.weather == WeatherState.LightRain || Runtime.weather == WeatherState.HeavyRain;
             CreateMaterials();
             BuildGround();
             BuildContinuousSafetyFloor();
@@ -431,9 +448,17 @@ namespace LocalFormulaRacing
             BuildBarriers();
             BuildSafetyBarriers();
             BuildTrackMarkers();
+            BuildDrsZoneBoards();
             BuildPitLane();
             BuildStartGantry();
             BuildScenery();
+            BuildCircuitLandmarks();
+            BuildCameraTowers();
+            if (wetTrack)
+            {
+                BuildWetSheenOverlay();
+            }
+
             if (showRacingLine)
             {
                 BuildRacingLine();
@@ -1285,17 +1310,33 @@ namespace LocalFormulaRacing
 
         void CreateMaterials()
         {
-            Color runoff = new Color(0.61f, 0.52f, 0.36f);
-            if (Runtime.styleName.Contains("Park") || Runtime.styleName.Contains("Flowing"))
+            // Runoff colour now keys off the trackId-derived identity flags instead of
+            // fragile case-sensitive substring checks on styleName ("park"/"Park",
+            // "flowing"/"Flowing" mismatched for Monza, Interlagos, Silverstone, Austria,
+            // Zandvoort and others), which left most natural circuits with desert-brown
+            // runoff and dunes instead of grass.
+            Color runoff;
+            float runoffSmoothness = 0.18f;
+            Color runoffEmission = Color.black;
+            if (desertTrack)
             {
-                runoff = new Color(0.18f, 0.34f, 0.22f);
+                // Sun-bleached and brighter than a shaded surface would be; there is no
+                // separate lighting rig in this file, so the harsh-desert read comes from
+                // the material itself being bright and faintly warm rather than tinted grey.
+                runoff = new Color(0.78f, 0.66f, 0.42f);
+                runoffSmoothness = 0.3f;
+                runoffEmission = new Color(0.05f, 0.04f, 0.02f);
             }
-            else if (Runtime.styleName.Contains("street") || Runtime.styleName.Contains("Street"))
+            else if (streetTrack)
             {
-                runoff = new Color(0.12f, 0.13f, 0.14f);
+                runoff = monacoTrack ? new Color(0.74f, 0.72f, 0.68f) : new Color(0.12f, 0.13f, 0.14f);
+            }
+            else
+            {
+                runoff = spaTrack ? new Color(0.13f, 0.22f, 0.16f) : new Color(0.18f, 0.34f, 0.22f);
             }
 
-            bool rain = Runtime.weather == WeatherState.LightRain || Runtime.weather == WeatherState.HeavyRain;
+            bool rain = wetTrack;
             roadMaterial = CreateMaterial("Runtime Road", rain ? new Color(0.045f, 0.052f, 0.06f) : new Color(0.075f, 0.078f, 0.083f), 0.04f, rain ? 0.86f : 0.62f);
 
             // Procedural asphalt grain: a tiling noise texture breaks up the flat
@@ -1303,19 +1344,19 @@ namespace LocalFormulaRacing
             roadMaterial.mainTexture = GetAsphaltNoiseTexture();
             roadMaterial.mainTextureScale = new Vector2(1.6f, 0.5f);
             kerbMaterial = CreateMaterial("Runtime Kerb", new Color(0.94f, 0.04f, 0.03f), 0.02f, 0.64f);
-            grassMaterial = CreateMaterial("Runtime Runoff", runoff, 0.01f, 0.18f);
+            grassMaterial = CreateMaterial("Runtime Runoff", runoff, 0.01f, runoffSmoothness, runoffEmission);
             lineMaterial = CreateMaterial("Runtime Track Line", new Color(0.95f, 0.98f, 1f), 0.05f, 0.78f);
             roadEdgeMaterial = CreateMaterial("Runtime Painted Edge", new Color(1f, 0.98f, 0.9f), 0.04f, 0.76f);
             drsPaintMaterial = CreateMaterial("Runtime DRS Paint", new Color(0.02f, 0.32f, 0.95f), 0.06f, 0.82f, new Color(0.01f, 0.05f, 0.18f));
             rubberMaterial = CreateMaterial("Runtime Rubber", new Color(0.003f, 0.003f, 0.003f), 0.01f, 0.24f);
             asphaltPatchMaterial = CreateMaterial("Runtime Asphalt Patch", new Color(0.033f, 0.036f, 0.039f), 0f, rain ? 0.72f : 0.5f);
             skidMarkMaterial = CreateMaterial("Runtime Skid Mark", new Color(0.001f, 0.001f, 0.001f, 0.92f), 0f, 0.16f);
-            barrierMaterial = CreateMaterial("Runtime Barrier", new Color(0.68f, 0.72f, 0.74f), 0.12f, 0.62f);
+            barrierMaterial = CreateMaterial("Runtime Barrier", monacoTrack ? new Color(0.86f, 0.85f, 0.8f) : new Color(0.68f, 0.72f, 0.74f), 0.12f, monacoTrack ? 0.55f : 0.62f);
             tireBarrierMaterial = CreateMaterial("Runtime Tyre Barrier", new Color(0.015f, 0.016f, 0.017f), 0.02f, 0.28f);
-            concreteMaterial = CreateMaterial("Runtime Concrete Wall", new Color(0.56f, 0.58f, 0.59f), 0.04f, 0.32f);
+            concreteMaterial = CreateMaterial("Runtime Concrete Wall", desertTrack ? new Color(0.72f, 0.66f, 0.5f) : new Color(0.56f, 0.58f, 0.59f), 0.04f, desertTrack ? 0.5f : 0.32f, desertTrack ? new Color(0.06f, 0.05f, 0.02f) : Color.black);
             fenceMaterial = CreateMaterial("Runtime Catch Fence", new Color(0.14f, 0.16f, 0.18f), 0.42f, 0.44f);
             fencePostMaterial = CreateMaterial("Runtime Fence Post", new Color(0.4f, 0.44f, 0.47f), 0.55f, 0.66f);
-            foliageMaterial = CreateMaterial("Runtime Foliage", new Color(0.04f, 0.32f, 0.12f), 0f, 0.42f);
+            foliageMaterial = CreateMaterial("Runtime Foliage", spaTrack ? new Color(0.05f, 0.22f, 0.14f) : new Color(0.04f, 0.32f, 0.12f), 0f, 0.42f);
             metalMaterial = CreateMaterial("Runtime Brushed Metal", new Color(0.52f, 0.56f, 0.58f), 0.42f, 0.78f);
             glassMaterial = CreateMaterial("Runtime Glass", new Color(0.12f, 0.28f, 0.38f, 0.85f), 0.1f, 0.95f);
             lightGlowMaterial = CreateMaterial("Runtime Light Glow", new Color(1f, 0.85f, 0.4f), 0f, 0.92f, new Color(1f, 0.62f, 0.15f));
@@ -1323,6 +1364,35 @@ namespace LocalFormulaRacing
             edgeGlowMaterial = nightTrack || twilightTrack
                 ? CreateMaterial("Runtime Edge Glow", new Color(0.85f, 0.95f, 1f), 0.05f, 0.85f, new Color(0.32f, 0.42f, 0.6f))
                 : roadEdgeMaterial;
+
+            // Vegas/Singapore neon palette; kept small and shared rather than one
+            // material per building so the neon look doesn't balloon the material count.
+            neonMaterials = new[]
+            {
+                CreateMaterial("Runtime Neon Cyan", new Color(0.05f, 0.85f, 0.92f), 0f, 0.9f, new Color(0.15f, 1.7f, 1.85f)),
+                CreateMaterial("Runtime Neon Magenta", new Color(0.9f, 0.05f, 0.8f), 0f, 0.9f, new Color(1.7f, 0.1f, 1.5f)),
+                CreateMaterial("Runtime Neon Amber", new Color(0.95f, 0.55f, 0.05f), 0f, 0.9f, new Color(1.8f, 0.9f, 0.05f))
+            };
+            yachtMaterial = CreateMaterial("Runtime Yacht Hull", new Color(0.94f, 0.94f, 0.92f), 0.15f, 0.88f);
+            toriiMaterial = CreateMaterial("Runtime Torii Red", new Color(0.62f, 0.13f, 0.06f), 0.02f, 0.4f);
+        }
+
+        // Standard shader in alpha-blended Fade mode: used for the wet-track sheen and
+        // the Spa mist banks, the only two places this file needs a see-through material.
+        Material CreateTranslucentMaterial(string materialName, Color color, float alpha)
+        {
+            Material material = new Material(Shader.Find("Standard"));
+            material.name = materialName;
+            material.color = new Color(color.r, color.g, color.b, alpha);
+            material.SetFloat("_Mode", 3f);
+            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetInt("_ZWrite", 0);
+            material.DisableKeyword("_ALPHATEST_ON");
+            material.EnableKeyword("_ALPHABLEND_ON");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            material.renderQueue = 3000;
+            return material;
         }
 
         Material CreateMaterial(string materialName, Color color)
@@ -1560,22 +1630,22 @@ namespace LocalFormulaRacing
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
 
                 // Edge lines; emissive at night so the circuit reads under floodlights.
-                CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, edgeGlowMaterial, "Left edge line");
-                CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, edgeGlowMaterial, "Right edge line");
+                CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, edgeGlowMaterial, "Left edge line", 0);
+                CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, edgeGlowMaterial, "Right edge line", 0);
 
                 // Racing line rubbering
                 if (Mathf.FloorToInt(d / spacing) % 2 == 0)
                 {
                     float lateralOffset = Mathf.Sin(d * 0.02f) * (Runtime.roadHalfWidth * 0.35f);
-                    CreateRoadStripe(point + right * lateralOffset, forward, 4.2f, spacing * 1.1f, rubberMaterial, "Rubbered racing line");
-                    CreateRoadStripe(point + right * (lateralOffset + 0.15f), forward, 1.2f, spacing * 0.5f, rubberMaterial, "Rubbered skid mark");
+                    CreateRoadStripe(point + right * lateralOffset, forward, 4.2f, spacing * 1.1f, rubberMaterial, "Rubbered racing line", 1);
+                    CreateRoadStripe(point + right * (lateralOffset + 0.15f), forward, 1.2f, spacing * 0.5f, rubberMaterial, "Rubbered skid mark", 2);
                 }
 
                 float normalized = d / Mathf.Max(1f, Runtime.length);
                 if (Runtime.IsInDrsZone(normalized) && Mathf.FloorToInt(d / spacing) % 2 == 0)
                 {
-                    CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint");
-                    CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint");
+                    CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint", 3);
+                    CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint", 3);
                 }
             }
         }
@@ -1591,20 +1661,33 @@ namespace LocalFormulaRacing
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
                 float normalized = d / Mathf.Max(1f, Runtime.length);
                 float laneBias = Mathf.Sin(normalized * Mathf.PI * 10f) * 0.34f;
-                CreateRoadStripe(point + right * laneBias, forward, Runtime.roadHalfWidth * 0.82f, spacing * 0.76f, asphaltPatchMaterial, "Asphalt grain variation");
-                CreateRoadStripe(point + right * (laneBias * 0.45f), forward, Runtime.roadHalfWidth * 0.42f, spacing * 0.82f, rubberMaterial, "Dark racing line rubber");
+                CreateRoadStripe(point + right * laneBias, forward, Runtime.roadHalfWidth * 0.82f, spacing * 0.76f, asphaltPatchMaterial, "Asphalt grain variation", 4);
+                CreateRoadStripe(point + right * (laneBias * 0.45f), forward, Runtime.roadHalfWidth * 0.42f, spacing * 0.82f, rubberMaterial, "Dark racing line rubber", 5);
 
                 if (Mathf.FloorToInt(d / spacing) % 4 == 1)
                 {
-                    CreateRoadStripe(point - right * 1.05f, forward, 0.16f, 7.6f, skidMarkMaterial, "Heavy braking skid mark");
-                    CreateRoadStripe(point + right * 1.25f, forward, 0.14f, 6.8f, skidMarkMaterial, "Heavy braking skid mark");
+                    CreateRoadStripe(point - right * 1.05f, forward, 0.16f, 7.6f, skidMarkMaterial, "Heavy braking skid mark", 6);
+                    CreateRoadStripe(point + right * 1.25f, forward, 0.14f, 6.8f, skidMarkMaterial, "Heavy braking skid mark", 6);
                 }
             }
         }
 
+        // Base decal height plus a small per-layer step. Several stripe kinds share the
+        // same lateral band (racing line rubber vs skid mark on top of it, asphalt grain
+        // vs the darker rubber patch drawn over it), and painting them at one identical Y
+        // caused flickering z-fighting; each named layer now gets its own tiny offset.
+        const float PaintLayerBase = 0.065f;
+        const float PaintLayerStep = 0.0035f;
+
         void CreateRoadStripe(Vector3 position, Vector3 forward, float width, float length, Material material, string objectName)
         {
-            CreateVisualBox(objectName, position + Vector3.up * 0.065f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(width, 0.022f, length), material);
+            CreateRoadStripe(position, forward, width, length, material, objectName, 0);
+        }
+
+        void CreateRoadStripe(Vector3 position, Vector3 forward, float width, float length, Material material, string objectName, int paintLayer)
+        {
+            float height = PaintLayerBase + paintLayer * PaintLayerStep;
+            CreateVisualBox(objectName, position + Vector3.up * height, Quaternion.LookRotation(forward, Vector3.up), new Vector3(width, 0.022f, length), material);
         }
 
         void BuildGridPaint()
@@ -1961,20 +2044,34 @@ namespace LocalFormulaRacing
                 Vector3 placed = barrier.transform.position;
                 Vector3 placedForward = barrier.transform.forward;
                 CreateVisualBox("Street wall rub rail", placed + Vector3.up * 0.62f, Quaternion.LookRotation(placedForward, Vector3.up), new Vector3(0.5f, 0.12f, 7.5f), metalMaterial);
+
+                if (nightTrack || twilightTrack)
+                {
+                    CreateVisualBox("Street wall light strip", placed + Vector3.up * 1.05f, Quaternion.LookRotation(placedForward, Vector3.up), new Vector3(0.4f, 0.08f, 7.2f), lightGlowMaterial);
+                }
+            }
+            else if (nightTrack || twilightTrack)
+            {
+                Vector3 placed = barrier.transform.position;
+                Vector3 placedForward = barrier.transform.forward;
+                CreateVisualBox("Runoff marker light strip", placed + Vector3.up * 0.55f, Quaternion.LookRotation(placedForward, Vector3.up), new Vector3(0.34f, 0.07f, 4.4f), lightGlowMaterial);
             }
         }
 
         void CreateKerbBlock(Vector3 position, Vector3 forward, float seed)
         {
-            Material material = kerbMaterial;
-            if (Mathf.FloorToInt(seed / 16f) % 2 == 0)
-            {
-                material = lineMaterial;
-            }
+            bool whiteBase = Mathf.FloorToInt(seed / 16f) % 2 == 0;
+            Material material = whiteBase ? lineMaterial : kerbMaterial;
+            Material accentMaterial = whiteBase ? kerbMaterial : lineMaterial;
 
             GameObject kerb = CreateVisualBox("Painted kerb", position + Vector3.up * 0.075f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1.15f, 0.09f, 4.5f), material);
             MeshRenderer renderer = kerb.GetComponent<MeshRenderer>();
             renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Simple;
+
+            // Inlay stripe on top of the block so each kerb reads as painted sausage
+            // kerbing instead of one flat coloured slab; stacked above the block's top
+            // face rather than coplanar with it, so there is no z-fighting risk.
+            CreateVisualBox("Painted kerb accent", position + Vector3.up * 0.131f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1f, 0.02f, 1.6f), accentMaterial);
         }
 
         void BuildTrackMarkers()
@@ -2026,9 +2123,72 @@ namespace LocalFormulaRacing
         {
             Vector3 point; Vector3 forward; Vector3 right;
             Runtime.SampleAtDistance(distance, out point, out forward, out right);
-            GameObject board = CreateVisualBox("Braking Board " + label, point + right * (Runtime.roadHalfWidth + 2.5f) + Vector3.up * 0.8f, Quaternion.LookRotation(right, Vector3.up), new Vector3(0.1f, 1.2f, 1.8f), lineMaterial);
-            // Label geometry placeholder
-            CreateVisualBox("Board Text " + label, point + right * (Runtime.roadHalfWidth + 2.44f) + Vector3.up * 0.8f, Quaternion.LookRotation(right, Vector3.up), new Vector3(0.01f, 0.6f, 1.2f), rubberMaterial);
+            Vector3 boardCenter = point + right * (Runtime.roadHalfWidth + 2.5f) + Vector3.up * 0.8f;
+            Quaternion rotation = Quaternion.LookRotation(right, Vector3.up);
+            CreateVisualBox("Braking Board " + label, boardCenter, rotation, new Vector3(0.1f, 1.2f, 1.8f), lineMaterial);
+
+            // Real F1 boards count down with bars (3/2/1) rather than the distance
+            // number, so the marker reads at a glance well before a driver could
+            // parse text; the number is kept too for the sector-board style readout.
+            // The board's thin (readable) face points along the track direction, so bars
+            // and text are pushed out along -forward to sit proud of that face instead of
+            // being buried inside the solid board box, and spread along "right" (the
+            // board's long axis) so they line up side by side across the face.
+            int bars = label == "150" ? 3 : (label == "100" ? 2 : 1);
+            Vector3 faceOffset = -forward.normalized * 0.07f;
+            for (int i = 0; i < bars; i++)
+            {
+                float barOffset = (i - (bars - 1) * 0.5f) * 0.45f;
+                CreateVisualBox("Board bar " + label, boardCenter + Vector3.up * 0.35f + right * barOffset + faceOffset, rotation, new Vector3(0.02f, 0.4f, 0.14f), sceneryAccentMaterial);
+            }
+
+            GameObject text = new GameObject("Board Text " + label);
+            text.transform.SetParent(transform);
+            text.transform.position = boardCenter - Vector3.up * 0.25f + faceOffset;
+            text.transform.rotation = Quaternion.LookRotation(-forward, Vector3.up);
+            TextMesh textMesh = text.AddComponent<TextMesh>();
+            textMesh.text = label;
+            textMesh.fontSize = 36;
+            textMesh.characterSize = 0.1f;
+            textMesh.anchor = TextAnchor.MiddleCenter;
+            textMesh.alignment = TextAlignment.Center;
+            textMesh.color = new Color(0.05f, 0.05f, 0.05f, 0.95f);
+        }
+
+        void BuildDrsZoneBoards()
+        {
+            CreateDrsZoneBoard(Runtime.length * Runtime.drsZoneOne.x);
+            CreateDrsZoneBoard(Runtime.length * Runtime.drsZoneTwo.x);
+        }
+
+        // Distinct blue DRS marker at zone start, separate from the generic braking
+        // boards, keyed off the same IsInDrsZone data the paint stripes and the HUD use.
+        // Follows the CreateSectorBoard convention (post + single thin board, no
+        // separate frame box) since a frame sized only slightly larger than the board
+        // in every axis would fully enclose and hide it rather than bordering it.
+        void CreateDrsZoneBoard(float distance)
+        {
+            Vector3 point; Vector3 forward; Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            Vector3 basePosition = point + right * (Runtime.roadHalfWidth + 3.6f);
+            Quaternion rotation = Quaternion.LookRotation(right, Vector3.up);
+            CreateVisualBox("DRS zone board post", basePosition + Vector3.up * 1f, rotation, new Vector3(0.14f, 2f, 0.14f), metalMaterial);
+            CreateVisualBox("DRS zone board", basePosition + Vector3.up * 2.3f, rotation, new Vector3(0.16f, 1.2f, 2.2f), drsPaintMaterial);
+
+            // The board's readable face points along the track direction (same as the
+            // braking boards), so the text is pushed proud along -forward rather than
+            // buried inside the solid board.
+            GameObject text = new GameObject("DRS zone board text");
+            text.transform.SetParent(transform);
+            text.transform.position = basePosition + Vector3.up * 2.3f - forward.normalized * 0.11f;
+            text.transform.rotation = Quaternion.LookRotation(-forward, Vector3.up);
+            TextMesh textMesh = text.AddComponent<TextMesh>();
+            textMesh.text = "DRS";
+            textMesh.fontSize = 48;
+            textMesh.characterSize = 0.16f;
+            textMesh.anchor = TextAnchor.MiddleCenter;
+            textMesh.alignment = TextAlignment.Center;
+            textMesh.color = new Color(0.9f, 0.96f, 1f, 0.95f);
         }
 
         void CreateTrackLine(float distance, string markerName, Color color, float depth)
@@ -2039,6 +2199,32 @@ namespace LocalFormulaRacing
             Runtime.SampleAtDistance(distance, out point, out forward, out right);
             Material material = CreateMaterial(markerName + " material", color, 0f, 0.62f);
             CreateVisualBox(markerName, point + Vector3.up * 0.085f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(Runtime.roadHalfWidth * 2f, 0.05f, depth), material);
+        }
+
+        static readonly Color[] SponsorPalette =
+        {
+            new Color(0.85f, 0.1f, 0.1f), new Color(0.05f, 0.35f, 0.85f),
+            new Color(0.95f, 0.75f, 0.05f), new Color(0.1f, 0.55f, 0.2f)
+        };
+
+        // Rectangular sponsor board along a straight, reusing the visual-box primitive
+        // like every other trackside marker in this file. Cycles a small fixed palette
+        // instead of one material per board so it doesn't grow the material count.
+        void CreateSponsorBoard(Vector3 position, Vector3 forward, int index)
+        {
+            Vector3 outward = Vector3.Cross(Vector3.up, forward).normalized;
+            Quaternion rotation = Quaternion.LookRotation(outward, Vector3.up);
+            Color panelColor = SponsorPalette[index % SponsorPalette.Length];
+            Material board = CreateMaterial("Sponsor board material", panelColor, 0.05f, 0.55f, (nightTrack || twilightTrack) ? panelColor * 0.4f : Color.black);
+
+            // The board's thin (readable) face points along the track direction (same
+            // convention as CreateSectorBoard/CreateBrakingBoard), so the panel is popped
+            // out along -forward rather than sharing the frame's centre on that axis,
+            // which would otherwise bury it entirely inside the larger frame box.
+            Vector3 faceOffset = -forward.normalized * 0.07f;
+            CreateVisualBox("Sponsor board frame", position + Vector3.up * 1.5f, rotation, new Vector3(0.18f, 1.85f, 3.85f), metalMaterial);
+            CreateVisualBox("Sponsor board panel", position + Vector3.up * 1.5f + faceOffset, rotation, new Vector3(0.1f, 1.6f, 3.6f), board);
+            CreateVisualBox("Sponsor board post", position + Vector3.up * 0.5f, rotation, new Vector3(0.14f, 1f, 0.14f), metalMaterial);
         }
 
         void BuildPitLane()
@@ -2252,10 +2438,52 @@ namespace LocalFormulaRacing
             MakeVisualOnly(post);
         }
 
+        void BuildCameraTowers()
+        {
+            float[] positions = { 0.1f, 0.3f, 0.52f, 0.72f };
+            for (int i = 0; i < positions.Length; i++)
+            {
+                CreateCameraTower(Runtime.length * positions[i], i);
+            }
+        }
+
+        // Tall thin broadcast tower. Legs are grounded at groundTopY rather than at the
+        // sampled track height, so a tower placed near an elevated stretch (Spa, Austria,
+        // Suzuka) still stands on real ground instead of floating at deck height with its
+        // legs dangling in mid-air.
+        void CreateCameraTower(float distance, int index)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            float side = index % 2 == 0 ? -1f : 1f;
+            Vector3 basePosition = PushSceneryClearOfTrack(point + right * side * (Runtime.roadHalfWidth + 14f), 4f);
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+
+            float platformHeight = 9f + (index % 3) * 2f;
+            float groundClearance = Mathf.Max(0f, point.y - groundTopY);
+            float legHeight = platformHeight + groundClearance;
+            Vector3 legBase = new Vector3(basePosition.x, groundTopY, basePosition.z);
+            Vector3 platformCenter = legBase + Vector3.up * legHeight;
+
+            CreateVisualBox("Camera tower leg", legBase + Vector3.up * legHeight * 0.5f, rotation, new Vector3(0.6f, legHeight, 0.6f), metalMaterial);
+            CreateVisualBox("Camera tower platform", platformCenter, rotation, new Vector3(2.2f, 0.18f, 2.2f), metalMaterial);
+            CreateVisualBox("Camera tower rail", platformCenter + Vector3.up * 0.55f, rotation, new Vector3(2.2f, 0.9f, 0.12f), fencePostMaterial);
+
+            GameObject camHead = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            camHead.name = "Camera tower head";
+            camHead.transform.SetParent(transform);
+            camHead.transform.position = platformCenter + Vector3.up * 1.1f;
+            camHead.transform.rotation = rotation * Quaternion.Euler(90f, 0f, 0f);
+            camHead.transform.localScale = new Vector3(0.3f, 0.5f, 0.3f);
+            camHead.GetComponent<Renderer>().sharedMaterial = concreteMaterial;
+            MakeVisualOnly(camHead);
+        }
+
         void BuildScenery()
         {
-            bool street = Runtime.styleName.Contains("street") || Runtime.styleName.Contains("Street");
-            bool park = Runtime.styleName.Contains("Park") || Runtime.styleName.Contains("Flowing");
+            bool street = streetTrack;
             bool night = Runtime.styleName.Contains("Night");
 
             // Signature grandstands on the main spectator stretches. Grandstand at 0.85-1.0
@@ -2264,6 +2492,13 @@ namespace LocalFormulaRacing
             BuildGrandstand(0.15f, 1);
             BuildGrandstand(0.45f, -1);
             BuildGrandstand(0.85f, -1);
+
+            // Natural road courses read as an open-countryside meeting with an extra
+            // grandstand at a corner rather than only on the straights.
+            if (!desertTrack && !streetTrack)
+            {
+                BuildGrandstand(0.62f, 1);
+            }
 
             float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
             int step = Mathf.Max(1, Mathf.RoundToInt(2f / density));
@@ -2292,21 +2527,160 @@ namespace LocalFormulaRacing
                     CreateMarshalPost(point + right * side * (Runtime.roadHalfWidth + 9f), forward, i);
                 }
 
+                if (i % 14 == 9)
+                {
+                    CreateSponsorBoard(point + right * side * (Runtime.roadHalfWidth + 4.6f), forward, i);
+                }
+
+                if (neonTrack && i % 16 == 6)
+                {
+                    CreateNeonPylon(point + right * side * (Runtime.roadHalfWidth + 11f), forward, i);
+                }
+
                 Vector3 basePosition = point + right * side * (Runtime.roadHalfWidth + (street ? 18f : 32f));
                 if (street)
                 {
+                    // Tight street circuits keep buildings close; Monaco/Singapore/Vegas
+                    // already ride this same lateral offset, but a closer second row on
+                    // some passes sells the "canyon of buildings" feel harder.
                     CreateCityBlock(basePosition, forward, i, night);
+                    if (i % 7 == 0) CreateCityBlock(point + right * side * (Runtime.roadHalfWidth + 15f), forward, i + 2, night);
                 }
-                else if (park)
+                else if (desertTrack)
                 {
-                    CreateTreeCluster(basePosition, i);
-                    if (i % 5 == 0) CreateDune(basePosition + right * side * 40f, i);
+                    CreateDune(basePosition, i);
+                    if (i % 5 == 0) CreateDune(basePosition + right * side * 38f, i + 3);
+                    if (i % 9 == 0) CreateTreeCluster(basePosition - right * side * 22f, i);
                 }
                 else
                 {
-                    CreateDune(basePosition, i);
-                    if (i % 6 == 0) CreateTreeCluster(basePosition + right * side * 45f, i);
+                    CreateTreeCluster(basePosition, i);
+                    if (spaTrack || i % 6 == 0) CreateTreeCluster(basePosition + right * side * 40f, i);
                 }
+            }
+        }
+
+        // One-off signature set pieces for circuits that need more than a colour swap
+        // to read as themselves: Monaco's harbour, Suzuka's crossover bridge and torii
+        // silhouette, and Spa's Ardennes mist.
+        void BuildCircuitLandmarks()
+        {
+            if (monacoTrack)
+            {
+                BuildHarbourYachts(0.34f, 5);
+            }
+
+            if (suzukaTrack)
+            {
+                CreateSuzukaCrossoverBridge(Runtime.length * 0.5f);
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * 0.22f, out point, out forward, out right);
+                CreateToriiGate(point + right * (Runtime.roadHalfWidth + 16f), forward);
+            }
+
+            if (spaTrack)
+            {
+                BuildSpaMist();
+            }
+        }
+
+        // Row of moored white "yachts" along a straight for Monaco's harbour promenade.
+        void BuildHarbourYachts(float startNormalized, int count)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                float d = Runtime.length * startNormalized + i * 14f;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                Vector3 basePos = PushSceneryClearOfTrack(point + right * (Runtime.roadHalfWidth + 24f), 22f);
+                Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+                CreateVisualBox("Harbour yacht hull", basePos + Vector3.up * 0.6f, rotation, new Vector3(2.4f, 1.1f, 7.5f), yachtMaterial);
+                CreateVisualBox("Harbour yacht cabin", basePos + Vector3.up * 1.5f, rotation, new Vector3(1.6f, 0.9f, 3.2f), glassMaterial);
+                CreateVisualBox("Harbour yacht mast", basePos + Vector3.up * 3.4f, rotation, new Vector3(0.1f, 3.8f, 0.1f), metalMaterial);
+            }
+        }
+
+        // Suzuka's famous over/underpass, purely a visual silhouette here: a concrete
+        // deck arcing well above the road (no collider, so it can never clip a car)
+        // with columns grounded at groundTopY the same way CreateBridgeSupports does.
+        void CreateSuzukaCrossoverBridge(float distance)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            // Deck rotation uses "forward" (not "right") so its X scale runs laterally
+            // across the road and Z runs along the track - the opposite convention from
+            // the roadside boards, which need their thin face pointed at approaching cars.
+            Quaternion deckRotation = Quaternion.LookRotation(forward, Vector3.up);
+            float span = Runtime.roadHalfWidth * 2f + 12f;
+            const float clearance = 8.5f;
+            float deckY = point.y + clearance;
+            Vector3 deckCenter = new Vector3(point.x, deckY, point.z);
+            CreateVisualBox("Suzuka crossover deck", deckCenter, deckRotation, new Vector3(span, 0.9f, 6.5f), concreteMaterial);
+            CreateVisualBox("Suzuka crossover rail", deckCenter + Vector3.up * 0.85f, deckRotation, new Vector3(span, 0.18f, 0.4f), fencePostMaterial);
+
+            for (int side = -1; side <= 1; side += 2)
+            {
+                Vector3 columnTop = point + right * side * (span * 0.5f - 1.3f);
+                float columnHeight = Mathf.Max(2f, deckY - groundTopY);
+                Vector3 columnCenter = new Vector3(columnTop.x, groundTopY + columnHeight * 0.5f, columnTop.z);
+                CreateVisualBox("Suzuka crossover column", columnCenter, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1.7f, columnHeight, 1.7f), concreteMaterial);
+            }
+        }
+
+        // Simple torii-gate silhouette built from the same box primitives as everything
+        // else in this file; pushed clear of the racing surface like other scenery.
+        void CreateToriiGate(Vector3 position, Vector3 forward)
+        {
+            Vector3 safePosition = PushSceneryClearOfTrack(position, 14f);
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            Vector3 right = Vector3.Cross(Vector3.up, forward).normalized;
+            const float halfSpan = 3.4f;
+            CreateVisualBox("Torii pillar", safePosition + right * halfSpan + Vector3.up * 2.6f, rotation, new Vector3(0.5f, 5.2f, 0.5f), toriiMaterial);
+            CreateVisualBox("Torii pillar", safePosition - right * halfSpan + Vector3.up * 2.6f, rotation, new Vector3(0.5f, 5.2f, 0.5f), toriiMaterial);
+            CreateVisualBox("Torii upper beam", safePosition + Vector3.up * 5.4f, rotation, new Vector3(halfSpan * 2.6f, 0.45f, 0.7f), toriiMaterial);
+            CreateVisualBox("Torii lower beam", safePosition + Vector3.up * 4.5f, rotation, new Vector3(halfSpan * 2.1f, 0.28f, 0.5f), toriiMaterial);
+        }
+
+        // Distant translucent haze banks well behind the treeline; alpha-blended so the
+        // Ardennes forest reads as misty without hiding the trees or barriers in front.
+        void BuildSpaMist()
+        {
+            Material mist = CreateTranslucentMaterial("Runtime Ardennes mist", new Color(0.62f, 0.68f, 0.66f), 0.16f);
+            for (float d = 0f; d < Runtime.length; d += 140f)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    Vector3 basePos = point + right * side * (Runtime.roadHalfWidth + 55f) + Vector3.up * 6f;
+                    CreateVisualBox("Ardennes mist bank", basePos, Quaternion.LookRotation(forward, Vector3.up), new Vector3(46f, 14f, 3f), mist);
+                }
+            }
+        }
+
+        // Thin glossy overlay above every paint layer so a wet track visibly sheens
+        // under lights, on top of the darker/glossier base road material CreateMaterials
+        // already applies when Runtime.weather is raining.
+        void BuildWetSheenOverlay()
+        {
+            Material sheen = CreateTranslucentMaterial("Runtime wet sheen", new Color(0.75f, 0.82f, 0.9f), 0.14f);
+            sheen.SetFloat("_Glossiness", 0.98f);
+            sheen.SetFloat("_Metallic", 0.05f);
+            for (float d = 0f; d < Runtime.length; d += 40f)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d + 20f, out point, out forward, out right);
+                CreateVisualBox("Wet track sheen overlay", point + Vector3.up * 0.105f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(Runtime.roadHalfWidth * 1.94f, 0.01f, 39f), sheen);
             }
         }
 
@@ -2358,7 +2732,10 @@ namespace LocalFormulaRacing
             // feel inhabited instead of like grey crates.
             Vector3 flatPosition = new Vector3(position.x, 0f, position.z);
             Vector3 towardTrack = flatPosition.sqrMagnitude > 1f ? -flatPosition.normalized : forward;
-            Material windowMaterial = night || nightTrack ? lightGlowMaterial : glassMaterial;
+            // Singapore/Vegas get a share of coloured neon windows mixed in with the plain
+            // glow so the skyline reads as multi-coloured night-spectacle rather than one
+            // uniform amber wash.
+            Material windowMaterial = neonTrack && index % 3 == 1 ? neonMaterials[index % neonMaterials.Length] : (night || nightTrack ? lightGlowMaterial : glassMaterial);
             int bands = Mathf.Clamp(Mathf.RoundToInt(height / 2.4f), 1, 3);
             for (int band = 0; band < bands; band++)
             {
@@ -2368,7 +2745,23 @@ namespace LocalFormulaRacing
             // Occasional rooftop neon sign for the neon street styles.
             if ((night || nightTrack) && index % 4 == 0)
             {
-                CreateVisualBox("Rooftop neon sign", center + Vector3.up * (height * 0.5f + 0.7f), rotation, new Vector3(scale.x * 0.6f, 1.1f, 0.18f), lightGlowMaterial);
+                Material signMaterial = neonTrack ? neonMaterials[(index / 4) % neonMaterials.Length] : lightGlowMaterial;
+                CreateVisualBox("Rooftop neon sign", center + Vector3.up * (height * 0.5f + 0.7f), rotation, new Vector3(scale.x * 0.6f, 1.1f, 0.18f), signMaterial);
+            }
+        }
+
+        // Sibling to CreateFloodlight: a freestanding stack of coloured emissive strips
+        // rather than a functional light, used to give Vegas/Singapore their neon-strip
+        // spectacle look away from the buildings themselves.
+        void CreateNeonPylon(Vector3 position, Vector3 forward, int index)
+        {
+            Vector3 safePosition = PushSceneryClearOfTrack(position, 4f);
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            CreateVisualBox("Neon pylon post", safePosition + Vector3.up * 2.2f, rotation, new Vector3(0.22f, 4.4f, 0.22f), metalMaterial);
+            for (int i = 0; i < 3; i++)
+            {
+                Material neon = neonMaterials[(index + i) % neonMaterials.Length];
+                CreateVisualBox("Neon pylon strip", safePosition + Vector3.up * (1.1f + i * 1.3f), rotation, new Vector3(0.36f, 0.9f, 0.36f), neon);
             }
         }
 
@@ -2786,7 +3179,8 @@ namespace LocalFormulaRacing
                    objectName.Contains("racing line") ||
                    objectName.Contains("gantry") ||
                    objectName.Contains("start light") ||
-                   objectName.Contains("bridge support");
+                   objectName.Contains("bridge support") ||
+                   objectName.Contains("sheen");
         }
 
         void AuditVisualMarkingColliders()
