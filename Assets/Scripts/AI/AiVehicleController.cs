@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace LocalFormulaRacing
@@ -306,6 +307,24 @@ namespace LocalFormulaRacing
             int overtaking = driver == null ? 78 : driver.overtaking;
             int experience = driver == null ? 75 : driver.experience;
             int wetSkill = driver == null ? 75 : driver.wetSkill;
+
+            // Part 8: small, bounded personality nudges layered on top of the raw
+            // stats above - traits are derived from these same stats, so this
+            // only sharpens an already-existing tendency rather than inventing a
+            // new one. Never enough to override the underlying stat spread.
+            if (driver != null)
+            {
+                List<string> traits = DriverTraits.Compute(driver);
+                if (traits.Contains("Error-Prone")) consistency = Mathf.Max(5, consistency - 6);
+                if (traits.Contains("Consistent Finisher")) consistency = Mathf.Min(99, consistency + 4);
+                if (traits.Contains("Aggressive Overtaker")) overtaking = Mathf.Min(99, overtaking + 4);
+                if (traits.Contains("Defensive Wall")) defending = Mathf.Min(99, defending + 4);
+                if (traits.Contains("Tyre Saver")) tyreManagement = Mathf.Min(99, tyreManagement + 4);
+                if (traits.Contains("Wet Specialist") && (raceManager.Track != null && (raceManager.Track.weather == WeatherState.LightRain || raceManager.Track.weather == WeatherState.HeavyRain)))
+                {
+                    wetSkill = Mathf.Min(99, wetSkill + 8);
+                }
+            }
 
             RaceManager.AiDifficultyProfile profile = raceManager.GetAiDifficultyProfile();
             // Part A: the single source of truth for every Expert-only branch below -

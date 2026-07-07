@@ -60,6 +60,11 @@ namespace LocalFormulaRacing
 
             Current.safetyCarFrequency = Mathf.Clamp(Current.safetyCarFrequency, 0, 3);
             Current.mechanicalFailureMode = Mathf.Clamp(Current.mechanicalFailureMode, 0, 2);
+
+            Current.engineerMessageVerbosity = Mathf.Clamp(Current.engineerMessageVerbosity, 0, 3);
+            Current.racePresentation = Mathf.Clamp(Current.racePresentation, 0, 2);
+            Current.weatherVariability = Mathf.Clamp(Current.weatherVariability, 0, 3);
+            Current.cameraShakeLevel = Mathf.Clamp(Current.cameraShakeLevel, 0, 3);
         }
 
         // Older saves only know plannedPitLap/plannedSecondCompound (single mandatory

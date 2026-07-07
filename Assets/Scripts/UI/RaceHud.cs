@@ -79,6 +79,11 @@ namespace LocalFormulaRacing
         Text pitFillValue;
         GameObject radioCard;
         Text radioText;
+        Text radioQueueBadge;
+        CanvasGroup radioCardGroup;
+        RectTransform radioCardRect;
+        Vector2 radioCardRestPosition;
+        bool radioCardRestPositionCaptured;
         GameObject qualifyingCard;
         Text qualifyingDeltaValue;
         Text tyreTagText;
@@ -691,12 +696,20 @@ namespace LocalFormulaRacing
         {
             RectTransform card = UiFactory.CreateHudCard(rightStack, "Radio", RightStackWidth, 72f, UiFactory.AccentGreen);
             radioCard = card.gameObject;
+            radioCardGroup = radioCard.AddComponent<CanvasGroup>();
+            radioCardRect = card;
             radioText = UiFactory.CreateText(card, "Radio message", "", 14, new Color(0.82f, 0.94f, 1f), TextAnchor.UpperLeft);
             RectTransform radioRect = radioText.GetComponent<RectTransform>();
             radioRect.anchorMin = Vector2.zero;
             radioRect.anchorMax = Vector2.one;
             radioRect.offsetMin = new Vector2(14f, 6f);
             radioRect.offsetMax = new Vector2(-10f, -26f);
+            radioQueueBadge = UiFactory.CreateText(card, "Radio queue depth", "", 11, UiFactory.TextMuted, TextAnchor.UpperRight);
+            RectTransform badgeRect = radioQueueBadge.GetComponent<RectTransform>();
+            badgeRect.anchorMin = new Vector2(0f, 1f);
+            badgeRect.anchorMax = new Vector2(1f, 1f);
+            badgeRect.offsetMin = new Vector2(14f, -20f);
+            badgeRect.offsetMax = new Vector2(-10f, -4f);
             radioCard.SetActive(false);
         }
 
@@ -889,6 +902,20 @@ namespace LocalFormulaRacing
             qualifyingFeedback.text = showFeedback ? feedbackText : "";
             drsFlash.text = string.IsNullOrEmpty(feedbackText) && drsFlashTimer > 0f ? "DRS AVAILABLE" : "";
 
+            UpdateRadioCard();
+        }
+
+        // Part 1: the radio card now slides/fades with RaceManager's message
+        // queue (EngineerMessageAnimProgress01) instead of popping straight on
+        // and off, and shows a small "+N" badge when more lines are waiting.
+        void UpdateRadioCard()
+        {
+            if (!radioCardRestPositionCaptured)
+            {
+                radioCardRestPosition = radioCardRect.anchoredPosition;
+                radioCardRestPositionCaptured = true;
+            }
+
             string engineerText = race.EngineerMessageText;
             bool showEngineer = !string.IsNullOrEmpty(engineerText);
             if (radioCard.activeSelf != showEngineer)
@@ -896,10 +923,19 @@ namespace LocalFormulaRacing
                 radioCard.SetActive(showEngineer);
             }
 
-            if (showEngineer)
+            if (!showEngineer)
             {
-                radioText.text = engineerText.StartsWith("ENGINEER: ") ? engineerText.Substring(10) : engineerText;
+                return;
             }
+
+            radioText.text = engineerText.StartsWith("ENGINEER: ") ? engineerText.Substring(10) : engineerText;
+            int queued = race.EngineerMessageQueueDepth;
+            radioQueueBadge.text = queued > 0 ? "+" + queued : "";
+
+            bool animate = race.Settings == null || race.Settings.Current.uiAnimations;
+            float progress = animate ? race.EngineerMessageAnimProgress01 : 1f;
+            radioCardGroup.alpha = Mathf.Clamp01(progress);
+            radioCardRect.anchoredPosition = radioCardRestPosition + new Vector2(Mathf.Lerp(24f, 0f, progress), 0f);
         }
 
         void UpdateStatePills(VehicleController car)
@@ -1388,6 +1424,30 @@ namespace LocalFormulaRacing
                 }
 
                 watchedPitWindow = pitWindow;
+            }
+
+            // Part 1: overtake/position-lost, session-fastest-lap, teammate-battle
+            // and podium/finish callouts are computed in RaceManager (it has the
+            // full field/rivalry context); relay them into the same toast queue
+            // as everything else here so they read as one consistent feed.
+            string toastText;
+            int toastColorKind;
+            while (race.TryDequeueHudToast(out toastText, out toastColorKind))
+            {
+                PushNotification(toastText, ToastColor(toastColorKind));
+            }
+        }
+
+        Color ToastColor(int colorKind)
+        {
+            switch (colorKind)
+            {
+                case RaceManager.ToastColorGreen: return UiFactory.AccentGreen;
+                case RaceManager.ToastColorAmber: return UiFactory.AccentAmber;
+                case RaceManager.ToastColorCyan: return UiFactory.AccentCyan;
+                case RaceManager.ToastColorPurple: return UiFactory.AccentPurple;
+                case RaceManager.ToastColorAccent: return UiFactory.Accent;
+                default: return Color.white;
             }
         }
 

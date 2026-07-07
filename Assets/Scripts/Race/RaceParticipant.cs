@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace LocalFormulaRacing
@@ -109,6 +110,10 @@ namespace LocalFormulaRacing
         // the CompletingPass transition) - surfaced in the post-race diagnostics log.
         public int overtakesCompleted;
         public int pitStops;
+        // Post-race report (Part 2): compound fitted at each stop, in order, so
+        // the strategy summary can read "Medium -> Hard -> Soft" instead of just
+        // the compound the car happened to finish on.
+        public List<string> compoundStints = new List<string>();
         public TyreCompound startingCompound = TyreCompound.Medium;
         public TyreCompound nextPitCompound = TyreCompound.Medium;
         public TyreCompound requestedPitCompound = TyreCompound.Medium;
@@ -159,6 +164,12 @@ namespace LocalFormulaRacing
 
         public RaceResultEntry ToResultEntry()
         {
+            string strategySummary = startingCompound.ToString();
+            for (int i = 0; i < compoundStints.Count; i++)
+            {
+                strategySummary += " -> " + compoundStints[i];
+            }
+
             return new RaceResultEntry
             {
                 driverId = driverId,
@@ -172,7 +183,13 @@ namespace LocalFormulaRacing
                 penaltiesSeconds = penaltiesSeconds,
                 penaltyReason = ResultPenaltyReason(),
                 isPlayer = isPlayer,
-                tyreCompound = vehicle == null || vehicle.Tyres == null ? "Medium" : vehicle.Tyres.Compound.ToString()
+                tyreCompound = vehicle == null || vehicle.Tyres == null ? "Medium" : vehicle.Tyres.Compound.ToString(),
+                pitStops = pitStops,
+                overtakesMade = overtakesCompleted,
+                lockups = vehicle == null || vehicle.Tyres == null ? 0 : vehicle.Tyres.TotalLockups,
+                flatSpotPercent = vehicle == null || vehicle.Tyres == null ? 0f : vehicle.Tyres.FlatSpotLevel * 100f,
+                trackLimitWarnings = trackLimitWarnings,
+                strategySummary = strategySummary
             };
         }
 

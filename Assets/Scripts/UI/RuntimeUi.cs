@@ -175,6 +175,20 @@ namespace LocalFormulaRacing
             PlayerRecordsData headerRecords = PlayerRecordsStore.Data;
             UiFactory.CreateStatCard(profile, "Wins / Podiums", headerRecords.raceWins + " / " + headerRecords.podiums, 210f);
 
+            // Part 18: a single latest-headline teaser right under the profile
+            // strip - the full feed lives on the Rivalry screen so the hub
+            // doesn't get crowded.
+            if (settings.Current.careerNewsFeedEnabled && career.Save.newsFeed != null && career.Save.newsFeed.Count > 0)
+            {
+                Text newsTeaser = UiFactory.CreateText(background, "News teaser",
+                    "NEWS: " + career.Save.newsFeed[career.Save.newsFeed.Count - 1], 14, UiFactory.AccentCyan, TextAnchor.MiddleLeft);
+                RectTransform newsRect = newsTeaser.GetComponent<RectTransform>();
+                newsRect.anchorMin = new Vector2(0.05f, 0.77f);
+                newsRect.anchorMax = new Vector2(0.95f, 0.79f);
+                newsRect.offsetMin = Vector2.zero;
+                newsRect.offsetMax = Vector2.zero;
+            }
+
             // Left column: the next event is the one primary action on this
             // screen (also in the footer would be a duplicate path - it lives
             // here only). A real vertical layout stacks label/name/condition so
@@ -236,6 +250,7 @@ namespace LocalFormulaRacing
             UiFactory.CreateSecondaryButton(secondaryGrid, "Team Ratings", () => ShowTeamRatings(data, career, settings));
             UiFactory.CreateSecondaryButton(secondaryGrid, "Career Stats", () => ShowCareerStats(data, career, settings));
             UiFactory.CreateSecondaryButton(secondaryGrid, "Driver & Team", () => ShowCareerSetup(data, career, settings));
+            UiFactory.CreateSecondaryButton(secondaryGrid, "Rivalry", () => ShowRivalryHub(data, career, settings));
 
             // Standings as real rows (position badge, team accent dot, name,
             // points) instead of a single concatenated Text block.
@@ -283,6 +298,157 @@ namespace LocalFormulaRacing
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
             UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
             UiFactory.CreateSecondaryButton(footerLeft, "Settings", () => ShowSettings(data, career, settings));
+        }
+
+        // Part 3: rivalry / teammate battle screen - head-to-head records, a
+        // form guide, a reputation trend and the career news feed, all built
+        // straight from CareerSaveData rather than anything scripted.
+        public void ShowRivalryHub(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Rivalry background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateScreenHeader(background, "Rivalry & Form", "Teammate battle, championship rival, recent form and the latest team news.");
+
+            List<DriverData> teamDrivers = data.GetDriversForTeam(career.Save.playerTeamId);
+            DriverData teammateDriver = teamDrivers.Find(driver => driver.id != career.Save.selectedDriverId);
+            DriverData rivalDriver = string.IsNullOrEmpty(career.Save.rivalDriverId) ? null : data.FindDriver(career.Save.rivalDriverId);
+            TeamData rivalTeam = rivalDriver == null ? null : data.FindTeam(rivalDriver.teamId);
+
+            RectTransform cardRow = UiFactory.CreateRect(background, "Rivalry card row", new Vector2(0.05f, 0.5f), new Vector2(0.95f, 0.79f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(cardRow, 16, new RectOffset(0, 0, 0, 0));
+
+            BuildReportCard(cardRow, "Teammate Battle", new[]
+            {
+                teammateDriver != null ? teammateDriver.displayName : "No teammate on record",
+                teammateDriver != null ? TraitLine(teammateDriver) : "",
+                "Race record: " + career.Save.teammateRaceWins + "W - " + career.Save.teammateRaceLosses + "L",
+                "Qualifying record: " + career.Save.teammateQualifyingWins + "W - " + career.Save.teammateQualifyingLosses + "L",
+                TeammateBattleVerdict(career.Save.teammateRaceWins, career.Save.teammateRaceLosses)
+            }, 300f, UiFactory.AccentCyan);
+
+            BuildReportCard(cardRow, "Current Rival", new[]
+            {
+                rivalDriver != null ? rivalDriver.displayName + (rivalTeam != null ? "  (" + rivalTeam.shortName + ")" : "") : "No rival identified yet",
+                rivalDriver != null ? TraitLine(rivalDriver) : "",
+                "Race record: " + career.Save.rivalRaceWins + "W - " + career.Save.rivalRaceLosses + "L",
+                "Qualifying record: " + career.Save.rivalQualifyingWins + "W - " + career.Save.rivalQualifyingLosses + "L",
+                "Next review in " + Mathf.Max(0, 4 - career.Save.roundsSinceRivalPicked) + " round(s)"
+            }, 300f, UiFactory.Accent);
+
+            BuildReportCard(cardRow, "Form Guide", new[]
+            {
+                FormGuideLine(career.Save.recentFormPositions),
+                "Based on the last " + career.Save.recentFormPositions.Count + " race" + (career.Save.recentFormPositions.Count == 1 ? "" : "s"),
+                FormTrendLabel(career.Save.recentFormPositions)
+            }, 300f, UiFactory.AccentGreen);
+
+            BuildReportCard(cardRow, "Reputation Trend", new[]
+            {
+                "Current reputation: " + career.Save.reputation,
+                ReputationTrendLine(career.Save.reputationHistory),
+                ReputationTrendLabel(career.Save.reputationHistory)
+            }, 300f, UiFactory.AccentAmber);
+
+            RectTransform newsPanel = UiFactory.CreateScrollPanel(background, "News feed panel", new Vector2(0.05f, 0.14f), new Vector2(0.95f, 0.47f), 6, new RectOffset(20, 20, 16, 16));
+            UiFactory.CreateSubHeader(newsPanel, "Team News");
+            if (career.Save.newsFeed == null || career.Save.newsFeed.Count == 0)
+            {
+                UiFactory.CreateText(newsPanel, "No news", "Nothing to report yet - get racing.", 15, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            }
+            else
+            {
+                for (int i = career.Save.newsFeed.Count - 1; i >= 0; i--)
+                {
+                    RectTransform row = UiFactory.CreateRect(newsPanel, "News row " + i, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                    UiFactory.SetFixedRowHeight(row, 24f);
+                    Text line = UiFactory.CreateText(row, "News text", "•  " + career.Save.newsFeed[i], 14, new Color(0.85f, 0.9f, 0.95f), TextAnchor.MiddleLeft);
+                    RectTransform lineRect = line.GetComponent<RectTransform>();
+                    lineRect.anchorMin = Vector2.zero;
+                    lineRect.anchorMax = Vector2.one;
+                    lineRect.offsetMin = Vector2.zero;
+                    lineRect.offsetMax = Vector2.zero;
+                }
+            }
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Career", () => ShowCareerHub(data, career, settings));
+        }
+
+        string TraitLine(DriverData driver)
+        {
+            List<string> traits = DriverTraits.Compute(driver);
+            return traits.Count == 0 ? "" : string.Join(" · ", traits.ToArray());
+        }
+
+        string TeammateBattleVerdict(int wins, int losses)
+        {
+            if (wins + losses == 0) return "No head-to-head data yet.";
+            if (wins > losses) return "You're winning the teammate battle.";
+            if (losses > wins) return "Teammate is ahead in the battle.";
+            return "Dead even with your teammate.";
+        }
+
+        string FormGuideLine(List<int> recentFormPositions)
+        {
+            if (recentFormPositions == null || recentFormPositions.Count == 0)
+            {
+                return "No races completed yet.";
+            }
+
+            string line = "";
+            for (int i = 0; i < recentFormPositions.Count; i++)
+            {
+                if (i > 0) line += "  ->  ";
+                line += "P" + recentFormPositions[i];
+            }
+
+            return line;
+        }
+
+        string FormTrendLabel(List<int> recentFormPositions)
+        {
+            if (recentFormPositions == null || recentFormPositions.Count < 2)
+            {
+                return "Trend: not enough data yet.";
+            }
+
+            int first = recentFormPositions[0];
+            int last = recentFormPositions[recentFormPositions.Count - 1];
+            if (last < first) return "Trend: improving.";
+            if (last > first) return "Trend: sliding back.";
+            return "Trend: holding steady.";
+        }
+
+        string ReputationTrendLine(List<int> reputationHistory)
+        {
+            if (reputationHistory == null || reputationHistory.Count == 0)
+            {
+                return "History: no races recorded yet.";
+            }
+
+            string line = "History: ";
+            for (int i = 0; i < reputationHistory.Count; i++)
+            {
+                if (i > 0) line += " -> ";
+                line += reputationHistory[i];
+            }
+
+            return line;
+        }
+
+        string ReputationTrendLabel(List<int> reputationHistory)
+        {
+            if (reputationHistory == null || reputationHistory.Count < 2)
+            {
+                return "Team confidence: establishing baseline.";
+            }
+
+            int delta = reputationHistory[reputationHistory.Count - 1] - reputationHistory[0];
+            if (delta > 0) return "Team confidence increased (+" + delta + ").";
+            if (delta < 0) return "Team confidence has dipped (" + delta + ").";
+            return "Team confidence is stable.";
         }
 
         // Separate onboarding/setup flow for choosing a driver name, team, or an
@@ -1065,6 +1231,94 @@ namespace LocalFormulaRacing
                 settings.Save();
                 ShowSettings(data, career, settings);
             });
+
+            RectTransform engineerMessagesControl;
+            UiFactory.CreateSettingRow(raceControlList, "Engineer Messages", "Off: silent. Minimal: urgent calls only. Standard: full radio chatter. Frequent: shorter cooldown between lines.", out engineerMessagesControl);
+            UiFactory.CreateCycleControl(engineerMessagesControl, EngineerVerbosityLabel(settings.Current.engineerMessageVerbosity), () =>
+            {
+                settings.Current.engineerMessageVerbosity = (settings.Current.engineerMessageVerbosity + 1) % 4;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
+            RectTransform racePresentationControl;
+            UiFactory.CreateSettingRow(raceControlList, "Race Presentation", "Minimal: essentials only. Standard: banners and HUD flourishes. Cinematic: adds a finish-line camera flourish.", out racePresentationControl);
+            UiFactory.CreateCycleControl(racePresentationControl, RacePresentationLabel(settings.Current.racePresentation), () =>
+            {
+                settings.Current.racePresentation = (settings.Current.racePresentation + 1) % 3;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
+            RectTransform weatherVariabilityControl;
+            UiFactory.CreateSettingRow(raceControlList, "Weather Variability", "How often and how far the forecast drifts from its base state during a session.", out weatherVariabilityControl);
+            UiFactory.CreateCycleControl(weatherVariabilityControl, WeatherVariabilityLabel(settings.Current.weatherVariability), () =>
+            {
+                settings.Current.weatherVariability = (settings.Current.weatherVariability + 1) % 4;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
+            RectTransform practiceProgramsControl;
+            UiFactory.CreateSettingRow(raceControlList, "Practice Programs", "Optional pre-qualifying programs for R&D points and setup confidence.", out practiceProgramsControl);
+            UiFactory.CreateToggleControl(practiceProgramsControl, settings.Current.practiceProgramsEnabled, () =>
+            {
+                settings.Current.practiceProgramsEnabled = !settings.Current.practiceProgramsEnabled;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
+            RectTransform newsFeedControl;
+            UiFactory.CreateSettingRow(raceControlList, "Career News Feed", "Headlines about your results, rivalries and R&D on the career hub.", out newsFeedControl);
+            UiFactory.CreateToggleControl(newsFeedControl, settings.Current.careerNewsFeedEnabled, () =>
+            {
+                settings.Current.careerNewsFeedEnabled = !settings.Current.careerNewsFeedEnabled;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+        }
+
+        string EngineerVerbosityLabel(int value)
+        {
+            switch (value)
+            {
+                case 0: return "Off";
+                case 1: return "Minimal";
+                case 3: return "Frequent";
+                default: return "Standard";
+            }
+        }
+
+        string RacePresentationLabel(int value)
+        {
+            switch (value)
+            {
+                case 0: return "Minimal";
+                case 2: return "Cinematic";
+                default: return "Standard";
+            }
+        }
+
+        string WeatherVariabilityLabel(int value)
+        {
+            switch (value)
+            {
+                case 0: return "Off";
+                case 1: return "Low";
+                case 3: return "High";
+                default: return "Standard";
+            }
+        }
+
+        string CameraShakeLevelLabel(int value)
+        {
+            switch (value)
+            {
+                case 0: return "Off";
+                case 1: return "Low";
+                case 3: return "High";
+                default: return "Standard";
+            }
         }
 
         string SafetyCarFrequencyLabel(int value)
@@ -1154,6 +1408,15 @@ namespace LocalFormulaRacing
             UiFactory.CreateCycleControl(shakeAmountControl, settings.Current.cameraShakeStrength.ToString("0.0"), () =>
             {
                 settings.Current.cameraShakeStrength = CycleFloat(settings.Current.cameraShakeStrength, 0f, 0.5f, 0.1f);
+                settings.Save();
+                ShowDisplaySettings(data, career, settings);
+            });
+
+            RectTransform shakeLevelControl;
+            UiFactory.CreateSettingRow(leftList, "Camera Shake Level", "Off/Low/Standard/High multiplier on top of Camera Movement above.", out shakeLevelControl);
+            UiFactory.CreateCycleControl(shakeLevelControl, CameraShakeLevelLabel(settings.Current.cameraShakeLevel), () =>
+            {
+                settings.Current.cameraShakeLevel = (settings.Current.cameraShakeLevel + 1) % 4;
                 settings.Save();
                 ShowDisplaySettings(data, career, settings);
             });
@@ -1335,50 +1598,13 @@ namespace LocalFormulaRacing
         // 1-3 threshold-based tags per driver - simple by design, not a scouting
         // algorithm. Order doubles as priority when a driver clears more than
         // three thresholds.
+        // Part 8: driver rating cards read off the same DriverTraits.Compute(...)
+        // list that AI tuning, radio messages and rivalry cards use, so a
+        // "Wet Specialist" chip actually means the AI leans on it in the rain
+        // rather than being a cosmetic label with no effect anywhere else.
         List<string> ComputeDriverTags(DriverData driver)
         {
-            List<string> tags = new List<string>();
-            if (driver.qualifying >= 90)
-            {
-                tags.Add("Elite Qualifier");
-            }
-
-            if (driver.tyreManagement >= 88)
-            {
-                tags.Add("Tyre Whisperer");
-            }
-
-            if (driver.wetSkill >= 88)
-            {
-                tags.Add("Wet Specialist");
-            }
-
-            if (driver.defending >= 88)
-            {
-                tags.Add("Defensive Wall");
-            }
-
-            if (driver.aggression >= 85)
-            {
-                tags.Add("Aggressive Racer");
-            }
-
-            if (driver.developmentPotential >= 88 && driver.experience <= 65)
-            {
-                tags.Add("Future Star");
-            }
-
-            if (driver.experience >= 90)
-            {
-                tags.Add("Veteran");
-            }
-
-            if (tags.Count > 3)
-            {
-                tags.RemoveRange(3, tags.Count - 3);
-            }
-
-            return tags;
+            return DriverTraits.Compute(driver);
         }
 
         // Shared color ramp so a "90" reads the same purple whether it's on a
@@ -1869,8 +2095,11 @@ namespace LocalFormulaRacing
                 hasQualifying ? "Grid is set. Re-run to replace the result." : "Drive the session yourself, or simulate it.",
                 "Go to Qualifying", bootstrap.StartCareerQualifying, "Sim Qualifying", bootstrap.StartCareerSimQualifying);
 
-            CreateWeekendActionGroup(actions, "Practice", "Optional programs for resource points.",
-                "Practice Programs", () => ShowPracticePrograms(data, career, settings), null, null);
+            if (settings.Current.practiceProgramsEnabled)
+            {
+                CreateWeekendActionGroup(actions, "Practice", "Optional programs for resource points.",
+                    "Practice Programs", () => ShowPracticePrograms(data, career, settings), null, null);
+            }
             CreateWeekendActionGroup(actions, "Preparation", "Car setup and circuit notes.",
                 "Car Setup", () => ShowCarSetup(data, career, settings, () => ShowRaceWeekend(data, career, settings)), "Track Info", bootstrap.ShowTrackInfo);
 
@@ -2804,11 +3033,15 @@ namespace LocalFormulaRacing
         {
             Clear();
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Results background", new Color(0.012f, 0.016f, 0.021f, 1f));
-            UiFactory.CreateTopNav(background, "Race Classification");
+            UiFactory.CreateTopNav(background, "Race Report");
+
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Results report", new Vector2(0.05f, 0.12f), new Vector2(0.95f, 0.88f), 14, new RectOffset(6, 6, 6, 12));
 
             // Highlight cards: winner, fastest lap, biggest mover, player result.
-            RectTransform highlights = UiFactory.CreateRect(background, "Result highlights", new Vector2(0.06f, 0.76f), new Vector2(0.94f, 0.87f), Vector2.zero, Vector2.zero);
+            RectTransform highlights = UiFactory.CreateRect(content, "Result highlights", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetFixedRowHeight(highlights, 74f);
             UiFactory.AddHorizontalLayout(highlights, 14, new RectOffset(0, 0, 0, 0));
+            RaceResultEntry player = results != null ? results.Find(entry => entry.isPlayer) : null;
             if (results != null && results.Count > 0)
             {
                 UiFactory.CreateStatCard(highlights, "Winner", results[0].driverName, 300f);
@@ -2824,14 +3057,18 @@ namespace LocalFormulaRacing
                     UiFactory.CreateStatCard(highlights, "Biggest Mover", mover.driverName + "  +" + (mover.gridPosition - mover.finishingPosition), 320f);
                 }
 
-                RaceResultEntry player = results.Find(entry => entry.isPlayer);
                 if (player != null)
                 {
                     UiFactory.CreateStatCard(highlights, "You Finished", "P" + player.finishingPosition + "  (" + player.points + " pts)", 280f);
                 }
             }
 
-            RectTransform content = UiFactory.CreateScrollPanel(background, "Results table", new Vector2(0.06f, 0.14f), new Vector2(0.94f, 0.74f), 4, new RectOffset(18, 18, 12, 12));
+            BuildReportBadgeRow(content, race, results, player);
+            BuildReportCardRow(content, race, results, player);
+
+            RectTransform tableHeading = UiFactory.CreateText(content, "Classification heading", "FULL CLASSIFICATION", 14, UiFactory.Accent, TextAnchor.MiddleLeft).GetComponent<RectTransform>();
+            UiFactory.SetFixedRowHeight(tableHeading, 22f);
+
             RectTransform headerRow = UiFactory.CreateTableRow(content, "Results header row", 1240f, 26f, false, 1);
             headerRow.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
             UiFactory.AddRowCell(headerRow, "H pos", "POS", 0.0f, 0.05f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
@@ -2893,6 +3130,203 @@ namespace LocalFormulaRacing
             {
                 UiFactory.CreatePrimaryButton(footerRight, "Race Again", () => bootstrap.StartQuickRace());
             }
+        }
+
+        // Part 2: post-race report. A row of achievement-style chips (Part 17)
+        // above the detail cards - kept short and computed straight from the
+        // actual result data rather than anything scripted/random.
+        void BuildReportBadgeRow(RectTransform content, RaceManager race, List<RaceResultEntry> results, RaceResultEntry player)
+        {
+            if (results == null || results.Count == 0)
+            {
+                return;
+            }
+
+            List<string> badges = new List<string>();
+            RaceResultEntry fastest = FindFastestLap(results);
+            RaceResultEntry mover = FindBiggestMover(results);
+            RaceResultEntry loser = FindBiggestLoser(results);
+            RaceResultEntry dotd = ComputeDriverOfTheDay(results);
+
+            if (dotd != null)
+            {
+                badges.Add("DRIVER OF THE DAY: " + dotd.driverName.ToUpperInvariant());
+            }
+
+            if (player != null)
+            {
+                bool dnf = !string.IsNullOrEmpty(player.penaltyReason) && player.penaltyReason.Contains("DNF");
+                if (player.finishingPosition == 1) badges.Add("RACE WINNER");
+                else if (player.finishingPosition <= 3 && !dnf) badges.Add("PODIUM");
+                if (fastest != null && fastest.driverId == player.driverId) badges.Add("FASTEST LAP");
+                if (mover != null && mover.driverId == player.driverId) badges.Add("BIGGEST MOVER");
+                if (loser != null && loser.driverId == player.driverId) badges.Add("BIGGEST LOSER");
+                if (!dnf && player.penaltiesSeconds <= 0f && player.trackLimitWarnings == 0 && player.lockups == 0) badges.Add("CLEAN RACE");
+                if (player.penaltiesSeconds > 0f) badges.Add("PENALTY");
+                if (dnf) badges.Add("DNF");
+                if (race.SafetyCarDeploymentCount > 0 && !dnf && player.finishingPosition > 0 && player.finishingPosition <= 5) badges.Add("SAFETY CAR BENEFICIARY");
+                if (player.pitStops > 0 && player.penaltiesSeconds <= 0f && !dnf && player.finishingPosition <= Mathf.Max(1, player.gridPosition)) badges.Add("STRATEGY WIN");
+            }
+
+            if (badges.Count == 0)
+            {
+                return;
+            }
+
+            RectTransform row = UiFactory.CreateRect(content, "Report badges", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetFixedRowHeight(row, 32f);
+            UiFactory.AddHorizontalLayout(row, 10, new RectOffset(0, 0, 0, 0));
+            for (int i = 0; i < badges.Count; i++)
+            {
+                UiFactory.CreatePillLabel(row, badges[i], i == 0 ? UiFactory.AccentPurple : UiFactory.AccentGreen);
+            }
+        }
+
+        // Part 2: the actual report cards - teammate comparison, strategy summary,
+        // incidents/penalties, and safety-car/session context - laid out as a
+        // horizontal row of fixed-size cards so it reads as cards/stat-blocks
+        // rather than a wall of text.
+        void BuildReportCardRow(RectTransform content, RaceManager race, List<RaceResultEntry> results, RaceResultEntry player)
+        {
+            if (player == null || results == null || results.Count == 0)
+            {
+                return;
+            }
+
+            RectTransform row = UiFactory.CreateRect(content, "Report cards", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetFixedRowHeight(row, 190f);
+            UiFactory.AddHorizontalLayout(row, 14, new RectOffset(0, 0, 0, 0));
+
+            RaceResultEntry winner = results[0];
+            float winnerTime = winner.totalTime + winner.penaltiesSeconds;
+            float playerTime = player.totalTime + player.penaltiesSeconds;
+            int positionsChanged = player.gridPosition > 0 ? player.gridPosition - player.finishingPosition : 0;
+
+            BuildReportCard(row, "Your Race", new[]
+            {
+                "Grid P" + (player.gridPosition > 0 ? player.gridPosition.ToString() : "-") + " -> Finish P" + player.finishingPosition,
+                positionsChanged == 0 ? "No positions changed" : (positionsChanged > 0 ? "+" + positionsChanged + " positions gained" : positionsChanged + " positions lost"),
+                "Gap to winner: " + (player.finishingPosition == 1 ? "--" : "+" + Mathf.Max(0f, playerTime - winnerTime).ToString("0.0") + "s"),
+                "Overtakes made: " + player.overtakesMade,
+                "Best lap: " + UiFactory.FormatTime(player.bestLapTime)
+            }, 300f, UiFactory.Accent);
+
+            RaceResultEntry teammate = results.Find(entry => entry.teamId == player.teamId && entry.driverId != player.driverId);
+            if (teammate != null)
+            {
+                float teammateTime = teammate.totalTime + teammate.penaltiesSeconds;
+                bool playerAhead = player.finishingPosition < teammate.finishingPosition;
+                List<string> teammateLines = new List<string>
+                {
+                    teammate.driverName + ": P" + teammate.finishingPosition,
+                    playerAhead ? "You beat your teammate" : "Teammate finished ahead",
+                    "Gap: " + Mathf.Abs(teammateTime - playerTime).ToString("0.0") + "s",
+                    "Teammate best lap: " + UiFactory.FormatTime(teammate.bestLapTime)
+                };
+                BuildReportCard(row, "Teammate Battle", teammateLines.ToArray(), 300f, UiFactory.AccentCyan);
+            }
+
+            BuildReportCard(row, "Strategy", new[]
+            {
+                "Pit stops: " + player.pitStops,
+                string.IsNullOrEmpty(player.strategySummary) ? "No stops made" : player.strategySummary,
+                "Track limit warnings: " + player.trackLimitWarnings,
+                player.penaltiesSeconds > 0f ? "Penalties: +" + player.penaltiesSeconds.ToString("0") + "s (" + player.penaltyReason + ")" : "No penalties"
+            }, 340f, UiFactory.AccentAmber);
+
+            BuildReportCard(row, "Incidents & Session", new[]
+            {
+                "Lockups: " + player.lockups,
+                "Flat spot severity: " + player.flatSpotPercent.ToString("0") + "%",
+                "Safety cars this race: " + race.SafetyCarDeploymentCount,
+                "Yellow/incidents flagged: " + race.IncidentCount
+            }, 300f, UiFactory.AccentGreen);
+        }
+
+        RectTransform BuildReportCard(Transform parent, string title, string[] lines, float width, Color accent)
+        {
+            RectTransform card = UiFactory.CreateRect(parent, title + " report card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(width, 190f);
+            Image background = card.gameObject.AddComponent<Image>();
+            UiFactory.StyleRounded(background, UiFactory.PanelDarker);
+
+            RectTransform rule = UiFactory.CreateRect(card, title + " rule", new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+            rule.pivot = new Vector2(0f, 1f);
+            rule.sizeDelta = new Vector2(46f, 3f);
+            rule.anchoredPosition = new Vector2(16f, -14f);
+            Image ruleImage = rule.gameObject.AddComponent<Image>();
+            UiFactory.StyleRoundedSmall(ruleImage, accent);
+
+            Text titleText = UiFactory.CreateText(card, title + " title", title.ToUpperInvariant(), 13, accent, TextAnchor.UpperLeft);
+            RectTransform titleRect = titleText.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0f, 1f);
+            titleRect.anchorMax = new Vector2(1f, 1f);
+            titleRect.offsetMin = new Vector2(16f, -34f);
+            titleRect.offsetMax = new Vector2(-10f, -12f);
+
+            Text bodyText = UiFactory.CreateText(card, title + " body", string.Join("\n", lines), 14, new Color(0.88f, 0.93f, 0.97f), TextAnchor.UpperLeft);
+            RectTransform bodyRect = bodyText.GetComponent<RectTransform>();
+            bodyRect.anchorMin = Vector2.zero;
+            bodyRect.anchorMax = Vector2.one;
+            bodyRect.offsetMin = new Vector2(16f, 10f);
+            bodyRect.offsetMax = new Vector2(-10f, -38f);
+            bodyText.lineSpacing = 1.3f;
+            return card;
+        }
+
+        RaceResultEntry FindBiggestLoser(List<RaceResultEntry> results)
+        {
+            RaceResultEntry worst = null;
+            int worstLoss = 0;
+            for (int i = 0; i < results.Count; i++)
+            {
+                if (results[i].gridPosition <= 0)
+                {
+                    continue;
+                }
+
+                int loss = results[i].finishingPosition - results[i].gridPosition;
+                if (loss > worstLoss)
+                {
+                    worstLoss = loss;
+                    worst = results[i];
+                }
+            }
+
+            return worst;
+        }
+
+        // Simple, data-driven "driver of the day": rewards net position gain,
+        // overtakes made and a strong finish, penalized by time penalties and
+        // track limit warnings - not a random pick.
+        RaceResultEntry ComputeDriverOfTheDay(List<RaceResultEntry> results)
+        {
+            RaceResultEntry best = null;
+            float bestScore = float.NegativeInfinity;
+            RaceResultEntry fastest = FindFastestLap(results);
+            for (int i = 0; i < results.Count; i++)
+            {
+                RaceResultEntry entry = results[i];
+                bool dnf = !string.IsNullOrEmpty(entry.penaltyReason) && entry.penaltyReason.Contains("DNF");
+                if (dnf)
+                {
+                    continue;
+                }
+
+                int gained = entry.gridPosition > 0 ? entry.gridPosition - entry.finishingPosition : 0;
+                float score = gained * 2f + entry.overtakesMade * 1.5f
+                    + (entry.finishingPosition == 1 ? 4f : entry.finishingPosition <= 3 ? 2f : 0f)
+                    + (fastest != null && fastest.driverId == entry.driverId ? 2f : 0f)
+                    - entry.penaltiesSeconds * 0.15f
+                    - entry.trackLimitWarnings * 0.5f;
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    best = entry;
+                }
+            }
+
+            return best;
         }
 
         RaceResultEntry FindFastestLap(List<RaceResultEntry> results)

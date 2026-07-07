@@ -163,6 +163,7 @@ namespace LocalFormulaRacing
                 int targetDelta = Mathf.Max(-4, Save.contractTargetPosition - player.finishingPosition);
                 Save.reputation += player.finishingPosition <= 3 ? 4 : (targetDelta >= 0 ? 2 : -1);
                 Save.resourcePoints += Mathf.Max(0, targetDelta) * 12;
+                UpdateRaceRivalryAndForm(results, player, raceEvent);
             }
 
             AdvanceUpgradeProjects();
@@ -198,9 +199,182 @@ namespace LocalFormulaRacing
             {
                 Save.resourcePoints += Mathf.Max(8, 42 - player.position * 4);
                 Save.reputation += player.position <= Save.contractTargetPosition ? 1 : 0;
+                UpdateQualifyingRivalry(results, player);
             }
 
             Write();
+        }
+
+        // Part 3: rivalry / teammate battle. Head-to-head tallies, last-3-race
+        // form, a reputation snapshot for the trend card, and a handful of
+        // headlines for the career news feed - all derived from this race's
+        // actual classification, not scripted.
+        void UpdateRaceRivalryAndForm(List<RaceResultEntry> results, RaceResultEntry player, CalendarEventData raceEvent)
+        {
+            string eventName = raceEvent != null ? raceEvent.displayName : "the race";
+            RaceResultEntry teammate = results.Find(entry => entry.teamId == Save.playerTeamId && entry.driverId != "player");
+            if (teammate != null)
+            {
+                if (player.finishingPosition < teammate.finishingPosition)
+                {
+                    Save.teammateRaceWins++;
+                    AddNews(Save.playerDriverName + " beat their teammate again at " + eventName + ".");
+                }
+                else if (player.finishingPosition > teammate.finishingPosition)
+                {
+                    Save.teammateRaceLosses++;
+                }
+            }
+
+            RaceResultEntry rival = string.IsNullOrEmpty(Save.rivalDriverId) ? null : results.Find(entry => entry.driverId == Save.rivalDriverId);
+            if (rival != null)
+            {
+                if (player.finishingPosition < rival.finishingPosition)
+                {
+                    Save.rivalRaceWins++;
+                }
+                else if (player.finishingPosition > rival.finishingPosition)
+                {
+                    Save.rivalRaceLosses++;
+                    AddNews(rival.driverName + " got the better of " + Save.playerDriverName + " at " + eventName + ".");
+                }
+            }
+
+            if (player.finishingPosition == 1)
+            {
+                AddNews(Save.playerDriverName + " wins at " + eventName + "!");
+            }
+            else if (player.finishingPosition <= 3)
+            {
+                AddNews(Save.playerDriverName + " takes a podium finish at " + eventName + ".");
+            }
+
+            Save.recentFormPositions.Add(player.finishingPosition);
+            while (Save.recentFormPositions.Count > 3)
+            {
+                Save.recentFormPositions.RemoveAt(0);
+            }
+
+            int reputationBefore = Save.reputationHistory.Count > 0 ? Save.reputationHistory[Save.reputationHistory.Count - 1] : Save.reputation;
+            if (Save.reputation - reputationBefore >= 3)
+            {
+                AddNews("Team confidence increased after a strong result at " + eventName + ".");
+            }
+
+            Save.reputationHistory.Add(Save.reputation);
+            while (Save.reputationHistory.Count > 6)
+            {
+                Save.reputationHistory.RemoveAt(0);
+            }
+
+            Save.roundsSinceRivalPicked++;
+            if (Save.roundsSinceRivalPicked >= 4)
+            {
+                ReevaluateRival();
+            }
+        }
+
+        void UpdateQualifyingRivalry(List<QualifyingResultEntry> results, QualifyingResultEntry player)
+        {
+            QualifyingResultEntry teammate = results.Find(entry => entry.teamId == Save.playerTeamId && entry.driverId != "player");
+            if (teammate != null)
+            {
+                if (player.position < teammate.position)
+                {
+                    Save.teammateQualifyingWins++;
+                }
+                else if (player.position > teammate.position)
+                {
+                    Save.teammateQualifyingLosses++;
+                }
+            }
+
+            QualifyingResultEntry rival = string.IsNullOrEmpty(Save.rivalDriverId) ? null : results.Find(entry => entry.driverId == Save.rivalDriverId);
+            if (rival != null)
+            {
+                if (player.position < rival.position)
+                {
+                    Save.rivalQualifyingWins++;
+                    if (player.position <= 3)
+                    {
+                        AddNews(Save.playerDriverName + " out-qualified their rival again at Q" + player.position + ".");
+                    }
+                }
+                else if (player.position > rival.position)
+                {
+                    Save.rivalQualifyingLosses++;
+                }
+            }
+        }
+
+        // Re-evaluates the rival every few rounds: prefers the nearest
+        // championship rival by points that isn't the player or their teammate;
+        // falls back to the teammate if nobody else is close. Keeps the rival
+        // fixed if the current pick is still the closest match, so it doesn't
+        // flip every cycle for no reason.
+        void ReevaluateRival()
+        {
+            Save.roundsSinceRivalPicked = 0;
+            StandingEntry playerStanding = Save.driverStandings.Find(entry => entry.id == "player");
+            if (playerStanding == null)
+            {
+                return;
+            }
+
+            StandingEntry closest = null;
+            int closestGap = int.MaxValue;
+            for (int i = 0; i < Save.driverStandings.Count; i++)
+            {
+                StandingEntry candidate = Save.driverStandings[i];
+                if (candidate.id == "player" || candidate.teamId == Save.playerTeamId)
+                {
+                    continue;
+                }
+
+                int gap = Mathf.Abs(candidate.points - playerStanding.points);
+                if (gap < closestGap)
+                {
+                    closestGap = gap;
+                    closest = candidate;
+                }
+            }
+
+            if (closest == null)
+            {
+                // No other team on the grid - fall back to the teammate.
+                List<DriverData> teamDrivers = data.GetDriversForTeam(Save.playerTeamId);
+                DriverData teammateDriver = teamDrivers.Find(driver => driver.id != Save.selectedDriverId);
+                if (teammateDriver != null)
+                {
+                    Save.rivalDriverId = teammateDriver.id;
+                }
+
+                return;
+            }
+
+            if (closest.id != Save.rivalDriverId)
+            {
+                Save.rivalDriverId = closest.id;
+                Save.rivalRaceWins = 0;
+                Save.rivalRaceLosses = 0;
+                Save.rivalQualifyingWins = 0;
+                Save.rivalQualifyingLosses = 0;
+                AddNews("New championship rival: " + closest.displayName + " is now " + Save.playerDriverName + "'s closest title threat.");
+            }
+        }
+
+        public void AddNews(string headline)
+        {
+            if (string.IsNullOrEmpty(headline) || Save.newsFeed == null)
+            {
+                return;
+            }
+
+            Save.newsFeed.Add(headline);
+            while (Save.newsFeed.Count > 10)
+            {
+                Save.newsFeed.RemoveAt(0);
+            }
         }
 
         public bool TryPurchaseUpgrade(string upgradeId)
@@ -493,10 +667,12 @@ namespace LocalFormulaRacing
                     {
                         project.bonusApplied = true;
                         Save.pendingRndMessages.Add(projectName + " delivered with an experimental breakthrough - effect boosted 30%.");
+                        AddNews(projectName + " lands with an experimental breakthrough - big step for the team.");
                     }
                     else
                     {
                         Save.pendingRndMessages.Add(projectName + " development complete - fitted to the car.");
+                        AddNews(projectName + " development complete, fitted to the car for the next round.");
                     }
                 }
                 else
@@ -726,6 +902,21 @@ namespace LocalFormulaRacing
             {
                 PickRegulationTargets();
             }
+
+            if (Save.recentFormPositions == null)
+            {
+                Save.recentFormPositions = new List<int>();
+            }
+
+            if (Save.reputationHistory == null)
+            {
+                Save.reputationHistory = new List<int>();
+            }
+
+            if (Save.newsFeed == null)
+            {
+                Save.newsFeed = new List<string>();
+            }
         }
 
         void PickRegulationTargets()
@@ -815,10 +1006,12 @@ namespace LocalFormulaRacing
             if (removed > 0)
             {
                 Save.pendingRndMessages.Add("Regulation change hit " + affected + ": " + removed + " development project" + (removed == 1 ? "" : "s") + " scrapped for Season " + Save.currentSeason + ".");
+                AddNews("Regulation shake-up wipes out " + removed + " development project" + (removed == 1 ? "" : "s") + " across the field.");
             }
             else
             {
                 Save.pendingRndMessages.Add("Season " + Save.currentSeason + " regulation change in " + affected + " arrived - no completed projects affected.");
+                AddNews("New season regulations target " + affected + " - teams begin adapting.");
             }
 
             PickRegulationTargets();

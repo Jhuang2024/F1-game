@@ -148,7 +148,40 @@ namespace LocalFormulaRacing
         bool preserveQualifyingState;
         string engineerMessageText = "";
         float engineerMessageTimer;
+        float engineerMessageAnimTimer;
         float engineerCooldown;
+
+        // Part 1: real radio message queue. PostEngineerMessage used to just
+        // overwrite engineerMessageText/engineerMessageTimer outright, so two
+        // messages triggered in the same window silently stepped on each other.
+        // Now non-priority lines queue up (capped so a chatty session can't spam
+        // a wall of messages) and priority lines interrupt whatever is currently
+        // showing but do not wipe what's already queued behind it.
+        struct EngineerMessageEntry { public string text; public float duration; }
+        readonly List<EngineerMessageEntry> engineerMessageQueue = new List<EngineerMessageEntry>();
+        const int EngineerMessageQueueCap = 4;
+        const float EngineerMessageAnimInDuration = 0.35f;
+        const float EngineerMessageAnimOutDuration = 0.4f;
+        public int EngineerMessageQueueDepth { get { return engineerMessageQueue.Count; } }
+        // 0-1 slide/fade progress: rises for the first EngineerMessageAnimInDuration
+        // seconds after a message starts, sits at 1 while it holds, then falls back
+        // toward 0 over the last EngineerMessageAnimOutDuration seconds before the
+        // next message takes over - the HUD reads this to slide/fade the radio card.
+        public float EngineerMessageAnimProgress01
+        {
+            get
+            {
+                if (engineerMessageTimer <= 0f)
+                {
+                    return 0f;
+                }
+
+                float inProgress = Mathf.Clamp01(engineerMessageAnimTimer / EngineerMessageAnimInDuration);
+                float outProgress = Mathf.Clamp01(engineerMessageTimer / EngineerMessageAnimOutDuration);
+                return Mathf.Min(inProgress, outProgress);
+            }
+        }
+
         float lightsOutTime;
         float playerReactionTime = -1f;
         float reactionDisplayTimer;
@@ -168,6 +201,57 @@ namespace LocalFormulaRacing
         float engineerDrsWarningCooldown;
         int lastGapReportLap = -1;
         bool weatherTransitionDone;
+        bool weatherSecondTransitionDone;
+
+        // Part 1: extra atmosphere/feedback state - overtake notifications,
+        // session-fastest-lap tracking, teammate gap callouts, flat spot/lockup
+        // warnings and the HUD toast relay queue.
+        int playerLastPosition = -1;
+        float overtakeCheckTimer;
+        float sessionFastestLap = -1f;
+        string sessionFastestLapDriverId = "";
+        bool engineerFlatSpotWarningSent;
+        bool engineerLockupWarningSent;
+        int lastTeammateGapReportLap = -1;
+        bool engineerPodiumMessageSent;
+        struct HudToast { public string text; public int colorKind; }
+        readonly Queue<HudToast> hudToastQueue = new Queue<HudToast>();
+        const int HudToastQueueCap = 6;
+
+        // HUD toast color kinds - kept as small ints so RaceManager (which has no
+        // UI dependency) doesn't need to reference UiFactory colors directly;
+        // RaceHud maps these back to its own palette when it drains the queue.
+        public const int ToastColorNeutral = 0;
+        public const int ToastColorGreen = 1;
+        public const int ToastColorAmber = 2;
+        public const int ToastColorCyan = 3;
+        public const int ToastColorPurple = 4;
+        public const int ToastColorAccent = 5;
+
+        void QueueHudToast(string text, int colorKind)
+        {
+            if (string.IsNullOrEmpty(text) || hudToastQueue.Count >= HudToastQueueCap)
+            {
+                return;
+            }
+
+            hudToastQueue.Enqueue(new HudToast { text = text, colorKind = colorKind });
+        }
+
+        public bool TryDequeueHudToast(out string text, out int colorKind)
+        {
+            if (hudToastQueue.Count == 0)
+            {
+                text = "";
+                colorKind = ToastColorNeutral;
+                return false;
+            }
+
+            HudToast toast = hudToastQueue.Dequeue();
+            text = toast.text;
+            colorKind = toast.colorKind;
+            return true;
+        }
         float lastRecordedPlayerBestLap;
         bool pendingTimeTrial;
         float playerResetCooldown;
@@ -588,6 +672,7 @@ namespace LocalFormulaRacing
             ResolveLowSpeedStacks();
             SortRunningOrder();
             CheckIllegalOvertakesUnderYellow();
+            UpdateOvertakeAndFastestLapNotifications();
             UpdateRaceEngineer();
             UpdateWeatherTransition();
             UpdateRaceControl();
@@ -726,7 +811,11 @@ namespace LocalFormulaRacing
         // drying. Grip, tyre wear, audio and lighting mood all follow.
         void UpdateWeatherTransition()
         {
-            if (weatherTransitionDone || IsTimeTrial || CurrentSession == RaceWeekendSession.Qualifying ||
+            // Part 19: Weather Variability setting. Off locks the session to its
+            // starting state (no transition at all); High allows a second, later
+            // swing on top of the usual half-distance one for a mixed forecast.
+            int variability = Settings == null ? 2 : Settings.Current.weatherVariability;
+            if (variability <= 0 || IsTimeTrial || CurrentSession == RaceWeekendSession.Qualifying ||
                 Track == null || EventData == null || string.IsNullOrEmpty(EventData.weatherProfile) ||
                 !EventData.weatherProfile.ToLowerInvariant().Contains("mixed") ||
                 PlayerParticipant == null || PlayerParticipant.lapTracker == null)
@@ -734,12 +823,31 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            if (PlayerParticipant.lapTracker.CompletedLaps < Mathf.Max(1, RaceLaps / 2))
+            int completedLaps = PlayerParticipant.lapTracker.CompletedLaps;
+            bool wantSecondSwing = variability >= 3 && weatherTransitionDone && !weatherSecondTransitionDone;
+            if (!weatherTransitionDone)
+            {
+                if (completedLaps < Mathf.Max(1, RaceLaps / 2))
+                {
+                    return;
+                }
+
+                weatherTransitionDone = true;
+            }
+            else if (wantSecondSwing)
+            {
+                if (completedLaps < Mathf.Max(1, (RaceLaps * 3) / 4))
+                {
+                    return;
+                }
+
+                weatherSecondTransitionDone = true;
+            }
+            else
             {
                 return;
             }
 
-            weatherTransitionDone = true;
             bool wasRaining = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
             WeatherState next = wasRaining ? WeatherState.Cloudy : WeatherState.LightRain;
             Track.weather = next;
@@ -2232,6 +2340,18 @@ namespace LocalFormulaRacing
             engineerDrsWarningCooldown = 0f;
             lastGapReportLap = -1;
             weatherTransitionDone = false;
+            weatherSecondTransitionDone = false;
+            engineerMessageQueue.Clear();
+            engineerMessageAnimTimer = 0f;
+            playerLastPosition = -1;
+            overtakeCheckTimer = 0f;
+            sessionFastestLap = -1f;
+            sessionFastestLapDriverId = "";
+            engineerFlatSpotWarningSent = false;
+            engineerLockupWarningSent = false;
+            lastTeammateGapReportLap = -1;
+            engineerPodiumMessageSent = false;
+            hudToastQueue.Clear();
         }
 
         // Number of stops the player planned on the strategy screen, defensively
@@ -2356,13 +2476,42 @@ namespace LocalFormulaRacing
 
         void TickEngineerTimers()
         {
+            engineerMessageAnimTimer += Time.deltaTime;
             engineerMessageTimer = Mathf.Max(0f, engineerMessageTimer - Time.deltaTime);
             engineerCooldown = Mathf.Max(0f, engineerCooldown - Time.deltaTime);
             reactionDisplayTimer = Mathf.Max(0f, reactionDisplayTimer - Time.deltaTime);
             playerResetCooldown = Mathf.Max(0f, playerResetCooldown - Time.deltaTime);
             engineerDrsWarningCooldown = Mathf.Max(0f, engineerDrsWarningCooldown - Time.deltaTime);
+
+            if (engineerMessageTimer <= 0f && engineerMessageQueue.Count > 0)
+            {
+                AdvanceEngineerMessageQueue();
+            }
         }
 
+        void AdvanceEngineerMessageQueue()
+        {
+            if (engineerMessageQueue.Count == 0)
+            {
+                engineerMessageText = "";
+                engineerMessageTimer = 0f;
+                return;
+            }
+
+            EngineerMessageEntry next = engineerMessageQueue[0];
+            engineerMessageQueue.RemoveAt(0);
+            engineerMessageText = next.text;
+            engineerMessageTimer = next.duration;
+            engineerMessageAnimTimer = 0f;
+        }
+
+        // Part 1: messages now queue instead of instantly replacing one another.
+        // Non-priority lines (routine pace/tyre/strategy chatter) append to a
+        // small capped queue and animate in once their turn comes; priority lines
+        // (safety car, penalties, pit calls) interrupt whatever is showing right
+        // now but leave the rest of the queue intact so nothing is lost, just
+        // delayed. Settings.raceControlMessages / engineerMessageVerbosity can
+        // mute all of this without touching a single call site.
         void PostEngineerMessage(string message, bool priority)
         {
             if (string.IsNullOrEmpty(message))
@@ -2370,15 +2519,60 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            string formatted = "ENGINEER: " + message;
-            if (!priority && engineerCooldown > 0f && formatted == engineerMessageText)
+            if (Settings != null && Settings.Current.engineerMessageVerbosity <= 0)
             {
                 return;
             }
 
-            engineerMessageText = formatted;
-            engineerMessageTimer = priority ? 7.5f : 5.5f;
-            engineerCooldown = priority ? 1.2f : 5.5f;
+            string formatted = "ENGINEER: " + message;
+            if (formatted == engineerMessageText && engineerMessageTimer > 1f)
+            {
+                return;
+            }
+
+            for (int i = 0; i < engineerMessageQueue.Count; i++)
+            {
+                if (engineerMessageQueue[i].text == formatted)
+                {
+                    return;
+                }
+            }
+
+            // Minimal verbosity: only priority (urgent) lines get through at all.
+            if (!priority && Settings != null && Settings.Current.engineerMessageVerbosity == 1)
+            {
+                return;
+            }
+
+            float duration = priority ? 7.5f : 5.5f;
+            if (priority)
+            {
+                engineerMessageQueue.Insert(0, new EngineerMessageEntry { text = formatted, duration = duration });
+                AdvanceEngineerMessageQueue();
+            }
+            else
+            {
+                if (engineerMessageQueue.Count >= EngineerMessageQueueCap)
+                {
+                    return;
+                }
+
+                engineerMessageQueue.Add(new EngineerMessageEntry { text = formatted, duration = duration });
+                if (engineerMessageTimer <= 0f)
+                {
+                    AdvanceEngineerMessageQueue();
+                }
+            }
+        }
+
+        // Settings.cameraShakeLevel: 0 Off, 1 Low, 2 Standard (matches the historic
+        // default feel), 3 High.
+        static float CameraShakeLevelMultiplier(int level)
+        {
+            if (level <= 0) return 0f;
+            if (level == 1) return 0.55f;
+            if (level == 2) return 1f;
+            return 1.4f;
         }
 
         string OpeningEngineerMessage()
@@ -2422,6 +2616,76 @@ namespace LocalFormulaRacing
             }
 
             return "dry";
+        }
+
+        // Part 1: player overtake/position-lost toasts+radio calls, and a
+        // session-wide fastest-lap callout when the player sets the best lap of
+        // the race so far (distinct from TrackPlayerBestLapRecord's personal-best/
+        // all-time-local-record tracking). Throttled to a short interval - cheap
+        // either way, but there's no reason to run the fastest-lap scan every frame.
+        void UpdateOvertakeAndFastestLapNotifications()
+        {
+            if (PlayerParticipant == null || IsTimeTrial || CurrentSession == RaceWeekendSession.Qualifying)
+            {
+                return;
+            }
+
+            overtakeCheckTimer -= Time.deltaTime;
+            if (overtakeCheckTimer > 0f)
+            {
+                return;
+            }
+
+            overtakeCheckTimer = 0.6f;
+
+            int position = GetPosition(PlayerParticipant);
+            bool eligibleForOvertakeCallout = playerLastPosition > 0 && position > 0 && position != playerLastPosition &&
+                !PlayerParticipant.isPitting && PlayerParticipant.pitPhase == PitPhase.None &&
+                StartCountdown <= 0f && RaceElapsed > 3f;
+            if (eligibleForOvertakeCallout)
+            {
+                if (position < playerLastPosition)
+                {
+                    QueueHudToast("OVERTAKE! P" + position, ToastColorGreen);
+                    PostEngineerMessage("Good overtake, you're up to P" + position + ".", false);
+                }
+                else
+                {
+                    QueueHudToast("POSITION LOST - P" + position, ToastColorAmber);
+                    PostEngineerMessage("Position lost, now P" + position + ". Fight back.", false);
+                }
+            }
+
+            if (position > 0)
+            {
+                playerLastPosition = position;
+            }
+
+            if (State != null)
+            {
+                for (int i = 0; i < State.Participants.Count; i++)
+                {
+                    RaceParticipant participant = State.Participants[i];
+                    if (participant == null || participant.lapTracker == null)
+                    {
+                        continue;
+                    }
+
+                    float best = participant.lapTracker.BestLapTime;
+                    if (best <= 0f || (sessionFastestLap > 0f && best >= sessionFastestLap - 0.001f))
+                    {
+                        continue;
+                    }
+
+                    sessionFastestLap = best;
+                    sessionFastestLapDriverId = participant.driverId;
+                    if (participant.isPlayer)
+                    {
+                        QueueHudToast("FASTEST LAP OF THE RACE", ToastColorPurple);
+                        PostEngineerMessage("That's the fastest lap of the race so far.", true);
+                    }
+                }
+            }
         }
 
         void UpdateRaceEngineer()
@@ -2539,14 +2803,32 @@ namespace LocalFormulaRacing
                 if (rivalAhead != null && rivalAhead.driverId == Career.Save.rivalDriverId)
                 {
                     engineerRivalSent = true;
-                    PostEngineerMessage("That's your rival ahead. Beat him and the team will notice.", false);
+                    PostEngineerMessage("That's your rival ahead." + RivalTraitHint(rivalAhead) + " Beat him and the team will notice.", false);
                     return;
                 }
 
                 if (rivalBehind != null && rivalBehind.driverId == Career.Save.rivalDriverId)
                 {
                     engineerRivalSent = true;
-                    PostEngineerMessage("Your rival is right behind. Keep it clean, hold the position.", false);
+                    PostEngineerMessage("Your rival is right behind." + RivalTraitHint(rivalBehind) + " Keep it clean, hold the position.", false);
+                    return;
+                }
+            }
+
+            // Teammate gap callout, on the off-parity laps so it never collides
+            // with the every-2-laps pace report below.
+            if (completedLaps >= 3 && completedLaps % 2 == 1 && lastTeammateGapReportLap != completedLaps && engineerCooldown <= 0f)
+            {
+                RaceParticipant teammate = FindTeammate(PlayerParticipant);
+                if (teammate != null)
+                {
+                    lastTeammateGapReportLap = completedLaps;
+                    float gapSeconds = GetGapBetweenSeconds(PlayerParticipant, teammate);
+                    bool teammateAhead = GetPosition(teammate) < GetPosition(PlayerParticipant);
+                    string gapText = Mathf.Abs(gapSeconds).ToString("0.0");
+                    PostEngineerMessage(teammateAhead
+                        ? "Teammate is " + gapText + " seconds ahead."
+                        : "Teammate is " + gapText + " seconds behind.", false);
                     return;
                 }
             }
@@ -2594,6 +2876,20 @@ namespace LocalFormulaRacing
             {
                 engineerTyreWarningSent = true;
                 PostEngineerMessage("Tyres are overheating. Short-shift and reduce sliding.", false);
+                return;
+            }
+
+            if (car.Tyres.FlatSpotLevel > 0.6f && !engineerFlatSpotWarningSent)
+            {
+                engineerFlatSpotWarningSent = true;
+                PostEngineerMessage("Heavy flat spot. Consider boxing, it will vibrate through the braking zones.", true);
+                return;
+            }
+
+            if (car.Tyres.LastLockupSeverity > 0.55f && !engineerLockupWarningSent)
+            {
+                engineerLockupWarningSent = true;
+                PostEngineerMessage("Big lockup there. Ease the brake pressure into the next few corners.", false);
                 return;
             }
 
@@ -3427,6 +3723,70 @@ namespace LocalFormulaRacing
             float deltaMeters = aheadDistance - participantDistance;
             float speed = Mathf.Max(24f, participant.vehicle == null ? 36f : Mathf.Abs(participant.vehicle.CurrentSpeedKph) / 3.6f);
             return Mathf.Max(0f, deltaMeters / speed);
+        }
+
+        // Generic gap-in-seconds between any two participants (not necessarily
+        // adjacent on track), used for teammate/rival callouts where the pair
+        // could be several cars apart. Positive when `a` is ahead of `b`.
+        public float GetGapBetweenSeconds(RaceParticipant a, RaceParticipant b)
+        {
+            if (a == null || b == null || a.lapTracker == null || b.lapTracker == null)
+            {
+                return 0f;
+            }
+
+            float aDistance = State == null ? a.lapTracker.TotalProgressDistance : State.GetProgressDistance(a);
+            float bDistance = State == null ? b.lapTracker.TotalProgressDistance : State.GetProgressDistance(b);
+            float deltaMeters = aDistance - bDistance;
+            float refSpeed = Mathf.Max(24f, a.vehicle == null ? 36f : Mathf.Abs(a.vehicle.CurrentSpeedKph) / 3.6f);
+            return deltaMeters / refSpeed;
+        }
+
+        // Part 8: a short trait-flavored aside for the rival radio callout - only
+        // fires for the traits that actually change how to race them.
+        string RivalTraitHint(RaceParticipant rival)
+        {
+            if (rival == null || rival.driverData == null)
+            {
+                return "";
+            }
+
+            List<string> traits = DriverTraits.Compute(rival.driverData);
+            if (traits.Contains("Aggressive Overtaker"))
+            {
+                return " He attacks early, don't leave a gap.";
+            }
+
+            if (traits.Contains("Defensive Wall"))
+            {
+                return " He defends hard, get a clean run before you commit.";
+            }
+
+            if (traits.Contains("Error-Prone"))
+            {
+                return " He's error-prone under pressure, stay close.";
+            }
+
+            return "";
+        }
+
+        public RaceParticipant FindTeammate(RaceParticipant participant)
+        {
+            if (participant == null || State == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < State.Participants.Count; i++)
+            {
+                RaceParticipant candidate = State.Participants[i];
+                if (candidate != null && candidate != participant && candidate.teamId == participant.teamId)
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
         }
 
         public List<RaceParticipant> GetRunningOrderSnapshot()
@@ -4291,7 +4651,7 @@ namespace LocalFormulaRacing
                 rig.transform.position = carObject.transform.position - carObject.transform.forward * 10f + Vector3.up * 4f;
                 rig.Initialize(
                     carObject.transform,
-                    Settings.Current.cameraShake ? Settings.Current.cameraShakeStrength : 0f,
+                    Settings.Current.cameraShake ? Settings.Current.cameraShakeStrength * CameraShakeLevelMultiplier(Settings.Current.cameraShakeLevel) : 0f,
                     Settings.Current.cameraFov);
                 PlayerVehicleInput input = carObject.AddComponent<PlayerVehicleInput>();
                 input.raceManager = this;
@@ -5393,6 +5753,7 @@ namespace LocalFormulaRacing
             participant.pitAwaitingRelease = false;
             participant.vehicle.CompletePitStop(participant.nextPitCompound);
             participant.pitStops++;
+            participant.compoundStints.Add(participant.nextPitCompound.ToString());
             participant.requestedPitCompoundSet = false;
             participant.pitTyreSelectionActive = false;
             participant.pitTimer = 0f;
@@ -5506,7 +5867,47 @@ namespace LocalFormulaRacing
             {
                 ApplyMandatoryPitPenalty(participant);
                 State.OnParticipantFinished(participant, RaceElapsed);
+
+                if (participant.isPlayer && !engineerPodiumMessageSent)
+                {
+                    engineerPodiumMessageSent = true;
+                    PostEngineerMessage(FinishEngineerMessage(participant.finishingPosition), true);
+
+                    // Part 15/19: Cinematic race presentation gets a small finish-line
+                    // camera flourish (a FOV punch-in) instead of nothing happening
+                    // when the chequered flag falls.
+                    if (Settings != null && Settings.Current.racePresentation >= 2 && participant.vehicle != null)
+                    {
+                        PlayerVehicleInput playerInput = participant.vehicle.GetComponent<PlayerVehicleInput>();
+                        if (playerInput != null && playerInput.cameraRig != null)
+                        {
+                            playerInput.cameraRig.AddImpulseShake(0.14f);
+                        }
+                    }
+                }
             }
+        }
+
+        // Part 1: a finish-position-appropriate radio line instead of nothing at
+        // all once the chequered flag falls.
+        string FinishEngineerMessage(int position)
+        {
+            if (position == 1)
+            {
+                return "That's the win! Fantastic drive, take the flag.";
+            }
+
+            if (position <= 3)
+            {
+                return "P" + position + " and on the podium! Great result, well driven.";
+            }
+
+            if (position <= 10)
+            {
+                return "P" + position + ", points on the board. Solid job out there.";
+            }
+
+            return "P" + position + " at the flag. We'll take the data and come back stronger.";
         }
 
         void ApplyMandatoryPitPenalty(RaceParticipant participant)

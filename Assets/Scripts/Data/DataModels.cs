@@ -200,6 +200,27 @@ namespace LocalFormulaRacing
         // saves loading cleanly.
         public List<string> completedPracticePrograms = new List<string>();
 
+        // Part 3: rivalry / teammate battle tracking. Head-to-head win counts are
+        // "player finished/qualified ahead of X" tallies, reset only when the
+        // rival themselves changes (teammate counters never reset).
+        public int teammateRaceWins;
+        public int teammateRaceLosses;
+        public int teammateQualifyingWins;
+        public int teammateQualifyingLosses;
+        public int rivalRaceWins;
+        public int rivalRaceLosses;
+        public int rivalQualifyingWins;
+        public int rivalQualifyingLosses;
+        // Last-3-races finishing positions, most recent last, for the Form Guide card.
+        public List<int> recentFormPositions = new List<int>();
+        // Reputation value snapshot right after each race, most recent last
+        // (capped short), for the Reputation Trend card.
+        public List<int> reputationHistory = new List<int>();
+        public int roundsSinceRivalPicked;
+        // Career news feed (Part 18): short headlines generated from real
+        // race/R&D/rivalry events, most recent last, capped in CareerManager.
+        public List<string> newsFeed = new List<string>();
+
         // R&D management state. Initializers are the old-save defaults; the
         // matching null/size guards live in CareerManager.EnsureStandingLists.
         public List<ActiveUpgradeProject> activeUpgradeProjects = new List<ActiveUpgradeProject>();
@@ -245,6 +266,14 @@ namespace LocalFormulaRacing
         public int points;
         public bool isPlayer;
         public string tyreCompound;
+
+        // Post-race report (Part 2) additions.
+        public int pitStops;
+        public int overtakesMade;
+        public int lockups;
+        public float flatSpotPercent;
+        public int trackLimitWarnings;
+        public string strategySummary;
     }
 
     [Serializable]
@@ -335,6 +364,21 @@ namespace LocalFormulaRacing
         public int mechanicalFailureMode = 2;
         public bool lockupsEnabled = true;
         public bool raceControlMessages = true;
+
+        // Part 19: settings for the atmosphere/presentation pass. Engineer
+        // messages: 0 Off, 1 Minimal (priority only), 2 Standard, 3 Frequent
+        // (shortens the routine-chatter cooldown). Race presentation: 0 Minimal,
+        // 1 Standard, 2 Cinematic (finish-line camera flourish, bigger banners).
+        // Weather variability: 0 Off (locked to the forecast's base state), 1 Low,
+        // 2 Standard, 3 High (more/faster transitions). cameraShakeLevel drives
+        // cameraShakeStrength's effective multiplier without discarding the raw
+        // slider value players already tuned.
+        public int engineerMessageVerbosity = 2;
+        public int racePresentation = 1;
+        public int weatherVariability = 2;
+        public int cameraShakeLevel = 2;
+        public bool practiceProgramsEnabled = true;
+        public bool careerNewsFeedEnabled = true;
     }
 
     [Serializable]
