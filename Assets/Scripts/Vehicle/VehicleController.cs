@@ -121,6 +121,13 @@ namespace LocalFormulaRacing
             setupWearBias = Mathf.Clamp(1f + stiffness * 0.05f, 0.85f, 1.2f);
         }
 
+        // Mid-session weather transitions (mixed forecasts) update grip and tyre
+        // behavior without respawning the field.
+        public void SetWeather(WeatherState weather)
+        {
+            Weather = weather;
+        }
+
         public void SetCommand(VehicleCommand newCommand)
         {
             command = newCommand;

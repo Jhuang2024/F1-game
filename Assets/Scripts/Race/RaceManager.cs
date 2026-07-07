@@ -86,6 +86,7 @@ namespace LocalFormulaRacing
         bool engineerRivalSent;
         bool engineerTrackLimitsSent;
         int lastGapReportLap = -1;
+        bool weatherTransitionDone;
         float lastRecordedPlayerBestLap;
         bool pendingTimeTrial;
         float playerResetCooldown;
@@ -382,6 +383,7 @@ namespace LocalFormulaRacing
 
             SortRunningOrder();
             UpdateRaceEngineer();
+            UpdateWeatherTransition();
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
                 if (ShouldCompleteQualifyingRun())
@@ -511,6 +513,45 @@ namespace LocalFormulaRacing
             return Mathf.Clamp(recommended, 1, maxPitLap);
         }
 
+        // Simple dynamic weather: on mixed-forecast races the conditions flip once
+        // past half distance — rain arrives on a dry track, or a wet track starts
+        // drying. Grip, tyre wear, audio and lighting mood all follow.
+        void UpdateWeatherTransition()
+        {
+            if (weatherTransitionDone || IsTimeTrial || CurrentSession == RaceWeekendSession.Qualifying ||
+                Track == null || EventData == null || string.IsNullOrEmpty(EventData.weatherProfile) ||
+                !EventData.weatherProfile.ToLowerInvariant().Contains("mixed") ||
+                PlayerParticipant == null || PlayerParticipant.lapTracker == null)
+            {
+                return;
+            }
+
+            if (PlayerParticipant.lapTracker.CompletedLaps < Mathf.Max(1, RaceLaps / 2))
+            {
+                return;
+            }
+
+            weatherTransitionDone = true;
+            bool wasRaining = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
+            WeatherState next = wasRaining ? WeatherState.Cloudy : WeatherState.LightRain;
+            Track.weather = next;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                if (Participants[i] != null && Participants[i].vehicle != null)
+                {
+                    Participants[i].vehicle.SetWeather(next);
+                }
+            }
+
+            bool raining = next == WeatherState.LightRain || next == WeatherState.HeavyRain;
+            SimpleAudioManager.SetRain(raining);
+            RenderSettings.fogColor = raining ? new Color(0.28f, 0.34f, 0.36f) : RenderSettings.fogColor;
+            RenderSettings.reflectionIntensity = raining ? 0.78f : 0.46f;
+            PostEngineerMessage(raining
+                ? "Rain is arriving. Grip is dropping, intermediates will come alive."
+                : "The rain has stopped and the track is drying. Slicks will come to you.", true);
+        }
+
         void ResetEngineerState()
         {
             engineerMessageText = "";
@@ -527,6 +568,7 @@ namespace LocalFormulaRacing
             engineerRivalSent = false;
             engineerTrackLimitsSent = false;
             lastGapReportLap = -1;
+            weatherTransitionDone = false;
         }
 
         // Player pit plan: the strategy screen choice wins, otherwise the
