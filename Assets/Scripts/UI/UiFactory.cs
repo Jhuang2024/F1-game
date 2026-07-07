@@ -1643,5 +1643,165 @@ namespace LocalFormulaRacing
             bodyText.verticalOverflow = VerticalWrapMode.Overflow;
             return card;
         }
+
+        // ---------- rating cards (driver ratings / team ratings) ----------
+        // Shared building blocks for the two "browse and compare" screens so a
+        // driver card and a team card read as the same visual language: a
+        // procedural avatar/color header, a stat-bar block, and chip-style tags.
+
+        static Sprite circleSprite;
+
+        // Hard-edged circle (vs. the soft-falloff GlowSprite) used as the base
+        // shape for procedural driver avatars and other flat circular chrome.
+        public static Sprite CircleSprite
+        {
+            get
+            {
+                if (circleSprite == null)
+                {
+                    circleSprite = BuildCircleSprite(64);
+                }
+
+                return circleSprite;
+            }
+        }
+
+        static Sprite BuildCircleSprite(int size)
+        {
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.name = "Ui circle";
+            texture.wrapMode = TextureWrapMode.Clamp;
+            texture.filterMode = FilterMode.Bilinear;
+            Color[] pixels = new Color[size * size];
+            float radius = size * 0.5f;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = x + 0.5f - radius;
+                    float dy = y + 0.5f - radius;
+                    float distance = Mathf.Sqrt(dx * dx + dy * dy);
+                    pixels[y * size + x] = new Color(1f, 1f, 1f, Mathf.Clamp01(radius - distance + 1f));
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+            return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
+
+        // Procedural avatar: no external art, just a team-colored circle with a
+        // darker "visor" band and the driver's initials/number composited on top.
+        public static RectTransform CreateProceduralHelmetIcon(Transform parent, string label, Color teamColor, float size)
+        {
+            RectTransform root = CreateRect(parent, "Helmet icon", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            root.sizeDelta = new Vector2(size, size);
+            Image baseImage = root.gameObject.AddComponent<Image>();
+            baseImage.sprite = CircleSprite;
+            baseImage.color = teamColor;
+
+            RectTransform visor = CreateRect(root, "Helmet visor", new Vector2(0f, 0.34f), new Vector2(1f, 0.62f), Vector2.zero, Vector2.zero);
+            Image visorImage = visor.gameObject.AddComponent<Image>();
+            visorImage.color = new Color(0.03f, 0.04f, 0.05f, 0.85f);
+            visorImage.raycastTarget = false;
+
+            Text labelText = CreateText(root, "Helmet label", label, Mathf.RoundToInt(size * 0.3f), Color.white, TextAnchor.MiddleCenter);
+            labelText.fontStyle = FontStyle.Bold;
+            labelText.raycastTarget = false;
+            RectTransform labelRect = labelText.GetComponent<RectTransform>();
+            labelRect.anchorMin = Vector2.zero;
+            labelRect.anchorMax = Vector2.one;
+            labelRect.offsetMin = Vector2.zero;
+            labelRect.offsetMax = Vector2.zero;
+            return root;
+        }
+
+        // A regular card with a colored outline ring baked from two nested rounded
+        // rects, instead of a flat panel - used to give the player's own driver
+        // card (and teammate) a visibly distinct border without a separate asset.
+        // Returns the inner content rect; callers build the card's contents there.
+        public static RectTransform CreateBorderedCard(Transform parent, string name, float width, float height, Color borderColor, bool highlighted)
+        {
+            RectTransform outer = CreateRect(parent, name + " outer", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            outer.sizeDelta = new Vector2(width, height);
+            Image outerImage = outer.gameObject.AddComponent<Image>();
+            StyleRounded(outerImage, highlighted ? borderColor : new Color(borderColor.r, borderColor.g, borderColor.b, 0.22f));
+
+            float inset = highlighted ? 3f : 1.5f;
+            RectTransform inner = CreateRect(outer, name + " inner", Vector2.zero, Vector2.one, new Vector2(inset, inset), new Vector2(-inset, -inset));
+            Image innerImage = inner.gameObject.AddComponent<Image>();
+            StyleRounded(innerImage, PanelDark);
+            return inner;
+        }
+
+        // Labeled stat bar: uppercase label, numeric value, thin fill track. The
+        // same visual language for every stat on both driver and team cards.
+        public static RectTransform CreateStatBar(Transform parent, string label, float value, float maxValue, Color fillColor, float width)
+        {
+            RectTransform row = CreateRect(parent, label + " stat bar", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            row.sizeDelta = new Vector2(width, 30f);
+
+            Text labelText = CreateText(row, "Stat bar label", label.ToUpperInvariant(), 11, TextMuted, TextAnchor.UpperLeft);
+            RectTransform labelRect = labelText.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 1f);
+            labelRect.anchorMax = new Vector2(0.7f, 1f);
+            labelRect.offsetMin = new Vector2(0f, -14f);
+            labelRect.offsetMax = new Vector2(0f, 0f);
+
+            Text valueText = CreateText(row, "Stat bar value", Mathf.RoundToInt(value).ToString(), 11, TextPrimary, TextAnchor.UpperRight);
+            RectTransform valueRect = valueText.GetComponent<RectTransform>();
+            valueRect.anchorMin = new Vector2(0.7f, 1f);
+            valueRect.anchorMax = new Vector2(1f, 1f);
+            valueRect.offsetMin = Vector2.zero;
+            valueRect.offsetMax = Vector2.zero;
+
+            RectTransform track = CreateRect(row, "Stat bar track", new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 3f), new Vector2(0f, 13f));
+            Image trackImage = track.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(trackImage, MeterTrack);
+            float value01 = maxValue <= 0f ? 0f : Mathf.Clamp01(value / maxValue);
+            CreateBand(track, "Stat bar fill", Vector2.zero, new Vector2(value01, 1f), Vector2.zero, Vector2.zero, fillColor);
+            return row;
+        }
+
+        // Small filter/category tab used above a card grid (Overall / Pace /
+        // Qualifying, ...). Distinct from CreateButton so the selected tab reads
+        // as a segmented control rather than a stack of standalone buttons.
+        public static Button CreateFilterTab(Transform parent, string label, bool selected, UnityAction onClick)
+        {
+            Button button = CreateButton(parent, label, onClick);
+            SetSize(button, Mathf.Clamp(label.Length * 10f + 40f, 96f, 220f), 40f);
+            SetButtonSelected(button, selected);
+            return button;
+        }
+
+        // Scrollable, wrapping card grid: unlike CreateScrollPanel's fixed single
+        // column, this lays children out with GridLayoutGroup.Constraint.Flexible
+        // so however many cards fit the available width per row is computed from
+        // the viewport size - cards reflow instead of sitting at fixed positions.
+        public static RectTransform CreateScrollGridPanel(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 cellSize, Vector2 spacing, RectOffset padding)
+        {
+            RectTransform viewport = CreateRect(parent, name, anchorMin, anchorMax, Vector2.zero, Vector2.zero);
+            Image viewportImage = viewport.gameObject.AddComponent<Image>();
+            StyleRounded(viewportImage, PanelDarker);
+            viewport.gameObject.AddComponent<RectMask2D>();
+            ScrollRect scroll = viewport.gameObject.AddComponent<ScrollRect>();
+            RectTransform content = CreateRect(viewport, name + " content", new Vector2(0f, 1f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
+            content.pivot = new Vector2(0.5f, 1f);
+            GridLayoutGroup grid = content.gameObject.AddComponent<GridLayoutGroup>();
+            grid.cellSize = cellSize;
+            grid.spacing = spacing;
+            grid.padding = padding;
+            grid.childAlignment = TextAnchor.UpperLeft;
+            grid.constraint = GridLayoutGroup.Constraint.Flexible;
+            ContentSizeFitter fitter = content.gameObject.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            scroll.content = content;
+            scroll.viewport = viewport;
+            scroll.horizontal = false;
+            scroll.vertical = true;
+            scroll.movementType = ScrollRect.MovementType.Clamped;
+            scroll.scrollSensitivity = 24f;
+            return content;
+        }
     }
 }

@@ -221,7 +221,10 @@ namespace LocalFormulaRacing
 
             // Compact 2x2 grid of secondary screens below the event card, instead
             // of four full-width buttons stacked inside it.
-            RectTransform secondaryCard = UiFactory.CreateGlassPanel(background, "Secondary actions card", new Vector2(0.05f, 0.14f), new Vector2(0.36f, 0.33f), Vector2.zero, Vector2.zero, UiFactory.PanelDarker);
+            // Taller than before (was 0.14-0.33) to fit a fifth entry (Team
+            // Ratings) alongside Driver Ratings without shrinking the buttons -
+            // still clears the footer bar (0.072 of a 1080-reference canvas).
+            RectTransform secondaryCard = UiFactory.CreateGlassPanel(background, "Secondary actions card", new Vector2(0.05f, 0.09f), new Vector2(0.36f, 0.33f), Vector2.zero, Vector2.zero, UiFactory.PanelDarker);
             RectTransform secondaryGrid = UiFactory.CreateRect(secondaryCard, "Secondary actions grid", Vector2.zero, Vector2.one, new Vector2(16f, 16f), new Vector2(-16f, -16f));
             GridLayoutGroup secondaryLayout = secondaryGrid.gameObject.AddComponent<GridLayoutGroup>();
             secondaryLayout.spacing = new Vector2(10f, 10f);
@@ -230,6 +233,7 @@ namespace LocalFormulaRacing
             secondaryLayout.constraintCount = 2;
             UiFactory.CreateSecondaryButton(secondaryGrid, "Track Info", bootstrap.ShowTrackInfo);
             UiFactory.CreateSecondaryButton(secondaryGrid, "Driver Ratings", () => ShowDriverRatings(data, career, settings));
+            UiFactory.CreateSecondaryButton(secondaryGrid, "Team Ratings", () => ShowTeamRatings(data, career, settings));
             UiFactory.CreateSecondaryButton(secondaryGrid, "Career Stats", () => ShowCareerStats(data, career, settings));
             UiFactory.CreateSecondaryButton(secondaryGrid, "Driver & Team", () => ShowCareerSetup(data, career, settings));
 
@@ -1215,51 +1219,46 @@ namespace LocalFormulaRacing
 
         public void ShowDriverRatings(GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
+            ShowDriverRatings(data, career, settings, "overall");
+        }
+
+        // sortKey re-sorts the same underlying DriverData list pulled from
+        // GameDataRepository - the filter tabs never recompute driver stats,
+        // they just change the comparator before the (cheap) card rebuild.
+        void ShowDriverRatings(GameDataRepository data, CareerManager career, GameSettingsStore settings, string sortKey)
+        {
             Clear();
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Driver ratings background", new Color(0.006f, 0.009f, 0.014f, 1f));
             UiFactory.CreateScreenHeader(background, "Driver Ratings", "Overall is calculated from qualifying, defending, overtaking, and race pace.");
 
-            RectTransform content = UiFactory.CreateScrollPanel(background, "Ratings table", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.85f), 4, new RectOffset(18, 18, 12, 12));
+            RectTransform modeTabs = UiFactory.CreateRect(background, "Ratings mode tabs", new Vector2(0.06f, 0.885f), new Vector2(0.34f, 0.935f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(modeTabs, 10, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateFilterTab(modeTabs, "Drivers", true, () => { });
+            UiFactory.CreateFilterTab(modeTabs, "Teams", false, () => ShowTeamRatings(data, career, settings));
 
-            const float rowWidth = 1240f;
-            RectTransform headerRow = UiFactory.CreateTableRow(content, "Ratings header row", rowWidth, 26f, false, 1);
-            headerRow.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
-            UiFactory.AddRowCell(headerRow, "H ovr", "OVR", 0f, 0.08f, 13, UiFactory.Accent, TextAnchor.MiddleCenter);
-            UiFactory.AddRowCell(headerRow, "H code", "DVR", 0.09f, 0.16f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H team", "TEAM", 0.18f, 0.26f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H driver", "DRIVER", 0.27f, 0.56f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H qual", "QUAL", 0.56f, 0.68f, 13, UiFactory.Accent, TextAnchor.MiddleCenter);
-            UiFactory.AddRowCell(headerRow, "H def", "DEF", 0.68f, 0.8f, 13, UiFactory.Accent, TextAnchor.MiddleCenter);
-            UiFactory.AddRowCell(headerRow, "H ovt", "OVT", 0.8f, 0.9f, 13, UiFactory.Accent, TextAnchor.MiddleCenter);
-            UiFactory.AddRowCell(headerRow, "H pace", "PACE", 0.9f, 1f, 13, UiFactory.Accent, TextAnchor.MiddleCenter);
+            RectTransform filterRow = UiFactory.CreateRect(background, "Ratings filters", new Vector2(0.06f, 0.815f), new Vector2(0.94f, 0.87f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(filterRow, 10, new RectOffset(0, 0, 0, 0));
+            AddDriverFilterTab(filterRow, "Overall", "overall", sortKey, data, career, settings);
+            AddDriverFilterTab(filterRow, "Pace", "pace", sortKey, data, career, settings);
+            AddDriverFilterTab(filterRow, "Qualifying", "qualifying", sortKey, data, career, settings);
+            AddDriverFilterTab(filterRow, "Racecraft", "racecraft", sortKey, data, career, settings);
+            AddDriverFilterTab(filterRow, "Potential", "potential", sortKey, data, career, settings);
 
             List<DriverData> drivers = new List<DriverData>(data.Drivers.drivers);
-            drivers.Sort((a, b) =>
-            {
-                int overall = b.OverallRating.CompareTo(a.OverallRating);
-                return overall != 0 ? overall : b.pace.CompareTo(a.pace);
-            });
+            SortDriversByKey(drivers, sortKey);
 
+            string playerDriverId;
+            string teammateDriverId;
+            ResolvePlayerDriverIds(data, career, out playerDriverId, out teammateDriverId);
+
+            RectTransform grid = UiFactory.CreateScrollGridPanel(background, "Driver card grid", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.79f), new Vector2(330f, 340f), new Vector2(16f, 16f), new RectOffset(10, 10, 10, 10));
             for (int i = 0; i < drivers.Count; i++)
             {
                 DriverData driver = drivers[i];
                 TeamData team = data.FindTeam(driver.teamId);
-                string teamCode = team == null ? driver.teamId.ToUpperInvariant() : team.shortName.ToUpperInvariant();
-                Color ovrColor = driver.OverallRating >= 90 ? UiFactory.AccentPurple
-                    : (driver.OverallRating >= 85 ? UiFactory.AccentGreen
-                    : (driver.OverallRating >= 78 ? UiFactory.AccentAmber : UiFactory.TextMuted));
-
-                RectTransform row = UiFactory.CreateTableRow(content, "Ratings row " + i, rowWidth, 32f, false, i);
-                Text ovrCell = UiFactory.AddRowCell(row, "Ovr", driver.OverallRating.ToString("00"), 0f, 0.08f, 16, ovrColor, TextAnchor.MiddleCenter);
-                ovrCell.fontStyle = FontStyle.Bold;
-                UiFactory.AddRowCell(row, "Code", driver.abbreviation.ToUpperInvariant(), 0.09f, 0.16f, 13, UiFactory.TextMuted, TextAnchor.MiddleLeft);
-                UiFactory.AddRowDot(row, "Team dot", 0.185f, 10f, team != null ? team.PrimaryUnityColor : new Color(0.5f, 0.55f, 0.6f));
-                UiFactory.AddRowCell(row, "Team", teamCode, 0.2f, 0.26f, 13, UiFactory.TextMuted, TextAnchor.MiddleLeft);
-                UiFactory.AddRowCell(row, "Driver", driver.displayName, 0.27f, 0.56f, 15, new Color(0.92f, 0.96f, 0.99f), TextAnchor.MiddleLeft);
-                UiFactory.AddRowCell(row, "Qual", driver.qualifying.ToString("00"), 0.56f, 0.68f, 14, UiFactory.TextPrimary, TextAnchor.MiddleCenter);
-                UiFactory.AddRowCell(row, "Def", driver.defending.ToString("00"), 0.68f, 0.8f, 14, UiFactory.TextPrimary, TextAnchor.MiddleCenter);
-                UiFactory.AddRowCell(row, "Ovt", driver.overtaking.ToString("00"), 0.8f, 0.9f, 14, UiFactory.TextPrimary, TextAnchor.MiddleCenter);
-                UiFactory.AddRowCell(row, "Pace", driver.pace.ToString("00"), 0.9f, 1f, 14, UiFactory.TextPrimary, TextAnchor.MiddleCenter);
+                bool isPlayer = !string.IsNullOrEmpty(playerDriverId) && driver.id == playerDriverId;
+                bool isTeammate = !isPlayer && !string.IsNullOrEmpty(teammateDriverId) && driver.id == teammateDriverId;
+                BuildDriverCard(grid, driver, team, isPlayer, isTeammate);
             }
 
             RectTransform footerLeft;
@@ -1267,6 +1266,472 @@ namespace LocalFormulaRacing
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
             UiFactory.CreateSecondaryButton(footerLeft, "Career", () => ShowCareerHub(data, career, settings));
             UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
+        }
+
+        void AddDriverFilterTab(RectTransform parent, string label, string key, string activeKey, GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            UiFactory.CreateFilterTab(parent, label, key == activeKey, () => ShowDriverRatings(data, career, settings, key));
+        }
+
+        void SortDriversByKey(List<DriverData> drivers, string sortKey)
+        {
+            drivers.Sort((a, b) =>
+            {
+                int primary;
+                switch (sortKey)
+                {
+                    case "pace":
+                        primary = b.pace.CompareTo(a.pace);
+                        break;
+                    case "qualifying":
+                        primary = b.qualifying.CompareTo(a.qualifying);
+                        break;
+                    case "racecraft":
+                        primary = b.racecraft.CompareTo(a.racecraft);
+                        break;
+                    case "potential":
+                        primary = b.developmentPotential.CompareTo(a.developmentPotential);
+                        break;
+                    default:
+                        primary = b.OverallRating.CompareTo(a.OverallRating);
+                        break;
+                }
+
+                return primary != 0 ? primary : b.pace.CompareTo(a.pace);
+            });
+        }
+
+        // Heuristic only: drivers.json has no explicit "is the player" flag.
+        // When the player picked an existing real driver, that id is the
+        // player's card; otherwise CareerManager treats the team's first
+        // roster entry as the vacated seat the player fills, so the other
+        // entry on that team is the real teammate either way.
+        void ResolvePlayerDriverIds(GameDataRepository data, CareerManager career, out string playerId, out string teammateId)
+        {
+            playerId = "";
+            teammateId = "";
+            if (career == null || career.Save == null || data == null)
+            {
+                return;
+            }
+
+            if (career.Save.useExistingDriver && !string.IsNullOrEmpty(career.Save.selectedDriverId))
+            {
+                playerId = career.Save.selectedDriverId;
+            }
+
+            List<DriverData> teamDrivers = data.GetDriversForTeam(career.Save.playerTeamId);
+            string excludedId = string.IsNullOrEmpty(playerId) && teamDrivers.Count > 0 ? teamDrivers[0].id : playerId;
+            for (int i = 0; i < teamDrivers.Count; i++)
+            {
+                if (teamDrivers[i].id != excludedId)
+                {
+                    teammateId = teamDrivers[i].id;
+                    break;
+                }
+            }
+        }
+
+        // 1-3 threshold-based tags per driver - simple by design, not a scouting
+        // algorithm. Order doubles as priority when a driver clears more than
+        // three thresholds.
+        List<string> ComputeDriverTags(DriverData driver)
+        {
+            List<string> tags = new List<string>();
+            if (driver.qualifying >= 90)
+            {
+                tags.Add("Elite Qualifier");
+            }
+
+            if (driver.tyreManagement >= 88)
+            {
+                tags.Add("Tyre Whisperer");
+            }
+
+            if (driver.wetSkill >= 88)
+            {
+                tags.Add("Wet Specialist");
+            }
+
+            if (driver.defending >= 88)
+            {
+                tags.Add("Defensive Wall");
+            }
+
+            if (driver.aggression >= 85)
+            {
+                tags.Add("Aggressive Racer");
+            }
+
+            if (driver.developmentPotential >= 88 && driver.experience <= 65)
+            {
+                tags.Add("Future Star");
+            }
+
+            if (driver.experience >= 90)
+            {
+                tags.Add("Veteran");
+            }
+
+            if (tags.Count > 3)
+            {
+                tags.RemoveRange(3, tags.Count - 3);
+            }
+
+            return tags;
+        }
+
+        // Shared color ramp so a "90" reads the same purple whether it's on a
+        // driver's Qualifying bar or a team's Cornering bar.
+        static Color StatTierColor(float value)
+        {
+            if (value >= 90f)
+            {
+                return UiFactory.AccentPurple;
+            }
+
+            if (value >= 82f)
+            {
+                return UiFactory.AccentGreen;
+            }
+
+            if (value >= 72f)
+            {
+                return UiFactory.AccentAmber;
+            }
+
+            return UiFactory.TextMuted;
+        }
+
+        static void SetTopLeft(RectTransform rect, float x, float yFromTop)
+        {
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(0f, 1f);
+            rect.pivot = new Vector2(0f, 1f);
+            rect.anchoredPosition = new Vector2(x, -yFromTop);
+        }
+
+        static void SetTopRight(RectTransform rect, float xFromRight, float yFromTop)
+        {
+            rect.anchorMin = new Vector2(1f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.pivot = new Vector2(1f, 1f);
+            rect.anchoredPosition = new Vector2(-xFromRight, -yFromTop);
+        }
+
+        static void StretchFull(RectTransform rect)
+        {
+            rect.anchorMin = Vector2.zero;
+            rect.anchorMax = Vector2.one;
+            rect.offsetMin = Vector2.zero;
+            rect.offsetMax = Vector2.zero;
+        }
+
+        // Premium driver card: procedural helmet avatar, name/team/number badge,
+        // overall rating chip, role tags, and an 8-stat bar block. Built entirely
+        // from UiFactory primitives - no external art.
+        void BuildDriverCard(RectTransform parent, DriverData driver, TeamData team, bool isPlayer, bool isTeammate)
+        {
+            Color teamColor = team != null ? team.PrimaryUnityColor : new Color(0.5f, 0.55f, 0.6f);
+            Color borderColor = isPlayer ? UiFactory.AccentGreen : (isTeammate ? UiFactory.AccentCyan : teamColor);
+            RectTransform card = UiFactory.CreateBorderedCard(parent, "Driver card " + driver.id, 330f, 340f, borderColor, isPlayer || isTeammate);
+
+            RectTransform avatar = UiFactory.CreateProceduralHelmetIcon(card, driver.abbreviation.ToUpperInvariant(), teamColor, 60f);
+            SetTopLeft(avatar, 16f, 30f);
+
+            if (isPlayer || isTeammate)
+            {
+                Text roleBadge = UiFactory.CreateText(card, "Driver card role badge", isPlayer ? "YOU" : "TEAMMATE", 11, isPlayer ? UiFactory.AccentGreen : UiFactory.AccentCyan, TextAnchor.UpperLeft);
+                roleBadge.fontStyle = FontStyle.Bold;
+                SetTopLeft(roleBadge, 88f, 8f);
+                UiFactory.SetSize(roleBadge, 150f, 16f);
+            }
+
+            Text numberText = UiFactory.CreateText(card, "Driver card number", "#" + driver.number + "  " + driver.abbreviation.ToUpperInvariant(), 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(numberText, 88f, 30f);
+            UiFactory.SetSize(numberText, 160f, 18f);
+
+            Text nameText = UiFactory.CreateText(card, "Driver card name", driver.displayName, 17, Color.white, TextAnchor.UpperLeft);
+            nameText.fontStyle = FontStyle.Bold;
+            SetTopLeft(nameText, 88f, 48f);
+            UiFactory.SetSize(nameText, 160f, 24f);
+
+            string teamName = team == null ? driver.teamId : team.name;
+            Text teamText = UiFactory.CreateText(card, "Driver card team", teamName, 12, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(teamText, 88f, 72f);
+            UiFactory.SetSize(teamText, 160f, 16f);
+
+            int overall = driver.OverallRating;
+            Color overallColor = StatTierColor(overall);
+            RectTransform overallBadge = UiFactory.CreateRect(card, "Driver card overall badge", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            overallBadge.sizeDelta = new Vector2(54f, 54f);
+            Image overallImage = overallBadge.gameObject.AddComponent<Image>();
+            UiFactory.StyleRoundedSmall(overallImage, new Color(overallColor.r, overallColor.g, overallColor.b, 0.2f));
+            SetTopRight(overallBadge, 16f, 22f);
+            Text overallText = UiFactory.CreateText(overallBadge, "Driver card overall value", overall.ToString(), 22, overallColor, TextAnchor.MiddleCenter);
+            overallText.fontStyle = FontStyle.Bold;
+            StretchFull(overallText.GetComponent<RectTransform>());
+
+            List<string> tags = ComputeDriverTags(driver);
+            RectTransform tagRow = UiFactory.CreateRect(card, "Driver card tags", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            SetTopLeft(tagRow, 16f, 96f);
+            tagRow.sizeDelta = new Vector2(298f, 26f);
+            UiFactory.AddHorizontalLayout(tagRow, 6, new RectOffset(0, 0, 0, 0));
+            for (int i = 0; i < tags.Count; i++)
+            {
+                UiFactory.CreatePillLabel(tagRow, tags[i], UiFactory.AccentAmber);
+            }
+
+            string[] labels = { "Pace", "Qualifying", "Racecraft", "Overtaking", "Defending", "Consistency", "Tyre Mgmt", "Wet Skill" };
+            int[] values = { driver.pace, driver.qualifying, driver.racecraft, driver.overtaking, driver.defending, driver.consistency, driver.tyreManagement, driver.wetSkill };
+            const float columnWidth = 128f;
+            const float startY = 132f;
+            const float rowHeight = 38f;
+            for (int i = 0; i < labels.Length; i++)
+            {
+                int column = i / 4;
+                int row = i % 4;
+                RectTransform bar = UiFactory.CreateStatBar(card, labels[i], values[i], 100f, StatTierColor(values[i]), columnWidth);
+                SetTopLeft(bar, 16f + column * (columnWidth + 20f), startY + row * rowHeight);
+            }
+        }
+
+        // Car overall: 320-355 km/h real-world top speed range would swamp
+        // every other 0-100 stat if used raw, so it's rescaled onto the same
+        // 0-100 footing before blending - otherwise every car's top speed would
+        // sit near the ceiling and the archetype/overall math would barely be
+        // able to tell cars apart on anything else.
+        static float TopSpeedScore(int topSpeedKmh)
+        {
+            return Mathf.Clamp((topSpeedKmh - 320f) / 35f * 100f, 0f, 100f);
+        }
+
+        // Car overall: a weighted blend rather than a flat average - cornering
+        // and reliability matter more to race results than ERS or chassis trim,
+        // so they carry more weight. Weights sum to 1.
+        float ComputeCarOverall(CarPerformanceData car)
+        {
+            float topSpeedScore = TopSpeedScore(car.topSpeed);
+            return topSpeedScore * 0.10f + car.acceleration * 0.12f + car.cornering * 0.14f + car.braking * 0.10f +
+                car.reliability * 0.14f + car.ersEfficiency * 0.08f + car.tyreManagement * 0.10f +
+                car.aeroEfficiency * 0.10f + car.chassisBalance * 0.08f + car.enginePower * 0.04f;
+        }
+
+        // The 10 car stats as (label, 0-100 score) pairs - shared by the stat
+        // bar block and the strengths/weaknesses ranking so both read off the
+        // same numbers.
+        List<KeyValuePair<string, float>> BuildCarStatList(CarPerformanceData car)
+        {
+            return new List<KeyValuePair<string, float>>
+            {
+                new KeyValuePair<string, float>("Top Speed", TopSpeedScore(car.topSpeed)),
+                new KeyValuePair<string, float>("Acceleration", car.acceleration),
+                new KeyValuePair<string, float>("Cornering", car.cornering),
+                new KeyValuePair<string, float>("Braking", car.braking),
+                new KeyValuePair<string, float>("Reliability", car.reliability),
+                new KeyValuePair<string, float>("ERS Efficiency", car.ersEfficiency),
+                new KeyValuePair<string, float>("Tyre Mgmt", car.tyreManagement),
+                new KeyValuePair<string, float>("Aero Efficiency", car.aeroEfficiency),
+                new KeyValuePair<string, float>("Chassis Balance", car.chassisBalance),
+                new KeyValuePair<string, float>("Engine Power", car.enginePower)
+            };
+        }
+
+        // Simple threshold logic, not perfection: a stat only counts as the
+        // car's defining trait if it clearly separates from the other two
+        // "signature" stats (top speed / cornering / tyre management), and only
+        // once it's already elite (>=90). Otherwise fall through to the
+        // overall-driven archetypes.
+        string ComputeCarArchetype(CarPerformanceData car, float overall)
+        {
+            float topSpeedScore = TopSpeedScore(car.topSpeed);
+            float corneringScore = car.cornering;
+            float tyreScore = car.tyreManagement;
+            float topOfThree = Mathf.Max(topSpeedScore, Mathf.Max(corneringScore, tyreScore));
+
+            if (topOfThree >= 90f)
+            {
+                if (Mathf.Approximately(topSpeedScore, topOfThree) && topSpeedScore - corneringScore >= 6f && topSpeedScore - tyreScore >= 6f)
+                {
+                    return "High-Speed Monster";
+                }
+
+                if (Mathf.Approximately(corneringScore, topOfThree) && corneringScore - topSpeedScore >= 6f && corneringScore - tyreScore >= 6f)
+                {
+                    return "Cornering Beast";
+                }
+
+                if (Mathf.Approximately(tyreScore, topOfThree) && tyreScore - topSpeedScore >= 6f && tyreScore - corneringScore >= 6f)
+                {
+                    return "Tyre-Friendly";
+                }
+            }
+
+            if (overall >= 88f && car.reliability < 80)
+            {
+                return "Fragile Rocket";
+            }
+
+            float[] allScores = { topSpeedScore, car.acceleration, corneringScore, car.braking, car.reliability, car.ersEfficiency, tyreScore, car.aeroEfficiency, car.chassisBalance, car.enginePower };
+            float max = allScores[0];
+            float min = allScores[0];
+            for (int i = 1; i < allScores.Length; i++)
+            {
+                max = Mathf.Max(max, allScores[i]);
+                min = Mathf.Min(min, allScores[i]);
+            }
+
+            if (overall >= 88f && (max - min) <= 13f)
+            {
+                return "Balanced Front-Runner";
+            }
+
+            if (overall < 80f)
+            {
+                return "Backmarker";
+            }
+
+            return "Midfield Fighter";
+        }
+
+        // Team Ratings: a car-focused sibling to Driver Ratings, sharing the
+        // same card-grid/stat-bar/chip visual language. Reachable from the
+        // career hub's secondary grid and via the Drivers/Teams toggle on
+        // either screen.
+        public void ShowTeamRatings(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Team ratings background", new Color(0.006f, 0.009f, 0.014f, 1f));
+            UiFactory.CreateScreenHeader(background, "Team Ratings", "Car overall is a weighted blend of speed, handling, and reliability stats.");
+
+            RectTransform modeTabs = UiFactory.CreateRect(background, "Team ratings mode tabs", new Vector2(0.06f, 0.885f), new Vector2(0.34f, 0.935f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(modeTabs, 10, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateFilterTab(modeTabs, "Drivers", false, () => ShowDriverRatings(data, career, settings));
+            UiFactory.CreateFilterTab(modeTabs, "Teams", true, () => { });
+
+            List<TeamData> teams = new List<TeamData>(data.Teams.teams);
+            teams.Sort((a, b) =>
+            {
+                CarPerformanceData carA = data.FindCar(a.carPerformanceId);
+                CarPerformanceData carB = data.FindCar(b.carPerformanceId);
+                float overallA = carA == null ? 0f : ComputeCarOverall(carA);
+                float overallB = carB == null ? 0f : ComputeCarOverall(carB);
+                return overallB.CompareTo(overallA);
+            });
+
+            RectTransform grid = UiFactory.CreateScrollGridPanel(background, "Team card grid", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.79f), new Vector2(350f, 460f), new Vector2(16f, 16f), new RectOffset(10, 10, 10, 10));
+            for (int i = 0; i < teams.Count; i++)
+            {
+                TeamData team = teams[i];
+                CarPerformanceData car = data.FindCar(team.carPerformanceId);
+                if (car == null)
+                {
+                    continue;
+                }
+
+                bool isPlayerTeam = career != null && career.Save != null && team.id == career.Save.playerTeamId;
+                BuildTeamCard(grid, team, car, i + 1, isPlayerTeam);
+            }
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Career", () => ShowCareerHub(data, career, settings));
+            UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
+        }
+
+        // Premium team/car card: team-colored header, reputation/reliability,
+        // an overall badge, rank, archetype + strengths/weaknesses chips, and a
+        // 10-stat bar block (same CreateStatBar/StatTierColor as driver cards).
+        void BuildTeamCard(RectTransform parent, TeamData team, CarPerformanceData car, int rank, bool isPlayerTeam)
+        {
+            Color primary = team.PrimaryUnityColor;
+            Color borderColor = isPlayerTeam ? UiFactory.AccentGreen : primary;
+            RectTransform card = UiFactory.CreateBorderedCard(parent, "Team card " + team.id, 350f, 460f, borderColor, isPlayerTeam);
+
+            RectTransform stripe = UiFactory.CreateBand(card, "Team card stripe", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -6f), Vector2.zero, primary);
+            stripe.GetComponent<Image>().raycastTarget = false;
+
+            RectTransform rankBadge = UiFactory.CreateRect(card, "Team card rank", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            rankBadge.sizeDelta = new Vector2(40f, 40f);
+            Image rankImage = rankBadge.gameObject.AddComponent<Image>();
+            UiFactory.StyleRoundedSmall(rankImage, rank == 1 ? new Color(1f, 0.8f, 0.2f, 0.9f) : new Color(0.1f, 0.13f, 0.17f, 0.9f));
+            SetTopLeft(rankBadge, 16f, 22f);
+            Text rankText = UiFactory.CreateText(rankBadge, "Rank value", "P" + rank, 16, rank == 1 ? new Color(0.06f, 0.06f, 0.07f) : Color.white, TextAnchor.MiddleCenter);
+            rankText.fontStyle = FontStyle.Bold;
+            StretchFull(rankText.GetComponent<RectTransform>());
+
+            if (isPlayerTeam)
+            {
+                Text yourTeamBadge = UiFactory.CreateText(card, "Team card your team badge", "YOUR TEAM", 11, UiFactory.AccentGreen, TextAnchor.UpperLeft);
+                yourTeamBadge.fontStyle = FontStyle.Bold;
+                SetTopLeft(yourTeamBadge, 66f, 8f);
+                UiFactory.SetSize(yourTeamBadge, 180f, 16f);
+            }
+
+            Text nameText = UiFactory.CreateText(card, "Team card name", team.name, 18, Color.white, TextAnchor.UpperLeft);
+            nameText.fontStyle = FontStyle.Bold;
+            SetTopLeft(nameText, 66f, 26f);
+            UiFactory.SetSize(nameText, 190f, 24f);
+
+            Text shortText = UiFactory.CreateText(card, "Team card short", team.shortName.ToUpperInvariant(), 12, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(shortText, 66f, 50f);
+            UiFactory.SetSize(shortText, 190f, 16f);
+
+            float overall = ComputeCarOverall(car);
+            Color overallColor = StatTierColor(overall);
+            RectTransform overallBadge = UiFactory.CreateRect(card, "Team card overall", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            overallBadge.sizeDelta = new Vector2(56f, 56f);
+            Image overallImage = overallBadge.gameObject.AddComponent<Image>();
+            UiFactory.StyleRoundedSmall(overallImage, new Color(overallColor.r, overallColor.g, overallColor.b, 0.2f));
+            SetTopRight(overallBadge, 16f, 20f);
+            Text overallText = UiFactory.CreateText(overallBadge, "Team card overall value", Mathf.RoundToInt(overall).ToString(), 22, overallColor, TextAnchor.MiddleCenter);
+            overallText.fontStyle = FontStyle.Bold;
+            StretchFull(overallText.GetComponent<RectTransform>());
+
+            Text repText = UiFactory.CreateText(card, "Team card reputation", "REP " + team.reputation + "   ·   RELIABILITY " + team.reliability, 12, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(repText, 16f, 78f);
+            UiFactory.SetSize(repText, 310f, 18f);
+
+            string archetype = ComputeCarArchetype(car, overall);
+            RectTransform archetypeRow = UiFactory.CreateRect(card, "Team card archetype", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            SetTopLeft(archetypeRow, 16f, 100f);
+            archetypeRow.sizeDelta = new Vector2(318f, 26f);
+            UiFactory.AddHorizontalLayout(archetypeRow, 6, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreatePillLabel(archetypeRow, archetype, UiFactory.AccentPurple);
+
+            List<KeyValuePair<string, float>> stats = BuildCarStatList(car);
+            List<KeyValuePair<string, float>> ranked = new List<KeyValuePair<string, float>>(stats);
+            ranked.Sort((a, b) => b.Value.CompareTo(a.Value));
+            string strengths = ranked[0].Key + " / " + ranked[1].Key;
+            string weaknesses = ranked[ranked.Count - 1].Key + " / " + ranked[ranked.Count - 2].Key;
+
+            RectTransform strengthRow = UiFactory.CreateRect(card, "Team card strengths", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            SetTopLeft(strengthRow, 16f, 132f);
+            strengthRow.sizeDelta = new Vector2(318f, 26f);
+            UiFactory.AddHorizontalLayout(strengthRow, 6, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreatePillLabel(strengthRow, "+ " + strengths, UiFactory.AccentGreen);
+            UiFactory.CreatePillLabel(strengthRow, "- " + weaknesses, UiFactory.Accent);
+
+            const float columnWidth = 145f;
+            const float startY = 166f;
+            const float rowHeight = 40f;
+            for (int i = 0; i < stats.Count; i++)
+            {
+                int column = i / 5;
+                int row = i % 5;
+                RectTransform bar = UiFactory.CreateStatBar(card, stats[i].Key, stats[i].Value, 100f, StatTierColor(stats[i].Value), columnWidth);
+                SetTopLeft(bar, 16f + column * (columnWidth + 18f), startY + row * rowHeight);
+                if (stats[i].Key == "Top Speed")
+                {
+                    Transform valueTransform = bar.Find("Stat bar value");
+                    Text valueText = valueTransform == null ? null : valueTransform.GetComponent<Text>();
+                    if (valueText != null)
+                    {
+                        valueText.text = car.topSpeed + " KM/H";
+                    }
+                }
+            }
         }
 
         public void ShowAssists(GameDataRepository data, CareerManager career, GameSettingsStore settings)
@@ -1391,15 +1856,15 @@ namespace LocalFormulaRacing
             // The Qualifying group is ALWAYS present - driving qualifying yourself
             // is a core session, so it must stay reachable even once a grid
             // already exists (re-running it overwrites the provisional result).
-            // The Race group only appears once a grid is set, as the single
-            // forward action - the old always-visible "Go to Race (runs
-            // qualifying)" duplicate stays gone.
-            if (hasQualifying)
-            {
-                CreateWeekendActionGroup(actions, "Race", "Grid is set from qualifying.",
-                    "Continue to Race", bootstrap.StartCareerRace, null, null);
-            }
-
+            // There is no separate "Race" action group here anymore: once a grid
+            // is set, the actual forward action to start the race lives on the
+            // Qualifying Results screen's own "Continue to Race" button
+            // (ShowQualifyingResults), which is the natural point in the session
+            // flow to move on. Keeping a second "Continue to Race" button here
+            // was a redundant duplicate of that control. Removing the group
+            // leaves three groups instead of four; the actions column's
+            // VerticalLayoutGroup is centered (childAlignment MiddleLeft), so the
+            // remaining groups simply re-center instead of leaving a gap.
             CreateWeekendActionGroup(actions, "Qualifying",
                 hasQualifying ? "Grid is set. Re-run to replace the result." : "Drive the session yourself, or simulate it.",
                 "Go to Qualifying", bootstrap.StartCareerQualifying, "Sim Qualifying", bootstrap.StartCareerSimQualifying);
