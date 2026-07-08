@@ -3300,7 +3300,7 @@ namespace LocalFormulaRacing
             widget.anchoredPosition = new Vector2(x, y);
         }
 
-        RectTransform BuildReportCard(Transform parent, string title, string[] lines, float width, Color accent, System.Action<RectTransform> extraContent)
+        RectTransform BuildReportCard(Transform parent, string title, string[] lines, float width, Color accent, System.Action<RectTransform> extraContent = null)
         {
             RectTransform card = UiFactory.CreateRect(parent, title + " report card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             card.sizeDelta = new Vector2(width, 190f);
