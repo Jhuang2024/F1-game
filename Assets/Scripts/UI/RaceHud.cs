@@ -287,16 +287,45 @@ namespace LocalFormulaRacing
             compact = settings != null && settings.compactHud;
             visibleTowerRows = compact ? 10 : TowerRowCount;
 
+            // Per-module HUD toggles (Display Settings): construction-time gating,
+            // same pattern `compact` already uses above for the car-status card and
+            // input telemetry - a module simply never gets built when its toggle is
+            // off, rather than being built and hidden. Radio stack and race-control
+            // banner drive their own visibility every frame (see UpdateRadioStack/
+            // UpdateRaceControlBanner) so their toggles are read there instead of
+            // gating the build call.
+            bool showTimingTower = settings == null || settings.hudShowTimingTower;
+            bool showTrackMap = settings == null || settings.hudShowTrackMap;
+            bool showInputTelemetry = settings == null || settings.hudShowInputTelemetry;
+            bool showCarStatus = settings == null || settings.hudShowCarStatus;
+            bool showProgressStrip = settings == null || settings.hudShowProgressStrip;
+
             BuildTopBand();
             BuildRaceControlBanner();
-            BuildProgressStrip();
-            BuildTrackMap();
+            if (showProgressStrip)
+            {
+                BuildProgressStrip();
+            }
+
+            if (showTrackMap)
+            {
+                BuildTrackMap();
+            }
+
             BuildNotificationPanel();
-            BuildTimingTower();
+            if (showTimingTower)
+            {
+                BuildTimingTower();
+            }
+
             BuildBottomDash();
-            BuildInputTelemetry();
+            if (showInputTelemetry)
+            {
+                BuildInputTelemetry();
+            }
+
             BuildTimingCard();
-            BuildRightStack();
+            BuildRightStack(showCarStatus);
             BuildCenterOverlays();
             BuildFinishFlourish();
             BuildHintBar();
@@ -781,7 +810,7 @@ namespace LocalFormulaRacing
             gapRect.offsetMax = new Vector2(-10f, -146f);
         }
 
-        void BuildRightStack()
+        void BuildRightStack(bool showCarStatus)
         {
             // Anchored top-right, just under the track map, instead of the old
             // screen-center anchor - overlap fix: a vertically-centered stack
@@ -806,7 +835,7 @@ namespace LocalFormulaRacing
             layout.childForceExpandWidth = false;
             layout.childForceExpandHeight = false;
 
-            if (!compact)
+            if (!compact && showCarStatus)
             {
                 BuildCarStatusCard();
             }
@@ -1329,7 +1358,12 @@ namespace LocalFormulaRacing
         // fixed height.
         void UpdateRadioStack()
         {
-            int activeCount = Mathf.Min(race.ActiveEngineerMessageCount, MaxRadioCards);
+            // HUD toggle: this module drives its own visibility every frame based
+            // on whether there's an active message, so the settings toggle folds
+            // into that same condition rather than gating the one-time Build call
+            // (a plain SetActive(false) here would just get overwritten next tick).
+            bool radioEnabled = race.Settings == null || race.Settings.Current.hudShowRadio;
+            int activeCount = radioEnabled ? Mathf.Min(race.ActiveEngineerMessageCount, MaxRadioCards) : 0;
             bool anyVisible = activeCount > 0;
             if (radioStackContainer.gameObject.activeSelf != anyVisible)
             {
@@ -1508,7 +1542,11 @@ namespace LocalFormulaRacing
             // Stays visible through the green-flag ramp tail too (state is
             // already Green but the player doesn't have the car back yet) -
             // hiding it there would read as "you have control" a beat early.
-            bool visible = state != RaceManager.RaceControlState.Green || playerAutopilotNow;
+            // HUD toggle: same reasoning as UpdateRadioStack above - this banner
+            // decides its own visibility every frame, so the settings toggle folds
+            // into that condition instead of a one-time Build-time gate.
+            bool bannerEnabled = race.Settings == null || race.Settings.Current.hudShowRaceControlBanner;
+            bool visible = bannerEnabled && (state != RaceManager.RaceControlState.Green || playerAutopilotNow);
             if (raceControlBanner.gameObject.activeSelf != visible)
             {
                 raceControlBanner.gameObject.SetActive(visible);
@@ -2264,7 +2302,12 @@ namespace LocalFormulaRacing
 
             if (player.trackLimitWarnings > watchedTrackLimitWarnings)
             {
-                PushNotification("TRACK LIMITS WARNING " + player.trackLimitWarnings + "/3", UiFactory.AccentAmber);
+                // Stewarding depth: trackLimitEventLog's most recent entry (see
+                // RaceManager.HandleTrackLimits) carries the lap/sector this
+                // specific warning happened in - appended here rather than
+                // duplicating that formatting logic on the RaceManager side too.
+                string detail = player.trackLimitEventLog.Count > 0 ? " (" + player.trackLimitEventLog[player.trackLimitEventLog.Count - 1] + ")" : "";
+                PushNotification("TRACK LIMITS WARNING " + player.trackLimitWarnings + "/3" + detail, UiFactory.AccentAmber);
             }
 
             watchedTrackLimitWarnings = player.trackLimitWarnings;
