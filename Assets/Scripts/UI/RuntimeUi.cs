@@ -15,6 +15,15 @@ namespace LocalFormulaRacing
         string selectedDriverId = "";
         bool useExistingDriver;
 
+        // ShowCareerSetup used to update team selection without a screen
+        // rebuild (so the typed driver name in the InputField wasn't lost),
+        // which meant clicking a team gave no visible "this one is now active"
+        // feedback beyond a text label. Adding SetButtonSelected highlighting
+        // requires a rebuild to redraw every button's state, so the typed name
+        // is now shadowed here across rebuilds instead of being lost.
+        string careerSetupDraftName;
+        bool careerSetupDraftNameSet;
+
         // Quick Race track picked on ShowQuickRaceTrackSelect, carried through to
         // GameBootstrap.BeginQuickRace instead of it silently defaulting to
         // data.Calendar.events[0]. Career mode never reads or writes this.
@@ -751,6 +760,12 @@ namespace LocalFormulaRacing
         public void ShowCareerSetup(GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
             Clear();
+            if (!careerSetupDraftNameSet)
+            {
+                careerSetupDraftName = career.Save.playerDriverName;
+                careerSetupDraftNameSet = true;
+            }
+
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Career setup background", new Color(0.012f, 0.016f, 0.021f, 1f));
             UiFactory.CreateScreenHeader(background, "Driver & Team", "Choose who you race as, then start a new career with that setup.");
 
@@ -758,7 +773,12 @@ namespace LocalFormulaRacing
             RectTransform identityList = UiFactory.CreateRect(left, "Identity list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
             UiFactory.AddVerticalLayout(identityList, 12, new RectOffset(0, 0, 0, 0));
             UiFactory.CreateSubHeader(identityList, "Driver Name");
-            InputField nameInput = UiFactory.CreateInputField(identityList, career.Save.playerDriverName);
+            InputField nameInput = UiFactory.CreateInputField(identityList, careerSetupDraftName);
+            // Team selection below now rebuilds the whole screen so its button
+            // highlighting can update - without shadowing the typed name here
+            // and feeding it back in as the InputField's default text above,
+            // that rebuild would silently discard whatever the player had typed.
+            nameInput.onValueChanged.AddListener(value => careerSetupDraftName = value);
 
             UiFactory.CreateSubHeader(identityList, "Starting Team");
             Text selectedTeam = UiFactory.CreateText(identityList, "Selected team", data.FindTeam(selectedTeamId).name, 20, Color.white, TextAnchor.MiddleLeft);
@@ -767,14 +787,20 @@ namespace LocalFormulaRacing
             GridLayoutGroup grid = teamGrid.gameObject.AddComponent<GridLayoutGroup>();
             grid.cellSize = new Vector2(134f, 36f);
             grid.spacing = new Vector2(8f, 8f);
+            // Selection state was previously invisible - the only feedback a
+            // pick had happened was the "Selected team" text line changing, so
+            // the grid of 10+ near-identical buttons gave no at-a-glance answer
+            // to "which one is active". SetButtonSelected (already used for tab
+            // bars elsewhere) now highlights the current pick directly on the grid.
             for (int i = 0; i < data.Teams.teams.Count; i++)
             {
                 TeamData team = data.Teams.teams[i];
-                UiFactory.CreateButton(teamGrid, team.shortName, () =>
+                Button teamButton = UiFactory.CreateButton(teamGrid, team.shortName, () =>
                 {
                     selectedTeamId = team.id;
-                    selectedTeam.text = team.name;
+                    ShowCareerSetup(data, career, settings);
                 });
+                UiFactory.SetButtonSelected(teamButton, team.id == selectedTeamId);
             }
 
             RectTransform right = UiFactory.CreateCard(background, "Setup driver card", new Vector2(0.52f, 0.14f), new Vector2(0.95f, 0.82f));
@@ -801,33 +827,44 @@ namespace LocalFormulaRacing
             });
             UiFactory.SetSize(modeButton, 300f, 40f);
 
-            RectTransform driverGrid = UiFactory.CreateRect(driverList, "Driver buttons", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            driverGrid.sizeDelta = new Vector2(560f, 260f);
-            GridLayoutGroup driverGridLayout = driverGrid.gameObject.AddComponent<GridLayoutGroup>();
-            driverGridLayout.cellSize = new Vector2(176f, 34f);
-            driverGridLayout.spacing = new Vector2(8f, 8f);
-            int driverButtons = Mathf.Min(15, data.Drivers.drivers.Count);
-            for (int i = 0; i < driverButtons; i++)
+            // Redundancy/streamlining audit: this grid used to hard-cap at the
+            // first 15 of the 22 drivers in the roster (Mathf.Min(15, ...)),
+            // silently making roughly a third of the grid - more than three
+            // full teams - impossible to pick as an existing driver. Wrapped in
+            // a real scroll-grid (CreateScrollGridPanel, the same pattern
+            // BuildDriverCard's grid uses) instead of a fixed-size
+            // GridLayoutGroup so every driver in the roster is reachable.
+            RectTransform driverGrid = UiFactory.CreateScrollGridPanel(driverList, "Driver buttons", Vector2.zero, Vector2.zero, new Vector2(176f, 34f), new Vector2(8f, 8f), new RectOffset(4, 4, 4, 4));
+            RectTransform driverGridViewport = driverGrid.parent as RectTransform;
+            if (driverGridViewport != null)
+            {
+                driverGridViewport.sizeDelta = new Vector2(560f, 250f);
+            }
+            for (int i = 0; i < data.Drivers.drivers.Count; i++)
             {
                 DriverData driver = data.Drivers.drivers[i];
-                UiFactory.CreateButton(driverGrid, driver.abbreviation + " " + driver.displayName, () =>
+                Button driverButton = UiFactory.CreateButton(driverGrid, driver.abbreviation + " " + driver.displayName, () =>
                 {
                     selectedDriverId = driver.id;
                     useExistingDriver = true;
-                    TeamData driverTeam = data.FindTeam(driver.teamId);
                     selectedTeamId = driver.teamId;
-                    selectedTeam.text = driverTeam == null ? driver.teamId : driverTeam.name;
-                    nameInput.text = driver.displayName;
+                    careerSetupDraftName = driver.displayName;
                     ShowCareerSetup(data, career, settings);
                 });
+                UiFactory.SetButtonSelected(driverButton, useExistingDriver && driver.id == selectedDriverId);
             }
 
             RectTransform footerLeft;
             RectTransform footerRight;
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
-            UiFactory.CreateSecondaryButton(footerLeft, "Cancel", () => ShowCareerHub(data, career, settings));
+            UiFactory.CreateSecondaryButton(footerLeft, "Cancel", () =>
+            {
+                careerSetupDraftNameSet = false;
+                ShowCareerHub(data, career, settings);
+            });
             UiFactory.CreatePrimaryButton(footerRight, "Start New Career", () =>
             {
+                careerSetupDraftNameSet = false;
                 career.StartNewCareer(nameInput.text, selectedTeamId, useExistingDriver, selectedDriverId);
                 ShowCareerHub(data, career, settings);
             });
@@ -3082,40 +3119,25 @@ namespace LocalFormulaRacing
             ShowRaceTyreSelect(data, career, settings, false);
         }
 
-        public void ShowTimeTrialSetup(GameDataRepository data, CareerManager career, GameSettingsStore settings)
-        {
-            Clear();
-            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Time trial background", new Color(0.012f, 0.016f, 0.021f, 1f));
-            UiFactory.CreateTopNav(background, "Time Trial");
-            Text subtitle = UiFactory.CreateText(background, "Time trial subtitle", "Pick a circuit. No AI, unlimited laps, best lap saved locally. Tyre: " + settings.Current.tyreCompound + " (change in Settings).", 18, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            subtitle.GetComponent<RectTransform>().anchoredPosition = new Vector2(66f, -112f);
-            UiFactory.SetSize(subtitle, 1300f, 30f);
-
-            RectTransform content = UiFactory.CreateScrollPanel(background, "Time trial track list", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.84f), 8, new RectOffset(18, 18, 14, 14));
-            for (int i = 0; i < data.Calendar.events.Count; i++)
-            {
-                CalendarEventData raceEvent = data.Calendar.events[i];
-                float best = PlayerRecordsStore.GetBestLap(raceEvent.trackId);
-                string bestLabel = best > 0f ? "BEST " + UiFactory.FormatTime(best) : "NO RECORD";
-                UnityEngine.UI.Button row = UiFactory.CreateButton(
-                    content,
-                    "R" + raceEvent.round.ToString("00") + "   " + raceEvent.displayName + "    " + WeatherProfileText(raceEvent.weatherProfile).ToUpper() + "    " + bestLabel,
-                    () => bootstrap.BeginTimeTrial(raceEvent));
-                UiFactory.SetSize(row, 1240f, 46f);
-            }
-
-            RectTransform footerLeft;
-            RectTransform footerRight;
-            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
-            UiFactory.CreateSecondaryButton(footerLeft, "Car Setup", () => ShowCarSetup(data, career, settings, () => ShowTimeTrialSetup(data, career, settings)));
-            UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
-        }
-
+        // Redundancy audit: this used to be two near-identical screens
+        // (ShowTimeTrialSetup and ShowTrackInfo) that both listed every
+        // circuit, both showed the player's best lap, and both ultimately did
+        // the same thing - start a Time Trial. ShowTrackInfo's whole row was
+        // also a giant click target that silently launched a session, which is
+        // actively dangerous now that this screen is reachable mid-career (from
+        // the Race Weekend and Career Hub screens) - a player just checking
+        // conditions before qualifying could accidentally abandon their
+        // session. Merged into one screen: browse every track's info, then an
+        // explicit "Time Trial" button per row (matching the explicit-Select
+        // convention already used on ShowQuickRaceTrackSelect) to launch one.
+        // GameBootstrap.ShowTimeTrialSetup() now forwards here too, so both
+        // entry points land on the same, safer screen.
         public void ShowTrackInfo(GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
             Clear();
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Track info background", new Color(0.012f, 0.016f, 0.021f, 1f));
-            UiFactory.CreateScreenHeader(background, "Track Info", "Select a circuit to start a time trial there. Traits describe how each layout races.");
+            UiFactory.CreateScreenHeader(background, "Track Info",
+                "Every circuit on the calendar, with layout traits and your best lap. Time Trial tyre: " + settings.Current.tyreCompound + " (change in Settings).");
 
             RectTransform content = UiFactory.CreateScrollPanel(background, "Track info list", new Vector2(0.06f, 0.14f), new Vector2(0.94f, 0.86f), 6, new RectOffset(18, 18, 14, 14));
             for (int i = 0; i < data.Calendar.events.Count; i++)
@@ -3127,6 +3149,7 @@ namespace LocalFormulaRacing
             RectTransform footerLeft;
             RectTransform footerRight;
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Car Setup", () => ShowCarSetup(data, career, settings, () => ShowTrackInfo(data, career, settings)));
             UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
         }
 
@@ -3414,45 +3437,45 @@ namespace LocalFormulaRacing
             Text titleText = UiFactory.CreateText(card, "Track title", "R" + raceEvent.round.ToString("00") + "  " + raceEvent.displayName, 18, UiFactory.TextPrimary, TextAnchor.UpperLeft);
             RectTransform titleRect = titleText.GetComponent<RectTransform>();
             titleRect.anchorMin = new Vector2(0f, 1f);
-            titleRect.anchorMax = new Vector2(0.52f, 1f);
+            titleRect.anchorMax = new Vector2(0.4f, 1f);
             titleRect.offsetMin = new Vector2(16f, -30f);
             titleRect.offsetMax = new Vector2(0f, -6f);
 
             Text metaText = UiFactory.CreateText(card, "Track meta", raceEvent.country + "   ·   " + WeatherProfileText(raceEvent.weatherProfile).ToUpperInvariant() + "   ·   " + raceEvent.laps25Percent + " LAPS", 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
             RectTransform metaRect = metaText.GetComponent<RectTransform>();
             metaRect.anchorMin = new Vector2(0f, 0f);
-            metaRect.anchorMax = new Vector2(0.52f, 1f);
+            metaRect.anchorMax = new Vector2(0.4f, 1f);
             metaRect.offsetMin = new Vector2(16f, 8f);
             metaRect.offsetMax = new Vector2(0f, -34f);
 
             Text traitsText = UiFactory.CreateText(card, "Track traits", TrackTraits(raceEvent), 14, UiFactory.AccentCyan, TextAnchor.MiddleLeft);
             RectTransform traitsRect = traitsText.GetComponent<RectTransform>();
-            traitsRect.anchorMin = new Vector2(0.52f, 0f);
-            traitsRect.anchorMax = new Vector2(0.84f, 1f);
+            traitsRect.anchorMin = new Vector2(0.4f, 0f);
+            traitsRect.anchorMax = new Vector2(0.64f, 1f);
             traitsRect.offsetMin = Vector2.zero;
             traitsRect.offsetMax = Vector2.zero;
 
             float best = PlayerRecordsStore.GetBestLap(raceEvent.trackId);
-            Text bestText = UiFactory.CreateText(card, "Track best", best > 0f ? "BEST " + UiFactory.FormatTime(best) : "NO RECORD", 14, best > 0f ? UiFactory.AccentPurple : UiFactory.TextMuted, TextAnchor.MiddleRight);
+            Text bestText = UiFactory.CreateText(card, "Track best", best > 0f ? "BEST " + UiFactory.FormatTime(best) : "NO RECORD", 14, best > 0f ? UiFactory.AccentPurple : UiFactory.TextMuted, TextAnchor.MiddleLeft);
             RectTransform bestRect = bestText.GetComponent<RectTransform>();
-            bestRect.anchorMin = new Vector2(0.84f, 0f);
-            bestRect.anchorMax = new Vector2(1f, 1f);
+            bestRect.anchorMin = new Vector2(0.64f, 0f);
+            bestRect.anchorMax = new Vector2(0.83f, 1f);
             bestRect.offsetMin = Vector2.zero;
-            bestRect.offsetMax = new Vector2(-14f, 0f);
+            bestRect.offsetMax = Vector2.zero;
 
-            Button launch = card.gameObject.AddComponent<Button>();
-            launch.targetGraphic = background;
-            ColorBlock colors = launch.colors;
-            colors.normalColor = UiFactory.PanelDark;
-            colors.highlightedColor = new Color(0.1f, 0.16f, 0.22f, 1f);
-            colors.pressedColor = new Color(0.006f, 0.01f, 0.014f, 1f);
-            colors.selectedColor = colors.highlightedColor;
-            launch.colors = colors;
-            launch.onClick.AddListener(() =>
-            {
-                SimpleAudioManager.PlayClick();
-                bootstrap.BeginTimeTrial(raceEvent);
-            });
+            // Explicit action instead of the whole row being clickable - a
+            // screen whose job is "show me info about this track" should never
+            // silently launch a session on a stray click, especially now that
+            // this screen is reachable mid-career-weekend. Matches the
+            // explicit-button convention already used by
+            // BuildQuickRaceTrackRow's "Select" button.
+            Button launch = UiFactory.CreateSecondaryButton(card, "Time Trial", () => bootstrap.BeginTimeTrial(raceEvent));
+            RectTransform launchRect = launch.GetComponent<RectTransform>();
+            launchRect.anchorMin = new Vector2(0.85f, 0.5f);
+            launchRect.anchorMax = new Vector2(0.85f, 0.5f);
+            launchRect.pivot = new Vector2(0f, 0.5f);
+            launchRect.sizeDelta = new Vector2(148f, 42f);
+            launchRect.anchoredPosition = Vector2.zero;
         }
 
         // Heuristic layout traits by circuit family: enough for strategy flavor
@@ -4141,14 +4164,20 @@ namespace LocalFormulaRacing
             controls.verticalOverflow = VerticalWrapMode.Overflow;
             UiFactory.SetSize(controls, 460f, 92f);
             UiFactory.CreateDivider(menu);
+            // Button hierarchy fix: Resume is the one primary action; Main Menu
+            // is neutral navigation (secondary); Restart Session and Quit Game
+            // both throw away the current session's progress, so both now use
+            // the danger style instead of one being an unstyled default button
+            // and the other secondary - the two genuinely destructive choices
+            // now look consistently different from "just navigating".
             UiFactory.CreatePrimaryButton(menu, "Resume", race.Resume);
-            UiFactory.CreateButton(menu, "Restart Session", race.RestartRace);
             UiFactory.CreateSecondaryButton(menu, "Main Menu", () =>
             {
                 race.CleanupRaceWorld();
                 bootstrap.ShowMainMenu();
             });
-            UiFactory.CreateSecondaryButton(menu, "Quit Game", Application.Quit);
+            UiFactory.CreateDangerButton(menu, "Restart Session", race.RestartRace);
+            UiFactory.CreateDangerButton(menu, "Quit Game", Application.Quit);
             pausePanel.SetActive(false);
         }
 

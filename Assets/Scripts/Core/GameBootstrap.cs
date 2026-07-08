@@ -94,7 +94,11 @@ namespace LocalFormulaRacing
                 raceManager.CleanupRaceWorld();
             }
 
-            ui.ShowTimeTrialSetup(data, career, settings);
+            // ShowTimeTrialSetup and ShowTrackInfo used to be two separate,
+            // near-duplicate "browse every track" screens. They're merged into
+            // one (RuntimeUi.ShowTrackInfo) - this entry point is kept so the
+            // Main Menu's "Time Trial" card doesn't need to change.
+            ui.ShowTrackInfo(data, career, settings);
         }
 
         public void ShowTrackInfo()
