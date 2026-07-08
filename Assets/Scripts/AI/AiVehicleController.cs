@@ -240,8 +240,15 @@ namespace LocalFormulaRacing
                     // still a hairpin. A sharper driver only benefits here via the
                     // already-maxed apexConfidence blend above (Part A.1), never a
                     // corner-type bonus.
+                    // Tight-corner fix round 2: easePower dropped from 1.2 to 0.45 - at
+                    // 1.2, only a corner at the literal severity ceiling (~1.0) actually
+                    // reached floorSpeed; anything else in the Hairpin bucket (severity
+                    // as low as ~0.75) still blended in enough straightTargetSpeed to
+                    // land well above the floor regardless of how low the floor itself
+                    // was set. A much smaller exponent pulls the whole Hairpin severity
+                    // band toward floorSpeed instead of only its very top.
                     floorSpeed = hairpinSpeedKph;
-                    easePower = 1.2f;
+                    easePower = 0.45f;
                     break;
             }
 
@@ -506,15 +513,15 @@ namespace LocalFormulaRacing
             // Car-relative hairpin floor instead of one flat number for every car: a
             // stronger braking/cornering car has a genuinely higher minimum apex speed
             // even at a true hairpin.
-            // Tight-corner fix: this floor used to bottom out at 76-108kph, faster
-            // than the physical turn radius available at a real hairpin (even with
-            // the ApplySteering tight-cornering boost) - the AI was committing to a
-            // speed it could not actually turn tightly enough for and ran wide.
-            // Lowered to something the shared turning physics can genuinely carry
-            // through a true hairpin.
+            // Tight-corner fix round 2: 58-82kph (round 1's fix) was still faster than
+            // this game's actual generated hairpins can physically be taken at, per
+            // direct playtest feedback - this track generator's tightest corners are
+            // materially tighter than a real-world hairpin like Monaco's Grand Hotel
+            // (~10m radius), so the real-world-radius assumption round 1 was built on
+            // didn't hold here. Dropped to a near-walking-pace floor (was 58-82).
             float carBrakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
             float carCorneringStat = vehicle.CarData == null ? 78f : vehicle.CarData.cornering;
-            float hairpinSpeedKph = Mathf.Lerp(58f, 82f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
+            float hairpinSpeedKph = Mathf.Lerp(15f, 28f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
@@ -525,7 +532,13 @@ namespace LocalFormulaRacing
             // cornerSpeedMultiplier may exceed 1.0 for Hard/Expert: how much of the
             // tyre's real available grip a confident driver carries through the apex is
             // a driving-skill judgment call, not a hard physics ceiling like top speed.
-            float apexTargetSpeed = Mathf.Lerp(trueApexSpeed * 0.5f, trueApexSpeed, apexConfidence) * profile.cornerSpeedMultiplier;
+            // Tight-corner fix round 2: never applied to a genuine Hairpin - the floor
+            // above is already deliberately untouched by skill tier (a hairpin is still
+            // a hairpin regardless of difficulty), but this multiplier used to reinflate
+            // it right back up afterwards (up to 1.44x on Expert), quietly undoing that
+            // floor and leaving Hard/Expert still taking hairpins far too fast.
+            float cornerSpeedMultiplierForType = upcomingCornerType == CornerType.Hairpin ? 1f : profile.cornerSpeedMultiplier;
+            float apexTargetSpeed = Mathf.Lerp(trueApexSpeed * 0.5f, trueApexSpeed, apexConfidence) * cornerSpeedMultiplierForType;
 
             // Driver-quality variance is the per-driver pace differentiator, independent
             // of difficulty; profile.paceMultiplier is the difficulty-tier pace scaler
