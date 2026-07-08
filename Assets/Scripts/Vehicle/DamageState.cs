@@ -51,10 +51,16 @@ namespace LocalFormulaRacing
                 return 0f;
             }
 
-            float threshold = impactType == DamageImpactType.Car ? 24f : 30f;
+            // Wheel-to-wheel tuning: car-to-car contact needs a distinctly
+            // harder perpendicular hit before it registers at all - ordinary
+            // racing contact (a graze, a brief side-by-side rub) routinely
+            // produces 25-40kph of normal-direction closing speed on its own
+            // without being anything more than normal racing, and used to
+            // land well inside the old 24kph/42kph bars.
+            float threshold = impactType == DamageImpactType.Car ? 34f : 30f;
             if (sustainedScrape)
             {
-                threshold = 42f;
+                threshold = impactType == DamageImpactType.Car ? 55f : 42f;
             }
 
             if (impactSpeedKph < 20f || normalSpeedKph < threshold)
@@ -66,7 +72,12 @@ namespace LocalFormulaRacing
             float objectMultiplier = 1f;
             if (impactType == DamageImpactType.Car)
             {
-                objectMultiplier = 0.34f;
+                // Reduced further (was 0.34) - light rubbing and minor taps
+                // should read as small balance loss / barely any damage, not
+                // a meaningful chunk of the car in one contact. A genuinely
+                // hard side-on hit still adds up over the widened
+                // normalization window below.
+                objectMultiplier = 0.16f;
             }
             else if (impactType == DamageImpactType.Wall)
             {
@@ -86,7 +97,12 @@ namespace LocalFormulaRacing
                 objectMultiplier *= 0.22f;
             }
 
-            float normalized = Mathf.Clamp01((normalSpeedKph - threshold) / (impactType == DamageImpactType.Car ? 120f : 96f));
+            // Car-to-car's normalization window is widened further (was 120)
+            // so the curve stays gentle through the "hard racing contact"
+            // range and only climbs steeply for a genuinely severe hit - wall
+            // contact keeps its original, tighter window since a wall hit
+            // should still ramp up to serious damage quickly.
+            float normalized = Mathf.Clamp01((normalSpeedKph - threshold) / (impactType == DamageImpactType.Car ? 170f : 96f));
             float energy = Mathf.Pow(normalized, 1.35f) * objectMultiplier;
             float glancingFactor = Mathf.Lerp(0.35f, 1f, Mathf.Clamp01(normalSpeedKph / Mathf.Max(1f, impactSpeedKph)));
             energy *= glancingFactor;

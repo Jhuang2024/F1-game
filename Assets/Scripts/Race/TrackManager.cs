@@ -313,6 +313,24 @@ namespace LocalFormulaRacing
             rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
 
+        // Pit lane animation fix: generalizes the position + right * lateral
+        // pattern every GetPit*Pose method above already uses, so RaceManager
+        // can sample a continuously-advancing point along the SAME
+        // track-relative parametrization instead of only ever being able to
+        // ask for one of a handful of fixed named poses. This is what lets
+        // a pit-guided car's path actually follow the track/pit lane's own
+        // curvature (SampleAtDistance already curves with the circuit) rather
+        // than cutting a straight 3D line between two distant fixed points.
+        public void SamplePitLanePose(float distance, float lateral, out Vector3 position, out Quaternion rotation)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            SampleAtDistance(distance, out point, out forward, out right);
+            position = point + right * lateral + Vector3.up * 0.58f;
+            rotation = Quaternion.LookRotation(forward, Vector3.up);
+        }
+
         public void GetPitEntryPose(out Vector3 position, out Quaternion rotation)
         {
             Vector3 point;

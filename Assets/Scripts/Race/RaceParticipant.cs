@@ -57,6 +57,19 @@ namespace LocalFormulaRacing
         // was assigned when it entered Release, so simultaneous releases never target
         // the identical shared coordinate.
         public int pitReleaseStagger;
+        // Pit lane animation fix: while pit-guided, the car chases a
+        // continuously-advancing (distance-along-track, lateral-offset)
+        // waypoint (see RaceManager.AdvancePitGuideTarget /
+        // TrackRuntime.SamplePitLanePose) instead of beelining straight at a
+        // single far-away fixed pose - this is what makes the car actually
+        // follow the pit lane's own curvature and peel in/out gradually
+        // rather than cutting a straight diagonal line across the track or
+        // snapping sideways at each phase transition. Reset (hasPitGuideState
+        // = false) at the start of every phase that needs a fresh starting
+        // point.
+        public bool hasPitGuideState;
+        public float pitGuideDistance;
+        public float pitGuideLateral;
         // Lightweight per-race ERS/DRS usage counters for post-session diagnostics.
         public int ersDeployFrameCount;
         public int drsActiveFrameCount;
@@ -88,6 +101,11 @@ namespace LocalFormulaRacing
         public float recoveryGraceTimer;
         public int recoveryAttemptCount;
         public bool falseStrandedLogged;
+        // Stuck-recovery escalation fix: cooldown gating RaceManager's
+        // last-resort force-reposition (see HandleStuckEscalation) so it can
+        // never fire more than once per window even if the car immediately
+        // gets stuck again - a genuine last resort, not a repositioning loop.
+        public float stuckRepositionCooldown;
         public float previousSpeedKphForIncident;
         public float previousDamagePercentForIncident;
         // Short rolling history (three RaceManager.RaceControlCheckInterval-sized

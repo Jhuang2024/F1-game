@@ -130,8 +130,19 @@ namespace LocalFormulaRacing
             return Teams.teams.Count > 0 ? Teams.teams[0] : null;
         }
 
+        // Deliberately returns null (not Drivers.drivers[0]) when `id` doesn't
+        // match anything: a silent substitute driver here used to mean an
+        // unresolved/stale selectedDriverId quietly became a real driver's
+        // identity (always the same one - whichever sits first in the data)
+        // instead of surfacing as "no driver found", which every caller
+        // already has to handle explicitly for the empty-id case anyway.
         public DriverData FindDriver(string id)
         {
+            if (string.IsNullOrEmpty(id))
+            {
+                return null;
+            }
+
             for (int i = 0; i < Drivers.drivers.Count; i++)
             {
                 if (Drivers.drivers[i].id == id)
@@ -140,7 +151,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            return Drivers.drivers.Count > 0 ? Drivers.drivers[0] : null;
+            return null;
         }
 
         public CarPerformanceData FindCar(string id)
@@ -188,27 +199,62 @@ namespace LocalFormulaRacing
             return GetAiRaceDrivers(playerTeamId, count, "");
         }
 
+        // Root-cause rewrite: the previous two-pass version filled the roster
+        // with every other team's drivers first and only reached the
+        // player's own team in a second pass "if there was still room" - on
+        // datasets where that room never appeared (or appeared for the
+        // wrong reason) the teammate could be skipped entirely, and because
+        // the exclusion test only ran against `replacedSeatId`, any drift
+        // between that id and the driver the player actually selected could
+        // let the selected driver itself slip back in as if they were a
+        // separate AI opponent - a visible on-track duplicate of the player.
+        // This version makes the teammate assignment explicit and
+        // unconditional instead of an emergent side effect of fill order:
+        // resolve the player's seat by id, find the other same-team driver
+        // by id, and guarantee that driver occupies the seat before anyone
+        // else is added. Every comparison is by driver id, never by name.
         public List<DriverData> GetAiRaceDrivers(string playerTeamId, int count, string replacedDriverId)
         {
             List<DriverData> result = new List<DriverData>();
             string replacedSeatId = ResolveReplacedDriverId(playerTeamId, replacedDriverId);
-            for (int i = 0; i < Drivers.drivers.Count && result.Count < count; i++)
+
+            DriverData teammate = FindTeammateDriver(playerTeamId, replacedSeatId);
+            if (teammate != null && result.Count < count)
             {
-                if (Drivers.drivers[i].id != replacedSeatId && Drivers.drivers[i].teamId != playerTeamId)
-                {
-                    result.Add(Drivers.drivers[i]);
-                }
+                result.Add(teammate);
             }
 
             for (int i = 0; i < Drivers.drivers.Count && result.Count < count; i++)
             {
-                if (Drivers.drivers[i].id != replacedSeatId && !result.Contains(Drivers.drivers[i]))
+                DriverData candidate = Drivers.drivers[i];
+                if (candidate.id == replacedSeatId || result.Contains(candidate))
                 {
-                    result.Add(Drivers.drivers[i]);
+                    continue;
                 }
+
+                result.Add(candidate);
             }
 
             return result;
+        }
+
+        // The teammate is, by definition, the other driver registered to the
+        // player's team whose id is not the seat the player occupies -
+        // never a name-based lookup, so a custom driver name that happens to
+        // collide with a real driver's display name can never misidentify
+        // who the teammate is.
+        public DriverData FindTeammateDriver(string playerTeamId, string playerSeatDriverId)
+        {
+            for (int i = 0; i < Drivers.drivers.Count; i++)
+            {
+                DriverData candidate = Drivers.drivers[i];
+                if (candidate.teamId == playerTeamId && candidate.id != playerSeatDriverId)
+                {
+                    return candidate;
+                }
+            }
+
+            return null;
         }
 
         string ResolveReplacedDriverId(string playerTeamId, string replacedDriverId)

@@ -269,6 +269,22 @@ namespace LocalFormulaRacing
         public PenaltySummary penalties = new PenaltySummary();
         public StrategySummary strategy = new StrategySummary();
         public AiPerformanceSummary aiPerformance = new AiPerformanceSummary();
+        public StandingsMovementSummary standings = new StandingsMovementSummary();
+    }
+
+    // Post-race report "Championship Impact" data: driver/constructor standing
+    // and points immediately before and after this race's points were applied.
+    // -1 for a *Before field means the driver/team had no prior standings entry
+    // (debut race) rather than "was P-1".
+    [Serializable]
+    public class StandingsMovementSummary
+    {
+        public int driverPositionBefore = -1;
+        public int driverPositionAfter = -1;
+        public int driverPointsBefore;
+        public int driverPointsAfter;
+        public int constructorPositionBefore = -1;
+        public int constructorPositionAfter = -1;
     }
 
     [Serializable]

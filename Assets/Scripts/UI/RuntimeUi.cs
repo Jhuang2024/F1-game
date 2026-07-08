@@ -15,6 +15,12 @@ namespace LocalFormulaRacing
         string selectedDriverId = "";
         bool useExistingDriver;
 
+        // Quick Race track picked on ShowQuickRaceTrackSelect, carried through to
+        // GameBootstrap.BeginQuickRace instead of it silently defaulting to
+        // data.Calendar.events[0]. Career mode never reads or writes this.
+        CalendarEventData quickRaceSelectedEvent;
+        public CalendarEventData QuickRaceSelectedEvent { get { return quickRaceSelectedEvent; } }
+
         public void Initialize(GameBootstrap owner)
         {
             bootstrap = owner;
@@ -300,80 +306,416 @@ namespace LocalFormulaRacing
             UiFactory.CreateSecondaryButton(footerLeft, "Settings", () => ShowSettings(data, career, settings));
         }
 
-        // Part 3: rivalry / teammate battle screen - head-to-head records, a
-        // form guide, a reputation trend and the career news feed, all built
-        // straight from CareerSaveData rather than anything scripted.
+        // Nominal content width used inside the two Rivalry/Form glass cards -
+        // real rendered width is auto-stretched by StretchListChildrenWidth, this
+        // is only used to size the absolutely-positioned chip/avatar rows and to
+        // pick a safe (conservative, never-overflow) chip-wrap ceiling.
+        const float RivalryPanelContentWidth = 420f;
+
+        // Part 3 (redesigned): rivalry & form dashboard. Two premium glass cards
+        // (championship rival head-to-head, recent form) built with the same
+        // avatar/chip/stat-bar language as BuildDriverCard/BuildTeamCard, plus a
+        // real Team News feed sourced from CareerManager.GetNewsArticles below -
+        // replaces the old flat BuildReportCard row of plain text blocks, which
+        // read as a leftover from an earlier pass next to the rating-card screens.
         public void ShowRivalryHub(GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
             Clear();
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Rivalry background", new Color(0.012f, 0.016f, 0.021f, 1f));
             UiFactory.CreateScreenHeader(background, "Rivalry & Form", "Teammate battle, championship rival, recent form and the latest team news.");
 
-            List<DriverData> teamDrivers = data.GetDriversForTeam(career.Save.playerTeamId);
-            DriverData teammateDriver = teamDrivers.Find(driver => driver.id != career.Save.selectedDriverId);
-            DriverData rivalDriver = string.IsNullOrEmpty(career.Save.rivalDriverId) ? null : data.FindDriver(career.Save.rivalDriverId);
-            TeamData rivalTeam = rivalDriver == null ? null : data.FindTeam(rivalDriver.teamId);
+            // Screen-body/vertical-layout pattern (see ShowRaceTyreSelect's bodyMargin)
+            // instead of hand-picked fractional anchors for every panel: each section
+            // gets guaranteed, non-overlapping space regardless of how tall its content
+            // ends up being.
+            RectTransform body = UiFactory.CreateScreenBody(background, 108f, 78f);
+            RectTransform bodyMargin = UiFactory.CreateRect(body, "Rivalry body margin", Vector2.zero, Vector2.one, new Vector2(48f, 24f), new Vector2(-48f, -24f));
+            VerticalLayoutGroup bodyLayout = UiFactory.AddVerticalLayout(bodyMargin, 20, new RectOffset(0, 0, 0, 0));
+            bodyLayout.childControlWidth = true;
+            bodyLayout.childControlHeight = true;
+            bodyLayout.childForceExpandWidth = true;
+            bodyLayout.childForceExpandHeight = false;
 
-            RectTransform cardRow = UiFactory.CreateRect(background, "Rivalry card row", new Vector2(0.05f, 0.5f), new Vector2(0.95f, 0.79f), Vector2.zero, Vector2.zero);
-            UiFactory.AddHorizontalLayout(cardRow, 16, new RectOffset(0, 0, 0, 0));
+            RectTransform topRow = UiFactory.CreateRect(bodyMargin, "Rivalry top row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetFlexibleRowHeight(topRow, 430f);
+            UiFactory.AddResponsiveHorizontalLayout(topRow, 20, new RectOffset(0, 0, 0, 0));
 
-            BuildReportCard(cardRow, "Teammate Battle", new[]
-            {
-                teammateDriver != null ? teammateDriver.displayName : "No teammate on record",
-                teammateDriver != null ? TraitLine(teammateDriver) : "",
-                "Race record: " + career.Save.teammateRaceWins + "W - " + career.Save.teammateRaceLosses + "L",
-                "Qualifying record: " + career.Save.teammateQualifyingWins + "W - " + career.Save.teammateQualifyingLosses + "L",
-                TeammateBattleVerdict(career.Save.teammateRaceWins, career.Save.teammateRaceLosses)
-            }, 300f, UiFactory.AccentCyan);
+            RectTransform rivalryCard = UiFactory.CreateGlassPanel(topRow, "Rivalry card", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, UiFactory.PanelDark);
+            UiFactory.SetFlexibleColumnWidth(rivalryCard, 480f);
+            BuildRivalrySection(rivalryCard, data, career);
 
-            BuildReportCard(cardRow, "Current Rival", new[]
-            {
-                rivalDriver != null ? rivalDriver.displayName + (rivalTeam != null ? "  (" + rivalTeam.shortName + ")" : "") : "No rival identified yet",
-                rivalDriver != null ? TraitLine(rivalDriver) : "",
-                "Race record: " + career.Save.rivalRaceWins + "W - " + career.Save.rivalRaceLosses + "L",
-                "Qualifying record: " + career.Save.rivalQualifyingWins + "W - " + career.Save.rivalQualifyingLosses + "L",
-                "Next review in " + Mathf.Max(0, 4 - career.Save.roundsSinceRivalPicked) + " round(s)"
-            }, 300f, UiFactory.Accent);
+            RectTransform formCard = UiFactory.CreateGlassPanel(topRow, "Form card", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, UiFactory.PanelDark);
+            UiFactory.SetFlexibleColumnWidth(formCard, 480f);
+            BuildFormSection(formCard, career);
 
-            BuildReportCard(cardRow, "Form Guide", new[]
-            {
-                FormGuideLine(career.Save.recentFormPositions),
-                "Based on the last " + career.Save.recentFormPositions.Count + " race" + (career.Save.recentFormPositions.Count == 1 ? "" : "s"),
-                FormTrendLabel(career.Save.recentFormPositions)
-            }, 300f, UiFactory.AccentGreen);
-
-            BuildReportCard(cardRow, "Reputation Trend", new[]
-            {
-                "Current reputation: " + career.Save.reputation,
-                ReputationTrendLine(career.Save.reputationHistory),
-                ReputationTrendLabel(career.Save.reputationHistory)
-            }, 300f, UiFactory.AccentAmber);
-
-            RectTransform newsPanel = UiFactory.CreateScrollPanel(background, "News feed panel", new Vector2(0.05f, 0.14f), new Vector2(0.95f, 0.47f), 6, new RectOffset(20, 20, 16, 16));
-            UiFactory.CreateSubHeader(newsPanel, "Team News");
-            if (career.Save.newsFeed == null || career.Save.newsFeed.Count == 0)
-            {
-                UiFactory.CreateText(newsPanel, "No news", "Nothing to report yet - get racing.", 15, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            }
-            else
-            {
-                for (int i = career.Save.newsFeed.Count - 1; i >= 0; i--)
-                {
-                    RectTransform row = UiFactory.CreateRect(newsPanel, "News row " + i, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-                    UiFactory.SetFixedRowHeight(row, 24f);
-                    Text line = UiFactory.CreateText(row, "News text", "•  " + career.Save.newsFeed[i], 14, new Color(0.85f, 0.9f, 0.95f), TextAnchor.MiddleLeft);
-                    RectTransform lineRect = line.GetComponent<RectTransform>();
-                    lineRect.anchorMin = Vector2.zero;
-                    lineRect.anchorMax = Vector2.one;
-                    lineRect.offsetMin = Vector2.zero;
-                    lineRect.offsetMax = Vector2.zero;
-                }
-            }
+            RectTransform newsContainer = UiFactory.CreateGlassPanel(bodyMargin, "Team news container", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, UiFactory.PanelDarker);
+            UiFactory.SetFlexibleRowHeight(newsContainer, 220f);
+            BuildTeamNewsSection(newsContainer, career);
 
             RectTransform footerLeft;
             RectTransform footerRight;
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
             UiFactory.CreateSecondaryButton(footerLeft, "Career", () => ShowCareerHub(data, career, settings));
+        }
+
+        // Rivalry card: identity, trait chips, an intensity indicator derived from
+        // how close/frequent the head-to-head is, race/qualifying comparison bars,
+        // a momentum line and the latest real rivalry headline - or a polished
+        // empty state before a rival has been identified (very early career).
+        void BuildRivalrySection(RectTransform card, GameDataRepository data, CareerManager career)
+        {
+            RectTransform list = UiFactory.CreateRect(card, "Rivalry list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
+            UiFactory.AddVerticalLayout(list, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.StretchListChildrenWidth(list);
+
+            UiFactory.CreateSubHeader(list, "Championship Rival");
+
+            DriverData rivalDriver = string.IsNullOrEmpty(career.Save.rivalDriverId) ? null : data.FindDriver(career.Save.rivalDriverId);
+            if (rivalDriver == null)
+            {
+                BuildEmptyState(list, "No rival identified yet - keep racing. One is picked automatically once your results are close enough to compare against another driver.", RivalryPanelContentWidth);
+                return;
+            }
+
+            TeamData rivalTeam = data.FindTeam(rivalDriver.teamId);
+            Color rivalColor = rivalTeam != null ? rivalTeam.PrimaryUnityColor : UiFactory.Accent;
+
+            RectTransform identity = UiFactory.CreateRect(list, "Rival identity row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetSize(identity, RivalryPanelContentWidth, 56f);
+            RectTransform avatar = UiFactory.CreateProceduralHelmetIcon(identity, rivalDriver.abbreviation.ToUpperInvariant(), rivalColor, 48f);
+            SetTopLeft(avatar, 0f, 0f);
+            Text rivalName = UiFactory.CreateText(identity, "Rival name", rivalDriver.displayName, 18, Color.white, TextAnchor.UpperLeft);
+            rivalName.fontStyle = FontStyle.Bold;
+            SetTopLeft(rivalName.rectTransform, 60f, 2f);
+            UiFactory.SetSize(rivalName, RivalryPanelContentWidth - 60f, 24f);
+            Text rivalMeta = UiFactory.CreateText(identity, "Rival meta", rivalTeam != null ? rivalTeam.name : rivalDriver.teamId, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(rivalMeta.rectTransform, 60f, 28f);
+            UiFactory.SetSize(rivalMeta, RivalryPanelContentWidth - 60f, 20f);
+
+            List<string> traits = DriverTraits.Compute(rivalDriver);
+            if (traits.Count > 0)
+            {
+                RectTransform traitRow = UiFactory.CreateRect(list, "Rival traits row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                float traitHeight = UiFactory.CreateWrappingChipRow(traitRow, "Rival traits", traits, UiFactory.AccentAmber, 0f, 0f, RivalryPanelContentWidth);
+                UiFactory.SetSize(traitRow, RivalryPanelContentWidth, traitHeight);
+            }
+
+            // Wrapped in its own plain (non-layout) row rather than added to `list`
+            // directly: `list` has StretchListChildrenWidth applied for the
+            // comparison bars below, which would otherwise force this pill to
+            // stretch into a full-width bar instead of a compact badge.
+            int totalEvents = career.Save.rivalRaceWins + career.Save.rivalRaceLosses + career.Save.rivalQualifyingWins + career.Save.rivalQualifyingLosses;
+            RectTransform intensityRow = UiFactory.CreateRect(list, "Rival intensity row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetSize(intensityRow, RivalryPanelContentWidth, 30f);
+            Text intensityPill = UiFactory.CreatePillLabel(intensityRow, "Rivalry Intensity: " + RivalryIntensityLabel(totalEvents, career.Save.rivalRaceWins, career.Save.rivalRaceLosses),
+                RivalryIntensityColor(totalEvents, career.Save.rivalRaceWins, career.Save.rivalRaceLosses));
+            SetTopLeft(intensityPill.rectTransform, 0f, 2f);
+
+            UiFactory.CreateComparisonBar(list, "Race Wins - You / Rival", career.Save.rivalRaceWins, UiFactory.AccentGreen, career.Save.rivalRaceLosses, rivalColor,
+                Mathf.Max(1, career.Save.rivalRaceWins + career.Save.rivalRaceLosses), RivalryPanelContentWidth);
+            UiFactory.CreateComparisonBar(list, "Qualifying Wins - You / Rival", career.Save.rivalQualifyingWins, UiFactory.AccentGreen, career.Save.rivalQualifyingLosses, rivalColor,
+                Mathf.Max(1, career.Save.rivalQualifyingWins + career.Save.rivalQualifyingLosses), RivalryPanelContentWidth);
+
+            string momentum = career.Save.rivalRaceWins == career.Save.rivalRaceLosses
+                ? "Momentum: even at the moment."
+                : career.Save.rivalRaceWins > career.Save.rivalRaceLosses
+                    ? "<color=#6CFF8D>Momentum: you're ahead in the head-to-head.</color>"
+                    : "<color=#FF6C6C>Momentum: the rival has the edge right now.</color>";
+            Text momentumText = UiFactory.CreateText(list, "Rival momentum", momentum, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            momentumText.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(momentumText, RivalryPanelContentWidth, 22f);
+
+            Text incidentsNote = UiFactory.CreateText(list, "Rival incidents note",
+                "Incidents between the two of you aren't tracked individually yet - see the post-race report for full incident detail.",
+                12, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            incidentsNote.fontStyle = FontStyle.Italic;
+            incidentsNote.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(incidentsNote, RivalryPanelContentWidth, 34f);
+
+            string narrative = FindLatestNewsHeadline(career, CareerManager.NewsCategoryRivalry);
+            Text narrativeText = UiFactory.CreateText(list, "Rival narrative", string.IsNullOrEmpty(narrative)
+                ? "Next rival review in " + Mathf.Max(0, 4 - career.Save.roundsSinceRivalPicked) + " round(s)."
+                : narrative, 13, UiFactory.AccentCyan, TextAnchor.UpperLeft);
+            narrativeText.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(narrativeText, RivalryPanelContentWidth, 40f);
+        }
+
+        // Form card: recent finishing positions as tier-colored chips, qualifying
+        // trend and consistency pulled from the real (uncapped) round-by-round
+        // history rather than just the 3-race rolling window, DNF/incident count,
+        // and a teammate comparison - or a polished empty state pre-round-1.
+        void BuildFormSection(RectTransform card, CareerManager career)
+        {
+            RectTransform list = UiFactory.CreateRect(card, "Form list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
+            UiFactory.AddVerticalLayout(list, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.StretchListChildrenWidth(list);
+
+            UiFactory.CreateSubHeader(list, "Recent Form");
+
+            List<RaceResultRecord> raceHistory = career.Save.raceResults;
+            if (raceHistory == null || raceHistory.Count == 0)
+            {
+                BuildEmptyState(list, "No races completed yet - your form guide fills in after your first race weekend.", RivalryPanelContentWidth);
+                return;
+            }
+
+            // Last up to 5 races' player entries, oldest first - a genuinely real
+            // window rather than just the capped 3-race recentFormPositions list.
+            List<RaceResultEntry> recentPlayerResults = new List<RaceResultEntry>();
+            for (int i = Mathf.Max(0, raceHistory.Count - 5); i < raceHistory.Count; i++)
+            {
+                RaceResultEntry entry = raceHistory[i].results != null ? raceHistory[i].results.Find(e => e.isPlayer) : null;
+                if (entry != null)
+                {
+                    recentPlayerResults.Add(entry);
+                }
+            }
+
+            RectTransform positionsRow = UiFactory.CreateRect(list, "Form positions row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetSize(positionsRow, RivalryPanelContentWidth, 30f);
+            UiFactory.AddHorizontalLayout(positionsRow, 6, new RectOffset(0, 0, 0, 0));
+            for (int i = 0; i < recentPlayerResults.Count; i++)
+            {
+                int pos = recentPlayerResults[i].finishingPosition;
+                Color chipColor = pos <= 3 ? UiFactory.AccentGreen : (pos <= 10 ? UiFactory.AccentAmber : UiFactory.TextMuted);
+                UiFactory.CreatePillLabel(positionsRow, "P" + pos, chipColor);
+            }
+
+            Text formTrend = UiFactory.CreateText(list, "Form trend", FormTrendLabel(career.Save.recentFormPositions), 13, UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            UiFactory.SetSize(formTrend, RivalryPanelContentWidth, 20f);
+
+            List<int> qualiPositions = new List<int>();
+            List<QualifyingResultRecord> qualiHistory = career.Save.qualifyingResults;
+            if (qualiHistory != null)
+            {
+                for (int i = Mathf.Max(0, qualiHistory.Count - 5); i < qualiHistory.Count; i++)
+                {
+                    QualifyingResultEntry entry = qualiHistory[i].results != null ? qualiHistory[i].results.Find(e => e.isPlayer) : null;
+                    if (entry != null)
+                    {
+                        qualiPositions.Add(entry.position);
+                    }
+                }
+            }
+
+            string qualiLine = qualiPositions.Count == 0
+                ? "Qualifying pace: not enough data yet."
+                : "Qualifying pace: " + string.Join(" -> ", qualiPositions.ConvertAll(p => "P" + p).ToArray()) + "  (" + TrendWord(qualiPositions) + ")";
+            Text qualiText = UiFactory.CreateText(list, "Qualifying trend", qualiLine, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            qualiText.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(qualiText, RivalryPanelContentWidth, 20f);
+
+            string consistencyLine;
+            if (recentPlayerResults.Count < 2)
+            {
+                consistencyLine = "Consistency: not enough data yet.";
+            }
+            else
+            {
+                int best = int.MaxValue;
+                int worst = 0;
+                for (int i = 0; i < recentPlayerResults.Count; i++)
+                {
+                    best = Mathf.Min(best, recentPlayerResults[i].finishingPosition);
+                    worst = Mathf.Max(worst, recentPlayerResults[i].finishingPosition);
+                }
+
+                int spread = worst - best;
+                consistencyLine = "Consistency: " + (spread <= 3 ? "very consistent" : (spread <= 7 ? "somewhat variable" : "erratic")) + " (P" + best + " to P" + worst + ")";
+            }
+
+            Text consistencyText = UiFactory.CreateText(list, "Form consistency", consistencyLine, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            UiFactory.SetSize(consistencyText, RivalryPanelContentWidth, 20f);
+
+            int dnfCount = 0;
+            int incidentTotal = 0;
+            for (int i = 0; i < recentPlayerResults.Count; i++)
+            {
+                RaceResultEntry entry = recentPlayerResults[i];
+                if (!string.IsNullOrEmpty(entry.penaltyReason) && entry.penaltyReason.Contains("DNF"))
+                {
+                    dnfCount++;
+                }
+
+                incidentTotal += entry.trackLimitWarnings + entry.lockups;
+            }
+
+            Text incidentsText = UiFactory.CreateText(list, "Form incidents",
+                "DNFs: " + dnfCount + " / " + recentPlayerResults.Count + " recent races  ·  Incidents flagged: " + incidentTotal,
+                13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            UiFactory.SetSize(incidentsText, RivalryPanelContentWidth, 20f);
+
+            UiFactory.CreateDivider(list);
+            UiFactory.CreateSubHeader(list, "Teammate Comparison");
+            UiFactory.CreateComparisonBar(list, "Race Wins - You / Teammate", career.Save.teammateRaceWins, UiFactory.Accent, career.Save.teammateRaceLosses, UiFactory.AccentCyan,
+                Mathf.Max(1, career.Save.teammateRaceWins + career.Save.teammateRaceLosses), RivalryPanelContentWidth);
+            UiFactory.CreateComparisonBar(list, "Qualifying Wins - You / Teammate", career.Save.teammateQualifyingWins, UiFactory.Accent, career.Save.teammateQualifyingLosses, UiFactory.AccentCyan,
+                Mathf.Max(1, career.Save.teammateQualifyingWins + career.Save.teammateQualifyingLosses), RivalryPanelContentWidth);
+            Text teammateVerdict = UiFactory.CreateText(list, "Teammate verdict", TeammateBattleVerdict(career.Save.teammateRaceWins, career.Save.teammateRaceLosses), 13, UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            UiFactory.SetSize(teammateVerdict, RivalryPanelContentWidth, 20f);
+        }
+
+        // Team News: real articles (headline + body + category) from
+        // CareerManager.GetNewsArticles, each row sized from an estimate of how
+        // many lines its body will actually wrap to - the old version reused the
+        // CreateRect(...zero...)+SetFixedRowHeight pattern that never gave the row
+        // a real size, so every article rendered at zero height and the panel
+        // looked empty even when news existed.
+        void BuildTeamNewsSection(RectTransform container, CareerManager career)
+        {
+            RectTransform newsPanel = UiFactory.CreateScrollPanel(container, "News feed panel", new Vector2(0.015f, 0.05f), new Vector2(0.985f, 0.95f), 10, new RectOffset(20, 20, 16, 16));
+            UiFactory.StretchListChildrenWidth(newsPanel);
+            UiFactory.CreateSubHeader(newsPanel, "Team News");
+
+            List<NewsArticle> articles = career.GetNewsArticles();
+            if (articles == null || articles.Count == 0)
+            {
+                bool tooEarly = career.Save.currentSeason <= 1 && career.Save.currentRound <= 1;
+                BuildEmptyState(newsPanel, tooEarly
+                    ? "No news yet - team news (results, rivalries, R&D, race control drama) appears here after your first race weekend."
+                    : "Nothing to report right now - check back after your next session.", 1400f);
+                return;
+            }
+
+            const float newsWidth = 1600f;
+            const float bodyStartX = 210f;
+            const float bodyWidth = newsWidth - bodyStartX - 40f;
+            for (int i = articles.Count - 1; i >= 0; i--)
+            {
+                NewsArticle article = articles[i];
+                float bodyHeight = EstimateWrappedTextHeight(article.body, bodyWidth, 7f, 18f);
+                float rowHeight = Mathf.Max(64f, 40f + bodyHeight + 14f);
+
+                RectTransform row = UiFactory.CreateRect(newsPanel, "News row " + i, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                UiFactory.SetSize(row, newsWidth, rowHeight);
+                Image rowBackground = row.gameObject.AddComponent<Image>();
+                UiFactory.StyleRoundedSmall(rowBackground, i % 2 == 0 ? UiFactory.RowEven : UiFactory.RowOdd);
+
+                Text categoryPill = UiFactory.CreatePillLabel(row, article.category, NewsCategoryColor(article.category));
+                SetTopLeft(categoryPill.rectTransform, 14f, 10f);
+
+                Text headline = UiFactory.CreateText(row, "News headline", article.headline, 15, Color.white, TextAnchor.UpperLeft);
+                headline.fontStyle = FontStyle.Bold;
+                SetTopLeft(headline.rectTransform, bodyStartX, 8f);
+                UiFactory.SetSize(headline, newsWidth - bodyStartX - 190f, 22f);
+
+                Text roundLabel = UiFactory.CreateText(row, "News round", article.raceWeekLabel, 11, UiFactory.TextMuted, TextAnchor.UpperRight);
+                SetTopRight(roundLabel.rectTransform, 14f, 10f);
+                UiFactory.SetSize(roundLabel, 170f, 18f);
+
+                Text body = UiFactory.CreateText(row, "News body", article.body, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+                body.verticalOverflow = VerticalWrapMode.Overflow;
+                SetTopLeft(body.rectTransform, bodyStartX, 40f);
+                UiFactory.SetSize(body, bodyWidth, bodyHeight + 4f);
+
+                if (UiFactory.AnimationsEnabled)
+                {
+                    UiFadeIn reveal = row.gameObject.AddComponent<UiFadeIn>();
+                    reveal.startDelay = Mathf.Min(articles.Count - 1 - i, 10) * 0.03f;
+                }
+            }
+        }
+
+        // Small "not enough data" placeholder shared by the rivalry/form/news
+        // sections - a muted dot plus an explanatory line instead of a screen
+        // that just looks broken/blank before there's real history to show.
+        void BuildEmptyState(RectTransform list, string message, float width)
+        {
+            RectTransform row = UiFactory.CreateRect(list, "Empty state", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetSize(row, width, 90f);
+            Image dot = UiFactory.CreatePulsingDot(row, "Empty state dot", 10f, UiFactory.TextMuted);
+            SetTopLeft(dot.rectTransform, 2f, 6f);
+            Text text = UiFactory.CreateText(row, "Empty state text", message, 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            SetTopLeft(text.rectTransform, 22f, 0f);
+            UiFactory.SetSize(text, width - 22f, 86f);
+        }
+
+        // Rough text-wrap height estimate (character-count heuristic, same spirit
+        // as UiFactory.CreateWrappingChipRow's charWidth) so a news row's real
+        // RectTransform height actually matches how many lines its body wraps to,
+        // instead of a fixed guess that clips long articles or leaves a gap under
+        // short ones.
+        float EstimateWrappedTextHeight(string text, float width, float charWidth, float lineHeight)
+        {
+            if (string.IsNullOrEmpty(text) || width <= 0f)
+            {
+                return lineHeight;
+            }
+
+            int charsPerLine = Mathf.Max(10, Mathf.FloorToInt(width / charWidth));
+            int lines = Mathf.Max(1, Mathf.CeilToInt(text.Length / (float)charsPerLine));
+            return lines * lineHeight;
+        }
+
+        Color NewsCategoryColor(string category)
+        {
+            if (category == CareerManager.NewsCategoryRace) return UiFactory.Accent;
+            if (category == CareerManager.NewsCategoryRnd) return UiFactory.AccentCyan;
+            if (category == CareerManager.NewsCategoryRivalry) return UiFactory.AccentPurple;
+            if (category == CareerManager.NewsCategoryRaceControl) return UiFactory.AccentAmber;
+            if (category == CareerManager.NewsCategoryRegulations) return UiFactory.AccentAmber;
+            if (category == CareerManager.NewsCategoryRumour) return UiFactory.AccentGreen;
+            return UiFactory.TextMuted;
+        }
+
+        string FindLatestNewsHeadline(CareerManager career, string category)
+        {
+            List<NewsArticle> articles = career.GetNewsArticles();
+            if (articles == null)
+            {
+                return "";
+            }
+
+            for (int i = articles.Count - 1; i >= 0; i--)
+            {
+                if (articles[i].category == category)
+                {
+                    return articles[i].headline;
+                }
+            }
+
+            return "";
+        }
+
+        string TrendWord(List<int> positions)
+        {
+            if (positions.Count < 2)
+            {
+                return "steady";
+            }
+
+            int first = positions[0];
+            int last = positions[positions.Count - 1];
+            if (last < first) return "improving";
+            if (last > first) return "sliding";
+            return "steady";
+        }
+
+        string RivalryIntensityLabel(int totalEvents, int wins, int losses)
+        {
+            if (totalEvents == 0)
+            {
+                return "BUILDING";
+            }
+
+            float closeness = 1f - Mathf.Abs(wins - losses) / (float)Mathf.Max(1, totalEvents);
+            if (closeness >= 0.6f) return "FIERCE";
+            if (closeness >= 0.3f) return "WARM";
+            return "ONE-SIDED";
+        }
+
+        Color RivalryIntensityColor(int totalEvents, int wins, int losses)
+        {
+            if (totalEvents == 0)
+            {
+                return UiFactory.TextMuted;
+            }
+
+            float closeness = 1f - Mathf.Abs(wins - losses) / (float)Mathf.Max(1, totalEvents);
+            if (closeness >= 0.6f) return UiFactory.Accent;
+            if (closeness >= 0.3f) return UiFactory.AccentAmber;
+            return UiFactory.TextMuted;
         }
 
         string TraitLine(DriverData driver)
@@ -390,23 +732,6 @@ namespace LocalFormulaRacing
             return "Dead even with your teammate.";
         }
 
-        string FormGuideLine(List<int> recentFormPositions)
-        {
-            if (recentFormPositions == null || recentFormPositions.Count == 0)
-            {
-                return "No races completed yet.";
-            }
-
-            string line = "";
-            for (int i = 0; i < recentFormPositions.Count; i++)
-            {
-                if (i > 0) line += "  ->  ";
-                line += "P" + recentFormPositions[i];
-            }
-
-            return line;
-        }
-
         string FormTrendLabel(List<int> recentFormPositions)
         {
             if (recentFormPositions == null || recentFormPositions.Count < 2)
@@ -419,36 +744,6 @@ namespace LocalFormulaRacing
             if (last < first) return "Trend: improving.";
             if (last > first) return "Trend: sliding back.";
             return "Trend: holding steady.";
-        }
-
-        string ReputationTrendLine(List<int> reputationHistory)
-        {
-            if (reputationHistory == null || reputationHistory.Count == 0)
-            {
-                return "History: no races recorded yet.";
-            }
-
-            string line = "History: ";
-            for (int i = 0; i < reputationHistory.Count; i++)
-            {
-                if (i > 0) line += " -> ";
-                line += reputationHistory[i];
-            }
-
-            return line;
-        }
-
-        string ReputationTrendLabel(List<int> reputationHistory)
-        {
-            if (reputationHistory == null || reputationHistory.Count < 2)
-            {
-                return "Team confidence: establishing baseline.";
-            }
-
-            int delta = reputationHistory[reputationHistory.Count - 1] - reputationHistory[0];
-            if (delta > 0) return "Team confidence increased (+" + delta + ").";
-            if (delta < 0) return "Team confidence has dipped (" + delta + ").";
-            return "Team confidence is stable.";
         }
 
         // Separate onboarding/setup flow for choosing a driver name, team, or an
@@ -2321,7 +2616,14 @@ namespace LocalFormulaRacing
         public void ShowRaceTyreSelect(GameDataRepository data, CareerManager career, GameSettingsStore settings, bool careerRace)
         {
             Clear();
-            CalendarEventData current = careerRace ? career.CurrentEvent() : (data.Calendar.events.Count > 0 ? data.Calendar.events[0] : career.CurrentEvent());
+            // Quick Race now picks its track on ShowQuickRaceTrackSelect first;
+            // quickRaceSelectedEvent carries that choice here instead of this
+            // always defaulting to the calendar's first event. Falls back to the
+            // old default if this screen is somehow reached without going through
+            // track select (e.g. a saved shortcut), so it never crashes.
+            CalendarEventData current = careerRace
+                ? career.CurrentEvent()
+                : (quickRaceSelectedEvent != null ? quickRaceSelectedEvent : (data.Calendar.events.Count > 0 ? data.Calendar.events[0] : career.CurrentEvent()));
             if (current == null)
             {
                 current = new CalendarEventData { displayName = "Prototype GP", weatherProfile = "clear" };
@@ -2511,7 +2813,7 @@ namespace LocalFormulaRacing
             RectTransform footerLeft;
             RectTransform footerRight;
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
-            UiFactory.CreateSecondaryButton(footerLeft, careerRace ? "Back to Weekend" : "Back to Menu", () =>
+            UiFactory.CreateSecondaryButton(footerLeft, careerRace ? "Back to Weekend" : "Back to Track Select", () =>
             {
                 if (careerRace)
                 {
@@ -2519,7 +2821,7 @@ namespace LocalFormulaRacing
                 }
                 else
                 {
-                    bootstrap.ShowMainMenu();
+                    ShowQuickRaceTrackSelect(data, career, settings);
                 }
             });
             UiFactory.CreateSecondaryButton(footerLeft, "Car Setup", () => ShowCarSetup(data, career, settings, () => ShowRaceTyreSelect(data, career, settings, careerRace)));
@@ -2672,6 +2974,105 @@ namespace LocalFormulaRacing
                 string tyreName = TyreCompoundOrder[i];
                 CreateTyreCompoundCard(grid, tyreName, selectedCompound, weatherProfile, qualifying, () => onSelect(tyreName));
             }
+        }
+
+        // Quick Race track picker: the flow used to jump straight into tyre
+        // select using a hardcoded data.Calendar.events[0], so it always raced
+        // the same track no matter what the player wanted. This is now the
+        // actual first step (Track -> Race Setup -> Start Race); picking a row
+        // stores the event on quickRaceSelectedEvent and continues into the
+        // existing tyre-select/setup screen, which reads that field instead of
+        // defaulting. No minimap - TrackManager only builds track geometry
+        // inside an actual loaded race scene, so a fabricated preview isn't
+        // feasible here; the traits line (reused from ShowTrackInfo) gives the
+        // same "what kind of circuit is this" read as clean stat text instead.
+        public void ShowQuickRaceTrackSelect(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Quick race track background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateScreenHeader(background, "Quick Race - Select Track", "Pick a circuit to race. Conditions, layout notes and your best lap are shown per track.");
+
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Quick race track list", new Vector2(0.05f, 0.14f), new Vector2(0.68f, 0.86f), 10, new RectOffset(18, 18, 14, 14));
+            for (int i = 0; i < data.Calendar.events.Count; i++)
+            {
+                BuildQuickRaceTrackRow(content, data.Calendar.events[i], data, career, settings);
+            }
+
+            // Right rail: the one setting that isn't per-track (race length is a
+            // global session setting - see ShowSettings' own "Race Laps" row) plus
+            // a reminder that weather/conditions come from the track itself.
+            RectTransform rail = UiFactory.CreateGlassPanel(background, "Quick race setup rail", new Vector2(0.70f, 0.14f), new Vector2(0.95f, 0.86f), Vector2.zero, Vector2.zero, UiFactory.PanelDark);
+            RectTransform railList = UiFactory.CreateRect(rail, "Quick race setup rail list", Vector2.zero, Vector2.one, new Vector2(24f, 20f), new Vector2(-24f, -20f));
+            UiFactory.AddVerticalLayout(railList, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.StretchListChildrenWidth(railList);
+
+            UiFactory.CreateSubHeader(railList, "Race Setup");
+            RectTransform lapsControl;
+            UiFactory.CreateSettingRow(railList, "Race Laps", "Shorter for a quick blast, longer for a full race.", out lapsControl);
+            UiFactory.CreateCycleControl(lapsControl, settings.Current.laps.ToString(), () =>
+            {
+                settings.Current.laps = settings.Current.laps == 3 ? 5 : (settings.Current.laps == 5 ? 14 : 3);
+                settings.Save();
+                ShowQuickRaceTrackSelect(data, career, settings);
+            });
+
+            Text difficultyLine = UiFactory.CreateText(railList, "Quick race difficulty", "Difficulty: " + settings.Difficulty + "   ·   " + settings.Current.aiOpponentCount + " AI opponents", 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            difficultyLine.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(difficultyLine, 380f, 40f);
+
+            UiFactory.CreateDivider(railList);
+            Text hint = UiFactory.CreateText(railList, "Quick race hint",
+                "Weather and track conditions are set per circuit - pick a track on the left to see its forecast and layout notes, then move into car setup and tyre choice.",
+                13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            hint.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(hint, 380f, 100f);
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => bootstrap.ShowMainMenu());
+        }
+
+        // One selectable track row: name/round, country/weather/typical lap
+        // count, the same heuristic layout-character traits ShowTrackInfo shows,
+        // and the player's best recorded lap there if any.
+        void BuildQuickRaceTrackRow(RectTransform parent, CalendarEventData raceEvent, GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            RectTransform card = UiFactory.CreateRect(parent, raceEvent.trackId + " quick race card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(1180f, 92f);
+            Image background = card.gameObject.AddComponent<Image>();
+            background.color = UiFactory.PanelDark;
+            UiFactory.CreateBand(card, "Quick race card rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.Accent);
+
+            Text titleText = UiFactory.CreateText(card, "Quick race card title", "R" + raceEvent.round.ToString("00") + "  " + raceEvent.displayName, 19, UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            SetTopLeft(titleText.rectTransform, 16f, 12f);
+            UiFactory.SetSize(titleText, 520f, 26f);
+
+            Text metaText = UiFactory.CreateText(card, "Quick race card meta",
+                raceEvent.country + "   ·   " + WeatherProfileText(raceEvent.weatherProfile).ToUpperInvariant() + "   ·   " + raceEvent.laps25Percent + " LAPS TYPICAL",
+                14, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(metaText.rectTransform, 16f, 42f);
+            UiFactory.SetSize(metaText, 520f, 20f);
+
+            float best = PlayerRecordsStore.GetBestLap(raceEvent.trackId);
+            Text bestText = UiFactory.CreateText(card, "Quick race card best", best > 0f ? "BEST " + UiFactory.FormatTime(best) : "NO RECORD", 13, best > 0f ? UiFactory.AccentPurple : UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(bestText.rectTransform, 16f, 66f);
+            UiFactory.SetSize(bestText, 300f, 18f);
+
+            Text traitsText = UiFactory.CreateText(card, "Quick race card traits", TrackTraits(raceEvent), 13, UiFactory.AccentCyan, TextAnchor.UpperLeft);
+            traitsText.verticalOverflow = VerticalWrapMode.Overflow;
+            SetTopLeft(traitsText.rectTransform, 560f, 12f);
+            UiFactory.SetSize(traitsText, 460f, 72f);
+
+            Button select = UiFactory.CreatePrimaryButton(card, "Select", () => SelectQuickRaceTrack(raceEvent, data, career, settings));
+            UiFactory.SetSize(select, 130f, 44f);
+            SetTopRight(select.GetComponent<RectTransform>(), 16f, 24f);
+        }
+
+        void SelectQuickRaceTrack(CalendarEventData raceEvent, GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            quickRaceSelectedEvent = raceEvent;
+            ShowRaceTyreSelect(data, career, settings, false);
         }
 
         public void ShowTimeTrialSetup(GameDataRepository data, CareerManager career, GameSettingsStore settings)
@@ -3112,6 +3513,11 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Shared nominal content width for every hand-sized row in the results
+        // report (podium/highlights/badges/cards), matching the classification
+        // table below them so the whole report reads as one aligned column.
+        const float ReportContentWidth = 1240f;
+
         public void ShowResults(RaceManager race, List<RaceResultEntry> results, bool careerRace)
         {
             Clear();
@@ -3129,8 +3535,19 @@ namespace LocalFormulaRacing
             // P1 tallest) instead of a flat "Winner" stat card.
             if (results != null && results.Count > 0)
             {
+                UiFactory.CreateSubHeader(content, "Race Result");
                 RectTransform podiumRow = UiFactory.CreateRect(content, "Podium row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-                UiFactory.SetFixedRowHeight(podiumRow, 236f);
+                // Bug fix: this row (and every other CreateRect(...zero...) row below)
+                // used to only get a LayoutElement via SetFixedRowHeight, never an
+                // actual sizeDelta. CreateScrollPanel's VerticalLayoutGroup has
+                // childControlHeight/Width = false, so it stacks children using their
+                // *real* RectTransform size, not the LayoutElement - a zero-size row
+                // reports zero height AND zero width to the stack, so every section
+                // after it collapsed onto the same Y position and the podium's
+                // LowerCenter alignment centered inside a zero-width box (shoved off
+                // to the left). SetSize actually resizes the rect, which is what both
+                // the vertical stacking and the horizontal centering need.
+                UiFactory.SetSize(podiumRow, ReportContentWidth, 236f);
                 HorizontalLayoutGroup podiumLayout = UiFactory.AddHorizontalLayout(podiumRow, 16, new RectOffset(0, 0, 0, 0));
                 podiumLayout.childAlignment = TextAnchor.LowerCenter;
                 if (results.Count > 1)
@@ -3147,7 +3564,7 @@ namespace LocalFormulaRacing
 
             // Highlight cards: fastest lap, biggest mover, player result, cautions.
             RectTransform highlights = UiFactory.CreateRect(content, "Result highlights", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            UiFactory.SetFixedRowHeight(highlights, 74f);
+            UiFactory.SetSize(highlights, ReportContentWidth, 74f);
             UiFactory.AddHorizontalLayout(highlights, 14, new RectOffset(0, 0, 0, 0));
             if (results != null && results.Count > 0)
             {
@@ -3177,8 +3594,8 @@ namespace LocalFormulaRacing
             BuildReportBadgeRow(content, race, results, player);
             BuildReportCardRow(content, race, results, player);
 
-            RectTransform tableHeading = UiFactory.CreateText(content, "Classification heading", "FULL CLASSIFICATION", 14, UiFactory.Accent, TextAnchor.MiddleLeft).GetComponent<RectTransform>();
-            UiFactory.SetFixedRowHeight(tableHeading, 22f);
+            UiFactory.CreateDivider(content);
+            UiFactory.CreateSubHeader(content, "Full Classification");
 
             RectTransform headerRow = UiFactory.CreateTableRow(content, "Results header row", 1240f, 26f, false, 1);
             headerRow.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
@@ -3290,13 +3707,25 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            UiFactory.CreateSubHeader(content, "Achievements");
+
+            // Wrapping chip row instead of a single fixed HorizontalLayoutGroup line:
+            // a big race (podium + fastest lap + strategy win + safety car beneficiary
+            // + clean race, say) can produce five-plus badges, which used to just run
+            // off the right edge of the screen with no way to see them. The lead badge
+            // (Driver of the Day when present) keeps its own purple accent; the rest
+            // wrap in green beneath it.
             RectTransform row = UiFactory.CreateRect(content, "Report badges", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            UiFactory.SetFixedRowHeight(row, 32f);
-            UiFactory.AddHorizontalLayout(row, 10, new RectOffset(0, 0, 0, 0));
-            for (int i = 0; i < badges.Count; i++)
+            List<string> leadBadge = new List<string> { badges[0] };
+            List<string> restBadges = badges.GetRange(1, badges.Count - 1);
+            float rowHeight = UiFactory.CreateWrappingChipRow(row, "Report badges lead", leadBadge, UiFactory.AccentPurple, 0f, 0f, ReportContentWidth);
+            if (restBadges.Count > 0)
             {
-                UiFactory.CreatePillLabel(row, badges[i], i == 0 ? UiFactory.AccentPurple : UiFactory.AccentGreen);
+                rowHeight += 6f;
+                rowHeight += UiFactory.CreateWrappingChipRow(row, "Report badges rest", restBadges, UiFactory.AccentGreen, 0f, rowHeight, ReportContentWidth);
             }
+
+            UiFactory.SetSize(row, ReportContentWidth, rowHeight);
         }
 
         // Part 2: the actual report cards - teammate comparison, strategy summary,
@@ -3310,8 +3739,10 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            UiFactory.CreateSubHeader(content, "Race Summary");
+
             RectTransform row = UiFactory.CreateRect(content, "Report cards", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            UiFactory.SetFixedRowHeight(row, 190f);
+            UiFactory.SetSize(row, ReportContentWidth, 190f);
             UiFactory.AddHorizontalLayout(row, 14, new RectOffset(0, 0, 0, 0));
 
             RaceResultEntry winner = results[0];
@@ -3375,6 +3806,43 @@ namespace LocalFormulaRacing
                 RectTransform flatSpotBar = UiFactory.CreateStatBar(card, "Flat Spot", player.flatSpotPercent, 100f, UiFactory.AccentAmber, 268f);
                 PositionCardWidget(flatSpotBar, 16f, 6f);
             });
+
+            BuildChampionshipCard(row, race);
+        }
+
+        // Career/championship movement card: driver and constructor standing
+        // before/after this race, sourced from the RaceReportRecord CareerManager
+        // just appended in ApplyRaceResults (Part 2 "Championship Impact" data).
+        // Quick Race has no Career/standings context, so this card simply omits
+        // itself rather than showing fabricated numbers.
+        void BuildChampionshipCard(RectTransform row, RaceManager race)
+        {
+            if (race == null || !race.IsCareerRace || race.Career == null)
+            {
+                return;
+            }
+
+            List<RaceReportRecord> reports = race.Career.Save.raceReports;
+            RaceReportRecord latest = reports != null && reports.Count > 0 ? reports[reports.Count - 1] : null;
+            if (latest == null)
+            {
+                return;
+            }
+
+            StandingsMovementSummary standings = latest.standings;
+            string driverLine = standings.driverPositionBefore > 0
+                ? "Driver: P" + standings.driverPositionAfter + "  (was P" + standings.driverPositionBefore + ")"
+                : "Driver: P" + standings.driverPositionAfter + "  (debut points)";
+            string driverMoveLine = standings.driverPositionBefore <= 0 ? ""
+                : standings.driverPositionAfter < standings.driverPositionBefore ? "<color=#6CFF8D>Up " + (standings.driverPositionBefore - standings.driverPositionAfter) + " place(s)</color>"
+                : standings.driverPositionAfter > standings.driverPositionBefore ? "<color=#FF6C6C>Down " + (standings.driverPositionAfter - standings.driverPositionBefore) + " place(s)</color>"
+                : "Position held";
+            string pointsLine = "Points: " + standings.driverPointsAfter + "  (+" + (standings.driverPointsAfter - standings.driverPointsBefore) + ")";
+            string constructorLine = standings.constructorPositionAfter > 0
+                ? "Constructors: P" + standings.constructorPositionAfter + (standings.constructorPositionBefore > 0 && standings.constructorPositionBefore != standings.constructorPositionAfter ? "  (was P" + standings.constructorPositionBefore + ")" : "")
+                : "Constructors: --";
+
+            BuildReportCard(row, "Championship Impact", new[] { driverLine, driverMoveLine, pointsLine, constructorLine }, 280f, UiFactory.AccentPurple, null);
         }
 
         // Anchors a widget generated with the point-anchor / default-pivot

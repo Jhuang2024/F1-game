@@ -879,6 +879,11 @@ namespace LocalFormulaRacing
                 normalSpeedKph = Mathf.Max(normalSpeedKph, body.velocity.magnitude * 3.6f * 0.18f);
             }
 
+            if (impactType == DamageImpactType.Car)
+            {
+                DampenCarContactResponse(normalSpeedKph, sustained);
+            }
+
             Vector3 localPoint = transform.InverseTransformPoint(contact.point);
             float delta = Damage.AddImpact(impactSpeedKph, normalSpeedKph, localPoint, impactType, sustained);
             LastDamageDebug = "object=" + objectName +
@@ -907,6 +912,39 @@ namespace LocalFormulaRacing
                           " normalKph=" + normalSpeedKph.ToString("0.0") +
                           " total=" + Damage.OverallPercent.ToString("0.0") + "%");
             }
+        }
+
+        // Wheel-to-wheel collision tuning: PhysX's own default collision
+        // response (still substantial even with zero bounciness/near-zero
+        // friction - see GetCarBodyPhysicsMaterial in RaceManager) treated
+        // ordinary racing contact exactly the same as slamming into a wall,
+        // throwing the car sideways and spinning it far harder than a real
+        // light rub or side-by-side touch would. This bleeds off most of the
+        // collision-induced angular velocity and a portion of the lateral
+        // velocity change right after a car-to-car hit, scaled by how hard
+        // the contact actually was - a graze is barely felt, a genuinely
+        // hard side-on hit still unsettles the car, just not into a
+        // full-blown launch. Wall/barrier contact deliberately does NOT go
+        // through this - a real impact there should still throw the car
+        // around and matter physically.
+        void DampenCarContactResponse(float normalSpeedKph, bool sustained)
+        {
+            if (body == null || body.isKinematic)
+            {
+                return;
+            }
+
+            float severity = Mathf.Clamp01((normalSpeedKph - 30f) / 90f);
+            // Sustained (OnCollisionStay) contact is damped more gently per
+            // tick - it already reapplies every physics step for as long as
+            // the two cars stay touching, so a strong per-tick correction
+            // would read as the car being magnetically glued straight rather
+            // than naturally settling out of a prolonged rub.
+            float dampFactor = (sustained ? Mathf.Lerp(0.45f, 0.12f, severity) : Mathf.Lerp(0.82f, 0.28f, severity));
+            body.angularVelocity *= (1f - dampFactor);
+
+            Vector3 lateral = Vector3.Dot(body.velocity, transform.right) * transform.right;
+            body.velocity -= lateral * dampFactor * 0.6f;
         }
 
         DamageImpactType ClassifyDamageCollision(Collision collision, out string reason)

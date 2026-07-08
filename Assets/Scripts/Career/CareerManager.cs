@@ -318,6 +318,14 @@ namespace LocalFormulaRacing
         // -1 for any that aren't available to mean "no data" rather than "zero".
         public void ApplyRaceResults(CalendarEventData raceEvent, List<RaceResultEntry> results, int incidentCount, int safetyCarDeploymentCount, int aiOvertakesCompletedCount)
         {
+            // Snapshot the player's standing before this race's points land, so
+            // the post-race report can show actual movement rather than just an
+            // after-the-fact total (Part 2 report / Championship Impact card).
+            RaceResultEntry playerEntry = results.Find(entry => entry.isPlayer);
+            int driverPositionBefore = playerEntry != null ? FindStandingPosition(Save.driverStandings, playerEntry.driverId) : -1;
+            int driverPointsBefore = playerEntry != null ? FindStandingPoints(Save.driverStandings, playerEntry.driverId) : 0;
+            int constructorPositionBefore = playerEntry != null ? FindStandingPosition(Save.constructorStandings, playerEntry.teamId) : -1;
+
             for (int i = 0; i < results.Count; i++)
             {
                 int points = i < Points.Length ? Points[i] : 0;
@@ -370,8 +378,71 @@ namespace LocalFormulaRacing
 
             SortStandings(Save.driverStandings);
             SortStandings(Save.constructorStandings);
+
+            if (playerEntry != null)
+            {
+                report.standings.driverPositionBefore = driverPositionBefore;
+                report.standings.driverPointsBefore = driverPointsBefore;
+                report.standings.constructorPositionBefore = constructorPositionBefore;
+                report.standings.driverPositionAfter = FindStandingPosition(Save.driverStandings, playerEntry.driverId);
+                report.standings.driverPointsAfter = FindStandingPoints(Save.driverStandings, playerEntry.driverId);
+                report.standings.constructorPositionAfter = FindStandingPosition(Save.constructorStandings, playerEntry.teamId);
+                GenerateStandingsMovementNews(report.standings, raceEvent);
+            }
+
             GenerateFillerNewsIfNeeded();
             Write();
+        }
+
+        // Championship position lookup by id in an already-sorted standings
+        // list; -1 means "no entry yet" (debut) rather than a real position.
+        int FindStandingPosition(List<StandingEntry> standings, string id)
+        {
+            if (standings == null || string.IsNullOrEmpty(id))
+            {
+                return -1;
+            }
+
+            for (int i = 0; i < standings.Count; i++)
+            {
+                if (standings[i].id == id)
+                {
+                    return i + 1;
+                }
+            }
+
+            return -1;
+        }
+
+        int FindStandingPoints(List<StandingEntry> standings, string id)
+        {
+            if (standings == null || string.IsNullOrEmpty(id))
+            {
+                return 0;
+            }
+
+            StandingEntry entry = standings.Find(item => item.id == id);
+            return entry != null ? entry.points : 0;
+        }
+
+        // Only worth a headline when the player actually gained ground and had
+        // a real prior position to gain it from (debut races have no "before").
+        void GenerateStandingsMovementNews(StandingsMovementSummary standings, CalendarEventData raceEvent)
+        {
+            if (standings.driverPositionBefore <= 0 || standings.driverPositionAfter <= 0)
+            {
+                return;
+            }
+
+            if (standings.driverPositionAfter < standings.driverPositionBefore)
+            {
+                string eventName = raceEvent != null ? raceEvent.displayName : "the race";
+                AddNewsArticle(
+                    Save.playerDriverName + " climbs to P" + standings.driverPositionAfter + " in the championship",
+                    eventName + " moves " + Save.playerDriverName + " up from P" + standings.driverPositionBefore + " to P" +
+                    standings.driverPositionAfter + " in the drivers' standings on " + standings.driverPointsAfter + " points.",
+                    NewsCategoryGeneral);
+            }
         }
 
         // Part 20: aggregates the classification RaceManager already computed
@@ -756,7 +827,16 @@ namespace LocalFormulaRacing
                 }
             }
 
-            if (player.finishingPosition == 1)
+            bool playerDnf = !string.IsNullOrEmpty(player.penaltyReason) && player.penaltyReason.Contains("DNF");
+            if (playerDnf)
+            {
+                AddNewsArticle(
+                    Save.playerDriverName + " retires from " + eventName,
+                    Save.playerDriverName + "'s race at " + eventName + " ended early (" + player.penaltyReason +
+                    "), a blow to the team's points chase.",
+                    NewsCategoryRace);
+            }
+            else if (player.finishingPosition == 1)
             {
                 StandingEntry playerStanding = Save.driverStandings.Find(entry => entry.id == "player");
                 int winCount = playerStanding != null ? playerStanding.wins + 1 : 1;
@@ -1680,12 +1760,22 @@ namespace LocalFormulaRacing
             Save.pendingRndMessages.Add("Next regulation focus: " + string.Join(", ", Save.regulationAffectedCategories.ToArray()) + " projects are at risk at season end.");
         }
 
+        // The season-opening rival is picked from a different team on
+        // purpose - the player's own teammate is a distinct relationship
+        // (see EnsurePlayerReplacesDriverSeat/the "no other team on the
+        // grid" fallback above) and should never double as the rival here.
+        // GetAiRaceDrivers now guarantees the teammate is included (often
+        // first) so it can no longer be excluded implicitly by fill order;
+        // it has to be skipped explicitly by id instead.
         string PickRivalId(string teamId, string selectedDriverId)
         {
             List<DriverData> candidates = data.GetAiRaceDrivers(teamId, 8, selectedDriverId);
-            if (candidates.Count == 0)
+            for (int i = 0; i < candidates.Count; i++)
             {
-                return "";
+                if (candidates[i].id != selectedDriverId && candidates[i].teamId != teamId)
+                {
+                    return candidates[i].id;
+                }
             }
 
             for (int i = 0; i < candidates.Count; i++)
@@ -1696,7 +1786,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            return candidates[0].id;
+            return "";
         }
 
         int ContractTargetForTeam(string teamId)

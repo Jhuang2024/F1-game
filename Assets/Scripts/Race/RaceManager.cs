@@ -20,7 +20,11 @@ namespace LocalFormulaRacing
         public bool CanDrive { get { return StartCountdown <= 0f && !IsPaused && !IsRaceFinished && !qualifyingTransitionPending; } }
         public string SessionMessage { get; private set; }
         public string QualifyingFeedbackText { get; private set; }
-        public string EngineerMessageText { get { return engineerMessageTimer > 0f ? engineerMessageText : ""; } }
+        // Radio message stacking fix: the single engineerMessageText/Timer pair
+        // this used to read from is gone - see the activeEngineerMessages list
+        // and the ActiveEngineerMessageCount/GetActiveEngineerMessage* accessors
+        // further down for the multi-message replacement RaceHud's radio stack
+        // now reads from.
         public string RaceStartReactionText { get { return reactionDisplayTimer > 0f && playerReactionTime >= 0f ? "RT " + playerReactionTime.ToString("0.000") + "s" : ""; } }
         public bool LastQualifyingResultWasSimulated { get { return lastQualifyingResultWasSimulated; } }
         public int RaceStartLightCount
@@ -199,40 +203,62 @@ namespace LocalFormulaRacing
         bool lastQualifyingResultWasSimulated;
         float raceStartSequenceDuration = 4.2f;
         bool preserveQualifyingState;
-        string engineerMessageText = "";
-        float engineerMessageTimer;
-        float engineerMessageAnimTimer;
         float engineerCooldown;
 
-        // Part 1: real radio message queue. PostEngineerMessage used to just
-        // overwrite engineerMessageText/engineerMessageTimer outright, so two
-        // messages triggered in the same window silently stepped on each other.
-        // Now non-priority lines queue up (capped so a chatty session can't spam
-        // a wall of messages) and priority lines interrupt whatever is currently
-        // showing but do not wipe what's already queued behind it.
-        struct EngineerMessageEntry { public string text; public float duration; }
-        readonly List<EngineerMessageEntry> engineerMessageQueue = new List<EngineerMessageEntry>();
-        const int EngineerMessageQueueCap = 4;
-        const float EngineerMessageAnimInDuration = 0.35f;
-        const float EngineerMessageAnimOutDuration = 0.4f;
-        public int EngineerMessageQueueDepth { get { return engineerMessageQueue.Count; } }
-        // 0-1 slide/fade progress: rises for the first EngineerMessageAnimInDuration
-        // seconds after a message starts, sits at 1 while it holds, then falls back
-        // toward 0 over the last EngineerMessageAnimOutDuration seconds before the
-        // next message takes over - the HUD reads this to slide/fade the radio card.
-        public float EngineerMessageAnimProgress01
+        // Radio message stacking fix: this used to be a single "now showing"
+        // message plus a queue of everything waiting its turn, so a pit call
+        // arriving while a DRS/tyre/gap flavor line was showing had to wait
+        // for that line to fully finish before it ever appeared - exactly the
+        // "important messages get delayed/hidden during busy moments" bug
+        // report. Now every message that fires becomes its own independently
+        // timed, independently fading entry in activeEngineerMessages (newest
+        // first) and RaceHud renders as many of them as are currently active
+        // as separate stacked cards, instead of forcing everything through one
+        // shared text slot. Capped so a chatty session can't wall-of-text the
+        // HUD; a low-priority entry is evicted early (not silently dropped -
+        // its natural age already meant it was closest to expiring anyway) to
+        // make room for a new one once the cap is hit.
+        struct EngineerMessageEntry
         {
-            get
-            {
-                if (engineerMessageTimer <= 0f)
-                {
-                    return 0f;
-                }
+            public string text;
+            public float remaining;
+            public float age;
+            public bool priority;
+        }
+        readonly List<EngineerMessageEntry> activeEngineerMessages = new List<EngineerMessageEntry>();
+        const int MaxActiveEngineerMessages = 4;
+        const float EngineerMessageAnimInDuration = 0.3f;
+        const float EngineerMessageAnimOutDuration = 0.4f;
+        const float PriorityEngineerMessageDuration = 8.5f;
+        const float RoutineEngineerMessageDuration = 5f;
 
-                float inProgress = Mathf.Clamp01(engineerMessageAnimTimer / EngineerMessageAnimInDuration);
-                float outProgress = Mathf.Clamp01(engineerMessageTimer / EngineerMessageAnimOutDuration);
-                return Mathf.Min(inProgress, outProgress);
+        public int ActiveEngineerMessageCount { get { return activeEngineerMessages.Count; } }
+
+        public string GetActiveEngineerMessageText(int index)
+        {
+            return index >= 0 && index < activeEngineerMessages.Count ? activeEngineerMessages[index].text : "";
+        }
+
+        public bool GetActiveEngineerMessagePriority(int index)
+        {
+            return index >= 0 && index < activeEngineerMessages.Count && activeEngineerMessages[index].priority;
+        }
+
+        // 0-1 slide/fade progress for one stacked entry: rises over
+        // EngineerMessageAnimInDuration after it first appears, holds at 1,
+        // then falls over EngineerMessageAnimOutDuration right before it
+        // expires and is removed.
+        public float GetActiveEngineerMessageFade(int index)
+        {
+            if (index < 0 || index >= activeEngineerMessages.Count)
+            {
+                return 0f;
             }
+
+            EngineerMessageEntry entry = activeEngineerMessages[index];
+            float inProgress = Mathf.Clamp01(entry.age / EngineerMessageAnimInDuration);
+            float outProgress = Mathf.Clamp01(entry.remaining / EngineerMessageAnimOutDuration);
+            return Mathf.Min(inProgress, outProgress);
         }
 
         float lightsOutTime;
@@ -710,6 +736,7 @@ namespace LocalFormulaRacing
                 }
 
                 HandleFallRespawn(participant);
+                HandleStuckEscalation(participant);
                 HandleTrackLimits(participant);
                 HandlePitService(participant);
                 HandleFinish(participant);
@@ -2630,8 +2657,7 @@ namespace LocalFormulaRacing
 
         void ResetEngineerState()
         {
-            engineerMessageText = "";
-            engineerMessageTimer = 0f;
+            activeEngineerMessages.Clear();
             engineerCooldown = 0f;
             lastEngineerPitLapPrompt = -1;
             engineerWeatherSent = false;
@@ -2648,8 +2674,6 @@ namespace LocalFormulaRacing
             lastGapReportLap = -1;
             weatherTransitionDone = false;
             weatherSecondTransitionDone = false;
-            engineerMessageQueue.Clear();
-            engineerMessageAnimTimer = 0f;
             playerLastPosition = -1;
             overtakeCheckTimer = 0f;
             sessionFastestLap = -1f;
@@ -2783,42 +2807,36 @@ namespace LocalFormulaRacing
 
         void TickEngineerTimers()
         {
-            engineerMessageAnimTimer += Time.deltaTime;
-            engineerMessageTimer = Mathf.Max(0f, engineerMessageTimer - Time.deltaTime);
             engineerCooldown = Mathf.Max(0f, engineerCooldown - Time.deltaTime);
             reactionDisplayTimer = Mathf.Max(0f, reactionDisplayTimer - Time.deltaTime);
             playerResetCooldown = Mathf.Max(0f, playerResetCooldown - Time.deltaTime);
             engineerDrsWarningCooldown = Mathf.Max(0f, engineerDrsWarningCooldown - Time.deltaTime);
 
-            if (engineerMessageTimer <= 0f && engineerMessageQueue.Count > 0)
+            // Radio message stacking fix: every active entry ages/counts down
+            // independently and is removed the instant it expires - there is
+            // no single "current" message to advance from a queue any more,
+            // each one lives and dies entirely on its own timer.
+            for (int i = activeEngineerMessages.Count - 1; i >= 0; i--)
             {
-                AdvanceEngineerMessageQueue();
+                EngineerMessageEntry entry = activeEngineerMessages[i];
+                entry.age += Time.deltaTime;
+                entry.remaining -= Time.deltaTime;
+                if (entry.remaining <= 0f)
+                {
+                    activeEngineerMessages.RemoveAt(i);
+                    continue;
+                }
+
+                activeEngineerMessages[i] = entry;
             }
         }
 
-        void AdvanceEngineerMessageQueue()
-        {
-            if (engineerMessageQueue.Count == 0)
-            {
-                engineerMessageText = "";
-                engineerMessageTimer = 0f;
-                return;
-            }
-
-            EngineerMessageEntry next = engineerMessageQueue[0];
-            engineerMessageQueue.RemoveAt(0);
-            engineerMessageText = next.text;
-            engineerMessageTimer = next.duration;
-            engineerMessageAnimTimer = 0f;
-        }
-
-        // Part 1: messages now queue instead of instantly replacing one another.
-        // Non-priority lines (routine pace/tyre/strategy chatter) append to a
-        // small capped queue and animate in once their turn comes; priority lines
-        // (safety car, penalties, pit calls) interrupt whatever is showing right
-        // now but leave the rest of the queue intact so nothing is lost, just
-        // delayed. Settings.raceControlMessages / engineerMessageVerbosity can
-        // mute all of this without touching a single call site.
+        // Radio message stacking fix: every message that fires becomes its own
+        // independently-timed stack entry (newest inserted at index 0, so
+        // RaceHud's newest-on-top rendering just walks the list in order)
+        // instead of one shared "now showing" slot with everything else stuck
+        // waiting behind it. Settings.raceControlMessages / engineerMessageVerbosity
+        // can still mute all of this without touching a single call site.
         void PostEngineerMessage(string message, bool priority)
         {
             if (string.IsNullOrEmpty(message))
@@ -2832,14 +2850,9 @@ namespace LocalFormulaRacing
             }
 
             string formatted = "ENGINEER: " + message;
-            if (formatted == engineerMessageText && engineerMessageTimer > 1f)
+            for (int i = 0; i < activeEngineerMessages.Count; i++)
             {
-                return;
-            }
-
-            for (int i = 0; i < engineerMessageQueue.Count; i++)
-            {
-                if (engineerMessageQueue[i].text == formatted)
+                if (activeEngineerMessages[i].text == formatted)
                 {
                     return;
                 }
@@ -2851,25 +2864,53 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            float duration = priority ? 7.5f : 5.5f;
-            if (priority)
+            if (activeEngineerMessages.Count >= MaxActiveEngineerMessages)
             {
-                engineerMessageQueue.Insert(0, new EngineerMessageEntry { text = formatted, duration = duration });
-                AdvanceEngineerMessageQueue();
-            }
-            else
-            {
-                if (engineerMessageQueue.Count >= EngineerMessageQueueCap)
+                // Make room rather than silently dropping the new (just
+                // triggered, presumably relevant right now) message. Only
+                // ever evicts a non-priority entry - the one closest to
+                // expiring anyway - so a still-fresh safety-car/pit/damage
+                // call is never bumped by routine flavor chatter. If every
+                // active slot happens to be priority, a new priority message
+                // may still evict the priority entry closest to expiring;
+                // a new non-priority message just waits for natural expiry.
+                int evictIndex = -1;
+                for (int i = 0; i < activeEngineerMessages.Count; i++)
+                {
+                    if (activeEngineerMessages[i].priority)
+                    {
+                        continue;
+                    }
+
+                    if (evictIndex < 0 || activeEngineerMessages[i].remaining < activeEngineerMessages[evictIndex].remaining)
+                    {
+                        evictIndex = i;
+                    }
+                }
+
+                if (evictIndex < 0 && priority)
+                {
+                    for (int i = 0; i < activeEngineerMessages.Count; i++)
+                    {
+                        if (evictIndex < 0 || activeEngineerMessages[i].remaining < activeEngineerMessages[evictIndex].remaining)
+                        {
+                            evictIndex = i;
+                        }
+                    }
+                }
+
+                if (evictIndex >= 0)
+                {
+                    activeEngineerMessages.RemoveAt(evictIndex);
+                }
+                else
                 {
                     return;
                 }
-
-                engineerMessageQueue.Add(new EngineerMessageEntry { text = formatted, duration = duration });
-                if (engineerMessageTimer <= 0f)
-                {
-                    AdvanceEngineerMessageQueue();
-                }
             }
+
+            float duration = priority ? PriorityEngineerMessageDuration : RoutineEngineerMessageDuration;
+            activeEngineerMessages.Insert(0, new EngineerMessageEntry { text = formatted, remaining = duration, age = 0f, priority = priority });
         }
 
         // Settings.cameraShakeLevel: 0 Off, 1 Low, 2 Standard (matches the historic
@@ -4832,110 +4873,58 @@ namespace LocalFormulaRacing
             return teamDrivers.Count > 0 ? teamDrivers[0].id : "";
         }
 
-        // Defensive duplicate check (career roster fix): the normal exclusion
-        // above (via Data.GetAiRaceDrivers's replacedDriverId param) is the
-        // primary mechanism, but this is the one place all three roster builders
-        // (race grid, live qualifying, sim qualifying) funnel through, so a
-        // second, independent identity check lives here as a safety net - if the
-        // primary exclusion is ever wrong (a future bug, a save file from before
-        // this fix, or a custom driver name that happens to collide with a real
-        // one), the player never ends up racing against an AI copy of themselves.
-        // Removing a collision without backfilling would silently shrink the
-        // grid below 22, so a replacement is pulled from the full driver
-        // database rather than just dropping the seat.
+        // Roster/participant construction, root-caused: the player occupies
+        // exactly one seat on their team, identified purely by driver id
+        // (Career.Save.selectedDriverId when playing as a real driver, or the
+        // team's default seat id otherwise - see ReplacedDriverIdForPlayerTeam).
+        // The teammate is, unconditionally, "the other driver registered to
+        // that same team whose id is not the player's seat id" -
+        // Data.GetAiRaceDrivers/FindTeammateDriver now guarantee that driver
+        // is resolved and included by id before anything else fills the
+        // field, so there is no fill-order or count arithmetic for the
+        // teammate's presence to depend on. This is the one place all three
+        // roster builders (race grid, live qualifying, sim qualifying) funnel
+        // through; the loop below is a pure id-based safety net (never a
+        // display-name comparison, which could misfire on a coincidental
+        // name match) in case a stale save or future caller ever hands in a
+        // roster that still contains the player's own seat id.
         List<DriverData> GetDefensiveAiRoster(string playerTeamId, string playerDisplayName)
         {
             string replacedId = ReplacedDriverIdForPlayerTeam(playerTeamId);
             List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, replacedId);
 
-            string playerDriverId = Career != null && Career.Save != null ? Career.Save.selectedDriverId : "";
-            // Sim qualifying never spawns a PlayerParticipant (it's a pure
-            // simulation), so the identity has to come from whichever caller
-            // actually knows the player's name for this session rather than
-            // reading a participant reference that may be null or stale here.
-            string playerName = string.IsNullOrEmpty(playerDisplayName) && PlayerParticipant != null ? PlayerParticipant.driverName : playerDisplayName;
-            int removed = 0;
             for (int i = aiDrivers.Count - 1; i >= 0; i--)
             {
-                DriverData candidate = aiDrivers[i];
-                bool idCollision = !string.IsNullOrEmpty(playerDriverId) && candidate.id == playerDriverId;
-                bool nameCollision = !string.IsNullOrEmpty(playerName) && candidate.displayName == playerName;
-                if (idCollision || nameCollision)
+                if (aiDrivers[i].id == replacedId)
                 {
-                    GameLog.Warn("[Roster] Removed duplicate AI driver '" + candidate.displayName + "' (" + candidate.id + ") - matches the player's identity.");
+                    GameLog.Warn("[Roster] Removed AI driver '" + aiDrivers[i].displayName + "' (" + aiDrivers[i].id + ") - matches the player's own seat id.");
                     aiDrivers.RemoveAt(i);
-                    removed++;
                 }
             }
 
-            for (int i = 0; removed > 0 && i < Data.Drivers.drivers.Count; i++)
+            DriverData teammate = Data.FindTeammateDriver(playerTeamId, replacedId);
+            if (teammate != null)
             {
-                DriverData candidate = Data.Drivers.drivers[i];
-                if (candidate.id == replacedId || candidate.id == playerDriverId || candidate.displayName == playerName)
-                {
-                    continue;
-                }
-
-                bool alreadyUsed = false;
+                bool teammateIncluded = false;
                 for (int j = 0; j < aiDrivers.Count; j++)
                 {
-                    if (aiDrivers[j].id == candidate.id)
+                    if (aiDrivers[j].id == teammate.id)
                     {
-                        alreadyUsed = true;
+                        teammateIncluded = true;
                         break;
                     }
                 }
 
-                if (!alreadyUsed)
+                if (!teammateIncluded)
                 {
-                    aiDrivers.Add(candidate);
-                    removed--;
-                }
-            }
-
-            // Missing-teammate fix: Data.GetAiRaceDrivers only backfills
-            // same-team drivers (including the player's actual teammate)
-            // once every other team's drivers are already in the list - a
-            // two-pass "exclude the whole player team, then top up from the
-            // full roster" design that only happens to include the teammate
-            // because FullWeekendAiCount currently lines up exactly with the
-            // roster size. That's fragile (the shared GetAiRaceDrivers is
-            // also used by PickRivalId with a much smaller count, where the
-            // same-team backfill pass never runs at all), so guarantee the
-            // teammate's presence explicitly and directly here instead of
-            // depending on that arithmetic coincidence. Evicts the single
-            // lowest-priority (last) entry to make room rather than growing
-            // the field past its intended size.
-            for (int i = 0; i < Data.Drivers.drivers.Count; i++)
-            {
-                DriverData candidate = Data.Drivers.drivers[i];
-                if (candidate.teamId != playerTeamId || candidate.id == replacedId)
-                {
-                    continue;
-                }
-
-                bool alreadyIncluded = false;
-                for (int j = 0; j < aiDrivers.Count; j++)
-                {
-                    if (aiDrivers[j].id == candidate.id)
+                    GameLog.Warn("[Roster] Teammate '" + teammate.displayName + "' (" + teammate.id + ") was missing from the AI roster - adding explicitly.");
+                    if (aiDrivers.Count >= FullWeekendAiCount && aiDrivers.Count > 0)
                     {
-                        alreadyIncluded = true;
-                        break;
+                        aiDrivers.RemoveAt(aiDrivers.Count - 1);
                     }
-                }
 
-                if (alreadyIncluded)
-                {
-                    continue;
+                    aiDrivers.Insert(0, teammate);
                 }
-
-                GameLog.Warn("[Roster] Teammate '" + candidate.displayName + "' (" + candidate.id + ") was missing from the AI roster - adding explicitly.");
-                if (aiDrivers.Count >= FullWeekendAiCount && aiDrivers.Count > 0)
-                {
-                    aiDrivers.RemoveAt(aiDrivers.Count - 1);
-                }
-
-                aiDrivers.Add(candidate);
             }
 
             return aiDrivers;
@@ -5263,6 +5252,86 @@ namespace LocalFormulaRacing
             GameLog.Warn("[RoadPhysics] Recovered " + participant.driverName +
                              " from an invalid below-track position (offset=" + heightOffset.ToString("0.0") +
                              "m). respawn=" + respawnPosition);
+        }
+
+        // Stuck-recovery escalation fix: AiVehicleController's own gentle
+        // reverse/reorient maneuver (RecoveryManeuver in AiVehicleController.cs)
+        // can genuinely fail to free a car wedged against a barrier, kerb, or
+        // another car at a bad angle - and nothing previously escalated past
+        // it, so a car that kept failing the same gentle maneuver could sit
+        // there indefinitely (or only ever get removed by waiting out the
+        // full StrandedRetireSeconds timer, well after it should have just
+        // been able to keep racing). Once several real attempts have
+        // genuinely failed - not one bad tick, a sustained pattern of still
+        // barely moving after repeated tries - force a safe reposition to the
+        // last known good on-track position/heading, the same
+        // lastSafePosition mechanism HandleFallRespawn already uses for cars
+        // that fall off an elevated section. Gated by both an attempt-count
+        // floor and its own per-car cooldown so this is a genuine last
+        // resort, never a repositioning loop, and it deliberately does NOT
+        // register an incident/yellow flag itself - this is race control
+        // quietly fixing a stuck car, not a new on-track event.
+        const int StuckRepositionAttemptThreshold = 3;
+        const float StuckRepositionCooldownSeconds = 25f;
+
+        void HandleStuckEscalation(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null || Track == null ||
+                participant.retired || participant.finished || !participant.hasLastSafePosition ||
+                participant.isRaceControlAutopilot || participant.isPitting || participant.pitPhase != PitPhase.None)
+            {
+                return;
+            }
+
+            participant.stuckRepositionCooldown = Mathf.Max(0f, participant.stuckRepositionCooldown - Time.deltaTime);
+            if (participant.stuckRepositionCooldown > 0f)
+            {
+                return;
+            }
+
+            bool genuinelyStuck = (participant.recoveryState == CarRecoveryState.Recovering || participant.recoveryState == CarRecoveryState.ActuallyStranded) &&
+                participant.recoveryAttemptCount >= StuckRepositionAttemptThreshold &&
+                Mathf.Abs(participant.vehicle.CurrentSpeedKph) < 5f;
+
+            if (!genuinelyStuck)
+            {
+                return;
+            }
+
+            Vector3 respawnPosition = participant.lastSafePosition + Vector3.up * 0.35f;
+            Quaternion respawnRotation = participant.lastSafeRotation;
+            Rigidbody body = participant.GetComponent<Rigidbody>();
+            if (body != null)
+            {
+                body.velocity = Vector3.zero;
+                body.angularVelocity = Vector3.zero;
+                body.position = respawnPosition;
+                body.rotation = respawnRotation;
+            }
+            else
+            {
+                participant.transform.position = respawnPosition;
+                participant.transform.rotation = respawnRotation;
+            }
+
+            participant.recoveryAttemptCount = 0;
+            participant.stoppedOnTrackTimer = 0f;
+            participant.wrongWayTimer = 0f;
+            participant.stuckRepositionCooldown = StuckRepositionCooldownSeconds;
+            participant.recoveryGraceTimer = RecoveryGraceSeconds;
+
+            AiVehicleController ai = participant.GetComponent<AiVehicleController>();
+            if (ai != null)
+            {
+                ai.ResyncAfterForcedReposition();
+            }
+
+            // recoveryAttemptCount only ever increments inside
+            // AiVehicleController's own maneuver-complete callback, so this
+            // path naturally never triggers for the player (no
+            // AiVehicleController component) without needing an explicit
+            // isPlayer guard here.
+            GameLog.Warn("[RaceControl] " + participant.driverName + " force-repositioned after " + StuckRepositionAttemptThreshold + "+ failed recovery attempts (last resort).");
         }
 
         GameObject CreateOpenWheelCar(string driverName, Color primary, Color secondary)
@@ -5996,11 +6065,70 @@ namespace LocalFormulaRacing
             participant.vehicle.SetPitServiceHold(true);
             participant.vehicle.SetPitGuidance(true);
             participant.vehicle.ClearPitRequest();
+            // Pit lane animation fix: start the waypoint model fresh from
+            // wherever the car actually is right now, not leftover state from
+            // a previous stop earlier in the race.
+            participant.hasPitGuideState = false;
             if (participant.isPlayer)
             {
                 SessionMessage = "Pit entry: limiter active";
                 PostEngineerMessage("Pit entry. Hold steady, box " + (participant.pitBoxIndex + 1) + " is ready with " + participant.nextPitCompound + ".", true);
             }
+        }
+
+        // Pit lane animation fix (core): every pit-guided car chases a
+        // (distance-along-track, lateral-offset) waypoint that advances a
+        // bounded step toward the phase's true target each tick, instead of
+        // GuideToPitPose being aimed directly at a single far-away fixed pose.
+        // Sampling the advancing waypoint through Track.SamplePitLanePose (the
+        // same SampleAtDistance the whole track/pit lane surface is built
+        // from) means the path always follows the track/pit lane's own
+        // curvature; the bounded lateral rate is what turns a lane change
+        // into a gradual diagonal peel instead of an instant sideways snap.
+        const float PitEntryPaceKph = 68f;
+        const float PitLanePaceKph = 58f;
+        const float PitReleasePaceKph = 74f;
+        const float PitGuideLateralRateMetersPerSecond = 9f;
+        // Generous relative to the above paces so GuideToPitPose's own
+        // MoveTowards/RotateTowards - now chasing a waypoint only a fraction
+        // of a metre away each frame rather than one potentially 100+m away -
+        // closes that tiny gap immediately instead of visibly lagging behind
+        // the logical waypoint it's supposed to be tracking.
+        const float PitGuideChaseSpeed = 45f;
+        const float PitGuideChaseRotateSpeed = 260f;
+
+        void AdvancePitGuideTarget(RaceParticipant participant, float targetDistance, float targetLateral, float paceKph, out Vector3 position, out Quaternion rotation)
+        {
+            if (!participant.hasPitGuideState)
+            {
+                TrackProgress current = Track.GetProgress(participant.transform.position);
+                participant.pitGuideDistance = current.distance;
+                participant.pitGuideLateral = current.lateralDistance;
+                participant.hasPitGuideState = true;
+            }
+
+            float remaining = Track.WrapDistance(targetDistance - participant.pitGuideDistance);
+            if (remaining > Track.length * 0.5f)
+            {
+                remaining -= Track.length;
+            }
+
+            float maxStep = Mathf.Max(0.01f, paceKph / 3.6f * Time.deltaTime);
+            float step = Mathf.Clamp(remaining, -maxStep, maxStep);
+            participant.pitGuideDistance = Track.WrapDistance(participant.pitGuideDistance + step);
+            participant.pitGuideLateral = Mathf.MoveTowards(participant.pitGuideLateral, targetLateral, PitGuideLateralRateMetersPerSecond * Time.deltaTime);
+            Track.SamplePitLanePose(participant.pitGuideDistance, participant.pitGuideLateral, out position, out rotation);
+        }
+
+        bool IsPitGuideNear(RaceParticipant participant, float targetDistance, float targetLateral, float distanceTolerance, float lateralTolerance)
+        {
+            float delta = Mathf.Abs(Track.WrapDistance(targetDistance - participant.pitGuideDistance));
+            if (delta > Track.length * 0.5f)
+            {
+                delta = Track.length - delta;
+            }
+
+            return delta <= distanceTolerance && Mathf.Abs(participant.pitGuideLateral - targetLateral) <= lateralTolerance;
         }
 
         void UpdatePitEntry(RaceParticipant participant)
@@ -6014,39 +6142,35 @@ namespace LocalFormulaRacing
                 // cleared the entry point, mirroring how GetPitQueuePose already
                 // holds cars back from a shared box target.
                 RaceParticipant entryBlocker = FindPitEntryCarAhead(participant);
+                Vector3 entryTargetPosition;
+                Quaternion entryTargetRotation;
                 if (entryBlocker != null)
                 {
-                    Vector3 holdPosition;
-                    Quaternion holdRotation;
-                    GetPitEntryHoldPose(participant, out holdPosition, out holdRotation);
-                    participant.vehicle.SetPitLimiter(true);
-                    participant.vehicle.SetPitServiceHold(true);
-                    participant.vehicle.GuideToPitPose(holdPosition, holdRotation, 14f, 130f);
-                    if (participant.isPlayer)
-                    {
-                        SessionMessage = "Pit entry: holding for the car ahead";
-                    }
-
-                    return;
+                    GetPitEntryHoldPose(participant, out entryTargetPosition, out entryTargetRotation);
+                }
+                else
+                {
+                    Track.GetPitEntryPose(out entryTargetPosition, out entryTargetRotation);
                 }
 
-                Vector3 entryPosition;
-                Quaternion entryRotation;
-                Track.GetPitEntryPose(out entryPosition, out entryRotation);
+                TrackProgress entryTargetProgress = Track.GetProgress(entryTargetPosition);
                 participant.vehicle.SetPitLimiter(true);
                 participant.vehicle.SetPitServiceHold(true);
-                float entryDistance = participant.vehicle.GuideToPitPose(entryPosition, entryRotation, 14f, 130f);
+                Vector3 entryWaypoint;
+                Quaternion entryWaypointRotation;
+                AdvancePitGuideTarget(participant, entryTargetProgress.distance, entryTargetProgress.lateralDistance, PitEntryPaceKph, out entryWaypoint, out entryWaypointRotation);
+                participant.vehicle.GuideToPitPose(entryWaypoint, entryWaypointRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed);
                 if (participant.isPlayer)
                 {
-                    SessionMessage = "Pit entry: turning into lane";
+                    SessionMessage = entryBlocker != null ? "Pit entry: holding for the car ahead" : "Pit entry: turning into lane";
                 }
 
-                if (entryDistance > 0.55f)
+                if (entryBlocker != null || !IsPitGuideNear(participant, entryTargetProgress.distance, entryTargetProgress.lateralDistance, 1.5f, 0.35f))
                 {
                     return;
                 }
 
-                participant.vehicle.SnapToPitPose(entryPosition, entryRotation);
+                participant.vehicle.SnapToPitPose(entryTargetPosition, entryTargetRotation);
                 participant.pitEntryAligned = true;
             }
 
@@ -6064,15 +6188,19 @@ namespace LocalFormulaRacing
                 Track.GetPitServicePose(participant.pitBoxIndex, out servicePosition, out serviceRotation);
             }
 
+            TrackProgress serviceTargetProgress = Track.GetProgress(servicePosition);
             participant.vehicle.SetPitLimiter(true);
             participant.vehicle.SetPitServiceHold(true);
-            float distance = participant.vehicle.GuideToPitPose(servicePosition, serviceRotation, 15f, 150f);
+            Vector3 serviceWaypoint;
+            Quaternion serviceWaypointRotation;
+            AdvancePitGuideTarget(participant, serviceTargetProgress.distance, serviceTargetProgress.lateralDistance, PitLanePaceKph, out serviceWaypoint, out serviceWaypointRotation);
+            participant.vehicle.GuideToPitPose(serviceWaypoint, serviceWaypointRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed);
             if (participant.isPlayer)
             {
                 SessionMessage = blocking != null ? "Pit lane: queueing for box " + (participant.pitBoxIndex + 1) : "Pit lane: rolling to box " + (participant.pitBoxIndex + 1);
             }
 
-            if (blocking == null && distance <= 0.45f)
+            if (blocking == null && IsPitGuideNear(participant, serviceTargetProgress.distance, serviceTargetProgress.lateralDistance, 0.8f, 0.3f))
             {
                 participant.vehicle.SnapToPitPose(servicePosition, serviceRotation);
                 BeginPitStop(participant);
@@ -6233,6 +6361,11 @@ namespace LocalFormulaRacing
             participant.pitReleaseStagger = CountParticipantsInPitPhase(PitPhase.Release);
             participant.pitPhase = PitPhase.Release;
             participant.pitServiceDuration = 0f;
+            // Pit lane animation fix: re-seed the waypoint fresh from the box
+            // position (defensive - float drift over a multi-second
+            // stationary stop should never accumulate, but this guarantees
+            // release starts exactly where the car actually is).
+            participant.hasPitGuideState = false;
             if (participant.isPlayer)
             {
                 SessionMessage = "Pit release: limiter active";
@@ -6261,10 +6394,19 @@ namespace LocalFormulaRacing
             Vector3 releasePosition;
             Quaternion releaseRotation;
             Track.GetPitReleasePose(participant.pitReleaseStagger, out releasePosition, out releaseRotation);
+            TrackProgress releaseTargetProgress = Track.GetProgress(releasePosition);
             participant.vehicle.SetPitServiceHold(true);
             participant.vehicle.SetPitLimiter(true);
-            float distance = participant.vehicle.GuideToPitPose(releasePosition, releaseRotation, 21f, 210f);
-            if (distance > 0.55f)
+            Vector3 releaseWaypoint;
+            Quaternion releaseWaypointRotation;
+            AdvancePitGuideTarget(participant, releaseTargetProgress.distance, releaseTargetProgress.lateralDistance, PitReleasePaceKph, out releaseWaypoint, out releaseWaypointRotation);
+            participant.vehicle.GuideToPitPose(releaseWaypoint, releaseWaypointRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed);
+            if (participant.isPlayer)
+            {
+                SessionMessage = "Pit release: merging back onto the racing line";
+            }
+
+            if (!IsPitGuideNear(participant, releaseTargetProgress.distance, releaseTargetProgress.lateralDistance, 0.8f, 0.3f))
             {
                 return;
             }
@@ -6277,6 +6419,19 @@ namespace LocalFormulaRacing
             participant.isPitting = false;
             participant.pitAwaitingRelease = false;
             participant.pitLimiterUntilExit = true;
+            participant.hasPitGuideState = false;
+            AiVehicleController releasedAi = participant.GetComponent<AiVehicleController>();
+            if (releasedAi != null)
+            {
+                // Same reasoning as the safety-car handback and stuck-recovery
+                // reposition fixes: the car's transform just moved under
+                // kinematic guidance the whole time it was pit-guided, so its
+                // cached track-progress reference is stale and needs a fresh
+                // full-track resync rather than a near-search seeded from
+                // wherever it was before pitting.
+                releasedAi.ResyncAfterForcedReposition();
+            }
+
             if (participant.isPlayer)
             {
                 SessionMessage = "Released: limiter until pit exit";
@@ -6604,7 +6759,11 @@ namespace LocalFormulaRacing
 
             if (IsCareerRace)
             {
-                Career.ApplyRaceResults(EventData, results);
+                // Was calling the 2-arg overload, which defaults incident/safety-car/AI-overtake
+                // counts to -1 ("no data") - that silently suppressed every race-control news
+                // article (GenerateRaceControlNews bails out on safetyCarDeployments < 0) even
+                // though this race tracked all three. Pass the real counts through.
+                Career.ApplyRaceResults(EventData, results, IncidentCount, SafetyCarDeploymentCount, AiOvertakesCompletedCount);
             }
 
             RecordPlayerRaceStats(results);

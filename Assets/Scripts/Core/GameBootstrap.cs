@@ -81,7 +81,10 @@ namespace LocalFormulaRacing
 
         public void StartQuickRace()
         {
-            ui.ShowRaceTyreSelect(data, career, settings, false);
+            // Track selection is now the first step of Quick Race instead of
+            // jumping straight into tyre select against a hardcoded track - see
+            // RuntimeUi.ShowQuickRaceTrackSelect / quickRaceSelectedEvent.
+            ui.ShowQuickRaceTrackSelect(data, career, settings);
         }
 
         public void ShowTimeTrialSetup()
@@ -124,7 +127,13 @@ namespace LocalFormulaRacing
 
         public void BeginQuickRace()
         {
-            CalendarEventData raceEvent = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : career.CurrentEvent();
+            // Was always data.Calendar.events[0] regardless of what the player
+            // picked on ShowQuickRaceTrackSelect - use that selection now, falling
+            // back to the old default only if the track-select screen was somehow
+            // skipped (e.g. a stale save/shortcut).
+            CalendarEventData raceEvent = ui.QuickRaceSelectedEvent != null
+                ? ui.QuickRaceSelectedEvent
+                : (data.Calendar.events.Count > 0 ? data.Calendar.events[0] : career.CurrentEvent());
             SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
             raceManager.StartRace(
                 data,

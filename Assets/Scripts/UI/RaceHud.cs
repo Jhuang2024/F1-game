@@ -88,13 +88,18 @@ namespace LocalFormulaRacing
         Text pitPlanValue;
         Image pitFill;
         Text pitFillValue;
-        GameObject radioCard;
-        Text radioText;
-        Text radioQueueBadge;
-        CanvasGroup radioCardGroup;
-        RectTransform radioCardRect;
-        Vector2 radioCardRestPosition;
-        bool radioCardRestPositionCaptured;
+        // Radio message stacking fix: up to MaxRadioCards independently
+        // active, independently fading compact cards (newest at index 0)
+        // instead of one shared card/text pair a single message occupied at
+        // a time - see RaceManager.activeEngineerMessages and BuildRadioStack/
+        // UpdateRadioStack below.
+        const int MaxRadioCards = 4;
+        RectTransform radioStackContainer;
+        RectTransform[] radioCardSlots = new RectTransform[MaxRadioCards];
+        CanvasGroup[] radioCardGroups = new CanvasGroup[MaxRadioCards];
+        Text[] radioCardTexts = new Text[MaxRadioCards];
+        Image[] radioCardAccents = new Image[MaxRadioCards];
+        Vector2[] radioCardRestPositions = new Vector2[MaxRadioCards];
         GameObject qualifyingCard;
         Text qualifyingDeltaValue;
         Text tyreTagText;
@@ -652,7 +657,7 @@ namespace LocalFormulaRacing
             BuildPitCard();
             BuildScWindowCard();
             BuildQualifyingCard();
-            BuildRadioCard();
+            BuildRadioStack();
         }
 
         // Merged tyre + car-systems card. These used to be two separate panels
@@ -762,40 +767,64 @@ namespace LocalFormulaRacing
             qualifyingCard.SetActive(false);
         }
 
-        // Radio card sizing (2-line clipping fix): CreateHudCard's fixed height
-        // combined with CreateText's default VerticalWrapMode.Truncate meant
-        // any engineer message longer than what fit in ~72px (about two lines)
-        // was silently cut off with no visual sign anything was missing. The
-        // card now grows to fit the actual message (see UpdateRadioCard),
-        // bounded so a short message still reads as a compact pill and a
-        // pathological one can't run away with the whole HUD stack.
-        const float RadioCardMinHeight = 72f;
-        const float RadioCardMaxHeight = 172f;
+        // Radio card sizing (2-line clipping + stacking fix): CreateHudCard's
+        // fixed height combined with CreateText's default
+        // VerticalWrapMode.Truncate meant any engineer message longer than
+        // what fit in ~72px (about two lines) was silently cut off with no
+        // visual sign anything was missing - and only one message could ever
+        // be on screen at a time regardless. Each stacked card now grows to
+        // fit its own message (see UpdateRadioStack), bounded so a short
+        // message still reads as a compact pill and a pathological one can't
+        // run away with the whole HUD stack; up to MaxRadioCards of them can
+        // be visible together, newest closest to the top.
+        const float RadioCardMinHeight = 54f;
+        const float RadioCardMaxHeight = 140f;
+        const float RadioCardSpacing = 6f;
 
-        void BuildRadioCard()
+        // Deliberately not built on CreateHudCard - that always reserves a
+        // ~24px header strip for a repeated title label, which would mean
+        // "RADIO" printed on every single stacked card. One small accent bar
+        // plus a priority dot is enough to read as "this is the radio" once
+        // several are stacked together; the message text gets the room back.
+        void BuildRadioStack()
         {
-            RectTransform card = UiFactory.CreateHudCard(rightStack, "Radio", RightStackWidth, RadioCardMinHeight, UiFactory.AccentGreen);
-            radioCard = card.gameObject;
-            radioCardGroup = radioCard.AddComponent<CanvasGroup>();
-            radioCardRect = card;
-            radioText = UiFactory.CreateText(card, "Radio message", "", 14, new Color(0.82f, 0.94f, 1f), TextAnchor.UpperLeft);
-            // Overflow, not the CreateText default of Truncate - the card is
-            // now sized to fit the text (below), but Overflow is kept as a
-            // second safety net so even a message that somehow exceeds
-            // RadioCardMaxHeight still reads in full instead of being cut off.
-            radioText.verticalOverflow = VerticalWrapMode.Overflow;
-            RectTransform radioRect = radioText.GetComponent<RectTransform>();
-            radioRect.anchorMin = Vector2.zero;
-            radioRect.anchorMax = Vector2.one;
-            radioRect.offsetMin = new Vector2(14f, 6f);
-            radioRect.offsetMax = new Vector2(-10f, -26f);
-            radioQueueBadge = UiFactory.CreateText(card, "Radio queue depth", "", 11, UiFactory.TextMuted, TextAnchor.UpperRight);
-            RectTransform badgeRect = radioQueueBadge.GetComponent<RectTransform>();
-            badgeRect.anchorMin = new Vector2(0f, 1f);
-            badgeRect.anchorMax = new Vector2(1f, 1f);
-            badgeRect.offsetMin = new Vector2(14f, -20f);
-            badgeRect.offsetMax = new Vector2(-10f, -4f);
-            radioCard.SetActive(false);
+            radioStackContainer = UiFactory.CreateRect(rightStack, "Radio stack", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            radioStackContainer.sizeDelta = new Vector2(RightStackWidth, RadioCardMinHeight);
+            VerticalLayoutGroup stackLayout = UiFactory.AddVerticalLayout(radioStackContainer, RadioCardSpacing, new RectOffset(0, 0, 0, 0));
+            stackLayout.childAlignment = TextAnchor.UpperRight;
+
+            for (int i = 0; i < MaxRadioCards; i++)
+            {
+                RectTransform card = UiFactory.CreateRect(radioStackContainer, "Radio card " + i, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                card.sizeDelta = new Vector2(RightStackWidth, RadioCardMinHeight);
+                Image background = card.gameObject.AddComponent<Image>();
+                UiFactory.StyleRounded(background, UiFactory.HudCardBackground);
+                radioCardSlots[i] = card;
+
+                RectTransform accent = UiFactory.CreateRect(card, "Radio accent " + i, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 8f), new Vector2(3f, -8f));
+                Image accentImage = accent.gameObject.AddComponent<Image>();
+                UiFactory.StyleRoundedSmall(accentImage, UiFactory.AccentGreen);
+                radioCardAccents[i] = accentImage;
+
+                CanvasGroup group = card.gameObject.AddComponent<CanvasGroup>();
+                radioCardGroups[i] = group;
+
+                Text text = UiFactory.CreateText(card, "Radio text " + i, "", 13, new Color(0.86f, 0.95f, 1f), TextAnchor.UpperLeft);
+                // Overflow, not the CreateText default of Truncate - the card
+                // is sized to fit the text (below), but Overflow is kept as a
+                // second safety net so even a message that somehow exceeds
+                // RadioCardMaxHeight still reads in full instead of clipping.
+                text.verticalOverflow = VerticalWrapMode.Overflow;
+                RectTransform textRect = text.GetComponent<RectTransform>();
+                textRect.anchorMin = Vector2.zero;
+                textRect.anchorMax = Vector2.one;
+                textRect.offsetMin = new Vector2(14f, 6f);
+                textRect.offsetMax = new Vector2(-10f, -6f);
+                radioCardTexts[i] = text;
+                card.gameObject.SetActive(false);
+            }
+
+            radioStackContainer.gameObject.SetActive(false);
         }
 
         // Greedy word-wrap simulation matching Unity's own Text wrapping
@@ -1062,58 +1091,101 @@ namespace LocalFormulaRacing
             qualifyingFeedback.text = showFeedback ? feedbackText : "";
             drsFlash.text = string.IsNullOrEmpty(feedbackText) && drsFlashTimer > 0f ? "DRS AVAILABLE" : "";
 
-            UpdateRadioCard();
+            UpdateRadioStack();
         }
 
-        // Part 1: the radio card now slides/fades with RaceManager's message
-        // queue (EngineerMessageAnimProgress01) instead of popping straight on
-        // and off, and shows a small "+N" badge when more lines are waiting.
-        void UpdateRadioCard()
+        // Radio message stacking fix: as many active engineer messages as
+        // RaceManager currently has (up to MaxRadioCards) render as their own
+        // independently sized, independently fading cards, newest at the top,
+        // instead of a single card that could only ever show one message at a
+        // time while everything else silently waited its turn. Sizing/2-line
+        // clipping fix carried over per-card: each one grows to fit however
+        // many lines its own message wraps to (min/max bounded) rather than a
+        // fixed height.
+        void UpdateRadioStack()
         {
-            if (!radioCardRestPositionCaptured)
+            int activeCount = Mathf.Min(race.ActiveEngineerMessageCount, MaxRadioCards);
+            bool anyVisible = activeCount > 0;
+            if (radioStackContainer.gameObject.activeSelf != anyVisible)
             {
-                radioCardRestPosition = radioCardRect.anchoredPosition;
-                radioCardRestPositionCaptured = true;
+                radioStackContainer.gameObject.SetActive(anyVisible);
             }
 
-            string engineerText = race.EngineerMessageText;
-            bool showEngineer = !string.IsNullOrEmpty(engineerText);
-            if (radioCard.activeSelf != showEngineer)
-            {
-                radioCard.SetActive(showEngineer);
-            }
-
-            if (!showEngineer)
+            if (!anyVisible)
             {
                 return;
             }
 
-            radioText.text = engineerText.StartsWith("ENGINEER: ") ? engineerText.Substring(10) : engineerText;
-            int queued = race.EngineerMessageQueueDepth;
-            radioQueueBadge.text = queued > 0 ? "+" + queued : "";
-
-            // 2-line clipping fix: grow the card to fit however many lines
-            // this specific message actually wraps to (min/max bounded), then
-            // force an immediate layout rebuild so the right-side stack
-            // reflows around the new height in the same frame - deferring the
-            // rebuild would leave radioCardRestPosition (read right after,
-            // for the slide-in animation below) stale by one frame.
+            bool animate = race.Settings == null || race.Settings.Current.uiAnimations;
             float textWidth = RightStackWidth - 24f;
             float approxCharsPerLine = Mathf.Max(10f, textWidth / 7.2f);
-            int wrappedLines = EstimateWrappedLineCount(radioText.text, approxCharsPerLine);
-            float contentHeight = 32f + wrappedLines * 18f + 10f;
-            float cardHeight = Mathf.Clamp(contentHeight, RadioCardMinHeight, RadioCardMaxHeight);
-            if (!Mathf.Approximately(radioCardRect.sizeDelta.y, cardHeight))
+            float totalHeight = 0f;
+            bool layoutDirty = false;
+
+            for (int i = 0; i < MaxRadioCards; i++)
             {
-                radioCardRect.sizeDelta = new Vector2(RightStackWidth, cardHeight);
-                LayoutRebuilder.ForceRebuildLayoutImmediate(rightStack);
-                radioCardRestPosition = radioCardRect.anchoredPosition;
+                bool slotActive = i < activeCount;
+                if (radioCardSlots[i].gameObject.activeSelf != slotActive)
+                {
+                    radioCardSlots[i].gameObject.SetActive(slotActive);
+                    layoutDirty = true;
+                }
+
+                if (!slotActive)
+                {
+                    continue;
+                }
+
+                string rawText = race.GetActiveEngineerMessageText(i);
+                string displayText = rawText.StartsWith("ENGINEER: ") ? rawText.Substring(10) : rawText;
+                if (radioCardTexts[i].text != displayText)
+                {
+                    radioCardTexts[i].text = displayText;
+                    layoutDirty = true;
+                }
+
+                bool priority = race.GetActiveEngineerMessagePriority(i);
+                radioCardAccents[i].color = priority ? UiFactory.AccentAmber : UiFactory.AccentGreen;
+
+                int wrappedLines = EstimateWrappedLineCount(displayText, approxCharsPerLine);
+                float contentHeight = 18f + wrappedLines * 17f + 12f;
+                float cardHeight = Mathf.Clamp(contentHeight, RadioCardMinHeight, RadioCardMaxHeight);
+                if (!Mathf.Approximately(radioCardSlots[i].sizeDelta.y, cardHeight))
+                {
+                    radioCardSlots[i].sizeDelta = new Vector2(RightStackWidth, cardHeight);
+                    layoutDirty = true;
+                }
+
+                totalHeight += cardHeight + (i > 0 ? RadioCardSpacing : 0f);
+
+                float progress = animate ? race.GetActiveEngineerMessageFade(i) : 1f;
+                radioCardGroups[i].alpha = Mathf.Clamp01(progress);
             }
 
-            bool animate = race.Settings == null || race.Settings.Current.uiAnimations;
-            float progress = animate ? race.EngineerMessageAnimProgress01 : 1f;
-            radioCardGroup.alpha = Mathf.Clamp01(progress);
-            radioCardRect.anchoredPosition = radioCardRestPosition + new Vector2(Mathf.Lerp(24f, 0f, progress), 0f);
+            if (!Mathf.Approximately(radioStackContainer.sizeDelta.y, totalHeight))
+            {
+                radioStackContainer.sizeDelta = new Vector2(RightStackWidth, totalHeight);
+                layoutDirty = true;
+            }
+
+            if (layoutDirty)
+            {
+                // Immediate, not deferred - the slide-in offset read right
+                // after depends on each card's real post-layout position for
+                // this same frame, exactly like the single-card version did.
+                LayoutRebuilder.ForceRebuildLayoutImmediate(radioStackContainer);
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rightStack);
+                for (int i = 0; i < activeCount; i++)
+                {
+                    radioCardRestPositions[i] = radioCardSlots[i].anchoredPosition;
+                }
+            }
+
+            for (int i = 0; i < activeCount; i++)
+            {
+                float progress = animate ? race.GetActiveEngineerMessageFade(i) : 1f;
+                radioCardSlots[i].anchoredPosition = radioCardRestPositions[i] + new Vector2(Mathf.Lerp(24f, 0f, progress), 0f);
+            }
         }
 
         void UpdateStatePills(VehicleController car)

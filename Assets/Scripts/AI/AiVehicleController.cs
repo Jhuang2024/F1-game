@@ -318,10 +318,22 @@ namespace LocalFormulaRacing
                 {
                     bool facingWrongWay = Vector3.Dot(transform.forward, progress.forward) < -0.4f;
                     float recoverySteerSign = Mathf.Sign(Vector3.Cross(transform.forward, progress.forward).y);
-                    maneuverTurnSide = recoverySteerSign == 0f ? preferredSide : recoverySteerSign;
+                    float preferredSteerSide = recoverySteerSign == 0f ? preferredSide : recoverySteerSign;
+                    // Escalating recovery (stuck-recovery fix): a car genuinely
+                    // wedged against a wall/kerb at a bad angle will often fail
+                    // the same fixed-direction maneuver the same way every
+                    // time - alternate the turn side on repeated attempts
+                    // instead of repeating a losing move, and commit to a
+                    // longer, more decisive maneuver each time rather than the
+                    // same brief one that already didn't work. RaceManager's
+                    // HandleStuckEscalation is still the final backstop if
+                    // several varied attempts all fail.
+                    bool alternateSide = participant.recoveryAttemptCount % 2 == 1;
+                    maneuverTurnSide = alternateSide ? -preferredSteerSide : preferredSteerSide;
                     activeManeuver = facingWrongWay ? RecoveryManeuver.ReorientWrongWay : RecoveryManeuver.ReverseAway;
-                    maneuverTimer = facingWrongWay ? ReorientDuration : ReverseAwayDuration;
-                    GameLog.Info("[RaceControl] " + participant.driverName + " attempting " + activeManeuver + " recovery maneuver (stuck " + stuckDetectTimer.ToString("0.0") + "s).");
+                    float attemptScale = 1f + Mathf.Min(participant.recoveryAttemptCount, 3) * 0.4f;
+                    maneuverTimer = (facingWrongWay ? ReorientDuration : ReverseAwayDuration) * attemptScale;
+                    GameLog.Info("[RaceControl] " + participant.driverName + " attempting " + activeManeuver + " recovery maneuver (stuck " + stuckDetectTimer.ToString("0.0") + "s, attempt #" + (participant.recoveryAttemptCount + 1) + ").");
                     vehicle.SetCommand(new VehicleCommand { reverseAssist = true, steer = maneuverTurnSide });
                     return;
                 }
@@ -529,7 +541,20 @@ namespace LocalFormulaRacing
             float localSteer = Vector3.Dot(toTarget.normalized, transform.right);
 
             VehicleCommand command = new VehicleCommand();
-            float edgeRecovery = Mathf.Abs(progress.lateralDistance) > track.roadHalfWidth - 1.2f ? Mathf.Sign(-progress.lateralDistance) * 0.45f : 0f;
+            // Barrier-avoidance fix: this used to be a flat 0.45 correction
+            // that only switched on in the last 1.2m before the true edge -
+            // fine at low speed, but at real corner speed a car can cross
+            // that whole 1.2m band in a couple of frames, leaving no time to
+            // actually turn back before hitting whatever's just beyond it.
+            // Now ramps in progressively from a wider margin (2.4m out) so
+            // the correction is already building well before the car is
+            // actually at risk, reaching a much stronger pull only right at
+            // the limit.
+            float edgeMargin = track.roadHalfWidth - 2.4f;
+            float edgeOvershoot = Mathf.Abs(progress.lateralDistance) - edgeMargin;
+            float edgeRecovery = edgeOvershoot > 0f
+                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.15f, 0.95f, Mathf.Clamp01(edgeOvershoot / 2.4f))
+                : 0f;
             command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
 
             // Real braking point: a kinematic stopping distance from current speed down
@@ -740,6 +765,22 @@ namespace LocalFormulaRacing
             currentThrottle = 0f;
             previousSeverityHere = 0f;
             handbackRampTimer = HandbackRampDuration;
+        }
+
+        // Stuck-recovery escalation fix: called by RaceManager right after it
+        // force-repositions a genuinely stuck car (see
+        // RaceManager.HandleStuckEscalation) - without this, the exact same
+        // stale-progress-reference bug the safety-car restart fix addressed
+        // above would recur here too, since a hard teleport invalidates
+        // lastProgressDistance just as much as a long SC period does. Shares
+        // the same reset plus a short handback-style ramp so the car eases
+        // back into racing instead of instantly committing to whatever the
+        // overtake/defend state machine last decided before it got stuck.
+        public void ResyncAfterForcedReposition()
+        {
+            HandleRaceControlAutopilotReleased();
+            activeManeuver = RecoveryManeuver.None;
+            stuckDetectTimer = 0f;
         }
 
         // Part 1: the real safety car isn't a RaceParticipant, so it never shows
