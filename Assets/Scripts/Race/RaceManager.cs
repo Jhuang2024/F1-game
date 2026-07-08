@@ -561,6 +561,10 @@ namespace LocalFormulaRacing
             ui = runtimeUi;
             EventData = eventData;
             IsCareerRace = careerRace;
+            // Part 21 regulation hook: reset every session start (not just career
+            // ones) so Quick Race/Time Trial always get the neutral 1f default
+            // regardless of whatever a career season's regulation last set it to.
+            TyreState.RegulationWearMultiplier = (careerRace && career != null && career.Save != null) ? career.Save.currentSeasonTyreWearMultiplier : 1f;
             IsTimeTrial = pendingTimeTrial;
             pendingTimeTrial = false;
             CurrentSession = session;
@@ -5646,14 +5650,28 @@ namespace LocalFormulaRacing
             return compact.Length > 3 ? compact.Substring(0, 3) : compact.PadRight(3, '-');
         }
 
+        // Part 21 team-performance-evolution hook: resolves whatever a team's
+        // CarPerformanceData should actually be for a career race this season -
+        // the shared static reference data plus that team's season-to-season
+        // TeamPerformanceModifier (every team, applied evenly), plus the
+        // player's own upgrade tuning on top if this is the player's own team.
+        // Quick Race/Time Trial (IsCareerRace false) always get the raw,
+        // unmodified reference car, exactly like before this system existed.
+        CarPerformanceData ResolveTeamCarPerformance(TeamData team)
+        {
+            CarPerformanceData baseCar = team == null ? Data.Cars.cars[0] : Data.FindCar(team.carPerformanceId);
+            if (IsCareerRace && Career != null && team != null)
+            {
+                return Career.GetEffectiveTeamCar(team, baseCar);
+            }
+
+            return baseCar;
+        }
+
         void SpawnRaceGrid(string playerName, string playerTeamId, bool careerRace)
         {
             TeamData playerTeam = Data.FindTeam(playerTeamId);
-            CarPerformanceData playerCar = Data.FindCar(playerTeam.carPerformanceId);
-            if (careerRace)
-            {
-                playerCar = Career.ApplyCareerUpgrades(playerCar);
-            }
+            CarPerformanceData playerCar = ResolveTeamCarPerformance(playerTeam);
 
             // Without a usable qualifying result (the common quick-race path, since
             // quick race is never a career race) the player no longer defaults to
@@ -5695,7 +5713,7 @@ namespace LocalFormulaRacing
 
                 DriverData driver = aiDrivers[i];
                 TeamData team = Data.FindTeam(driver.teamId);
-                CarPerformanceData car = Data.FindCar(team.carPerformanceId);
+                CarPerformanceData car = ResolveTeamCarPerformance(team);
                 SpawnParticipant(
                     driver.id,
                     driver.displayName,
@@ -5763,7 +5781,7 @@ namespace LocalFormulaRacing
             {
                 DriverData driver = aiDrivers[i];
                 TeamData team = Data.FindTeam(driver.teamId);
-                CarPerformanceData car = team == null ? Data.Cars.cars[0] : Data.FindCar(team.carPerformanceId);
+                CarPerformanceData car = ResolveTeamCarPerformance(team);
                 qualifyingEntries.Add(new QualifyingSimEntry
                 {
                     driverId = driver.id,
@@ -5801,7 +5819,7 @@ namespace LocalFormulaRacing
             {
                 DriverData driver = aiDrivers[i];
                 TeamData team = Data.FindTeam(driver.teamId);
-                CarPerformanceData car = team == null ? Data.Cars.cars[0] : Data.FindCar(team.carPerformanceId);
+                CarPerformanceData car = ResolveTeamCarPerformance(team);
                 qualifyingEntries.Add(new QualifyingSimEntry
                 {
                     driverId = driver.id,

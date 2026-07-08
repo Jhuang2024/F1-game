@@ -21,6 +21,14 @@ namespace LocalFormulaRacing
         // (VehicleEffects, etc.) that only care about "locked or not" keep working.
         public bool IsLocked { get { return LockupSeverity > 0.05f; } }
 
+        // Part 21: season-regulation hook (CareerManager.GenerateRegulationChanges)
+        // for a career-mode "Tyre wear model change" - applied as a flat
+        // multiplier on top of the existing wear model rather than touching any
+        // of its per-compound tuning, so a season with no such regulation (the
+        // default, 1f) drives tyre wear exactly as before, and Quick Race/Time
+        // Trial (which never touch career regulation state) are never affected.
+        public static float RegulationWearMultiplier = 1f;
+
         float targetMin;
         float targetMax;
         float baseGrip;
@@ -139,7 +147,7 @@ namespace LocalFormulaRacing
             float baselineWear = speedHeat * 0.00115f + Mathf.Abs(steer) * 0.0007f + brake * 0.00052f + slideWear;
             baselineWear *= Mathf.Lerp(0.86f, 1.28f, Mathf.InverseLerp(110f, 315f, speedKph));
             float wearLoss = (baselineWear * baseWear * management * weatherWear * overheatWear * wornHeatWear) + lockupWearRate;
-            Wear = Mathf.Clamp01(Wear - wearLoss * deltaTime);
+            Wear = Mathf.Clamp01(Wear - wearLoss * RegulationWearMultiplier * deltaTime);
         }
 
         // Severity-scaled lockup model. A lockup is a discrete event: once triggered

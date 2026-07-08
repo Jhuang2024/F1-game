@@ -66,6 +66,21 @@ namespace LocalFormulaRacing
                 raceManager.CleanupRaceWorld();
             }
 
+            // Part 21: every path back to the Career Hub goes through here, so
+            // this is the one choke point that needs to know about a pending
+            // season transition - whether the player just clicked "Continue
+            // Career" off the final race's report, or reopened the app mid-
+            // flow after quitting. Routing to the season-complete screen
+            // instead of straight to the hub means the flow always resumes
+            // exactly where it left off rather than silently dropping the
+            // player back into ordinary hub navigation with the season never
+            // properly wrapped up.
+            if (career.Save.seasonTransitionPending)
+            {
+                ui.ShowSeasonComplete(data, career, settings);
+                return;
+            }
+
             ui.ShowCareerHub(data, career, settings);
         }
 

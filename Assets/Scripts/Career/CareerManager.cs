@@ -352,7 +352,12 @@ namespace LocalFormulaRacing
 
             RaceReportRecord report = BuildRaceReport(raceEvent, results, incidentCount, safetyCarDeploymentCount, aiOvertakesCompletedCount, redFlagCount, redFlagReason);
             Save.raceReports.Add(report);
-            while (Save.raceReports.Count > 12)
+            // Season-end fix: this was capped at 12 - fine for "recent reports"
+            // display, but BuildSeasonArchive needs every report from THIS
+            // season (up to a full 24-round calendar) to accurately total red
+            // flags/safety cars/major incidents for the season review. Raised
+            // to comfortably cover a full season plus a buffer into the next.
+            while (Save.raceReports.Count > 40)
             {
                 Save.raceReports.RemoveAt(0);
             }
@@ -363,11 +368,12 @@ namespace LocalFormulaRacing
             RaceResultEntry player = results.Find(entry => entry.isPlayer);
             if (player != null)
             {
-                Save.resourcePoints += 90 + Mathf.Max(0, 11 - player.finishingPosition) * 15;
+                Save.resourcePoints += Mathf.RoundToInt((90 + Mathf.Max(0, 11 - player.finishingPosition) * 15) * Save.currentSeasonResourceMultiplier);
                 int targetDelta = Mathf.Max(-4, Save.contractTargetPosition - player.finishingPosition);
                 Save.reputation += player.finishingPosition <= 3 ? 4 : (targetDelta >= 0 ? 2 : -1);
-                Save.resourcePoints += Mathf.Max(0, targetDelta) * 12;
+                Save.resourcePoints += Mathf.RoundToInt(Mathf.Max(0, targetDelta) * 12 * Save.currentSeasonResourceMultiplier);
                 UpdateRaceRivalryAndForm(results, player, raceEvent);
+                UpdateSeasonObjectivesProgress(results, player, raceEvent);
             }
 
             AdvanceUpgradeProjects();
@@ -375,9 +381,30 @@ namespace LocalFormulaRacing
             Save.currentRound++;
             if (Save.currentRound > data.Calendar.events.Count)
             {
+                // Season-end root-cause fix: this used to silently roll straight
+                // into "season+1, round 1" with nothing preserved of the season
+                // that just finished - no archive, no review, no visible cue
+                // beyond the Career Hub header ticking over. Snapshot a full,
+                // frozen SeasonArchive of the season that just ended (final
+                // standings, player/teammate/team stats, awards, the regulation
+                // changes and team-performance swings that were in effect all
+                // year) BEFORE touching any live state, so nothing about the
+                // completed season is ever lost - then reset only what a new
+                // season should reset (see BeginNewSeason) and flag the
+                // transition so the post-race report routes into a proper
+                // season-review flow instead of straight back to the hub.
+                SortStandings(Save.driverStandings);
+                SortStandings(Save.constructorStandings);
+                SeasonArchive completedSeason = BuildSeasonArchive(raceEvent);
+                Save.seasonArchives.Add(completedSeason);
+                Save.lastCompletedSeasonNumber = Save.currentSeason;
+
                 Save.currentRound = 1;
                 Save.currentSeason++;
-                ApplyRegulationReset();
+                BeginNewSeason(completedSeason);
+
+                Save.seasonTransitionPending = true;
+                Save.seasonPhase = CareerSeasonPhase.FinalRaceComplete;
             }
 
             Save.lastQualifyingResults = new List<QualifyingResultEntry>();
@@ -784,9 +811,18 @@ namespace LocalFormulaRacing
             QualifyingResultEntry player = results.Find(entry => entry.isPlayer);
             if (player != null)
             {
-                Save.resourcePoints += Mathf.Max(8, 42 - player.position * 4);
+                Save.resourcePoints += Mathf.RoundToInt(Mathf.Max(8, 42 - player.position * 4) * Save.currentSeasonResourceMultiplier);
                 Save.reputation += player.position <= Save.contractTargetPosition ? 1 : 0;
                 UpdateQualifyingRivalry(results, player);
+                if (player.position == 1 && Save.seasonObjectives != null)
+                {
+                    SeasonObjective poleObjective = Save.seasonObjectives.Find(o => o.id == "first_pole");
+                    if (poleObjective != null && !poleObjective.achieved)
+                    {
+                        poleObjective.currentValue = 1;
+                        poleObjective.achieved = true;
+                    }
+                }
             }
 
             Write();
@@ -1102,15 +1138,29 @@ namespace LocalFormulaRacing
 
         public ChampionshipProgression GetDriverChampionshipProgression()
         {
-            return BuildChampionshipProgression(false);
+            return BuildChampionshipProgression(false, Save.currentSeason);
         }
 
         public ChampionshipProgression GetConstructorChampionshipProgression()
         {
-            return BuildChampionshipProgression(true);
+            return BuildChampionshipProgression(true, Save.currentSeason);
         }
 
-        ChampionshipProgression BuildChampionshipProgression(bool constructors)
+        // Part 21: season-archive detail view overloads - the graph-building
+        // logic already worked purely off Save.raceResults filtered by season,
+        // so making that season a parameter (instead of always the current
+        // one) is all a completed-season's graph needs; no separate storage.
+        public ChampionshipProgression GetDriverChampionshipProgression(int season)
+        {
+            return BuildChampionshipProgression(false, season);
+        }
+
+        public ChampionshipProgression GetConstructorChampionshipProgression(int season)
+        {
+            return BuildChampionshipProgression(true, season);
+        }
+
+        ChampionshipProgression BuildChampionshipProgression(bool constructors, int season)
         {
             ChampionshipProgression result = new ChampionshipProgression();
             if (Save.raceResults == null || Save.raceResults.Count == 0)
@@ -1118,7 +1168,7 @@ namespace LocalFormulaRacing
                 return result;
             }
 
-            List<RaceResultRecord> seasonRecords = Save.raceResults.FindAll(r => r.season == Save.currentSeason);
+            List<RaceResultRecord> seasonRecords = Save.raceResults.FindAll(r => r.season == season);
             seasonRecords.Sort((a, b) => a.round.CompareTo(b.round));
 
             Dictionary<string, ChampionshipSeries> byId = new Dictionary<string, ChampionshipSeries>();
@@ -1784,6 +1834,37 @@ namespace LocalFormulaRacing
             {
                 Save.raceReports = new List<RaceReportRecord>();
             }
+
+            // Part 21: end-of-season / new-season state. Never null-guarded to a
+            // non-empty default here (unlike departmentLevels/regulationAffected
+            // Categories above) - an empty archive/regulation/objective list on
+            // an old save just means "no seasons completed / nothing generated
+            // yet under the new system", which is the correct, honest state
+            // rather than one manufactured retroactively.
+            if (Save.seasonArchives == null)
+            {
+                Save.seasonArchives = new List<SeasonArchive>();
+            }
+
+            if (Save.regulationChanges == null)
+            {
+                Save.regulationChanges = new List<RegulationChange>();
+            }
+
+            if (Save.teamPerformanceModifiers == null)
+            {
+                Save.teamPerformanceModifiers = new List<TeamPerformanceModifier>();
+            }
+
+            if (Save.seasonObjectives == null)
+            {
+                Save.seasonObjectives = new List<SeasonObjective>();
+            }
+
+            if (Save.seasonObjectives.Count == 0 && !Save.seasonTransitionPending)
+            {
+                GenerateSeasonObjectives();
+            }
         }
 
         void PickRegulationTargets()
@@ -1953,6 +2034,1038 @@ namespace LocalFormulaRacing
             }
 
             return 10;
+        }
+
+        // =====================================================================
+        // Part 21: end-of-season / new-season system.
+        // =====================================================================
+
+        // Snapshots a full, frozen record of the season that just finished -
+        // called once, from ApplyRaceResults, right as the final calendar
+        // round rolls over, BEFORE any live state (standings, rivalry
+        // counters, upgrades, objectives) is touched for the new season.
+        SeasonArchive BuildSeasonArchive(CalendarEventData lastRaceEvent)
+        {
+            SeasonArchive archive = new SeasonArchive
+            {
+                season = Save.currentSeason,
+                finalDriverStandings = new List<StandingEntry>(Save.driverStandings),
+                finalConstructorStandings = new List<StandingEntry>(Save.constructorStandings),
+                contractTargetThatSeason = Save.contractTargetPosition
+            };
+
+            if (archive.finalDriverStandings.Count > 0)
+            {
+                archive.driverChampionId = archive.finalDriverStandings[0].id;
+                archive.driverChampionName = archive.finalDriverStandings[0].displayName;
+            }
+
+            if (archive.finalConstructorStandings.Count > 0)
+            {
+                archive.constructorChampionId = archive.finalConstructorStandings[0].id;
+                archive.constructorChampionName = archive.finalConstructorStandings[0].displayName;
+            }
+
+            StandingEntry playerStanding = Save.driverStandings.Find(entry => entry.id == "player");
+            archive.playerDriverName = Save.playerDriverName;
+            archive.playerFinalPosition = FindStandingPosition(Save.driverStandings, "player");
+            archive.playerPoints = playerStanding != null ? playerStanding.points : 0;
+            archive.playerWins = playerStanding != null ? playerStanding.wins : 0;
+            archive.playerPodiums = playerStanding != null ? playerStanding.podiums : 0;
+            archive.reputationAtSeasonEnd = Save.reputation;
+
+            TeamData playerTeam = data.FindTeam(Save.playerTeamId);
+            archive.playerTeamId = Save.playerTeamId;
+            archive.playerTeamName = playerTeam != null ? playerTeam.name : Save.playerTeamId;
+            StandingEntry teamStanding = Save.constructorStandings.Find(entry => entry.id == Save.playerTeamId);
+            archive.playerTeamFinalPosition = FindStandingPosition(Save.constructorStandings, Save.playerTeamId);
+            archive.playerTeamPoints = teamStanding != null ? teamStanding.points : 0;
+
+            DriverData teammateDriver = data.FindTeammateDriver(Save.playerTeamId, Save.selectedDriverId);
+            if (teammateDriver != null)
+            {
+                StandingEntry teammateStanding = Save.driverStandings.Find(entry => entry.id == teammateDriver.id);
+                archive.teammateId = teammateDriver.id;
+                archive.teammateName = teammateDriver.displayName;
+                archive.teammatePoints = teammateStanding != null ? teammateStanding.points : 0;
+                archive.teammateFinalPosition = FindStandingPosition(Save.driverStandings, teammateDriver.id);
+            }
+
+            archive.teammateHeadToHeadWins = Save.teammateRaceWins;
+            archive.teammateHeadToHeadLosses = Save.teammateRaceLosses;
+            archive.rivalId = Save.rivalDriverId;
+            DriverData rivalDriver = data.FindDriver(Save.rivalDriverId);
+            archive.rivalName = rivalDriver != null ? rivalDriver.displayName : "";
+            archive.rivalRaceWins = Save.rivalRaceWins;
+            archive.rivalRaceLosses = Save.rivalRaceLosses;
+
+            List<RaceResultRecord> seasonRecords = Save.raceResults.FindAll(r => r.season == Save.currentSeason);
+            seasonRecords.Sort((a, b) => a.round.CompareTo(b.round));
+
+            int bestFinish = int.MaxValue;
+            int worstFinish = -1;
+            int bestComeback = 0;
+            int worstCollapse = 0;
+            int dnfs = 0;
+            int penalizedRaces = 0;
+            int fastestLaps = 0;
+            Dictionary<string, int> penaltyCounts = new Dictionary<string, int>();
+
+            for (int i = 0; i < seasonRecords.Count; i++)
+            {
+                RaceResultRecord record = seasonRecords[i];
+                RaceResultEntry playerEntry = record.results.Find(entry => entry.isPlayer);
+                if (playerEntry != null)
+                {
+                    if (playerEntry.finishingPosition < bestFinish)
+                    {
+                        bestFinish = playerEntry.finishingPosition;
+                        archive.bestRaceEventName = record.eventName;
+                        archive.bestRaceGridPosition = playerEntry.gridPosition;
+                    }
+
+                    if (playerEntry.finishingPosition > worstFinish)
+                    {
+                        worstFinish = playerEntry.finishingPosition;
+                        archive.worstRaceEventName = record.eventName;
+                    }
+
+                    int gained = playerEntry.gridPosition - playerEntry.finishingPosition;
+                    if (gained > bestComeback)
+                    {
+                        bestComeback = gained;
+                        archive.biggestComebackEventName = record.eventName;
+                        archive.biggestComebackPositionsGained = gained;
+                    }
+
+                    if (-gained > worstCollapse)
+                    {
+                        worstCollapse = -gained;
+                        archive.biggestCollapseEventName = record.eventName;
+                        archive.biggestCollapsePositionsLost = -gained;
+                    }
+
+                    if (!string.IsNullOrEmpty(playerEntry.penaltyReason) && playerEntry.penaltyReason.Contains("DNF"))
+                    {
+                        dnfs++;
+                    }
+
+                    if (playerEntry.penaltiesSeconds > 0f)
+                    {
+                        penalizedRaces++;
+                    }
+                }
+
+                RaceResultEntry fastestLapEntry = null;
+                for (int e = 0; e < record.results.Count; e++)
+                {
+                    RaceResultEntry entry = record.results[e];
+                    if (entry.penaltiesSeconds > 0f)
+                    {
+                        penaltyCounts[entry.driverId] = penaltyCounts.ContainsKey(entry.driverId) ? penaltyCounts[entry.driverId] + 1 : 1;
+                    }
+
+                    if (entry.bestLapTime > 0f && (fastestLapEntry == null || entry.bestLapTime < fastestLapEntry.bestLapTime))
+                    {
+                        fastestLapEntry = entry;
+                    }
+                }
+
+                if (fastestLapEntry != null && fastestLapEntry.isPlayer)
+                {
+                    fastestLaps++;
+                }
+            }
+
+            archive.bestRaceFinish = bestFinish == int.MaxValue ? 0 : bestFinish;
+            archive.worstRaceFinish = worstFinish < 0 ? 0 : worstFinish;
+            archive.playerDnfs = dnfs;
+            archive.playerPenalizedRaces = penalizedRaces;
+            archive.playerFastestLaps = fastestLaps;
+
+            List<QualifyingResultRecord> seasonQuali = Save.qualifyingResults.FindAll(r => r.season == Save.currentSeason);
+            int poles = 0;
+            for (int i = 0; i < seasonQuali.Count; i++)
+            {
+                QualifyingResultEntry playerQuali = seasonQuali[i].results.Find(entry => entry.isPlayer);
+                if (playerQuali != null && playerQuali.position == 1)
+                {
+                    poles++;
+                }
+            }
+
+            archive.playerPoles = poles;
+
+            List<RaceReportRecord> seasonReports = Save.raceReports.FindAll(r => r.season == Save.currentSeason);
+            int redFlags = 0;
+            int safetyCars = 0;
+            int majorIncidents = 0;
+            for (int i = 0; i < seasonReports.Count; i++)
+            {
+                RaceControlSummary raceControl = seasonReports[i].raceControl;
+                redFlags += Mathf.Max(0, raceControl.redFlagCount);
+                safetyCars += Mathf.Max(0, raceControl.safetyCarDeployments);
+                if (raceControl.wasChaotic)
+                {
+                    majorIncidents++;
+                }
+            }
+
+            archive.redFlagCount = redFlags;
+            archive.safetyCarCount = safetyCars;
+            archive.majorIncidentCount = majorIncidents;
+
+            archive.formSummary = Save.recentFormPositions.ConvertAll(position => "P" + position);
+            archive.regulations = Save.regulationChanges.FindAll(r => r.season == Save.currentSeason);
+            archive.teamPerformanceChanges = Save.teamPerformanceModifiers.FindAll(m => m.season == Save.currentSeason);
+            archive.upgradesCompleted = new List<string>(Save.completedUpgradeIds);
+            archive.objectives = Save.seasonObjectives != null ? new List<SeasonObjective>(Save.seasonObjectives) : new List<SeasonObjective>();
+
+            List<string> headlines = new List<string>();
+            for (int i = Save.newsArticles.Count - 1; i >= 0 && headlines.Count < 8; i--)
+            {
+                if (Save.newsArticles[i].season == Save.currentSeason)
+                {
+                    headlines.Add(Save.newsArticles[i].headline);
+                }
+            }
+
+            archive.keyHeadlines = headlines;
+            archive.awards = GenerateSeasonAwards(archive, seasonRecords, penaltyCounts);
+            return archive;
+        }
+
+        List<SeasonAward> GenerateSeasonAwards(SeasonArchive archive, List<RaceResultRecord> seasonRecords, Dictionary<string, int> penaltyCounts)
+        {
+            List<SeasonAward> awards = new List<SeasonAward>();
+
+            if (!string.IsNullOrEmpty(archive.driverChampionName))
+            {
+                awards.Add(new SeasonAward
+                {
+                    title = "Driver of the Year",
+                    winnerName = archive.driverChampionName,
+                    detail = "Crowned Season " + archive.season + " champion with " +
+                              (archive.finalDriverStandings.Count > 0 ? archive.finalDriverStandings[0].points : 0) + " points."
+                });
+            }
+
+            if (!string.IsNullOrEmpty(archive.constructorChampionName))
+            {
+                awards.Add(new SeasonAward
+                {
+                    title = "Team of the Year",
+                    winnerName = archive.constructorChampionName,
+                    detail = "Took the Season " + archive.season + " constructors' title."
+                });
+            }
+
+            DriverData risingStar = null;
+            int risingStarPosition = int.MaxValue;
+            for (int i = 0; i < archive.finalDriverStandings.Count; i++)
+            {
+                DriverData candidate = data.FindDriver(archive.finalDriverStandings[i].id);
+                if (candidate != null && candidate.experience <= 35 && i < risingStarPosition)
+                {
+                    risingStar = candidate;
+                    risingStarPosition = i;
+                }
+            }
+
+            if (risingStar != null)
+            {
+                awards.Add(new SeasonAward
+                {
+                    title = "Rising Star",
+                    winnerName = risingStar.displayName,
+                    detail = "Finished P" + (risingStarPosition + 1) + " with barely any experience coming in - one to watch."
+                });
+            }
+
+            if (!string.IsNullOrEmpty(archive.bestRaceEventName))
+            {
+                awards.Add(new SeasonAward { title = "Best Race", winnerName = archive.playerDriverName, detail = "P" + archive.bestRaceFinish + " at " + archive.bestRaceEventName + "." });
+            }
+
+            if (!string.IsNullOrEmpty(archive.worstRaceEventName))
+            {
+                awards.Add(new SeasonAward { title = "Worst Race", winnerName = archive.playerDriverName, detail = "P" + archive.worstRaceFinish + " at " + archive.worstRaceEventName + "." });
+            }
+
+            if (Save.seasonArchives.Count > 0)
+            {
+                SeasonArchive previous = Save.seasonArchives[Save.seasonArchives.Count - 1];
+                string mostImprovedName = null;
+                int bestImprovement = 0;
+                string disappointmentName = null;
+                int worstDrop = 0;
+                for (int i = 0; i < archive.finalDriverStandings.Count; i++)
+                {
+                    StandingEntry current = archive.finalDriverStandings[i];
+                    int previousPosition = previous.finalDriverStandings.FindIndex(entry => entry.id == current.id) + 1;
+                    if (previousPosition <= 0)
+                    {
+                        continue;
+                    }
+
+                    int change = previousPosition - (i + 1);
+                    if (change > bestImprovement)
+                    {
+                        bestImprovement = change;
+                        mostImprovedName = current.displayName;
+                    }
+
+                    if (-change > worstDrop)
+                    {
+                        worstDrop = -change;
+                        disappointmentName = current.displayName;
+                    }
+                }
+
+                if (mostImprovedName != null)
+                {
+                    awards.Add(new SeasonAward
+                    {
+                        title = "Most Improved Driver",
+                        winnerName = mostImprovedName,
+                        detail = "Climbed " + bestImprovement + " place" + (bestImprovement == 1 ? "" : "s") + " in the standings compared to last season."
+                    });
+                }
+
+                if (disappointmentName != null)
+                {
+                    awards.Add(new SeasonAward
+                    {
+                        title = "Biggest Disappointment",
+                        winnerName = disappointmentName,
+                        detail = "Dropped " + worstDrop + " place" + (worstDrop == 1 ? "" : "s") + " in the standings compared to last season."
+                    });
+                }
+            }
+
+            if (archive.biggestComebackPositionsGained >= 5)
+            {
+                awards.Add(new SeasonAward
+                {
+                    title = "Strategy Masterclass",
+                    winnerName = archive.playerDriverName,
+                    detail = "Gained " + archive.biggestComebackPositionsGained + " places at " + archive.biggestComebackEventName + "."
+                });
+            }
+
+            List<RaceReportRecord> seasonReports = Save.raceReports.FindAll(r => r.season == archive.season);
+            RaceReportRecord mostChaotic = null;
+            int mostChaoticScore = 0;
+            for (int i = 0; i < seasonReports.Count; i++)
+            {
+                RaceReportRecord report = seasonReports[i];
+                int score = Mathf.Max(0, report.raceControl.redFlagCount) * 5 + Mathf.Max(0, report.raceControl.safetyCarDeployments) * 3 + Mathf.Max(0, report.incidents.totalLockups);
+                if (score > mostChaoticScore)
+                {
+                    mostChaoticScore = score;
+                    mostChaotic = report;
+                }
+            }
+
+            if (mostChaotic != null)
+            {
+                awards.Add(new SeasonAward { title = "Most Chaotic Race", winnerName = mostChaotic.eventName, detail = mostChaotic.raceControl.narrative });
+            }
+
+            string crashMagnetName = null;
+            int mostPenalties = 0;
+            foreach (KeyValuePair<string, int> pair in penaltyCounts)
+            {
+                if (pair.Value > mostPenalties)
+                {
+                    mostPenalties = pair.Value;
+                    crashMagnetName = DriverNameOrFallback(pair.Key);
+                }
+            }
+
+            if (crashMagnetName != null)
+            {
+                awards.Add(new SeasonAward
+                {
+                    title = "Crash Magnet",
+                    winnerName = crashMagnetName,
+                    detail = "Picked up penalties in " + mostPenalties + " race" + (mostPenalties == 1 ? "" : "s") + " this season."
+                });
+            }
+
+            for (int i = 0; i < archive.finalDriverStandings.Count; i++)
+            {
+                string id = archive.finalDriverStandings[i].id;
+                int penalties;
+                penaltyCounts.TryGetValue(id, out penalties);
+                if (penalties == 0)
+                {
+                    awards.Add(new SeasonAward
+                    {
+                        title = "Cleanest Driver",
+                        winnerName = archive.finalDriverStandings[i].displayName,
+                        detail = "Completed Season " + archive.season + " without a single penalty."
+                    });
+                    break;
+                }
+            }
+
+            return awards;
+        }
+
+        string DriverNameOrFallback(string driverId)
+        {
+            DriverData driver = data.FindDriver(driverId);
+            return driver != null ? driver.displayName : driverId;
+        }
+
+        // Resets everything a new season should reset (championship state,
+        // rivalry/form momentum, contract target) while explicitly leaving
+        // untouched everything a new season should preserve (reputation,
+        // resource points, upgrades/department levels, player/team identity,
+        // settings, unlocked features, and every historical archive/news/
+        // race-result list) - then generates the new season's regulation
+        // changes, team-performance evolution, and objectives, and writes the
+        // offseason news reacting to the season that just closed.
+        void BeginNewSeason(SeasonArchive completedSeason)
+        {
+            Save.driverStandings = data.CreateInitialDriverStandings(Save.playerDriverName, Save.playerTeamId, Save.selectedDriverId);
+            Save.constructorStandings = data.CreateInitialConstructorStandings();
+            EnsurePlayerReplacesDriverSeat();
+
+            Save.recentFormPositions = new List<int>();
+            Save.teammateRaceWins = 0;
+            Save.teammateRaceLosses = 0;
+            Save.teammateQualifyingWins = 0;
+            Save.teammateQualifyingLosses = 0;
+            Save.rivalRaceWins = 0;
+            Save.rivalRaceLosses = 0;
+            Save.rivalQualifyingWins = 0;
+            Save.rivalQualifyingLosses = 0;
+            Save.roundsSinceRivalPicked = 0;
+
+            // Rivalry evolution: a real rivalry mostly carries over rather than
+            // resetting just because the calendar did, but there's a real
+            // chance the paddock's pecking order has shifted enough by the new
+            // season that a fresh rival makes more sense.
+            if (Random.value < 0.25f)
+            {
+                Save.rivalDriverId = PickRivalId(Save.playerTeamId, Save.selectedDriverId);
+            }
+
+            Save.contractTargetPosition = ContractTargetForTeam(Save.playerTeamId);
+            Save.preSeasonTestingSeen = false;
+
+            ApplyRegulationReset();
+            GenerateRegulationChanges();
+            GenerateTeamPerformanceEvolution(completedSeason);
+            GenerateSeasonObjectives();
+            GenerateOffseasonNews(completedSeason);
+            Write();
+        }
+
+        static readonly string[] RegulationFlavorCategories = { "Tyre Wear", "Cost Cap", "Reliability", "DRS & Race Control", "Pit Equipment" };
+
+        // Generates 1-3 RegulationChange entries for the new season on top of
+        // the existing category-strip mechanic (ApplyRegulationReset, called
+        // just before this) - Aero/Chassis/Power Unit/Durability/Tyre
+        // Management/ERS categories feed that existing upgrade-scrapping
+        // system and team-performance evolution below; the extra flavour
+        // categories (Tyre Wear/Cost Cap/Reliability/DRS/Pit Equipment) get
+        // their own small, explained effects instead.
+        void GenerateRegulationChanges()
+        {
+            Save.currentSeasonTyreWearMultiplier = 1f;
+            Save.currentSeasonResourceMultiplier = 1f;
+
+            List<string> pool = new List<string>(DepartmentNames);
+            pool.AddRange(RegulationFlavorCategories);
+
+            float countRoll = Random.value;
+            int count = Mathf.Min(pool.Count, countRoll < 0.4f ? 1 : (countRoll < 0.85f ? 2 : 3));
+            for (int i = 0; i < count; i++)
+            {
+                int index = Random.Range(0, pool.Count);
+                string category = pool[index];
+                pool.RemoveAt(index);
+
+                RegulationChange change = BuildRegulationChange(category);
+                Save.regulationChanges.Add(change);
+
+                if (change.category == "Tyre Wear")
+                {
+                    Save.currentSeasonTyreWearMultiplier = Mathf.Clamp(1f - change.magnitude, 0.82f, 1.22f);
+                }
+                else if (change.category == "Cost Cap")
+                {
+                    Save.currentSeasonResourceMultiplier = Mathf.Clamp(1f + change.magnitude, 0.78f, 1.28f);
+                }
+
+                AddNewsArticle("Regulation update: " + change.title, change.description, NewsCategoryRegulations);
+            }
+        }
+
+        RegulationChange BuildRegulationChange(string category)
+        {
+            float magnitude = Random.Range(0.05f, 0.12f) * (Random.value < 0.5f ? -1f : 1f);
+            RegulationChange change = new RegulationChange { season = Save.currentSeason, category = category, magnitude = magnitude };
+
+            switch (category)
+            {
+                case "Tyre Wear":
+                    change.title = magnitude > 0 ? "Tyre wear model tightened" : "Tyre wear model relaxed";
+                    change.description = magnitude > 0
+                        ? "Season " + Save.currentSeason + " compounds degrade faster - tyre management and pit strategy matter more than ever."
+                        : "Season " + Save.currentSeason + " compounds degrade more gently - expect longer stints and fewer forced stops.";
+                    change.beneficiaryHint = magnitude > 0 ? "Teams strong on tyre management" : "Teams that struggled with tyre life";
+                    change.loserHint = magnitude > 0 ? "Teams weak on tyre management" : "Teams built around aggressive one-stop strategies";
+                    break;
+                case "Cost Cap":
+                    change.title = magnitude < 0 ? "Cost cap eased" : "Cost cap tightened";
+                    change.description = magnitude < 0
+                        ? "A relaxed budget cap this season means development points go further."
+                        : "A stricter budget cap this season squeezes every team's development budget.";
+                    change.beneficiaryHint = magnitude < 0 ? "Every team, especially backmarkers" : "Well-funded front-runners";
+                    change.loserHint = magnitude < 0 ? "None directly" : "Smaller teams with thin resource margins";
+                    break;
+                case "Reliability":
+                    change.title = magnitude > 0 ? "Reliability crackdown" : "Reliability rules relaxed";
+                    change.description = magnitude > 0
+                        ? "Stricter component-life rules this season mean fragile cars are more likely to be caught out."
+                        : "Looser component-life rules this season give engineers more room to push the limits safely.";
+                    change.beneficiaryHint = magnitude > 0 ? "Teams with bullet-proof cars" : "Teams that push development hard";
+                    change.loserHint = magnitude > 0 ? "Teams with fragile cars" : "None directly";
+                    break;
+                case "DRS & Race Control":
+                    change.title = "DRS and race-control tweaks";
+                    change.description = "Season " + Save.currentSeason + " brings minor changes to DRS activation and race-control procedures - expect slightly different overtaking and flag behaviour.";
+                    change.beneficiaryHint = "Overtaking-focused drivers";
+                    change.loserHint = "Track-position-focused teams";
+                    break;
+                case "Pit Equipment":
+                    change.title = "Pit equipment changes";
+                    change.description = "Updated Season " + Save.currentSeason + " pit equipment regulations shift the emphasis in the pit lane - crews will need to adapt.";
+                    change.beneficiaryHint = "Teams with well-drilled pit crews";
+                    change.loserHint = "Teams that struggled with pit execution";
+                    break;
+                default:
+                    change.title = category + " regulation shift";
+                    change.description = "Season " + Save.currentSeason + " brings a " + category.ToLowerInvariant() + " regulation change - completed development in this area may be affected.";
+                    change.beneficiaryHint = magnitude > 0 ? "Teams weak in " + category : "Teams strong in " + category;
+                    change.loserHint = magnitude > 0 ? "Teams strong in " + category : "Teams weak in " + category;
+                    break;
+            }
+
+            return change;
+        }
+
+        // Small, bounded season-to-season team performance swing - mean
+        // reversion (front-runners regress slightly, backmarkers gain
+        // slightly on average) plus a regulation-driven bias for whichever
+        // Aero/Chassis/Power Unit/Durability/Tyre Management/ERS categories
+        // are affected this season, plus randomness. Never mutates the
+        // shared TeamData/CarPerformanceData reference data - applied at
+        // read time only (see GetEffectiveTeamCar).
+        void GenerateTeamPerformanceEvolution(SeasonArchive completedSeason)
+        {
+            List<StandingEntry> previousConstructorStandings = completedSeason != null ? completedSeason.finalConstructorStandings : null;
+            int teamCount = Mathf.Max(1, data.Teams.teams.Count);
+
+            for (int i = 0; i < data.Teams.teams.Count; i++)
+            {
+                TeamData team = data.Teams.teams[i];
+                int previousPosition = previousConstructorStandings != null ? previousConstructorStandings.FindIndex(entry => entry.id == team.id) + 1 : 0;
+                float positionBias = previousPosition <= 0 ? 0f : (Mathf.InverseLerp(1, teamCount, previousPosition) * 2f - 1f);
+
+                float regulationBias = 0f;
+                for (int r = 0; r < Save.regulationChanges.Count; r++)
+                {
+                    RegulationChange change = Save.regulationChanges[r];
+                    if (change.season == Save.currentSeason && System.Array.IndexOf(DepartmentNames, change.category) >= 0)
+                    {
+                        regulationBias += change.magnitude * 0.4f;
+                    }
+                }
+
+                float delta = Mathf.Clamp(positionBias * 0.035f + regulationBias + Random.Range(-0.03f, 0.03f), -0.09f, 0.09f);
+                Save.teamPerformanceModifiers.Add(new TeamPerformanceModifier
+                {
+                    teamId = team.id,
+                    season = Save.currentSeason,
+                    performanceDelta = delta,
+                    reputationDelta = Mathf.RoundToInt(delta * 40f),
+                    trendLabel = delta > 0.02f ? "Gained ground over the winter" : (delta < -0.02f ? "Lost ground over the winter" : "Held steady over the winter")
+                });
+            }
+
+            List<TeamPerformanceModifier> thisSeason = Save.teamPerformanceModifiers.FindAll(m => m.season == Save.currentSeason);
+            thisSeason.Sort((a, b) => b.performanceDelta.CompareTo(a.performanceDelta));
+            if (thisSeason.Count == 0)
+            {
+                return;
+            }
+
+            TeamPerformanceModifier gainer = thisSeason[0];
+            TeamData gainerTeam = data.FindTeam(gainer.teamId);
+            if (gainer.performanceDelta > 0.02f && gainerTeam != null)
+            {
+                AddNewsArticle(
+                    gainerTeam.name + " make the biggest gains over the winter",
+                    gainerTeam.name + " head into Season " + Save.currentSeason + " with the most improved car on the grid after a focused winter development push.",
+                    NewsCategoryRegulations);
+            }
+
+            TeamPerformanceModifier loser = thisSeason[thisSeason.Count - 1];
+            TeamData loserTeam = data.FindTeam(loser.teamId);
+            if (loser.performanceDelta < -0.02f && loserTeam != null)
+            {
+                AddNewsArticle(
+                    loserTeam.name + " slip back over the winter",
+                    loserTeam.name + " arrive at Season " + Save.currentSeason + " having lost a step over the winter - a difficult development cycle leaves ground to make up.",
+                    NewsCategoryRegulations);
+            }
+        }
+
+        // Read-time-only team performance lookup (see TeamPerformanceModifier)
+        // layered underneath the player's own upgrade tuning - every AI team
+        // now gets a small season-to-season swing, not just the player.
+        public CarPerformanceData GetEffectiveTeamCar(TeamData team, CarPerformanceData baseCar)
+        {
+            if (team == null || baseCar == null)
+            {
+                return baseCar;
+            }
+
+            CarPerformanceData tuned = ApplyTeamPerformanceModifier(team.id, baseCar);
+            if (team.id == Save.playerTeamId)
+            {
+                tuned = ApplyCareerUpgrades(tuned);
+            }
+
+            return tuned;
+        }
+
+        CarPerformanceData ApplyTeamPerformanceModifier(string teamId, CarPerformanceData baseCar)
+        {
+            TeamPerformanceModifier modifier = Save.teamPerformanceModifiers.Find(m => m.teamId == teamId && m.season == Save.currentSeason);
+            if (modifier == null || Mathf.Abs(modifier.performanceDelta) < 0.001f)
+            {
+                return baseCar;
+            }
+
+            float scale = 1f + modifier.performanceDelta;
+            CarPerformanceData tuned = new CarPerformanceData
+            {
+                id = baseCar.id,
+                // Top speed scaled at a fraction of the full swing - keeps a
+                // team's straight-line pace from swinging as wildly as its
+                // cornering/reliability, matching "avoid wild unrealistic
+                // chaos" for the one stat drivers notice most directly.
+                topSpeed = Mathf.RoundToInt(baseCar.topSpeed * Mathf.Lerp(1f, scale, 0.3f)),
+                acceleration = Mathf.RoundToInt(baseCar.acceleration * scale),
+                cornering = Mathf.RoundToInt(baseCar.cornering * scale),
+                braking = Mathf.RoundToInt(baseCar.braking * scale),
+                reliability = Mathf.RoundToInt(baseCar.reliability * scale),
+                ersEfficiency = Mathf.RoundToInt(baseCar.ersEfficiency * scale),
+                tyreManagement = Mathf.RoundToInt(baseCar.tyreManagement * scale),
+                aeroEfficiency = Mathf.RoundToInt(baseCar.aeroEfficiency * scale),
+                chassisBalance = Mathf.RoundToInt(baseCar.chassisBalance * scale),
+                enginePower = Mathf.RoundToInt(baseCar.enginePower * scale)
+            };
+
+            tuned.topSpeed = Mathf.Clamp(tuned.topSpeed, 310, 362);
+            tuned.acceleration = Mathf.Clamp(tuned.acceleration, 40, 128);
+            tuned.cornering = Mathf.Clamp(tuned.cornering, 40, 128);
+            tuned.braking = Mathf.Clamp(tuned.braking, 40, 128);
+            tuned.reliability = Mathf.Clamp(tuned.reliability, 30, 128);
+            tuned.ersEfficiency = Mathf.Clamp(tuned.ersEfficiency, 40, 128);
+            tuned.tyreManagement = Mathf.Clamp(tuned.tyreManagement, 40, 128);
+            tuned.aeroEfficiency = Mathf.Clamp(tuned.aeroEfficiency, 40, 128);
+            tuned.chassisBalance = Mathf.Clamp(tuned.chassisBalance, 40, 128);
+            tuned.enginePower = Mathf.Clamp(tuned.enginePower, 40, 128);
+            return tuned;
+        }
+
+        // Fresh player/team objectives for the new season, scaled off the
+        // team's own contract target (itself reputation-scaled) so a
+        // backmarker seat and a title-contending seat get genuinely
+        // different, appropriately-scaled goals. Milestone objectives
+        // (first win/podium/pole) only appear if not already achieved across
+        // the whole career (checked against the never-trimmed raceResults/
+        // qualifyingResults history, not the just-reset current standings).
+        void GenerateSeasonObjectives()
+        {
+            Save.seasonObjectives = new List<SeasonObjective>();
+            TeamData team = data.FindTeam(Save.playerTeamId);
+            int target = Mathf.Max(1, Save.contractTargetPosition);
+
+            Save.seasonObjectives.Add(new SeasonObjective
+            {
+                id = "wdc_position",
+                description = "Finish Season " + Save.currentSeason + " P" + target + " or better in the drivers' championship",
+                category = "Championship",
+                targetValue = target
+            });
+
+            int wccTarget = Mathf.Clamp(Mathf.RoundToInt(target * 0.85f), 1, Mathf.Max(1, data.Teams.teams.Count));
+            Save.seasonObjectives.Add(new SeasonObjective
+            {
+                id = "wcc_position",
+                description = "Help " + (team != null ? team.name : "the team") + " finish P" + wccTarget + " or better in the constructors' championship",
+                category = "Championship",
+                targetValue = wccTarget,
+                teamObjective = true
+            });
+
+            Save.seasonObjectives.Add(new SeasonObjective
+            {
+                id = "beat_teammate",
+                description = "Win the head-to-head against your teammate this season",
+                category = "Teammate",
+                targetValue = 1
+            });
+
+            int podiumTarget = target <= 5 ? 6 : (target <= 8 ? 3 : 1);
+            Save.seasonObjectives.Add(new SeasonObjective
+            {
+                id = "podiums",
+                description = "Score " + podiumTarget + " podium finish" + (podiumTarget == 1 ? "" : "es") + " this season",
+                category = "Podiums",
+                targetValue = podiumTarget
+            });
+
+            int pointsTarget = Mathf.Max(20, (25 - target * 2) * 8);
+            Save.seasonObjectives.Add(new SeasonObjective
+            {
+                id = "points",
+                description = "Score at least " + pointsTarget + " championship points this season",
+                category = "Points",
+                targetValue = pointsTarget
+            });
+
+            Save.seasonObjectives.Add(new SeasonObjective
+            {
+                id = "clean_races",
+                description = "Complete 5 clean races (no penalties) this season",
+                category = "Clean",
+                targetValue = 5
+            });
+
+            if (!PlayerHasCareerResult(1))
+            {
+                Save.seasonObjectives.Add(new SeasonObjective { id = "first_win", description = "Achieve your first race win", category = "Milestone", targetValue = 1 });
+            }
+            else if (!PlayerHasCareerResult(3))
+            {
+                Save.seasonObjectives.Add(new SeasonObjective { id = "first_podium", description = "Achieve your first podium finish", category = "Milestone", targetValue = 1 });
+            }
+
+            if (!PlayerHasCareerPole())
+            {
+                Save.seasonObjectives.Add(new SeasonObjective { id = "first_pole", description = "Achieve your first pole position", category = "Milestone", targetValue = 1 });
+            }
+        }
+
+        bool PlayerHasCareerResult(int positionOrBetter)
+        {
+            for (int i = 0; i < Save.raceResults.Count; i++)
+            {
+                RaceResultEntry entry = Save.raceResults[i].results.Find(item => item.isPlayer);
+                if (entry != null && entry.finishingPosition > 0 && entry.finishingPosition <= positionOrBetter)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        bool PlayerHasCareerPole()
+        {
+            for (int i = 0; i < Save.qualifyingResults.Count; i++)
+            {
+                QualifyingResultEntry entry = Save.qualifyingResults[i].results.Find(item => item.isPlayer);
+                if (entry != null && entry.position == 1)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Called every race (not just at season end) so the Career Hub and
+        // post-race report can always show live objective progress.
+        void UpdateSeasonObjectivesProgress(List<RaceResultEntry> results, RaceResultEntry player, CalendarEventData raceEvent)
+        {
+            if (Save.seasonObjectives == null || Save.seasonObjectives.Count == 0 || player == null)
+            {
+                return;
+            }
+
+            RaceResultEntry teammate = results.Find(entry => entry.teamId == Save.playerTeamId && entry.driverId != "player");
+            bool playerDnf = !string.IsNullOrEmpty(player.penaltyReason) && player.penaltyReason.Contains("DNF");
+            bool cleanRace = player.penaltiesSeconds <= 0f && !playerDnf;
+
+            for (int i = 0; i < Save.seasonObjectives.Count; i++)
+            {
+                SeasonObjective objective = Save.seasonObjectives[i];
+                if (objective.achieved)
+                {
+                    continue;
+                }
+
+                bool positionObjective = false;
+                switch (objective.id)
+                {
+                    case "wdc_position":
+                        objective.currentValue = FindStandingPosition(Save.driverStandings, "player");
+                        positionObjective = true;
+                        break;
+                    case "wcc_position":
+                        objective.currentValue = FindStandingPosition(Save.constructorStandings, Save.playerTeamId);
+                        positionObjective = true;
+                        break;
+                    case "beat_teammate":
+                        if (teammate != null && player.finishingPosition < teammate.finishingPosition)
+                        {
+                            objective.currentValue = 1;
+                        }
+
+                        break;
+                    case "podiums":
+                        if (player.finishingPosition <= 3)
+                        {
+                            objective.currentValue++;
+                        }
+
+                        break;
+                    case "points":
+                        objective.currentValue += Mathf.Max(0, player.points);
+                        break;
+                    case "clean_races":
+                        if (cleanRace)
+                        {
+                            objective.currentValue++;
+                        }
+
+                        break;
+                    case "first_win":
+                        if (player.finishingPosition == 1)
+                        {
+                            objective.currentValue = 1;
+                        }
+
+                        break;
+                    case "first_podium":
+                        if (player.finishingPosition <= 3)
+                        {
+                            objective.currentValue = 1;
+                        }
+
+                        break;
+                    default:
+                        continue;
+                }
+
+                objective.achieved = positionObjective
+                    ? (objective.currentValue > 0 && objective.currentValue <= objective.targetValue)
+                    : (objective.currentValue >= objective.targetValue);
+            }
+        }
+
+        // Offseason narrative reacting to the season that just closed -
+        // separate from the regulation/team-evolution news above so a season
+        // wrap-up always produces at least a few concrete articles even in a
+        // quiet year with no regulation surprises.
+        void GenerateOffseasonNews(SeasonArchive completedSeason)
+        {
+            if (completedSeason == null)
+            {
+                return;
+            }
+
+            if (!string.IsNullOrEmpty(completedSeason.driverChampionName))
+            {
+                AddNewsArticle(
+                    completedSeason.driverChampionName + " crowned Season " + completedSeason.season + " champion",
+                    completedSeason.driverChampionName + " wraps up the Season " + completedSeason.season + " drivers' title" +
+                    (string.IsNullOrEmpty(completedSeason.constructorChampionName) ? "." : ", with " + completedSeason.constructorChampionName + " taking the constructors' crown."),
+                    NewsCategoryGeneral);
+            }
+
+            string playerResultText = completedSeason.playerFinalPosition > 0
+                ? "finished Season " + completedSeason.season + " P" + completedSeason.playerFinalPosition + " with " + completedSeason.playerPoints + " points"
+                : "endured a season to forget";
+            AddNewsArticle(
+                "Season review: " + completedSeason.playerDriverName,
+                completedSeason.playerDriverName + " " + playerResultText + ", with " + completedSeason.playerWins + " win" + (completedSeason.playerWins == 1 ? "" : "s") +
+                " and " + completedSeason.playerPodiums + " podium" + (completedSeason.playerPodiums == 1 ? "" : "s") + ".",
+                NewsCategoryGeneral);
+
+            if (!string.IsNullOrEmpty(completedSeason.playerTeamName))
+            {
+                AddNewsArticle(
+                    completedSeason.playerTeamName + " review the season",
+                    completedSeason.playerTeamName + " finished P" + completedSeason.playerTeamFinalPosition + " in the constructors' championship on " +
+                    completedSeason.playerTeamPoints + " points - the team now turns its attention to Season " + Save.currentSeason + ".",
+                    NewsCategoryGeneral);
+            }
+
+            if (completedSeason.playerFinalPosition > 0 && completedSeason.playerFinalPosition <= completedSeason.contractTargetThatSeason)
+            {
+                AddNewsArticle(
+                    "Contract talk: " + completedSeason.playerDriverName + " impresses the board",
+                    completedSeason.playerDriverName + " met the team's target last year, and contract extension talks are already underway ahead of Season " + Save.currentSeason + ".",
+                    NewsCategoryRumour);
+            }
+            else if (completedSeason.playerFinalPosition > 0)
+            {
+                AddNewsArticle(
+                    "Contract talk: pressure mounts on " + completedSeason.playerDriverName,
+                    "Missing the team's target last year has put " + completedSeason.playerDriverName + "'s seat under some scrutiny heading into Season " +
+                    Save.currentSeason + ", though no change has been made.",
+                    NewsCategoryRumour);
+            }
+
+            if (!string.IsNullOrEmpty(completedSeason.teammateName))
+            {
+                string comparison = completedSeason.teammateHeadToHeadWins >= completedSeason.teammateHeadToHeadLosses
+                    ? completedSeason.playerDriverName + " held the edge over teammate " + completedSeason.teammateName
+                    : completedSeason.teammateName + " came out on top in the intra-team battle";
+                AddNewsArticle(
+                    "Teammate battle: the final tally",
+                    comparison + " (" + completedSeason.teammateHeadToHeadWins + "-" + completedSeason.teammateHeadToHeadLosses + " in race finishes) across Season " +
+                    completedSeason.season + ".",
+                    NewsCategoryRivalry);
+            }
+        }
+
+        // On-demand pre-season testing report (same "not persisted, fully
+        // re-derivable" convention as GenerateRaceWeekendBriefing) - built
+        // from the current season's team-performance modifiers/regulations,
+        // so it always reflects whatever was just generated for this season.
+        public PreSeasonTestingReport GeneratePreSeasonTestingReport()
+        {
+            PreSeasonTestingReport report = new PreSeasonTestingReport();
+            for (int i = 0; i < data.Teams.teams.Count; i++)
+            {
+                TeamData team = data.Teams.teams[i];
+                CarPerformanceData car = GetEffectiveTeamCar(team, data.FindCar(team.carPerformanceId));
+                if (car == null)
+                {
+                    continue;
+                }
+
+                float pace = (car.acceleration + car.cornering + car.braking + car.aeroEfficiency + car.chassisBalance + car.enginePower) / 6f;
+                report.paceRanking.Add(new PreSeasonTestingEntry
+                {
+                    teamId = team.id,
+                    teamName = team.name,
+                    paceRating = pace,
+                    reliabilityNote = car.reliability >= 85 ? "Strong reliability in testing" : (car.reliability <= 55 ? "Reliability concerns emerging" : "No major reliability concerns")
+                });
+            }
+
+            report.paceRanking.Sort((a, b) => b.paceRating.CompareTo(a.paceRating));
+
+            TeamData playerTeam = data.FindTeam(Save.playerTeamId);
+            CarPerformanceData playerCar = GetEffectiveTeamCar(playerTeam, GetPlayerCar());
+            int playerRank = report.paceRanking.FindIndex(entry => entry.teamId == Save.playerTeamId) + 1;
+            report.playerExpectationText = playerRank > 0
+                ? Save.playerDriverName + " and " + (playerTeam != null ? playerTeam.name : "the team") + " head into Season " + Save.currentSeason +
+                  " ranked P" + playerRank + " on testing pace out of " + report.paceRanking.Count + " teams."
+                : "Testing pace data unavailable.";
+
+            DriverData teammate = data.FindTeammateDriver(Save.playerTeamId, Save.selectedDriverId);
+            DriverData playerDriverData = string.IsNullOrEmpty(Save.selectedDriverId) ? null : data.FindDriver(Save.selectedDriverId);
+            if (teammate != null)
+            {
+                int teammateRating = teammate.OverallRating;
+                report.teammateBenchmarkText = playerDriverData != null
+                    ? "Testing suggests a closely matched teammate battle with " + teammate.displayName + " (rated " + teammateRating + " vs your " + playerDriverData.OverallRating + ")."
+                    : "Teammate " + teammate.displayName + " is rated " + teammateRating + " overall heading into testing.";
+            }
+            else
+            {
+                report.teammateBenchmarkText = "No teammate data available.";
+            }
+
+            float tyreWear = Save.currentSeasonTyreWearMultiplier;
+            report.tyreDegradationText = tyreWear > 1.03f
+                ? "New-season tyres are degrading faster in testing - expect tighter pit windows."
+                : (tyreWear < 0.97f ? "New-season tyres are proving kinder in testing - longer stints look possible." : "Tyre degradation looks similar to last season so far.");
+
+            if (playerCar != null)
+            {
+                List<KeyValuePair<string, int>> stats = new List<KeyValuePair<string, int>>
+                {
+                    new KeyValuePair<string, int>("Aerodynamics", playerCar.aeroEfficiency),
+                    new KeyValuePair<string, int>("Chassis", playerCar.chassisBalance),
+                    new KeyValuePair<string, int>("Power Unit", playerCar.enginePower),
+                    new KeyValuePair<string, int>("Durability", playerCar.reliability),
+                    new KeyValuePair<string, int>("Tyre Management", playerCar.tyreManagement),
+                    new KeyValuePair<string, int>("ERS", playerCar.ersEfficiency)
+                };
+
+                stats.Sort((a, b) => a.Value.CompareTo(b.Value));
+                for (int i = 0; i < Mathf.Min(2, stats.Count); i++)
+                {
+                    report.upgradeRecommendations.Add("Prioritise " + stats[i].Key + " development - currently the car's weakest area (" + stats[i].Value + ").");
+                }
+            }
+
+            return report;
+        }
+
+        // Season-archive accessors for the Season Archive/History UI.
+        public List<SeasonArchive> GetSeasonArchives()
+        {
+            return Save.seasonArchives;
+        }
+
+        public SeasonArchive GetSeasonArchive(int season)
+        {
+            return Save.seasonArchives.Find(archive => archive.season == season);
+        }
+
+        public SeasonArchive GetLatestSeasonArchive()
+        {
+            return Save.seasonArchives.Count > 0 ? Save.seasonArchives[Save.seasonArchives.Count - 1] : null;
+        }
+
+        // Career Hub / post-race-report state machine transitions. Each is a
+        // one-way step forward through CareerSeasonPhase; ConfirmNewSeasonSetup
+        // is the only one that clears seasonTransitionPending, so a reload
+        // mid-flow always resumes exactly where it left off instead of
+        // silently dropping back into ordinary Career Hub navigation.
+        public void AdvanceToSeasonReview()
+        {
+            if (Save.seasonPhase == CareerSeasonPhase.FinalRaceComplete)
+            {
+                Save.seasonPhase = CareerSeasonPhase.SeasonReview;
+                Write();
+            }
+        }
+
+        public void AdvanceToOffseason()
+        {
+            Save.seasonPhase = CareerSeasonPhase.Offseason;
+            Write();
+        }
+
+        public void AdvanceToPreseason()
+        {
+            Save.seasonPhase = CareerSeasonPhase.Preseason;
+            Write();
+        }
+
+        public void ConfirmNewSeasonSetup()
+        {
+            Save.seasonTransitionPending = false;
+            Save.seasonPhase = CareerSeasonPhase.NewSeasonActive;
+            Save.preSeasonTestingSeen = true;
+            Write();
         }
     }
 }

@@ -110,7 +110,13 @@ namespace LocalFormulaRacing
             RectTransform menu = UiFactory.CreateRect(background, "Menu", new Vector2(0.06f, 0.16f), new Vector2(0.32f, 0.6f), Vector2.zero, Vector2.zero);
             UiFactory.AddVerticalLayout(menu, 10, new RectOffset(0, 0, 0, 0));
             string careerCardInfo = "Season " + career.Save.currentSeason + "  ·  Round " + career.Save.currentRound;
-            UiFactory.CreateModeCard(menu, "Career", careerCardInfo, UiFactory.Accent, true, () => ShowCareerHub(data, career, settings));
+            // Part 21: routes through GameBootstrap.ShowCareer() rather than
+            // straight to ShowCareerHub, same as the post-race report's
+            // "Continue Career" button - that's the one choke point that
+            // knows to redirect into the season-review flow instead when a
+            // season transition is still pending (e.g. the player quit right
+            // after Abu Dhabi and is only now reopening the app).
+            UiFactory.CreateModeCard(menu, "Career", careerCardInfo, UiFactory.Accent, true, bootstrap.ShowCareer);
             UiFactory.CreateModeCard(menu, "Quick Race", "Jump straight into a race weekend", UiFactory.AccentCyan, false, bootstrap.StartQuickRace);
             UiFactory.CreateModeCard(menu, "Time Trial", "Chase your best lap, no rivals", UiFactory.AccentPurple, false, bootstrap.ShowTimeTrialSetup);
             UiFactory.CreateModeCard(menu, "Settings", "Difficulty, assists, display, controls", UiFactory.AccentAmber, false, () => ShowSettings(data, career, settings));
@@ -286,6 +292,7 @@ namespace LocalFormulaRacing
             UiFactory.CreateSecondaryButton(secondaryGrid, "Driver & Team", () => ShowCareerSetup(data, career, settings));
             UiFactory.CreateSecondaryButton(secondaryGrid, "Rivalry", () => ShowRivalryHub(data, career, settings));
             UiFactory.CreateSecondaryButton(secondaryGrid, "Championship Graphs", () => ShowChampionshipGraphs(data, career, settings));
+            UiFactory.CreateSecondaryButton(secondaryGrid, "Season Archive", () => ShowSeasonArchive(data, career, settings));
 
             // Standings as real rows (position badge, team accent dot, name,
             // points) instead of a single concatenated Text block.
@@ -4415,6 +4422,725 @@ namespace LocalFormulaRacing
             {
                 UiFactory.CreatePrimaryButton(footerRight, "Race Again", () => bootstrap.StartQuickRace());
             }
+        }
+
+        // Part 21: the very first thing a player sees after the final calendar
+        // race's report is dismissed (see GameBootstrap.ShowCareer, which
+        // routes here instead of straight to ShowCareerHub whenever
+        // career.Save.seasonTransitionPending is set). Deliberately a short,
+        // punchy transition, not the full breakdown - that's ShowSeasonReview,
+        // one tap away - so the "the season just ended" moment reads as an
+        // event in its own right instead of being buried at the top of a long
+        // scroll of stats.
+        public void ShowSeasonComplete(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            UiFactory.ApplyUiScale(canvas, settings.UiScale);
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Season complete background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateCheckeredBand(background, "Season complete chequered accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -96f), new Vector2(0f, -92f));
+
+            SeasonArchive archive = career.GetLatestSeasonArchive();
+            int completedSeason = archive != null ? archive.season : Mathf.Max(1, career.Save.currentSeason - 1);
+            UiFactory.CreateScreenHeader(background, "Season " + completedSeason + " Complete",
+                "The chequered flag has fallen on the season - here's how it finished.");
+
+            RectTransform hero = UiFactory.CreateGlassPanel(background, "Season complete hero", new Vector2(0.18f, 0.5f), new Vector2(0.82f, 0.78f), Vector2.zero, Vector2.zero, UiFactory.PanelDark);
+            if (archive == null)
+            {
+                Text noArchiveText = UiFactory.CreateText(hero, "No archive text", "Season data unavailable.", 18, UiFactory.TextMuted, TextAnchor.MiddleCenter);
+                RectTransform noArchiveRect = noArchiveText.GetComponent<RectTransform>();
+                noArchiveRect.anchorMin = Vector2.zero;
+                noArchiveRect.anchorMax = Vector2.one;
+                noArchiveRect.offsetMin = Vector2.zero;
+                noArchiveRect.offsetMax = Vector2.zero;
+            }
+            else
+            {
+                RectTransform heroStack = UiFactory.CreateRect(hero, "Season complete hero stack", Vector2.zero, Vector2.one, new Vector2(28f, 20f), new Vector2(-28f, -20f));
+                VerticalLayoutGroup heroLayout = heroStack.gameObject.AddComponent<VerticalLayoutGroup>();
+                heroLayout.spacing = 10f;
+                heroLayout.childAlignment = TextAnchor.UpperCenter;
+                heroLayout.childControlWidth = true;
+                heroLayout.childControlHeight = true;
+                heroLayout.childForceExpandWidth = true;
+                heroLayout.childForceExpandHeight = false;
+
+                UiFactory.CreateText(heroStack, "Champion line", "Drivers' Champion: " + archive.driverChampionName, 24, UiFactory.TextPrimary, TextAnchor.MiddleCenter);
+                UiFactory.CreateText(heroStack, "Constructor line", "Constructors' Champion: " + archive.constructorChampionName, 20, UiFactory.AccentCyan, TextAnchor.MiddleCenter);
+
+                string playerLine = archive.playerFinalPosition > 0
+                    ? archive.playerDriverName + " finished P" + archive.playerFinalPosition + " with " + archive.playerPoints + " point" + (archive.playerPoints == 1 ? "" : "s")
+                    : archive.playerDriverName + "'s season is in the books";
+                UiFactory.CreateText(heroStack, "Player line", playerLine, 18, UiFactory.TextMuted, TextAnchor.MiddleCenter);
+
+                RectTransform statRow = UiFactory.CreateRect(heroStack, "Season complete stat row", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+                UiFactory.SetFixedRowHeight(statRow.gameObject.AddComponent<LayoutElement>(), 64f);
+                UiFactory.AddHorizontalLayout(statRow, 12, new RectOffset(0, 0, 4, 0));
+                UiFactory.CreateStatCard(statRow, "Wins", archive.playerWins.ToString(), 150f);
+                UiFactory.CreateStatCard(statRow, "Podiums", archive.playerPodiums.ToString(), 150f);
+                UiFactory.CreateStatCard(statRow, "Poles", archive.playerPoles.ToString(), 150f);
+                UiFactory.CreateStatCard(statRow, "Team", archive.playerTeamName + " P" + archive.playerTeamFinalPosition, 210f);
+            }
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => bootstrap.ShowMainMenu());
+            UiFactory.CreatePrimaryButton(footerRight, "View Full Season Review", () =>
+            {
+                career.AdvanceToSeasonReview();
+                ShowSeasonReview(data, career, settings, archive, true);
+            });
+        }
+
+        // Part 21: the full season-finale breakdown - reachable from
+        // ShowSeasonComplete's "View Full Season Review" (isFreshCompletion,
+        // continues into the offseason flow) and from ShowSeasonArchive
+        // (browsing an old season, so it goes back there instead). Every
+        // field read here comes from the frozen SeasonArchive snapshot, never
+        // the live Save, so a season viewed from the archive months later
+        // reads exactly as it did the day it closed.
+        public void ShowSeasonReview(GameDataRepository data, CareerManager career, GameSettingsStore settings, SeasonArchive archive, bool isFreshCompletion)
+        {
+            Clear();
+            UiFactory.ApplyUiScale(canvas, settings.UiScale);
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Season review background", new Color(0.012f, 0.016f, 0.021f, 1f));
+
+            if (archive == null)
+            {
+                UiFactory.CreateScreenHeader(background, "Season Review", "No season data available.");
+                RectTransform emptyFooterLeft;
+                RectTransform emptyFooterRight;
+                UiFactory.CreateFooterBar(background, out emptyFooterLeft, out emptyFooterRight);
+                UiFactory.CreateSecondaryButton(emptyFooterLeft, "Back", () => ShowCareerHub(data, career, settings));
+                return;
+            }
+
+            UiFactory.CreateCheckeredBand(background, "Season review chequered accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -96f), new Vector2(0f, -92f));
+            UiFactory.CreateScreenHeader(background, "Season " + archive.season + " Review",
+                archive.driverChampionName + " (Drivers')  ·  " + archive.constructorChampionName + " (Constructors')");
+
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Season review report", new Vector2(0.05f, 0.12f), new Vector2(0.95f, 0.88f), 20, new RectOffset(6, 6, 16, 16));
+
+            UiFactory.CreateSubHeader(content, "Final Drivers' Championship");
+            BuildStandingsRows(data, content, archive.finalDriverStandings, ReportContentWidth);
+            UiFactory.CreateDivider(content);
+
+            UiFactory.CreateSubHeader(content, "Final Constructors' Championship");
+            BuildStandingsRows(data, content, archive.finalConstructorStandings, ReportContentWidth);
+
+            BuildSeasonReviewGraphSection(content, career, archive);
+
+            UiFactory.CreateSubHeader(content, "Player Season Summary");
+            RectTransform playerStatsRow1 = UiFactory.CreateAutoHeightRow(content, "Season player stats row 1", ReportContentWidth, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(playerStatsRow1, "Final Position", "P" + archive.playerFinalPosition, 220f);
+            UiFactory.CreateStatCard(playerStatsRow1, "Points", archive.playerPoints.ToString(), 220f);
+            UiFactory.CreateStatCard(playerStatsRow1, "Wins", archive.playerWins.ToString(), 220f);
+            UiFactory.CreateStatCard(playerStatsRow1, "Podiums", archive.playerPodiums.ToString(), 220f);
+            RectTransform playerStatsRow2 = UiFactory.CreateAutoHeightRow(content, "Season player stats row 2", ReportContentWidth, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(playerStatsRow2, "Poles", archive.playerPoles.ToString(), 220f);
+            UiFactory.CreateStatCard(playerStatsRow2, "Fastest Laps", archive.playerFastestLaps.ToString(), 220f);
+            UiFactory.CreateStatCard(playerStatsRow2, "DNFs", archive.playerDnfs.ToString(), 220f);
+            UiFactory.CreateStatCard(playerStatsRow2, "Penalized Races", archive.playerPenalizedRaces.ToString(), 220f);
+
+            UiFactory.CreateSubHeader(content, "Teammate Comparison");
+            if (!string.IsNullOrEmpty(archive.teammateName))
+            {
+                RectTransform teammateArea;
+                UiFactory.CreateAutoCard(content, "Season teammate comparison", "", UiFactory.AccentCyan, ReportContentWidth, out teammateArea);
+                float teammateInnerWidth = ReportContentWidth - 34f;
+                UiFactory.CreateAutoText(teammateArea, "Season teammate headline",
+                    archive.playerDriverName + " P" + archive.playerFinalPosition + " (" + archive.playerPoints + " pts)   vs   " +
+                    archive.teammateName + " P" + archive.teammateFinalPosition + " (" + archive.teammatePoints + " pts)",
+                    15, UiFactory.TextPrimary, TextAnchor.UpperLeft, teammateInnerWidth);
+                UiFactory.CreateAutoText(teammateArea, "Season teammate head to head",
+                    "Head-to-head race finishes: " + archive.teammateHeadToHeadWins + "-" + archive.teammateHeadToHeadLosses,
+                    14, UiFactory.TextMuted, TextAnchor.UpperLeft, teammateInnerWidth);
+                int pointsCeiling = Mathf.Max(1, Mathf.Max(archive.playerPoints, archive.teammatePoints));
+                UiFactory.CreateComparisonBar(teammateArea, "Points", archive.playerPoints, UiFactory.Accent, archive.teammatePoints, UiFactory.AccentCyan, pointsCeiling, teammateInnerWidth);
+                int h2hCeiling = Mathf.Max(1, archive.teammateHeadToHeadWins + archive.teammateHeadToHeadLosses);
+                UiFactory.CreateComparisonBar(teammateArea, "Head-to-Head Wins", archive.teammateHeadToHeadWins, UiFactory.Accent, archive.teammateHeadToHeadLosses, UiFactory.AccentCyan, h2hCeiling, teammateInnerWidth);
+            }
+            else
+            {
+                BuildEmptyState(content, "No teammate recorded this season.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Team Season Summary");
+            RectTransform teamRow = UiFactory.CreateAutoHeightRow(content, "Season team summary row", ReportContentWidth, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(teamRow, "Team", archive.playerTeamName, 260f);
+            UiFactory.CreateStatCard(teamRow, "Final Position", "P" + archive.playerTeamFinalPosition, 220f);
+            UiFactory.CreateStatCard(teamRow, "Points", archive.playerTeamPoints.ToString(), 220f);
+
+            UiFactory.CreateSubHeader(content, "Race Control Summary");
+            RectTransform raceControlRow = UiFactory.CreateAutoHeightRow(content, "Season race control row", ReportContentWidth, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(raceControlRow, "Red Flags", archive.redFlagCount.ToString(), 220f);
+            UiFactory.CreateStatCard(raceControlRow, "Safety Cars", archive.safetyCarCount.ToString(), 220f);
+            UiFactory.CreateStatCard(raceControlRow, "Major Incidents", archive.majorIncidentCount.ToString(), 220f);
+
+            UiFactory.CreateSubHeader(content, "Race Highlights");
+            RectTransform highlightsRow = UiFactory.CreateAutoHeightRow(content, "Season race highlights row", ReportContentWidth, 14, new RectOffset(0, 0, 0, 0));
+            bool anyHighlight = false;
+            float highlightCardWidth = 290f;
+            float highlightInnerWidth = highlightCardWidth - 34f;
+            if (!string.IsNullOrEmpty(archive.bestRaceEventName) && archive.bestRaceFinish > 0)
+            {
+                RectTransform bestArea;
+                UiFactory.CreateAutoCard(highlightsRow, "Season best race", "Best Race", UiFactory.AccentGreen, highlightCardWidth, out bestArea);
+                UiFactory.CreateAutoText(bestArea, "Season best race text",
+                    "P" + archive.bestRaceFinish + " at " + archive.bestRaceEventName + (archive.bestRaceGridPosition > 0 ? " (started P" + archive.bestRaceGridPosition + ")" : ""),
+                    14, UiFactory.TextPrimary, TextAnchor.UpperLeft, highlightInnerWidth);
+                anyHighlight = true;
+            }
+
+            if (!string.IsNullOrEmpty(archive.worstRaceEventName) && archive.worstRaceFinish > 0)
+            {
+                RectTransform worstArea;
+                UiFactory.CreateAutoCard(highlightsRow, "Season worst race", "Worst Race", UiFactory.Accent, highlightCardWidth, out worstArea);
+                UiFactory.CreateAutoText(worstArea, "Season worst race text", "P" + archive.worstRaceFinish + " at " + archive.worstRaceEventName,
+                    14, UiFactory.TextPrimary, TextAnchor.UpperLeft, highlightInnerWidth);
+                anyHighlight = true;
+            }
+
+            if (!string.IsNullOrEmpty(archive.biggestComebackEventName) && archive.biggestComebackPositionsGained > 0)
+            {
+                RectTransform comebackArea;
+                UiFactory.CreateAutoCard(highlightsRow, "Season comeback", "Biggest Comeback", UiFactory.AccentCyan, highlightCardWidth, out comebackArea);
+                UiFactory.CreateAutoText(comebackArea, "Season comeback text",
+                    "+" + archive.biggestComebackPositionsGained + " places at " + archive.biggestComebackEventName,
+                    14, UiFactory.TextPrimary, TextAnchor.UpperLeft, highlightInnerWidth);
+                anyHighlight = true;
+            }
+
+            if (!string.IsNullOrEmpty(archive.biggestCollapseEventName) && archive.biggestCollapsePositionsLost > 0)
+            {
+                RectTransform collapseArea;
+                UiFactory.CreateAutoCard(highlightsRow, "Season collapse", "Biggest Collapse", UiFactory.AccentAmber, highlightCardWidth, out collapseArea);
+                UiFactory.CreateAutoText(collapseArea, "Season collapse text",
+                    "-" + archive.biggestCollapsePositionsLost + " places at " + archive.biggestCollapseEventName,
+                    14, UiFactory.TextPrimary, TextAnchor.UpperLeft, highlightInnerWidth);
+                anyHighlight = true;
+            }
+
+            if (!anyHighlight)
+            {
+                BuildEmptyState(content, "No standout races recorded this season.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Rivalry");
+            if (!string.IsNullOrEmpty(archive.rivalName))
+            {
+                RectTransform rivalryArea;
+                UiFactory.CreateAutoCard(content, "Season rivalry", "", UiFactory.AccentPurple, ReportContentWidth, out rivalryArea);
+                UiFactory.CreateAutoText(rivalryArea, "Season rivalry text",
+                    "Rivalry with " + archive.rivalName + ": " + archive.rivalRaceWins + " wins - " + archive.rivalRaceLosses + " losses in head-to-head races.",
+                    15, UiFactory.TextPrimary, TextAnchor.UpperLeft, ReportContentWidth - 34f);
+            }
+            else
+            {
+                BuildEmptyState(content, "No rivalry recorded this season.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Season Form");
+            if (archive.formSummary != null && archive.formSummary.Count > 0)
+            {
+                RectTransform formRow = UiFactory.CreateRect(content, "Season form row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                float formHeight = UiFactory.CreateWrappingChipRow(formRow, "Season form chips", archive.formSummary, UiFactory.AccentAmber, 0f, 0f, ReportContentWidth);
+                UiFactory.SetSize(formRow, ReportContentWidth, formHeight);
+            }
+            else
+            {
+                BuildEmptyState(content, "No form data recorded this season.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Upgrade Effectiveness");
+            if (archive.upgradesCompleted != null && archive.upgradesCompleted.Count > 0)
+            {
+                RectTransform upgradeArea;
+                UiFactory.CreateAutoCard(content, "Season upgrades", "", UiFactory.AccentCyan, ReportContentWidth, out upgradeArea);
+                float upgradeInnerWidth = ReportContentWidth - 34f;
+                for (int i = 0; i < archive.upgradesCompleted.Count; i++)
+                {
+                    UpgradeData upgrade = data.Upgrades.upgrades.Find(u => u.id == archive.upgradesCompleted[i]);
+                    string line = upgrade != null ? upgrade.displayName + "  " + BuildUpgradeDeltaSummary(upgrade) : archive.upgradesCompleted[i];
+                    UiFactory.CreateAutoText(upgradeArea, "Season upgrade " + i, line, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, upgradeInnerWidth);
+                }
+            }
+            else
+            {
+                BuildEmptyState(content, "No upgrades completed this season.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Reputation");
+            List<SeasonArchive> allArchives = career.GetSeasonArchives();
+            SeasonArchive previousArchive = allArchives != null ? allArchives.Find(a => a.season == archive.season - 1) : null;
+            RectTransform reputationRow = UiFactory.CreateAutoHeightRow(content, "Season reputation row", ReportContentWidth, 14, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(reputationRow, "Reputation", archive.reputationAtSeasonEnd.ToString(), 220f);
+            if (previousArchive != null)
+            {
+                int reputationDelta = archive.reputationAtSeasonEnd - previousArchive.reputationAtSeasonEnd;
+                string reputationDeltaText = reputationDelta == 0 ? "No change" : (reputationDelta > 0 ? "+" + reputationDelta : reputationDelta.ToString());
+                UiFactory.CreateStatCard(reputationRow, "Change vs Last Season", reputationDeltaText, 260f);
+            }
+
+            UiFactory.CreateSubHeader(content, "Regulation Changes In Effect");
+            if (archive.regulations != null && archive.regulations.Count > 0)
+            {
+                for (int i = 0; i < archive.regulations.Count; i++)
+                {
+                    RegulationChange change = archive.regulations[i];
+                    RectTransform regulationArea;
+                    UiFactory.CreateAutoCard(content, "Season regulation " + i, change.title, change.magnitude >= 0f ? UiFactory.AccentGreen : UiFactory.AccentAmber, ReportContentWidth, out regulationArea);
+                    float regulationInnerWidth = ReportContentWidth - 34f;
+                    UiFactory.CreateAutoText(regulationArea, "Season regulation description " + i, change.description, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, regulationInnerWidth);
+                    UiFactory.CreateAutoText(regulationArea, "Season regulation impact " + i, "Helps: " + change.beneficiaryHint + "   ·   Hurts: " + change.loserHint, 13, UiFactory.TextMuted, TextAnchor.UpperLeft, regulationInnerWidth);
+                }
+            }
+            else
+            {
+                BuildEmptyState(content, "No regulation changes recorded for this season.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Team Performance Changes");
+            if (archive.teamPerformanceChanges != null && archive.teamPerformanceChanges.Count > 0)
+            {
+                RectTransform teamChangeArea;
+                UiFactory.CreateAutoCard(content, "Season team performance", "", UiFactory.AccentCyan, ReportContentWidth, out teamChangeArea);
+                float teamChangeInnerWidth = ReportContentWidth - 34f;
+                for (int i = 0; i < archive.teamPerformanceChanges.Count; i++)
+                {
+                    TeamPerformanceModifier modifier = archive.teamPerformanceChanges[i];
+                    TeamData modifierTeam = data.FindTeam(modifier.teamId);
+                    string modifierName = modifierTeam != null ? modifierTeam.name : modifier.teamId;
+                    string modifierSign = modifier.performanceDelta >= 0f ? "+" : "";
+                    UiFactory.CreateAutoText(teamChangeArea, "Season team change " + i,
+                        modifierName + "  " + modifierSign + (modifier.performanceDelta * 100f).ToString("0.0") + "%  -  " + modifier.trendLabel,
+                        14, modifier.performanceDelta >= 0f ? UiFactory.AccentGreen : UiFactory.Accent, TextAnchor.UpperLeft, teamChangeInnerWidth);
+                }
+            }
+            else
+            {
+                BuildEmptyState(content, "No team performance changes recorded.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Season Awards");
+            if (archive.awards != null && archive.awards.Count > 0)
+            {
+                for (int i = 0; i < archive.awards.Count; i++)
+                {
+                    SeasonAward award = archive.awards[i];
+                    RectTransform awardArea;
+                    UiFactory.CreateAutoCard(content, "Season award " + i, award.title, UiFactory.AccentAmber, ReportContentWidth, out awardArea);
+                    float awardInnerWidth = ReportContentWidth - 34f;
+                    UiFactory.CreateAutoText(awardArea, "Season award winner " + i, award.winnerName, 18, UiFactory.TextPrimary, TextAnchor.UpperLeft, awardInnerWidth);
+                    UiFactory.CreateAutoText(awardArea, "Season award detail " + i, award.detail, 14, UiFactory.TextMuted, TextAnchor.UpperLeft, awardInnerWidth);
+                }
+            }
+            else
+            {
+                BuildEmptyState(content, "No season awards recorded.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Key Headlines");
+            if (archive.keyHeadlines != null && archive.keyHeadlines.Count > 0)
+            {
+                for (int i = 0; i < archive.keyHeadlines.Count; i++)
+                {
+                    UiFactory.CreateAutoText(content, "Season headline " + i, "• " + archive.keyHeadlines[i], 14, UiFactory.TextMuted, TextAnchor.UpperLeft, ReportContentWidth);
+                }
+            }
+            else
+            {
+                BuildEmptyState(content, "No headlines recorded for this season.", ReportContentWidth);
+            }
+
+            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => bootstrap.ShowMainMenu());
+            if (isFreshCompletion)
+            {
+                UiFactory.CreatePrimaryButton(footerRight, "Continue to Offseason", () =>
+                {
+                    career.AdvanceToOffseason();
+                    ShowOffseasonHub(data, career, settings);
+                });
+            }
+            else
+            {
+                UiFactory.CreatePrimaryButton(footerRight, "Back to Season Archive", () => ShowSeasonArchive(data, career, settings));
+            }
+        }
+
+        // "Shape of the season" mini WDC/WCC progression charts, reusing
+        // BuildChampionshipChart/AddChampionshipMiniChartCaption exactly as
+        // ShowChampionshipGraphs' Combined tab does, just fixed-height rows
+        // instead of fractional full-screen anchors so they sit naturally
+        // inside this screen's scrolling content list. Non-interactive (no
+        // tap-for-detail state to persist here) - passes a null callback,
+        // which BuildChampionshipChart already treats as "no-op on tap".
+        void BuildSeasonReviewGraphSection(RectTransform content, CareerManager career, SeasonArchive archive)
+        {
+            UiFactory.CreateSubHeader(content, "Season Shape");
+            CareerManager.ChampionshipProgression driverProgression = career.GetDriverChampionshipProgression(archive.season);
+            CareerManager.ChampionshipProgression constructorProgression = career.GetConstructorChampionshipProgression(archive.season);
+
+            RectTransform wdcChartRow = UiFactory.CreateRect(content, "Season review WDC chart row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetSize(wdcChartRow, ReportContentWidth, 280f);
+            RectTransform wdcPlot = UiFactory.CreateChartPlotArea(wdcChartRow, "Season review WDC plot", new Vector2(0f, 0f), new Vector2(0.7f, 1f), Vector2.zero, Vector2.zero);
+            RectTransform wdcLegend = UiFactory.CreateScrollPanel(wdcChartRow, "Season review WDC legend", new Vector2(0.72f, 0f), new Vector2(1f, 1f), 6, new RectOffset(8, 8, 8, 8));
+            BuildChampionshipChart(wdcPlot, wdcLegend, driverProgression, archive.teammateId, false, "", -1, null);
+            AddChampionshipMiniChartCaption(wdcPlot, "WDC - DRIVERS");
+
+            RectTransform wccChartRow = UiFactory.CreateRect(content, "Season review WCC chart row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetSize(wccChartRow, ReportContentWidth, 280f);
+            RectTransform wccPlot = UiFactory.CreateChartPlotArea(wccChartRow, "Season review WCC plot", new Vector2(0f, 0f), new Vector2(0.7f, 1f), Vector2.zero, Vector2.zero);
+            RectTransform wccLegend = UiFactory.CreateScrollPanel(wccChartRow, "Season review WCC legend", new Vector2(0.72f, 0f), new Vector2(1f, 1f), 6, new RectOffset(8, 8, 8, 8));
+            BuildChampionshipChart(wccPlot, wccLegend, constructorProgression, "", false, "", -1, null);
+            AddChampionshipMiniChartCaption(wccPlot, "WCC - CONSTRUCTORS");
+        }
+
+        // Sums an UpgradeData's nonzero stat deltas into a short "(+3 Top
+        // Speed, +1 Reliability)" clause for the Season Review's upgrade
+        // effectiveness list - skips every stat the upgrade didn't touch.
+        string BuildUpgradeDeltaSummary(UpgradeData upgrade)
+        {
+            List<string> parts = new List<string>();
+            if (upgrade.topSpeedDelta != 0) parts.Add((upgrade.topSpeedDelta > 0 ? "+" : "") + upgrade.topSpeedDelta + " Top Speed");
+            if (upgrade.accelerationDelta != 0) parts.Add((upgrade.accelerationDelta > 0 ? "+" : "") + upgrade.accelerationDelta + " Acceleration");
+            if (upgrade.corneringDelta != 0) parts.Add((upgrade.corneringDelta > 0 ? "+" : "") + upgrade.corneringDelta + " Cornering");
+            if (upgrade.brakingDelta != 0) parts.Add((upgrade.brakingDelta > 0 ? "+" : "") + upgrade.brakingDelta + " Braking");
+            if (upgrade.reliabilityDelta != 0) parts.Add((upgrade.reliabilityDelta > 0 ? "+" : "") + upgrade.reliabilityDelta + " Reliability");
+            if (upgrade.ersDelta != 0) parts.Add((upgrade.ersDelta > 0 ? "+" : "") + upgrade.ersDelta + " ERS");
+            if (upgrade.tyreDelta != 0) parts.Add((upgrade.tyreDelta > 0 ? "+" : "") + upgrade.tyreDelta + " Tyre Management");
+            if (upgrade.aeroDelta != 0) parts.Add((upgrade.aeroDelta > 0 ? "+" : "") + upgrade.aeroDelta + " Aero");
+            if (upgrade.chassisDelta != 0) parts.Add((upgrade.chassisDelta > 0 ? "+" : "") + upgrade.chassisDelta + " Chassis");
+            if (upgrade.engineDelta != 0) parts.Add((upgrade.engineDelta > 0 ? "+" : "") + upgrade.engineDelta + " Engine");
+            return parts.Count > 0 ? "(" + string.Join(", ", parts.ToArray()) + ")" : "";
+        }
+
+        // Part 21: every completed season as a browsable card, most recent
+        // first - the only place a player can look back at an old season's
+        // ShowSeasonReview once they've moved past it.
+        public void ShowSeasonArchive(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Season archive background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateScreenHeader(background, "Season Archive", "Every completed season of your career, most recent first.");
+
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Season archive list", new Vector2(0.05f, 0.12f), new Vector2(0.95f, 0.88f), 16, new RectOffset(10, 10, 16, 16));
+
+            List<SeasonArchive> archives = career.GetSeasonArchives();
+            if (archives == null || archives.Count == 0)
+            {
+                BuildEmptyState(content, "No completed seasons yet - finish your first full season to see it archived here.", ReportContentWidth);
+            }
+            else
+            {
+                for (int i = archives.Count - 1; i >= 0; i--)
+                {
+                    BuildSeasonArchiveCard(content, data, career, settings, archives[i]);
+                }
+            }
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Career", () => ShowCareerHub(data, career, settings));
+        }
+
+        // One archived-season card: headline facts plus an explicit "View
+        // Season Review" button (same "card + explicit action button" shape
+        // as BuildQuickRaceTrackRow, rather than making the whole card itself
+        // a giant click target that could be triggered by an accidental tap
+        // while scrolling this list).
+        void BuildSeasonArchiveCard(RectTransform content, GameDataRepository data, CareerManager career, GameSettingsStore settings, SeasonArchive archive)
+        {
+            RectTransform card = UiFactory.CreateRect(content, "Season archive card " + archive.season, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetSize(card, ReportContentWidth, 132f);
+            Image cardBackground = card.gameObject.AddComponent<Image>();
+            cardBackground.color = UiFactory.PanelDark;
+            UiFactory.CreateBand(card, "Season archive card rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.Accent);
+
+            Text titleText = UiFactory.CreateText(card, "Season archive card title", "SEASON " + archive.season, 20, UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            titleText.fontStyle = FontStyle.Bold;
+            SetTopLeft(titleText.rectTransform, 20f, 14f);
+            UiFactory.SetSize(titleText, 300f, 26f);
+
+            Text championsText = UiFactory.CreateText(card, "Season archive card champions",
+                "WDC: " + archive.driverChampionName + "   ·   WCC: " + archive.constructorChampionName,
+                14, UiFactory.AccentCyan, TextAnchor.UpperLeft);
+            SetTopLeft(championsText.rectTransform, 20f, 46f);
+            UiFactory.SetSize(championsText, 760f, 20f);
+
+            Text playerText = UiFactory.CreateText(card, "Season archive card player",
+                archive.playerDriverName + " finished P" + archive.playerFinalPosition + " (" + archive.playerPoints + " pts, " + archive.playerWins + " wins, " + archive.playerPodiums + " podiums)   ·   " +
+                archive.playerTeamName + " P" + archive.playerTeamFinalPosition,
+                14, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(playerText.rectTransform, 20f, 70f);
+            UiFactory.SetSize(playerText, 900f, 20f);
+
+            string bestRaceLine = !string.IsNullOrEmpty(archive.bestRaceEventName) ? "Best race: P" + archive.bestRaceFinish + " at " + archive.bestRaceEventName : "Best race: --";
+            Text bestText = UiFactory.CreateText(card, "Season archive card best", bestRaceLine, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(bestText.rectTransform, 20f, 94f);
+            UiFactory.SetSize(bestText, 760f, 20f);
+
+            Button openButton = UiFactory.CreatePrimaryButton(card, "View Season Review", () => ShowSeasonReview(data, career, settings, archive, false));
+            UiFactory.SetSize(openButton, 220f, 44f);
+            RectTransform openRect = openButton.GetComponent<RectTransform>();
+            openRect.anchorMin = new Vector2(1f, 0.5f);
+            openRect.anchorMax = new Vector2(1f, 0.5f);
+            openRect.pivot = new Vector2(1f, 0.5f);
+            openRect.anchoredPosition = new Vector2(-20f, 0f);
+        }
+
+        // Part 21: the offseason narrative screen - reachable only right after
+        // a fresh season completion (see ShowSeasonReview's "Continue to
+        // Offseason" button), explaining what changed for the new season
+        // before pre-season testing. Every list here reads Save fields
+        // already filtered/tagged to career.Save.currentSeason, which
+        // BeginNewSeason has already advanced to by the time this screen can
+        // be reached.
+        public void ShowOffseasonHub(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            UiFactory.ApplyUiScale(canvas, settings.UiScale);
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Offseason background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateScreenHeader(background, "New Season Begins",
+                "Season " + career.Save.currentSeason + " - regulations, team evolution and the contract picture for the year ahead.");
+
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Offseason report", new Vector2(0.05f, 0.12f), new Vector2(0.95f, 0.88f), 20, new RectOffset(6, 6, 16, 16));
+            float innerWidth = ReportContentWidth - 34f;
+
+            UiFactory.CreateSubHeader(content, "Season " + career.Save.currentSeason + " Calendar");
+            if (data.Calendar != null && data.Calendar.events != null && data.Calendar.events.Count > 0)
+            {
+                RectTransform calendarArea;
+                UiFactory.CreateAutoCard(content, "Offseason calendar", "", UiFactory.AccentCyan, ReportContentWidth, out calendarArea);
+                for (int i = 0; i < data.Calendar.events.Count; i++)
+                {
+                    CalendarEventData raceEvent = data.Calendar.events[i];
+                    UiFactory.CreateAutoText(calendarArea, "Offseason calendar row " + i,
+                        "R" + raceEvent.round.ToString("00") + "  " + raceEvent.displayName + "   ·   " + raceEvent.country,
+                        14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+                }
+            }
+            else
+            {
+                BuildEmptyState(content, "Calendar unavailable.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Regulation Changes For Season " + career.Save.currentSeason);
+            List<RegulationChange> newRegulations = career.Save.regulationChanges.FindAll(r => r.season == career.Save.currentSeason);
+            if (newRegulations.Count > 0)
+            {
+                for (int i = 0; i < newRegulations.Count; i++)
+                {
+                    RegulationChange change = newRegulations[i];
+                    RectTransform regulationArea;
+                    UiFactory.CreateAutoCard(content, "Offseason regulation " + i, change.title, change.magnitude >= 0f ? UiFactory.AccentGreen : UiFactory.AccentAmber, ReportContentWidth, out regulationArea);
+                    UiFactory.CreateAutoText(regulationArea, "Offseason regulation description " + i, change.description, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+                    UiFactory.CreateAutoText(regulationArea, "Offseason regulation impact " + i, "Helps: " + change.beneficiaryHint + "   ·   Hurts: " + change.loserHint, 13, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+                }
+            }
+            else
+            {
+                BuildEmptyState(content, "No regulation changes for this season.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Team Performance Evolution");
+            List<TeamPerformanceModifier> seasonModifiers = career.Save.teamPerformanceModifiers.FindAll(m => m.season == career.Save.currentSeason);
+            seasonModifiers.Sort((a, b) => b.performanceDelta.CompareTo(a.performanceDelta));
+            if (seasonModifiers.Count > 0)
+            {
+                float halfWidth = (ReportContentWidth - 16f) / 2f;
+                float halfInnerWidth = halfWidth - 34f;
+                RectTransform evolutionRow = UiFactory.CreateAutoHeightRow(content, "Offseason evolution row", ReportContentWidth, 16, new RectOffset(0, 0, 0, 0));
+
+                RectTransform gainersArea;
+                UiFactory.CreateAutoCard(evolutionRow, "Offseason gainers", "Biggest Gainers", UiFactory.AccentGreen, halfWidth, out gainersArea);
+                int gainerCount = Mathf.Min(3, seasonModifiers.Count);
+                for (int i = 0; i < gainerCount; i++)
+                {
+                    TeamPerformanceModifier modifier = seasonModifiers[i];
+                    TeamData modifierTeam = data.FindTeam(modifier.teamId);
+                    UiFactory.CreateAutoText(gainersArea, "Offseason gainer " + i,
+                        (modifierTeam != null ? modifierTeam.name : modifier.teamId) + "  +" + (modifier.performanceDelta * 100f).ToString("0.0") + "%",
+                        14, UiFactory.TextPrimary, TextAnchor.UpperLeft, halfInnerWidth);
+                }
+
+                RectTransform losersArea;
+                UiFactory.CreateAutoCard(evolutionRow, "Offseason losers", "Biggest Losers", UiFactory.Accent, halfWidth, out losersArea);
+                int loserCount = Mathf.Min(3, seasonModifiers.Count);
+                for (int i = 0; i < loserCount; i++)
+                {
+                    TeamPerformanceModifier modifier = seasonModifiers[seasonModifiers.Count - 1 - i];
+                    TeamData modifierTeam = data.FindTeam(modifier.teamId);
+                    UiFactory.CreateAutoText(losersArea, "Offseason loser " + i,
+                        (modifierTeam != null ? modifierTeam.name : modifier.teamId) + "  " + (modifier.performanceDelta * 100f).ToString("0.0") + "%",
+                        14, UiFactory.TextPrimary, TextAnchor.UpperLeft, halfInnerWidth);
+                }
+            }
+            else
+            {
+                BuildEmptyState(content, "No team performance changes recorded.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Contract & Seat");
+            TeamData playerTeam = data.FindTeam(career.Save.playerTeamId);
+            List<NewsArticle> seasonNews = career.Save.newsArticles.FindAll(a => a.season == career.Save.currentSeason);
+            NewsArticle rumourArticle = seasonNews.Find(a => a.category == CareerManager.NewsCategoryRumour);
+            string reactionLine = rumourArticle != null ? rumourArticle.body
+                : career.Save.playerDriverName + " stays with " + (playerTeam != null ? playerTeam.name : career.Save.playerTeamId) + " for Season " + career.Save.currentSeason + ".";
+            RectTransform contractArea;
+            UiFactory.CreateAutoCard(content, "Offseason contract", "", UiFactory.AccentPurple, ReportContentWidth, out contractArea);
+            UiFactory.CreateAutoText(contractArea, "Offseason contract team",
+                career.Save.playerDriverName + " remains with " + (playerTeam != null ? playerTeam.name : career.Save.playerTeamId),
+                16, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(contractArea, "Offseason contract target",
+                "New target: P" + career.Save.contractTargetPosition + " or better in Season " + career.Save.currentSeason,
+                14, UiFactory.AccentGreen, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(contractArea, "Offseason contract reaction", reactionLine, 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+
+            UiFactory.CreateSubHeader(content, "Season " + career.Save.currentSeason + " Objectives");
+            if (career.Save.seasonObjectives != null && career.Save.seasonObjectives.Count > 0)
+            {
+                RectTransform objectivesArea;
+                UiFactory.CreateAutoCard(content, "Offseason objectives", "", UiFactory.AccentAmber, ReportContentWidth, out objectivesArea);
+                for (int i = 0; i < career.Save.seasonObjectives.Count; i++)
+                {
+                    SeasonObjective objective = career.Save.seasonObjectives[i];
+                    UiFactory.CreateAutoText(objectivesArea, "Offseason objective " + i,
+                        (objective.teamObjective ? "[Team] " : "[Driver] ") + objective.description,
+                        14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+                }
+            }
+            else
+            {
+                BuildEmptyState(content, "No objectives set yet.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Off-Season News");
+            if (seasonNews.Count > 0)
+            {
+                int newsCount = Mathf.Min(5, seasonNews.Count);
+                for (int i = seasonNews.Count - 1; i >= seasonNews.Count - newsCount; i--)
+                {
+                    NewsArticle article = seasonNews[i];
+                    RectTransform newsArea;
+                    UiFactory.CreateAutoCard(content, "Offseason news " + i, article.headline, NewsCategoryColor(article.category), ReportContentWidth, out newsArea);
+                    UiFactory.CreateAutoText(newsArea, "Offseason news body " + i, article.body, 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+                }
+            }
+            else
+            {
+                BuildEmptyState(content, "No news yet this season.", ReportContentWidth);
+            }
+
+            UiFactory.CreateSubHeader(content, "Rivalry");
+            DriverData rival = string.IsNullOrEmpty(career.Save.rivalDriverId) ? null : data.FindDriver(career.Save.rivalDriverId);
+            if (rival != null)
+            {
+                SeasonArchive lastArchive = career.GetLatestSeasonArchive();
+                bool sameRival = lastArchive != null && lastArchive.rivalId == career.Save.rivalDriverId;
+                string rivalryLine = sameRival
+                    ? rival.displayName + " remains your closest rival heading into Season " + career.Save.currentSeason + "."
+                    : "A new rival emerges for Season " + career.Save.currentSeason + ": " + rival.displayName + ".";
+                UiFactory.CreateAutoText(content, "Offseason rivalry text", rivalryLine, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, ReportContentWidth);
+            }
+            else
+            {
+                BuildEmptyState(content, "No rival identified yet.", ReportContentWidth);
+            }
+
+            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => bootstrap.ShowMainMenu());
+            UiFactory.CreatePrimaryButton(footerRight, "Begin Pre-Season Testing", () =>
+            {
+                career.AdvanceToPreseason();
+                ShowPreSeasonTesting(data, career, settings);
+            });
+        }
+
+        // Part 21: on-demand pre-season testing report - GeneratePreSeasonTestingReport
+        // is called fresh here (not persisted, same convention as
+        // GenerateRaceWeekendBriefing), so it always reflects whatever this
+        // season's team-performance modifiers/regulations just generated.
+        public void ShowPreSeasonTesting(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            UiFactory.ApplyUiScale(canvas, settings.UiScale);
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Pre-season testing background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateScreenHeader(background, "Pre-Season Testing",
+                "Season " + career.Save.currentSeason + " testing form before the lights go out on Round 1.");
+
+            PreSeasonTestingReport report = career.GeneratePreSeasonTestingReport();
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Pre-season testing report", new Vector2(0.05f, 0.12f), new Vector2(0.95f, 0.88f), 20, new RectOffset(6, 6, 16, 16));
+            float innerWidth = ReportContentWidth - 34f;
+
+            UiFactory.CreateSubHeader(content, "Testing Pace Rankings");
+            RectTransform headerRow = UiFactory.CreateTableRow(content, "Testing header row", ReportContentWidth, 28f, false, 1);
+            headerRow.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
+            UiFactory.AddRowCell(headerRow, "H pos", "POS", 0.0f, 0.06f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            UiFactory.AddRowCell(headerRow, "H team", "TEAM", 0.11f, 0.55f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            UiFactory.AddRowCell(headerRow, "H pace", "PACE RATING", 0.55f, 0.75f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            UiFactory.AddRowCell(headerRow, "H reliability", "RELIABILITY", 0.75f, 1f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+
+            for (int i = 0; i < report.paceRanking.Count; i++)
+            {
+                PreSeasonTestingEntry entry = report.paceRanking[i];
+                bool isPlayerTeam = entry.teamId == career.Save.playerTeamId;
+                RectTransform row = UiFactory.CreateTableRow(content, "Testing row " + i, ReportContentWidth, 34f, isPlayerTeam, i);
+                UiFactory.AddPositionBadge(row, i + 1, isPlayerTeam);
+                Color textColor = isPlayerTeam ? Color.white : new Color(0.9f, 0.95f, 0.98f);
+                UiFactory.AddRowCell(row, "Team", entry.teamName, 0.11f, 0.55f, 15, textColor, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Pace", entry.paceRating.ToString("0.0"), 0.55f, 0.75f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Reliability", entry.reliabilityNote, 0.75f, 1f, 13, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+            }
+
+            UiFactory.CreateSubHeader(content, "Expectations");
+            RectTransform expectationsArea;
+            UiFactory.CreateAutoCard(content, "Testing expectations", "", UiFactory.AccentCyan, ReportContentWidth, out expectationsArea);
+            UiFactory.CreateAutoText(expectationsArea, "Testing expectation text", report.playerExpectationText, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(expectationsArea, "Testing teammate text", report.teammateBenchmarkText, 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+
+            UiFactory.CreateSubHeader(content, "Tyre Degradation Preview");
+            RectTransform tyreArea;
+            UiFactory.CreateAutoCard(content, "Testing tyre", "", UiFactory.AccentAmber, ReportContentWidth, out tyreArea);
+            UiFactory.CreateAutoText(tyreArea, "Testing tyre text", report.tyreDegradationText, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+
+            UiFactory.CreateSubHeader(content, "Upgrade Recommendations");
+            if (report.upgradeRecommendations != null && report.upgradeRecommendations.Count > 0)
+            {
+                RectTransform recommendationsArea;
+                UiFactory.CreateAutoCard(content, "Testing recommendations", "", UiFactory.AccentGreen, ReportContentWidth, out recommendationsArea);
+                for (int i = 0; i < report.upgradeRecommendations.Count; i++)
+                {
+                    UiFactory.CreateAutoText(recommendationsArea, "Testing recommendation " + i, "• " + report.upgradeRecommendations[i], 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+                }
+            }
+            else
+            {
+                BuildEmptyState(content, "No upgrade recommendations available.", ReportContentWidth);
+            }
+
+            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => bootstrap.ShowMainMenu());
+            UiFactory.CreatePrimaryButton(footerRight, "Continue to Round 1", () =>
+            {
+                career.ConfirmNewSeasonSetup();
+                bootstrap.ShowCareer();
+            });
         }
 
         // Section 1: podium / top-3. Centered, P1 clearly emphasized (bigger

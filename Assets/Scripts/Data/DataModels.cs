@@ -239,6 +239,182 @@ namespace LocalFormulaRacing
         public List<int> departmentLevels = new List<int>();
         public List<string> regulationAffectedCategories = new List<string>();
         public int practiceQualityThisRound;
+
+        // Part 21: end-of-season / new-season system. seasonPhase drives the
+        // Career Hub / post-race-report navigation state machine; the archive
+        // list is append-only (one entry per completed season, never trimmed)
+        // so old seasons are never lost when a new one begins. Regulation
+        // changes and team-performance modifiers are also append-only and
+        // tagged with the season they apply to (same convention as
+        // raceResults/qualifyingResults) so a season-archive detail view can
+        // always show exactly what was in effect that year, and the "current"
+        // ones are simply whichever entries carry season == currentSeason.
+        public CareerSeasonPhase seasonPhase = CareerSeasonPhase.InSeason;
+        public bool seasonTransitionPending;
+        public int lastCompletedSeasonNumber;
+        public List<SeasonArchive> seasonArchives = new List<SeasonArchive>();
+        public List<RegulationChange> regulationChanges = new List<RegulationChange>();
+        public List<TeamPerformanceModifier> teamPerformanceModifiers = new List<TeamPerformanceModifier>();
+        public List<SeasonObjective> seasonObjectives = new List<SeasonObjective>();
+        public bool preSeasonTestingSeen;
+
+        // Concrete numeric regulation hooks (see CareerManager.GenerateRegulation
+        // Changes) - default 1 means "no active regulation effect", so an old
+        // save or a season with no Tyre Wear/Cost Cap regulation this year
+        // behaves exactly as before.
+        public float currentSeasonTyreWearMultiplier = 1f;
+        public float currentSeasonResourceMultiplier = 1f;
+    }
+
+    // Part 21: Career Hub / post-race-report state machine for the end-of-
+    // season -> offseason -> new-season flow. InSeason is the ordinary state
+    // for every round except the one right after the final calendar race.
+    public enum CareerSeasonPhase
+    {
+        InSeason,
+        FinalRaceComplete,
+        SeasonReview,
+        Offseason,
+        Preseason,
+        NewSeasonActive
+    }
+
+    // Part 21: a single new-season regulation change - small, explained, and
+    // tagged with who it tends to help/hurt so the offseason/preseason UI can
+    // present it as a real story rather than an abstract multiplier.
+    [Serializable]
+    public class RegulationChange
+    {
+        public int season;
+        public string category;
+        public string title;
+        public string description;
+        // Signed, small (-0.12..0.12 typical) - positive means the category
+        // generally gets an easier time this season (e.g. a relaxed cost cap),
+        // negative a harder one (a crackdown/ban).
+        public float magnitude;
+        public string beneficiaryHint;
+        public string loserHint;
+    }
+
+    // Part 21: a team's small season-to-season performance swing, layered on
+    // top of the static per-team CarPerformanceData at read time (see
+    // CareerManager.GetEffectiveTeamCar) - never mutates the shared reference
+    // data, exactly like the existing player-only upgrade tuning already
+    // doesn't. Append-only across seasons, tagged by season, so an archived
+    // season can show exactly what every team's swing was that year.
+    [Serializable]
+    public class TeamPerformanceModifier
+    {
+        public string teamId;
+        public int season;
+        // Small per-stat multiplier delta applied evenly across the car's
+        // performance stats, e.g. 0.04 = a noticeable but modest step forward.
+        public float performanceDelta;
+        public int reputationDelta;
+        public string trendLabel;
+    }
+
+    // Part 21: one season-award line (Driver of the Year, Cleanest Driver,
+    // etc.) for the season-review page - a short, human-readable verdict
+    // rather than a raw stat, even though it's derived from real season data.
+    [Serializable]
+    public class SeasonAward
+    {
+        public string title;
+        public string winnerName;
+        public string detail;
+    }
+
+    // Part 21: a single player/team objective for the current season, shown on
+    // the Career Hub and referenced in post-race reports. Regenerated fresh
+    // each new season (see CareerManager.GenerateSeasonObjectives) and
+    // snapshotted into that season's SeasonArchive.objectives before being
+    // replaced, so completed objectives are never silently lost.
+    [Serializable]
+    public class SeasonObjective
+    {
+        public string id;
+        public string description;
+        public string category;
+        public int targetValue;
+        public int currentValue;
+        public bool achieved;
+        public bool teamObjective;
+    }
+
+    // Part 21: a full, frozen snapshot of one completed season - built once,
+    // right when the final calendar race's results are applied (see
+    // CareerManager.ApplyRaceResults/BuildSeasonArchive), before anything
+    // about that season's live state (standings, rivalry counters, upgrades)
+    // gets reset for the next one. This is the only place season-review/
+    // season-archive UI should ever read from for a *completed* season -
+    // never the live Save fields, which have already moved on.
+    [Serializable]
+    public class SeasonArchive
+    {
+        public int season;
+        public string driverChampionId;
+        public string driverChampionName;
+        public string constructorChampionId;
+        public string constructorChampionName;
+        public List<StandingEntry> finalDriverStandings = new List<StandingEntry>();
+        public List<StandingEntry> finalConstructorStandings = new List<StandingEntry>();
+
+        public string playerDriverName;
+        public int contractTargetThatSeason;
+        public int playerFinalPosition;
+        public int playerPoints;
+        public int playerWins;
+        public int playerPodiums;
+        public int playerPoles;
+        public int playerFastestLaps;
+        public int playerDnfs;
+        public int playerPenalizedRaces;
+
+        public string teammateId;
+        public string teammateName;
+        public int teammatePoints;
+        public int teammateFinalPosition;
+        public int teammateHeadToHeadWins;
+        public int teammateHeadToHeadLosses;
+
+        public string playerTeamId;
+        public string playerTeamName;
+        public int playerTeamFinalPosition;
+        public int playerTeamPoints;
+
+        public int redFlagCount;
+        public int safetyCarCount;
+        public int majorIncidentCount;
+
+        public string bestRaceEventName;
+        public int bestRaceFinish;
+        public int bestRaceGridPosition;
+        public string worstRaceEventName;
+        public int worstRaceFinish;
+        public string biggestComebackEventName;
+        public int biggestComebackPositionsGained;
+        public string biggestCollapseEventName;
+        public int biggestCollapsePositionsLost;
+
+        public string rivalId;
+        public string rivalName;
+        public int rivalRaceWins;
+        public int rivalRaceLosses;
+
+        // Reputation snapshot at the moment this season closed - comparing
+        // consecutive archives' value gives a "rating change" trend without
+        // needing a separate season-start snapshot.
+        public int reputationAtSeasonEnd;
+
+        public List<string> formSummary = new List<string>();
+        public List<RegulationChange> regulations = new List<RegulationChange>();
+        public List<TeamPerformanceModifier> teamPerformanceChanges = new List<TeamPerformanceModifier>();
+        public List<string> upgradesCompleted = new List<string>();
+        public List<SeasonAward> awards = new List<SeasonAward>();
+        public List<string> keyHeadlines = new List<string>();
+        public List<SeasonObjective> objectives = new List<SeasonObjective>();
     }
 
     // Part 20: a single news-feed entry with real body copy and a category,
@@ -413,6 +589,28 @@ namespace LocalFormulaRacing
         public int optimalLap;
         public int latestLap;
         public int estimatedStintLength;
+    }
+
+    // Part 21: pre-season testing report - generated on demand from the
+    // current season's team-performance modifiers/regulations, same "not
+    // persisted, fully re-derivable" convention as RaceWeekendBriefing above.
+    [Serializable]
+    public class PreSeasonTestingEntry
+    {
+        public string teamId;
+        public string teamName;
+        public float paceRating;
+        public string reliabilityNote;
+    }
+
+    [Serializable]
+    public class PreSeasonTestingReport
+    {
+        public List<PreSeasonTestingEntry> paceRanking = new List<PreSeasonTestingEntry>();
+        public string playerExpectationText;
+        public string teammateBenchmarkText;
+        public string tyreDegradationText;
+        public List<string> upgradeRecommendations = new List<string>();
     }
 
     // Part 20: richer driver-card / team-rating-card presentation data,
