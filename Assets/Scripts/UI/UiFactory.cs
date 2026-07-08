@@ -304,6 +304,43 @@ namespace LocalFormulaRacing
         // Set from settings; screens fade in briefly when enabled.
         public static bool AnimationsEnabled = true;
 
+        // Reference resolution every screen in this file is hand-laid-out against
+        // (font sizes, card widths, margins - all the literal pixel values scattered
+        // through this file and RuntimeUi/RaceHud assume this canvas). Exposed as a
+        // constant so ApplyUiScale can derive a scaled reference resolution from the
+        // same source CreateCanvas uses, instead of duplicating the 1920x1080 literal.
+        public static readonly Vector2 BaseReferenceResolution = new Vector2(1920f, 1080f);
+
+        // Global "UI Scale" player setting (see GameSettingsStore.UiScale): a single
+        // chokepoint multiplier applied to the whole runtime canvas via
+        // ApplyUiScale, rather than touching every individual font-size call site.
+        // Kept as a static so any screen can read the current value without a
+        // settings reference on hand; RuntimeUi keeps it in sync with the store.
+        public static float GlobalUiScale = 1f;
+
+        // Rescales an already-created runtime canvas by adjusting its
+        // CanvasScaler's reference resolution instead of the (ScaleWithScreenSize
+        // mode ignores CanvasScaler.scaleFactor entirely, so that field is not a
+        // usable hook here). Shrinking the reference resolution by `scale` makes
+        // every fixed-pixel element in the canvas render `scale`x larger and vice
+        // versa - the same effect a player expects from a "UI Scale" slider,
+        // applied uniformly to every screen built on this canvas (menus AND the
+        // race HUD, since both are built under the one canvas RuntimeUi owns).
+        public static void ApplyUiScale(Canvas canvas, float scale)
+        {
+            if (canvas == null)
+            {
+                return;
+            }
+
+            GlobalUiScale = Mathf.Clamp(scale, 0.5f, 2f);
+            CanvasScaler scaler = canvas.GetComponent<CanvasScaler>();
+            if (scaler != null)
+            {
+                scaler.referenceResolution = BaseReferenceResolution / GlobalUiScale;
+            }
+        }
+
         // Shared dark-glass motorsport theme so every screen reads as one product.
         public static readonly Color Accent = new Color(0.95f, 0.08f, 0.06f, 1f);
         public static readonly Color AccentCyan = new Color(0.2f, 0.72f, 1f, 1f);

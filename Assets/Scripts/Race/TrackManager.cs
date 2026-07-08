@@ -39,6 +39,40 @@ namespace LocalFormulaRacing
             raceControlVisualDriver = driver;
         }
 
+        // Track boundary debug overlay (mandatory extra feature): a hidden-by-
+        // default GameObject built once by TrackManager.BuildBoundaryDebugOverlay
+        // containing LineRenderers for the calculated track edge, the barrier
+        // inner-face target line, the pit lane boundary, and the pit
+        // separator line - exactly the four references BuildContinuousEdgeBarriers/
+        // BuildPitLaneDividerFence actually place geometry against, so toggling
+        // it on makes it immediately obvious if a barrier has drifted off that
+        // line. Wired up here (not held directly by RaceManager) so any code
+        // with a TrackRuntime reference can toggle it without depending on the
+        // track-builder MonoBehaviour, which only exists for the duration of
+        // Build().
+        GameObject boundaryDebugOverlay;
+
+        public void AssignBoundaryDebugOverlay(GameObject overlay)
+        {
+            boundaryDebugOverlay = overlay;
+            if (boundaryDebugOverlay != null)
+            {
+                boundaryDebugOverlay.SetActive(false);
+            }
+        }
+
+        public bool ToggleBoundaryDebugOverlay()
+        {
+            if (boundaryDebugOverlay == null)
+            {
+                return false;
+            }
+
+            bool next = !boundaryDebugOverlay.activeSelf;
+            boundaryDebugOverlay.SetActive(next);
+            return next;
+        }
+
         // state ordinals match RaceManager.RaceControlState: 0=Green, 1=YellowSector,
         // 2=VirtualSafetyCar, 3=SafetyCarDeploying, 4=SafetyCarActive,
         // 5=SafetyCarInThisLap, 6=Restart. Safe to call every frame or only on change;
@@ -339,6 +373,116 @@ namespace LocalFormulaRacing
         public float HalfWidthAt(float distance)
         {
             return roadHalfWidth + HairpinWidthBonus(distance);
+        }
+
+        // ---------- corner risk classification (public, UI-facing) ----------
+        // A standalone windowed-cumulative-curvature scan - the same idea
+        // TrackManager's own (private) barrier/fencing corner detection uses,
+        // reimplemented here as a small public API so UI code (track preview,
+        // race-engineer messaging) can ask "what are this track's corners and
+        // how severe are they" without needing a reference to the internal
+        // track-builder MonoBehaviour, which only exists for the duration of
+        // Build() and isn't something other systems should hold onto.
+        public enum CornerRisk { Low, Medium, High }
+
+        public struct CornerRiskInfo
+        {
+            public float distance;
+            public float normalized;
+            public CornerRisk risk;
+        }
+
+        public List<CornerRiskInfo> ClassifyCorners()
+        {
+            List<CornerRiskInfo> results = new List<CornerRiskInfo>();
+            if (length <= 1f)
+            {
+                return results;
+            }
+
+            const float sampleStep = 8f;
+            const float windowSpan = 56f;
+            const float lowThreshold = 25f;
+            const float mediumThreshold = 40f;
+            const float highThreshold = 55f;
+
+            int sampleCount = Mathf.Clamp(Mathf.RoundToInt(length / sampleStep), 12, 2000);
+            int windowSamples = Mathf.Max(2, Mathf.RoundToInt(windowSpan / (length / sampleCount)));
+            Vector3[] forwards = new Vector3[sampleCount];
+            for (int i = 0; i < sampleCount; i++)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                SampleAtDistance(length * i / sampleCount, out point, out forward, out right);
+                forwards[i] = forward;
+            }
+
+            float[] cumulative = new float[sampleCount];
+            for (int i = 0; i < sampleCount; i++)
+            {
+                float sum = 0f;
+                for (int w = 0; w < windowSamples; w++)
+                {
+                    int a = (i - w - 1 + sampleCount * 4) % sampleCount;
+                    int b = (i - w + sampleCount * 4) % sampleCount;
+                    sum += Vector3.Angle(forwards[a], forwards[b]);
+                }
+
+                cumulative[i] = sum;
+            }
+
+            int runStart = -1;
+            int runPeakIndex = 0;
+            float runPeakValue = 0f;
+            for (int i = 0; i < sampleCount * 2; i++)
+            {
+                int idx = i % sampleCount;
+                bool above = cumulative[idx] > lowThreshold;
+                if (above)
+                {
+                    if (runStart < 0)
+                    {
+                        runStart = i;
+                        runPeakIndex = idx;
+                        runPeakValue = cumulative[idx];
+                    }
+                    else if (cumulative[idx] > runPeakValue)
+                    {
+                        runPeakIndex = idx;
+                        runPeakValue = cumulative[idx];
+                    }
+                }
+                else if (runStart >= 0)
+                {
+                    float peakDistance = length * runPeakIndex / sampleCount;
+                    bool duplicate = false;
+                    for (int r = 0; r < results.Count; r++)
+                    {
+                        float delta = Mathf.Abs(WrapDistance(peakDistance - results[r].distance));
+                        if (Mathf.Min(delta, length - delta) < windowSpan * 0.5f)
+                        {
+                            duplicate = true;
+                            break;
+                        }
+                    }
+
+                    if (!duplicate)
+                    {
+                        CornerRisk risk = runPeakValue >= highThreshold ? CornerRisk.High : (runPeakValue >= mediumThreshold ? CornerRisk.Medium : CornerRisk.Low);
+                        results.Add(new CornerRiskInfo { distance = peakDistance, normalized = peakDistance / length, risk = risk });
+                    }
+
+                    runStart = -1;
+                }
+
+                if (i >= sampleCount && runStart < 0)
+                {
+                    break;
+                }
+            }
+
+            return results;
         }
 
         // ---------- grid layout ----------
@@ -720,7 +864,83 @@ namespace LocalFormulaRacing
             // ValidateBarrierColliderCoverage for why this is independent of the
             // solidObstacles-based checks ValidateGeneratedTrack already ran.
             ValidateBarrierColliderCoverage();
+            BuildBoundaryDebugOverlay();
             return Runtime;
+        }
+
+        // Mandatory extra feature: a hidden-by-default set of coloured
+        // LineRenderers tracing exactly the lines the barrier/pit-lane
+        // placement math above targets - the calculated track edge, the
+        // barrier inner-face target line, the pit lane's own boundary, and
+        // the pit/track separator line. Toggled at runtime via
+        // Runtime.ToggleBoundaryDebugOverlay() (see RaceManager's debug key
+        // binding) so a visible gap between a barrier and its intended line
+        // is obvious immediately instead of requiring a log dive.
+        void BuildBoundaryDebugOverlay()
+        {
+            if (Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            GameObject overlay = new GameObject("Boundary Debug Overlay");
+            overlay.transform.SetParent(transform);
+
+            CreateBoundaryDebugLine(overlay.transform, "Track edge (left)", Color.cyan, d => -Runtime.HalfWidthAt(d));
+            CreateBoundaryDebugLine(overlay.transform, "Track edge (right)", Color.cyan, d => Runtime.HalfWidthAt(d));
+            CreateBoundaryDebugLine(overlay.transform, "Barrier inner face (left)", Color.red, d => -(Runtime.HalfWidthAt(d) + EdgeBarrierClearance));
+            CreateBoundaryDebugLine(overlay.transform, "Barrier inner face (right)", Color.red, d => Runtime.HalfWidthAt(d) + EdgeBarrierClearance);
+
+            float corridorStart = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
+            float corridorEnd = Runtime.length * PitZoneExitRampStart;
+            CreateBoundaryDebugLine(overlay.transform, "Pit lane inner edge", Color.yellow, d => Runtime.PitLaneLateral - 6.75f, corridorStart, corridorEnd);
+            CreateBoundaryDebugLine(overlay.transform, "Pit lane outer edge", Color.yellow, d => Runtime.PitLaneLateral + 6.75f, corridorStart, corridorEnd);
+            CreateBoundaryDebugLine(overlay.transform, "Pit/track separator", Color.green, d => Runtime.HalfWidthAt(d) + EdgeBarrierClearance, corridorStart, corridorEnd);
+
+            Runtime.AssignBoundaryDebugOverlay(overlay);
+        }
+
+        // One coloured polyline sampled along (a span of) the lap at a fixed
+        // step, offset laterally by lateralAt(distance) from the centerline -
+        // shared by every line the debug overlay draws so they can never
+        // silently use different sampling/curve logic from each other.
+        void CreateBoundaryDebugLine(Transform parent, string lineName, Color color, System.Func<float, float> lateralAt, float startDistance = -1f, float endDistance = -1f)
+        {
+            const float step = 6f;
+            bool wholeLap = startDistance < 0f;
+            float start = wholeLap ? 0f : startDistance;
+            float span = wholeLap ? Runtime.length : Mathf.Repeat(endDistance - startDistance, Runtime.length);
+            if (span <= 0f)
+            {
+                span = Runtime.length;
+            }
+
+            int pointCount = Mathf.Max(2, Mathf.CeilToInt(span / step) + 1);
+            Vector3[] points = new Vector3[pointCount];
+            for (int i = 0; i < pointCount; i++)
+            {
+                float d = Runtime.WrapDistance(start + span * i / (pointCount - 1));
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                points[i] = point + right * lateralAt(d) + Vector3.up * 0.4f;
+            }
+
+            GameObject lineObject = new GameObject(lineName);
+            lineObject.transform.SetParent(parent, false);
+            LineRenderer line = lineObject.AddComponent<LineRenderer>();
+            line.useWorldSpace = true;
+            line.loop = wholeLap;
+            line.positionCount = pointCount;
+            line.SetPositions(points);
+            line.startWidth = 0.18f;
+            line.endWidth = 0.18f;
+            line.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            line.receiveShadows = false;
+            Material lineMat = new Material(Shader.Find("Sprites/Default"));
+            lineMat.color = color;
+            line.material = lineMat;
         }
 
         // Wires the marshal flag boards / SC-VSC board / gantry lights captured while
@@ -2640,22 +2860,24 @@ namespace LocalFormulaRacing
         const float EdgeBarrierOverlap = 2f;
         const float EdgeBarrierMinHeight = 1.1f;
 
-        // Barrier gap fix (rework, not a one-number tweak): every edge-barrier
-        // style used to pick its own, wildly inconsistent, standoff from the
-        // paved edge (Armco +2.6m, street wall +2.0m, elevated concrete +1.15m)
-        // which is why the old "fix" (bringing Armco in from +5.5m) still read
-        // as a wide empty runoff strip almost everywhere - and why the elevated
-        // style, at +1.15m, actually sat CLOSER to the road than the game's own
-        // track-limit leniency (a car legally riding the kerb out to
-        // roadHalfWidth+1.3 could clip a bridge wall that was supposedly there
-        // to stop it falling off). EdgeBarrierClearance is now the single
-        // source of truth for how far past that same +1.3 leniency boundary
-        // every style's NEAR FACE sits (not its center - see the per-style half-
-        // width constants below, used both to place each barrier and as the
-        // minimumClearance passed into TryPlaceSolidObstacle so a curvature-
-        // triggered repair targets this same tight distance instead of
-        // silently reintroducing a wide gap on bends).
-        const float EdgeBarrierClearance = 1.5f;
+        // Barrier gap fix (literal this time - flush to the edge, not "a
+        // shorter runoff"): every previous pass still left a real, visible
+        // multi-metre gap because EdgeBarrierClearance itself was a sizeable
+        // additive standoff (1.5m, after earlier passes of 5.5m/2.6m/2.0m).
+        // The brief is explicit that a barrier is track-boundary geometry, not
+        // scenery that deserves its own runoff buffer: the NEAR FACE (not the
+        // center - see the per-style half-width constants below) now sits
+        // only EdgeBarrierClearance past the paved edge (Runtime.HalfWidthAt),
+        // and that constant is just large enough to absorb straight-chord-vs-
+        // true-arc rounding error on a curve (see CreateEdgeBarrierSegment) -
+        // not a deliberate runoff. RaceManager.HandleTrackLimits' off-track
+        // thresholds are tightened to match (see there) so the physical wall
+        // and the game's own idea of "off track" agree, instead of a car
+        // being allowed to legally sit somewhere a solid barrier now occupies.
+        // Also reused as the minimumClearance passed into TryPlaceSolidObstacle
+        // so a curvature-triggered repair nudges a segment back to this same
+        // tight distance instead of silently reintroducing a wide gap on bends.
+        const float EdgeBarrierClearance = 0.15f;
         const float ArmcoHalfWidth = 0.08f;
         const float StreetWallHalfWidth = 0.225f;
         const float ConcreteWallHalfWidth = 0.25f;
@@ -2721,14 +2943,17 @@ namespace LocalFormulaRacing
                 // A hairpin's whole direction change is usually concentrated at one
                 // centerline vertex rather than spread evenly, so a fixed-length chord
                 // straddling that vertex swings its box away from the true arc on the
-                // outside of the corner - halving the step and doubling the overlap
+                // outside of the corner - shortening the step and widening the overlap
                 // there keeps consecutive rotated segments physically overlapping
                 // instead of mitering open into a gap. Every corner sharp enough to
                 // warrant forced catch fencing gets this same tightened sampling, not
                 // just true hairpins, so entry/apex/exit never gets a wider seam than
-                // the straights do.
-                float localStep = nearTightFenceCorner ? step * 0.5f : step;
-                float localOverlap = nearTightFenceCorner ? EdgeBarrierOverlap * 2f : EdgeBarrierOverlap;
+                // the straights do. Genuine hairpins/high-risk corners (nearHighRiskCorner)
+                // get an even finer third tier on top of that - a Silverstone/Baku-style
+                // tight complex is exactly where the straight-chord-vs-true-arc error is
+                // largest, so it needs the most samples and the most overlap.
+                float localStep = nearHighRiskCorner ? step * 0.3f : (nearTightFenceCorner ? step * 0.5f : step);
+                float localOverlap = nearHighRiskCorner ? EdgeBarrierOverlap * 3f : (nearTightFenceCorner ? EdgeBarrierOverlap * 2f : EdgeBarrierOverlap);
                 float segmentLength = localStep + localOverlap;
                 bool elevated = IsElevatedAtDistance(d) || IsElevatedAtDistance(d + localStep * 0.5f) || IsElevatedAtDistance(d + localStep);
                 float normalized = d / Mathf.Max(1f, Runtime.length);
@@ -2754,6 +2979,23 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Single source of truth for "how far from the centerline does a
+        // barrier of this half-thickness need to sit so its INNER FACE lands
+        // exactly on the paved edge" (plus EdgeBarrierClearance, the one
+        // small rounding margin every style shares - never a per-style
+        // standoff). Every barrier/fence/tyre-stack placement in this file
+        // computes its lateral offset through this one function, never by
+        // hand, so "barriers touch the track edge" cannot silently regress to
+        // a fresh hand-rolled offset the next time this file is touched.
+        // extraStandoff is for the rare case of a second layer sitting
+        // BEHIND a track-facing one (e.g. the Armco rail behind a tyre
+        // stack) - it shifts the whole thing out by that much while keeping
+        // the same "flush plus clearance" base.
+        float FlushBarrierLateral(float distance, float barrierHalfThickness, float extraStandoff = 0f)
+        {
+            return Runtime.HalfWidthAt(distance) + EdgeBarrierClearance + extraStandoff + barrierHalfThickness;
+        }
+
         // Decides style/offset for one side at one step, including the pit-corridor
         // fan-out on the right side, then hands off to the shared segment builder.
         void BuildBarrierSegmentForSide(float distance, float step, float segmentLength, int side, bool elevated, float normalized, bool highSpeedTrack, bool nearHighRiskCorner, bool nearTightFenceCorner, int stripeIndex)
@@ -2766,19 +3008,19 @@ namespace LocalFormulaRacing
             // Sampled at the segment midpoint - the same distance CreateEdgeBarrierSegment
             // actually places basePosition at - so a hairpin's widened half-width lines up
             // exactly with where the barrier geometry gets built, not the segment's start.
-            float localHalfWidth = Runtime.HalfWidthAt(distance + step * 0.5f);
+            float midDistance = distance + step * 0.5f;
 
             if (elevated)
             {
                 style = EdgeBarrierStyle.Elevated;
-                baseLateral = localHalfWidth + EdgeBarrierClearance + ConcreteWallHalfWidth;
+                baseLateral = FlushBarrierLateral(midDistance, ConcreteWallHalfWidth);
                 catchFence = NeedsCatchFence(distance);
                 tyreStack = false;
             }
             else if (streetTrack)
             {
                 style = EdgeBarrierStyle.StreetWall;
-                baseLateral = localHalfWidth + EdgeBarrierClearance + StreetWallHalfWidth;
+                baseLateral = FlushBarrierLateral(midDistance, StreetWallHalfWidth);
                 catchFence = true;
                 tyreStack = false;
             }
@@ -2793,17 +3035,16 @@ namespace LocalFormulaRacing
                 {
                     // At a tyre-stack corner the stack itself becomes the
                     // track-facing layer (placed by CreateEdgeBarrierSegment
-                    // hugging the same EdgeBarrierClearance line the rail uses
-                    // everywhere else) and the rail sits directly behind it as
-                    // the rigid backstop - not the other way around, and not
-                    // sitting coincident with the stack, so there's no gap
-                    // between the two and no gap between the stack and the
-                    // track edge either.
-                    baseLateral = localHalfWidth + EdgeBarrierClearance + TyreStackHalfWidth * 2f + ArmcoHalfWidth;
+                    // hugging the same flush line every style uses) and the
+                    // rail sits directly behind it as the rigid backstop -
+                    // not the other way around, and not sitting coincident
+                    // with the stack, so there's no gap between the two and
+                    // no gap between the stack and the track edge either.
+                    baseLateral = FlushBarrierLateral(midDistance, ArmcoHalfWidth, TyreStackHalfWidth * 2f);
                 }
                 else
                 {
-                    baseLateral = localHalfWidth + EdgeBarrierClearance + ArmcoHalfWidth;
+                    baseLateral = FlushBarrierLateral(midDistance, ArmcoHalfWidth);
                 }
             }
 
@@ -3116,22 +3357,29 @@ namespace LocalFormulaRacing
         // PitOuterLateral through the corridor) - there was never anything at
         // all between the racing surface's own right edge and the pit lane's
         // driving surface, so a car could freely drift between the two with no
-        // physical or visual boundary. This adds that missing inner wall: a
-        // continuous divider that runs only through the flat pit corridor
+        // physical or visual boundary. This adds that missing inner wall,
+        // running only through the flat pit corridor
         // (PitCorridorStartNormalized..PitZoneExitRampStart, i.e. exactly
         // where PitZoneBlend==1 and the outer wall has fully committed to
         // being the pit complex's own wall) so the entry/exit ramp zones on
         // either end - where PitZoneBlend eases from 0 to 1 - remain the only
         // way through, reading as deliberate openings rather than a random gap.
-        // The pit lane's own paved surface (BuildPitLane) is 13.5m wide centred
-        // on PitLaneLateral, so its inner edge sits at roadHalfWidth+2.45 -
-        // this divider sits just inside that, leaving a small intentional
-        // runoff strip on the track side that the wall itself immediately
-        // encloses (never a bare open gap).
-        const float PitDividerLateral = 2.0f;
-        const float PitDividerHalfWidth = 0.3f;
+        //
+        // Flush-fix: this used to be a thin fence centred 2.0m off the track
+        // edge, leaving a real gap on BOTH sides (1.7m from the track, another
+        // ~0.15m short of the pit lane's own surface) - "floating in the
+        // middle of nowhere" exactly as described. It's now a single solid
+        // wall spanning the whole gap: its inner face sits flush against the
+        // track edge (the same FlushBarrierLateral-equivalent distance every
+        // other barrier in this file uses) and its outer face reaches to just
+        // short of the pit lane's own paved surface (BuildPitLane's 13.5m-wide
+        // corridor centred on PitLaneLateral, inner edge at PitLaneLateral-6.75) -
+        // touching one real boundary and nearly touching the other, never
+        // hanging in open space on either side.
         const float PitDividerStep = 10f;
         const float PitDividerOverlap = 2.5f;
+        const float PitDividerMinHalfWidth = 0.3f;
+        const float PitDividerPitSideClearance = 0.4f;
 
         void BuildPitLaneDividerFence()
         {
@@ -3169,23 +3417,29 @@ namespace LocalFormulaRacing
 
             Vector3 chord = b - a;
             Vector3 chordForward = chord.sqrMagnitude > 0.01f ? chord.normalized : forward;
-            float lateral = Runtime.HalfWidthAt(distance + step * 0.5f) + PitDividerLateral;
-            Vector3 basePosition = mid + right * lateral;
+
+            float midDistance = distance + step * 0.5f;
+            float innerFace = Runtime.HalfWidthAt(midDistance) + EdgeBarrierClearance;
+            float pitLaneInnerEdge = Runtime.PitLaneLateral - 6.75f;
+            float outerFace = Mathf.Max(innerFace + PitDividerMinHalfWidth * 2f, pitLaneInnerEdge - PitDividerPitSideClearance);
+            float wallHalfWidth = (outerFace - innerFace) * 0.5f;
+            float centerLateral = innerFace + wallHalfWidth;
+            Vector3 basePosition = mid + right * centerLateral;
 
             GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
             wall.name = "Pit lane divider wall";
             wall.transform.SetParent(transform);
-            Vector3 scale = new Vector3(PitDividerHalfWidth * 2f, 1.05f, segmentLength);
+            Vector3 scale = new Vector3(wallHalfWidth * 2f, 1.05f, segmentLength);
             wall.transform.localScale = scale;
             wall.GetComponent<Renderer>().sharedMaterial = barrierMaterial;
-            if (!TryPlaceSolidObstacle(wall, "pit-divider", basePosition, chordForward, scale, 0.52f, PitDividerLateral * 0.5f))
+            if (!TryPlaceSolidObstacle(wall, "pit-divider", basePosition, chordForward, scale, 0.52f, EdgeBarrierClearance))
             {
                 return;
             }
 
             Vector3 placed = wall.transform.position;
             Quaternion rotation = Quaternion.LookRotation(wall.transform.forward, Vector3.up);
-            CreateVisualBox("Pit divider hazard stripe", placed + Vector3.up * 0.58f, rotation, new Vector3(PitDividerHalfWidth * 2f + 0.02f, 0.14f, segmentLength - 0.2f), flagYellowMaterial);
+            CreateVisualBox("Pit divider hazard stripe", placed + Vector3.up * 0.58f, rotation, new Vector3(wallHalfWidth * 2f + 0.02f, 0.14f, segmentLength - 0.2f), flagYellowMaterial);
         }
 
         // ---------- corner severity ----------
@@ -3390,7 +3644,15 @@ namespace LocalFormulaRacing
             Vector3 scale = new Vector3(0.18f, 2.6f, segmentLength);
             fence.transform.localScale = scale;
             fence.GetComponent<Renderer>().sharedMaterial = fenceMaterial;
-            if (!TryPlaceSolidObstacle(fence, "catch-fence", basePosition, forward, scale, 2.5f, 0.5f))
+            // Flush-fix: minimumClearance used to be a flat 0.5m, well past
+            // where basePosition (the same point the main barrier below it
+            // sits at) actually lands relative to the track edge - meaning
+            // this fence failed its OWN clearance check almost every time and
+            // silently repaired itself further out than the wall directly
+            // beneath it. Matching EdgeBarrierClearance keeps the catch fence
+            // vertically stacked on the same line as the barrier it backs,
+            // not drifting out on its own.
+            if (!TryPlaceSolidObstacle(fence, "catch-fence", basePosition, forward, scale, 2.5f, EdgeBarrierClearance))
             {
                 return;
             }
@@ -3623,11 +3885,23 @@ namespace LocalFormulaRacing
         // finishes, never modifies geometry, never throws, and only warns.
         const float BarrierColliderCheckStep = 9f;
 
-        // Generous enough to cover every style's small near-face offset differences
-        // (Armco/street-wall/elevated-wall half-widths, plus the extra push a
-        // tyre-stack corner adds - see TyreStackHalfWidth in BuildBarrierSegmentForSide)
-        // without being so wide it would mask an actual multi-metre gap.
-        const float BarrierColliderCheckRadius = 1.8f;
+        // Search radius for locating a candidate barrier collider at all -
+        // generous, since this only decides "is there anything barrier-like
+        // in the area", not how far away it actually is (that's measured
+        // separately below, in metres, against the tight thresholds).
+        const float BarrierColliderSearchRadius = 6f;
+
+        // Barrier-flush validation (measures the real gap, not just presence):
+        // "a barrier collider exists somewhere nearby" was never actually proof
+        // the wall was flush with the track - a barrier sitting metres away
+        // still satisfied a presence-only check. This measures the actual
+        // distance from the true paved edge to the nearest barrier-like
+        // collider's surface and flags anything wider than the tolerance,
+        // with a stricter budget in corners (where a visible gap reads worst
+        // and the straight-chord approximation is most likely to introduce
+        // one).
+        const float BarrierGapToleranceMeters = 0.3f;
+        const float BarrierGapToleranceCornerMeters = 0.2f;
 
         void ValidateBarrierColliderCoverage()
         {
@@ -3636,8 +3910,10 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            List<CornerInfo> validationCorners = DetectCorners(TightCornerFenceAngle);
             int gaps = 0;
             int checkedPoints = 0;
+            float worstGap = 0f;
             for (float d = 0f; d < Runtime.length; d += BarrierColliderCheckStep)
             {
                 Vector3 point;
@@ -3645,49 +3921,46 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
                 float localHalfWidth = Runtime.HalfWidthAt(d);
-                float normalized = d / Mathf.Max(1f, Runtime.length);
-                bool elevated = IsElevatedAtDistance(d);
-                // Mirrors BuildBarrierSegmentForSide's own style/offset choice closely
-                // enough for a presence check (the tyre-stack-corner nudge and the
-                // pit-corridor fan-out both fall inside BarrierColliderCheckRadius of
-                // this estimate), without needing to duplicate its full branching.
-                float baseLateral = elevated
-                    ? localHalfWidth + EdgeBarrierClearance + ConcreteWallHalfWidth
-                    : (streetTrack ? localHalfWidth + EdgeBarrierClearance + StreetWallHalfWidth : localHalfWidth + EdgeBarrierClearance + ArmcoHalfWidth);
+                bool nearCorner = IsNearCorner(d, validationCorners, TightCornerFenceRadius);
+                float tolerance = nearCorner ? BarrierGapToleranceCornerMeters : BarrierGapToleranceMeters;
 
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    float lateral = baseLateral;
-                    if (side > 0)
-                    {
-                        float blend = PitZoneBlend(normalized);
-                        if (blend > 0f)
-                        {
-                            lateral = Mathf.Lerp(baseLateral, PitOuterLateral(), blend);
-                        }
-                    }
-
-                    Vector3 expected = point + right * side * lateral + Vector3.up * 0.55f;
+                    // The TRUE track edge, not an assumed barrier position -
+                    // this is what "flush" is actually measured against.
+                    Vector3 edgePoint = point + right * side * localHalfWidth + Vector3.up * 0.55f;
                     checkedPoints++;
-                    if (!HasBarrierColliderNear(expected))
+                    float gap = MeasureBarrierGap(edgePoint, BarrierColliderSearchRadius);
+                    if (gap > tolerance)
                     {
                         gaps++;
-                        GameLog.Warn("[TrackValidation] Barrier collider sweep: no barrier-like collider found near " + d.ToString("0") +
-                                     "m " + (side < 0 ? "left" : "right") + " side (expected around " + expected.ToString("F1") + ", radius " +
-                                     BarrierColliderCheckRadius.ToString("0.0") + "m) on " + Runtime.displayName);
+                        worstGap = Mathf.Max(worstGap, gap);
+                        string gapText = gap >= BarrierColliderSearchRadius ? "no barrier-like collider found within " + BarrierColliderSearchRadius.ToString("0") + "m" : gap.ToString("0.00") + "m gap";
+                        GameLog.Warn("[TrackValidation] Barrier flush check FAILED at " + d.ToString("0") + "m " + (side < 0 ? "left" : "right") +
+                                     " side" + (nearCorner ? " (corner)" : "") + ": " + gapText + " (tolerance " + tolerance.ToString("0.00") + "m) on " + Runtime.displayName);
                     }
                 }
             }
 
             if (gaps == 0)
             {
-                GameLog.Info("[TrackValidation] Barrier collider sweep clean: " + checkedPoints + " points checked, no gaps on " + Runtime.displayName);
+                GameLog.Info("[TrackValidation] Barrier flush sweep clean: " + checkedPoints + " points checked, every barrier within tolerance on " + Runtime.displayName);
+            }
+            else
+            {
+                GameLog.Warn("[TrackValidation] Barrier flush sweep found " + gaps + "/" + checkedPoints + " point(s) with a gap wider than tolerance (worst " +
+                             worstGap.ToString("0.00") + "m) on " + Runtime.displayName);
             }
         }
 
-        bool HasBarrierColliderNear(Vector3 position)
+        // Real measured distance (metres) from a point on the true track edge
+        // to the nearest barrier-like collider's surface, or
+        // BarrierColliderSearchRadius if nothing barrier-like is found within
+        // that radius at all (i.e. "missing entirely").
+        float MeasureBarrierGap(Vector3 edgePoint, float searchRadius)
         {
-            Collider[] hits = Physics.OverlapSphere(position, BarrierColliderCheckRadius);
+            Collider[] hits = Physics.OverlapSphere(edgePoint, searchRadius);
+            float best = searchRadius;
             for (int i = 0; i < hits.Length; i++)
             {
                 Collider hit = hits[i];
@@ -3703,13 +3976,20 @@ namespace LocalFormulaRacing
                 }
 
                 string type = solid.obstacleType ?? "";
-                if (type.Contains("wall") || type.Contains("fence") || type.Contains("barrier") || type.Contains("rail") || type.Contains("divider"))
+                if (!(type.Contains("wall") || type.Contains("fence") || type.Contains("barrier") || type.Contains("rail") || type.Contains("divider")))
                 {
-                    return true;
+                    continue;
+                }
+
+                Vector3 closest = hit.ClosestPoint(edgePoint);
+                float distance = Vector3.Distance(closest, edgePoint);
+                if (distance < best)
+                {
+                    best = distance;
                 }
             }
 
-            return false;
+            return best;
         }
 
         void CreateKerbBlock(Vector3 position, Vector3 forward, float seed, bool aggressive)

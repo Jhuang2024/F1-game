@@ -53,6 +53,17 @@ namespace LocalFormulaRacing
                 Debug.Log("[GameLog] Verbose logging " + (GameLog.Verbose ? "enabled" : "disabled"));
             }
 
+            // Mandatory extra feature: developer track-boundary overlay toggle -
+            // draws the calculated track edge, barrier inner-face target line,
+            // pit lane boundary, and pit/track separator line directly (see
+            // TrackManager.BuildBoundaryDebugOverlay), so a gap between a
+            // barrier and its intended line is obvious at a glance.
+            if (Input.GetKeyDown(KeyCode.F9) && raceManager.Track != null)
+            {
+                bool nowVisible = raceManager.Track.ToggleBoundaryDebugOverlay();
+                Debug.Log("[Debug] Track boundary overlay " + (nowVisible ? "shown" : "hidden"));
+            }
+
             GameSettingsData settings = raceManager.Settings.Current;
 
             // R: tap cycles ERS mode, hold ~1 second recovers a stuck car.

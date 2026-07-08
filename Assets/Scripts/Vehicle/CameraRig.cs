@@ -296,7 +296,15 @@ namespace LocalFormulaRacing
             // purpose and the TV crane already has its own craneSway above.
             if (mode == 0 || mode == 3 || mode == 5)
             {
-                float idleAmount = Mathf.Clamp01(1f - speed01 / 0.05f);
+                // A car can be essentially stationary (speed01 near zero) right after
+                // slamming into something and still be settling from the impact/clatter
+                // shake above - layering the slow handheld breathe on top of that at
+                // full strength would fight the sharp settle rather than reading as a
+                // calm operator holding the shot, so it's faded out while there's still
+                // meaningful shake energy in the system and only ramps back in once
+                // things have actually settled.
+                float recentImpact = Mathf.Clamp01((impulseShake + clatterShake) / 0.04f);
+                float idleAmount = Mathf.Clamp01(1f - speed01 / 0.05f) * (1f - recentImpact);
                 if (idleAmount > 0.001f)
                 {
                     float breatheTime = Time.unscaledTime;
@@ -350,9 +358,14 @@ namespace LocalFormulaRacing
                 // so a solid hit snaps the lens in noticeably harder than a graze,
                 // instead of the old flat linear pull that barely told them apart.
                 // A locked tyre pulls the lens in slightly too - a mild tunnel-vision
-                // cue riding on top of the existing DRS widen/impact punch terms.
+                // cue riding on top of the existing DRS widen/impact punch terms. Hard
+                // braking at real speed gets the same treatment but softer still - a
+                // trail-braking "focus narrows under load" cue distinct from the sharp
+                // lockup pull, only kicking in well into the brake pedal and scaled by
+                // speed so a light dab at low speed never triggers it.
                 float lockupSeverity = targetVehicle != null && targetVehicle.Tyres != null ? targetVehicle.Tyres.LockupSeverity : 0f;
-                fovTarget += smoothedDrsBoost * 2.6f - ImpactPunchCurve(impulseShake) * 26f - lockupSeverity * 3.2f;
+                float brakeFocus = targetVehicle != null ? Mathf.InverseLerp(0.5f, 1f, targetVehicle.EffectiveBrake) : 0f;
+                fovTarget += smoothedDrsBoost * 2.6f - ImpactPunchCurve(impulseShake) * 26f - lockupSeverity * 3.2f - brakeFocus * speed01 * 2f;
             }
 
             float fovBlendRate = Mathf.Lerp(1.4f, 3f, blendEase);

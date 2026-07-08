@@ -385,6 +385,12 @@ namespace LocalFormulaRacing
         int lastTeammateGapReportLap = -1;
         bool engineerPodiumMessageSent;
         int lastStartLightCountPlayed = -1;
+        // Restart countdown lights/audio (red flag and safety car restarts):
+        // mirrors the original race-start light build-up (PlayStartLight)
+        // over the final 5 seconds of the Restart state's hold, instead of a
+        // restart being silent/text-only. -1 means "not yet armed for this
+        // restart" so it can't fire mid-transition off a stale value.
+        int lastRestartLightCountPlayed = -1;
         struct HudToast { public string text; public int colorKind; }
         readonly Queue<HudToast> hudToastQueue = new Queue<HudToast>();
         const int HudToastQueueCap = 6;
@@ -523,6 +529,7 @@ namespace LocalFormulaRacing
             raceStartSequenceDuration = session == RaceWeekendSession.Qualifying || IsTimeTrial ? 1.5f : Random.Range(5.4f, 6.8f);
             StartCountdown = raceStartSequenceDuration;
             lastStartLightCountPlayed = -1;
+            lastRestartLightCountPlayed = -1;
             SessionMessage = session == RaceWeekendSession.Qualifying ? "Q" + qualifyingPhase + " out lap ready" : (IsTimeTrial ? "Time trial: set a lap" : "Race start");
             Time.timeScale = 1f;
 
@@ -2775,6 +2782,24 @@ namespace LocalFormulaRacing
 
                 case RaceControlState.Restart:
                     restartControlTimer -= Time.deltaTime;
+                    // Restart countdown lights/audio: the same 5-light build-up
+                    // tone sequence the original race start uses (PlayStartLight),
+                    // over the final 5 seconds of the hold - a red flag or safety
+                    // car restart used to be silent/text-only right up to the
+                    // green flag, unlike the original start.
+                    if (restartControlTimer <= 5f)
+                    {
+                        int lightsRemaining = Mathf.Clamp(Mathf.CeilToInt(restartControlTimer), 0, 5);
+                        if (lightsRemaining != lastRestartLightCountPlayed)
+                        {
+                            lastRestartLightCountPlayed = lightsRemaining;
+                            if (lightsRemaining > 0)
+                            {
+                                SimpleAudioManager.PlayStartLight(5 - lightsRemaining);
+                            }
+                        }
+                    }
+
                     if (restartControlTimer <= 0f)
                     {
                         CurrentRaceControlState = RaceControlState.Green;
@@ -2783,6 +2808,8 @@ namespace LocalFormulaRacing
                         postEscalationCooldownTimer = PostEscalationCooldownSeconds;
                         playerScPitPromptSent = false;
                         safetyCarQueueLeader = null;
+                        lastRestartLightCountPlayed = -1;
+                        SimpleAudioManager.PlayStartLight(5);
                         // Autopilot doesn't let go the instant Green fires - it
                         // keeps holding/pacing the field for a short ramp so every
                         // car accelerates away together instead of the whole
@@ -2797,7 +2824,7 @@ namespace LocalFormulaRacing
                             LogRaceControlHistory("RACE RESTART", "Green flag from the red-flag grid, running order preserved");
                             if (Settings != null && Settings.Current.raceControlMessages)
                             {
-                                PostEngineerMessage("Race restart - green flag, go go go!", true);
+                                PostEngineerMessage("Race restart - green flag, go go go!", true, RaceAudioCue.Green);
                             }
                         }
                         else
@@ -2805,7 +2832,7 @@ namespace LocalFormulaRacing
                             LogRaceControlHistory("GREEN FLAG", "Restart after safety car");
                             if (Settings != null && Settings.Current.raceControlMessages)
                             {
-                                PostEngineerMessage("Green flag - power builds back progressively, hold your line.", true);
+                                PostEngineerMessage("Green flag - power builds back progressively, hold your line.", true, RaceAudioCue.Green);
                             }
                         }
                     }
@@ -7146,8 +7173,18 @@ namespace LocalFormulaRacing
             // the extra tarmac a widened hairpin exists to provide would rack up
             // false track-limits warnings and penalties for it.
             float localHalfWidth = Track.HalfWidthAt(progress.distance);
-            bool outsideWhiteLine = lateral > localHalfWidth + 2.2f;
-            bool gainedTime = lateral > localHalfWidth + 5.2f && participant.vehicle != null && Mathf.Abs(participant.vehicle.CurrentSpeedKph) > 70f;
+            // Barrier-flush fix: these used to allow +2.2m/+5.2m of "legal"
+            // space beyond the paved edge before even a warning - fine when
+            // the nearest barrier's own inner face was 1.5m+ further out
+            // still, but now that barriers sit flush against the edge
+            // (EdgeBarrierClearance, TrackManager.cs) a car "legally" using
+            // that old leniency would be driving straight through solid
+            // barrier geometry. Tightened to match where the wall actually
+            // is - AI never even approaches this (LegalOffsetLimit keeps it
+            // 1.8m+ inside the edge), so this only changes how forgiving the
+            // player's own track-limits margin is, not AI behaviour.
+            bool outsideWhiteLine = lateral > localHalfWidth + 0.5f;
+            bool gainedTime = lateral > localHalfWidth + 1.0f && participant.vehicle != null && Mathf.Abs(participant.vehicle.CurrentSpeedKph) > 70f;
             if (outsideWhiteLine)
             {
                 participant.lapTracker.InvalidateCurrentLap();

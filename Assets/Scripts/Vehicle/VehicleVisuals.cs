@@ -31,6 +31,12 @@ namespace LocalFormulaRacing
         float visualSteerAngle;
         const float WheelRadius = 0.31f;
 
+        // Rear wheels get their own spin angle, separate from wheelSpinAngle above,
+        // so a wheelspin event (throttle overwhelming rear grip) can visibly overspin
+        // just the rear tyres without also speeding up the fronts, which never lose
+        // traction the same way. See UpdateWheels for how the extra spin is derived.
+        float rearWheelSpinAngle;
+
         // Rear wing DRS flap: found lazily by name so RaceManager's car builder
         // doesn't need to hand off another reference explicitly.
         Transform rearWingFlap;
@@ -58,6 +64,13 @@ namespace LocalFormulaRacing
         float brakeGlowHeat;
         Material rimMaterial;
         bool rimMaterialSearched;
+
+        // Tracks how long the disc has been sitting in its hottest instantaneous
+        // band (see UpdateBrakeGlow) - a long, sustained heavy-braking zone builds
+        // this up and pushes the displayed colour hotter than a single hard-but-brief
+        // dab would reach, then relaxes quickly once the pedal comes off. A cheap
+        // stand-in for real thermal mass rather than an actual temperature model.
+        float sustainedBrakeTimer;
 
         // Tyre compound look (soft/medium/hard/inter/wet), applied once per
         // compound rather than every frame - only reapplied if a pit stop
@@ -168,6 +181,13 @@ namespace LocalFormulaRacing
         bool rearLightDetailBuilt;
         bool wingTrimDetailBuilt;
 
+        // Sidepod undercut/intake shaping, front wing endplate outwash flicks and
+        // rear wing endplate strakes - more additive one-shot geometry passes over
+        // RaceManager's existing sidepod/wing endplate transforms, same idiom.
+        bool sidepodDetailBuilt;
+        bool frontWingFlickBuilt;
+        bool rearWingLouvreBuilt;
+
         // Panel-seam accent lines dropped across real bodywork joins (nose/cockpit,
         // sidepod inlet trailing edge, engine cover/airbox, gearbox) - same one-shot
         // additive idiom as the passes above.
@@ -179,6 +199,13 @@ namespace LocalFormulaRacing
         // since the texture itself never changes with compound.
         bool tyreTreadTextureApplied;
         static Texture2D sharedTreadTexture;
+
+        // Rim spoke suggestion, same idea as the tyre tread texture above but for
+        // rimMaterial - a handful of bright/dark wedges baked once and tiled a
+        // single time around the rim/wheel-cover UV so a bare disc-like rim reads
+        // as a spoked wheel design instead of a flat painted circle.
+        bool rimSpokeTextureApplied;
+        static Texture2D sharedRimSpokeTexture;
 
         // Pit-stop tyre-change animation: a real, visible swap synced to the
         // service timer instead of the car just sitting still for a few
@@ -430,6 +457,10 @@ namespace LocalFormulaRacing
             EnsureRearLightDetail();
             EnsureWingTrimDetail();
             EnsureBodyPanelLineDetail();
+            EnsureSidepodDetail();
+            EnsureFrontWingEndplateFlick();
+            EnsureRearWingEndplateLouvre();
+            EnsureRimSpokeDetail();
         }
 
         // Front wing upper flap flexes back under aero load the faster the car
@@ -500,10 +531,25 @@ namespace LocalFormulaRacing
             wheelSpinAngle += spinDelta;
             wheelSpinAngle = Mathf.Repeat(wheelSpinAngle, 360f);
 
+            // Rear wheelspin: OversteerAmount is throttle-modulated lateral slip
+            // under low grip (VehicleController.ApplyForces), which is exactly the
+            // "rear tyres overwhelming available traction under power" condition a
+            // real wheelspin event is - there's no separate slip-ratio field on the
+            // vehicle/tyre classes to read instead, so this reuses that existing
+            // public signal (paired with EffectiveThrottle so a lifted throttle
+            // never shows spin) rather than adding a new one. The rear wheels get
+            // their own spin angle so they can visibly overspin past what road
+            // speed alone implies while the fronts keep tracking speed normally.
+            float wheelspinAmount = Mathf.Clamp01(vehicle.OversteerAmount * vehicle.EffectiveThrottle * 1.6f);
+            float rearSpinDelta = spinDelta * (1f + wheelspinAmount * 2.4f);
+            rearWheelSpinAngle += rearSpinDelta;
+            rearWheelSpinAngle = Mathf.Repeat(rearWheelSpinAngle, 360f);
+
             float targetSteer = vehicle.CurrentCommand.steer * 16f;
             visualSteerAngle = Mathf.Lerp(visualSteerAngle, targetSteer, Time.deltaTime * 10f);
 
             Quaternion spin = Quaternion.Euler(wheelSpinAngle, 0f, 0f);
+            Quaternion rearSpin = Quaternion.Euler(rearWheelSpinAngle, 0f, 0f);
             Quaternion steer = Quaternion.Euler(0f, visualSteerAngle, 0f);
             if (frontLeft != null)
             {
@@ -517,12 +563,12 @@ namespace LocalFormulaRacing
 
             if (rearLeft != null)
             {
-                rearLeft.localRotation = spin;
+                rearLeft.localRotation = rearSpin;
             }
 
             if (rearRight != null)
             {
-                rearRight.localRotation = spin;
+                rearRight.localRotation = rearSpin;
             }
         }
 
@@ -539,15 +585,37 @@ namespace LocalFormulaRacing
             // Quick to heat up under real braking; cooling itself slows as heat
             // drops (radiative-style falloff) so a glowing-hot disc sheds most
             // of its heat fast at first and then lingers as a faint afterglow,
-            // instead of fading at one constant rate all the way to cold.
-            float coolRate = Mathf.Lerp(0.35f, 1.3f, brakeGlowHeat);
+            // instead of fading at one constant rate all the way to cold. Cool
+            // rate ceiling nudged up slightly so a disc that's been glowing hot
+            // sheds its peak a touch more briskly once the pedal lifts, while the
+            // afterglow tail (low end of the range) is untouched.
+            float coolRate = Mathf.Lerp(0.32f, 1.55f, brakeGlowHeat);
             float rate = targetHeat > brakeGlowHeat ? 9f : coolRate;
             brakeGlowHeat = Mathf.MoveTowards(brakeGlowHeat, targetHeat, Time.deltaTime * rate);
 
-            Color rampColor = DiscTemperatureColor(brakeGlowHeat);
-            brakeDiscMaterial.SetColor("_EmissionColor", rampColor * brakeGlowHeat * 1.4f);
-            UpdateRimHighlight(rampColor, brakeGlowHeat);
-            UpdateCaliperHighlight(rampColor, brakeGlowHeat);
+            // A long, sustained heavy-braking zone (a real "into Turn 1 from top
+            // speed" stop) builds this timer up and pushes the displayed colour
+            // hotter than brakeGlowHeat's own instantaneous ramp would reach on
+            // its own, reading as the disc's thermal mass catching up under
+            // continued load - a single hard-but-brief dab never sustains it long
+            // enough to matter. Relaxes several times faster than it builds so it
+            // never lingers once the braking zone ends.
+            if (brakeGlowHeat > 0.82f)
+            {
+                sustainedBrakeTimer += Time.deltaTime;
+            }
+            else
+            {
+                sustainedBrakeTimer = Mathf.Max(0f, sustainedBrakeTimer - Time.deltaTime * 2.5f);
+            }
+
+            float overheatBoost = Mathf.Clamp01(sustainedBrakeTimer / 2.2f) * 0.4f;
+            float displayHeat = Mathf.Min(1f, brakeGlowHeat + overheatBoost);
+
+            Color rampColor = DiscTemperatureColor(displayHeat);
+            brakeDiscMaterial.SetColor("_EmissionColor", rampColor * displayHeat * 1.4f);
+            UpdateRimHighlight(rampColor, displayHeat);
+            UpdateCaliperHighlight(rampColor, displayHeat);
         }
 
         // Colour, not just brightness, shifts with heat - dull red under a
@@ -1457,6 +1525,11 @@ namespace LocalFormulaRacing
             CreateAccentBar(transform, "halo front pillar", new Vector3(0f, 0.5f, 0.94f), frontNode, 0.045f, tubeMaterial);
             CreateAccentBar(transform, "halo arc left", frontNode, new Vector3(-0.32f, 0.79f, 0.23f), 0.04f, tubeMaterial);
             CreateAccentBar(transform, "halo arc right", frontNode, new Vector3(0.32f, 0.79f, 0.23f), 0.04f, tubeMaterial);
+
+            // A short lateral brace between the tops of the two rear stays closes
+            // the tripod into a real hoop rather than leaving the two rear legs
+            // reading as separate, unconnected posts.
+            CreateAccentBar(transform, "halo rear cross-brace", new Vector3(-0.32f, 0.79f, 0.23f), new Vector3(0.32f, 0.79f, 0.23f), 0.035f, tubeMaterial);
         }
 
         // A small dark housing/bezel behind the single rear rain light so it
@@ -1550,6 +1623,147 @@ namespace LocalFormulaRacing
 
             // Gearbox/rear-bodywork break just ahead of the beam wing/diffuser.
             CreateAccentCube(transform, "gearbox panel seam", new Vector3(0f, 0.5f, -1.62f), new Vector3(0.62f, 0.012f, 0.02f), seamMaterial);
+        }
+
+        // Sidepod undercut vanes (a diagonal fin trailing back from each inlet
+        // down toward the floor, echoing the sculpted "coke bottle" undercut a
+        // real sidepod uses to accelerate air toward the diffuser) plus a lip trim
+        // framing each inlet opening - found lazily off RaceManager's existing
+        // sidepod/inlet transforms, same additive idiom as everything else in this
+        // file. The vane also doubles as a new home for a team accent colour,
+        // picked up from the same livery flash secondary colour the pinstripe/
+        // gradient/nose-split variants above use, so it reads as part of the same
+        // livery rather than a mismatched extra colour.
+        void EnsureSidepodDetail()
+        {
+            if (sidepodDetailBuilt)
+            {
+                return;
+            }
+
+            Transform leftSidepod = transform.Find("left sidepod");
+            Transform rightSidepod = transform.Find("right sidepod");
+            Transform leftInlet = transform.Find("left sidepod inlet");
+            Transform rightInlet = transform.Find("right sidepod inlet");
+            if (leftSidepod == null || rightSidepod == null || leftInlet == null || rightInlet == null)
+            {
+                return;
+            }
+
+            sidepodDetailBuilt = true;
+
+            Color secondary = new Color(0.85f, 0.86f, 0.88f);
+            Transform flash = transform.Find("left livery flash");
+            if (flash != null)
+            {
+                Renderer flashRenderer = flash.GetComponent<Renderer>();
+                if (flashRenderer != null && flashRenderer.sharedMaterial != null)
+                {
+                    secondary = flashRenderer.sharedMaterial.color;
+                }
+            }
+
+            Material vaneMaterial = CreateMaterial("sidepod undercut vane", secondary, 0.3f, 0.82f);
+            CreateAccentCube(transform, "left sidepod undercut vane", new Vector3(-0.72f, 0.2f, -0.88f), Quaternion.Euler(16f, 0f, -10f), new Vector3(0.045f, 0.15f, 0.56f), vaneMaterial);
+            CreateAccentCube(transform, "right sidepod undercut vane", new Vector3(0.72f, 0.2f, -0.88f), Quaternion.Euler(16f, 0f, 10f), new Vector3(0.045f, 0.15f, 0.56f), vaneMaterial);
+
+            Material lipMaterial = CreateMaterial("sidepod inlet lip", new Color(0.9f, 0.9f, 0.88f), 0.2f, 0.75f);
+            CreateAccentCube(transform, "left sidepod inlet lip", new Vector3(-0.855f, 0.535f, 0.02f), new Vector3(0.055f, 0.02f, 0.38f), lipMaterial);
+            CreateAccentCube(transform, "right sidepod inlet lip", new Vector3(0.855f, 0.535f, 0.02f), new Vector3(0.055f, 0.02f, 0.38f), lipMaterial);
+        }
+
+        // A small outwash flick at the base of each front wing endplate, angled
+        // outward - real endplates use exactly this kind of strake to steer
+        // turbulent front-tyre wake outward and away from the floor/sidepod.
+        void EnsureFrontWingEndplateFlick()
+        {
+            if (frontWingFlickBuilt)
+            {
+                return;
+            }
+
+            if (transform.Find("left front endplate") == null || transform.Find("right front endplate") == null)
+            {
+                return;
+            }
+
+            frontWingFlickBuilt = true;
+            Material flickMaterial = CreateMaterial("front wing endplate flick", new Color(0.85f, 0.86f, 0.88f), 0.25f, 0.6f);
+            CreateAccentCube(transform, "front endplate flick left", new Vector3(-1.1f, 0.14f, 2.5f), Quaternion.Euler(0f, -24f, 0f), new Vector3(0.14f, 0.03f, 0.22f), flickMaterial);
+            CreateAccentCube(transform, "front endplate flick right", new Vector3(1.1f, 0.14f, 2.5f), Quaternion.Euler(0f, 24f, 0f), new Vector3(0.14f, 0.03f, 0.22f), flickMaterial);
+        }
+
+        // A pair of thin diagonal strakes across each rear wing endplate, echoing
+        // the louvred vertical strakes a real rear endplate uses to bleed off
+        // trailing-edge vortex energy - purely decorative geometry here, same as
+        // the Gurney trim/endplate accent passes elsewhere in this file.
+        void EnsureRearWingEndplateLouvre()
+        {
+            if (rearWingLouvreBuilt)
+            {
+                return;
+            }
+
+            if (transform.Find("left rear endplate") == null || transform.Find("right rear endplate") == null)
+            {
+                return;
+            }
+
+            rearWingLouvreBuilt = true;
+            Material louvreMaterial = CreateMaterial("rear endplate louvre", new Color(0.06f, 0.06f, 0.07f), 0.4f, 0.35f);
+            CreateAccentCube(transform, "rear endplate louvre left upper", new Vector3(-0.9f, 0.86f, -2.06f), Quaternion.Euler(0f, 0f, 18f), new Vector3(0.065f, 0.32f, 0.02f), louvreMaterial);
+            CreateAccentCube(transform, "rear endplate louvre left lower", new Vector3(-0.9f, 0.58f, -2.06f), Quaternion.Euler(0f, 0f, 18f), new Vector3(0.065f, 0.32f, 0.02f), louvreMaterial);
+            CreateAccentCube(transform, "rear endplate louvre right upper", new Vector3(0.9f, 0.86f, -2.06f), Quaternion.Euler(0f, 0f, -18f), new Vector3(0.065f, 0.32f, 0.02f), louvreMaterial);
+            CreateAccentCube(transform, "rear endplate louvre right lower", new Vector3(0.9f, 0.58f, -2.06f), Quaternion.Euler(0f, 0f, -18f), new Vector3(0.065f, 0.32f, 0.02f), louvreMaterial);
+        }
+
+        // Applies a baked spoke pattern to rimMaterial the first time UpdateBrakeGlow's
+        // own lazy lookup (UpdateRimHighlight) has actually found it - rimMaterial is
+        // shared across all four wheels' "wheel rim" and "wheel cover" meshes (see
+        // RaceManager.CreateWheel), so one assignment here lights up every wheel's
+        // rim with the same design, the same sharing property UpdateRimHighlight's
+        // own emission tint already relies on.
+        void EnsureRimSpokeDetail()
+        {
+            if (rimSpokeTextureApplied || rimMaterial == null)
+            {
+                return;
+            }
+
+            rimSpokeTextureApplied = true;
+            rimMaterial.mainTexture = GetRimSpokeTexture();
+            rimMaterial.mainTextureScale = Vector2.one;
+        }
+
+        // A handful of bright/dark wedges around one full texture wrap, the same
+        // multiply-over-base-colour trick GetTreadTexture uses for tyres - tiled
+        // exactly once (mainTextureScale left at 1,1 above) rather than repeated,
+        // since a rim wants a fixed spoke count rather than a repeating band.
+        static Texture2D GetRimSpokeTexture()
+        {
+            if (sharedRimSpokeTexture != null)
+            {
+                return sharedRimSpokeTexture;
+            }
+
+            const int width = 128;
+            const int height = 16;
+            const int spokeCount = 6;
+            sharedRimSpokeTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            sharedRimSpokeTexture.wrapMode = TextureWrapMode.Repeat;
+            for (int x = 0; x < width; x++)
+            {
+                float angle = (x / (float)width) * spokeCount * Mathf.PI * 2f;
+                float wave = Mathf.Cos(angle) * 0.5f + 0.5f;
+                float shade = Mathf.Lerp(0.3f, 1f, Mathf.Pow(wave, 3f));
+                for (int y = 0; y < height; y++)
+                {
+                    sharedRimSpokeTexture.SetPixel(x, y, new Color(shade, shade, shade, 1f));
+                }
+            }
+
+            sharedRimSpokeTexture.Apply();
+            return sharedRimSpokeTexture;
         }
 
         // Cheap contact-shadow blob (see field comments above) built the first
@@ -1765,6 +1979,7 @@ namespace LocalFormulaRacing
         ParticleSystem dust;
         ParticleSystem spray;
         ParticleSystem lockupSmoke;
+        ParticleSystem wheelspinSmoke;
         ParticleSystem sparks;
         ParticleSystem heatHaze;
         ParticleSystem damageSmoke;
@@ -1779,6 +1994,13 @@ namespace LocalFormulaRacing
             dust = CreateEmitter("Dust emitter", new Vector3(0f, 0.28f, -1.9f), new Color(0.62f, 0.51f, 0.35f, 0.5f), 0.9f, 1.5f, 2.6f);
             spray = CreateEmitter("Spray emitter", new Vector3(0f, 0.34f, -2.15f), new Color(0.7f, 0.78f, 0.84f, 0.35f), 0.65f, 1.2f, 3.4f);
             lockupSmoke = CreateEmitter("Lockup smoke emitter", new Vector3(0f, 0.2f, 1.35f), new Color(0.86f, 0.86f, 0.86f, 0.45f), 0.75f, 1.05f, 1.9f);
+
+            // Rear-axle counterpart to lockupSmoke above: real wheelspin (rear
+            // tyres overwhelming grip under power - launches, greasy corner exits,
+            // a damaged floor costing rear traction) puffs off the back of the car
+            // rather than the front, so this gets its own emitter positioned at
+            // the rear axle instead of reusing the nose-mounted lockup one.
+            wheelspinSmoke = CreateEmitter("Wheelspin smoke emitter", new Vector3(0f, 0.2f, -1.35f), new Color(0.82f, 0.8f, 0.78f, 0.35f), 0.7f, 0.85f, 1.6f);
             sparks = CreateEmitter("Spark emitter", new Vector3(0f, 0.22f, 0f), new Color(1f, 0.74f, 0.28f, 0.9f), 0.4f, 0.14f, 7.5f);
             ParticleSystem.MainModule sparkMain = sparks.main;
             sparkMain.gravityModifier = 1.3f;
@@ -1897,6 +2119,25 @@ namespace LocalFormulaRacing
 
             SetRate(lockupSmoke, locking ? Mathf.Lerp(15f, 90f, lockupSeverity) : 0f);
 
+            // Rear wheelspin puff, driven by the same OversteerAmount/EffectiveThrottle
+            // proxy VehicleVisuals.UpdateWheels uses for the rear tyres' extra visual
+            // overspin - see that method's comment for why OversteerAmount stands in
+            // for a dedicated slip-ratio field. Excluded off-track and at very high
+            // speed, where the dust emitter above and normal running respectively
+            // already cover the visual, and only while actually moving so a stalled
+            // car spinning its wheels on the grid doesn't smoke indefinitely.
+            float wheelspinAmount = Mathf.Clamp01(vehicle.OversteerAmount * vehicle.EffectiveThrottle * 1.6f);
+            bool spinning = wheelspinAmount > 0.12f && speedKph > 15f && speedKph < 200f && !vehicle.IsOffTrackSlowdown;
+            if (spinning)
+            {
+                ParticleSystem.MainModule spinMain = wheelspinSmoke.main;
+                spinMain.startColor = Color.Lerp(new Color(0.82f, 0.8f, 0.78f, 0.35f), new Color(0.35f, 0.3f, 0.26f, 0.55f), wheelspinAmount);
+                spinMain.startSize = Mathf.Lerp(0.55f, 1.25f, wheelspinAmount);
+                spinMain.startLifetime = Mathf.Lerp(0.55f, 1.3f, wheelspinAmount);
+            }
+
+            SetRate(wheelspinSmoke, spinning ? Mathf.Lerp(10f, 60f, wheelspinAmount) : 0f);
+
             // Only under real load - hard on the throttle and actually moving,
             // not idling on the grid - and scaled by how hard, so it never
             // becomes a constant background effect.
@@ -1977,6 +2218,15 @@ namespace LocalFormulaRacing
             emission.rateOverTime = rate;
         }
 
+        // Heavy hits (a real crash into a wall/another car, not a glancing knock)
+        // additionally throw a short, bigger debris-style burst so the moment
+        // reads as more than just "extra sparks". Reuses the damageSmoke emitter
+        // for the puff (no new ParticleSystem/GameObject spun up here, keeping this
+        // cheap with ~20 cars able to collide on track) via one-off EmitParams
+        // calls, which only fire on this rare collision event rather than every
+        // frame, so it stays well clear of the no-per-frame-allocation rule.
+        const float HeavyImpactSpeed = 20f;
+
         void OnCollisionEnter(Collision collision)
         {
             if (sparks == null || collision.relativeVelocity.magnitude < 8.5f)
@@ -1984,12 +2234,25 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            if (collision.contactCount > 0)
-            {
-                sparks.transform.position = collision.GetContact(0).point;
-            }
+            float impactSpeed = collision.relativeVelocity.magnitude;
+            Vector3 contactPoint = collision.contactCount > 0 ? collision.GetContact(0).point : transform.position;
+            sparks.transform.position = contactPoint;
+            sparks.Emit(Mathf.Clamp(Mathf.RoundToInt(impactSpeed * 1.4f), 6, 24));
 
-            sparks.Emit(Mathf.Clamp(Mathf.RoundToInt(collision.relativeVelocity.magnitude * 1.4f), 6, 24));
+            if (impactSpeed >= HeavyImpactSpeed && damageSmoke != null)
+            {
+                ParticleSystem.EmitParams debrisParams = new ParticleSystem.EmitParams();
+                debrisParams.position = contactPoint;
+                debrisParams.velocity = -collision.relativeVelocity.normalized * 2.5f + Vector3.up * 3f;
+                debrisParams.startSize = 1.1f;
+                debrisParams.startLifetime = 0.6f;
+                debrisParams.startColor = new Color(0.32f, 0.3f, 0.28f, 0.6f);
+                int debrisBurst = Mathf.Clamp(Mathf.RoundToInt((impactSpeed - HeavyImpactSpeed) * 1.2f) + 6, 6, 18);
+                for (int i = 0; i < debrisBurst; i++)
+                {
+                    damageSmoke.Emit(debrisParams, 1);
+                }
+            }
         }
     }
 }

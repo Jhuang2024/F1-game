@@ -6,11 +6,27 @@ namespace LocalFormulaRacing
     {
         const string SettingsFile = "formula_racing_settings.json";
 
+        // UI Scale: a global text/UI size multiplier for every menu and HUD
+        // panel, distinct from the existing hudScale (which only resizes
+        // in-race HUD cards around their own screen edge). GameSettingsData
+        // itself lives in Assets/Scripts/Data/DataModels.cs, which is out of
+        // scope for this pass, so this setting is stored and persisted here
+        // via PlayerPrefs instead of the JSON settings blob - it never needs
+        // to travel with a save file, just the local machine's display
+        // preference, so PlayerPrefs is a perfectly natural home for it.
+        const string UiScaleKey = "formula_racing_ui_scale";
+        public const float UiScaleDefault = 1f;
+        public const float UiScaleMin = 0.85f;
+        public const float UiScaleMax = 1.15f;
+
+        public float UiScale { get; private set; } = UiScaleDefault;
+
         public GameSettingsData Current { get; private set; }
 
         public void Load()
         {
             Current = LocalJsonStore.Load(SettingsFile, new GameSettingsData());
+            UiScale = ClampSetting(PlayerPrefs.GetFloat(UiScaleKey, UiScaleDefault), UiScaleDefault, UiScaleMin, UiScaleMax);
             if (Current.laps < 3)
             {
                 Current.laps = 5;
@@ -98,6 +114,18 @@ namespace LocalFormulaRacing
         public void Save()
         {
             LocalJsonStore.Save(SettingsFile, Current);
+        }
+
+        // Sets and immediately persists the UI scale so it survives a restart
+        // even though it lives outside the main JSON settings blob. Callers
+        // (the Display Settings screen) should also push the new value into
+        // UiFactory.GlobalUiScale / RuntimeUi's canvas scaler right away so the
+        // change is visible without leaving the screen.
+        public void SetUiScale(float value)
+        {
+            UiScale = Mathf.Clamp(value, UiScaleMin, UiScaleMax);
+            PlayerPrefs.SetFloat(UiScaleKey, UiScale);
+            PlayerPrefs.Save();
         }
 
         public RaceDifficulty Difficulty

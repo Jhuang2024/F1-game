@@ -310,16 +310,31 @@ namespace LocalFormulaRacing
         // VSC, safety car, restart), pinned top-left where it can't collide with
         // the top band, progress strip, or notification panel. Starts hidden and
         // only appears while a state is actually active.
+        // Baseline banner height (fits a 1-2 line subtitle, matches the prior
+        // fixed 118px size) plus how much extra height each additional wrapped
+        // subtitle line earns, and a hard ceiling so a pathological message
+        // still can't run away with the top-left corner of the HUD.
+        const float RaceControlBannerBaseHeight = 118f;
+        const float RaceControlBannerExtraLineHeight = 34f;
+        const float RaceControlBannerMaxHeight = 210f;
+        const float RaceControlBannerWidth = 480f;
+
         void BuildRaceControlBanner()
         {
-            // Sized generously (was 328x68): red-flag/restart subtitles now
-            // routinely carry a full sentence plus a live countdown number
-            // ("Grid reset based on the running order when the flag came out -
-            // restarting in 8s"), which used to wrap past the old banner's
-            // height and get silently truncated. The wider, taller banner
-            // gives both the bold state title and a 2-3 line wrapped subtitle
-            // real room without cramping.
-            raceControlBanner = UiFactory.CreateStatusBanner(transform, "Race Control", 460f, 118f, out raceControlBannerAccent, out raceControlBannerDot, out raceControlBannerTitle, out raceControlBannerSubtitle);
+            // Sized generously (was 328x68, then 460x118): red-flag/restart
+            // subtitles now routinely carry a full sentence plus a live
+            // countdown number, and a multi-car red-flag reason additionally
+            // lists every involved driver's name plus a sector ("Huge
+            // multi-car pileup - track completely blocked - Max Verstappen,
+            // Lewis Hamilton and Charles Leclerc in Sector 3 - race suspended.
+            // Restart in 8s") - long enough to wrap 3+ lines even in this
+            // widened box. Rather than pick one more fixed size that will
+            // eventually be too small again, the banner now resizes itself
+            // every update (see ApplyRaceControlBannerSize) to the actual
+            // subtitle's wrapped line count, and the pace pill below it is
+            // repositioned off the banner's real height instead of a fixed
+            // offset - so growth here can never bury the pill underneath it.
+            raceControlBanner = UiFactory.CreateStatusBanner(transform, "Race Control", RaceControlBannerWidth, RaceControlBannerBaseHeight, out raceControlBannerAccent, out raceControlBannerDot, out raceControlBannerTitle, out raceControlBannerSubtitle);
             raceControlBanner.anchorMin = new Vector2(0f, 1f);
             raceControlBanner.anchorMax = new Vector2(0f, 1f);
             raceControlBanner.pivot = new Vector2(0f, 1f);
@@ -329,15 +344,41 @@ namespace LocalFormulaRacing
 
             // Smaller companion pill directly under the banner: only ever shown
             // while the banner is, so it never appears as an orphaned "DELTA OK"
-            // during a normal green-flag race. Pushed down to clear the taller
-            // banner above it.
+            // during a normal green-flag race. Its vertical position is
+            // recomputed every frame in ApplyRaceControlBannerSize once the
+            // banner's real (possibly grown) height is known; this initial
+            // position just matches the banner's un-grown baseline so it isn't
+            // momentarily wrong before the first update tick.
             paceCompliancePill = UiFactory.CreatePill(transform, "Pace Compliance", 220f, 30f);
             paceCompliancePill.root.anchorMin = new Vector2(0f, 1f);
             paceCompliancePill.root.anchorMax = new Vector2(0f, 1f);
             paceCompliancePill.root.pivot = new Vector2(0f, 1f);
-            paceCompliancePill.root.anchoredPosition = new Vector2(16f, -132f);
+            paceCompliancePill.root.anchoredPosition = new Vector2(16f, -10f - RaceControlBannerBaseHeight - 12f);
             ApplyPanelScale(paceCompliancePill.root);
             paceCompliancePill.root.gameObject.SetActive(false);
+        }
+
+        // Resizes the banner to fit however many lines its current subtitle
+        // actually wraps to (using the same greedy word-wrap estimate the
+        // radio stack uses to size its own cards), then pins the pace pill
+        // directly beneath the banner's real bottom edge - so a long red-flag
+        // reason with several driver names can never silently overlap it.
+        void ApplyRaceControlBannerSize()
+        {
+            float subtitleWidth = raceControlBanner.rect.width - 32f;
+            float approxCharsPerLine = Mathf.Max(10f, subtitleWidth / 7.6f);
+            int lines = EstimateWrappedLineCount(raceControlBannerSubtitle.text, approxCharsPerLine);
+            int extraLines = Mathf.Max(0, lines - 2);
+            float height = Mathf.Clamp(RaceControlBannerBaseHeight + extraLines * RaceControlBannerExtraLineHeight, RaceControlBannerBaseHeight, RaceControlBannerMaxHeight);
+            if (!Mathf.Approximately(raceControlBanner.sizeDelta.y, height))
+            {
+                raceControlBanner.sizeDelta = new Vector2(raceControlBanner.sizeDelta.x, height);
+            }
+
+            if (paceCompliancePill != null)
+            {
+                paceCompliancePill.root.anchoredPosition = new Vector2(16f, -10f - height - 12f);
+            }
         }
 
         void BuildProgressStrip()
@@ -548,12 +589,38 @@ namespace LocalFormulaRacing
             RectTransform towerBand = UiFactory.CreateResponsivePanel(transform, "Timing tower", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(324f, height), new Vector2(16f, 40f), new Color(0.006f, 0.009f, 0.012f, 0.72f));
             ApplyPanelScale(towerBand);
             UiFactory.CreateBand(towerBand, "Tower accent", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.Accent);
+
+            // Time Trial override: a single centered label spans the whole
+            // header band instead of columns, since that mode only ever shows
+            // one row (the player) and column headers would be meaningless.
             tower = UiFactory.CreateText(towerBand, "Tower header", "", 13, UiFactory.TextMuted, TextAnchor.MiddleLeft);
             RectTransform towerRect = tower.GetComponent<RectTransform>();
             towerRect.anchorMin = new Vector2(0f, 1f);
             towerRect.anchorMax = new Vector2(1f, 1f);
             towerRect.offsetMin = new Vector2(16f, -34f);
             towerRect.offsetMax = new Vector2(-10f, -10f);
+            tower.gameObject.SetActive(false);
+
+            // Real per-column headers, aligned to the exact same x-ranges
+            // CreateTowerCell uses for the data rows below - alignment fix:
+            // the header used to be one hand-typed, space-padded string
+            // ("POS  DVR     T  LAP    GAP       INT") which cannot reliably
+            // line up with the data cells below it since CreateText renders a
+            // normal proportional font, not a monospace one. towerHeaderRow
+            // uses the identical 8px left/right margin CreateTowerRow gives
+            // each data row, so column x-coordinates match exactly.
+            towerHeaderRow = UiFactory.CreateRect(towerBand, "Tower header row", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(8f, -34f), new Vector2(-8f, -10f));
+            towerHeaderPos = CreateTowerCell(towerHeaderRow, "Header pos", 6f, 34f, 13, TextAnchor.MiddleLeft, UiFactory.TextMuted, true);
+            towerHeaderPos.text = "POS";
+            towerHeaderDriver = CreateTowerCell(towerHeaderRow, "Header driver", 36f, 82f, 13, TextAnchor.MiddleLeft, UiFactory.TextMuted, true);
+            towerHeaderDriver.text = "DVR";
+            towerHeaderLap = CreateTowerCell(towerHeaderRow, "Header lap", 104f, 136f, 13, TextAnchor.MiddleLeft, UiFactory.TextMuted, true);
+            towerHeaderLap.text = "LAP";
+            towerHeaderGap = CreateTowerCell(towerHeaderRow, "Header gap", 140f, 222f, 13, TextAnchor.MiddleLeft, UiFactory.TextMuted, true);
+            towerHeaderGap.text = "GAP";
+            towerHeaderInterval = CreateTowerCell(towerHeaderRow, "Header interval", 226f, 292f, 13, TextAnchor.MiddleLeft, UiFactory.TextMuted, true);
+            towerHeaderInterval.text = "INT";
+
             for (int i = 0; i < TowerRowCount; i++)
             {
                 CreateTowerRow(towerBand, i);
@@ -651,12 +718,24 @@ namespace LocalFormulaRacing
 
         void BuildRightStack()
         {
-            rightStack = UiFactory.CreateResponsivePanel(transform, "Right card stack", new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(RightStackWidth, 640f), new Vector2(-16f, 0f), new Color(0f, 0f, 0f, 0f));
+            // Anchored top-right, just under the track map, instead of the old
+            // screen-center anchor - overlap fix: a vertically-centered stack
+            // grows both up AND down as cards are added/resized, which used to
+            // let Car Status + Pit + SC Window (all real at once during a
+            // safety car period) push up into the track map in the corner.
+            // Pinning the stack's top-right corner below the map means it can
+            // only ever grow downward, away from everything above it. The
+            // radio message stack used to live inside this same layout group
+            // too (see BuildRadioStack) - it's now a fully independent,
+            // bottom-anchored panel of its own for the same reason: it must
+            // never depend on how tall these other cards currently are.
+            float stackTop = trackMap != null ? -(10f + TrackMapSize + 20f + 14f) : -24f;
+            rightStack = UiFactory.CreateResponsivePanel(transform, "Right card stack", new Vector2(1f, 1f), new Vector2(1f, 1f), new Vector2(RightStackWidth, 640f), new Vector2(-16f, stackTop), new Color(0f, 0f, 0f, 0f));
             ApplyPanelScale(rightStack);
             VerticalLayoutGroup layout = rightStack.gameObject.AddComponent<VerticalLayoutGroup>();
             layout.spacing = UiFactory.HudCardSpacing;
             layout.padding = new RectOffset(0, 0, 0, 0);
-            layout.childAlignment = TextAnchor.MiddleRight;
+            layout.childAlignment = TextAnchor.UpperRight;
             layout.childControlWidth = false;
             layout.childControlHeight = false;
             layout.childForceExpandWidth = false;
@@ -691,6 +770,16 @@ namespace LocalFormulaRacing
 
             UiFactory.CreateHudLabelValueRow(card, "Compound", 30f, out tyreCompoundValue);
             MoveRowToRightHalf(tyreCompoundValue, "Compound row label", card);
+            // Overflow fix: the value column here is only ~117px wide, but
+            // TyreCompound.Intermediate renders as "INTERMEDIATE" (12
+            // characters) at the row's normal 14pt fixed size, which overflows
+            // left past the column back toward the "COMPOUND" label. Best-fit
+            // shrinks just this value down as far as needed for the longest
+            // compound name to still read as one line instead of bleeding
+            // into the label next to it.
+            tyreCompoundValue.resizeTextForBestFit = true;
+            tyreCompoundValue.resizeTextMinSize = 10;
+            tyreCompoundValue.resizeTextMaxSize = 14;
             UiFactory.CreateHudLabelValueRow(card, "Temp", 56f, out tyreTempValue);
             MoveRowToRightHalf(tyreTempValue, "Temp row label", card);
 
@@ -841,10 +930,23 @@ namespace LocalFormulaRacing
         // "RADIO" printed on every single stacked card. One small accent bar
         // plus a priority dot is enough to read as "this is the radio" once
         // several are stacked together; the message text gets the room back.
+        //
+        // Overlap fix: this used to be a VerticalLayoutGroup child of
+        // rightStack, so a burst of up to MaxRadioCards messages plus an
+        // already-tall right stack (Car Status + Pit + SC Window all visible
+        // together during a safety car period) summed to well over the
+        // stack's nominal height and could bleed into the track map above or
+        // off the bottom of the screen. It's now its own panel, pinned to a
+        // fixed bottom-right anchor independent of rightStack, so it can only
+        // ever grow upward from a fixed screen position and never competes
+        // with the other cards for space regardless of how tall they get.
         void BuildRadioStack()
         {
-            radioStackContainer = UiFactory.CreateRect(rightStack, "Radio stack", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            radioStackContainer = UiFactory.CreateRect(transform, "Radio stack", new Vector2(1f, 0f), new Vector2(1f, 0f), Vector2.zero, Vector2.zero);
+            radioStackContainer.pivot = new Vector2(1f, 0f);
+            radioStackContainer.anchoredPosition = new Vector2(-16f, 16f);
             radioStackContainer.sizeDelta = new Vector2(RightStackWidth, RadioCardMinHeight);
+            ApplyPanelScale(radioStackContainer);
             VerticalLayoutGroup stackLayout = UiFactory.AddVerticalLayout(radioStackContainer, RadioCardSpacing, new RectOffset(0, 0, 0, 0));
             stackLayout.childAlignment = TextAnchor.UpperRight;
 
@@ -1228,8 +1330,11 @@ namespace LocalFormulaRacing
                 // Immediate, not deferred - the slide-in offset read right
                 // after depends on each card's real post-layout position for
                 // this same frame, exactly like the single-card version did.
+                // radioStackContainer is a fully independent, bottom-anchored
+                // panel now (see BuildRadioStack) rather than a rightStack
+                // layout child, so rebuilding rightStack here is no longer
+                // needed - only this container's own internal layout matters.
                 LayoutRebuilder.ForceRebuildLayoutImmediate(radioStackContainer);
-                LayoutRebuilder.ForceRebuildLayoutImmediate(rightStack);
                 for (int i = 0; i < activeCount; i++)
                 {
                     radioCardRestPositions[i] = radioCardSlots[i].anchoredPosition;
@@ -1442,6 +1547,7 @@ namespace LocalFormulaRacing
                 }
             }
 
+            ApplyRaceControlBannerSize();
             UpdatePaceCompliancePill(nearLocalYellow);
 
             // Escalation pulse: if the headline actually changed while the
@@ -1790,6 +1896,15 @@ namespace LocalFormulaRacing
                     phaseText = "PIT EXIT";
                     phaseColor = UiFactory.AccentCyan;
                     break;
+                case PitPhase.QualifyingReturn:
+                    // Missing state fix: this phase (driving back to the pits
+                    // between qualifying runs) used to fall through to the
+                    // default case with nothing to distinguish it from "not
+                    // pitting at all" unless isPitting also happened to be
+                    // true - it now gets its own explicit label.
+                    phaseText = "RETURNING TO PITS";
+                    phaseColor = UiFactory.AccentCyan;
+                    break;
                 default:
                     // isPitting can stay true for a brief tail (limiter-until-
                     // exit) after the phase machine has already reset to
@@ -1799,6 +1914,23 @@ namespace LocalFormulaRacing
                     {
                         phaseText = "PIT EXIT";
                         phaseColor = UiFactory.AccentCyan;
+                    }
+                    else
+                    {
+                        // Missing state fix: the pill previously only ever lit
+                        // up once the car had physically reached the pit lane
+                        // - there was no advance warning that this is the lap
+                        // the strategy plan intends to box on, which lived
+                        // only in small muted text below (BuildPitPlanText).
+                        // Surfacing it as its own pill state gives it the same
+                        // at-a-glance visibility as the other pit phases.
+                        int plannedLap = race.NextPlannedPitLapFor(player);
+                        int currentLap = player.lapTracker != null ? player.lapTracker.DisplayLap : 0;
+                        if (!race.IsTimeTrial && race.CurrentSession != RaceWeekendSession.Qualifying && plannedLap > 0 && plannedLap == currentLap)
+                        {
+                            phaseText = "BOX THIS LAP";
+                            phaseColor = UiFactory.AccentAmber;
+                        }
                     }
 
                     break;
