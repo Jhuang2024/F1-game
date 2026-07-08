@@ -32,6 +32,12 @@ namespace LocalFormulaRacing
         Image topAccent;
         float trackLimitFlashTimer;
         int seenTrackLimitWarnings;
+        // Brief scale punch on the lap counter the instant the lap number
+        // actually ticks over - see UiPunch and the trigger in
+        // UpdateSlowElements. Round 4: lap/position/lap-time were flagged as
+        // the HUD's primary numbers but changed with zero motion at all.
+        UiPunch lapCounterPunch;
+        int previousDisplayLapForPunch = -1;
 
         // Timing tower.
         Text tower;
@@ -105,12 +111,29 @@ namespace LocalFormulaRacing
         // see UpdatePitCard/PitPhasePillState. Reuses the same pill widget as
         // the DRS/ERS/fuel state pills instead of a new widget type.
         HudPill pitPhasePill;
+        // Brief scale punch whenever the pill's plain-language state actually
+        // changes (queued -> approaching -> entering -> box stop -> exit),
+        // same UiPunch used for the lap counter - see UpdatePitPhasePill.
+        UiPunch pitPhasePillPunch;
+        string previousPitPhaseText = "";
         // Radio message stacking fix: up to MaxRadioCards independently
         // active, independently fading compact cards (newest at index 0)
         // instead of one shared card/text pair a single message occupied at
         // a time - see RaceManager.activeEngineerMessages and BuildRadioStack/
         // UpdateRadioStack below.
-        const int MaxRadioCards = 4;
+        // Round 4 overlap-risk pass: this stack and the top-right card stack
+        // (Car Status/Pit/SC Window/Qualifying) are both independently
+        // anchored (bottom-right growing up, top-right growing down) inside
+        // the exact same RightStackWidth-wide column - at a busy moment (a
+        // safety car period, which is also exactly when the engineer is most
+        // likely to be talking) with every top-right card visible AND a full
+        // burst of radio messages AND a high hudScale, their worst-case
+        // extents can reach far enough into the middle of the screen to meet.
+        // Trimmed one card and just over 1.5 wrapped lines off the ceiling
+        // here - still generous for a HUD, but meaningfully smaller than a
+        // real broadcast overlay would ever need, and it declutters the
+        // common case too (3 stacked toasts already reads as "busy").
+        const int MaxRadioCards = 3;
         RectTransform radioStackContainer;
         RectTransform[] radioCardSlots = new RectTransform[MaxRadioCards];
         CanvasGroup[] radioCardGroups = new CanvasGroup[MaxRadioCards];
@@ -292,9 +315,15 @@ namespace LocalFormulaRacing
             CreateTopBandDivider(band, 0.13f);
             eventNameText = CreateTopBandSegment(band, "Event segment", 0.14f, 0.4f, UiFactory.TextPrimary, TextAnchor.MiddleLeft, 16, false);
             CreateTopBandDivider(band, 0.4f);
-            positionBadgeText = CreateTopBandSegment(band, "Position segment", 0.41f, 0.51f, UiFactory.AccentCyan, TextAnchor.MiddleCenter, 17, true);
+            // Position and lap counter are the two primary numbers this strip
+            // exists to show (see the HUD hierarchy pass) - bumped a couple of
+            // points bigger and, for the lap counter, bold to match the
+            // position badge's weight instead of reading a step lighter than
+            // a number of equal importance right next to it.
+            positionBadgeText = CreateTopBandSegment(band, "Position segment", 0.41f, 0.51f, UiFactory.AccentCyan, TextAnchor.MiddleCenter, 19, true);
             CreateTopBandDivider(band, 0.51f);
-            lapCounterText = CreateTopBandSegment(band, "Lap segment", 0.52f, 0.63f, UiFactory.TextPrimary, TextAnchor.MiddleCenter, 17, false);
+            lapCounterText = CreateTopBandSegment(band, "Lap segment", 0.52f, 0.63f, UiFactory.TextPrimary, TextAnchor.MiddleCenter, 19, true);
+            lapCounterPunch = lapCounterText.gameObject.AddComponent<UiPunch>();
             CreateTopBandDivider(band, 0.63f);
             sessionMessageText = CreateTopBandSegment(band, "Message segment", 0.64f, 1f, new Color(0.85f, 0.9f, 0.94f), TextAnchor.MiddleLeft, 16, false);
         }
@@ -699,7 +728,15 @@ namespace LocalFormulaRacing
 
         void BuildTimingCard()
         {
-            RectTransform card = UiFactory.CreateResponsivePanel(transform, "Timing card", new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(324f, 168f), new Vector2(16f, 12f), UiFactory.HudCardBackground);
+            // Card grew 14px (was 168 tall) to fit a taller, bigger-font "Lap"
+            // row - see UiFactory.CreateHudHeroRow - since the live current-lap
+            // time is one of the HUD's three primary numbers (position, lap
+            // counter, current lap time) called out in the round 4 hierarchy
+            // pass, but used to render at the exact same size as Last/Best
+            // below it with nothing to mark it as the one to actually watch
+            // while driving. Every row below it shifts down by the same 14px
+            // so their existing relative spacing is unchanged.
+            RectTransform card = UiFactory.CreateResponsivePanel(transform, "Timing card", new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(324f, 182f), new Vector2(16f, 12f), UiFactory.HudCardBackground);
             ApplyPanelScale(card);
             UiFactory.CreateBand(card, "Timing accent", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.AccentCyan);
             Text title = UiFactory.CreateText(card, "Timing title", "TIMING", 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
@@ -709,23 +746,23 @@ namespace LocalFormulaRacing
             titleRect.offsetMin = new Vector2(14f, -24f);
             titleRect.offsetMax = new Vector2(-10f, -6f);
 
-            UiFactory.CreateHudLabelValueRow(card, "Lap", 28f, out lapRowValue);
-            UiFactory.CreateHudLabelValueRow(card, "Last", 52f, out lastRowValue);
-            UiFactory.CreateHudLabelValueRow(card, "Best", 76f, out bestRowValue);
+            UiFactory.CreateHudHeroRow(card, "Lap", 28f, 34f, 22, out lapRowValue);
+            UiFactory.CreateHudLabelValueRow(card, "Last", 66f, out lastRowValue);
+            UiFactory.CreateHudLabelValueRow(card, "Best", 90f, out bestRowValue);
 
             sectorRow = UiFactory.CreateText(card, "Sectors", "", 13, UiFactory.TextPrimary, TextAnchor.MiddleLeft);
             RectTransform sectorRect = sectorRow.GetComponent<RectTransform>();
             sectorRect.anchorMin = new Vector2(0f, 1f);
             sectorRect.anchorMax = new Vector2(1f, 1f);
-            sectorRect.offsetMin = new Vector2(14f, -128f);
-            sectorRect.offsetMax = new Vector2(-10f, -104f);
+            sectorRect.offsetMin = new Vector2(14f, -142f);
+            sectorRect.offsetMax = new Vector2(-10f, -118f);
 
             gapRow = UiFactory.CreateText(card, "Gaps", "", 13, UiFactory.TextPrimary, TextAnchor.MiddleLeft);
             RectTransform gapRect = gapRow.GetComponent<RectTransform>();
             gapRect.anchorMin = new Vector2(0f, 1f);
             gapRect.anchorMax = new Vector2(1f, 1f);
-            gapRect.offsetMin = new Vector2(14f, -156f);
-            gapRect.offsetMax = new Vector2(-10f, -132f);
+            gapRect.offsetMin = new Vector2(14f, -170f);
+            gapRect.offsetMax = new Vector2(-10f, -146f);
         }
 
         void BuildRightStack()
@@ -871,6 +908,7 @@ namespace LocalFormulaRacing
             pitPhasePill.root.pivot = new Vector2(0f, 1f);
             pitPhasePill.root.anchoredPosition = new Vector2(14f, -34f);
             pitPhasePill.root.gameObject.SetActive(false);
+            pitPhasePillPunch = pitPhasePill.root.gameObject.AddComponent<UiPunch>();
 
             pitStatusValue = UiFactory.CreateText(card, "Pit status", "", 14, UiFactory.TextPrimary, TextAnchor.UpperLeft);
             pitStatusValue.fontStyle = FontStyle.Bold;
@@ -934,7 +972,7 @@ namespace LocalFormulaRacing
         // run away with the whole HUD stack; up to MaxRadioCards of them can
         // be visible together, newest closest to the top.
         const float RadioCardMinHeight = 54f;
-        const float RadioCardMaxHeight = 140f;
+        const float RadioCardMaxHeight = 112f;
         const int RadioCardSpacing = 6;
 
         // Deliberately not built on CreateHudCard - that always reserves a
@@ -1168,6 +1206,8 @@ namespace LocalFormulaRacing
             watchedPitWindow = false;
             watchedTotalLockups = 0;
             seenTrackLimitWarnings = 0;
+            previousDisplayLapForPunch = -1;
+            previousPitPhaseText = "";
             watchedPlayerFinished = false;
             previousRaceControlStateCaptured = false;
             previousPlayerAutopilotCaptured = false;
@@ -1504,8 +1544,17 @@ namespace LocalFormulaRacing
 
                     break;
                 case RaceManager.RaceControlState.VirtualSafetyCar:
+                    // Distinct-states fix: this used to share AccentCyan with
+                    // the calm/no-action-needed states below (the green-flag
+                    // ramp tail, full-SC autopilot) even though VSC is the
+                    // opposite of calm - the player is still driving
+                    // themselves and must actively hold the delta or risk a
+                    // pace-compliance warning (see UpdatePaceCompliancePill).
+                    // Amber now groups it correctly with Yellow/SC-deploying/
+                    // SC-active-manual/SC-in-this-lap: every state that
+                    // requires the player to do something about it.
                     UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
-                        "VIRTUAL SAFETY CAR", "Hold the delta - no overtaking anywhere on track", UiFactory.AccentCyan);
+                        "VIRTUAL SAFETY CAR", "Hold the delta - no overtaking anywhere on track", UiFactory.AccentAmber);
                     break;
                 case RaceManager.RaceControlState.SafetyCarDeploying:
                     UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
@@ -1683,6 +1732,21 @@ namespace LocalFormulaRacing
             lapCounterText.text = "LAP " + lapLabel;
             sessionMessageText.text = race.SessionMessage + (string.IsNullOrEmpty(reaction) ? "" : "   " + reaction);
 
+            // Tasteful punch the instant the lap number actually ticks over -
+            // skipped on the very first tick (previousDisplayLapForPunch still
+            // at its unset -1) so the HUD doesn't punch itself on the opening
+            // frame, and gated on the animations setting like every other
+            // discrete HUD motion in this file.
+            if (lap.DisplayLap != previousDisplayLapForPunch)
+            {
+                if (previousDisplayLapForPunch >= 0 && UiFactory.AnimationsEnabled && lapCounterPunch != null)
+                {
+                    lapCounterPunch.Play();
+                }
+
+                previousDisplayLapForPunch = lap.DisplayLap;
+            }
+
             UpdateTimingCard(car, lap);
             UpdateTyreCard(car);
             UpdateCarCard(car);
@@ -1772,6 +1836,11 @@ namespace LocalFormulaRacing
             // value swap between white and red) instead of just sitting at a
             // static red - matches the same urgency language already used for
             // low fuel and critical damage below.
+            // Clarity fix: this used to only ever be amber-or-red (never
+            // green), so fresh tyres straight out of the pits read exactly as
+            // "cautious" as tyres approaching the danger zone - no state ever
+            // told the player wear was actually fine. Now a proper
+            // green/amber/red progression like the damage meter below.
             bool tyreCritical = wear01 > 0.85f;
             if (tyreCritical)
             {
@@ -1779,9 +1848,19 @@ namespace LocalFormulaRacing
                 tyreWearFill.color = lit ? Color.white : UiFactory.Accent;
                 tyreWearValue.color = lit ? UiFactory.Accent : UiFactory.TextPrimary;
             }
+            else if (wear01 > 0.62f)
+            {
+                tyreWearFill.color = UiFactory.Accent;
+                tyreWearValue.color = UiFactory.TextPrimary;
+            }
+            else if (wear01 > 0.35f)
+            {
+                tyreWearFill.color = UiFactory.AccentAmber;
+                tyreWearValue.color = UiFactory.TextPrimary;
+            }
             else
             {
-                tyreWearFill.color = wear01 > 0.62f ? UiFactory.Accent : UiFactory.AccentAmber;
+                tyreWearFill.color = UiFactory.AccentGreen;
                 tyreWearValue.color = UiFactory.TextPrimary;
             }
 
@@ -1801,17 +1880,53 @@ namespace LocalFormulaRacing
             float fuel01 = Mathf.Clamp01(car.FuelKg / 42f);
             UiFactory.SetMeterValueAnimated(fuelFill, fuel01);
             fuelValue.text = car.FuelKg.ToString("0.0") + "kg";
-            fuelFill.color = car.FuelKg < 7f && Mathf.PingPong(Time.time * 2.4f, 1f) > 0.5f
-                ? UiFactory.AccentAmber
-                : new Color(0.7f, 0.95f, 1f);
+            // Clarity fix: added a steady amber "getting low" tier distinct
+            // from the flashing "FUEL LOW" critical state below 7kg - before
+            // this the meter only ever had two states (normal, critical-flash)
+            // with nothing warning the player fuel was trending down until it
+            // was already in the danger zone.
+            bool fuelCritical = car.FuelKg < 7f;
+            bool fuelGettingLow = car.FuelKg < 12f;
+            if (fuelCritical)
+            {
+                bool lit = Mathf.PingPong(Time.time * 2.4f, 1f) > 0.5f;
+                fuelFill.color = lit ? UiFactory.AccentAmber : UiFactory.Accent;
+                fuelValue.color = lit ? UiFactory.Accent : UiFactory.TextPrimary;
+            }
+            else if (fuelGettingLow)
+            {
+                fuelFill.color = UiFactory.AccentAmber;
+                fuelValue.color = UiFactory.TextPrimary;
+            }
+            else
+            {
+                fuelFill.color = new Color(0.7f, 0.95f, 1f);
+                fuelValue.color = UiFactory.TextPrimary;
+            }
 
             float damage01 = Mathf.Clamp01(car.Damage.OverallPercent / 100f);
             UiFactory.SetMeterValueAnimated(damageFill, damage01);
             damageValue.text = Mathf.RoundToInt(car.Damage.OverallPercent) + "%";
-            bool critical = car.Damage.OverallPercent > 55f;
-            damageFill.color = critical && Mathf.PingPong(Time.time * 3f, 1f) > 0.5f
-                ? Color.white
-                : (critical ? UiFactory.Accent : new Color(1f, 0.55f, 0.1f));
+            // Clarity fix: this used to only ever be amber-orange-or-red
+            // (never green), so a car with no damage at all read exactly as
+            // "moderately damaged" as one actually approaching the critical
+            // threshold. Thresholds match the damage-band notification
+            // watcher below (25/55) instead of introducing a third,
+            // inconsistent cutoff.
+            bool damageCritical = car.Damage.OverallPercent > 55f;
+            bool damageModerate = car.Damage.OverallPercent > 25f;
+            if (damageCritical)
+            {
+                damageFill.color = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f ? Color.white : UiFactory.Accent;
+            }
+            else if (damageModerate)
+            {
+                damageFill.color = new Color(1f, 0.55f, 0.1f);
+            }
+            else
+            {
+                damageFill.color = UiFactory.AccentGreen;
+            }
 
             // A sudden jump (a real hit, not gradual wear) fires a one-shot
             // white flash on the whole card's accent bar - see
@@ -1849,8 +1964,35 @@ namespace LocalFormulaRacing
 
         void UpdatePitCard(VehicleController car)
         {
-            bool limiterOnly = car.PitLimiterActive;
-            pitStatusValue.text = limiterOnly ? "LIMITER 80" : race.PitStatusText(player);
+            // Bug fix: this used to check car.PitLimiterActive alone, but the
+            // vehicle keeps that flag set for the ENTIRE pit-lane visit (entry,
+            // box, release - see RaceManager's SetPitLimiter calls throughout
+            // UpdatePitEntry/UpdatePitService/UpdatePitRelease), not just the
+            // two narrow windows outside the phase machine (the pit-approach
+            // stretch before BeginPitEntry commits, and the brief
+            // pitLimiterUntilExit tail after release resets the phase back to
+            // None). That meant this line's "else" branch - the actually
+            // informative race.PitStatusText with box number/timer/compound -
+            // effectively never fired while the phase machine was running,
+            // and the whole pit stop read as a flat "LIMITER 80" the entire
+            // time. Gating on pitPhase == None restores PitStatusText for
+            // Entry/Service/Release exactly as BuildPitPlanText/UpdatePitPhasePill
+            // already assume it does.
+            bool limiterOnly = car.PitLimiterActive && player.pitPhase == PitPhase.None;
+            if (limiterOnly)
+            {
+                // Reflects VehicleController.PitExitFastLimiter: the cleared
+                // exit stretch after release runs at a higher cap (108) than
+                // the entry-grade approach limiter (80) - a hardcoded "80"
+                // here would silently under-report the real speed once the
+                // car is actually released and driving out.
+                int limiterCapKph = car.PitExitFastLimiter ? 108 : 80;
+                pitStatusValue.text = (player.pitLimiterUntilExit ? "PIT EXIT  LIMITER " : "PIT APPROACH  LIMITER ") + limiterCapKph;
+            }
+            else
+            {
+                pitStatusValue.text = race.PitStatusText(player);
+            }
 
             // Color the headline by what's actually driving it, so "did the
             // plan just fire itself or did I just force it" reads instantly
@@ -1927,6 +2069,34 @@ namespace LocalFormulaRacing
                         phaseText = "PIT EXIT";
                         phaseColor = UiFactory.AccentCyan;
                     }
+                    else if (player.vehicle != null && player.vehicle.PitRequested && player.vehicle.PitLimiterActive)
+                    {
+                        // Missing state fix: once the car is physically inside
+                        // the pit-approach stretch (limiter already engaged -
+                        // see RaceManager.UpdatePitApproach/pitApproach) but
+                        // hasn't yet crossed the entry line and committed to a
+                        // box (RaceManager.BeginPitEntry, which is what flips
+                        // pitPhase to Entry), there was no pill state at all
+                        // for it - distinct from "PIT REQUESTED" below (still
+                        // out on the racing line, nothing physically changed
+                        // yet) and from the PitPhase.Entry case above (already
+                        // committed and turning in).
+                        phaseText = "APPROACHING PIT ENTRY";
+                        phaseColor = UiFactory.AccentAmber;
+                    }
+                    else if (player.vehicle != null && player.vehicle.PitRequested)
+                    {
+                        // Missing state fix: a request (manual P key or the
+                        // strategy's own auto-trigger) queued well before the
+                        // car reaches the pit lane used to show nothing here
+                        // at all - only the small technical status line below
+                        // said "PIT REQUEST QUEUED"/"AUTO-PIT QUEUED". Colored
+                        // the same auto-vs-manual way as that line so the two
+                        // agree instead of one implying urgency the other
+                        // doesn't.
+                        phaseText = "PIT REQUESTED";
+                        phaseColor = player.pitAutoTriggered ? UiFactory.AccentCyan : UiFactory.AccentPurple;
+                    }
                     else
                     {
                         // Missing state fix: the pill previously only ever lit
@@ -1958,6 +2128,18 @@ namespace LocalFormulaRacing
             {
                 pitPhasePill.SetState(phaseText, phaseColor, true);
             }
+
+            // Brief punch whenever the plain-language phase actually changes
+            // (including appearing/disappearing) so a transition like "PIT
+            // REQUESTED" -> "APPROACHING PIT ENTRY" -> "ENTERING PIT LANE"
+            // reads as a sequence of events instead of silent text swaps.
+            string safePhaseText = phaseText ?? "";
+            if (safePhaseText != previousPitPhaseText && UiFactory.AnimationsEnabled && pitPhasePillPunch != null)
+            {
+                pitPhasePillPunch.Play();
+            }
+
+            previousPitPhaseText = safePhaseText;
         }
 
         string BuildPitPlanText()
@@ -2270,6 +2452,12 @@ namespace LocalFormulaRacing
                 "ROAD COLLIDER " + (roadColliderOk ? "OK" : "MISSING") + "\n" +
                 "SLOWDOWN " + car.ActiveSlowdownReason + "\n" +
                 "ROAD " + (car.IsOffTrackSlowdown ? "OFF TRACK" : "ON TRACK") + "\n" +
+                // RaceControlIncidentCount and friends are the genuine
+                // race-control-only counts - never RaceManager.IncidentCount,
+                // which is a raw internal diagnostics counter that can read
+                // in the hundreds and isn't meaningful to show anywhere.
+                "RACE CONTROL  YEL " + race.YellowFlagEventCount + "  VSC " + race.VirtualSafetyCarEventCount + "  PEN " + race.PenaltyEventCount + "  TOTAL " + race.RaceControlIncidentCount + "\n" +
+                "CONTACT  CAR " + race.CarContactIncidentCount + "  SOLO " + race.SoloContactIncidentCount + "\n" +
                 "Hold R to reset to track";
         }
 

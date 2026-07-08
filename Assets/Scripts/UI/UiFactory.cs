@@ -124,6 +124,51 @@ namespace LocalFormulaRacing
         }
     }
 
+    // One-shot scale "punch" for a value that just changed - a lap counter
+    // ticking over, a pit-phase pill flipping to its next state, and similar
+    // discrete HUD events that used to update silently with no motion at all.
+    // Call Play() and the element snaps slightly larger then eases back to
+    // rest, the same mechanical-weight cue RaceHud's start-light sequence
+    // hand-rolls per light (a decaying float driving localScale), but as a
+    // reusable component so callers don't need their own per-frame timer.
+    // Runs on unscaled time so it still plays while the game is paused,
+    // matching UiPulse/UiFadeIn. Callers should gate the Play() call itself on
+    // UiFactory.AnimationsEnabled so the "reduce motion" setting is respected,
+    // the same convention CreatePulsingDot/UiFadeIn already use.
+    public class UiPunch : MonoBehaviour
+    {
+        public float strength = 0.22f;
+        public float decaySpeed = 3.2f;
+        RectTransform rect;
+        float punch;
+
+        void Awake()
+        {
+            rect = GetComponent<RectTransform>();
+        }
+
+        public void Play()
+        {
+            punch = 1f;
+        }
+
+        void Update()
+        {
+            if (rect == null || punch <= 0f)
+            {
+                return;
+            }
+
+            punch = Mathf.Max(0f, punch - Time.unscaledDeltaTime * decaySpeed);
+            float scale = 1f + punch * strength;
+            rect.localScale = new Vector3(scale, scale, 1f);
+            if (punch <= 0f)
+            {
+                rect.localScale = Vector3.one;
+            }
+        }
+    }
+
     // Glides a meter fill's right edge (anchorMax.x) toward a target value each
     // frame instead of letting callers snap it, so tyre wear/fuel/damage/pit
     // meters read as animating rather than teleporting between states.
@@ -1602,6 +1647,39 @@ namespace LocalFormulaRacing
             valueRect.anchorMin = new Vector2(0.5f, 1f);
             valueRect.anchorMax = new Vector2(1f, 1f);
             valueRect.offsetMin = new Vector2(0f, -topOffset - 20f);
+            valueRect.offsetMax = new Vector2(-12f, -topOffset);
+            return labelText;
+        }
+
+        // Bigger variant of CreateHudLabelValueRow for a card's single "hero"
+        // stat - same label-left/value-right shape, but with a caller-chosen
+        // row height and a larger bold value so one number in a card can
+        // visually lead instead of every row reading at the same weight.
+        // Round 4 hierarchy pass: the primary numbers a player needs at a
+        // glance (current lap time, chiefly) were sized identically to
+        // secondary detail (last/best lap, sector deltas) with nothing to
+        // separate them - this is the shared primitive for fixing that
+        // without hand-rolling one-off rects at every call site.
+        public static Text CreateHudHeroRow(RectTransform card, string label, float topOffset, float rowHeight, int valueFontSize, out Text valueText)
+        {
+            Text labelText = CreateText(card, label + " row label", label.ToUpperInvariant(), 13, TextMuted, TextAnchor.MiddleLeft);
+            RectTransform labelRect = labelText.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 1f);
+            labelRect.anchorMax = new Vector2(0.38f, 1f);
+            labelRect.offsetMin = new Vector2(14f, -topOffset - rowHeight);
+            labelRect.offsetMax = new Vector2(0f, -topOffset);
+
+            valueText = CreateText(card, label + " row value", "", valueFontSize, TextPrimary, TextAnchor.MiddleRight);
+            valueText.fontStyle = FontStyle.Bold;
+            // Overflow rather than the CreateText default of Wrap: a hero
+            // value routinely carries an inline color tag (e.g. an "INV"
+            // marker appended to a lap time) that must never wrap onto a
+            // second line and get vertically truncated inside this row.
+            valueText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            RectTransform valueRect = valueText.GetComponent<RectTransform>();
+            valueRect.anchorMin = new Vector2(0.34f, 1f);
+            valueRect.anchorMax = new Vector2(1f, 1f);
+            valueRect.offsetMin = new Vector2(0f, -topOffset - rowHeight);
             valueRect.offsetMax = new Vector2(-12f, -topOffset);
             return labelText;
         }

@@ -202,23 +202,22 @@ namespace LocalFormulaRacing
             switch (type)
             {
                 case CornerType.HighSpeed:
-                    // Corner-speed pass (aggressive): ceiling pushed to ~101% of
-                    // straight-line speed at full skill (from 98%) - a true
-                    // high-speed corner should read as barely a lift for a
-                    // confident driver, not a meaningful slowdown - and the ease
-                    // power raised further so the curve stays essentially flat
-                    // across nearly the whole HighSpeed severity band, only
-                    // bleeding toward the floor right at the very top of it.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.92f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.01f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
+                    // Corner-speed pass 4 (aggressive): ceiling pushed again to ~104%
+                    // of straight-line speed at full skill (from 101%) and the ease
+                    // power raised further still - Hard/Expert should barely lift at
+                    // all through a genuine high-speed sweep, essentially flat across
+                    // the whole HighSpeed band and only bleeding toward the floor
+                    // right at its very top.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.92f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.04f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(3.4f, 5.4f, skillTier);
                     break;
                 case CornerType.Medium:
-                    // Materially higher minimum speed floor at full skill (88% vs 80%)
-                    // - this bucket now also catches faster flowing corners pushed
+                    // Corner-speed pass 4: pushed again (92% vs 88% at full skill) -
+                    // this bucket now also catches faster flowing corners pushed
                     // down from a widened HighSpeed band, so it can no longer read
                     // as timid either.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.70f, straightTargetSpeed * Mathf.Lerp(0.80f, 0.88f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(2.0f, 2.4f, skillTier);
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.70f, straightTargetSpeed * Mathf.Lerp(0.80f, 0.92f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(2.0f, 2.6f, skillTier);
                     break;
                 case CornerType.Slow:
                     floorSpeed = Mathf.Lerp(hairpinSpeedKph * 1.25f, hairpinSpeedKph * 1.4f, apexConfidence);
@@ -467,7 +466,7 @@ namespace LocalFormulaRacing
 
             float apexDistanceAhead;
             float apexSeverity;
-            FindUpcomingApex(progress.distance, speedKph, out apexDistanceAhead, out apexSeverity);
+            FindUpcomingApex(progress.distance, speedKph, skillTier, out apexDistanceAhead, out apexSeverity);
             float turnSign = EstimateTurnDirection(progress.distance);
 
             // Real ceiling, not an invented ~330-350kph clamp: the same DRS/ERS-aware
@@ -790,6 +789,21 @@ namespace LocalFormulaRacing
             // the old threshold let strategy hang on for slightly too long before
             // requesting a stop.
             float tyrePitThreshold = Mathf.Lerp(0.72f, 0.58f, tyreManagement / 100f) + profile.tyreSavingBias * 0.05f;
+            // Tyre-overextension fix (compound life): the threshold above was a flat
+            // wear NUMBER applied identically to every compound. Wear itself already
+            // decays faster on a Soft than a Hard (TyreState.baseWear), so a flat
+            // number does track compound life somewhat - but a Soft genuinely falls
+            // off a cliff once it crosses this zone and needs to come off sooner in
+            // wear-number terms too, while a Hard can be run leaner without the same
+            // cliff risk. Wets/Intermediates get the same early-side nudge as Softs -
+            // they degrade unpredictably once badly worn and a mismatch (dried track,
+            // rain fading) compounds fast.
+            TyreCompound currentCompound = vehicle.Tyres.Compound;
+            float compoundThresholdShift = currentCompound == TyreCompound.Soft ? 0.06f
+                : currentCompound == TyreCompound.Hard ? -0.05f
+                : (currentCompound == TyreCompound.Wet || currentCompound == TyreCompound.Intermediate) ? 0.04f
+                : 0f;
+            tyrePitThreshold = Mathf.Clamp(tyrePitThreshold + compoundThresholdShift, 0.2f, 0.8f);
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                 vehicle.Tyres.Wear < tyrePitThreshold &&
                 participant.lapTracker.CompletedLaps > 0)
@@ -801,6 +815,20 @@ namespace LocalFormulaRacing
             // planned lap or the threshold above - strategy timing should never keep a
             // car circulating on tyres that are essentially gone.
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && vehicle.Tyres.Wear < 0.12f)
+            {
+                command.pitRequest = true;
+            }
+
+            // Tyre-overextension fix (pace-loss awareness): independent of the wear-
+            // number threshold above, which a high-tyre-management driver can push
+            // quite low - if the tyre's own real grip multiplier has genuinely
+            // collapsed, force the stop regardless of plan. A car losing this much
+            // grip is several seconds a lap off the pace and becomes a rolling
+            // roadblock no matter what the pre-race strategy said.
+            WeatherState currentWeather = raceManager.Track == null ? WeatherState.Clear : raceManager.Track.weather;
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
+                vehicle.Tyres.GripMultiplier(currentWeather) < 0.5f &&
+                participant.lapTracker.CompletedLaps > 0)
             {
                 command.pitRequest = true;
             }
@@ -1204,7 +1232,7 @@ namespace LocalFormulaRacing
         // point within lookahead range, giving a genuine "distance to the corner"
         // and "how sharp" pair for the braking-point model, instead of only ever
         // reacting to the curvature directly under the car.
-        void FindUpcomingApex(float fromDistance, float speedKph, out float apexDistanceAhead, out float apexSeverity)
+        void FindUpcomingApex(float fromDistance, float speedKph, float skillTier, out float apexDistanceAhead, out float apexSeverity)
         {
             apexDistanceAhead = 400f;
             apexSeverity = 0f;
@@ -1223,7 +1251,13 @@ namespace LocalFormulaRacing
             // have a chance at a late, confident brake instead of a panicked
             // one, and a fixed 260m regardless of speed under-served exactly
             // the fastest, most important corners.
-            float maxLookahead = Mathf.Lerp(220f, 340f, Mathf.Clamp01(speedKph / 320f));
+            // Corner-speed pass 4: ceiling widened further still and scaled up
+            // for higher skill tiers - a sharper driver reads the track further
+            // ahead (better anticipation, not better eyesight), which is what
+            // lets Hard/Expert commit to the later, flatter braking points their
+            // raised apex-speed floors above now expect without ever having to
+            // react to a corner that "appeared" late and panic-brake for it.
+            float maxLookahead = Mathf.Lerp(220f, Mathf.Lerp(340f, 400f, skillTier), Mathf.Clamp01(speedKph / 320f));
             for (float d = 0f; d <= maxLookahead; d += step)
             {
                 float severity = EstimateCornerSeverity(fromDistance + d);

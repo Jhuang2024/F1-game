@@ -281,8 +281,12 @@ namespace LocalFormulaRacing
             // only needs to cover the merge point itself plus a short stretch
             // after it, not most of the following straight - narrowed to just
             // past the release point (see GetPitReleasePose, ~0.992) through a
-            // modest distance into the next lap.
-            return normalizedProgress > 0.985f || normalizedProgress < 0.03f;
+            // modest distance into the next lap. Tightened further (was 0.03) now
+            // that the exit stretch itself runs at a higher cap
+            // (VehicleController.PitExitLimiterCapKph) - the tail past the merge
+            // only needs to cover actually rejoining traffic, not a long extra
+            // caution stretch on top of that.
+            return normalizedProgress > 0.985f || normalizedProgress < 0.018f;
         }
 
         // ---------- hairpin widening ----------
@@ -902,7 +906,40 @@ namespace LocalFormulaRacing
             CreateBoundaryDebugLine(overlay.transform, "Pit lane outer edge", Color.yellow, d => Runtime.PitLaneLateral + 6.75f, corridorStart, corridorEnd);
             CreateBoundaryDebugLine(overlay.transform, "Pit/track separator", Color.green, d => Runtime.HalfWidthAt(d) + EdgeBarrierClearance, corridorStart, corridorEnd);
 
+            // The two intentional perimeter openings, called out explicitly in a
+            // distinct colour so they read as "meant to be here" rather than being
+            // mistaken for one of the gap markers below.
+            CreateBoundaryDebugLine(overlay.transform, "Pit entry opening (intentional)", new Color(1f, 0.55f, 0f), d => Runtime.HalfWidthAt(d) + EdgeBarrierClearance,
+                Runtime.length * PitZoneEntryRampStart, Runtime.length * PitZoneEntryRampEnd);
+            CreateBoundaryDebugLine(overlay.transform, "Pit exit opening (intentional)", new Color(1f, 0.55f, 0f), d => Runtime.HalfWidthAt(d) + EdgeBarrierClearance,
+                Runtime.length * PitZoneExitRampStart, Runtime.length * PitZoneExitRampEnd);
+
+            // Every point the generation-time flush sweep actually flagged (see
+            // ValidateBarrierColliderCoverage) - auto-filled immediately, but still
+            // marked here so a gap in the underlying placement math is visible for
+            // debugging instead of only ever showing a clean-looking result.
+            for (int i = 0; i < detectedBarrierGapPoints.Count; i++)
+            {
+                CreateBoundaryDebugMarker(overlay.transform, "Auto-filled gap " + i, Color.magenta, detectedBarrierGapPoints[i]);
+            }
+
             Runtime.AssignBoundaryDebugOverlay(overlay);
+        }
+
+        // Small octahedron-ish marker (built from the shared cone mesh, cheap and
+        // distinctive against the thin boundary lines) at a fixed world point -
+        // used for one-off debug call-outs like a detected-and-corrected gap,
+        // rather than a traced line along the lap.
+        void CreateBoundaryDebugMarker(Transform parent, string name, Color color, Vector3 worldPosition)
+        {
+            GameObject marker = new GameObject(name);
+            marker.transform.SetParent(parent);
+            marker.transform.position = worldPosition;
+            marker.transform.localScale = Vector3.one * 1.4f;
+            MeshFilter filter = marker.AddComponent<MeshFilter>();
+            MeshRenderer renderer = marker.AddComponent<MeshRenderer>();
+            filter.sharedMesh = GetVisualConeMesh();
+            renderer.sharedMaterial = CreateMaterial(name + " material", color, 0f, 0.4f, color * 0.6f);
         }
 
         // One coloured polyline sampled along (a span of) the lap at a fixed
@@ -3382,7 +3419,12 @@ namespace LocalFormulaRacing
         // touching one real boundary and nearly touching the other, never
         // hanging in open space on either side.
         const float PitDividerStep = 10f;
-        const float PitDividerOverlap = 2.5f;
+        // Widened overlap margin (was 2.5f) - same reasoning as the pit ramp/
+        // service-road surface overlaps: a fixed, tight overlap could shrink to
+        // an effectively-zero seam at a segment boundary, which for a wall
+        // reads as a genuine gap a car could clip through rather than a purely
+        // cosmetic issue.
+        const float PitDividerOverlap = 5f;
         const float PitDividerMinHalfWidth = 0.3f;
         const float PitDividerPitSideClearance = 0.4f;
 
@@ -3908,6 +3950,11 @@ namespace LocalFormulaRacing
         const float BarrierGapToleranceMeters = 0.3f;
         const float BarrierGapToleranceCornerMeters = 0.2f;
         const float BarrierAutoFillOverlap = 2f;
+        // Debug-overlay requirement: every point the flush sweep below actually
+        // flagged (even though it then auto-fills it immediately) so the debug
+        // overlay can mark exactly where generation found and corrected a gap,
+        // instead of only ever showing the two idealized target lines.
+        readonly List<Vector3> detectedBarrierGapPoints = new List<Vector3>();
 
         void ValidateBarrierColliderCoverage()
         {
@@ -3955,6 +4002,7 @@ namespace LocalFormulaRacing
                     {
                         gaps++;
                         worstGap = Mathf.Max(worstGap, gap);
+                        detectedBarrierGapPoints.Add(edgePoint);
                         string gapText = gap >= BarrierColliderSearchRadius ? "no barrier-like collider found within " + BarrierColliderSearchRadius.ToString("0") + "m" : gap.ToString("0.00") + "m gap";
                         GameLog.Warn("[TrackValidation] Barrier flush check FAILED at " + d.ToString("0") + "m " + (side < 0 ? "left" : "right") +
                                      " side" + (nearCorner ? " (corner)" : "") + ": " + gapText + " (tolerance " + tolerance.ToString("0.00") + "m) on " + Runtime.displayName);
@@ -4647,7 +4695,12 @@ namespace LocalFormulaRacing
             float corridorStart = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
             float corridorEnd = Runtime.length * 0.995f;
 
-            // Drivable service road, laid in curve-following segments.
+            // Drivable service road, laid in curve-following segments. Depth
+            // widened from 17.6 (only 1.6m of overlap over the 16m step) to a
+            // generous 5m overlap for the same reason the ramp surfaces were
+            // widened - a paved-surface seam anywhere along the pit lane reads
+            // to the player as exactly the kind of "random hole" repeatedly
+            // reported, and a bigger unseen-underside overlap costs nothing.
             for (float d = corridorStart; d < corridorEnd; d += 16f)
             {
                 Vector3 point;
@@ -4658,7 +4711,7 @@ namespace LocalFormulaRacing
                     "Pit lane asphalt service road",
                     point + right * Runtime.PitLaneLateral + Vector3.up * 0.015f,
                     Quaternion.LookRotation(forward, Vector3.up),
-                    new Vector3(13.5f, 0.16f, 17.6f),
+                    new Vector3(13.5f, 0.16f, 21f),
                     pitMaterial);
             }
 
@@ -4726,7 +4779,13 @@ namespace LocalFormulaRacing
         // kinked flat panels, matching the curve-following segmentation the
         // corridor's own service road and the barrier fan-out already use.
         const float PitRampSurfaceStep = 8f;
-        const float PitRampSurfaceOverlap = 2f;
+        // Pit-exit gap fix: widened from 2f - a purely fixed overlap left razor-thin
+        // (sometimes effectively zero after floating-point rounding) coverage at a
+        // segment boundary being exactly the kind of "random hole in the pit exit
+        // road" repeatedly reported. A generously overlapping box on every segment
+        // costs nothing at runtime (it's still just a flat, unseen-underside slab)
+        // and removes the seam entirely rather than merely shrinking it.
+        const float PitRampSurfaceOverlap = 5f;
         // Where a car first commits off the racing line toward the pits / first
         // rejoins the racing line after the pits - just past the true track edge,
         // not the track edge itself, so the merge surface always overlaps the

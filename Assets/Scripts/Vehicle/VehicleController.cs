@@ -5,6 +5,15 @@ namespace LocalFormulaRacing
     [RequireComponent(typeof(Rigidbody))]
     public class VehicleController : MonoBehaviour
     {
+        // Pit-exit speed fix: entry/service approach keeps the real-world 80kph
+        // pit-lane limit (blind merge into the pits, crew/cones/boxes nearby -
+        // this should stay cautious); the cleared exit stretch after release
+        // (see PitExitFastLimiter) gets a meaningfully higher cap so the drive
+        // back to the racing line doesn't read as a fixed-length "wait it out"
+        // tunnel once the car has nothing left to be careful of.
+        const float PitEntryLimiterCapKph = 80f;
+        const float PitExitLimiterCapKph = 108f;
+
         public TyreState Tyres { get; private set; }
         public DamageState Damage { get; private set; }
         public float CurrentSpeedKph { get; private set; }
@@ -21,6 +30,16 @@ namespace LocalFormulaRacing
         public bool IsHeldInPit { get; private set; }
         public bool IsHeldOnGrid { get; private set; }
         public bool PitLimiterActive { get; private set; }
+        // Pit-exit speed fix: the pit limiter previously enforced the same 80kph
+        // cap on the way IN (approaching a blind merge, cones, crew) and on the
+        // way OUT (a straight, already-cleared lane back to the racing line) -
+        // real pit lanes are just as limited both ways, but a game pit lane this
+        // short made the exit crawl feel like a fake "wait it out" tunnel rather
+        // than a real corner of the track. Set true only for the post-release
+        // exit stretch (RaceManager.UpdatePitRelease/HandlePitService), never for
+        // the entry/service approach, so entry stays exactly as controlled as
+        // before while exit gets a genuinely higher, still-limited pace.
+        public bool PitExitFastLimiter { get; private set; }
         public float FuelKg { get { return fuelKg; } }
         public float UndersteerAmount { get; private set; }
         public float OversteerAmount { get; private set; }
@@ -220,6 +239,11 @@ namespace LocalFormulaRacing
         public void SetPitLimiter(bool active)
         {
             PitLimiterActive = active;
+        }
+
+        public void SetPitExitFastLimiter(bool active)
+        {
+            PitExitFastLimiter = active;
         }
 
         // Race-control speed cap (Part 2): the same hard, physical speed-cap
@@ -494,7 +518,7 @@ namespace LocalFormulaRacing
             if (PitLimiterActive)
             {
                 DrsActive = false;
-                TargetTopSpeedKph = Mathf.Min(TargetTopSpeedKph, 80f);
+                TargetTopSpeedKph = Mathf.Min(TargetTopSpeedKph, PitExitFastLimiter ? PitExitLimiterCapKph : PitEntryLimiterCapKph);
             }
 
             // Race-control cap uses the pit limiter's own gentle enforcement curve
@@ -508,7 +532,7 @@ namespace LocalFormulaRacing
                 TargetTopSpeedKph = Mathf.Min(TargetTopSpeedKph, RaceControlSpeedCapKph);
             }
 
-            float speedCapFloorKph = PitLimiterActive ? 80f : (raceControlCapActive ? RaceControlSpeedCapKph : 0f);
+            float speedCapFloorKph = PitLimiterActive ? (PitExitFastLimiter ? PitExitLimiterCapKph : PitEntryLimiterCapKph) : (raceControlCapActive ? RaceControlSpeedCapKph : 0f);
             bool speedCapEngaged = PitLimiterActive || raceControlCapActive;
 
             float topSpeed = TargetTopSpeedKph / 3.6f;

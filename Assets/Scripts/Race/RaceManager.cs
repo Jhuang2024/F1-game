@@ -241,8 +241,11 @@ namespace LocalFormulaRacing
         // or a run of scattered minor incidents anywhere on track, genuinely
         // cannot re-trigger a fresh banner for a good while - yellows should
         // read as occasional and localized, not a recurring background noise.
-        const float YellowSectorCooldownAfterClearSeconds = 45f;
-        const float GlobalMinorYellowCooldownSeconds = 40f;
+        // Part 5 retune (~50% further cut): raised again (was 45/40) on top of
+        // the severity-threshold tightening above, so the two fixes compound
+        // instead of one alone having to carry the whole reduction.
+        const float YellowSectorCooldownAfterClearSeconds = 65f;
+        const float GlobalMinorYellowCooldownSeconds = 60f;
         const float MaxYellowEpisodeSeconds = 26f;
         // Part 4 retune: a genuinely global (cross-sector) cooldown, separate
         // from GlobalMinorYellowCooldownSeconds above (which only ever gated
@@ -250,7 +253,8 @@ namespace LocalFormulaRacing
         // yellow flag, Major-severity included, which previously had no
         // global gate at all and could fire in a different sector the moment
         // that OTHER sector's own per-sector cooldown happened to be clear.
-        const float GlobalYellowFlagCooldownSeconds = 30f;
+        // Part 5 retune: raised again (was 30f).
+        const float GlobalYellowFlagCooldownSeconds = 48f;
         float globalYellowFlagCooldownUntil;
         float drsRestartCooldownTimer;
         RaceParticipant safetyCarQueueLeader;
@@ -1056,8 +1060,37 @@ namespace LocalFormulaRacing
             float baseWindow = Track != null && (Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain) ? 0.46f : 0.55f;
             float tyreManagement = participant == null || participant.driverData == null ? 78f : participant.driverData.tyreManagement;
             float managementShift = Mathf.Lerp(-0.08f, 0.08f, Mathf.Clamp01(tyreManagement / 100f));
-            int recommended = Mathf.RoundToInt(RaceLaps * (baseWindow + managementShift));
+            // Pit-strategy variety fix: every AI with similar tyre management used to
+            // converge on nearly the same recommended lap, since managementShift is a
+            // smooth function of one stat - a whole midfield pitting within a lap or
+            // two of each other, with no room for a natural undercut/overcut. A small,
+            // per-driver-stable offset (hashed from driverId, so it's the same every
+            // time this is called for a given driver this race, never re-rolled)
+            // spreads real strategy windows out without touching the tyre-wear-driven
+            // triggers that still make the ACTUAL stop lap adaptive.
+            float driverJitter = participant == null || string.IsNullOrEmpty(participant.driverId) ? 0f
+                : (StableUnitInterval(participant.driverId) - 0.5f) * 0.1f;
+            int recommended = Mathf.RoundToInt(RaceLaps * (baseWindow + managementShift + driverJitter));
             return Mathf.Clamp(recommended, 1, maxPitLap);
+        }
+
+        // Deterministic, race-independent value in the 0-1 range derived from a
+        // string - used to
+        // give each driver a small, stable personality offset (pit-window jitter,
+        // etc.) without a persistent per-driver RNG state and without ever changing
+        // between calls for the same driver within a race.
+        static float StableUnitInterval(string key)
+        {
+            unchecked
+            {
+                int hash = 17;
+                for (int i = 0; i < key.Length; i++)
+                {
+                    hash = hash * 31 + key[i];
+                }
+
+                return (hash & 0x7fffffff) / (float)int.MaxValue;
+            }
         }
 
         // Simple dynamic weather: on mixed-forecast races the conditions flip once
@@ -1495,12 +1528,17 @@ namespace LocalFormulaRacing
                     // classification is the single biggest source of them (Major
                     // always flags with no roll at all). A normal wheel-to-wheel
                     // rub, a small spin, or a wall brush needs to stay Minor.
+                    // Part 5 retune (~50% further cut): raised again (was 28/85 and
+                    // 46/150) - a tiny wall brush, a quick spin that catches itself,
+                    // or ordinary wheel-to-wheel contact must never reach even Medium,
+                    // let alone Major. Only a genuinely hard, damaging shunt now
+                    // qualifies.
                     IncidentSeverity severity;
-                    if (damageJump > 46f || speedDrop > 150f)
+                    if (damageJump > 58f || speedDrop > 185f)
                     {
                         severity = IncidentSeverity.Major;
                     }
-                    else if (damageJump > 28f || speedDrop > 85f || (speedSignal && damageSignal))
+                    else if (damageJump > 38f || speedDrop > 110f || (speedSignal && damageSignal))
                     {
                         severity = IncidentSeverity.Medium;
                     }
@@ -4837,7 +4875,10 @@ namespace LocalFormulaRacing
                     // as "meaningfully faster through corners". Bumped alongside
                     // the new skillTier blend so Hard is now clearly quicker than
                     // Medium through medium/fast corners, not just a hair sharper.
-                    minimumCornerSpeedConfidence = 0.94f,
+                    // Corner-speed pass 4: entry confidence pushed further still
+                    // (was 0.94) - Hard should commit to a corner's entry with
+                    // barely any hesitation.
+                    minimumCornerSpeedConfidence = 0.97f,
                     apexErrorMeters = 0.75f,
                     // Corner-speed pass 3: exit hesitation shortened further
                     // (was 0.16) and exit confidence raised (was 0.92) - "get
@@ -4856,14 +4897,14 @@ namespace LocalFormulaRacing
                     wetWeatherCaution = 0.98f,
                     tyreSavingBias = 0.12f,
                     paceMultiplier = 1.08f,
-                    // Corner-speed pass: pushed further still (was 1.10/1.10) -
+                    // Corner-speed pass 4: pushed further still (was 1.16/1.18) -
                     // Hard was reading as too cautious specifically through fast
                     // corners even after the per-corner-type floors above were
                     // raised, since this multiplier and brakeConfidenceMultiplier
                     // scale that curve's output and braking point respectively.
-                    cornerSpeedMultiplier = 1.16f,
+                    cornerSpeedMultiplier = 1.22f,
                     straightSpeedMultiplier = 1.00f,
-                    brakeConfidenceMultiplier = 1.18f,
+                    brakeConfidenceMultiplier = 1.24f,
                     throttleAggressionMultiplier = 1.28f
                 };
             }
@@ -4879,7 +4920,9 @@ namespace LocalFormulaRacing
             return new AiDifficultyProfile
             {
                 brakeDistanceMultiplier = 1.06f,
-                minimumCornerSpeedConfidence = 0.98f,
+                // Corner-speed pass 4: pushed to the practical ceiling (was 0.98) -
+                // Expert should show essentially zero entry hesitation.
+                minimumCornerSpeedConfidence = 0.995f,
                 apexErrorMeters = 0.22f,
                 throttleDelay = 0.05f,
                 exitThrottleConfidence = 0.99f,
@@ -4894,13 +4937,13 @@ namespace LocalFormulaRacing
                 wetWeatherCaution = 0.88f,
                 tyreSavingBias = 0.07f,
                 paceMultiplier = 1.15f,
-                // Corner-speed pass: pushed further still (was 1.20/1.36) for the
+                // Corner-speed pass 4: pushed further still (was 1.27/1.48) for the
                 // same reason as Hard above - Expert should be the fastest, most
                 // committed tier through high-speed corners specifically, not
                 // just on straight-line pace.
-                cornerSpeedMultiplier = 1.27f,
+                cornerSpeedMultiplier = 1.34f,
                 straightSpeedMultiplier = 1.00f,
-                brakeConfidenceMultiplier = 1.48f,
+                brakeConfidenceMultiplier = 1.58f,
                 throttleAggressionMultiplier = 1.70f
             };
         }
@@ -6869,6 +6912,7 @@ namespace LocalFormulaRacing
                     {
                         participant.pitLimiterUntilExit = false;
                         participant.vehicle.SetPitLimiter(false);
+                        participant.vehicle.SetPitExitFastLimiter(false);
                     }
                 }
                 else
@@ -6887,6 +6931,7 @@ namespace LocalFormulaRacing
                 {
                     participant.pitLimiterUntilExit = false;
                     participant.vehicle.SetPitLimiter(false);
+                    participant.vehicle.SetPitExitFastLimiter(false);
                     if (participant.isPlayer)
                     {
                         SessionMessage = "Pit exit clear";
@@ -6978,6 +7023,10 @@ namespace LocalFormulaRacing
             participant.nextPitCompound = participant.requestedPitCompoundSet ? participant.requestedPitCompound : NextPlannedPitCompoundFor(participant);
             participant.pitTyreSelectionActive = false;
             participant.vehicle.SetPitLimiter(true);
+            // Defensive reset: a fresh entry must always start at the cautious
+            // entry-grade cap, never carry over the previous stop's exit-grade
+            // one.
+            participant.vehicle.SetPitExitFastLimiter(false);
             participant.vehicle.SetPitServiceHold(true);
             participant.vehicle.SetPitGuidance(true);
             participant.vehicle.ClearPitRequest();
@@ -7003,7 +7052,13 @@ namespace LocalFormulaRacing
         // into a gradual diagonal peel instead of an instant sideways snap.
         const float PitEntryPaceKph = 68f;
         const float PitLanePaceKph = 58f;
-        const float PitReleasePaceKph = 74f;
+        // Pit-exit speed fix: raised from 74 so the guided release phase hands
+        // off smoothly into VehicleController's own faster post-release cap
+        // (PitExitLimiterCapKph, 108) instead of the car appearing to
+        // accelerate abruptly the instant guidance ends - kept a few kph below
+        // that real cap so the free-driving handoff is a gentle pickup, not a
+        // jump.
+        const float PitReleasePaceKph = 100f;
         const float PitGuideLateralRateMetersPerSecond = 9f;
         // Generous relative to the above paces so GuideToPitPose's own
         // MoveTowards/RotateTowards - now chasing a waypoint only a fraction
@@ -7377,6 +7432,11 @@ namespace LocalFormulaRacing
             participant.vehicle.SetPitGuidance(false);
             participant.vehicle.SetPitServiceHold(false);
             participant.vehicle.SetPitLimiter(true);
+            // Pit-exit speed fix: from this point on the car is driving itself
+            // (not guided) down an already-cleared stretch of pit lane with
+            // nothing left to be cautious of - switch to the higher exit cap
+            // instead of the entry-grade one so it doesn't crawl.
+            participant.vehicle.SetPitExitFastLimiter(true);
             SimpleAudioManager.PlayPitRelease(releasePosition);
             participant.pitPhase = PitPhase.None;
             participant.isPitting = false;
