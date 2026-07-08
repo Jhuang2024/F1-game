@@ -3333,21 +3333,39 @@ namespace LocalFormulaRacing
             // catchFence/tyreStack outright - the real, general-case reason the final corner
             // on every track kept reading as unfenced, not a one-off. The real pit lane
             // surface is a separate, unrelated lane built independently of this outer
-            // perimeter barrier, so a real corner here must always win that conflict - skip
-            // the fan-out entirely whenever this stretch is near ANY tight-fence-grade corner
-            // (nearTightFenceCorner - the same broad band hairpins/tight corners already get
-            // forced continuous catch fencing from above), not just full hairpins, so the
-            // final corner keeps its normal flush wall/catch fence/tyre-stack containment on
-            // every track regardless of where it happens to fall on the lap.
-            if (side > 0 && !nearTightFenceCorner)
+            // perimeter barrier, so a real corner here must always win that conflict - pull
+            // the wall in tight (skip the full fan-out) whenever this stretch is near ANY
+            // tight-fence-grade corner (nearTightFenceCorner - the same broad band hairpins/
+            // tight corners already get forced continuous catch fencing from above), not
+            // just full hairpins.
+            //
+            // Pit-exit blocking fix: that corner-priority pull-in used to go all the way
+            // back to baseLateral (the flush track edge) with no floor, regardless of how
+            // far into the pit corridor/ramp this exact distance actually sits - on any
+            // track where a genuine corner overlaps the pit zone's fixed band (routine,
+            // since pit exits typically sit right before turn 1 or the final corner), that
+            // planted a solid wall inside the lane every car has to drive through to leave
+            // the pits, trapping the whole AI field. PitMinimumOuterLateral is a hard floor
+            // the corner-priority pull-in can never go below - the wall may still pull in
+            // for corner containment instead of the full PitOuterLateral() fan-out, but
+            // never closer than the pit lane's own drivable surface actually needs at this
+            // exact distance.
+            if (side > 0)
             {
                 float pitBlend = PitZoneBlend(normalized);
                 if (pitBlend > 0f)
                 {
-                    lateral = Mathf.Lerp(baseLateral, PitOuterLateral(), pitBlend);
-                    style = EdgeBarrierStyle.StreetWall;
-                    catchFence = false;
-                    tyreStack = false;
+                    if (!nearTightFenceCorner)
+                    {
+                        lateral = Mathf.Lerp(baseLateral, PitOuterLateral(), pitBlend);
+                        style = EdgeBarrierStyle.StreetWall;
+                        catchFence = false;
+                        tyreStack = false;
+                    }
+                    else
+                    {
+                        lateral = Mathf.Max(baseLateral, PitMinimumOuterLateral(midDistance, normalized));
+                    }
                 }
             }
 
@@ -3626,6 +3644,51 @@ namespace LocalFormulaRacing
         float PitOuterLateral()
         {
             return Runtime.PitLaneLateral + 15f + 5.5f + 2.5f;
+        }
+
+        // Pit-exit blocking fix: the minimum right-side lateral distance (from
+        // centerline) the outer edge barrier must never sit closer than while
+        // anywhere inside the pit zone's active blend - the actual outer edge of
+        // the drivable pit lane surface (BuildPitRampSurface/PitRampEnvelopeAt for
+        // the ramps, the flat corridor's own fixed service-road width otherwise)
+        // plus a small standoff. ComputeBarrierPlan's corner-priority containment
+        // (pulling the wall in tight near a genuine corner instead of the full
+        // PitOuterLateral fan-out) must never be allowed to clamp past this -
+        // every AI car getting physically trapped in the pits was exactly that:
+        // a corner overlapping the pit zone's fixed normalized band (routine,
+        // since pit exits typically sit right before turn 1 or the final corner)
+        // collapsed the wall all the way back to the flush track edge, planting
+        // a solid collider inside the lane every car has to physically drive
+        // through to leave the pits. Returns 0f outside the pit zone entirely.
+        float PitMinimumOuterLateral(float distance, float normalized)
+        {
+            if (PitZoneBlend(normalized) <= 0f)
+            {
+                return 0f;
+            }
+
+            const float standoff = 2f;
+            if (normalized >= PitZoneEntryRampStart && normalized < PitZoneEntryRampEnd)
+            {
+                float envLateral;
+                float envHalfWidth;
+                PitRampEnvelopeAt(normalized, distance, out envLateral, out envHalfWidth);
+                return envLateral + envHalfWidth + standoff;
+            }
+
+            if (normalized > PitZoneExitRampStart || normalized <= PitZoneExitRampEnd)
+            {
+                float envLateral;
+                float envHalfWidth;
+                PitRampEnvelopeAt(normalized, distance, out envLateral, out envHalfWidth);
+                return envLateral + envHalfWidth + standoff;
+            }
+
+            // Flat corridor: PitRampEnvelopeAt is only valid inside the ramp
+            // windows checked above (see its own comment) - here the drivable
+            // surface is BuildPitLane's fixed-width service road, centred on
+            // PitLaneLateral with a 13.5m width (half-width 6.75).
+            return Runtime.PitLaneLateral + 6.75f + standoff;
         }
 
         // ---------- pit lane / track divider ----------
@@ -4473,15 +4536,23 @@ namespace LocalFormulaRacing
         // opening. A small epsilon on both ends keeps the very start/end of the ramp
         // (where the wall has barely moved off the flush line) held to the normal
         // tolerance instead of being waved through as "intentional".
-        // Corner-priority fix (matches ComputeBarrierPlan above): a track whose own
-        // hairpin/tight corner happens to land inside the pit-zone fan-out's fixed
-        // normalized band (Melbourne's sharpest corner does) must never have its
-        // gap-validation/auto-fill silently skipped just because of that
-        // coincidence - `nearCorner` is true there, so this now returns false and
-        // lets the sweep hold this stretch to the same standard as everywhere else.
+        // Pit-exit blocking fix: this used to also return false (not intentional -
+        // hold this stretch to the normal flush-edge standard) whenever a corner was
+        // nearby, specifically so a hairpin/tight corner coinciding with the pit
+        // zone's fixed normalized band (Melbourne's sharpest corner does) couldn't
+        // silently skip gap-validation/auto-fill and end up unprotected. That auto-
+        // fill path (AutoFillBarrierGap) has no idea the pit lane exists at all -
+        // it always plants its corrective wall at the TRUE TRACK EDGE, so on a
+        // corner-near-pit-exit track it was building a fresh wall directly inside
+        // the drivable pit lane surface, trapping every AI car that tried to leave
+        // the pits. ComputeBarrierPlan's corner-priority containment now has its own
+        // hard floor (PitMinimumOuterLateral) that guarantees a real wall exists
+        // near that corner without ever encroaching on the pit lane - so this
+        // function no longer needs the corner override at all; the whole pit zone
+        // blend window is unconditionally treated as intentional, corner or not.
         bool IsIntentionalPitOpening(float normalized, int side, bool nearCorner)
         {
-            if (side <= 0 || nearCorner)
+            if (side <= 0)
             {
                 return false;
             }
