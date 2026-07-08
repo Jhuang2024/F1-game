@@ -270,8 +270,16 @@ namespace LocalFormulaRacing
                     // no longer derives from the hairpin number at all - it gets its own
                     // straight-speed-relative floor, clearly below Medium but nowhere
                     // near hairpin pace.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.34f, straightTargetSpeed * Mathf.Lerp(0.42f, 0.52f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(1.4f, 1.6f, skillTier);
+                    // Tight-corner speed fix round 2: pushed up substantially again (was
+                    // 0.34 base / 0.42-0.52 skill-scaled ceiling) - still too slow through
+                    // a genuine tight-but-not-hairpin corner. Kept meaningfully below
+                    // Medium's own floor/ceiling (0.72 / 0.87-0.99) so the two buckets
+                    // stay correctly ordered and this can't reopen the overspeed/
+                    // wall-crash bug the barrier-avoidance/emergency-brake work exists to
+                    // guard against, but the jump itself is real - roughly 40-45% faster
+                    // at every skill tier than the previous ceiling.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.48f, straightTargetSpeed * Mathf.Lerp(0.58f, 0.76f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(1.6f, 2.2f, skillTier);
                     break;
                 default:
                     // Hairpin floor deliberately untouched by skill tier - a hairpin is
