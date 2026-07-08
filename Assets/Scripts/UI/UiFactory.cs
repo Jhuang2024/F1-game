@@ -234,6 +234,58 @@ namespace LocalFormulaRacing
         }
     }
 
+    // Reusable center-screen "big moment" flash text: fades in fast, holds, then
+    // fades out. One instance is created per HUD and reused across lights-out,
+    // the safety-car restart green flag, final lap, and the chequered finish
+    // moment, instead of each caller hand-rolling its own timer/alpha logic.
+    public class UiBigFlash : MonoBehaviour
+    {
+        Text text;
+        Color baseColor = Color.white;
+        float timer;
+        float totalDuration = 1f;
+        const float FadeInTime = 0.12f;
+        const float FadeOutTime = 0.6f;
+
+        void Awake()
+        {
+            text = GetComponent<Text>();
+        }
+
+        public void Show(string message, Color color, float holdSeconds)
+        {
+            if (text == null)
+            {
+                return;
+            }
+
+            text.text = message;
+            baseColor = color;
+            totalDuration = FadeInTime + Mathf.Max(0.1f, holdSeconds) + FadeOutTime;
+            timer = totalDuration;
+        }
+
+        void Update()
+        {
+            if (text == null || timer <= 0f)
+            {
+                return;
+            }
+
+            timer -= Time.unscaledDeltaTime;
+            float elapsed = totalDuration - timer;
+            float alpha = elapsed < FadeInTime ? elapsed / FadeInTime : (timer < FadeOutTime ? timer / FadeOutTime : 1f);
+            Color color = baseColor;
+            color.a = Mathf.Clamp01(alpha);
+            text.color = color;
+
+            if (timer <= 0f)
+            {
+                text.text = "";
+            }
+        }
+    }
+
     public static class UiFactory
     {
         // Set from settings; screens fade in briefly when enabled.
@@ -398,6 +450,59 @@ namespace LocalFormulaRacing
             texture.SetPixels(pixels);
             texture.Apply();
             return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
+
+        static Sprite checkeredSprite;
+
+        // Alternating black/white checker tile - the finish-line motif, generated
+        // once and reused for the chequered finish flourish (and sparingly as a
+        // results-screen accent) instead of drawing bespoke geometry per caller.
+        public static Sprite CheckeredSprite
+        {
+            get
+            {
+                if (checkeredSprite == null)
+                {
+                    checkeredSprite = BuildCheckeredSprite(40, 10);
+                }
+
+                return checkeredSprite;
+            }
+        }
+
+        static Sprite BuildCheckeredSprite(int size, int cell)
+        {
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            texture.name = "Ui checkered";
+            texture.wrapMode = TextureWrapMode.Repeat;
+            texture.filterMode = FilterMode.Point;
+            Color[] pixels = new Color[size * size];
+            Color dark = new Color(0.05f, 0.06f, 0.07f, 1f);
+            Color light = new Color(0.92f, 0.94f, 0.97f, 1f);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    bool darkSquare = ((x / cell) + (y / cell)) % 2 == 0;
+                    pixels[y * size + x] = darkSquare ? dark : light;
+                }
+            }
+
+            texture.SetPixels(pixels);
+            texture.Apply();
+            return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+        }
+
+        // Tiled checker strip - reused by the chequered finish flourish and by
+        // the results screen header.
+        public static Image CreateCheckeredBand(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
+        {
+            RectTransform rect = CreateRect(parent, name, anchorMin, anchorMax, offsetMin, offsetMax);
+            Image image = rect.gameObject.AddComponent<Image>();
+            image.sprite = CheckeredSprite;
+            image.type = Image.Type.Tiled;
+            image.raycastTarget = false;
+            return image;
         }
 
         // Applies the rounded glass sprite to an image and tints it.
@@ -1372,6 +1477,93 @@ namespace LocalFormulaRacing
             return new HudPill { root = rect, background = background, label = label };
         }
 
+        // Two-line race-control callout: bold state title, muted detail line
+        // beneath it, a colored accent bar and a small breathing status dot - the
+        // richer replacement for a single-line pill so SC/VSC/yellow states read
+        // as a designed banner instead of a status word. Caller drives visibility
+        // and restyles per state with SetStatusBannerState.
+        public static RectTransform CreateStatusBanner(Transform parent, string name, float width, float height, out Image accentBar, out Image statusDot, out Text titleText, out Text subtitleText)
+        {
+            RectTransform rect = CreateRect(parent, name + " status banner", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            rect.sizeDelta = new Vector2(width, height);
+            Image background = rect.gameObject.AddComponent<Image>();
+            StyleRounded(background, HudCardBackground);
+
+            RectTransform accent = CreateRect(rect, name + " banner accent", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 6f), new Vector2(4f, -6f));
+            accentBar = accent.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(accentBar, Accent);
+            accentBar.raycastTarget = false;
+
+            statusDot = CreatePulsingDot(rect, name, 9f, Accent);
+            RectTransform dotRect = statusDot.rectTransform;
+            dotRect.anchorMin = new Vector2(1f, 1f);
+            dotRect.anchorMax = new Vector2(1f, 1f);
+            dotRect.anchoredPosition = new Vector2(-14f, -14f);
+
+            titleText = CreateText(rect, name + " banner title", "", 17, TextPrimary, TextAnchor.UpperLeft);
+            titleText.fontStyle = FontStyle.Bold;
+            titleText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            RectTransform titleRect = titleText.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0f, 0.52f);
+            titleRect.anchorMax = new Vector2(1f, 1f);
+            titleRect.offsetMin = new Vector2(18f, 0f);
+            titleRect.offsetMax = new Vector2(-26f, -8f);
+
+            subtitleText = CreateText(rect, name + " banner subtitle", "", 13, TextMuted, TextAnchor.LowerLeft);
+            subtitleText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            RectTransform subtitleRect = subtitleText.GetComponent<RectTransform>();
+            subtitleRect.anchorMin = new Vector2(0f, 0f);
+            subtitleRect.anchorMax = new Vector2(1f, 0.52f);
+            subtitleRect.offsetMin = new Vector2(18f, 8f);
+            subtitleRect.offsetMax = new Vector2(-14f, 0f);
+
+            return rect;
+        }
+
+        // Restyles a status banner in one call - title, subtitle, and accent/dot
+        // color together - mirroring HudPill.SetState's single-call ergonomics.
+        public static void SetStatusBannerState(Image accentBar, Image statusDot, Text titleText, Text subtitleText, string title, string subtitle, Color color)
+        {
+            if (titleText != null)
+            {
+                titleText.text = title;
+            }
+
+            if (subtitleText != null)
+            {
+                subtitleText.text = subtitle;
+            }
+
+            if (accentBar != null)
+            {
+                accentBar.color = color;
+            }
+
+            if (statusDot != null)
+            {
+                statusDot.color = color;
+            }
+        }
+
+        // Center-screen "big moment" flash text (lights-out, green-flag restart,
+        // final lap, chequered finish) - anchor doubles as the rect's point anchor,
+        // matching the point-anchor pattern already used for center overlays.
+        public static UiBigFlash CreateBigFlashText(Transform parent, string name, Vector2 anchor, int fontSize)
+        {
+            RectTransform rect = CreateRect(parent, name, anchor, anchor, Vector2.zero, Vector2.zero);
+            rect.sizeDelta = new Vector2(760f, fontSize + 30f);
+            rect.anchoredPosition = Vector2.zero;
+            Text text = CreateText(rect, name + " text", "", fontSize, Color.white, TextAnchor.MiddleCenter);
+            RectTransform textRect = text.GetComponent<RectTransform>();
+            textRect.anchorMin = Vector2.zero;
+            textRect.anchorMax = Vector2.one;
+            textRect.offsetMin = Vector2.zero;
+            textRect.offsetMax = Vector2.zero;
+            text.raycastTarget = false;
+            text.horizontalOverflow = HorizontalWrapMode.Overflow;
+            return text.gameObject.AddComponent<UiBigFlash>();
+        }
+
         public static Image CreateIconDot(Transform parent, string name, float size, Color color)
         {
             RectTransform dot = CreateRect(parent, name + " dot", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
@@ -1760,6 +1952,90 @@ namespace LocalFormulaRacing
             StyleRoundedSmall(trackImage, MeterTrack);
             float value01 = maxValue <= 0f ? 0f : Mathf.Clamp01(value / maxValue);
             CreateBand(track, "Stat bar fill", Vector2.zero, new Vector2(value01, 1f), Vector2.zero, Vector2.zero, fillColor);
+            return row;
+        }
+
+        // Podium-style card for a top-3 finisher: procedural helmet avatar in team
+        // color, medal-tinted top rule, driver/team name and a time/gap line.
+        // Three of these (P2, P1, P3 order, P1 tallest) replace a flat "Winner"
+        // stat card on the results screen with an actual podium shape.
+        public static RectTransform CreatePodiumCard(Transform parent, int position, string driverName, string teamLabel, Color teamColor, string timeLabel, float width, float height)
+        {
+            RectTransform card = CreateRect(parent, "Podium P" + position, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(width, height);
+            Image background = card.gameObject.AddComponent<Image>();
+            StyleRounded(background, PanelDarker);
+
+            Color medal = position == 1 ? new Color(1f, 0.82f, 0.24f, 1f)
+                : position == 2 ? new Color(0.8f, 0.85f, 0.9f, 1f)
+                : new Color(0.82f, 0.53f, 0.26f, 1f);
+
+            RectTransform top = CreateRect(card, "Podium rule", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -4f), Vector2.zero);
+            top.sizeDelta = new Vector2(0f, 4f);
+            Image topImage = top.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(topImage, medal);
+            topImage.raycastTarget = false;
+
+            RectTransform avatar = CreateProceduralHelmetIcon(card, position.ToString(), teamColor, 56f);
+            avatar.anchorMin = new Vector2(0.5f, 1f);
+            avatar.anchorMax = new Vector2(0.5f, 1f);
+            avatar.anchoredPosition = new Vector2(0f, -46f);
+
+            Text medalLabel = CreateText(card, "Podium medal", position == 1 ? "WINNER" : "P" + position, 12, medal, TextAnchor.UpperCenter);
+            medalLabel.fontStyle = FontStyle.Bold;
+            RectTransform medalRect = medalLabel.GetComponent<RectTransform>();
+            medalRect.anchorMin = new Vector2(0f, 1f);
+            medalRect.anchorMax = new Vector2(1f, 1f);
+            medalRect.offsetMin = new Vector2(6f, -92f);
+            medalRect.offsetMax = new Vector2(-6f, -74f);
+
+            Text nameText = CreateText(card, "Podium name", driverName, 17, TextPrimary, TextAnchor.UpperCenter);
+            nameText.fontStyle = FontStyle.Bold;
+            RectTransform nameRect = nameText.GetComponent<RectTransform>();
+            nameRect.anchorMin = new Vector2(0f, 1f);
+            nameRect.anchorMax = new Vector2(1f, 1f);
+            nameRect.offsetMin = new Vector2(6f, -122f);
+            nameRect.offsetMax = new Vector2(-6f, -94f);
+
+            Text teamText = CreateText(card, "Podium team", teamLabel, 12, TextMuted, TextAnchor.UpperCenter);
+            RectTransform teamRect = teamText.GetComponent<RectTransform>();
+            teamRect.anchorMin = new Vector2(0f, 1f);
+            teamRect.anchorMax = new Vector2(1f, 1f);
+            teamRect.offsetMin = new Vector2(6f, -142f);
+            teamRect.offsetMax = new Vector2(-6f, -124f);
+
+            Text timeText = CreateText(card, "Podium time", timeLabel, 13, medal, TextAnchor.LowerCenter);
+            RectTransform timeRect = timeText.GetComponent<RectTransform>();
+            timeRect.anchorMin = Vector2.zero;
+            timeRect.anchorMax = new Vector2(1f, 0f);
+            timeRect.offsetMin = new Vector2(6f, 12f);
+            timeRect.offsetMax = new Vector2(-6f, 34f);
+
+            return card;
+        }
+
+        // Two-value comparison bar: two labeled figures (e.g. player vs teammate)
+        // rendered as two half-height fills on the same track so they're directly
+        // comparable at a glance instead of two separate stat rows.
+        public static RectTransform CreateComparisonBar(Transform parent, string label, float valueA, Color colorA, float valueB, Color colorB, float maxValue, float width)
+        {
+            RectTransform row = CreateRect(parent, label + " comparison bar", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            row.sizeDelta = new Vector2(width, 34f);
+
+            Text labelText = CreateText(row, "Comparison label", label.ToUpperInvariant(), 11, TextMuted, TextAnchor.UpperLeft);
+            RectTransform labelRect = labelText.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 1f);
+            labelRect.anchorMax = new Vector2(1f, 1f);
+            labelRect.offsetMin = new Vector2(0f, -14f);
+            labelRect.offsetMax = Vector2.zero;
+
+            RectTransform track = CreateRect(row, "Comparison track", new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 4f), new Vector2(0f, 18f));
+            Image trackImage = track.gameObject.AddComponent<Image>();
+            StyleRoundedSmall(trackImage, MeterTrack);
+            float a01 = maxValue <= 0f ? 0f : Mathf.Clamp01(valueA / maxValue);
+            float b01 = maxValue <= 0f ? 0f : Mathf.Clamp01(valueB / maxValue);
+            CreateBand(track, "Comparison fill A", new Vector2(0f, 0.52f), new Vector2(a01, 1f), Vector2.zero, Vector2.zero, colorA);
+            CreateBand(track, "Comparison fill B", new Vector2(0f, 0f), new Vector2(b01, 0.48f), Vector2.zero, Vector2.zero, colorB);
             return row;
         }
 

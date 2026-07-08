@@ -3034,32 +3034,60 @@ namespace LocalFormulaRacing
             Clear();
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Results background", new Color(0.012f, 0.016f, 0.021f, 1f));
             UiFactory.CreateTopNav(background, "Race Report");
+            // Finish-line motif directly under the header, tying the results
+            // screen back to the in-race chequered finish flourish.
+            UiFactory.CreateCheckeredBand(background, "Results chequered accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -96f), new Vector2(0f, -92f));
 
             RectTransform content = UiFactory.CreateScrollPanel(background, "Results report", new Vector2(0.05f, 0.12f), new Vector2(0.95f, 0.88f), 14, new RectOffset(6, 6, 6, 12));
 
-            // Highlight cards: winner, fastest lap, biggest mover, player result.
+            RaceResultEntry player = results != null ? results.Find(entry => entry.isPlayer) : null;
+
+            // Podium: top-3 finishers as designed podium cards (P2, P1, P3 order,
+            // P1 tallest) instead of a flat "Winner" stat card.
+            if (results != null && results.Count > 0)
+            {
+                RectTransform podiumRow = UiFactory.CreateRect(content, "Podium row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                UiFactory.SetFixedRowHeight(podiumRow, 236f);
+                HorizontalLayoutGroup podiumLayout = UiFactory.AddHorizontalLayout(podiumRow, 16, new RectOffset(0, 0, 0, 0));
+                podiumLayout.childAlignment = TextAnchor.LowerCenter;
+                if (results.Count > 1)
+                {
+                    BuildPodiumSlot(podiumRow, race, results, 1);
+                }
+
+                BuildPodiumSlot(podiumRow, race, results, 0);
+                if (results.Count > 2)
+                {
+                    BuildPodiumSlot(podiumRow, race, results, 2);
+                }
+            }
+
+            // Highlight cards: fastest lap, biggest mover, player result, cautions.
             RectTransform highlights = UiFactory.CreateRect(content, "Result highlights", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             UiFactory.SetFixedRowHeight(highlights, 74f);
             UiFactory.AddHorizontalLayout(highlights, 14, new RectOffset(0, 0, 0, 0));
-            RaceResultEntry player = results != null ? results.Find(entry => entry.isPlayer) : null;
             if (results != null && results.Count > 0)
             {
-                UiFactory.CreateStatCard(highlights, "Winner", results[0].driverName, 300f);
                 RaceResultEntry fastest = FindFastestLap(results);
                 if (fastest != null)
                 {
-                    UiFactory.CreateStatCard(highlights, "Fastest Lap", fastest.driverName + "  " + UiFactory.FormatTime(fastest.bestLapTime), 380f);
+                    UiFactory.CreateStatCard(highlights, "Fastest Lap", fastest.driverName + "  " + UiFactory.FormatTime(fastest.bestLapTime), 320f);
                 }
 
                 RaceResultEntry mover = FindBiggestMover(results);
                 if (mover != null)
                 {
-                    UiFactory.CreateStatCard(highlights, "Biggest Mover", mover.driverName + "  +" + (mover.gridPosition - mover.finishingPosition), 320f);
+                    UiFactory.CreateStatCard(highlights, "Biggest Mover", mover.driverName + "  +" + (mover.gridPosition - mover.finishingPosition), 300f);
                 }
 
                 if (player != null)
                 {
-                    UiFactory.CreateStatCard(highlights, "You Finished", "P" + player.finishingPosition + "  (" + player.points + " pts)", 280f);
+                    UiFactory.CreateStatCard(highlights, "You Finished", "P" + player.finishingPosition + "  (" + player.points + " pts)", 260f);
+                }
+
+                if (race != null)
+                {
+                    UiFactory.CreateStatCard(highlights, "Cautions", race.SafetyCarDeploymentCount + " SC/VSC  ·  " + race.IncidentCount + " incidents", 320f);
                 }
             }
 
@@ -3201,15 +3229,17 @@ namespace LocalFormulaRacing
             float winnerTime = winner.totalTime + winner.penaltiesSeconds;
             float playerTime = player.totalTime + player.penaltiesSeconds;
             int positionsChanged = player.gridPosition > 0 ? player.gridPosition - player.finishingPosition : 0;
+            string positionsLine = positionsChanged == 0 ? "No positions changed"
+                : (positionsChanged > 0 ? "<color=#6CFF8D>+" + positionsChanged + " positions gained</color>" : "<color=#FF6C6C>" + positionsChanged + " positions lost</color>");
 
             BuildReportCard(row, "Your Race", new[]
             {
                 "Grid P" + (player.gridPosition > 0 ? player.gridPosition.ToString() : "-") + " -> Finish P" + player.finishingPosition,
-                positionsChanged == 0 ? "No positions changed" : (positionsChanged > 0 ? "+" + positionsChanged + " positions gained" : positionsChanged + " positions lost"),
+                positionsLine,
                 "Gap to winner: " + (player.finishingPosition == 1 ? "--" : "+" + Mathf.Max(0f, playerTime - winnerTime).ToString("0.0") + "s"),
                 "Overtakes made: " + player.overtakesMade,
                 "Best lap: " + UiFactory.FormatTime(player.bestLapTime)
-            }, 300f, UiFactory.Accent);
+            }, 300f, UiFactory.Accent, null);
 
             RaceResultEntry teammate = results.Find(entry => entry.teamId == player.teamId && entry.driverId != player.driverId);
             if (teammate != null)
@@ -3219,11 +3249,22 @@ namespace LocalFormulaRacing
                 List<string> teammateLines = new List<string>
                 {
                     teammate.driverName + ": P" + teammate.finishingPosition,
-                    playerAhead ? "You beat your teammate" : "Teammate finished ahead",
-                    "Gap: " + Mathf.Abs(teammateTime - playerTime).ToString("0.0") + "s",
-                    "Teammate best lap: " + UiFactory.FormatTime(teammate.bestLapTime)
+                    playerAhead ? "<color=#6CFF8D>You beat your teammate</color>" : "<color=#FF6C6C>Teammate finished ahead</color>",
+                    "Gap: " + Mathf.Abs(teammateTime - playerTime).ToString("0.0") + "s"
                 };
-                BuildReportCard(row, "Teammate Battle", teammateLines.ToArray(), 300f, UiFactory.AccentCyan);
+
+                // Direct head-to-head bars (best lap, pit stops) instead of two
+                // more text lines - two figures on the same track read as an
+                // actual comparison rather than numbers you have to mentally diff.
+                float lapCeiling = Mathf.Max(player.bestLapTime, teammate.bestLapTime) * 1.02f;
+                int stopCeiling = Mathf.Max(1, Mathf.Max(player.pitStops, teammate.pitStops));
+                BuildReportCard(row, "Teammate Battle", teammateLines.ToArray(), 300f, UiFactory.AccentCyan, card =>
+                {
+                    RectTransform lapBar = UiFactory.CreateComparisonBar(card, "Best Lap (s)", player.bestLapTime, UiFactory.Accent, teammate.bestLapTime, UiFactory.AccentCyan, lapCeiling, 268f);
+                    PositionCardWidget(lapBar, 16f, 46f);
+                    RectTransform stopBar = UiFactory.CreateComparisonBar(card, "Pit Stops", player.pitStops, UiFactory.Accent, teammate.pitStops, UiFactory.AccentCyan, stopCeiling, 268f);
+                    PositionCardWidget(stopBar, 16f, 6f);
+                });
             }
 
             BuildReportCard(row, "Strategy", new[]
@@ -3231,19 +3272,35 @@ namespace LocalFormulaRacing
                 "Pit stops: " + player.pitStops,
                 string.IsNullOrEmpty(player.strategySummary) ? "No stops made" : player.strategySummary,
                 "Track limit warnings: " + player.trackLimitWarnings,
-                player.penaltiesSeconds > 0f ? "Penalties: +" + player.penaltiesSeconds.ToString("0") + "s (" + player.penaltyReason + ")" : "No penalties"
-            }, 340f, UiFactory.AccentAmber);
+                player.penaltiesSeconds > 0f ? "<color=#FFC85C>Penalties: +" + player.penaltiesSeconds.ToString("0") + "s (" + player.penaltyReason + ")</color>" : "No penalties"
+            }, 340f, UiFactory.AccentAmber, null);
 
             BuildReportCard(row, "Incidents & Session", new[]
             {
-                "Lockups: " + player.lockups,
-                "Flat spot severity: " + player.flatSpotPercent.ToString("0") + "%",
                 "Safety cars this race: " + race.SafetyCarDeploymentCount,
                 "Yellow/incidents flagged: " + race.IncidentCount
-            }, 300f, UiFactory.AccentGreen);
+            }, 300f, UiFactory.AccentGreen, card =>
+            {
+                RectTransform lockupBar = UiFactory.CreateStatBar(card, "Lockups", player.lockups, 8f, UiFactory.AccentAmber, 268f);
+                PositionCardWidget(lockupBar, 16f, 46f);
+                RectTransform flatSpotBar = UiFactory.CreateStatBar(card, "Flat Spot", player.flatSpotPercent, 100f, UiFactory.AccentAmber, 268f);
+                PositionCardWidget(flatSpotBar, 16f, 6f);
+            });
         }
 
-        RectTransform BuildReportCard(Transform parent, string title, string[] lines, float width, Color accent)
+        // Anchors a widget generated with the point-anchor / default-pivot
+        // convention (CreateStatBar, CreateComparisonBar, ...) to a fixed
+        // bottom-left offset inside one of these absolutely-positioned report
+        // cards, matching how the card's own rule/title chrome is placed.
+        void PositionCardWidget(RectTransform widget, float x, float y)
+        {
+            widget.anchorMin = new Vector2(0f, 0f);
+            widget.anchorMax = new Vector2(0f, 0f);
+            widget.pivot = new Vector2(0f, 0f);
+            widget.anchoredPosition = new Vector2(x, y);
+        }
+
+        RectTransform BuildReportCard(Transform parent, string title, string[] lines, float width, Color accent, System.Action<RectTransform> extraContent)
         {
             RectTransform card = UiFactory.CreateRect(parent, title + " report card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             card.sizeDelta = new Vector2(width, 190f);
@@ -3271,6 +3328,12 @@ namespace LocalFormulaRacing
             bodyRect.offsetMin = new Vector2(16f, 10f);
             bodyRect.offsetMax = new Vector2(-10f, -38f);
             bodyText.lineSpacing = 1.3f;
+
+            if (extraContent != null)
+            {
+                extraContent(card);
+            }
+
             return card;
         }
 
@@ -3363,6 +3426,41 @@ namespace LocalFormulaRacing
             }
 
             return best;
+        }
+
+        // Single podium slot for the results screen highlight row - the podium
+        // card itself is a shared UiFactory widget; this just sources the right
+        // team color/time label from the result entry and race data.
+        void BuildPodiumSlot(RectTransform parent, RaceManager race, List<RaceResultEntry> results, int index)
+        {
+            if (results == null || index < 0 || index >= results.Count)
+            {
+                return;
+            }
+
+            RaceResultEntry entry = results[index];
+            int position = entry.finishingPosition > 0 ? entry.finishingPosition : index + 1;
+            float height = position == 1 ? 236f : (position == 2 ? 200f : 180f);
+            TeamData team = race != null && race.Data != null ? race.Data.FindTeam(entry.teamId) : null;
+            Color teamColor = team != null ? team.PrimaryUnityColor : new Color(0.6f, 0.66f, 0.72f);
+            string timeLabel = position == 1 ? UiFactory.FormatTime(entry.totalTime + entry.penaltiesSeconds) : GapLabel(results, entry);
+            UiFactory.CreatePodiumCard(parent, position, entry.driverName, TeamLabel(race, entry.teamId), teamColor, timeLabel, 220f, height);
+        }
+
+        // Gap-to-winner text for a classified entry, or "DNF" for a retirement -
+        // the same rule the full classification table already uses, factored out
+        // so the podium cards can show it too.
+        string GapLabel(List<RaceResultEntry> results, RaceResultEntry entry)
+        {
+            bool dnf = !string.IsNullOrEmpty(entry.penaltyReason) && entry.penaltyReason.Contains("DNF");
+            if (dnf)
+            {
+                return "DNF";
+            }
+
+            float winnerTime = results[0].totalTime + results[0].penaltiesSeconds;
+            float classifiedTime = entry.totalTime + entry.penaltiesSeconds;
+            return "+" + (classifiedTime - winnerTime).ToString("0.0") + "s";
         }
 
         public void ShowQualifyingResults(RaceManager race, List<QualifyingResultEntry> results, bool careerRace)

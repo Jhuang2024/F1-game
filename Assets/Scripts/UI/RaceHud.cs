@@ -90,11 +90,20 @@ namespace LocalFormulaRacing
         GameObject scWindowCard;
         Text scWindowText;
 
-        // Race control state pill (yellow flag / VSC / safety car), pinned near
-        // the top session strip. Hidden entirely under green-flag racing so it
-        // never clutters the normal case.
-        HudPill raceControlPill;
-        // Pace-limiter compliance readout, directly beneath the state pill - only
+        // Race control status banner (yellow flag / VSC / safety car / restart),
+        // pinned near the top session strip. Hidden entirely under green-flag
+        // racing so it never clutters the normal case. A two-line banner (state +
+        // what it means right now) rather than a single-line pill, so SC/VSC/
+        // yellow states read as a designed callout.
+        RectTransform raceControlBanner;
+        Image raceControlBannerAccent;
+        Image raceControlBannerDot;
+        Text raceControlBannerTitle;
+        Text raceControlBannerSubtitle;
+        bool raceControlBannerWasVisible;
+        RaceManager.RaceControlState previousRaceControlState;
+        bool previousRaceControlStateCaptured;
+        // Pace-limiter compliance readout, directly beneath the banner - only
         // ever visible alongside it, since compliance is meaningless outside a
         // pace-limited period.
         HudPill paceCompliancePill;
@@ -105,13 +114,25 @@ namespace LocalFormulaRacing
         GameObject qualifyingFeedbackPanel;
         GameObject startLightPanel;
         Image[] startLightImages = new Image[5];
-        Text goFlash;
-        float goFlashTimer;
+        // Shared "big moment" flash text - reused for lights-out, the SC/VSC
+        // restart green flag, final lap, and the chequered finish moment instead
+        // of a dedicated Text/timer pair per moment.
+        UiBigFlash bigFlash;
         bool lightsWereVisible;
         string previousDrsState = "";
         float drsFlashTimer;
         float slowUpdateTimer;
         Text hint;
+
+        // Chequered finish flourish: a brief checkered banner plus position
+        // callout the moment the player's own car crosses the line.
+        GameObject finishFlourishPanel;
+        CanvasGroup finishFlourishGroup;
+        Text finishFlourishTitle;
+        Text finishFlourishSubtitle;
+        float finishFlourishTimer;
+        const float FinishFlourishDuration = 4.5f;
+        bool watchedPlayerFinished;
 
         // Queued notification system: short race events fade in, hold, and fade out
         // instead of popping. One notification is visible at a time.
@@ -182,7 +203,7 @@ namespace LocalFormulaRacing
             visibleTowerRows = compact ? 10 : TowerRowCount;
 
             BuildTopBand();
-            BuildRaceControlPill();
+            BuildRaceControlBanner();
             BuildProgressStrip();
             BuildTrackMap();
             BuildNotificationPanel();
@@ -192,6 +213,7 @@ namespace LocalFormulaRacing
             BuildTimingCard();
             BuildRightStack();
             BuildCenterOverlays();
+            BuildFinishFlourish();
             BuildHintBar();
             BuildDebugOverlay();
             ResetWatchers();
@@ -243,29 +265,28 @@ namespace LocalFormulaRacing
             divider.sizeDelta = new Vector2(1.5f, 0f);
         }
 
-        // Compact pill for non-green race control states (yellow flag, VSC, safety
-        // car, restart). Reuses the exact CreatePill/HudPill widget already used
-        // for the DRS/ERS/Fuel dash pills, pinned top-left where it can't collide
-        // with the top band, progress strip, or notification panel. Starts hidden
-        // and only appears while a state is actually active.
-        void BuildRaceControlPill()
+        // Two-line status banner for non-green race control states (yellow flag,
+        // VSC, safety car, restart), pinned top-left where it can't collide with
+        // the top band, progress strip, or notification panel. Starts hidden and
+        // only appears while a state is actually active.
+        void BuildRaceControlBanner()
         {
-            raceControlPill = UiFactory.CreatePill(transform, "Race Control", 220f, 36f);
-            raceControlPill.root.anchorMin = new Vector2(0f, 1f);
-            raceControlPill.root.anchorMax = new Vector2(0f, 1f);
-            raceControlPill.root.pivot = new Vector2(0f, 1f);
-            raceControlPill.root.anchoredPosition = new Vector2(16f, -10f);
-            ApplyPanelScale(raceControlPill.root);
-            raceControlPill.root.gameObject.SetActive(false);
+            raceControlBanner = UiFactory.CreateStatusBanner(transform, "Race Control", 328f, 68f, out raceControlBannerAccent, out raceControlBannerDot, out raceControlBannerTitle, out raceControlBannerSubtitle);
+            raceControlBanner.anchorMin = new Vector2(0f, 1f);
+            raceControlBanner.anchorMax = new Vector2(0f, 1f);
+            raceControlBanner.pivot = new Vector2(0f, 1f);
+            raceControlBanner.anchoredPosition = new Vector2(16f, -10f);
+            ApplyPanelScale(raceControlBanner);
+            raceControlBanner.gameObject.SetActive(false);
 
-            // Smaller companion pill directly under the state pill: only ever
-            // shown while the state pill is, so it never appears as an orphaned
-            // "DELTA OK" during a normal green-flag race.
+            // Smaller companion pill directly under the banner: only ever shown
+            // while the banner is, so it never appears as an orphaned "DELTA OK"
+            // during a normal green-flag race.
             paceCompliancePill = UiFactory.CreatePill(transform, "Pace Compliance", 220f, 30f);
             paceCompliancePill.root.anchorMin = new Vector2(0f, 1f);
             paceCompliancePill.root.anchorMax = new Vector2(0f, 1f);
             paceCompliancePill.root.pivot = new Vector2(0f, 1f);
-            paceCompliancePill.root.anchoredPosition = new Vector2(16f, -50f);
+            paceCompliancePill.root.anchoredPosition = new Vector2(16f, -82f);
             ApplyPanelScale(paceCompliancePill.root);
             paceCompliancePill.root.gameObject.SetActive(false);
         }
@@ -741,12 +762,7 @@ namespace LocalFormulaRacing
 
             startLightPanel.SetActive(false);
 
-            goFlash = UiFactory.CreateText(transform, "Lights out flash", "", 52, new Color(0.35f, 1f, 0.45f), TextAnchor.MiddleCenter);
-            RectTransform goRect = goFlash.GetComponent<RectTransform>();
-            goRect.anchorMin = new Vector2(0.5f, 0.8f);
-            goRect.anchorMax = new Vector2(0.5f, 0.8f);
-            goRect.sizeDelta = new Vector2(560f, 80f);
-            goRect.anchoredPosition = Vector2.zero;
+            bigFlash = UiFactory.CreateBigFlashText(transform, "Big moment flash", new Vector2(0.5f, 0.8f), 52);
 
             RectTransform feedbackBand = UiFactory.CreateResponsivePanel(transform, "Qualifying feedback", new Vector2(0.5f, 0.54f), new Vector2(0.5f, 0.5f), new Vector2(640f, 116f), Vector2.zero, new Color(0.006f, 0.009f, 0.012f, 0.82f));
             qualifyingFeedbackPanel = feedbackBand.gameObject;
@@ -757,6 +773,40 @@ namespace LocalFormulaRacing
             feedbackRect.offsetMin = new Vector2(20f, 12f);
             feedbackRect.offsetMax = new Vector2(-20f, -12f);
             qualifyingFeedbackPanel.SetActive(false);
+        }
+
+        // Chequered-flag finish flourish: checkered top/bottom bands framing a
+        // "RACE FINISHED" title and a live position line, shown briefly the
+        // moment the player's own car crosses the line. Faded manually (not via
+        // UiFadeIn) since it needs to fade back out on a timer, not just in once.
+        void BuildFinishFlourish()
+        {
+            RectTransform panel = UiFactory.CreateResponsivePanel(transform, "Finish flourish", new Vector2(0.5f, 0.62f), new Vector2(0.5f, 0.5f), new Vector2(620f, 148f), Vector2.zero, new Color(0.004f, 0.005f, 0.006f, 0.92f));
+            finishFlourishPanel = panel.gameObject;
+            finishFlourishGroup = panel.gameObject.AddComponent<CanvasGroup>();
+            finishFlourishGroup.blocksRaycasts = false;
+            finishFlourishGroup.interactable = false;
+
+            UiFactory.CreateCheckeredBand(panel, "Finish flourish top", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -14f), Vector2.zero);
+            UiFactory.CreateCheckeredBand(panel, "Finish flourish bottom", new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, 14f));
+
+            finishFlourishTitle = UiFactory.CreateText(panel, "Finish flourish title", "RACE FINISHED", 40, Color.white, TextAnchor.MiddleCenter);
+            finishFlourishTitle.fontStyle = FontStyle.Bold;
+            RectTransform titleRect = finishFlourishTitle.GetComponent<RectTransform>();
+            titleRect.anchorMin = new Vector2(0f, 0.44f);
+            titleRect.anchorMax = new Vector2(1f, 0.86f);
+            titleRect.offsetMin = new Vector2(20f, 0f);
+            titleRect.offsetMax = new Vector2(-20f, 0f);
+
+            finishFlourishSubtitle = UiFactory.CreateText(panel, "Finish flourish subtitle", "", 20, UiFactory.AccentGreen, TextAnchor.MiddleCenter);
+            RectTransform subtitleRect = finishFlourishSubtitle.GetComponent<RectTransform>();
+            subtitleRect.anchorMin = new Vector2(0f, 0.16f);
+            subtitleRect.anchorMax = new Vector2(1f, 0.44f);
+            subtitleRect.offsetMin = new Vector2(20f, 0f);
+            subtitleRect.offsetMax = new Vector2(-20f, 0f);
+
+            finishFlourishGroup.alpha = 0f;
+            finishFlourishPanel.SetActive(false);
         }
 
         void BuildHintBar()
@@ -824,6 +874,9 @@ namespace LocalFormulaRacing
             watchedPitWindow = false;
             watchedTotalLockups = 0;
             seenTrackLimitWarnings = 0;
+            watchedPlayerFinished = false;
+            previousRaceControlStateCaptured = false;
+            raceControlBannerWasVisible = false;
         }
 
         void Update()
@@ -842,8 +895,8 @@ namespace LocalFormulaRacing
             UpdateRaceStartLights();
             UpdateProgressStrip();
             UpdateTrackMap();
-            UpdateGoFlash();
             UpdateTopAccentFlash();
+            UpdateFinishFlourish();
 
             if (Input.GetKeyDown(KeyCode.F1))
             {
@@ -981,21 +1034,52 @@ namespace LocalFormulaRacing
 
         // Reflects RaceManager's race control state machine. Hidden entirely on
         // Green so a normal race never shows anything here; only the handful of
-        // caution/safety-car/restart states light the pill up.
+        // caution/safety-car/restart states light the banner up. When the player
+        // is under full-SC autopilot the banner deliberately reads calm ("we're
+        // driving, sit back") rather than alarming, since nothing is required of
+        // the player in that state - contrast with the amber "hold position"
+        // wording used for states that still need the player's attention.
         void UpdateRaceControlBanner()
         {
-            if (raceControlPill == null)
+            if (raceControlBanner == null)
             {
                 return;
             }
 
             RaceManager.RaceControlState state = race.CurrentRaceControlState;
+            if (!previousRaceControlStateCaptured)
+            {
+                previousRaceControlState = state;
+                previousRaceControlStateCaptured = true;
+            }
+
+            // A satisfying "control returned" moment: any transition back to
+            // Green from a caution/SC/restart period - not just the scripted SC
+            // restart chain - so a VSC that clears straight to Green gets the
+            // same flourish as a full safety car restart.
+            if (state == RaceManager.RaceControlState.Green && previousRaceControlState != RaceManager.RaceControlState.Green && race.CanDrive)
+            {
+                bigFlash.Show("GREEN FLAG - CONTROL RETURNED", UiFactory.AccentGreen, 1f);
+                SimpleAudioManager.PlayDrsAvailable();
+            }
+
+            previousRaceControlState = state;
+
             bool nearLocalYellow = state == RaceManager.RaceControlState.YellowSector && race.PlayerParticipant != null && race.IsNearLocalYellowIncident(race.PlayerParticipant);
             bool visible = state != RaceManager.RaceControlState.Green;
-            if (raceControlPill.root.gameObject.activeSelf != visible)
+            if (raceControlBanner.gameObject.activeSelf != visible)
             {
-                raceControlPill.root.gameObject.SetActive(visible);
+                raceControlBanner.gameObject.SetActive(visible);
             }
+
+            if (visible && !raceControlBannerWasVisible && UiFactory.AnimationsEnabled)
+            {
+                // Reuse the same fade/slide-in used for every panel at HUD build
+                // time so the banner arrives with motion instead of popping.
+                raceControlBanner.gameObject.AddComponent<UiFadeIn>();
+            }
+
+            raceControlBannerWasVisible = visible;
 
             if (!visible)
             {
@@ -1006,41 +1090,66 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            bool playerAutopilot = race.PlayerParticipant != null && race.PlayerParticipant.isRaceControlAutopilot;
             switch (state)
             {
                 case RaceManager.RaceControlState.YellowSector:
                     // Only reads "slow" for the car actually near the incident -
                     // everyone else still sees the sector is flagged, but without
                     // implying a speed restriction that doesn't apply to them.
-                    raceControlPill.SetState(nearLocalYellow ? "YELLOW FLAG - SLOW" : "YELLOW FLAG", UiFactory.AccentAmber, true);
+                    if (nearLocalYellow)
+                    {
+                        UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                            "YELLOW FLAG - SLOW", "Incident ahead - ease off, no overtaking here", UiFactory.AccentAmber);
+                    }
+                    else
+                    {
+                        UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                            "YELLOW FLAG", "Caution in sector " + race.YellowFlagSector + " - stay ready", UiFactory.AccentAmber);
+                    }
+
                     break;
                 case RaceManager.RaceControlState.VirtualSafetyCar:
-                    raceControlPill.SetState("VSC - SPEED LIMITED", UiFactory.AccentCyan, true);
+                    UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                        "VIRTUAL SAFETY CAR", "Hold the delta - no overtaking anywhere on track", UiFactory.AccentCyan);
                     break;
                 case RaceManager.RaceControlState.SafetyCarDeploying:
-                    bool deployLit = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f;
-                    raceControlPill.SetState("SAFETY CAR - AUTOPILOT ACTIVE", UiFactory.Accent, deployLit);
+                    UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                        "SAFETY CAR DEPLOYED", "Forming up - hold position, no overtaking", UiFactory.AccentAmber);
                     break;
                 case RaceManager.RaceControlState.SafetyCarActive:
-                    raceControlPill.SetState("SAFETY CAR - AUTOPILOT - FOLLOWING QUEUE" + SafetyCarQueueSuffix() + " - NO OVERTAKING", UiFactory.Accent, true);
+                    if (playerAutopilot)
+                    {
+                        // Deliberately calm, not a warning: race control is
+                        // driving the car for the player right now.
+                        UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                            "SAFETY CAR - AUTOPILOT ENGAGED", "Race control has the car - sit back" + SafetyCarQueueSuffix(), UiFactory.AccentCyan);
+                    }
+                    else
+                    {
+                        UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                            "SAFETY CAR", "No overtaking - hold your position", UiFactory.AccentAmber);
+                    }
+
                     break;
                 case RaceManager.RaceControlState.SafetyCarInThisLap:
-                    raceControlPill.SetState("SAFETY CAR IN THIS LAP - CONTROL RETURNING AT RESTART", UiFactory.AccentAmber, true);
+                    UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                        "SAFETY CAR IN THIS LAP", "Control returns at the restart - tyres will be cold", UiFactory.AccentAmber);
                     break;
                 case RaceManager.RaceControlState.Restart:
-                    bool restartLit = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f;
-                    raceControlPill.SetState("GREEN FLAG", Color.white, restartLit);
+                    UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                        "RESTART", "Green flag imminent - get ready to race", Color.white);
                     break;
             }
 
             UpdatePaceCompliancePill(nearLocalYellow);
         }
 
-        // Live queue position/gap-to-slot suffix for the full-SC banner (Part
-        // 10) - only meaningful once the player is actually under convoy
-        // autopilot with a real queue slot assigned; blank otherwise so the
-        // banner text doesn't flicker "P0" during the brief deployment window
-        // before slots are handed out.
+        // Live queue position/gap-to-slot suffix for the full-SC banner - only
+        // meaningful once the player is actually under convoy autopilot; the
+        // exact position/gap only once a real queue slot has been assigned, so
+        // the banner text doesn't flicker "P0" during the brief deployment
+        // window before slots are handed out.
         string SafetyCarQueueSuffix()
         {
             if (race.PlayerParticipant == null || !race.PlayerParticipant.isRaceControlAutopilot)
@@ -1051,12 +1160,12 @@ namespace LocalFormulaRacing
             int position = race.PlayerSafetyCarQueuePosition;
             if (position <= 0)
             {
-                return "";
+                return ", following the queue";
             }
 
             float gap = race.PlayerSafetyCarGapToTargetMeters;
             string gapText = gap >= 0f ? " +" + gap.ToString("0") + "m" : "";
-            return " (P" + position + gapText + ")";
+            return ", queue P" + position + gapText;
         }
 
         // Meaningful whenever the player's own car is actually under a
@@ -1100,7 +1209,7 @@ namespace LocalFormulaRacing
                 // Race control is driving the car - never show penalty-panic
                 // ("PACE WARNING"/"SLOW DOWN") UI while autopilot is in control,
                 // even if a stale flag from just before deployment is still set.
-                paceCompliancePill.SetState("AUTOPILOT - NO ACTION NEEDED", UiFactory.AccentCyan, false);
+                paceCompliancePill.SetState("AUTOPILOT - RELAX", UiFactory.AccentCyan, false);
             }
             else if (race.IsPlayerRaceControlWarningActive)
             {
@@ -1412,7 +1521,10 @@ namespace LocalFormulaRacing
                 bool finalLap = lap.DisplayLap >= race.RaceLaps && !lap.OutLapActive;
                 if (finalLap && !watchedFinalLap)
                 {
-                    PushNotification("FINAL LAP", Color.white);
+                    // Final lap earns the big center-screen moment rather than a
+                    // small queued toast - it's rare (once per race) and worth
+                    // more visual weight than "PIT STOP COMPLETE" etc.
+                    bigFlash.Show("FINAL LAP", UiFactory.Accent, 1.6f);
                 }
 
                 watchedFinalLap = finalLap;
@@ -1675,7 +1787,7 @@ namespace LocalFormulaRacing
             bool visible = race.RaceStartLightsVisible;
             if (lightsWereVisible && !visible && race.CanDrive)
             {
-                goFlashTimer = 1.5f;
+                bigFlash.Show("LIGHTS OUT", new Color(0.35f, 1f, 0.45f), 0.8f);
                 SimpleAudioManager.PlayDrsAvailable();
             }
 
@@ -1700,27 +1812,45 @@ namespace LocalFormulaRacing
             }
         }
 
-        void UpdateGoFlash()
+        // Chequered finish flourish: fires once when the player's own car
+        // transitions to finished, independent of the CanDrive-gated notification
+        // watchers below (CanDrive goes false the moment the race finishes, which
+        // would otherwise swallow the detection).
+        void UpdateFinishFlourish()
         {
-            if (goFlash == null)
+            if (finishFlourishPanel == null || player == null)
             {
                 return;
             }
 
-            goFlashTimer = Mathf.Max(0f, goFlashTimer - Time.deltaTime);
-            if (goFlashTimer <= 0f)
+            if (player.finished && !watchedPlayerFinished)
             {
-                if (!string.IsNullOrEmpty(goFlash.text))
-                {
-                    goFlash.text = "";
-                }
+                watchedPlayerFinished = true;
+                int position = race.GetPosition(player);
+                finishFlourishTitle.text = "RACE FINISHED";
+                finishFlourishSubtitle.text = position == 1 ? "P1 - VICTORY" : "FINISHED P" + position;
+                finishFlourishSubtitle.color = position == 1 ? new Color(1f, 0.82f, 0.24f) : (position <= 3 ? UiFactory.AccentGreen : UiFactory.TextPrimary);
+                finishFlourishPanel.SetActive(true);
+                finishFlourishTimer = FinishFlourishDuration;
+                bigFlash.Show(position == 1 ? "VICTORY!" : "CHEQUERED FLAG", position == 1 ? new Color(1f, 0.82f, 0.24f) : Color.white, 1.4f);
+                SimpleAudioManager.PlayDrsAvailable();
+            }
 
+            if (finishFlourishTimer <= 0f)
+            {
                 return;
             }
 
-            goFlash.text = "LIGHTS OUT";
-            float alpha = Mathf.Clamp01(goFlashTimer / 0.6f);
-            goFlash.color = new Color(0.35f, 1f, 0.45f, alpha);
+            finishFlourishTimer -= Time.deltaTime;
+            const float fadeIn = 0.3f;
+            const float fadeOut = 0.7f;
+            float elapsed = FinishFlourishDuration - finishFlourishTimer;
+            float alpha = elapsed < fadeIn ? elapsed / fadeIn : (finishFlourishTimer < fadeOut ? finishFlourishTimer / fadeOut : 1f);
+            finishFlourishGroup.alpha = Mathf.Clamp01(alpha);
+            if (finishFlourishTimer <= 0f)
+            {
+                finishFlourishPanel.SetActive(false);
+            }
         }
 
         // ---------- helpers ----------
