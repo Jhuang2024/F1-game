@@ -1234,6 +1234,18 @@ namespace LocalFormulaRacing
             valueRect.anchorMax = Vector2.one;
             valueRect.offsetMin = new Vector2(14f, 8f);
             valueRect.offsetMax = new Vector2(-8f, -30f);
+            // Layout-audit fix: this card is a fixed 74px height with only a 36px
+            // value box at 24pt - a real driver name concatenated with a lap time
+            // ("Gabriel Bortoleto  1:23.456") reliably needs to wrap, and
+            // CreateText's default vertical Truncate then drops the wrapped
+            // second line entirely (the actual time/points, not just the name).
+            // Best-fit keeps the value on one line at a smaller size instead of
+            // ever losing it.
+            valueText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            valueText.verticalOverflow = VerticalWrapMode.Overflow;
+            valueText.resizeTextForBestFit = true;
+            valueText.resizeTextMinSize = 12;
+            valueText.resizeTextMaxSize = 24;
             return valueText;
         }
 
@@ -1541,6 +1553,18 @@ namespace LocalFormulaRacing
             rect.anchorMax = new Vector2(anchorX1, 1f);
             rect.offsetMin = new Vector2(4f, 0f);
             rect.offsetMax = new Vector2(-4f, 0f);
+            // Classification-table fix: CreateTableRow is a fixed-height row that
+            // can never grow to fit a wrapped second line, so a long driver/team
+            // name or DNF reason (e.g. "Mechanical failure" in the narrow PEN/
+            // STATUS column) that wrapped got silently cut off by CreateText's
+            // default vertical Truncate - the exact "content not displaying"
+            // symptom reported. Best-fit keeps every cell on one line, shrinking
+            // the font instead of ever dropping content.
+            cell.horizontalOverflow = HorizontalWrapMode.Overflow;
+            cell.verticalOverflow = VerticalWrapMode.Overflow;
+            cell.resizeTextForBestFit = true;
+            cell.resizeTextMinSize = 9;
+            cell.resizeTextMaxSize = size;
             return cell;
         }
 

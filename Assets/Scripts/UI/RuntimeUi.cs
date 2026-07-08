@@ -4406,9 +4406,26 @@ namespace LocalFormulaRacing
 
             // See the class-level comment above this method: forces every
             // ContentSizeFitter/LayoutGroup added above to resolve its final
-            // size now, in one pass, before the ScrollRect's content height
-            // (and therefore the reachable scroll range) is used for anything.
-            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+            // size before the ScrollRect's content height (and therefore the
+            // reachable scroll range) is used for anything.
+            // Layout-audit fix: one call isn't enough. Every VerticalLayoutGroup
+            // here uses childControlHeight=false (see UiFactory.AddVerticalLayout),
+            // so a group computes its own preferred height by reading each
+            // direct child's raw sizeDelta.y, NOT the child's resolved
+            // preferredHeight - and sizeDelta.y is only actually written to its
+            // final wrapped-content value during a child's own layout pass. For
+            // a nested chain like content -> card -> list -> text (three or four
+            // VerticalLayoutGroup levels deep throughout this screen), a single
+            // top-down rebuild sees every ancestor still holding its child's
+            // placeholder size, so cards under-report their height, later
+            // sections overlap them, and content's total height (the scrollable
+            // range) comes out short. Repeating the rebuild lets each pass
+            // consume the previous pass's now-correct child sizes until it
+            // converges from the leaves up to content.
+            for (int layoutPass = 0; layoutPass < 4; layoutPass++)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+            }
 
             RectTransform footerLeft;
             RectTransform footerRight;
@@ -5601,7 +5618,16 @@ namespace LocalFormulaRacing
         // into the next column or the next row.
         void BuildFullClassificationTable(RectTransform content, RaceManager race, List<RaceResultEntry> results)
         {
-            RectTransform headerRow = UiFactory.CreateTableRow(content, "Results header row", ReportContentWidth, 28f, false, 1);
+            // Layout-audit fix: rows used to be added directly as children of
+            // `content`, which inherits content's own 20px inter-SECTION spacing
+            // between every single driver row - a 20-car field turned into ~400px
+            // of pure gap that read as "spaced horrendously" and made the table
+            // look nothing like the tightly-pitched Race Control Timeline a few
+            // sections above it. A dedicated container with its own tight spacing
+            // (matching the timeline's own list) fixes that without touching row
+            // sizing at all.
+            RectTransform table = UiFactory.CreateAutoHeightList(content, "Classification rows", ReportContentWidth, 4, new RectOffset(0, 0, 0, 0));
+            RectTransform headerRow = UiFactory.CreateTableRow(table, "Results header row", ReportContentWidth, 28f, false, 1);
             headerRow.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
             UiFactory.AddRowCell(headerRow, "H pos", "POS", 0.0f, 0.05f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
             UiFactory.AddRowCell(headerRow, "H grid", "GRID", 0.05f, 0.1f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
@@ -5619,7 +5645,7 @@ namespace LocalFormulaRacing
 
             if (results == null || results.Count == 0)
             {
-                Text empty = UiFactory.CreateText(content, "No results", "No results.", 18, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                Text empty = UiFactory.CreateText(table, "No results", "No results.", 18, UiFactory.TextMuted, TextAnchor.MiddleLeft);
                 UiFactory.SetSize(empty, 600f, 30f);
                 return;
             }
@@ -5637,7 +5663,7 @@ namespace LocalFormulaRacing
                 // instead of leaving the column at a wasted "--".
                 string penColumnText = dnf ? DnfReasonLabel(entry.penaltyReason) : (entry.penaltiesSeconds > 0f ? "+" + entry.penaltiesSeconds.ToString("0") + "s" : "--");
                 Color penColumnColor = dnf ? UiFactory.TextMuted : (entry.penaltiesSeconds > 0f ? UiFactory.AccentAmber : UiFactory.TextMuted);
-                RectTransform row = UiFactory.CreateTableRow(content, "Result row " + i, ReportContentWidth, 34f, entry.isPlayer, i);
+                RectTransform row = UiFactory.CreateTableRow(table, "Result row " + i, ReportContentWidth, 34f, entry.isPlayer, i);
                 UiFactory.AddPositionBadge(row, entry.finishingPosition, entry.isPlayer);
                 Color textColor = entry.isPlayer ? Color.white : (dnf ? UiFactory.TextMuted : new Color(0.9f, 0.95f, 0.98f));
                 UiFactory.AddRowCell(row, "Grid", entry.gridPosition > 0 ? entry.gridPosition.ToString() : "--", 0.05f, 0.1f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
