@@ -317,23 +317,56 @@ namespace LocalFormulaRacing
         // repair/scaling), so it stays in lock-step with cumulativeDistances. Call
         // once right after RecalculateDistances(); nothing else mutates centerLine
         // after that point during Build().
+        // Windowed-cumulative-turn fix: this used to be a pure single-vertex check
+        // (just the angle at one smoothed-centerline point), which misses a real
+        // hairpin-grade turn whose direction change is spread across several nearby
+        // points instead of concentrated at one - exactly what layout repair's own
+        // kink-smoothing pass (TrackManager.RepairLayout) does to a raw sharp
+        // hand-authored anchor. TrackManager.DetectCorners was already rewritten to
+        // sum turn angle over a trailing real-world-distance window for this same
+        // reason (see its own comment), but that fix never reached this function -
+        // so a corner could be correctly identified as hairpin-grade for barrier/
+        // tyre-stack containment purposes while never receiving the matching
+        // HairpinExtraHalfWidth pavement widening, leaving it fenced like a hairpin
+        // but paved like a normal corner (confirmed on Melbourne's second-sharpest
+        // corner, whose ~157 degree raw turn survives repair as three consecutive
+        // ~50 degree kinks, each individually under the old single-vertex
+        // threshold). Sums the vertex-to-vertex turn over a trailing window of real
+        // arc-length instead, using cumulativeDistances so it works regardless of
+        // how unevenly spaced the repaired/smoothed points are.
+        const float HairpinWindowSpanMeters = 56f;
+
         public void RecalculateHairpinWidening()
         {
             hairpinCenters.Clear();
-            if (centerLine.Count < 4)
+            int count = centerLine.Count;
+            if (count < 4)
             {
                 return;
             }
 
-            for (int i = 0; i < centerLine.Count; i++)
+            for (int i = 0; i < count; i++)
             {
-                Vector3 previous = centerLine[(i - 1 + centerLine.Count) % centerLine.Count];
-                Vector3 current = centerLine[i];
-                Vector3 next = centerLine[(i + 1) % centerLine.Count];
-                Vector3 entry = (current - previous).normalized;
-                Vector3 exit = (next - current).normalized;
-                float angle = Vector3.Angle(entry, exit);
-                if (angle > HairpinCornerAngleThreshold)
+                float cumulativeTurn = 0f;
+                float coveredDistance = 0f;
+                int index = i;
+                int guard = 0;
+                while (coveredDistance < HairpinWindowSpanMeters && guard < count)
+                {
+                    int previousIndex = (index - 1 + count) % count;
+                    int previousPreviousIndex = (index - 2 + count) % count;
+                    Vector3 a = centerLine[previousPreviousIndex];
+                    Vector3 b = centerLine[previousIndex];
+                    Vector3 c = centerLine[index];
+                    Vector3 entry = (b - a).normalized;
+                    Vector3 exit = (c - b).normalized;
+                    cumulativeTurn += Vector3.Angle(entry, exit);
+                    coveredDistance += Mathf.Max(0.01f, Vector3.Distance(b, c));
+                    index = previousIndex;
+                    guard++;
+                }
+
+                if (cumulativeTurn > HairpinCornerAngleThreshold)
                 {
                     hairpinCenters.Add(cumulativeDistances[i]);
                 }
@@ -1515,13 +1548,29 @@ namespace LocalFormulaRacing
             runtime.kerbStart = 8.8f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.52f, 0.69f);
+            // Hairpin-pinch fix: anchor 14 used to sit at z=6, almost exactly level
+            // with both anchor 13 (z=18) and the return straight back to anchor 0
+            // (z=0) - the near-180 degree reversal this anchor creates had almost no
+            // perpendicular room to bow into, so after Catmull-Rom smoothing +
+            // NormalizeTrackLength's uniform rescale, the hairpin's own inbound
+            // (13->14) and outbound (14->0) arms ended up only ~19m apart in world
+            // space at their closest approach - well under the ~30-39m two
+            // carriageways need to not overlap (2x roadHalfWidth, more with the
+            // hairpin-widening bonus). That pinch let the nearest-centerline-point
+            // progress projection (Track.GetProgress/GetProgressNear after a full
+            // resync, e.g. post-pit-release or post-safety-car) snap to the WRONG
+            // arm of the hairpin here, which read as broken track limits and as the
+            // AI aiming at an unpaved point across the gap after running off through
+            // this same corner. Pulling anchor 14 out to z=-34 gives the loop real
+            // room to bow away from the return straight instead of nearly folding
+            // back on itself.
             AddSmoothedAnchors(runtime, new[]
             {
                 new Vector3(0f, 0f, 0f), new Vector3(188f, 0f, 0f), new Vector3(260f, 0f, 36f),
                 new Vector3(246f, 0f, 104f), new Vector3(306f, 0f, 162f), new Vector3(248f, 0f, 232f),
                 new Vector3(132f, 0f, 236f), new Vector3(54f, 0f, 196f), new Vector3(-46f, 0f, 214f),
                 new Vector3(-144f, 0f, 164f), new Vector3(-170f, 0f, 96f), new Vector3(-118f, 0f, 52f),
-                new Vector3(-28f, 0f, 48f), new Vector3(-108f, 0f, 18f), new Vector3(-224f, 0f, 6f)
+                new Vector3(-28f, 0f, 48f), new Vector3(-108f, 0f, 18f), new Vector3(-224f, 0f, -34f)
             }, 4);
         }
 
@@ -3268,7 +3317,24 @@ namespace LocalFormulaRacing
             // positive offset), so only that side needs to fan out into the wall guarding
             // the whole pit complex. The blend is a smooth ramp rather than a step so the
             // fan-out itself has no gap for a car to find at the transition.
-            if (side > 0)
+            //
+            // Corner-priority fix: PitZoneEntryRampStart/End..PitZoneExitRampEnd (wrapping
+            // through 0.85-1.0-0.045 normalized) is a fixed FRACTION of the lap, purely
+            // positional - it has no idea what's actually there, and on every hand-authored
+            // circuit the pit lane sits near the end of the lap, meaning this band always
+            // covers whatever the final corner(s) before the start/finish straight happen to
+            // be. This fan-out used to unconditionally win regardless, pulling the wall from
+            // its correct flush-corner distance out to ~PitOuterLateral() and clearing
+            // catchFence/tyreStack outright - the real, general-case reason the final corner
+            // on every track kept reading as unfenced, not a one-off. The real pit lane
+            // surface is a separate, unrelated lane built independently of this outer
+            // perimeter barrier, so a real corner here must always win that conflict - skip
+            // the fan-out entirely whenever this stretch is near ANY tight-fence-grade corner
+            // (nearTightFenceCorner - the same broad band hairpins/tight corners already get
+            // forced continuous catch fencing from above), not just full hairpins, so the
+            // final corner keeps its normal flush wall/catch fence/tyre-stack containment on
+            // every track regardless of where it happens to fall on the lap.
+            if (side > 0 && !nearTightFenceCorner)
             {
                 float pitBlend = PitZoneBlend(normalized);
                 if (pitBlend > 0f)
@@ -4353,7 +4419,7 @@ namespace LocalFormulaRacing
                     // cross from the racing surface into the pit lane and back. Never
                     // flag or auto-fill inside that ramp, on either the entry or the
                     // exit end, or the "fix" would wall the pit lane shut.
-                    if (IsIntentionalPitOpening(normalized, side))
+                    if (IsIntentionalPitOpening(normalized, side, nearCorner))
                     {
                         continue;
                     }
@@ -4402,9 +4468,15 @@ namespace LocalFormulaRacing
         // opening. A small epsilon on both ends keeps the very start/end of the ramp
         // (where the wall has barely moved off the flush line) held to the normal
         // tolerance instead of being waved through as "intentional".
-        bool IsIntentionalPitOpening(float normalized, int side)
+        // Corner-priority fix (matches ComputeBarrierPlan above): a track whose own
+        // hairpin/tight corner happens to land inside the pit-zone fan-out's fixed
+        // normalized band (Melbourne's sharpest corner does) must never have its
+        // gap-validation/auto-fill silently skipped just because of that
+        // coincidence - `nearCorner` is true there, so this now returns false and
+        // lets the sweep hold this stretch to the same standard as everywhere else.
+        bool IsIntentionalPitOpening(float normalized, int side, bool nearCorner)
         {
-            if (side <= 0)
+            if (side <= 0 || nearCorner)
             {
                 return false;
             }
