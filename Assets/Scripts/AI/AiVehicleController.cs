@@ -146,7 +146,19 @@ namespace LocalFormulaRacing
             // Cornering buff round 5: Hard pulled closer to Expert's cornering
             // commitment (was 0.6) - Hard should be meaningfully competitive through
             // corners, not just "clearly better than Medium".
-            return difficulty == RaceDifficulty.Hard ? 0.72f : 0f;
+            if (difficulty == RaceDifficulty.Hard)
+            {
+                return 0.72f;
+            }
+
+            // Cornering buff round 9: Easy and Medium used to share this tier at a
+            // flat 0 - "tune down by little increments for easier difficulty
+            // levels" needs an actual step between them, not just whatever
+            // apexConfidence alone provided. Medium now gets a real, meaningfully
+            // smaller share than Hard so the four tiers form a genuine staircase
+            // (Easy 0 -> Medium 0.32 -> Hard 0.72 -> Expert 0.92-1.0) instead of
+            // Easy and Medium reading identically through corners.
+            return difficulty == RaceDifficulty.Medium ? 0.32f : 0f;
         }
 
         // Part A.5: higher-skill tiers get wider HighSpeed/Medium buckets so they
@@ -230,14 +242,22 @@ namespace LocalFormulaRacing
                     // applies to any corner type (see apexTargetSpeed below) - skillTier
                     // alone drives how close to that 1.0x ceiling a sharper difficulty
                     // gets, with no second multiplier stacked on top.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.90f, straightTargetSpeed * Mathf.Lerp(0.96f, 1.0f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(5.5f, 9f, skillTier);
+                    // Cornering buff round 9: pushed to the practical ceiling - Expert
+                    // (skillTier=1) now reaches essentially the full 1.0x cap with
+                    // barely any confidence-blend discount, and the new smoother
+                    // skillTier staircase (see CorneringSkillTier) means Easy/Medium/
+                    // Hard now step down from that in genuinely smaller increments
+                    // instead of Easy and Medium sharing the same low ceiling.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(6f, 10f, skillTier);
                     break;
                 case CornerType.Medium:
-                    // Cornering buff round 8: same overshoot-past-100%-then-multiplied
-                    // bug as HighSpeed above - capped the same way.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.66f, straightTargetSpeed * Mathf.Lerp(0.82f, 0.94f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(3.2f, 4.6f, skillTier);
+                    // Cornering buff round 9: pushed to the practical ceiling
+                    // alongside HighSpeed above - a "medium" corner still has real
+                    // curvature so it keeps a hair more margin under 1.0x than
+                    // HighSpeed, but Expert now gets essentially all of it.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
                     // Tight-corner-vs-hairpin fix: this floor used to scale directly off
@@ -712,12 +732,23 @@ namespace LocalFormulaRacing
             // to actually catch a line error before the barrier. Starting further
             // out and reaching full strength sooner gives it more real time/distance
             // to correct at the speeds it's now carrying.
-            float edgeMarginDistance = Mathf.Lerp(3.2f, 5.2f, Mathf.Clamp01(speedKph / 280f));
+            // Barrier-avoidance fix round 3: widened again (was 3.2-5.2) and paired
+            // with an actual emergency brake (edgeEmergencyBrake below, folded into
+            // brakeDemand near the corner-braking block) - steering correction alone
+            // has a hard physical ceiling (the shared turnRate/radius limit every
+            // car has), so a car already carrying too much speed for the geometry
+            // could not out-steer its way clear no matter how strong the correction
+            // got. Speed is the one thing that always helps regardless of how tight
+            // the turn radius needs to be, so this now genuinely brakes near the
+            // edge too, not just steers.
+            float edgeMarginDistance = Mathf.Lerp(4.2f, 6.8f, Mathf.Clamp01(speedKph / 280f));
             float edgeMargin = track.HalfWidthAt(progress.distance) - edgeMarginDistance;
             float edgeOvershoot = Mathf.Abs(progress.lateralDistance) - edgeMargin;
+            float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);
             float edgeRecovery = edgeOvershoot > 0f
-                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.22f, 1f, Mathf.Clamp01(edgeOvershoot / edgeMarginDistance))
+                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.3f, 1f, edgeProximity)
                 : 0f;
+            float edgeEmergencyBrake = edgeOvershoot > 0f ? Mathf.Lerp(0.1f, 0.9f, edgeProximity * edgeProximity) : 0f;
             command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
 
             // Real braking point: a kinematic stopping distance from current speed down
@@ -759,6 +790,13 @@ namespace LocalFormulaRacing
                 float closeness = brakingDistance <= 0.5f ? 1f : Mathf.Clamp01(1f - apexDistanceAhead / brakingDistance);
                 brakeDemand = Mathf.Clamp01(speedOverApex / 42f) * Mathf.Lerp(0.35f, 1f, closeness);
             }
+
+            // Barrier-avoidance fix round 3: the edge-proximity emergency brake
+            // (computed alongside edgeRecovery above) always wins over whatever the
+            // normal corner-braking model alone decided - it exists specifically for
+            // the case where that model still let the car carry too much speed for
+            // the actual geometry, so it must never be capped by it.
+            brakeDemand = Mathf.Max(brakeDemand, edgeEmergencyBrake);
 
             float throttleTarget;
             if (brakeDemand > 0.02f)
@@ -1116,19 +1154,23 @@ namespace LocalFormulaRacing
             // which read as constant contact rather than clean hard racing. Pulled
             // back from *0.7 to *0.8 - still clearly the most committed tier, just
             // with a genuine defensive margin left over instead of none.
-            float cautionFloor = isExpert ? 0.18f : 0.5f;
+            // Car-avoidance fix: Expert's floor/discount pulled back further (was
+            // 0.18 floor / *0.8 discount) - "committing to a real gap" was still
+            // reading as running into the player/other cars, not clean hard racing.
+            float cautionFloor = isExpert ? 0.26f : 0.5f;
             float cautionFactor = Mathf.Clamp(profile.trafficAvoidanceCaution, cautionFloor, 1.4f);
             if (isExpert)
             {
-                cautionFactor *= 0.8f;
+                cautionFactor *= 0.9f;
             }
             bool legalDrsHere = raceManager.IsDrsAvailable(participant);
 
             dodgeMemoryTimer = Mathf.Max(0f, dodgeMemoryTimer - Time.deltaTime);
 
-            // The forward window grows with speed so anticipation starts early
-            // enough to matter at 300+ km/h instead of five car lengths out.
-            float forwardWindow = Mathf.Lerp(18f, 52f, Mathf.Clamp01(speedKph / 320f));
+            // Car-avoidance fix: widened (was 18-52) so anticipation starts earlier
+            // at every speed, giving more real time to react before a car ahead
+            // becomes an actual collision instead of a late dodge/brake.
+            float forwardWindow = Mathf.Lerp(24f, 64f, Mathf.Clamp01(speedKph / 320f));
 
             for (int i = 0; i < raceManager.Participants.Count; i++)
             {
@@ -1158,12 +1200,16 @@ namespace LocalFormulaRacing
                     // not just distance: high closing speed means brake much earlier.
                     float otherSpeedKph = Mathf.Abs(other.vehicle.CurrentSpeedKph);
                     float closingKph = Mathf.Max(0f, speedKph - otherSpeedKph);
+                    // Car-avoidance fix: threshold/gate widened (was 2.4s / 3.2m) and
+                    // the brake/throttle response curves strengthened (was 0.12-0.95 /
+                    // 0.85-0.15) - closing cars were still reaching contact before this
+                    // reacted hard enough.
                     float timeToContact = local.z / Mathf.Max(1.5f, closingKph / 3.6f);
-                    if (timeToContact < 2.4f && absX < 3.2f)
+                    if (timeToContact < 3.0f && absX < 3.8f)
                     {
-                        float urgency = Mathf.Clamp01(1f - timeToContact / 2.4f);
-                        brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.12f, 0.95f, urgency * urgency) * overlap);
-                        throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.85f, 0.15f, urgency));
+                        float urgency = Mathf.Clamp01(1f - timeToContact / 3.0f);
+                        brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.2f, 1f, urgency * urgency) * overlap);
+                        throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.8f, 0.05f, urgency));
                     }
 
                     // Tighter lane-only overlap for the soft cruising cap so a car with
@@ -1191,7 +1237,7 @@ namespace LocalFormulaRacing
                     // Car parked in our lane: commit to a stronger lateral move, and
                     // remember the chosen side for a short window so a car sitting near
                     // local.x==0 doesn't make the dodge flicker frame to frame.
-                    if (absX < 2.6f && local.z < forwardWindow * 0.7f)
+                    if (absX < 3.0f && local.z < forwardWindow * 0.7f)
                     {
                         carDirectlyAhead = true;
                         float rawDodgeSide = Mathf.Abs(local.x) < 0.4f ? preferredSide : -Mathf.Sign(local.x);
@@ -1203,13 +1249,18 @@ namespace LocalFormulaRacing
                         // lingering on a stale side-choice that's no longer relevant.
                         dodgeMemoryTimer = isExpert ? 0.6f : 1.1f;
                         float dodgeStrength = Mathf.Clamp01(1f - local.z / (forwardWindow * 0.7f));
-                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.08f, 0.4f, dodgeStrength);
+                        // Car-avoidance fix: dodge commitment strengthened (was 0.08-0.4).
+                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.12f, 0.5f, dodgeStrength);
                     }
                 }
 
                 // Side-by-side: never steer into the car alongside, and remember
                 // which flanks are occupied so we don't dodge into a sandwich.
-                if (Mathf.Abs(local.z) < 6.5f && absX < 4.2f)
+                // Car-avoidance fix: detection window widened again (was 6.5/4.2)
+                // and the push-away response strengthened further (was 0.06-0.34 /
+                // 4.8 divisor / 1-0.6 cutback) - side-by-side pairs were still
+                // converging into contact before this resolved them.
+                if (Mathf.Abs(local.z) < 7.5f && absX < 5.4f)
                 {
                     if (local.x < 0f)
                     {
@@ -1220,15 +1271,9 @@ namespace LocalFormulaRacing
                         blockedRight = true;
                     }
 
-                    // Collision-reduction pass: the push-away response starts
-                    // slightly earlier (4.2m -> 4.8m window) and pushes noticeably
-                    // harder at genuine near-contact overlap (0.24 -> 0.34 ceiling)
-                    // - side-by-side pairs were converging further than this weak a
-                    // nudge could reliably resolve before it read as a collision
-                    // rather than hard-but-clean racing.
-                    float sideOverlap = Mathf.Clamp01(1f - absX / 4.8f);
-                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.06f, 0.34f, sideOverlap);
-                    float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.6f, sideOverlap)) * cautionFactor);
+                    float sideOverlap = Mathf.Clamp01(1f - absX / 5.4f);
+                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.1f, 0.48f, sideOverlap);
+                    float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.5f, sideOverlap)) * cautionFactor);
                     throttleLimit = Mathf.Min(throttleLimit, sideCutback);
                 }
             }

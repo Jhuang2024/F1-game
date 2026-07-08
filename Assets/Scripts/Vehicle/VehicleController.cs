@@ -742,7 +742,12 @@ namespace LocalFormulaRacing
         void ApplySteering(VehicleCommand activeCommand, float speedKph, float dt)
         {
             float speedFactor = Mathf.Lerp(0.34f, 1f, Mathf.Clamp01(speedKph / 62f));
-            float highSpeedLimit = Mathf.Lerp(1f, 0.54f, Mathf.InverseLerp(90f, 320f, speedKph));
+            // Barrier-avoidance fix round 3: floor raised (was 0.54) - cars were
+            // still running wide into barriers through corners at real speed even
+            // after the medium-speed authority extension below, because this floor
+            // still cut turning authority nearly in half by 320kph regardless of
+            // that extension. More authority retained at genuine high speed too.
+            float highSpeedLimit = Mathf.Lerp(1f, 0.66f, Mathf.InverseLerp(90f, 320f, speedKph));
             float tyreGrip = Tyres.GripMultiplier(Weather);
             float turnRate = Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit * tyreGrip * Damage.HandlingMultiplier;
             // Tight-corner authority: a genuine hairpin's real turn radius needs more
@@ -759,11 +764,15 @@ namespace LocalFormulaRacing
             // a second, gentler taper through the medium-speed range instead of
             // snapping straight to 1x, so cars can actually hold a tighter line at
             // the higher speeds they're now carrying without needing to slow down
-            // further. Still converges to 1x (no change at all) by ~280kph, so
-            // genuine high-speed/straight-line stability is untouched.
+            // further.
+            // Barrier-avoidance fix round 3: pushed again (was 1.4->1.12 low
+            // segment, 1.12->1f high segment) and no longer fully converges back
+            // to 1x at high speed - keeps a genuine, permanent margin of extra
+            // authority even at top speed instead of fully giving it back, paired
+            // with the highSpeedLimit floor raise above.
             float tightCorneringBoost = speedKph <= 120f
-                ? Mathf.Lerp(1.4f, 1.12f, Mathf.Clamp01((speedKph - 35f) / 85f))
-                : Mathf.Lerp(1.12f, 1f, Mathf.Clamp01((speedKph - 120f) / 160f));
+                ? Mathf.Lerp(1.5f, 1.2f, Mathf.Clamp01((speedKph - 35f) / 85f))
+                : Mathf.Lerp(1.2f, 1.08f, Mathf.Clamp01((speedKph - 120f) / 160f));
             turnRate *= tightCorneringBoost;
             turnRate *= Mathf.Lerp(1.04f, 0.72f, UndersteerAmount);
             float steerAmount = activeCommand.steer * turnRate * dt;
