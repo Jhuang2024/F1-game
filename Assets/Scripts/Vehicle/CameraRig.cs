@@ -36,17 +36,25 @@ namespace LocalFormulaRacing
         float clatterShake;
         float smoothedSteer;
         float smoothedYawRate;
+
+        // A second low-pass stage over the combined steer/yaw-rate corner
+        // signal below (each input is already smoothed on its own), so a sharp
+        // yaw-rate spike - a car catching a slide - doesn't swing the look-ahead
+        // bias hard enough for the camera to visibly overshoot and correct.
+        float smoothedCornerSignal;
+        int previousGear = -1;
         float modeBlend = 1f;
         float smoothedDrsBoost;
 
-        // Chase, cockpit/halo, high TV, rear chase, low nose cam.
+        // Chase, cockpit/halo, high TV, rear chase, low nose cam, side cinematic.
         readonly Vector3[] offsets =
         {
             new Vector3(0f, 4.1f, -11.4f),
             new Vector3(0f, 2.02f, 1.55f),
             new Vector3(0f, 26f, -11f),
             new Vector3(0f, 4.6f, 14.5f),
-            new Vector3(0f, 0.58f, 2.3f)
+            new Vector3(0f, 0.58f, 2.3f),
+            new Vector3(3.6f, 1.5f, -5.6f)
         };
 
         public void Initialize(Transform followTarget, bool shake)
@@ -114,6 +122,15 @@ namespace LocalFormulaRacing
                 return baseFov + 7f + speed01 * 10f;
             }
 
+            if (mode == 5)
+            {
+                // Side cinematic tracking shot: a touch of telephoto compression
+                // rather than the wide, close-in feel of the other modes, with
+                // only a light widen at speed so the compressed backdrop reads
+                // as a considered framing choice rather than an accident.
+                return baseFov - 14f + speed01 * 6f;
+            }
+
             // Chase: a non-linear widen so the last 100 km/h really stretch the view
             // without the mid-range constantly pumping the lens.
             float curve = Mathf.Pow(speed01, 1.6f);
@@ -136,7 +153,16 @@ namespace LocalFormulaRacing
             // the rigidbody, and is normalised against that car's own top
             // speed so setup/DRS/ERS changes don't skew the FOV/damping feel.
             float rawSpeedKph = targetVehicle != null ? Mathf.Abs(targetVehicle.CurrentSpeedKph) : targetVelocity.magnitude * 3.6f;
-            smoothedSpeedKph = Mathf.Lerp(smoothedSpeedKph, rawSpeedKph, dt * 4.5f);
+
+            // Faster smoothing on the way down than on the way up: rising speed
+            // stays gently smoothed (avoids the follow rate below pumping
+            // around every tiny throttle flicker), but a hard brake needs
+            // smoothedSpeedKph - and therefore the follow rate that reads off
+            // it - to catch up promptly, otherwise the camera keeps its loose
+            // high-speed follow for a beat into the braking zone and visibly
+            // lags the car settling into the corner.
+            float speedSmoothRate = rawSpeedKph < smoothedSpeedKph ? 7.5f : 4.5f;
+            smoothedSpeedKph = Mathf.Lerp(smoothedSpeedKph, rawSpeedKph, dt * speedSmoothRate);
             float topSpeedKph = targetVehicle != null ? Mathf.Max(200f, targetVehicle.TargetTopSpeedKph) : 316f;
             float speed01 = Mathf.Clamp01(smoothedSpeedKph / topSpeedKph);
 
@@ -172,6 +198,22 @@ namespace LocalFormulaRacing
                 previousDamagePercent = damagePercent;
             }
 
+            // A tiny shift kick each time CurrentGear actually changes under
+            // real speed - not on the grid where gear can flicker at a
+            // standstill - layered in as its own light touch on top of the
+            // rumble/kerb/lockup/impact/clatter shake already going, rather
+            // than making any of those existing layers louder.
+            if (targetVehicle != null)
+            {
+                int gear = targetVehicle.CurrentGear;
+                if (previousGear >= 0 && gear != previousGear && rawSpeedKph > 40f)
+                {
+                    AddImpulseShake(0.012f);
+                }
+
+                previousGear = gear;
+            }
+
             modeBlend = Mathf.Min(1f, modeBlend + dt / ModeBlendDuration);
             float blendEase = Mathf.SmoothStep(0f, 1f, modeBlend);
 
@@ -205,7 +247,9 @@ namespace LocalFormulaRacing
                 float rawYawRate = targetBody != null ? target.InverseTransformDirection(targetBody.angularVelocity).y : 0f;
                 smoothedSteer = Mathf.Lerp(smoothedSteer, rawSteer, 1f - Mathf.Exp(-dt * 5f));
                 smoothedYawRate = Mathf.Lerp(smoothedYawRate, rawYawRate, 1f - Mathf.Exp(-dt * 6f));
-                float cornerSignal = smoothedSteer * 0.7f + Mathf.Clamp(smoothedYawRate * 0.45f, -1f, 1f) * 0.3f;
+                float rawCornerSignal = smoothedSteer * 0.7f + Mathf.Clamp(smoothedYawRate * 0.45f, -1f, 1f) * 0.3f;
+                smoothedCornerSignal = Mathf.Lerp(smoothedCornerSignal, rawCornerSignal, 1f - Mathf.Exp(-dt * 8f));
+                float cornerSignal = smoothedCornerSignal;
                 float cornerBiasScale = mode == 1 || mode == 4 ? Mathf.Lerp(0.12f, 0.5f, speed01) : Mathf.Lerp(0.25f, 1.4f, speed01);
                 Vector3 cornerBias = target.right * cornerSignal * cornerBiasScale;
                 Vector3 lookTarget = target.position + Vector3.up * 1.05f + velocitySmoothed * (mode == 1 ? 0.07f : 0.2f) + cornerBias;
@@ -246,8 +290,14 @@ namespace LocalFormulaRacing
             // both rates in from a slower start so the cut glides rather than
             // snaps into the new angle.
             bool chaseLike = mode == 0 || mode == 3;
-            float baseFollowRate = mode == 1 || mode == 4 ? 17f : (mode == 2 ? 3.2f : Mathf.Lerp(11.5f, 5.6f, speed01));
-            float baseRotRate = chaseLike ? Mathf.Lerp(9.6f, 6.6f, speed01) : 8.2f;
+
+            // Side cinematic (mode 5) gets its own slow, deliberate follow -
+            // floatier than the plain chase modes but still tracking the car
+            // (unlike the TV crane, which is anchored in world space), so it
+            // reads as a composed tracking shot rather than either a glued-on
+            // chase cam or a locked-off broadcast angle.
+            float baseFollowRate = mode == 1 || mode == 4 ? 17f : (mode == 2 ? 3.2f : (mode == 5 ? Mathf.Lerp(4.6f, 3.4f, speed01) : Mathf.Lerp(11.5f, 5.6f, speed01)));
+            float baseRotRate = chaseLike ? Mathf.Lerp(9.6f, 6.6f, speed01) : (mode == 5 ? 5.4f : 8.2f);
             float followRate = Mathf.Lerp(baseFollowRate * 0.35f, baseFollowRate, blendEase);
             float rotRate = Mathf.Lerp(baseRotRate * 0.35f, baseRotRate, blendEase);
 
@@ -284,7 +334,18 @@ namespace LocalFormulaRacing
             // keep the camera's clear colour synced every frame rather than only
             // once at Initialize, so a dry-to-wet change doesn't leave the old fog
             // tint baked into the background between cars/skybox-less tracks.
-            followCamera.backgroundColor = RenderSettings.fogColor;
+            // RenderSettings.fogColor already carries the night/rain colour
+            // grading RaceManager sets up per session - on top of that, a cheap
+            // vignette/exposure-pull stand-in (there's no post-processing stack
+            // here to do a real one) pulls the clear colour toward black at high
+            // speed and punches in harder on a fresh impact, using the same
+            // ImpactPunchCurve as the FOV kick and position shake above so all
+            // three read as one consistent "how hard was that" response. Blended
+            // in over time rather than assigned outright so a weather transition
+            // eases in instead of popping instantly.
+            float speedDarken = Mathf.Lerp(0f, 0.22f, speed01 * speed01) + ImpactPunchCurve(impulseShake) * 1.4f;
+            Color gradedBackground = Color.Lerp(RenderSettings.fogColor, Color.black, Mathf.Clamp01(speedDarken));
+            followCamera.backgroundColor = Color.Lerp(followCamera.backgroundColor, gradedBackground, 1f - Mathf.Exp(-dt * 6f));
         }
 
         // Shake only when the situation earns it: very high speed, heavy braking,
@@ -402,8 +463,11 @@ namespace LocalFormulaRacing
 
             // Nose cam sits low and close to the tarmac, so the same underlying
             // shake should read stronger there; cockpit is meant to feel more
-            // anchored/isolated from the chassis, so it gets a touch less.
-            float modeShakeMultiplier = mode == 4 ? 1.22f : (mode == 1 ? 0.85f : 1f);
+            // anchored/isolated from the chassis, so it gets a touch less. The
+            // side cinematic shot is meant to feel like a composed camera
+            // operator, not something bolted to the chassis, so it gets the
+            // most damping of all.
+            float modeShakeMultiplier = mode == 4 ? 1.22f : (mode == 1 ? 0.85f : (mode == 5 ? 0.7f : 1f));
             return (rumbleOffset + judderOffset + offTrackOffset + impactOffset + clatterOffset) * shakeStrength * 1.6f * modeShakeMultiplier;
         }
 

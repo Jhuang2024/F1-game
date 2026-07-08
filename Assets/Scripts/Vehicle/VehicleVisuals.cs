@@ -11,6 +11,17 @@ namespace LocalFormulaRacing
         Material brakeDiscMaterial;
         float previousErs;
 
+        // A brief "systems check" blink on the rain light right after the car
+        // spawns, distinct from the steady brake/wet-weather glow UpdateRainLight
+        // otherwise drives - a couple of quick confidence flashes before the
+        // light settles into its normal behaviour, echoing the power-on check a
+        // real car's rear light does on the grid. Runs once per car (field
+        // defaults cover it - no explicit reset needed since a car is never
+        // re-Initialized in place).
+        const float StartupSequenceDuration = 1.1f;
+        bool startupSequenceActive = true;
+        float startupSequenceTimer = StartupSequenceDuration;
+
         // Wheel spin pivots; fronts also steer visually with the current command.
         Transform frontLeft;
         Transform frontRight;
@@ -115,6 +126,46 @@ namespace LocalFormulaRacing
         // correctly with the wheel without any extra per-frame work.
         bool wheelHubDetailBuilt;
 
+        // Front wing upper flap flexes back a touch under aero load at speed -
+        // the same "flexi-wing" aeroelastic cue real front wings show, driven
+        // continuously by speed rather than a discrete on/off like the DRS flap
+        // above. Targets a different transform than UpdateFrontWingDamage
+        // (which owns "front wing base") so the two never fight over the same
+        // local rotation.
+        Transform frontWingUpperFlap;
+        bool frontWingUpperFlapSearched;
+        Quaternion frontWingUpperFlapRestRotation;
+
+        // Cheap ground-contact shadow: a flat, soft-edged dark blob tracking the
+        // car's footprint so it doesn't read as floating over bright tarmac -
+        // no such trick exists yet for player/AI cars (only the real-time
+        // shadow map, whose resolution is shared across the whole grid). Built
+        // once like the other one-shot detail passes in this file, then kept
+        // level (world up) and only following the car's yaw each frame rather
+        // than parented rigidly, since a naive child would pick up any residual
+        // chassis roll/pitch and visibly tilt out of the ground plane.
+        Transform contactShadow;
+        bool contactShadowBuilt;
+        static Texture2D contactShadowTexture;
+        static Material sharedContactShadowMaterial;
+
+        // Endplate accent flashes (front + rear), halo mounting-point detail,
+        // cockpit helmet/harness detail, and the livery accent-pattern variety
+        // below are all one-shot additive passes over geometry RaceManager
+        // already built, following the same lazy-find/build-once idiom as
+        // EnsureWheelHubDetail and ApplyMaterialContrastPass.
+        bool endplateAccentBuilt;
+        bool haloMountDetailBuilt;
+        bool cockpitDetailBuilt;
+        bool liveryAccentBuilt;
+
+        // Tread-block suggestion baked into the tyre material's texture rather
+        // than any extra geometry - applied once, independently of
+        // UpdateTyreCompoundLook's own per-compound colour/sheen reapplication,
+        // since the texture itself never changes with compound.
+        bool tyreTreadTextureApplied;
+        static Texture2D sharedTreadTexture;
+
         static readonly Color GlowColor = new Color(1f, 0.06f, 0.04f);
         static readonly Color DiscGlowColor = new Color(1f, 0.32f, 0.05f);
         static readonly Color DiscCoolColor = new Color(0.42f, 0.05f, 0.02f);
@@ -165,14 +216,48 @@ namespace LocalFormulaRacing
             UpdateBrakeGlow();
             UpdateRainLight();
             UpdateDrsFlap();
+            UpdateAeroFlex();
             UpdateSkidTrails();
             UpdateTyreCompoundLook();
             UpdateWetBodySheen();
             UpdateFrontWingDamage();
             UpdateFloorDamage();
             UpdateSuspensionFlex();
+            UpdateContactShadow();
             ApplyMaterialContrastPass();
             EnsureWheelHubDetail();
+            EnsureEndplateAccents();
+            EnsureHaloMountDetail();
+            EnsureCockpitDetail();
+            EnsureLiveryAccentVariety();
+        }
+
+        // Front wing upper flap flexes back under aero load the faster the car
+        // goes - quadratic so it stays essentially still at low speed and only
+        // really shows itself on fast straights, eased rather than snapped so
+        // it reads as load building rather than a mechanical twitch.
+        void UpdateAeroFlex()
+        {
+            if (!frontWingUpperFlapSearched)
+            {
+                frontWingUpperFlapSearched = true;
+                Transform found = transform.Find("front wing upper flap");
+                if (found != null)
+                {
+                    frontWingUpperFlap = found;
+                    frontWingUpperFlapRestRotation = found.localRotation;
+                }
+            }
+
+            if (frontWingUpperFlap == null)
+            {
+                return;
+            }
+
+            float speed01 = Mathf.Clamp01(Mathf.Abs(vehicle.CurrentSpeedKph) / 320f);
+            float flex = speed01 * speed01 * 5f;
+            Quaternion target = frontWingUpperFlapRestRotation * Quaternion.Euler(-flex, 0f, 0f);
+            frontWingUpperFlap.localRotation = Quaternion.Slerp(frontWingUpperFlap.localRotation, target, Time.deltaTime * 3f);
         }
 
         void UpdateDrsFlap()
@@ -356,6 +441,20 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            if (startupSequenceActive)
+            {
+                startupSequenceTimer -= Time.deltaTime;
+                float elapsed = StartupSequenceDuration - startupSequenceTimer;
+                bool blinkOn = elapsed < StartupSequenceDuration - 0.25f && Mathf.FloorToInt(elapsed / 0.16f) % 2 == 0;
+                brakeLightMaterial.SetColor("_EmissionColor", GlowColor * (blinkOn ? 1.4f : 0f));
+                if (startupSequenceTimer <= 0f)
+                {
+                    startupSequenceActive = false;
+                }
+
+                return;
+            }
+
             float brake = vehicle.EffectiveBrake;
             bool harvesting = vehicle.ErsBattery > previousErs + 0.0001f && Mathf.Abs(vehicle.CurrentSpeedKph) > 60f;
             previousErs = vehicle.ErsBattery;
@@ -512,6 +611,13 @@ namespace LocalFormulaRacing
                 }
             }
 
+            if (tyreMaterial != null && !tyreTreadTextureApplied)
+            {
+                tyreTreadTextureApplied = true;
+                tyreMaterial.mainTexture = GetTreadTexture();
+                tyreMaterial.mainTextureScale = new Vector2(10f, 1f);
+            }
+
             if (tyreMaterial == null || vehicle.Tyres == null)
             {
                 return;
@@ -565,6 +671,39 @@ namespace LocalFormulaRacing
                 color = new Color(0.028f, 0.028f, 0.03f);
                 smoothness = 0.26f;
             }
+        }
+
+        // Suggests circumferential tread blocks without any extra geometry - a
+        // small strip of alternating light/dark bands, multiplied into the
+        // tyre's base colour and tiled several times around the wheel via
+        // mainTextureScale (see UpdateTyreCompoundLook), so a spinning wheel
+        // reads as moulded tread rather than a smooth slick. Uneven spacing
+        // (a narrow groove every few pixels rather than an even 50/50 split)
+        // avoids a barcode look. Shared across every car the same way the
+        // particle soft-dot texture is - the pattern itself never varies.
+        static Texture2D GetTreadTexture()
+        {
+            if (sharedTreadTexture != null)
+            {
+                return sharedTreadTexture;
+            }
+
+            const int width = 64;
+            const int height = 8;
+            sharedTreadTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            sharedTreadTexture.wrapMode = TextureWrapMode.Repeat;
+            for (int x = 0; x < width; x++)
+            {
+                bool groove = (x % 9) < 2;
+                float shade = groove ? 0.38f : 1f;
+                for (int y = 0; y < height; y++)
+                {
+                    sharedTreadTexture.SetPixel(x, y, new Color(shade, shade, shade, 1f));
+                }
+            }
+
+            sharedTreadTexture.Apply();
+            return sharedTreadTexture;
         }
 
         // Bodywork gains a wet sheen in the rain instead of one fixed dry
@@ -858,6 +997,278 @@ namespace LocalFormulaRacing
                     Destroy(lugCollider);
                 }
             }
+        }
+
+        // Shared helper for all the proud additive-detail panels below (endplate
+        // accents, halo mounts, cockpit trim, livery accents) - mirrors
+        // RaceManager's own CreateChildCube (create primitive, parent, position/
+        // scale, material, strip the collider) since this file otherwise builds
+        // its one-off primitives inline (see BuildWheelHub above).
+        static void CreateAccentCube(Transform parent, string objectName, Vector3 localPosition, Vector3 localScale, Material material)
+        {
+            CreateAccentCube(parent, objectName, localPosition, Quaternion.identity, localScale, material);
+        }
+
+        static void CreateAccentCube(Transform parent, string objectName, Vector3 localPosition, Quaternion localRotation, Vector3 localScale, Material material)
+        {
+            GameObject cube = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            cube.name = objectName;
+            cube.transform.SetParent(parent, false);
+            cube.transform.localPosition = localPosition;
+            cube.transform.localRotation = localRotation;
+            cube.transform.localScale = localScale;
+            cube.GetComponent<Renderer>().sharedMaterial = material;
+            Collider cubeCollider = cube.GetComponent<Collider>();
+            if (cubeCollider != null)
+            {
+                Destroy(cubeCollider);
+            }
+        }
+
+        // A thin contrast tip on each of the four endplates RaceManager already
+        // builds (front left/right, rear left/right) so the wings read with more
+        // detail up close. Parented to the car root at the endplates' own known
+        // coordinates rather than nested under the endplate transforms
+        // themselves - nesting would inherit their thin (~0.05-wide) local
+        // scale and shrink the accent down to nothing.
+        void EnsureEndplateAccents()
+        {
+            if (endplateAccentBuilt)
+            {
+                return;
+            }
+
+            if (transform.Find("left front endplate") == null || transform.Find("right front endplate") == null ||
+                transform.Find("left rear endplate") == null || transform.Find("right rear endplate") == null)
+            {
+                return;
+            }
+
+            endplateAccentBuilt = true;
+            Material accentMaterial = CreateMaterial("endplate accent", new Color(0.92f, 0.92f, 0.9f), 0.15f, 0.9f);
+            CreateAccentCube(transform, "front endplate accent left", new Vector3(-1.065f, 0.4f, 2.6f), Quaternion.Euler(0f, -6f, 0f), new Vector3(0.012f, 0.05f, 0.5f), accentMaterial);
+            CreateAccentCube(transform, "front endplate accent right", new Vector3(1.065f, 0.4f, 2.6f), Quaternion.Euler(0f, 6f, 0f), new Vector3(0.012f, 0.05f, 0.5f), accentMaterial);
+            CreateAccentCube(transform, "rear endplate accent left", new Vector3(-0.915f, 1.0f, -2.06f), Quaternion.Euler(0f, 0f, 4f), new Vector3(0.012f, 0.06f, 0.46f), accentMaterial);
+            CreateAccentCube(transform, "rear endplate accent right", new Vector3(0.915f, 1.0f, -2.06f), Quaternion.Euler(0f, 0f, -4f), new Vector3(0.012f, 0.06f, 0.46f), accentMaterial);
+        }
+
+        // Small bracket plates where each halo stay meets the survival cell,
+        // echoing the wheel hub's cap-and-lug idiom above (a couple of small
+        // primitives at a real structural point) so the halo reads as bolted on
+        // rather than merged seamlessly into the tub.
+        void EnsureHaloMountDetail()
+        {
+            if (haloMountDetailBuilt)
+            {
+                return;
+            }
+
+            if (transform.Find("left halo stay") == null || transform.Find("right halo stay") == null)
+            {
+                return;
+            }
+
+            haloMountDetailBuilt = true;
+            Material mountMaterial = CreateMaterial("halo mount plate", new Color(0.1f, 0.11f, 0.12f), 0.72f, 0.5f);
+            CreateAccentCube(transform, "halo mount plate left", new Vector3(-0.32f, 0.615f, 0.24f), new Vector3(0.09f, 0.03f, 0.11f), mountMaterial);
+            CreateAccentCube(transform, "halo mount plate right", new Vector3(0.32f, 0.615f, 0.24f), new Vector3(0.09f, 0.03f, 0.11f), mountMaterial);
+        }
+
+        // Cockpit detail pass: a visor-line stripe across the helmet so the
+        // driver's head reads clearly under the halo, plus a crossed seatbelt
+        // harness over the cockpit surround pad - found lazily off the same
+        // "driver helmet"/"cockpit surround pad" transforms RaceManager already
+        // places.
+        void EnsureCockpitDetail()
+        {
+            if (cockpitDetailBuilt)
+            {
+                return;
+            }
+
+            if (transform.Find("driver helmet") == null || transform.Find("cockpit surround pad") == null)
+            {
+                return;
+            }
+
+            cockpitDetailBuilt = true;
+            Material stripeMaterial = CreateMaterial("helmet visor stripe", new Color(0.05f, 0.05f, 0.06f), 0.2f, 0.7f);
+            CreateAccentCube(transform, "helmet visor stripe", new Vector3(0f, 0.86f, 0.3f), new Vector3(0.3f, 0.05f, 0.08f), stripeMaterial);
+
+            Material harnessMaterial = CreateMaterial("seatbelt harness", new Color(0.62f, 0.05f, 0.04f), 0.05f, 0.5f);
+            CreateAccentCube(transform, "seatbelt harness left", new Vector3(-0.12f, 0.68f, 0.36f), Quaternion.Euler(0f, 0f, 32f), new Vector3(0.05f, 0.24f, 0.05f), harnessMaterial);
+            CreateAccentCube(transform, "seatbelt harness right", new Vector3(0.12f, 0.68f, 0.36f), Quaternion.Euler(0f, 0f, -32f), new Vector3(0.05f, 0.24f, 0.05f), harnessMaterial);
+        }
+
+        // Team-colour livery accent variety: three generated pattern variants
+        // (twin pinstripe, gradient fade, colour-split nose) layered on top of
+        // RaceManager's base livery flashes, chosen deterministically from the
+        // car's own name so grid cars read as distinct liveries within their own
+        // team colours instead of every car on the grid looking identical.
+        // Colours are sampled from the primary/secondary materials RaceManager
+        // already built (the body material UpdateWetBodySheen finds, and the
+        // livery flash material) rather than any new data, so this works for
+        // any team without extra plumbing.
+        void EnsureLiveryAccentVariety()
+        {
+            if (liveryAccentBuilt || bodyMaterial == null)
+            {
+                return;
+            }
+
+            Transform flash = transform.Find("left livery flash");
+            if (flash == null)
+            {
+                return;
+            }
+
+            Renderer flashRenderer = flash.GetComponent<Renderer>();
+            if (flashRenderer == null || flashRenderer.sharedMaterial == null)
+            {
+                return;
+            }
+
+            liveryAccentBuilt = true;
+            Color primary = bodyMaterial.color;
+            Color secondary = flashRenderer.sharedMaterial.color;
+            int variant = Mathf.Abs(gameObject.name.GetHashCode()) % 3;
+            if (variant == 0)
+            {
+                BuildTwinPinstripeLivery(secondary);
+            }
+            else if (variant == 1)
+            {
+                BuildGradientFadeLivery(primary, secondary);
+            }
+            else
+            {
+                BuildNoseSplitLivery(secondary);
+            }
+        }
+
+        // Variant 0: a pair of thin pinstripes flanking each existing livery
+        // flash, above and below it.
+        void BuildTwinPinstripeLivery(Color secondary)
+        {
+            Material pinMaterial = CreateMaterial("livery pinstripe", secondary, 0.3f, 0.85f);
+            CreateAccentCube(transform, "livery pinstripe left upper", new Vector3(-0.885f, 0.58f, -0.44f), new Vector3(0.02f, 0.05f, 1.0f), pinMaterial);
+            CreateAccentCube(transform, "livery pinstripe left lower", new Vector3(-0.885f, 0.46f, -0.44f), new Vector3(0.02f, 0.05f, 1.0f), pinMaterial);
+            CreateAccentCube(transform, "livery pinstripe right upper", new Vector3(0.885f, 0.58f, -0.44f), new Vector3(0.02f, 0.05f, 1.0f), pinMaterial);
+            CreateAccentCube(transform, "livery pinstripe right lower", new Vector3(0.885f, 0.46f, -0.44f), new Vector3(0.02f, 0.05f, 1.0f), pinMaterial);
+        }
+
+        // Variant 1: a cluster of thin bands across the engine cover, each
+        // interpolated a step further from secondary toward primary, reading as
+        // a fade rather than a hard-edged block.
+        void BuildGradientFadeLivery(Color primary, Color secondary)
+        {
+            const int bands = 5;
+            for (int i = 0; i < bands; i++)
+            {
+                float t = i / (float)(bands - 1);
+                Color bandColor = Color.Lerp(secondary, primary, t);
+                Material bandMaterial = CreateMaterial("livery gradient band " + i, bandColor, 0.28f, 0.82f);
+                float z = Mathf.Lerp(-0.02f, -1.32f, t);
+                CreateAccentCube(transform, "livery gradient band " + i, new Vector3(0f, 0.865f, z), new Vector3(0.36f, 0.012f, 0.16f), bandMaterial);
+            }
+        }
+
+        // Variant 2: an angled colour-split wedge over the nose, secondary over
+        // primary, reading as a diagonal livery split rather than a plain nose.
+        void BuildNoseSplitLivery(Color secondary)
+        {
+            Material splitMaterial = CreateMaterial("livery nose split", secondary, 0.26f, 0.84f);
+            CreateAccentCube(transform, "livery nose split", new Vector3(0f, 0.34f, 2.02f), Quaternion.Euler(0f, 0f, 20f), new Vector3(0.16f, 0.05f, 0.42f), splitMaterial);
+        }
+
+        // Cheap contact-shadow blob (see field comments above) built the first
+        // time the car root has a valid transform - which is immediately, so
+        // this really only needs to run once on the first Update tick.
+        void EnsureContactShadow()
+        {
+            if (contactShadowBuilt)
+            {
+                return;
+            }
+
+            contactShadowBuilt = true;
+            GameObject shadowObject = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            shadowObject.name = "Contact shadow";
+            Collider shadowCollider = shadowObject.GetComponent<Collider>();
+            if (shadowCollider != null)
+            {
+                Destroy(shadowCollider);
+            }
+
+            Renderer shadowRenderer = shadowObject.GetComponent<Renderer>();
+            shadowRenderer.sharedMaterial = GetContactShadowMaterial();
+            shadowRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            shadowRenderer.receiveShadows = false;
+            contactShadow = shadowObject.transform;
+            contactShadow.SetParent(transform, false);
+            contactShadow.localScale = new Vector3(1.9f, 4.5f, 1f);
+        }
+
+        void UpdateContactShadow()
+        {
+            EnsureContactShadow();
+            if (contactShadow == null)
+            {
+                return;
+            }
+
+            // Positioned a little below the chassis root toward the tarmac and
+            // kept level (world up), tracking only the car's yaw - the chassis
+            // itself stays close to flat (see VehicleController.StabilizeChassis)
+            // but even a small residual roll/pitch would otherwise tilt a
+            // naively-parented shadow visibly out of the ground plane.
+            contactShadow.position = transform.position + Vector3.down * 0.36f;
+            contactShadow.rotation = Quaternion.Euler(90f, transform.eulerAngles.y, 0f);
+        }
+
+        static Material GetContactShadowMaterial()
+        {
+            if (sharedContactShadowMaterial != null)
+            {
+                return sharedContactShadowMaterial;
+            }
+
+            Shader shader = Shader.Find("Sprites/Default");
+            sharedContactShadowMaterial = new Material(shader);
+            sharedContactShadowMaterial.color = Color.white;
+            sharedContactShadowMaterial.mainTexture = GetContactShadowTexture();
+            return sharedContactShadowMaterial;
+        }
+
+        // Soft radial falloff so the shadow reads as a grounding cue rather than
+        // a hard-edged dark decal - darkest under the car's centre, fading to
+        // fully transparent by the texture's edge, the same idea as the
+        // particle soft-dot texture in VehicleEffects below, just darker and
+        // capped well short of full black so it never looks like a hole in the
+        // track.
+        static Texture2D GetContactShadowTexture()
+        {
+            if (contactShadowTexture != null)
+            {
+                return contactShadowTexture;
+            }
+
+            const int size = 32;
+            contactShadowTexture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float dx = (x - (size - 1) * 0.5f) / (size * 0.5f);
+                    float dy = (y - (size - 1) * 0.5f) / (size * 0.5f);
+                    float falloff = Mathf.Clamp01(1f - Mathf.Sqrt(dx * dx + dy * dy));
+                    float alpha = falloff * falloff * 0.55f;
+                    contactShadowTexture.SetPixel(x, y, new Color(0f, 0f, 0f, alpha));
+                }
+            }
+
+            contactShadowTexture.Apply();
+            return contactShadowTexture;
         }
 
         // This file otherwise reaches into RaceManager-built materials by name
