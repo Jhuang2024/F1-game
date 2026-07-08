@@ -260,30 +260,24 @@ namespace LocalFormulaRacing
                     easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
-                    // Tight-corner-vs-hairpin fix: this floor used to scale directly off
-                    // hairpinSpeedKph (a small 1.25-1.52x multiplier of it) - harmless
-                    // while that floor sat at 76-108kph, but once the hairpin floor was
-                    // dropped to ~26-34kph for genuine hairpins, this bucket (a real but
-                    // NON-hairpin tight corner - Slow is one full classification band
-                    // above Hairpin) collapsed right along with it to a near-hairpin
-                    // crawl. A tight corner and a hairpin are not the same thing, so this
-                    // no longer derives from the hairpin number at all - it gets its own
-                    // straight-speed-relative floor, clearly below Medium but nowhere
-                    // near hairpin pace.
-                    // Tight-corner speed fix round 3: nudged up again (was 0.48 base /
-                    // 0.58-0.76 skill-scaled ceiling, itself a ~40-45% jump over round 1's
-                    // 0.34/0.42-0.52). Still kept below Medium's own floor/ceiling
-                    // (0.72 / 0.87-0.99) so the buckets stay correctly ordered and this
-                    // can't reopen the overspeed/wall-crash bug the barrier-avoidance/
-                    // emergency-brake work exists to guard against.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.54f, straightTargetSpeed * Mathf.Lerp(0.66f, 0.84f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(1.8f, 2.5f, skillTier);
+                    // Tight-corner speed calibration: previous rounds scaled this
+                    // relative to straightTargetSpeed, which chased the numbers up to
+                    // essentially Medium-bucket pace and lost any sense of "this is a
+                    // genuinely tight corner". Pinned to an explicit ~150-200kph target
+                    // instead (apexConfidence still blends toward the low end, skillTier
+                    // still lifts the ceiling within that band) - Mathf.Min against
+                    // straightTargetSpeed keeps the same overspeed/wall-crash guard for
+                    // the rare case a car's own straight-line pace is below this (e.g.
+                    // under a safety car).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(150f, Mathf.Lerp(170f, 200f, skillTier), apexConfidence));
+                    easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 default:
-                    // Hairpin floor deliberately untouched by skill tier - a hairpin is
-                    // still a hairpin. A sharper driver only benefits here via the
-                    // already-maxed apexConfidence blend above (Part A.1), never a
-                    // corner-type bonus.
+                    // Hairpin floor: pinned back to an explicit ~50-70kph target (a real
+                    // hairpin crawl) after previous rounds drifted this up to
+                    // ~115-155kph while chasing the Slow bucket buff - Mathf.Min against
+                    // straightTargetSpeed keeps the same overspeed guard as the Slow
+                    // bucket above.
                     // Tight-corner fix round 2: easePower dropped from 1.2 to 0.45 - at
                     // 1.2, only a corner at the literal severity ceiling (~1.0) actually
                     // reached floorSpeed; anything else in the Hairpin bucket (severity
@@ -291,7 +285,7 @@ namespace LocalFormulaRacing
                     // land well above the floor regardless of how low the floor itself
                     // was set. A much smaller exponent pulls the whole Hairpin severity
                     // band toward floorSpeed instead of only its very top.
-                    floorSpeed = hairpinSpeedKph;
+                    floorSpeed = Mathf.Min(straightTargetSpeed, hairpinSpeedKph);
                     easePower = 0.45f;
                     break;
             }
@@ -557,13 +551,15 @@ namespace LocalFormulaRacing
             // Car-relative hairpin floor instead of one flat number for every car: a
             // stronger braking/cornering car has a genuinely higher minimum apex speed
             // even at a true hairpin.
-            // Tight-corner fix round 3: round 2's 15-28kph landed too slow per direct
-            // feedback (15kph reads as basically stopped) - settled on a car-relative
-            // ~26-34kph instead. Genuine hairpins only; a merely-tight corner is the
-            // separate Slow bucket below and no longer derives from this number at all.
+            // Tight-corner speed calibration: explicit ~50-70kph target for a genuine
+            // hairpin (previous rounds drifted this up to ~115-155kph while chasing the
+            // Slow bucket buff, which read as far too fast for an actual hairpin -
+            // pinned back down to a real hairpin-crawl range). Genuine hairpins only;
+            // a merely-tight corner is the separate Slow bucket below and no longer
+            // derives from this number at all.
             float carBrakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
             float carCorneringStat = vehicle.CarData == null ? 78f : vehicle.CarData.cornering;
-            float hairpinSpeedKph = Mathf.Lerp(26f, 34f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
+            float hairpinSpeedKph = Mathf.Lerp(50f, 70f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
