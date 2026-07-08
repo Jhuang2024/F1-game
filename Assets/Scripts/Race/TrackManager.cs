@@ -486,6 +486,14 @@ namespace LocalFormulaRacing
         // same dark-green canopy colour a parkland track uses.
         Material palmFrondMaterial;
 
+        // Round 2 surface/environment pass: sandy gravel-trap runoff, harbour/sea water
+        // planes, mountain rock outcrops and the finish-line checker pattern all need a
+        // material distinct from anything above rather than reusing a near-match.
+        Material gravelMaterial;
+        Material waterMaterial;
+        Material rockMaterial;
+        Material checkerDarkMaterial;
+
         public TrackRuntime Build(CalendarEventData eventData)
         {
             return Build(eventData, true);
@@ -536,6 +544,7 @@ namespace LocalFormulaRacing
             BuildDrsZoneBoards();
             BuildPitLane();
             BuildStartGantry();
+            BuildFinishLinePresentation();
             BuildScenery();
             BuildCircuitLandmarks();
             BuildEnvironmentIdentity();
@@ -1583,6 +1592,29 @@ namespace LocalFormulaRacing
                 CreateMaterial("Runtime Hillside Block C", new Color(0.55f, 0.4f, 0.38f), 0.03f, 0.3f),
                 CreateMaterial("Runtime Hillside Block D", new Color(0.68f, 0.62f, 0.5f), 0.03f, 0.3f)
             };
+
+            // Sandy/light gravel-trap tone - distinct from the tan tyreMarbleMaterial
+            // (finer, greyer, coarser tiling) so a braking-zone trap reads as raked
+            // gravel rather than more scattered marbles.
+            gravelMaterial = CreateMaterial("Runtime Gravel Trap", new Color(0.58f, 0.52f, 0.42f), 0f, 0.12f);
+            gravelMaterial.mainTexture = BuildNoiseTexture(96, new Color(0.62f, 0.56f, 0.46f), 0.3f);
+            gravelMaterial.mainTextureScale = new Vector2(24f, 24f);
+
+            // Flat, smooth, reflective water for the Monaco marina and coastal sea planes -
+            // dark and glossy enough to read as water rather than another ground slab.
+            waterMaterial = CreateMaterial("Runtime Water", new Color(0.04f, 0.16f, 0.26f), 0.35f, 0.92f);
+
+            // Grey angular rock-outcrop tone for mountain/forest cliff dressing, kept
+            // distinct from concreteMaterial/barrierMaterial so a rock face doesn't just
+            // read as another retaining wall.
+            rockMaterial = CreateMaterial("Runtime Rock Outcrop", new Color(0.42f, 0.4f, 0.38f), 0.02f, 0.22f);
+            rockMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.48f, 0.46f, 0.44f), 0.22f);
+            rockMaterial.mainTextureScale = new Vector2(2.5f, 2.5f);
+
+            // Near-black companion to lineMaterial's near-white for the start/finish
+            // checker pattern - the file had no true dark/light pair small enough to tile
+            // as individual flag squares before this.
+            checkerDarkMaterial = CreateMaterial("Runtime Checker Dark", new Color(0.05f, 0.05f, 0.06f), 0f, 0.5f);
         }
 
         // Standard shader in alpha-blended Fade mode: used for the wet-track sheen and
@@ -2108,6 +2140,11 @@ namespace LocalFormulaRacing
                 float turnSign = Mathf.Sign(Vector3.Cross(entry, exit).y);
                 float kerbLength = Mathf.Lerp(12f, 42f, angle / 90f);
 
+                // Hairpin-severity corners get the taller "aggressive" sausage-kerb
+                // profile (see CreateKerbBlock) instead of the same flat block every
+                // corner shares, so the tightest turns on a lap actually look like it.
+                bool aggressive = angle > 55f;
+
                 for (float offset = -kerbLength * 0.5f; offset <= kerbLength * 0.5f; offset += 5.5f)
                 {
                     Vector3 point;
@@ -2117,13 +2154,13 @@ namespace LocalFormulaRacing
 
                     // Outer kerb (Apex or Exit)
                     Vector3 outer = point + right * turnSign * (Runtime.roadHalfWidth + 0.35f);
-                    CreateKerbBlock(outer, forward, Runtime.cumulativeDistances[i] + offset);
+                    CreateKerbBlock(outer, forward, Runtime.cumulativeDistances[i] + offset, aggressive);
 
                     // Inner kerb (if sharp turn)
                     if (angle > 35f)
                     {
                         Vector3 inner = point - right * turnSign * (Runtime.roadHalfWidth + 0.25f);
-                        CreateKerbBlock(inner, forward, Runtime.cumulativeDistances[i] + offset + 2f);
+                        CreateKerbBlock(inner, forward, Runtime.cumulativeDistances[i] + offset + 2f, aggressive);
                     }
                 }
             }
@@ -2370,7 +2407,18 @@ namespace LocalFormulaRacing
             Vector3 scale = new Vector3(1.2f, 1f, length);
             stack.transform.localScale = scale;
             stack.GetComponent<Renderer>().sharedMaterial = tireBarrierMaterial;
-            TryPlaceSolidObstacle(stack, "tyre-barrier", position, forward, scale, 0.5f, 0.7f);
+            if (!TryPlaceSolidObstacle(stack, "tyre-barrier", position, forward, scale, 0.5f, 0.7f))
+            {
+                return;
+            }
+
+            // TecPro-style coloured impact padding strapped across the top of the stack -
+            // real barriers get exactly this treatment at the corners that need tyre
+            // stacks in the first place, and it's the detail that most reads as "serious
+            // corner" from a chase camera rather than a plain black wall of tyres.
+            Vector3 placed = stack.transform.position;
+            Quaternion rotation = Quaternion.LookRotation(stack.transform.forward, Vector3.up);
+            CreateVisualBox("Tyre barrier impact pad", placed + Vector3.up * 0.56f, rotation, new Vector3(1.28f, 0.14f, length - 0.2f), sceneryAccentMaterial);
         }
 
         void CreateTransitionTyreStacks(float distance)
@@ -2721,20 +2769,35 @@ namespace LocalFormulaRacing
             return best;
         }
 
-        void CreateKerbBlock(Vector3 position, Vector3 forward, float seed)
+        void CreateKerbBlock(Vector3 position, Vector3 forward, float seed, bool aggressive)
         {
             bool whiteBase = Mathf.FloorToInt(seed / 16f) % 2 == 0;
             Material material = whiteBase ? lineMaterial : kerbMaterial;
             Material accentMaterial = whiteBase ? kerbMaterial : lineMaterial;
 
-            GameObject kerb = CreateVisualBox("Painted kerb", position + Vector3.up * 0.075f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1.15f, 0.09f, 4.5f), material);
+            // Hairpins/high-severity corners get a taller, wider block than a sweeping
+            // corner's kerb - real circuits raise the profile exactly where cars run
+            // widest over it, so one flat block everywhere lost that read entirely.
+            float heightScale = aggressive ? 1.7f : 1f;
+            float widthScale = aggressive ? 1.25f : 1f;
+            float blockY = 0.075f * heightScale;
+            float accentY = 0.12f * heightScale + 0.011f;
+
+            GameObject kerb = CreateVisualBox("Painted kerb", position + Vector3.up * blockY, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1.15f * widthScale, 0.09f * heightScale, 4.5f), material);
             MeshRenderer renderer = kerb.GetComponent<MeshRenderer>();
             renderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Simple;
 
             // Inlay stripe on top of the block so each kerb reads as painted sausage
             // kerbing instead of one flat coloured slab; stacked above the block's top
             // face rather than coplanar with it, so there is no z-fighting risk.
-            CreateVisualBox("Painted kerb accent", position + Vector3.up * 0.131f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1f, 0.02f, 1.6f), accentMaterial);
+            CreateVisualBox("Painted kerb accent", position + Vector3.up * accentY, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1f * widthScale, 0.02f, 1.6f), accentMaterial);
+
+            // A second dash further along the aggressive block so a hairpin's kerbing
+            // reads as a longer painted run instead of repeating one lone dash.
+            if (aggressive)
+            {
+                CreateVisualBox("Painted kerb accent", position + Vector3.up * accentY + forward * 2.1f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1f * widthScale, 0.02f, 1.6f), accentMaterial);
+            }
         }
 
         void BuildTrackMarkers()
@@ -2757,6 +2820,8 @@ namespace LocalFormulaRacing
                 CreateBrakingBoard(dist - 50f, "50");
                 CreateApexCones(dist);
                 CreateTyreMarbles(dist);
+                CreateLockupSkidMarks(dist);
+                CreateGravelTrap(dist);
             }
         }
 
@@ -2794,6 +2859,73 @@ namespace LocalFormulaRacing
                 Runtime.SampleAtDistance(exitDistance, out patchPoint, out patchForward, out patchRight);
                 float lateral = outsideSide * (Runtime.roadHalfWidth * 0.7f + p * 0.4f);
                 CreateRoadStripe(patchPoint + patchRight * lateral, patchForward, 1.5f + p * 0.12f, 4.6f, tyreMarbleMaterial, "Tyre marbles", 7);
+            }
+        }
+
+        // Curved lock-up skid streaks converging toward the apex from the braking zone -
+        // distinct from BuildAsphaltDetail's fixed-spacing straight skid marks, these are
+        // keyed to the same braking-corner detection as the boards/marbles above so the
+        // heaviest skid marks land exactly where cars actually brake hardest, angled
+        // slightly toward the apex line rather than running dead parallel to the road.
+        void CreateLockupSkidMarks(float apexDistance)
+        {
+            Vector3 approachPoint;
+            Vector3 approachForward;
+            Vector3 approachRight;
+            Runtime.SampleAtDistance(apexDistance - 10f, out approachPoint, out approachForward, out approachRight);
+            Vector3 apexPoint;
+            Vector3 apexForward;
+            Vector3 apexRight;
+            Runtime.SampleAtDistance(apexDistance, out apexPoint, out apexForward, out apexRight);
+            float turnSign = Mathf.Sign(Vector3.Cross(approachForward, apexForward).y);
+
+            int streaks = Mathf.Max(1, Mathf.RoundToInt(2f * Mathf.Clamp(sceneryDensity, 0.25f, 2f)));
+            for (int s = 0; s < streaks; s++)
+            {
+                float brakeDistance = apexDistance - 30f - s * 9f;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(brakeDistance, out point, out forward, out right);
+                Vector3 skewedForward = Quaternion.Euler(0f, -turnSign * 7f, 0f) * forward;
+                float lateral = -turnSign * (0.7f + s * 0.55f);
+                CreateRoadStripe(point + right * lateral, skewedForward, 0.18f, 6.2f - s * 0.7f, skidMarkMaterial, "Braking lock-up skid mark", 6);
+            }
+        }
+
+        // Sandy gravel-trap runoff patch on the outside of the corner exit, sitting just
+        // beyond the kerb and short of the barrier line - street circuits have a wall
+        // instead of gravel, and elevated stretches have no ground-level run-off to trap
+        // into, so both are skipped rather than drawing gravel that wouldn't make sense.
+        void CreateGravelTrap(float apexDistance)
+        {
+            if (streetTrack || IsElevatedAtDistance(apexDistance))
+            {
+                return;
+            }
+
+            Vector3 approachPoint;
+            Vector3 approachForward;
+            Vector3 approachRight;
+            Runtime.SampleAtDistance(apexDistance - 10f, out approachPoint, out approachForward, out approachRight);
+            Vector3 apexPoint;
+            Vector3 apexForward;
+            Vector3 apexRight;
+            Runtime.SampleAtDistance(apexDistance, out apexPoint, out apexForward, out apexRight);
+            float turnSign = Mathf.Sign(Vector3.Cross(approachForward, apexForward).y);
+
+            int patches = Mathf.Clamp(Mathf.RoundToInt(3f * Mathf.Clamp(sceneryDensity, 0.25f, 2f)), 2, 3);
+            for (int p = 0; p < patches; p++)
+            {
+                float exitDistance = apexDistance + 4f + p * 8f;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(exitDistance, out point, out forward, out right);
+                // Stays inside the Armco's +5.5m offset (see BuildBarrierSegmentForSide)
+                // so the trap always reads as sitting in front of the barrier line.
+                float lateral = turnSign * (Runtime.roadHalfWidth + 2.4f + p * 1.1f);
+                CreateVisualBox("Gravel trap patch", point + right * lateral + Vector3.up * 0.03f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(4.5f + p, 0.05f, 7f), gravelMaterial);
             }
         }
 
@@ -2839,6 +2971,18 @@ namespace LocalFormulaRacing
             // once race control actually drives this instead of the static per-index
             // caution pattern above (which only sets the initial look).
             marshalFlagBoardRenderers.Add(flagBoard.GetComponent<Renderer>());
+
+            // Occasional parked marshal utility vehicle beside the post - sparse (every
+            // 15th post) so it reads as scattered trackside kit rather than a vehicle
+            // parked at every single hut.
+            if (index % 15 == 0)
+            {
+                Vector3 vehicleRight = Vector3.Cross(Vector3.up, forward).normalized;
+                Vector3 vehiclePosition = safePosition + vehicleRight * 2.7f;
+                CreateVisualBox("Marshal utility vehicle body", vehiclePosition + Vector3.up * 0.55f, rotation, new Vector3(1.6f, 0.9f, 3.2f), metalMaterial);
+                CreateVisualBox("Marshal utility vehicle cab", vehiclePosition - forward * 1.1f + Vector3.up * 1.05f, rotation, new Vector3(1.5f, 0.85f, 1.3f), glassMaterial);
+                CreateVisualBox("Marshal utility vehicle beacon", vehiclePosition + Vector3.up * 1.55f, rotation, new Vector3(0.3f, 0.2f, 0.3f), lightGlowMaterial);
+            }
         }
 
         void CreateBrakingBoard(float distance, string label)
@@ -2946,6 +3090,27 @@ namespace LocalFormulaRacing
             CreateVisualBox(markerName, point + Vector3.up * 0.085f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(Runtime.roadHalfWidth * 2f, 0.05f, depth), material);
         }
 
+        // Checkered squares laid across the tarmac right at the start/finish line,
+        // beside the plain white CreateTrackLine stripe - the finish-line presentation
+        // hook the rest of the gantry/board furniture didn't have until now. One-off,
+        // not scaled per lap, so the cost is a fixed handful of decals per track.
+        void BuildFinishLinePresentation()
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(0f, out point, out forward, out right);
+
+            const int columns = 8;
+            float squareSize = Runtime.roadHalfWidth * 2f / columns;
+            for (int c = 0; c < columns; c++)
+            {
+                float lateral = -Runtime.roadHalfWidth + squareSize * (c + 0.5f);
+                Material squareMaterial = c % 2 == 0 ? lineMaterial : checkerDarkMaterial;
+                CreateRoadStripe(point + right * lateral - forward * 3.2f, forward, squareSize * 0.96f, 1.3f, squareMaterial, "Finish line checker square", 8);
+            }
+        }
+
         static readonly Color[] SponsorPalette =
         {
             new Color(0.85f, 0.1f, 0.1f), new Color(0.05f, 0.35f, 0.85f),
@@ -3042,6 +3207,16 @@ namespace LocalFormulaRacing
                 if (nightTrack || twilightTrack)
                 {
                     CreateVisualBox("Pit building glow strip", basePosition + right * -5.65f + Vector3.up * 6.6f, rotation, new Vector3(0.18f, 0.5f, 32f), lightGlowMaterial);
+                }
+
+                // Segmented garage doors along the track-facing wall - the fascia used to
+                // read as one flat glass strip; alternating door panels give the pit
+                // building an actual "row of garages" silhouette instead.
+                const int doorCount = 5;
+                for (int doorIndex = 0; doorIndex < doorCount; doorIndex++)
+                {
+                    float doorT = (doorIndex + 0.5f) / doorCount - 0.5f;
+                    CreateVisualBox("Pit garage door", basePosition + right * -5.75f + forward * doorT * 32f + Vector3.up * 2.2f, rotation, new Vector3(0.12f, 4.2f, 5.4f), doorIndex % 2 == 0 ? tireBarrierMaterial : metalMaterial);
                 }
             }
         }
@@ -3199,6 +3374,18 @@ namespace LocalFormulaRacing
             // track) so RaceControlVisualDriver can pulse/flash it live without also
             // flashing every pit-building light, lamp post and glow strip elsewhere.
             CreateVisualBox("Start gantry light strip", point + Vector3.up * 6.9f - forward * 0.42f, gantryRotation, new Vector3(span * 0.92f, 0.06f, 0.08f), gantryRaceControlLightMaterial);
+
+            // Checkered flag band along the lower boom - built from alternating box
+            // primitives (no texture asset needed) so the start/finish gantry finally
+            // gets an actual "podium moment" read instead of a plain metal truss.
+            Vector3 checkerRight = Vector3.Cross(Vector3.up, forward).normalized;
+            int checkerColumns = Mathf.Max(6, Mathf.RoundToInt(span / 1.1f));
+            for (int c = 0; c < checkerColumns; c++)
+            {
+                float t = (c + 0.5f) / checkerColumns - 0.5f;
+                Material squareMaterial = c % 2 == 0 ? lineMaterial : checkerDarkMaterial;
+                CreateVisualBox("Start gantry checker square", point + Vector3.up * 6.35f + checkerRight * t * span, gantryRotation, new Vector3(span / checkerColumns * 0.92f, 0.22f, 0.5f), squareMaterial);
+            }
 
             // SC/VSC board beside the gantry, wired up (via CreateRaceControlBoard) so
             // RaceManager can drive it live through Runtime.SetRaceControlVisual.
@@ -3509,7 +3696,10 @@ namespace LocalFormulaRacing
                 {
                     CreateDune(basePosition, i);
                     if (i % 5 == 0) CreateDune(basePosition + right * side * 38f, i + 3);
-                    if (i % 9 == 0) CreateTreeCluster(basePosition - right * side * 22f, i);
+                    // Sparse scrub/rock instead of a dense forest tree cluster - desert
+                    // circuits used to borrow the same canopy CreateTreeCluster gives
+                    // every other archetype, which fought the sun-baked dune/runoff read.
+                    if (i % 9 == 0) CreateDesertScrubCluster(basePosition - right * side * 22f, i);
                 }
                 else
                 {
@@ -3627,6 +3817,14 @@ namespace LocalFormulaRacing
             if (parklandTrack)
             {
                 BuildParklandBackdrop(density);
+            }
+
+            // Austria/Red Bull Ring: real Alpine elevation change, so the elevated
+            // stretches get jagged cliff-face rock dressing rather than reading as just
+            // another entry in the shared parkland bucket.
+            if (id.Contains("austria") || id.Contains("red_bull_ring"))
+            {
+                BuildMountainCliffs(density);
             }
 
             // Hungary/Barcelona: natural amphitheater/rolling-hillside terrain instead
@@ -4119,6 +4317,14 @@ namespace LocalFormulaRacing
                 {
                     CreateTreeCluster(safePosition + right * side * 14f, i + 40);
                 }
+
+                // Occasional rock outcrop at the hill's base - forest circuits get
+                // trees/hills/rocks per the environment brief, not just trees on a
+                // smooth grass mound.
+                if (i % 4 == 1)
+                {
+                    CreateRockCluster(safePosition - right * side * 10f, i + 60);
+                }
             }
 
             // Two further-back layers at increasing distance/height so the forest reads
@@ -4151,6 +4357,32 @@ namespace LocalFormulaRacing
                     farHill.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
                     MakeVisualOnly(farHill);
                 }
+            }
+        }
+
+        // Austria/Red Bull Ring-style Alpine dressing: walks the lap looking for
+        // elevated stretches (the same IsElevatedAtDistance test the continuous barrier
+        // pass uses) and drops a rock-outcrop cluster behind the barrier line there, so
+        // the mountain-circuit read comes from real cliff-face detail at the genuinely
+        // elevated sections instead of only a tinted ridge on the horizon.
+        void BuildMountainCliffs(float density)
+        {
+            int bands = Mathf.Max(4, Mathf.RoundToInt(8f * density));
+            for (int i = 0; i < bands; i++)
+            {
+                float d = Runtime.length * (i / (float)bands);
+                if (!IsElevatedAtDistance(d))
+                {
+                    continue;
+                }
+
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 24f);
+                CreateRockCluster(desired, i + 90);
             }
         }
 
@@ -4207,6 +4439,11 @@ namespace LocalFormulaRacing
 
                 CreateVisualBox("Coastal boardwalk deck", safePosition + Vector3.up * 0.2f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(6f, 0.3f, 26f), weatheredConcreteMaterial);
                 CreateVisualBox("Coastal boardwalk rail", safePosition + Vector3.up * 0.9f + right * 2.9f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(0.14f, 1.1f, 26f), fencePostMaterial);
+
+                // Flat sea surface just beyond the rail - grounds the "coastal" read
+                // with an actual water plane instead of only the dunes/haze already here.
+                GameObject seaWater = CreateVisualBox("Coastal sea water", safePosition + right * 12f + Vector3.up * -0.15f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(40f, 0.05f, 30f), waterMaterial);
+                seaWater.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
 
                 // A palm or two behind the rail on alternating deck segments so the
                 // promenade reads as tropical rather than just a bare concrete strip.
@@ -4513,6 +4750,7 @@ namespace LocalFormulaRacing
         {
             float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
             BuildControlTower();
+            BuildTracksideCrane();
             BuildBillboardGantries(density);
             BuildParkingBlocks(density);
             BuildServiceRoadStrips(density);
@@ -4559,6 +4797,40 @@ namespace LocalFormulaRacing
             if (nightTrack || twilightTrack)
             {
                 CreateVisualBox("Control tower glow strip", basePosition + Vector3.up * (shaftHeight + glassHeight * 0.5f) + right * 3.85f, rotation, new Vector3(0.1f, glassHeight * 0.8f, 7f), lightGlowMaterial);
+            }
+        }
+
+        // One cheap tower-crane silhouette near the pit complex - built once per track
+        // (not scaled with lap length) since it is landmark dressing, not per-meter
+        // scenery, echoing the broadcast/construction crane every real paddock has.
+        void BuildTracksideCrane()
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(Runtime.length * 0.955f, out point, out forward, out right);
+            Vector3 desired = point + right * (Runtime.PitLaneLateral + 62f);
+            Vector3 basePosition;
+            if (!TryGetClearScenerySpot(desired, 10f, 8f, out basePosition))
+            {
+                return;
+            }
+
+            CreateTracksideCrane(new Vector3(basePosition.x, groundTopY, basePosition.z), forward);
+        }
+
+        void CreateTracksideCrane(Vector3 position, Vector3 forward)
+        {
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            const float mastHeight = 22f;
+            CreateVisualBox("Trackside crane mast", position + Vector3.up * mastHeight * 0.5f, rotation, new Vector3(0.6f, mastHeight, 0.6f), metalMaterial);
+            CreateVisualBox("Trackside crane jib", position + Vector3.up * mastHeight + forward * 9f, rotation, new Vector3(0.4f, 0.4f, 18f), metalMaterial);
+            CreateVisualBox("Trackside crane counter-jib", position + Vector3.up * mastHeight - forward * 4.5f, rotation, new Vector3(0.4f, 0.4f, 9f), metalMaterial);
+            CreateVisualBox("Trackside crane counterweight", position + Vector3.up * (mastHeight - 0.4f) - forward * 8.5f, rotation, new Vector3(1.4f, 1.2f, 1.4f), concreteMaterial);
+            CreateVisualBox("Trackside crane cabin", position + Vector3.up * (mastHeight - 1f), rotation, new Vector3(0.9f, 1f, 0.9f), glassMaterial);
+            if (nightTrack || twilightTrack)
+            {
+                CreateVisualBox("Trackside crane beacon", position + Vector3.up * (mastHeight + 0.6f), rotation, new Vector3(0.25f, 0.25f, 0.25f), lightGlowMaterial);
             }
         }
 
@@ -4684,6 +4956,13 @@ namespace LocalFormulaRacing
                 float hullLength = 6.5f + (i % 3) * 3.5f;
                 Vector3 basePos = PushSceneryClearOfTrack(point + right * (Runtime.roadHalfWidth + 24f), 20f + hullLength * 0.3f);
                 Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+
+                // Flat water surface under each yacht slot, overlapping its neighbours
+                // along the promenade, so the marina reads as a real harbour instead of
+                // boats parked on bare runoff ground.
+                GameObject water = CreateVisualBox("Harbour water", new Vector3(basePos.x, groundTopY + 0.04f, basePos.z), rotation, new Vector3(18f, 0.05f, 16f), waterMaterial);
+                water.GetComponent<MeshRenderer>().shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+
                 CreateVisualBox("Harbour yacht hull", basePos + Vector3.up * 0.6f, rotation, new Vector3(2.6f, 1.15f, hullLength), yachtMaterial);
                 CreateVisualBox("Harbour yacht hull stripe", basePos + Vector3.up * 0.98f, rotation, new Vector3(2.65f, 0.14f, hullLength), sceneryAccentMaterial);
                 CreateVisualBox("Harbour yacht cabin", basePos + Vector3.up * 1.55f, rotation, new Vector3(1.7f, 0.95f, hullLength * 0.42f), glassMaterial);
@@ -5047,6 +5326,58 @@ namespace LocalFormulaRacing
             dune.transform.localScale = new Vector3(width, 0.75f, depth);
             dune.GetComponent<Renderer>().sharedMaterial = grassMaterial;
             MakeVisualOnly(dune);
+        }
+
+        // Sparse desert scrub/rock cluster - a couple of low flattened bushes plus a
+        // single rock, standing in for the sun-baked vegetation a desert circuit
+        // actually has instead of the dense forest canopy CreateTreeCluster gives every
+        // other archetype.
+        void CreateDesertScrubCluster(Vector3 position, int index)
+        {
+            Vector3 safePosition = PushSceneryClearOfTrack(position, 14f);
+            for (int i = 0; i < 2; i++)
+            {
+                Vector3 offset = new Vector3((i - 0.5f) * 3.4f, 0f, (index % 3 - 1) * 1.6f);
+                float sizeJitter = 0.7f + ((index * 3 + i) % 4) * 0.12f;
+                GameObject bush = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                bush.name = "Desert scrub bush";
+                bush.transform.SetParent(transform);
+                bush.transform.position = safePosition + offset + Vector3.up * 0.3f * sizeJitter;
+                bush.transform.localScale = new Vector3(0.9f, 0.55f, 0.9f) * sizeJitter;
+                bush.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
+                MakeVisualOnly(bush);
+            }
+
+            GameObject rock = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            rock.name = "Desert rock";
+            rock.transform.SetParent(transform);
+            rock.transform.position = safePosition + new Vector3(1.6f, 0.22f, -1.2f);
+            rock.transform.rotation = Quaternion.Euler(8f, (index * 53) % 360, 5f);
+            rock.transform.localScale = new Vector3(0.85f, 0.42f, 0.68f);
+            rock.GetComponent<Renderer>().sharedMaterial = rockMaterial;
+            MakeVisualOnly(rock);
+        }
+
+        // Jagged rock-outcrop cluster for mountain/forest cliff dressing - a handful of
+        // rotated, size-jittered boxes rather than the smooth spheres the hill/ridge
+        // backdrops use, so a cliff face reads distinctly from a grass-covered hillside.
+        void CreateRockCluster(Vector3 position, int index)
+        {
+            Vector3 safePosition = PushSceneryClearOfTrack(position, 16f);
+            int pieces = 2 + index % 2;
+            for (int p = 0; p < pieces; p++)
+            {
+                Vector3 offset = new Vector3((p - (pieces - 1) * 0.5f) * 2.6f, 0f, (index % 3 - 1) * 1.8f);
+                float sizeJitter = 0.8f + ((index * 5 + p) % 4) * 0.15f;
+                GameObject rock = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                rock.name = "Rock outcrop";
+                rock.transform.SetParent(transform);
+                rock.transform.position = safePosition + offset + Vector3.up * 0.9f * sizeJitter;
+                rock.transform.rotation = Quaternion.Euler((index * 17 + p * 11) % 20, (index * 41 + p * 29) % 360, (index * 7) % 15);
+                rock.transform.localScale = new Vector3(2.2f, 1.8f, 1.7f) * sizeJitter;
+                rock.GetComponent<Renderer>().sharedMaterial = rockMaterial;
+                MakeVisualOnly(rock);
+            }
         }
 
         void BuildRacingLine()
