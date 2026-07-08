@@ -725,6 +725,7 @@ namespace LocalFormulaRacing
             SortRunningOrder();
             CheckIllegalOvertakesUnderYellow();
             UpdateOvertakeAndFastestLapNotifications();
+            UpdatePlayerAutoPitStrategy();
             UpdateRaceEngineer();
             UpdateWeatherTransition();
             UpdateRaceControl();
@@ -2994,6 +2995,69 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Automatic pit stop fix: if the player set a stop plan on the
+        // strategy screen and hasn't manually called for a stop themselves,
+        // the car boxes on its own once the planned lap is reached - the
+        // plan previously only ever surfaced as an engineer reminder message
+        // (see the "Box this lap for..." line in UpdateRaceEngineer below),
+        // with nothing actually acting on it, so a player who missed or
+        // ignored that message never pitted at all. Runs every tick,
+        // independent of the engineer message queue (which has several
+        // early-return branches for other one-shot messages), so a message
+        // skipped on a busy frame can never also skip the actual stop. Any
+        // manual request (the P key, on any lap) sets vehicle.PitRequested
+        // itself and is always checked first here, so it always wins and is
+        // never second-guessed or replaced by the plan.
+        void UpdatePlayerAutoPitStrategy()
+        {
+            if (PlayerParticipant == null || PlayerParticipant.vehicle == null || PlayerParticipant.lapTracker == null ||
+                CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
+            {
+                return;
+            }
+
+            if (PlayerParticipant.isPitting || PlayerParticipant.pitPhase != PitPhase.None ||
+                PlayerParticipant.vehicle.PitRequested || PlayerParticipant.retired || PlayerParticipant.finished)
+            {
+                return;
+            }
+
+            if (!ShouldPromptPlannedStop(PlayerParticipant))
+            {
+                return;
+            }
+
+            // Same completedLaps >= targetLap trigger point UpdateRaceEngineer's
+            // "Box this lap for..." message already uses, so the automatic stop
+            // and the message the player sees stay in lockstep instead of
+            // introducing a second, slightly different lap-comparison convention.
+            int targetLap = NextPlannedPitLapFor(PlayerParticipant);
+            int completedLaps = PlayerParticipant.lapTracker.CompletedLaps;
+            if (completedLaps < targetLap)
+            {
+                return;
+            }
+
+            PlayerParticipant.vehicle.RequestPit();
+            PlayerParticipant.pitAutoTriggered = true;
+            if (!PlayerParticipant.requestedPitCompoundSet)
+            {
+                PlayerParticipant.requestedPitCompound = NextPlannedPitCompoundFor(PlayerParticipant);
+                PlayerParticipant.requestedPitCompoundSet = true;
+            }
+
+            SessionMessage = "Auto-pit: strategy plan (" + PlayerParticipant.requestedPitCompound + ")";
+            GameLog.Info("[Pit] Auto-triggered planned stop for player at lap " + completedLaps + " (target " + targetLap + "), compound=" + PlayerParticipant.requestedPitCompound + ".");
+            if (Settings != null && Settings.Current.raceControlMessages)
+            {
+                // Distinct from the earlier "Box this lap for..." reminder in
+                // UpdateRaceEngineer (a heads-up before the fact) - this
+                // confirms the car has actually committed to the stop on its
+                // own, since the player never pressed the pit key themselves.
+                PostEngineerMessage("Boxing automatically per the strategy plan - " + PlayerParticipant.requestedPitCompound + "s fitted this stop.", true);
+            }
+        }
+
         void UpdateRaceEngineer()
         {
             if (PlayerParticipant == null || PlayerParticipant.vehicle == null || PlayerParticipant.lapTracker == null)
@@ -3337,14 +3401,22 @@ namespace LocalFormulaRacing
                 return "PIT TYRE " + participant.requestedPitCompound + "  1S 2M 3H 4I 5W";
             }
 
-            if (participant.pitStops > 0)
-            {
-                return "MANDATORY STOP COMPLETE";
-            }
-
+            // Pit strategy display fix: this used to check pitStops > 0 first,
+            // so a 2-stop plan's already-queued second request showed the
+            // stale "MANDATORY STOP COMPLETE" from stop 1 instead of the
+            // actually-queued state - checked first here instead, and now
+            // distinguishes an auto-scheduled stop (the strategy plan
+            // triggered it) from a manually-called one for the HUD.
             if (participant.vehicle != null && participant.vehicle.PitRequested)
             {
-                return "PIT REQUEST QUEUED";
+                return participant.pitAutoTriggered
+                    ? "AUTO-PIT QUEUED  " + participant.requestedPitCompound
+                    : "PIT REQUEST QUEUED";
+            }
+
+            if (participant.pitStops > 0 && NextPlannedPitLapFor(participant) <= 0)
+            {
+                return "MANDATORY STOP COMPLETE";
             }
 
             return "MANDATORY STOP REQUIRED";
@@ -3501,6 +3573,11 @@ namespace LocalFormulaRacing
             participant.pitTyreSelectionActive = true;
             participant.requestedPitCompound = participant.requestedPitCompoundSet ? participant.requestedPitCompound : NextPitCompound(participant);
             participant.requestedPitCompoundSet = true;
+            // Explicit manual call (the P key) always overrides/replaces
+            // whatever the strategy plan would have done - see
+            // UpdatePlayerAutoPitStrategy, which never fires once
+            // vehicle.PitRequested is already latched true from here.
+            participant.pitAutoTriggered = false;
             SessionMessage = "Pit request: choose tyre 1-5";
             PostEngineerMessage("Pit request received. Select tyres: 1 Soft, 2 Medium, 3 Hard, 4 Intermediate, 5 Wet.", true);
         }
@@ -3943,61 +4020,67 @@ namespace LocalFormulaRacing
 
             if (difficulty == RaceDifficulty.Hard)
             {
-                // Nudged up from the previous Hard tier so the Hard -> Expert gap stays
-                // meaningful once Expert is pushed to its ceiling below - Hard is now a
-                // clearly strong, but not ruthless, tier of its own.
+                // Slight nerf pass: Hard and Expert were a little too strong -
+                // pulled back a notch on pace, reaction time, cornering
+                // confidence and consistency (apexErrorMeters/mistakeChancePerLap)
+                // without touching Easy/Medium at all and without collapsing the
+                // Medium -> Hard -> Expert gap. Hard stays clearly strong, just
+                // no longer quite as razor-sharp as before.
                 return new AiDifficultyProfile
                 {
-                    brakeDistanceMultiplier = 1.04f,
-                    minimumCornerSpeedConfidence = 0.96f,
-                    apexErrorMeters = 0.55f,
-                    throttleDelay = 0.11f,
-                    exitThrottleConfidence = 0.93f,
-                    lineOffsetNoise = 0.28f,
-                    reactionTimeSeconds = 0.26f,
-                    overtakeCommitment = 0.82f,
-                    defendCommitment = 0.84f,
-                    ersDeploymentQuality = 0.90f,
-                    drsUsageQuality = 0.97f,
-                    mistakeChancePerLap = 0.032f,
-                    trafficAvoidanceCaution = 0.65f,
-                    wetWeatherCaution = 0.95f,
-                    tyreSavingBias = 0.10f,
-                    paceMultiplier = 1.12f,
-                    cornerSpeedMultiplier = 1.10f,
+                    brakeDistanceMultiplier = 1.00f,
+                    minimumCornerSpeedConfidence = 0.92f,
+                    apexErrorMeters = 0.75f,
+                    throttleDelay = 0.16f,
+                    exitThrottleConfidence = 0.89f,
+                    lineOffsetNoise = 0.36f,
+                    reactionTimeSeconds = 0.32f,
+                    overtakeCommitment = 0.77f,
+                    defendCommitment = 0.79f,
+                    ersDeploymentQuality = 0.87f,
+                    drsUsageQuality = 0.94f,
+                    mistakeChancePerLap = 0.045f,
+                    trafficAvoidanceCaution = 0.74f,
+                    wetWeatherCaution = 0.98f,
+                    tyreSavingBias = 0.12f,
+                    paceMultiplier = 1.08f,
+                    cornerSpeedMultiplier = 1.06f,
                     straightSpeedMultiplier = 1.00f,
-                    brakeConfidenceMultiplier = 1.18f,
-                    throttleAggressionMultiplier = 1.32f
+                    brakeConfidenceMultiplier = 1.10f,
+                    throttleAggressionMultiplier = 1.20f
                 };
             }
 
-            // Expert - pushed to the practical ceiling on every decision-quality axis
-            // (Part A.1). straightSpeedMultiplier is the one hard rule that can never
-            // move past 1.0 since it scales against vehicle.TargetTopSpeedKph, the
-            // same DRS/ERS-aware physics ceiling the player's own car uses; every
-            // other axis here is at or effectively at its practical maximum.
+            // Expert - still the ceiling tier, but no longer AT the absolute
+            // practical ceiling on every axis (slight nerf pass, same intent as
+            // Hard above). straightSpeedMultiplier is still the one hard rule
+            // that can never move past 1.0, since it scales against
+            // vehicle.TargetTopSpeedKph, the same DRS/ERS-aware physics ceiling
+            // the player's own car uses. Expert should still comfortably punish
+            // sloppy driving - it just no longer reacts and corners with
+            // literally zero margin for error.
             return new AiDifficultyProfile
             {
-                brakeDistanceMultiplier = 1.10f,
-                minimumCornerSpeedConfidence = 1.00f,
-                apexErrorMeters = 0.05f,
-                throttleDelay = 0.01f,
-                exitThrottleConfidence = 1.00f,
-                lineOffsetNoise = 0.05f,
-                reactionTimeSeconds = 0.04f,
-                overtakeCommitment = 0.99f,
-                defendCommitment = 0.99f,
-                ersDeploymentQuality = 1.00f,
-                drsUsageQuality = 1.00f,
-                mistakeChancePerLap = 0.0015f,
-                trafficAvoidanceCaution = 0.22f,
-                wetWeatherCaution = 0.85f,
-                tyreSavingBias = 0.05f,
-                paceMultiplier = 1.20f,
-                cornerSpeedMultiplier = 1.20f,
+                brakeDistanceMultiplier = 1.06f,
+                minimumCornerSpeedConfidence = 0.97f,
+                apexErrorMeters = 0.22f,
+                throttleDelay = 0.05f,
+                exitThrottleConfidence = 0.97f,
+                lineOffsetNoise = 0.12f,
+                reactionTimeSeconds = 0.11f,
+                overtakeCommitment = 0.93f,
+                defendCommitment = 0.93f,
+                ersDeploymentQuality = 0.96f,
+                drsUsageQuality = 0.98f,
+                mistakeChancePerLap = 0.0045f,
+                trafficAvoidanceCaution = 0.31f,
+                wetWeatherCaution = 0.88f,
+                tyreSavingBias = 0.07f,
+                paceMultiplier = 1.15f,
+                cornerSpeedMultiplier = 1.15f,
                 straightSpeedMultiplier = 1.00f,
-                brakeConfidenceMultiplier = 1.50f,
-                throttleAggressionMultiplier = 1.80f
+                brakeConfidenceMultiplier = 1.36f,
+                throttleAggressionMultiplier = 1.60f
             };
         }
 
@@ -4808,6 +4891,51 @@ namespace LocalFormulaRacing
                     aiDrivers.Add(candidate);
                     removed--;
                 }
+            }
+
+            // Missing-teammate fix: Data.GetAiRaceDrivers only backfills
+            // same-team drivers (including the player's actual teammate)
+            // once every other team's drivers are already in the list - a
+            // two-pass "exclude the whole player team, then top up from the
+            // full roster" design that only happens to include the teammate
+            // because FullWeekendAiCount currently lines up exactly with the
+            // roster size. That's fragile (the shared GetAiRaceDrivers is
+            // also used by PickRivalId with a much smaller count, where the
+            // same-team backfill pass never runs at all), so guarantee the
+            // teammate's presence explicitly and directly here instead of
+            // depending on that arithmetic coincidence. Evicts the single
+            // lowest-priority (last) entry to make room rather than growing
+            // the field past its intended size.
+            for (int i = 0; i < Data.Drivers.drivers.Count; i++)
+            {
+                DriverData candidate = Data.Drivers.drivers[i];
+                if (candidate.teamId != playerTeamId || candidate.id == replacedId)
+                {
+                    continue;
+                }
+
+                bool alreadyIncluded = false;
+                for (int j = 0; j < aiDrivers.Count; j++)
+                {
+                    if (aiDrivers[j].id == candidate.id)
+                    {
+                        alreadyIncluded = true;
+                        break;
+                    }
+                }
+
+                if (alreadyIncluded)
+                {
+                    continue;
+                }
+
+                GameLog.Warn("[Roster] Teammate '" + candidate.displayName + "' (" + candidate.id + ") was missing from the AI roster - adding explicitly.");
+                if (aiDrivers.Count >= FullWeekendAiCount && aiDrivers.Count > 0)
+                {
+                    aiDrivers.RemoveAt(aiDrivers.Count - 1);
+                }
+
+                aiDrivers.Add(candidate);
             }
 
             return aiDrivers;
@@ -6095,6 +6223,7 @@ namespace LocalFormulaRacing
             participant.compoundStints.Add(participant.nextPitCompound.ToString());
             participant.requestedPitCompoundSet = false;
             participant.pitTyreSelectionActive = false;
+            participant.pitAutoTriggered = false;
             participant.pitTimer = 0f;
             // The release gap only throttles how often a new car is admitted to
             // Release - a car already guided toward the (single) release point can

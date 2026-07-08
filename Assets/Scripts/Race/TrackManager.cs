@@ -553,6 +553,7 @@ namespace LocalFormulaRacing
             BuildContinuousEdgeBarriers();
             BuildTrackMarkers();
             BuildDrsZoneBoards();
+            BuildTimingGantries();
             BuildAdvertisingHoardings();
             BuildPitLane();
             BuildStartGantry();
@@ -2440,6 +2441,27 @@ namespace LocalFormulaRacing
         const float StreetEdgeBarrierStep = 8f;
         const float EdgeBarrierOverlap = 2f;
         const float EdgeBarrierMinHeight = 1.1f;
+
+        // Barrier gap fix (rework, not a one-number tweak): every edge-barrier
+        // style used to pick its own, wildly inconsistent, standoff from the
+        // paved edge (Armco +2.6m, street wall +2.0m, elevated concrete +1.15m)
+        // which is why the old "fix" (bringing Armco in from +5.5m) still read
+        // as a wide empty runoff strip almost everywhere - and why the elevated
+        // style, at +1.15m, actually sat CLOSER to the road than the game's own
+        // track-limit leniency (a car legally riding the kerb out to
+        // roadHalfWidth+1.3 could clip a bridge wall that was supposedly there
+        // to stop it falling off). EdgeBarrierClearance is now the single
+        // source of truth for how far past that same +1.3 leniency boundary
+        // every style's NEAR FACE sits (not its center - see the per-style half-
+        // width constants below, used both to place each barrier and as the
+        // minimumClearance passed into TryPlaceSolidObstacle so a curvature-
+        // triggered repair targets this same tight distance instead of
+        // silently reintroducing a wide gap on bends).
+        const float EdgeBarrierClearance = 1.5f;
+        const float ArmcoHalfWidth = 0.08f;
+        const float StreetWallHalfWidth = 0.225f;
+        const float ConcreteWallHalfWidth = 0.25f;
+        const float TyreStackHalfWidth = 0.6f;
         const float HighRiskCornerAngle = 55f;
         const float HighSpeedTrackLength = 5000f;
 
@@ -2513,30 +2535,40 @@ namespace LocalFormulaRacing
             if (elevated)
             {
                 style = EdgeBarrierStyle.Elevated;
-                baseLateral = Runtime.roadHalfWidth + 1.15f;
+                baseLateral = Runtime.roadHalfWidth + EdgeBarrierClearance + ConcreteWallHalfWidth;
                 catchFence = NeedsCatchFence(distance);
                 tyreStack = false;
             }
             else if (streetTrack)
             {
                 style = EdgeBarrierStyle.StreetWall;
-                baseLateral = Runtime.roadHalfWidth + 2f;
+                baseLateral = Runtime.roadHalfWidth + EdgeBarrierClearance + StreetWallHalfWidth;
                 catchFence = true;
                 tyreStack = false;
             }
             else
             {
                 style = EdgeBarrierStyle.Armco;
-                // Barrier gap fix: this used to sit at +5.5m, which left a wide,
-                // visually empty band of nothing between the kerb (which ends
-                // around +1.3m) and the rail. Pulled in to hug the edge like the
-                // street/elevated styles already do - see CreateArmcoSegment for
-                // the matching clearance-profile tightening this requires.
-                baseLateral = Runtime.roadHalfWidth + 2.6f;
                 // High-speed circuits get a catch fence along their fast (non-corner)
                 // stretches specifically; every circuit gets tyre stacks at its worst corners.
                 catchFence = highSpeedTrack && !nearHighRiskCorner;
                 tyreStack = nearHighRiskCorner;
+                if (tyreStack)
+                {
+                    // At a tyre-stack corner the stack itself becomes the
+                    // track-facing layer (placed by CreateEdgeBarrierSegment
+                    // hugging the same EdgeBarrierClearance line the rail uses
+                    // everywhere else) and the rail sits directly behind it as
+                    // the rigid backstop - not the other way around, and not
+                    // sitting coincident with the stack, so there's no gap
+                    // between the two and no gap between the stack and the
+                    // track edge either.
+                    baseLateral = Runtime.roadHalfWidth + EdgeBarrierClearance + TyreStackHalfWidth * 2f + ArmcoHalfWidth;
+                }
+                else
+                {
+                    baseLateral = Runtime.roadHalfWidth + EdgeBarrierClearance + ArmcoHalfWidth;
+                }
             }
 
             float lateral = baseLateral;
@@ -2609,7 +2641,13 @@ namespace LocalFormulaRacing
 
             if (wantsTyreStack)
             {
-                CreateTyreBarrierStack(basePosition + right * side * 1.6f, chordForward, Mathf.Min(segmentLength, 4.6f));
+                // Placed on its own absolute hug line (not relative to the
+                // rail's basePosition, which BuildBarrierSegmentForSide has
+                // already pushed further out specifically to leave room for
+                // this stack) so the stack itself is what actually sits
+                // against the track edge, with the rail directly behind it.
+                Vector3 stackPosition = mid + right * side * (Runtime.roadHalfWidth + EdgeBarrierClearance + TyreStackHalfWidth);
+                CreateTyreBarrierStack(stackPosition, chordForward, Mathf.Min(segmentLength, 4.6f));
             }
         }
 
@@ -2624,7 +2662,11 @@ namespace LocalFormulaRacing
             Vector3 scale = new Vector3(0.45f, EdgeBarrierMinHeight, segmentLength);
             wall.transform.localScale = scale;
             wall.GetComponent<Renderer>().sharedMaterial = stripeIndex % 2 == 0 ? barrierMaterial : sceneryAccentMaterial;
-            if (!TryPlaceSolidObstacle(wall, "street-wall", basePosition, forward, scale, EdgeBarrierMinHeight * 0.5f, 1.15f))
+            // minimumClearance matches EdgeBarrierClearance exactly (not a
+            // smaller safety-margin-only value) so a curvature-triggered
+            // repair in TryPlaceSolidObstacle targets this same tight hug
+            // line instead of quietly reintroducing a wider gap on a bend.
+            if (!TryPlaceSolidObstacle(wall, "street-wall", basePosition, forward, scale, EdgeBarrierMinHeight * 0.5f, EdgeBarrierClearance))
             {
                 return;
             }
@@ -2636,6 +2678,11 @@ namespace LocalFormulaRacing
             if (nightTrack || twilightTrack)
             {
                 CreateVisualBox("Street wall light strip", placed + Vector3.up * 1.05f, rotation, new Vector3(0.4f, 0.08f, segmentLength - 0.3f), lightGlowMaterial);
+            }
+
+            if (stripeIndex % 46 == 5)
+            {
+                CreateMarshalGapAccent(placed, placedForward, segmentLength);
             }
         }
 
@@ -2650,16 +2697,16 @@ namespace LocalFormulaRacing
             Vector3 scale = new Vector3(0.16f, EdgeBarrierMinHeight, segmentLength);
             rail.transform.localScale = scale;
             rail.GetComponent<Renderer>().sharedMaterial = armcoMaterial;
-            // Barrier gap fix: minimumClearance must stay well under the rail's
-            // own ~2.5m distance from the paved edge (baseLateral 2.6m minus the
-            // rail's own half-width) or IsObstacleClearOfRacingSurface would
-            // treat every single segment as "too close" and hand it straight to
-            // the repair path in TryPlaceSolidObstacle, which used to be exactly
-            // what pushed Armco segments back out to a much wider gap than
-            // intended (and, on curves, inconsistently from one segment to the
-            // next). 1.8m leaves real margin for curvature-induced measurement
-            // noise while still comfortably clearing the kerb line (~1.3m).
-            if (!TryPlaceSolidObstacle(rail, "armco-rail", basePosition, forward, scale, EdgeBarrierMinHeight * 0.5f, 1.8f))
+            // Barrier gap fix: minimumClearance must equal the same
+            // EdgeBarrierClearance the rail's own basePosition was placed
+            // with (see BuildBarrierSegmentForSide), not some larger,
+            // independently-chosen safety margin - otherwise
+            // IsObstacleClearOfRacingSurface treats every single segment as
+            // "too close" (since the rail deliberately sits right at that
+            // line) and hands it to the repair path in TryPlaceSolidObstacle,
+            // which would then push every Armco segment back out to a wider,
+            // inconsistent gap - exactly the bug this pass exists to remove.
+            if (!TryPlaceSolidObstacle(rail, "armco-rail", basePosition, forward, scale, EdgeBarrierMinHeight * 0.5f, EdgeBarrierClearance))
             {
                 return;
             }
@@ -2673,6 +2720,36 @@ namespace LocalFormulaRacing
             {
                 CreateVisualBox("Armco post", placed - Vector3.up * (EdgeBarrierMinHeight * 0.5f - 0.02f), rotation, new Vector3(0.1f, 0.42f, 0.12f), fencePostMaterial);
             }
+
+            if (stripeIndex % 46 == 5)
+            {
+                CreateMarshalGapAccent(placed, placedForward, segmentLength);
+            }
+        }
+
+        // Cosmetic marshal-access marker: a short diagonal hazard-striped panel
+        // flanked by two posts, standing in for the walk-through gaps marshals use to
+        // reach the fence line at a barrier run. The rail segment underneath keeps its
+        // own full collision (see TryPlaceSolidObstacle above) - this never opens an
+        // actual gap a car could find, only reads as one from the chase camera, the
+        // same "decorative access point" idiom CreateMarshalPost's own fence-with-gap
+        // already uses a level further back from the track.
+        void CreateMarshalGapAccent(Vector3 basePosition, Vector3 forward, float segmentLength)
+        {
+            Vector3 right = Vector3.Cross(Vector3.up, forward).normalized;
+            Quaternion diagonal = Quaternion.LookRotation((forward + right * 0.6f).normalized, Vector3.up);
+            const int stripes = 4;
+            for (int i = 0; i < stripes; i++)
+            {
+                float t = (i - (stripes - 1) * 0.5f) * 0.5f;
+                Material stripeMaterial = i % 2 == 0 ? flagYellowMaterial : checkerDarkMaterial;
+                CreateVisualBox("Marshal gap hazard stripe", basePosition + forward * t + right * 0.11f + Vector3.up * (EdgeBarrierMinHeight * 0.5f), diagonal, new Vector3(0.05f, EdgeBarrierMinHeight * 0.9f, 0.55f), stripeMaterial);
+            }
+
+            float postOffset = segmentLength * 0.5f - 0.1f;
+            Quaternion postRotation = Quaternion.LookRotation(forward, Vector3.up);
+            CreateVisualBox("Marshal gap post", basePosition - forward * postOffset + right * 0.12f, postRotation, new Vector3(0.1f, EdgeBarrierMinHeight + 0.15f, 0.1f), fencePostMaterial);
+            CreateVisualBox("Marshal gap post", basePosition + forward * postOffset + right * 0.12f, postRotation, new Vector3(0.1f, EdgeBarrierMinHeight + 0.15f, 0.1f), fencePostMaterial);
         }
 
         void CreateTyreBarrierStack(Vector3 position, Vector3 forward, float length)
@@ -2705,10 +2782,11 @@ namespace LocalFormulaRacing
             Runtime.SampleAtDistance(distance, out point, out forward, out right);
             for (int side = -1; side <= 1; side += 2)
             {
-                // Sits just inside the (now tighter) Armco line at
-                // roadHalfWidth+2.6f so the stack still reads as sitting in the
-                // runoff in front of the wall, not coincident with it.
-                CreateTyreBarrierStack(point + right * side * (Runtime.roadHalfWidth + 1.9f), forward, 4.6f);
+                // Same absolute hug line every other tyre stack uses (see
+                // CreateEdgeBarrierSegment) so an elevation transition reads
+                // as continuous with the rest of the barrier run instead of
+                // opening its own gap right at the transition point.
+                CreateTyreBarrierStack(point + right * side * (Runtime.roadHalfWidth + EdgeBarrierClearance + TyreStackHalfWidth), forward, 4.6f);
             }
         }
 
@@ -2829,7 +2907,15 @@ namespace LocalFormulaRacing
             Vector3 scale = new Vector3(0.5f, 1.25f, segmentLength);
             wall.transform.localScale = scale;
             wall.GetComponent<Renderer>().sharedMaterial = concreteMaterial;
-            TryPlaceSolidObstacle(wall, "bridge-wall", basePosition, forward, scale, 0.62f, 0.5f);
+            // Barrier gap fix: this used to allow just 0.5m of clearance, which
+            // (at the old +1.15m baseLateral) put the wall's near face inside
+            // the game's own +1.3m track-limit leniency zone - a car legally
+            // riding the full width of the kerb could clip a wall that exists
+            // specifically to stop it falling off an elevated section.
+            // EdgeBarrierClearance matches the placement in
+            // BuildBarrierSegmentForSide so the wall both hugs the edge and
+            // stays safely past that leniency boundary.
+            TryPlaceSolidObstacle(wall, "bridge-wall", basePosition, forward, scale, 0.62f, EdgeBarrierClearance);
         }
 
         void CreateCatchFence(Vector3 basePosition, Vector3 forward, float segmentLength)
@@ -3395,6 +3481,51 @@ namespace LocalFormulaRacing
             textMesh.anchor = TextAnchor.MiddleCenter;
             textMesh.alignment = TextAlignment.Center;
             textMesh.color = new Color(0.9f, 0.96f, 1f, 0.95f);
+        }
+
+        // Intermediate timing-loop gantries at each sector split, distinct from
+        // BuildStartGantry's double-boom/lights/checker treatment below - a single
+        // slender boom with a lit loop strip and a split-number panel, echoing the
+        // timing gantries real circuits hang over the track at every split point
+        // rather than only at start/finish.
+        void BuildTimingGantries()
+        {
+            CreateTimingGantry(Runtime.length * 0.333f, "1");
+            CreateTimingGantry(Runtime.length * 0.666f, "2");
+        }
+
+        void CreateTimingGantry(float distance, string label)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            Vector3 left = point - right * (Runtime.roadHalfWidth + 2.4f);
+            Vector3 rightSide = point + right * (Runtime.roadHalfWidth + 2.4f);
+            CreateGantryPost(left, forward);
+            CreateGantryPost(rightSide, forward);
+
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            float span = Runtime.roadHalfWidth * 2.15f;
+            CreateVisualBox("Timing gantry boom", point + Vector3.up * 6.3f, rotation, new Vector3(span, 0.24f, 0.55f), metalMaterial);
+
+            // Thin lit loop strip standing in for the inductive timing loop's own
+            // status lights - uses lightGlowMaterial (already night/twilight boosted)
+            // rather than gantryRaceControlLightMaterial, since a sector timing loop
+            // isn't part of race control's SC/VSC/flag state.
+            CreateVisualBox("Timing gantry loop strip", point + Vector3.up * 6.05f, rotation, new Vector3(span * 0.94f, 0.05f, 0.06f), lightGlowMaterial);
+
+            GameObject text = new GameObject("Timing gantry text");
+            text.transform.SetParent(transform);
+            text.transform.position = point + Vector3.up * 6.55f - forward.normalized * 0.32f;
+            text.transform.rotation = Quaternion.LookRotation(-forward, Vector3.up);
+            TextMesh textMesh = text.AddComponent<TextMesh>();
+            textMesh.text = "SPLIT " + label;
+            textMesh.fontSize = 32;
+            textMesh.characterSize = 0.09f;
+            textMesh.anchor = TextAnchor.MiddleCenter;
+            textMesh.alignment = TextAlignment.Center;
+            textMesh.color = new Color(0.85f, 0.9f, 0.95f, 0.95f);
         }
 
         void CreateTrackLine(float distance, string markerName, Color color, float depth)
@@ -5554,6 +5685,19 @@ namespace LocalFormulaRacing
             for (int pylon = -1; pylon <= 1; pylon++)
             {
                 CreateVisualBox("Grandstand pylon", basePosition + lateral * 7.2f + forward * pylon * 9.5f + Vector3.up * 2.7f, rotation, new Vector3(0.4f, 5.4f, 0.4f), metalMaterial);
+            }
+
+            // Sponsor-neutral bunting flags strung along the roof fascia so the stand
+            // reads as dressed for a race weekend rather than a bare metal shelf from a
+            // distance - cycles the same invented SponsorPalette the trackside boards
+            // already share instead of adding another colour set.
+            const int buntingCount = 7;
+            for (int i = 0; i < buntingCount; i++)
+            {
+                float t = (i - (buntingCount - 1) * 0.5f) / buntingCount;
+                Material buntingMaterial = CreateMaterial("Grandstand bunting flag material", SponsorPalette[i % SponsorPalette.Length], 0.02f, 0.4f);
+                Vector3 buntingPosition = roofCenter - lateral * 4.7f - Vector3.up * 0.95f + forward * t * 21f;
+                CreateVisualBox("Grandstand bunting flag", buntingPosition, rotation * Quaternion.Euler(0f, 0f, 18f), new Vector3(0.04f, 0.4f, 0.5f), buntingMaterial);
             }
         }
 

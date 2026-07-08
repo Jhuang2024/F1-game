@@ -120,6 +120,12 @@ namespace LocalFormulaRacing
         public bool requestedPitCompoundSet;
         public bool pitTyreSelectionActive;
         public bool mandatoryPitPenaltyApplied;
+        // Automatic pit stop fix: distinguishes a pit request the strategy
+        // plan triggered on its own from one the player actively called (P
+        // key) or picked a tyre for, purely so the HUD can tell the player
+        // which one just happened - see RaceManager.UpdatePlayerAutoPitStrategy
+        // and RaceHud's pit card.
+        public bool pitAutoTriggered;
 
         // Full safety car convoy autopilot (RaceManager.BuildRaceControlAutopilotCommand):
         // this car's slot in the queue (0 = right behind the safety car), the

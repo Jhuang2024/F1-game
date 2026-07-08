@@ -1617,9 +1617,16 @@ namespace LocalFormulaRacing
                 Save.driverStandings.RemoveAll(entry => entry.id == replacedDriverId);
             }
 
+            // Missing-teammate fix: this overflow trim used to remove
+            // whichever non-player entry happened to sit last in the list,
+            // with no regard for who that was - if it ever landed on the
+            // player's own teammate, they'd silently vanish from the
+            // championship standings/leaderboard even though they were still
+            // racing every round. Never evict a driver on the player's own
+            // team; only trim from everyone else.
             while (Save.driverStandings.Count > 22)
             {
-                int removeIndex = Save.driverStandings.FindLastIndex(entry => entry.id != "player");
+                int removeIndex = Save.driverStandings.FindLastIndex(entry => entry.id != "player" && entry.teamId != Save.playerTeamId);
                 if (removeIndex < 0)
                 {
                     break;

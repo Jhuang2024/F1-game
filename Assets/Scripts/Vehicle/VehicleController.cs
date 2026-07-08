@@ -153,6 +153,17 @@ namespace LocalFormulaRacing
             PitRequested = false;
         }
 
+        // Automatic pit stop fix: lets RaceManager latch a pit request directly
+        // (e.g. the player's pre-race strategy plan reaching its target lap
+        // without them pressing the manual pit key) without going through
+        // SetCommand, which would otherwise require overwriting this frame's
+        // whole throttle/steer/brake command just to smuggle pitRequest=true
+        // through it.
+        public void RequestPit()
+        {
+            PitRequested = true;
+        }
+
         public void CompletePitStop(TyreCompound compound)
         {
             Tyres.Reset(compound);

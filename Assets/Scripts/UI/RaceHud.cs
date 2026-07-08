@@ -762,13 +762,28 @@ namespace LocalFormulaRacing
             qualifyingCard.SetActive(false);
         }
 
+        // Radio card sizing (2-line clipping fix): CreateHudCard's fixed height
+        // combined with CreateText's default VerticalWrapMode.Truncate meant
+        // any engineer message longer than what fit in ~72px (about two lines)
+        // was silently cut off with no visual sign anything was missing. The
+        // card now grows to fit the actual message (see UpdateRadioCard),
+        // bounded so a short message still reads as a compact pill and a
+        // pathological one can't run away with the whole HUD stack.
+        const float RadioCardMinHeight = 72f;
+        const float RadioCardMaxHeight = 172f;
+
         void BuildRadioCard()
         {
-            RectTransform card = UiFactory.CreateHudCard(rightStack, "Radio", RightStackWidth, 72f, UiFactory.AccentGreen);
+            RectTransform card = UiFactory.CreateHudCard(rightStack, "Radio", RightStackWidth, RadioCardMinHeight, UiFactory.AccentGreen);
             radioCard = card.gameObject;
             radioCardGroup = radioCard.AddComponent<CanvasGroup>();
             radioCardRect = card;
             radioText = UiFactory.CreateText(card, "Radio message", "", 14, new Color(0.82f, 0.94f, 1f), TextAnchor.UpperLeft);
+            // Overflow, not the CreateText default of Truncate - the card is
+            // now sized to fit the text (below), but Overflow is kept as a
+            // second safety net so even a message that somehow exceeds
+            // RadioCardMaxHeight still reads in full instead of being cut off.
+            radioText.verticalOverflow = VerticalWrapMode.Overflow;
             RectTransform radioRect = radioText.GetComponent<RectTransform>();
             radioRect.anchorMin = Vector2.zero;
             radioRect.anchorMax = Vector2.one;
@@ -781,6 +796,38 @@ namespace LocalFormulaRacing
             badgeRect.offsetMin = new Vector2(14f, -20f);
             badgeRect.offsetMax = new Vector2(-10f, -4f);
             radioCard.SetActive(false);
+        }
+
+        // Greedy word-wrap simulation matching Unity's own Text wrapping
+        // closely enough to size the card correctly, without depending on
+        // TextGenerator/ContentSizeFitter APIs whose exact behavior varies
+        // with canvas scaling. Slightly over-estimating line count is the
+        // safe direction (a touch of extra empty space) - under-estimating is
+        // the one that would reintroduce clipping, which Overflow above
+        // already guards against regardless.
+        static int EstimateWrappedLineCount(string text, float approxCharsPerLine)
+        {
+            if (string.IsNullOrEmpty(text))
+            {
+                return 1;
+            }
+
+            string[] words = text.Split(' ');
+            int lines = 1;
+            float lineLength = 0f;
+            for (int i = 0; i < words.Length; i++)
+            {
+                float wordLength = words[i].Length + 1;
+                if (lineLength > 0f && lineLength + wordLength > approxCharsPerLine)
+                {
+                    lines++;
+                    lineLength = 0f;
+                }
+
+                lineLength += wordLength;
+            }
+
+            return lines;
         }
 
         void BuildCenterOverlays()
@@ -1044,6 +1091,24 @@ namespace LocalFormulaRacing
             radioText.text = engineerText.StartsWith("ENGINEER: ") ? engineerText.Substring(10) : engineerText;
             int queued = race.EngineerMessageQueueDepth;
             radioQueueBadge.text = queued > 0 ? "+" + queued : "";
+
+            // 2-line clipping fix: grow the card to fit however many lines
+            // this specific message actually wraps to (min/max bounded), then
+            // force an immediate layout rebuild so the right-side stack
+            // reflows around the new height in the same frame - deferring the
+            // rebuild would leave radioCardRestPosition (read right after,
+            // for the slide-in animation below) stale by one frame.
+            float textWidth = RightStackWidth - 24f;
+            float approxCharsPerLine = Mathf.Max(10f, textWidth / 7.2f);
+            int wrappedLines = EstimateWrappedLineCount(radioText.text, approxCharsPerLine);
+            float contentHeight = 32f + wrappedLines * 18f + 10f;
+            float cardHeight = Mathf.Clamp(contentHeight, RadioCardMinHeight, RadioCardMaxHeight);
+            if (!Mathf.Approximately(radioCardRect.sizeDelta.y, cardHeight))
+            {
+                radioCardRect.sizeDelta = new Vector2(RightStackWidth, cardHeight);
+                LayoutRebuilder.ForceRebuildLayoutImmediate(rightStack);
+                radioCardRestPosition = radioCardRect.anchoredPosition;
+            }
 
             bool animate = race.Settings == null || race.Settings.Current.uiAnimations;
             float progress = animate ? race.EngineerMessageAnimProgress01 : 1f;

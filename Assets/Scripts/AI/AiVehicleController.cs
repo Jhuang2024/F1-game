@@ -1159,7 +1159,9 @@ namespace LocalFormulaRacing
                         // Part A.3: Expert alone can trigger an attack on a genuine
                         // positive speed delta by itself, without needing DRS, a
                         // braking zone or the wider "clearly slower" margin above.
-                        bool positiveSpeedDeltaExpert = isExpert && speedDeltaKph > 0.5f;
+                        // Slight nerf pass: needs a bit more than a token 0.5kph
+                        // edge before committing off this alone.
+                        bool positiveSpeedDeltaExpert = isExpert && speedDeltaKph > 1.4f;
 
                         // Part A.3: a clearly-slower backmarker (large pace gap) gets
                         // attacked almost immediately on Expert - widen the gap
@@ -1180,9 +1182,11 @@ namespace LocalFormulaRacing
                         float drsBonus = drsHelp ? Mathf.Lerp(1.2f, 2.6f, commitment) : 1f;
 
                         // Part A.3: Expert's attack-trigger gap threshold is far wider
-                        // (1.8s vs 1.1s, 3.0s against a clear backmarker) than the
-                        // other tiers, which keep the original threshold untouched.
-                        float attackGapThreshold = isExpert ? (aheadIsBackmarker ? 3.0f : 1.8f) : 1.1f;
+                        // than the other tiers, which keep the original threshold
+                        // untouched. Slight nerf pass: trimmed back a bit from
+                        // 1.8s/3.0s so Expert doesn't launch attacks from quite as
+                        // far back as before.
+                        float attackGapThreshold = isExpert ? (aheadIsBackmarker ? 2.6f : 1.6f) : 1.1f;
                         bool attackTrigger = gapSeconds < attackGapThreshold && (approachingBrakeZone || drsHelp || clearlySlower || positiveSpeedDeltaExpert) && hasPace;
 
                         // Part A.2: Expert is fully deterministic once attackTrigger is
@@ -1316,9 +1320,10 @@ namespace LocalFormulaRacing
             // Defend once per approaching braking zone: cover the inside line if a
             // real threat is close behind, then leave it alone until the next corner
             // instead of weaving repeatedly. Part A.4: Expert covers from much
-            // further out (110m vs 70m) - earlier inside-cover before the braking
-            // zone - while still only ever committing once per zone.
-            float approachTriggerDistance = isExpert ? 110f : 70f;
+            // further out than the other tiers - earlier inside-cover before the
+            // braking zone - while still only ever committing once per zone.
+            // Slight nerf pass: pulled in from 110m to 95m.
+            float approachTriggerDistance = isExpert ? 95f : 70f;
             bool approaching = apexDistanceAhead < approachTriggerDistance && apexSeverity > 0.16f;
             if (!approaching)
             {
