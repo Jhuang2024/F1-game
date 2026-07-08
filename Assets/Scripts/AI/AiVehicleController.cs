@@ -115,7 +115,7 @@ namespace LocalFormulaRacing
         // Corner-type classification (Part 2): a single continuous severity number
         // hides the fact that a flowing high-speed corner and a genuine hairpin need
         // very different confidence curves, not the same eased Lerp toward one floor.
-        enum CornerType { HighSpeed, Medium, Slow, Hairpin }
+        enum CornerType { HighSpeed, Medium, Slow, VeryTight, Hairpin }
 
         // Corner-speed fix: Hard used to get zero benefit from every isExpert-only
         // branch in this classifier and in EstimateApexSpeedForCornerType below -
@@ -184,9 +184,15 @@ namespace LocalFormulaRacing
             // only the most extreme ~10-12% instead of ~25-26%. Slow (a real but
             // non-hairpin tight corner) now sits in that narrow remaining band
             // between Medium and Hairpin.
+            // Three-tier tight-corner split: Slow ("tight corners"), VeryTight ("very
+            // very tight corners") and Hairpin now cover three genuinely distinct
+            // corner feels instead of Slow/Hairpin alone. Hairpin's band is narrowed
+            // to sit right at the top of the severity range so it's reserved for
+            // corners that are actually close to a 180-degree turn, not merely tight.
             float highSpeedCeiling = Mathf.Lerp(0.42f, 0.60f, skillTier);
             float mediumCeiling = Mathf.Lerp(0.66f, 0.80f, skillTier);
             float slowCeiling = Mathf.Lerp(0.88f, 0.90f, skillTier);
+            float veryTightCeiling = Mathf.Lerp(0.95f, 0.97f, skillTier);
 
             if (apexSeverity < highSpeedCeiling)
             {
@@ -201,6 +207,11 @@ namespace LocalFormulaRacing
             if (apexSeverity < slowCeiling)
             {
                 return CornerType.Slow;
+            }
+
+            if (apexSeverity < veryTightCeiling)
+            {
+                return CornerType.VeryTight;
             }
 
             return CornerType.Hairpin;
@@ -269,12 +280,22 @@ namespace LocalFormulaRacing
                     floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(250f, Mathf.Lerp(275f, 300f, skillTier), apexConfidence));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
+                case CornerType.VeryTight:
+                    // "Very very tight" corners: a distinct tier between Slow's
+                    // ~250-300kph tight corner and Hairpin's ~50-75kph crawl - pinned to
+                    // an explicit ~150kph target (130 low-confidence base, 150-165
+                    // skill-scaled ceiling) rather than a range, since this tier is
+                    // meant to read as one consistent speed rather than a wide band.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(130f, Mathf.Lerp(150f, 165f, skillTier), apexConfidence));
+                    easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
+                    break;
                 default:
-                    // Hairpin floor: pinned back to an explicit ~50-70kph target (a real
-                    // hairpin crawl) after previous rounds drifted this up to
-                    // ~115-155kph while chasing the Slow bucket buff - Mathf.Min against
-                    // straightTargetSpeed keeps the same overspeed guard as the Slow
-                    // bucket above.
+                    // Hairpin floor: an explicit ~50-75kph target (a real hairpin
+                    // crawl) - this bucket's severity band is now narrowed (see
+                    // ClassifyUpcomingCorner) so it's only reached by corners that are
+                    // actually close to a 180-degree turn, not merely tight ones.
+                    // Mathf.Min against straightTargetSpeed keeps the same overspeed
+                    // guard as the tiers above.
                     // Tight-corner fix round 2: easePower dropped from 1.2 to 0.45 - at
                     // 1.2, only a corner at the literal severity ceiling (~1.0) actually
                     // reached floorSpeed; anything else in the Hairpin bucket (severity
@@ -548,15 +569,14 @@ namespace LocalFormulaRacing
             // Car-relative hairpin floor instead of one flat number for every car: a
             // stronger braking/cornering car has a genuinely higher minimum apex speed
             // even at a true hairpin.
-            // Tight-corner speed calibration: explicit ~50-70kph target for a genuine
-            // hairpin (previous rounds drifted this up to ~115-155kph while chasing the
-            // Slow bucket buff, which read as far too fast for an actual hairpin -
-            // pinned back down to a real hairpin-crawl range). Genuine hairpins only;
-            // a merely-tight corner is the separate Slow bucket below and no longer
-            // derives from this number at all.
+            // Explicit ~50-75kph target for a genuine hairpin (a corner that's actually
+            // close to a 180-degree turn - see the narrowed Hairpin band in
+            // ClassifyUpcomingCorner). A merely-tight or very-tight corner is the
+            // separate Slow/VeryTight buckets below and no longer derives from this
+            // number at all.
             float carBrakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
             float carCorneringStat = vehicle.CarData == null ? 78f : vehicle.CarData.cornering;
-            float hairpinSpeedKph = Mathf.Lerp(50f, 70f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
+            float hairpinSpeedKph = Mathf.Lerp(50f, 75f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
