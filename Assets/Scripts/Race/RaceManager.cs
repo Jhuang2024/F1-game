@@ -4936,10 +4936,11 @@ namespace LocalFormulaRacing
                     throttleDelay = 0.55f,
                     exitThrottleConfidence = 0.62f,
                     lineOffsetNoise = 1.4f,
-                    // Reaction-time nerf: raised across every tier (was 0.85/0.55/
-                    // 0.32/0.11) - AI was reacting noticeably faster than a real
-                    // driver at every difficulty, most obviously at the start.
-                    reactionTimeSeconds = 1.05f,
+                    // Reaction-time buff: explicit per-tier target ranges requested
+                    // (Easy 0.4-0.6 / Medium 0.3-0.4 / Hard 0.25-0.3 / Expert 0.2-0.25) -
+                    // round 1's uniform nerf (was 0.85/0.55/0.32/0.11) overshot,
+                    // especially Easy at a full second.
+                    reactionTimeSeconds = 0.5f,
                     overtakeCommitment = 0.35f,
                     defendCommitment = 0.30f,
                     ersDeploymentQuality = 0.40f,
@@ -4972,7 +4973,7 @@ namespace LocalFormulaRacing
                     // the Hard/Expert jump below.
                     exitThrottleConfidence = 0.86f,
                     lineOffsetNoise = 0.75f,
-                    reactionTimeSeconds = 0.68f,
+                    reactionTimeSeconds = 0.35f,
                     overtakeCommitment = 0.55f,
                     defendCommitment = 0.55f,
                     ersDeploymentQuality = 0.65f,
@@ -4982,7 +4983,10 @@ namespace LocalFormulaRacing
                     wetWeatherCaution = 1.2f,
                     tyreSavingBias = 0.20f,
                     paceMultiplier = 1.01f,
-                    cornerSpeedMultiplier = 1.05f,
+                    // Cornering buff round 7: pushed up (was 1.05) alongside the wider
+                    // HighSpeed/Medium bands in AiVehicleController - Medium now covers
+                    // genuinely fast corners too, not just cautious ones.
+                    cornerSpeedMultiplier = 1.16f,
                     straightSpeedMultiplier = 0.98f,
                     brakeConfidenceMultiplier = 1.05f,
                     throttleAggressionMultiplier = 1.05f
@@ -5017,7 +5021,7 @@ namespace LocalFormulaRacing
                     throttleDelay = 0.07f,
                     exitThrottleConfidence = 0.97f,
                     lineOffsetNoise = 0.36f,
-                    reactionTimeSeconds = 0.41f,
+                    reactionTimeSeconds = 0.275f,
                     overtakeCommitment = 0.77f,
                     defendCommitment = 0.79f,
                     ersDeploymentQuality = 0.87f,
@@ -5027,13 +5031,13 @@ namespace LocalFormulaRacing
                     wetWeatherCaution = 0.98f,
                     tyreSavingBias = 0.12f,
                     paceMultiplier = 1.08f,
-                    // Cornering buff round 6: pushed again (was 1.22/1.24/1.28/1.30) -
-                    // still losing fast corners to the player after five prior passes.
-                    // No longer touches genuine hairpins at all (see the Hairpin-type
-                    // exemption in AiVehicleController), so this only ever buffs
-                    // HighSpeed/Medium/Slow corners now - safe to push harder here
-                    // without also making hairpins faster again.
-                    cornerSpeedMultiplier = 1.42f,
+                    // Cornering buff round 7: pushed again (was 1.22/1.24/1.28/1.30/
+                    // 1.42) - "fast corners need to be A LOT faster". No longer
+                    // touches genuine hairpins at all (see the Hairpin-type exemption
+                    // in AiVehicleController), so this only ever buffs HighSpeed/
+                    // Medium/Slow corners - safe to push hard without also making
+                    // hairpins faster again.
+                    cornerSpeedMultiplier = 1.60f,
                     straightSpeedMultiplier = 1.00f,
                     brakeConfidenceMultiplier = 1.34f,
                     throttleAggressionMultiplier = 1.38f
@@ -5058,7 +5062,7 @@ namespace LocalFormulaRacing
                 throttleDelay = 0.03f,
                 exitThrottleConfidence = 0.995f,
                 lineOffsetNoise = 0.12f,
-                reactionTimeSeconds = 0.16f,
+                reactionTimeSeconds = 0.225f,
                 overtakeCommitment = 0.93f,
                 defendCommitment = 0.93f,
                 ersDeploymentQuality = 0.96f,
@@ -5068,12 +5072,12 @@ namespace LocalFormulaRacing
                 wetWeatherCaution = 0.88f,
                 tyreSavingBias = 0.07f,
                 paceMultiplier = 1.15f,
-                // Cornering buff round 6: pushed further still (was 1.34/1.58/1.70/
-                // 1.44) for the same reason as Hard above, and for the same reason no
-                // longer touches genuine hairpins (see the Hairpin-type exemption in
+                // Cornering buff round 7: pushed further still (was 1.34/1.58/1.70/
+                // 1.44/1.62) - "fast corners need to be A LOT faster". Still never
+                // touches genuine hairpins (see the Hairpin-type exemption in
                 // AiVehicleController) - Expert should be the fastest, most committed
                 // tier through fast corners specifically, not through hairpins too.
-                cornerSpeedMultiplier = 1.62f,
+                cornerSpeedMultiplier = 1.85f,
                 straightSpeedMultiplier = 1.00f,
                 brakeConfidenceMultiplier = 1.70f,
                 throttleAggressionMultiplier = 1.85f
