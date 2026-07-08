@@ -295,6 +295,9 @@ namespace LocalFormulaRacing
         // "no data" from "a clean race with zero incidents".
         public int incidentCount = -1;
         public int safetyCarDeployments = -1;
+        // Same -1-means-no-data convention as the two fields above.
+        public int redFlagCount = -1;
+        public string redFlagReason = "";
         public bool wasChaotic;
         public string narrative;
     }

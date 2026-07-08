@@ -316,7 +316,13 @@ namespace LocalFormulaRacing
         // RaceManager's own public IncidentCount / SafetyCarDeploymentCount /
         // AiOvertakesCompletedCount fields (Part 20 race-report plumbing) - pass
         // -1 for any that aren't available to mean "no data" rather than "zero".
+        // Legacy 5-arg overload: red flag data defaults to "no data" (-1/"").
         public void ApplyRaceResults(CalendarEventData raceEvent, List<RaceResultEntry> results, int incidentCount, int safetyCarDeploymentCount, int aiOvertakesCompletedCount)
+        {
+            ApplyRaceResults(raceEvent, results, incidentCount, safetyCarDeploymentCount, aiOvertakesCompletedCount, -1, "");
+        }
+
+        public void ApplyRaceResults(CalendarEventData raceEvent, List<RaceResultEntry> results, int incidentCount, int safetyCarDeploymentCount, int aiOvertakesCompletedCount, int redFlagCount, string redFlagReason)
         {
             // Snapshot the player's standing before this race's points land, so
             // the post-race report can show actual movement rather than just an
@@ -344,7 +350,7 @@ namespace LocalFormulaRacing
             };
             Save.raceResults.Add(record);
 
-            RaceReportRecord report = BuildRaceReport(raceEvent, results, incidentCount, safetyCarDeploymentCount, aiOvertakesCompletedCount);
+            RaceReportRecord report = BuildRaceReport(raceEvent, results, incidentCount, safetyCarDeploymentCount, aiOvertakesCompletedCount, redFlagCount, redFlagReason);
             Save.raceReports.Add(report);
             while (Save.raceReports.Count > 12)
             {
@@ -450,7 +456,7 @@ namespace LocalFormulaRacing
         // RaceParticipant.ToResultEntry already fills in (pit stops, overtakes,
         // lockups, flat spots, track limit warnings, penalties, strategy) into
         // one report record for a results/report screen.
-        RaceReportRecord BuildRaceReport(CalendarEventData raceEvent, List<RaceResultEntry> results, int incidentCount, int safetyCarDeploymentCount, int aiOvertakesCompletedCount)
+        RaceReportRecord BuildRaceReport(CalendarEventData raceEvent, List<RaceResultEntry> results, int incidentCount, int safetyCarDeploymentCount, int aiOvertakesCompletedCount, int redFlagCount, string redFlagReason)
         {
             RaceReportRecord report = new RaceReportRecord
             {
@@ -461,7 +467,9 @@ namespace LocalFormulaRacing
 
             report.raceControl.incidentCount = incidentCount;
             report.raceControl.safetyCarDeployments = safetyCarDeploymentCount;
-            report.raceControl.wasChaotic = incidentCount >= 5 || safetyCarDeploymentCount >= 2;
+            report.raceControl.redFlagCount = redFlagCount;
+            report.raceControl.redFlagReason = redFlagReason;
+            report.raceControl.wasChaotic = incidentCount >= 5 || safetyCarDeploymentCount >= 2 || redFlagCount > 0;
             report.raceControl.narrative = BuildRaceControlNarrative(incidentCount, safetyCarDeploymentCount, report.eventName);
 
             int lockups = 0;
@@ -624,6 +632,21 @@ namespace LocalFormulaRacing
         {
             if (report.raceControl.safetyCarDeployments < 0)
             {
+                return;
+            }
+
+            // Red flag news takes priority over the safety-car/incident
+            // articles below - it's a rarer, bigger story than either, so it
+            // should never be crowded out by a routine "safety car shuffles
+            // the order" article from the same race.
+            if (report.raceControl.redFlagCount > 0)
+            {
+                string reason = string.IsNullOrEmpty(report.raceControl.redFlagReason) ? "a serious incident" : report.raceControl.redFlagReason.ToLowerInvariant();
+                AddNewsArticle(
+                    "Red flag stops " + report.eventName,
+                    "Race control suspended " + report.eventName + " after " + reason + ". The race resumed under a rolling restart" +
+                    (report.raceControl.redFlagCount > 1 ? ", with a second suspension before it was over." : "."),
+                    NewsCategoryRaceControl);
                 return;
             }
 

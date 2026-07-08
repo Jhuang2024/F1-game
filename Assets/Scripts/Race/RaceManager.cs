@@ -55,7 +55,13 @@ namespace LocalFormulaRacing
         public List<RaceParticipant> Participants { get { return State != null ? State.Participants : emptyParticipants; } }
 
         // ---------- Race control / safety car ----------
-        public enum RaceControlState { Green, YellowSector, VirtualSafetyCar, SafetyCarDeploying, SafetyCarActive, SafetyCarInThisLap, Restart }
+        // RedFlagged: the one new state. Deliberately does NOT get its own
+        // restart-formation/ramp machinery - once the clearance period ends it
+        // hands straight into the existing Restart state (see
+        // DriveRaceControlStateMachine), reusing the exact same queue-spacing/
+        // ramp-to-green logic a safety-car restart already uses instead of
+        // duplicating it.
+        public enum RaceControlState { Green, YellowSector, VirtualSafetyCar, SafetyCarDeploying, SafetyCarActive, SafetyCarInThisLap, Restart, RedFlagged }
         enum IncidentSeverity { Minor, Medium, Major }
 
         public RaceControlState CurrentRaceControlState { get; private set; } = RaceControlState.Green;
@@ -73,6 +79,63 @@ namespace LocalFormulaRacing
         public int IncidentCount { get; private set; }
         public int SafetyCarDeploymentCount { get; private set; }
         public int AiOvertakesCompletedCount { get; private set; }
+        public int RedFlagCount { get; private set; }
+        public string RedFlagReason { get; private set; } = "";
+        // Seconds remaining in the current red-flag suspension; 0/negative once
+        // race control has moved on to the restart. HUD-facing only.
+        public float RedFlagTimeRemaining { get { return Mathf.Max(0f, redFlagTimer); } }
+        public bool IsRedFlagged { get { return CurrentRaceControlState == RaceControlState.RedFlagged; } }
+        // True only while CurrentRaceControlState == Restart AND that restart
+        // was entered from RedFlagged rather than the ordinary SafetyCarInThisLap
+        // path - lets the HUD show a distinct "form up after the red flag"
+        // restart banner instead of the generic safety-car one.
+        public bool RestartFollowsRedFlag { get; private set; }
+
+        // Frozen at the exact moment a red flag is thrown (see BeginRedFlag) -
+        // driver name + position pairs, oldest/leader first. Read-only surface
+        // for the post-race report / race-control history; never mutated after
+        // the flag is thrown.
+        readonly List<string> redFlagRunningOrderSnapshot = new List<string>();
+        public IReadOnlyList<string> RedFlagRunningOrderSnapshot { get { return redFlagRunningOrderSnapshot; } }
+
+        // Race-control history/timeline: a flat, chronological log of every
+        // flag/SC/red-flag/restart/penalty event this session, for the post-
+        // race report and any in-race history panel. Deliberately does NOT log
+        // every minor incident (DetectIncidents fires often even for events
+        // that never raise a flag) - only things race control actually acted
+        // on, so the timeline reads as "what happened", not a debug feed.
+        public struct RaceControlHistoryEntry
+        {
+            public string label;
+            public string detail;
+            public float raceTimeSeconds;
+            public int lap;
+        }
+
+        readonly List<RaceControlHistoryEntry> raceControlHistory = new List<RaceControlHistoryEntry>();
+        const int MaxRaceControlHistoryEntries = 60;
+        public IReadOnlyList<RaceControlHistoryEntry> RaceControlHistory { get { return raceControlHistory; } }
+
+        void LogRaceControlHistory(string label, string detail)
+        {
+            int lap = PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.DisplayLap : 0;
+            raceControlHistory.Add(new RaceControlHistoryEntry { label = label, detail = detail, raceTimeSeconds = RaceElapsed, lap = lap });
+            if (raceControlHistory.Count > MaxRaceControlHistoryEntries)
+            {
+                raceControlHistory.RemoveAt(0);
+            }
+        }
+
+        float redFlagTimer;
+        // Distinct participants behind a genuinely catastrophic incident within
+        // a short rolling window - two or more is treated as the track actually
+        // being blocked (an extreme pileup), independent of how each incident
+        // individually rolled for a safety car. Pruned by ConsiderRedFlag every
+        // time a new catastrophic incident comes in, never polled on a timer.
+        readonly List<RaceParticipant> recentCatastrophicIncidents = new List<RaceParticipant>();
+        readonly List<float> recentCatastrophicIncidentTimes = new List<float>();
+        const float CatastrophicIncidentWindowSeconds = 15f;
+        const int RedFlagMultiCarThreshold = 2;
 
         // Expert-only determinism switch (Part A.2): a handful of specific RNG gates
         // - the overtake attack-trigger roll, the ERS attack/defend racecraft-timing
@@ -141,6 +204,7 @@ namespace LocalFormulaRacing
             get
             {
                 return IsFullSafetyCarPeriod ||
+                       CurrentRaceControlState == RaceControlState.RedFlagged ||
                        CurrentRaceControlState == RaceControlState.Restart ||
                        (CurrentRaceControlState == RaceControlState.Green && restartRampTimer > 0f);
             }
@@ -978,6 +1042,14 @@ namespace LocalFormulaRacing
             IncidentCount = 0;
             SafetyCarDeploymentCount = 0;
             AiOvertakesCompletedCount = 0;
+            RedFlagCount = 0;
+            RedFlagReason = "";
+            RestartFollowsRedFlag = false;
+            redFlagTimer = 0f;
+            redFlagRunningOrderSnapshot.Clear();
+            recentCatastrophicIncidents.Clear();
+            recentCatastrophicIncidentTimes.Clear();
+            raceControlHistory.Clear();
             raceControlCheckTimer = 0f;
             safetyCarTimer = 0f;
             restartControlTimer = 0f;
@@ -1433,7 +1505,120 @@ namespace LocalFormulaRacing
             GameLog.Info("[RaceControl] Incident: " + (participant == null ? "?" : participant.driverName) +
                 " cause=" + cause + " severity=" + severity + " sector=" + progress.sector + (pileup ? " (pileup-escalated)" : "") + (forceEscalate ? " (force-escalate)" : ""));
 
+            // Red flag: considered on genuinely catastrophic incidents only
+            // (a forced escalation - a destroyed car blocking the line - or a
+            // Major incident that actually justified its own yellow, i.e. is
+            // really blocking/dangerous rather than just logged for stats).
+            // Deliberately checked before ApplyIncidentSeverity's own SC/VSC
+            // rolls below so a red-flag-worthy incident is never also
+            // double-escalated into a safety car in the same call.
+            if (escalationAllowed && (forceEscalate || (severity == IncidentSeverity.Major && yellowJustified)))
+            {
+                ConsiderRedFlag(participant, forceEscalate, freqScale);
+                if (CurrentRaceControlState == RaceControlState.RedFlagged)
+                {
+                    return;
+                }
+            }
+
             ApplyIncidentSeverity(participant, severity, progress, freqScale, escalationAllowed, forceEscalate, yellowJustified);
+        }
+
+        // Extremely rare by design - red flags must read as a genuine outlier,
+        // not "a slightly worse safety car". Two paths in:
+        // - Two or more DISTINCT cars catastrophically down within a short
+        //   rolling window - treated as the track actually being blocked (an
+        //   extreme pileup), independent of how each incident individually
+        //   would have rolled for a safety car.
+        // - A single forced-escalation incident (today, only a destroyed car
+        //   blocking the line) on its own very rarely rolls into a red flag
+        //   instead of just a safety car - roughly half the already-stingy
+        //   Major-incident SC chance, so it stays a true outlier.
+        void ConsiderRedFlag(RaceParticipant participant, bool forceEscalateCause, float freqScale)
+        {
+            if (participant == null || CurrentRaceControlState == RaceControlState.RedFlagged)
+            {
+                return;
+            }
+
+            for (int i = recentCatastrophicIncidentTimes.Count - 1; i >= 0; i--)
+            {
+                if (RaceElapsed - recentCatastrophicIncidentTimes[i] > CatastrophicIncidentWindowSeconds)
+                {
+                    recentCatastrophicIncidentTimes.RemoveAt(i);
+                    recentCatastrophicIncidents.RemoveAt(i);
+                }
+            }
+
+            if (!recentCatastrophicIncidents.Contains(participant))
+            {
+                recentCatastrophicIncidents.Add(participant);
+                recentCatastrophicIncidentTimes.Add(RaceElapsed);
+            }
+
+            if (recentCatastrophicIncidents.Count >= RedFlagMultiCarThreshold)
+            {
+                BeginRedFlag("Multiple cars involved in a serious incident - track blocked");
+                return;
+            }
+
+            if (forceEscalateCause)
+            {
+                float roll = Random.value;
+                float chance = Mathf.Clamp01(0.05f * freqScale);
+                GameLog.Info("[RaceControl] Red flag consideration (single catastrophic incident): roll=" + roll.ToString("0.000") + " chance=" + chance.ToString("0.000"));
+                if (roll < chance)
+                {
+                    BeginRedFlag("Severe accident");
+                }
+            }
+        }
+
+        void BeginRedFlag(string reason)
+        {
+            CurrentRaceControlState = RaceControlState.RedFlagged;
+            RedFlagCount++;
+            RedFlagReason = reason;
+            // A generous but bounded clearance/repair window - long enough to
+            // read as a genuine suspension, short enough that a full race
+            // doesn't stall out waiting on it.
+            redFlagTimer = Random.Range(16f, 24f);
+            IsOvertakingAllowed = false;
+            IsPitLaneOpen = true;
+            recentCatastrophicIncidents.Clear();
+            recentCatastrophicIncidentTimes.Clear();
+
+            // Freeze the running order at the exact moment of the flag - both
+            // for the eventual Restart's queue spacing (safetyCarQueueIndex,
+            // exactly the same field a normal safety car deployment freezes)
+            // and as a plain read-only snapshot for the post-race report/
+            // race-control history.
+            redFlagRunningOrderSnapshot.Clear();
+            List<RaceParticipant> order = GetRunningOrderSnapshot();
+            for (int i = 0; i < order.Count; i++)
+            {
+                RaceParticipant queued = order[i];
+                if (queued == null)
+                {
+                    continue;
+                }
+
+                queued.safetyCarQueueIndex = i;
+                queued.preSafetyCarOrderIndex = i;
+                redFlagRunningOrderSnapshot.Add((i + 1) + ". " + queued.driverName);
+                if (!queued.retired && !queued.finished)
+                {
+                    queued.isRaceControlAutopilot = true;
+                }
+            }
+
+            GameLog.Warn("[RaceControl] RED FLAG: " + reason + " (deployment #" + RedFlagCount + ")");
+            LogRaceControlHistory("RED FLAG", reason);
+            if (Settings != null && Settings.Current.raceControlMessages)
+            {
+                PostEngineerMessage("Red flag, red flag! Race suspended - " + reason + ".", true, RaceAudioCue.RedFlag);
+                PostEngineerMessage("Bring the car under control and hold position. We'll get a restart shortly.", true);
+            }
         }
 
         void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, bool forceEscalate = false, bool yellowJustified = false)
@@ -1604,6 +1789,7 @@ namespace LocalFormulaRacing
             if (freshFlag)
             {
                 GameLog.Info("[RaceControl] Yellow flag, sector " + sector + ".");
+                LogRaceControlHistory("YELLOW FLAG", "Sector " + sector);
                 if (Settings != null && Settings.Current.raceControlMessages)
                 {
                     PostEngineerMessage("Yellow flag, sector " + sector + ".", false, RaceAudioCue.Yellow);
@@ -1618,6 +1804,7 @@ namespace LocalFormulaRacing
             IsOvertakingAllowed = false;
             playerScPitPromptSent = false;
             GameLog.Info("[RaceControl] Virtual safety car deployed. duration=" + safetyCarTimer.ToString("0.0") + "s");
+            LogRaceControlHistory("VSC", "Virtual safety car deployed");
             if (Settings != null && Settings.Current.raceControlMessages)
             {
                 PostEngineerMessage("Virtual safety car deployed.", true, RaceAudioCue.Vsc);
@@ -1679,6 +1866,7 @@ namespace LocalFormulaRacing
             safetyCarWatchdogTimer = 0f;
             safetyCarWatchdogRespawnCount = 0;
             GameLog.Info("[RaceControl] Safety car deployment triggered. targetSpeed=" + SafetyCarTargetSpeedKph.ToString("0") + "kph deploymentCount=" + SafetyCarDeploymentCount);
+            LogRaceControlHistory("SAFETY CAR", "Deployment #" + SafetyCarDeploymentCount);
             if (Settings != null && Settings.Current.raceControlMessages)
             {
                 PostEngineerMessage("Safety car deployed.", true, RaceAudioCue.SafetyCar);
@@ -1948,6 +2136,18 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // RedFlagged cars are held by BuildRedFlagHoldCommand (a direct
+            // brake-to-stop, not the moving-queue-target model below), so the
+            // shared reference has nothing useful to advance toward here - just
+            // pin its speed at 0 so the eventual RedFlagged -> Restart handoff
+            // (see DriveRaceControlStateMachine) starts its ramp from a genuine
+            // standstill instead of whatever stale convoy speed preceded it.
+            if (CurrentRaceControlState == RaceControlState.RedFlagged)
+            {
+                raceControlReferenceSpeedKph = 0f;
+                return;
+            }
+
             // Only actually ramp the pace up once race control has called the
             // restart (Restart state) or is in the short Green ramp tail right
             // after it. The SafetyCarInThisLap tail - where the physical car has
@@ -2153,6 +2353,18 @@ namespace LocalFormulaRacing
                 return command;
             }
 
+            // Red flag: every car brakes smoothly to a stop roughly where it is,
+            // rather than chasing a moving queue-slot target - deliberately
+            // simpler than the safety-car convoy model below (real grid-
+            // reformation is out of scope) but still safe: gentle, speed-scaled
+            // braking with a light steering correction back toward the
+            // centerline so a braking car doesn't wander off-line or into
+            // another car's path while it slows.
+            if (CurrentRaceControlState == RaceControlState.RedFlagged)
+            {
+                return BuildRedFlagHoldCommand(participant);
+            }
+
             float scSpeedKph = raceControlReferenceSpeedKph;
             // Gap scales slightly with pace: a faster-moving queue needs a
             // little more following distance per car than a crawling one.
@@ -2201,6 +2413,29 @@ namespace LocalFormulaRacing
             float localSteer = Vector3.Dot(toTarget.normalized, participant.transform.right);
             command.steer = Mathf.Clamp(localSteer * 2.2f, -1f, 1f);
 
+            return command;
+        }
+
+        // Red flag hold: brake smoothly to a stop in place (not toward a moving
+        // queue slot) and hold there, with a light steering correction back
+        // toward the centerline. Braking is speed-scaled and capped well short
+        // of a full stab so a queue of cars slowing down together doesn't brake-
+        // check itself into the very kind of pileup a red flag exists to stop.
+        VehicleCommand BuildRedFlagHoldCommand(RaceParticipant participant)
+        {
+            VehicleCommand command = new VehicleCommand();
+            float speedKph = Mathf.Abs(participant.vehicle.CurrentSpeedKph);
+            command.throttle = 0f;
+            command.brake = speedKph > 3f ? Mathf.Lerp(0.22f, 0.5f, Mathf.Clamp01(speedKph / 140f)) : 0.35f;
+
+            TrackProgress progress = State.GetCurrentProgress(participant);
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Track.SampleAtDistance(Track.WrapDistance(progress.distance + 16f), out point, out forward, out right);
+            Vector3 toTarget = point - participant.transform.position;
+            float localSteer = Vector3.Dot(toTarget.normalized, participant.transform.right);
+            command.steer = Mathf.Clamp(localSteer * 1.6f, -1f, 1f);
             return command;
         }
 
@@ -2312,6 +2547,7 @@ namespace LocalFormulaRacing
                     if (restartControlTimer <= 0f)
                     {
                         CurrentRaceControlState = RaceControlState.Restart;
+                        RestartFollowsRedFlag = false;
                         restartControlTimer = 4f;
                         GameLog.Info("[RaceControl] Restart imminent.");
                         if (Settings != null && Settings.Current.raceControlMessages)
@@ -2340,9 +2576,44 @@ namespace LocalFormulaRacing
                         restartRampTimer = RestartRampDurationSeconds;
                         restartHandbackMessageSent = false;
                         GameLog.Info("[RaceControl] Restart complete, green flag.");
+                        LogRaceControlHistory("GREEN FLAG", RestartFollowsRedFlag ? "Restart after red flag" : "Restart after safety car");
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
                             PostEngineerMessage("Green flag - power builds back progressively, hold your line.", true);
+                        }
+                    }
+                    break;
+
+                case RaceControlState.RedFlagged:
+                    IsOvertakingAllowed = false;
+                    // Pit lane stays open through a red flag (real F1 uses it as
+                    // the "return to the pits" option this simplified model
+                    // deliberately leans on instead of a full grid-lane
+                    // reformation) so a car needing repairs can route there
+                    // while the field is held.
+                    IsPitLaneOpen = true;
+                    redFlagTimer -= Time.deltaTime;
+                    if (redFlagTimer <= 0f)
+                    {
+                        // Hands off into the exact same Restart/Green-ramp chain
+                        // a safety-car period uses - queue slots were already
+                        // frozen onto every participant's safetyCarQueueIndex at
+                        // the moment BeginRedFlag threw the flag (see there), so
+                        // this reconstructs the pre-red-flag order/gaps rather
+                        // than an arbitrary one.
+                        List<RaceParticipant> order = GetRunningOrderSnapshot();
+                        RaceParticipant leader = order.Count > 0 ? order[0] : null;
+                        raceControlReferenceDistance = leader != null && State != null
+                            ? State.GetProgressDistance(leader)
+                            : raceControlReferenceDistance;
+                        raceControlReferenceSpeedKph = 0f;
+                        CurrentRaceControlState = RaceControlState.Restart;
+                        RestartFollowsRedFlag = true;
+                        restartControlTimer = 5f;
+                        GameLog.Info("[RaceControl] Red flag clearing, preparing restart.");
+                        if (Settings != null && Settings.Current.raceControlMessages)
+                        {
+                            PostEngineerMessage("Red flag clearing. Prepare for a rolling restart.", true, RaceAudioCue.Green);
                         }
                     }
                     break;
@@ -2943,7 +3214,14 @@ namespace LocalFormulaRacing
                 }
             }
 
-            float duration = priority ? PriorityEngineerMessageDuration : RoutineEngineerMessageDuration;
+            // Radio priority pass: a red flag is the single most critical thing
+            // race control can say - it gets noticeably longer screen time than
+            // an ordinary priority message (which itself already outlasts and
+            // out-survives-eviction over routine flavor chatter, see the
+            // eviction loop above), instead of sharing the same flat duration
+            // as "box this lap for softs".
+            float duration = cue == RaceAudioCue.RedFlag ? PriorityEngineerMessageDuration * 1.6f
+                : (priority ? PriorityEngineerMessageDuration : RoutineEngineerMessageDuration);
             activeEngineerMessages.Insert(0, new EngineerMessageEntry { text = formatted, remaining = duration, age = 0f, priority = priority });
         }
 
@@ -3102,13 +3380,22 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            // Same completedLaps >= targetLap trigger point UpdateRaceEngineer's
+            // Same currentLapNumber >= targetLap trigger point UpdateRaceEngineer's
             // "Box this lap for..." message already uses, so the automatic stop
             // and the message the player sees stay in lockstep instead of
             // introducing a second, slightly different lap-comparison convention.
+            //
+            // Off-by-one fix: targetLap (from GetPlannedPitLapForStop/
+            // RecommendedPitLap) is a 1-based lap NUMBER - "pit on lap 6" means
+            // while DisplayLap (CompletedLaps + 1) reads 6, not once
+            // CompletedLaps itself reaches 6. CompletedLaps only becomes 6 after
+            // lap 6 is actually finished (i.e. once already driving lap 7), so
+            // comparing raw CompletedLaps against targetLap fired the stop a
+            // full lap after the one the player planned for.
             int targetLap = NextPlannedPitLapFor(PlayerParticipant);
             int completedLaps = PlayerParticipant.lapTracker.CompletedLaps;
-            if (completedLaps < targetLap)
+            int currentLapNumber = completedLaps + 1;
+            if (currentLapNumber < targetLap)
             {
                 return;
             }
@@ -3122,7 +3409,7 @@ namespace LocalFormulaRacing
             }
 
             SessionMessage = "Auto-pit: strategy plan (" + PlayerParticipant.requestedPitCompound + ")";
-            GameLog.Info("[Pit] Auto-triggered planned stop for player at lap " + completedLaps + " (target " + targetLap + "), compound=" + PlayerParticipant.requestedPitCompound + ".");
+            GameLog.Info("[Pit] Auto-triggered planned stop for player at lap " + currentLapNumber + " (target " + targetLap + "), compound=" + PlayerParticipant.requestedPitCompound + ".");
             if (Settings != null && Settings.Current.raceControlMessages)
             {
                 // Distinct from the earlier "Box this lap for..." reminder in
@@ -3213,8 +3500,13 @@ namespace LocalFormulaRacing
             if (ShouldPromptPlannedStop(PlayerParticipant) && !PlayerParticipant.isPitting)
             {
                 int targetLap = NextPlannedPitLapFor(PlayerParticipant);
+                // Same 1-based DisplayLap comparison UpdatePlayerAutoPitStrategy
+                // uses - see the off-by-one fix comment there. Keeping both in
+                // the same completedLaps+1 convention is what keeps this
+                // reminder and the actual auto-triggered stop on the same lap.
+                int currentLapNumber = completedLaps + 1;
                 bool mandatoryStopStillOwed = PlayerParticipant.pitStops == 0;
-                if (completedLaps >= targetLap && lastEngineerPitLapPrompt != completedLaps)
+                if (currentLapNumber >= targetLap && lastEngineerPitLapPrompt != completedLaps)
                 {
                     lastEngineerPitLapPrompt = completedLaps;
                     TyreCompound plannedCompound = NextPlannedPitCompoundFor(PlayerParticipant);
@@ -3225,7 +3517,7 @@ namespace LocalFormulaRacing
                     return;
                 }
 
-                if (completedLaps == Mathf.Max(0, targetLap - 1) && lastEngineerPitLapPrompt != completedLaps)
+                if (currentLapNumber == Mathf.Max(0, targetLap - 1) && lastEngineerPitLapPrompt != completedLaps)
                 {
                     lastEngineerPitLapPrompt = completedLaps;
                     string label = mandatoryStopStillOwed ? "Pit window opens next lap. Think about the undercut." : "Second stop window opens next lap.";
@@ -3868,6 +4160,7 @@ namespace LocalFormulaRacing
                 CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
                 CurrentRaceControlState == RaceControlState.SafetyCarActive ||
                 CurrentRaceControlState == RaceControlState.SafetyCarInThisLap ||
+                CurrentRaceControlState == RaceControlState.RedFlagged ||
                 CurrentRaceControlState == RaceControlState.Restart)
             {
                 return false;
@@ -3936,6 +4229,7 @@ namespace LocalFormulaRacing
                 CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
                 CurrentRaceControlState == RaceControlState.SafetyCarActive ||
                 CurrentRaceControlState == RaceControlState.SafetyCarInThisLap ||
+                CurrentRaceControlState == RaceControlState.RedFlagged ||
                 IsNearLocalYellowIncident(participant) ||
                 IsOvertakingRestrictedForParticipant(participant))
             {
@@ -4104,10 +4398,17 @@ namespace LocalFormulaRacing
                 return new AiDifficultyProfile
                 {
                     brakeDistanceMultiplier = 1.00f,
-                    minimumCornerSpeedConfidence = 0.92f,
+                    // Corner-speed pass: Hard used to get none of the skillTier-
+                    // gated corner-type bonuses in AiVehicleController (those were
+                    // Expert-only) despite already having a fairly high confidence
+                    // number here - the confidence stat alone wasn't enough to read
+                    // as "meaningfully faster through corners". Bumped alongside
+                    // the new skillTier blend so Hard is now clearly quicker than
+                    // Medium through medium/fast corners, not just a hair sharper.
+                    minimumCornerSpeedConfidence = 0.94f,
                     apexErrorMeters = 0.75f,
                     throttleDelay = 0.16f,
-                    exitThrottleConfidence = 0.89f,
+                    exitThrottleConfidence = 0.92f,
                     lineOffsetNoise = 0.36f,
                     reactionTimeSeconds = 0.32f,
                     overtakeCommitment = 0.77f,
@@ -4119,10 +4420,10 @@ namespace LocalFormulaRacing
                     wetWeatherCaution = 0.98f,
                     tyreSavingBias = 0.12f,
                     paceMultiplier = 1.08f,
-                    cornerSpeedMultiplier = 1.06f,
+                    cornerSpeedMultiplier = 1.10f,
                     straightSpeedMultiplier = 1.00f,
                     brakeConfidenceMultiplier = 1.10f,
-                    throttleAggressionMultiplier = 1.20f
+                    throttleAggressionMultiplier = 1.28f
                 };
             }
 
@@ -4137,10 +4438,10 @@ namespace LocalFormulaRacing
             return new AiDifficultyProfile
             {
                 brakeDistanceMultiplier = 1.06f,
-                minimumCornerSpeedConfidence = 0.97f,
+                minimumCornerSpeedConfidence = 0.98f,
                 apexErrorMeters = 0.22f,
                 throttleDelay = 0.05f,
-                exitThrottleConfidence = 0.97f,
+                exitThrottleConfidence = 0.99f,
                 lineOffsetNoise = 0.12f,
                 reactionTimeSeconds = 0.11f,
                 overtakeCommitment = 0.93f,
@@ -4152,10 +4453,10 @@ namespace LocalFormulaRacing
                 wetWeatherCaution = 0.88f,
                 tyreSavingBias = 0.07f,
                 paceMultiplier = 1.15f,
-                cornerSpeedMultiplier = 1.15f,
+                cornerSpeedMultiplier = 1.20f,
                 straightSpeedMultiplier = 1.00f,
                 brakeConfidenceMultiplier = 1.36f,
-                throttleAggressionMultiplier = 1.60f
+                throttleAggressionMultiplier = 1.70f
             };
         }
 
@@ -6608,6 +6909,15 @@ namespace LocalFormulaRacing
             {
                 participant.penaltyReason += ", " + reason;
             }
+
+            // Player-only: an AI penalty lands every few laps across a 21-car
+            // field, which would flood a shared timeline with noise the player
+            // has no reason to care about. Their own penalties are always
+            // worth a timeline entry.
+            if (participant.isPlayer)
+            {
+                LogRaceControlHistory("PENALTY", "+" + seconds.ToString("0") + "s - " + reason);
+            }
         }
 
         TyreCompound StartingTyreForParticipant(bool player)
@@ -6802,7 +7112,7 @@ namespace LocalFormulaRacing
                 // counts to -1 ("no data") - that silently suppressed every race-control news
                 // article (GenerateRaceControlNews bails out on safetyCarDeployments < 0) even
                 // though this race tracked all three. Pass the real counts through.
-                Career.ApplyRaceResults(EventData, results, IncidentCount, SafetyCarDeploymentCount, AiOvertakesCompletedCount);
+                Career.ApplyRaceResults(EventData, results, IncidentCount, SafetyCarDeploymentCount, AiOvertakesCompletedCount, RedFlagCount, RedFlagReason);
             }
 
             RecordPlayerRaceStats(results);

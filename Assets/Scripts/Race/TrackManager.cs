@@ -2604,6 +2604,19 @@ namespace LocalFormulaRacing
         const float HighRiskCornerAngle = 55f;
         const float HighSpeedTrackLength = 5000f;
 
+        // Containment fix (broader than hairpins): HairpinCornerAngleThreshold/
+        // HighRiskCornerAngle (55 deg) stays reserved for genuine hairpins - both the
+        // road-widening bonus and the tyre-stack decision below key off it unchanged.
+        // But "tight corners still need much better containment" is a wider complaint
+        // than just hairpins, so this is a second, lower angle bar purely for the
+        // catch-fence/overlap decision in BuildContinuousEdgeBarriers: any corner
+        // sharp enough to clear this (a meaningfully tight corner, short of a full
+        // hairpin) also gets continuous catch fencing and the same tightened
+        // segment overlap hairpins get, so there is no gap a car can find at entry,
+        // apex or exit just because the corner was 45 degrees instead of 60.
+        const float TightCornerFenceAngle = 40f;
+        const float TightCornerFenceRadius = 35f;
+
         enum EdgeBarrierStyle
         {
             Armco,
@@ -2622,27 +2635,38 @@ namespace LocalFormulaRacing
             float step = streetTrack ? StreetEdgeBarrierStep : EdgeBarrierStep;
             bool highSpeedTrack = Runtime.length > HighSpeedTrackLength;
             List<CornerInfo> highRiskCorners = DetectCorners(HighRiskCornerAngle);
+            // Broader, lower-severity band used only for the fencing/overlap decision
+            // below (see TightCornerFenceAngle) - separate list so the hairpin-only
+            // road-widening bonus and the 55-degree tyre-stack call are untouched.
+            List<CornerInfo> tightFenceCorners = DetectCorners(TightCornerFenceAngle);
 
             bool previousElevated = IsElevatedAtDistance(-step);
             int stripeIndex = 0;
             for (float d = 0f; d < Runtime.length;)
             {
                 bool nearHighRiskCorner = IsNearCorner(d, highRiskCorners, 45f);
+                // Union of the true hairpin/high-risk band with the broader tight-corner
+                // band - drives containment (fencing + overlap) only, never the tyre-stack
+                // or widening decisions which still key off nearHighRiskCorner alone.
+                bool nearTightFenceCorner = nearHighRiskCorner || IsNearCorner(d, tightFenceCorners, TightCornerFenceRadius);
 
                 // A hairpin's whole direction change is usually concentrated at one
                 // centerline vertex rather than spread evenly, so a fixed-length chord
                 // straddling that vertex swings its box away from the true arc on the
                 // outside of the corner - halving the step and doubling the overlap
                 // there keeps consecutive rotated segments physically overlapping
-                // instead of mitering open into a gap.
-                float localStep = nearHighRiskCorner ? step * 0.5f : step;
-                float localOverlap = nearHighRiskCorner ? EdgeBarrierOverlap * 2f : EdgeBarrierOverlap;
+                // instead of mitering open into a gap. Every corner sharp enough to
+                // warrant forced catch fencing gets this same tightened sampling, not
+                // just true hairpins, so entry/apex/exit never gets a wider seam than
+                // the straights do.
+                float localStep = nearTightFenceCorner ? step * 0.5f : step;
+                float localOverlap = nearTightFenceCorner ? EdgeBarrierOverlap * 2f : EdgeBarrierOverlap;
                 float segmentLength = localStep + localOverlap;
                 bool elevated = IsElevatedAtDistance(d) || IsElevatedAtDistance(d + localStep * 0.5f) || IsElevatedAtDistance(d + localStep);
                 float normalized = d / Mathf.Max(1f, Runtime.length);
 
-                BuildBarrierSegmentForSide(d, localStep, segmentLength, -1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
-                BuildBarrierSegmentForSide(d, localStep, segmentLength, 1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, stripeIndex);
+                BuildBarrierSegmentForSide(d, localStep, segmentLength, -1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, nearTightFenceCorner, stripeIndex);
+                BuildBarrierSegmentForSide(d, localStep, segmentLength, 1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, nearTightFenceCorner, stripeIndex);
 
                 if (elevated && ElevationAboveGround(d) > 4f && Mathf.FloorToInt(d / step) % 3 == 0)
                 {
@@ -2664,7 +2688,7 @@ namespace LocalFormulaRacing
 
         // Decides style/offset for one side at one step, including the pit-corridor
         // fan-out on the right side, then hands off to the shared segment builder.
-        void BuildBarrierSegmentForSide(float distance, float step, float segmentLength, int side, bool elevated, float normalized, bool highSpeedTrack, bool nearHighRiskCorner, int stripeIndex)
+        void BuildBarrierSegmentForSide(float distance, float step, float segmentLength, int side, bool elevated, float normalized, bool highSpeedTrack, bool nearHighRiskCorner, bool nearTightFenceCorner, int stripeIndex)
         {
             EdgeBarrierStyle style;
             float baseLateral;
@@ -2720,6 +2744,16 @@ namespace LocalFormulaRacing
             // that builds the rest of the barrier run, so the fencing follows the widened
             // hairpin shape exactly and has no gaps, rather than being placed separately.
             if (Runtime.HairpinWidthBonus(distance + step * 0.5f) > 0f)
+            {
+                catchFence = true;
+            }
+
+            // Broader containment fix: any corner sharp enough to fall inside the
+            // tight-corner fencing band (see TightCornerFenceAngle/Radius above -
+            // covers meaningfully tight corners short of a full hairpin, not just
+            // genuine hairpins) also gets forced continuous catch fencing, so "tight
+            // corners" generally get the same no-gap treatment hairpins already do.
+            if (nearTightFenceCorner)
             {
                 catchFence = true;
             }
@@ -4352,6 +4386,17 @@ namespace LocalFormulaRacing
             }
 
             float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+
+            // Extra permanent stands for higher scenery-density settings, at fresh
+            // normalized slots that don't overlap the fixed set above, so a fully
+            // built-up circuit (rather than only the fixed handful every track gets)
+            // is available on the high end without costing anything at the low end.
+            if (density >= 1.25f)
+            {
+                BuildGrandstand(0.3f, 1);
+                BuildGrandstand(0.72f, -1);
+            }
+
             int step = Mathf.Max(1, Mathf.RoundToInt(2f / density));
             for (int i = 0; i < Runtime.centerLine.Count; i += step)
             {
@@ -4367,20 +4412,23 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                // Trackside detail: floodlights and marshal posts.
-                if (i % 8 == 0)
+                // Trackside detail: floodlights and marshal posts. Frequencies tightened
+                // from the original 8/12/14 spacing (still scaled by sceneryDensity
+                // through the loop step above) so a lap reads as a built-up circuit
+                // rather than occasional furniture on an otherwise bare verge.
+                if (i % 6 == 0)
                 {
                     CreateFloodlight(point + right * side * (Runtime.roadHalfWidth + 6.5f), forward, night || nightTrack || street);
                 }
 
                 // Parkland circuits (the "old-school racing venue" archetypes) get a
                 // second marshal post slot for denser classic trackside furniture.
-                if (i % 12 == 4 || (parklandTrack && i % 12 == 10))
+                if (i % 10 == 4 || (parklandTrack && i % 10 == 9))
                 {
                     CreateMarshalPost(point + right * side * (Runtime.roadHalfWidth + 9f), forward, i);
                 }
 
-                if (i % 14 == 9)
+                if (i % 11 == 9)
                 {
                     CreateSponsorBoard(point + right * side * (Runtime.roadHalfWidth + 4.6f), forward, i);
                 }
@@ -4565,6 +4613,23 @@ namespace LocalFormulaRacing
             if (canadaTrack)
             {
                 BuildCanadaBackdrop(density);
+            }
+
+            // Fallback for any circuit that doesn't match one of the named archetypes
+            // above (e.g. a real-world calendar entry that hasn't been given its own
+            // signature identity pass yet, or a future/custom layout). Without this,
+            // such a track only ever got the baseline mountain ridge + parallax layer
+            // and read as a bare "floating road" with nothing filling the mid-ground -
+            // reusing the generic forested-hillside treatment here is far closer to a
+            // real venue than empty space, and BuildParklandBackdrop itself makes no
+            // Spa/Austria-specific assumptions (it only reads density and the sampled
+            // centerline), so it's a safe generic default rather than a special case.
+            bool hasArchetypeBackdrop = desertTrack || monacoTrack || nightNeon || cityStreet ||
+                                         parklandTrack || technicalParklandTrack || coastalTrack ||
+                                         urbanHillsideTrack || canadaTrack;
+            if (!hasArchetypeBackdrop)
+            {
+                BuildParklandBackdrop(density);
             }
 
             if (id.Contains("mexico"))

@@ -886,6 +886,10 @@ namespace LocalFormulaRacing
             {
                 DampenCarContactResponse(normalSpeedKph, sustained);
             }
+            else
+            {
+                DampenWallContactResponse(normalSpeedKph, contact.normal, sustained);
+            }
 
             Vector3 localPoint = transform.InverseTransformPoint(contact.point);
             float delta = Damage.AddImpact(impactSpeedKph, normalSpeedKph, localPoint, impactType, sustained);
@@ -948,6 +952,50 @@ namespace LocalFormulaRacing
 
             Vector3 lateral = Vector3.Dot(body.velocity, transform.right) * transform.right;
             body.velocity -= lateral * dampFactor * 0.6f;
+        }
+
+        // Wall/barrier/solid-object pinball-physics fix: this used to be
+        // entirely undamped by design (a real wall hit was meant to "still
+        // throw the car around and matter physically"), but PhysX's raw
+        // contact response - even at zero bounciness/near-zero friction on
+        // this body's own physics material - was still launching a car
+        // sideways hard enough to rocket it clean across the track into the
+        // opposite wall after one hit. Tuned as a genuinely separate curve
+        // from DampenCarContactResponse above: lighter angular damping (a
+        // wall hit should still spin the car, this only keeps it from
+        // amplifying into an uncontrollable tumble) but a much stronger cut
+        // to the rebound velocity specifically (the component of velocity
+        // pointing back away from the wall along its contact normal) - that
+        // rebound is what was actually firing the car back across the
+        // circuit, not the spin. A hard, high-speed impact still visibly
+        // unsettles and slows the car; it no longer bounces it like a pinball.
+        void DampenWallContactResponse(float normalSpeedKph, Vector3 contactNormal, bool sustained)
+        {
+            if (body == null || body.isKinematic)
+            {
+                return;
+            }
+
+            float severity = Mathf.Clamp01((normalSpeedKph - 20f) / 110f);
+
+            // Angular damping stays noticeably lighter than the car-to-car curve
+            // (max ~0.5 vs ~0.82) so a genuine hard hit still spins the car
+            // visibly - it just can't compound into an unrecoverable tumble.
+            float angularDampFactor = sustained ? Mathf.Lerp(0.22f, 0.4f, severity) : Mathf.Lerp(0.2f, 0.5f, severity);
+            body.angularVelocity *= (1f - angularDampFactor);
+
+            // Rebound cut: only the velocity component pointing back away from
+            // the wall (along its own contact normal) is reduced, not the car's
+            // along-the-wall/forward momentum - a graze keeps rolling speed, a
+            // head-on hit loses the violent kickback that used to fire it back
+            // across the track.
+            Vector3 normal = contactNormal.sqrMagnitude > 0.001f ? contactNormal.normalized : Vector3.up;
+            float reboundSpeed = Vector3.Dot(body.velocity, normal);
+            if (reboundSpeed > 0f)
+            {
+                float reboundCut = sustained ? Mathf.Lerp(0.3f, 0.55f, severity) : Mathf.Lerp(0.45f, 0.78f, severity);
+                body.velocity -= normal * reboundSpeed * reboundCut;
+            }
         }
 
         DamageImpactType ClassifyDamageCollision(Collision collision, out string reason)

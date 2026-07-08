@@ -3618,11 +3618,16 @@ namespace LocalFormulaRacing
                 if (race != null)
                 {
                     UiFactory.CreateStatCard(highlights, "Cautions", race.SafetyCarDeploymentCount + " SC/VSC  ·  " + race.IncidentCount + " incidents", 320f);
+                    if (race.RedFlagCount > 0)
+                    {
+                        UiFactory.CreateStatCard(highlights, "Red Flag", race.RedFlagCount + "x - " + race.RedFlagReason, 360f);
+                    }
                 }
             }
 
             BuildReportBadgeRow(content, race, results, player);
             BuildReportCardRow(content, race, results, player);
+            BuildRaceControlTimeline(content, race);
 
             UiFactory.CreateDivider(content);
             UiFactory.CreateSubHeader(content, "Full Classification");
@@ -3825,11 +3830,17 @@ namespace LocalFormulaRacing
                 player.penaltiesSeconds > 0f ? "<color=#FFC85C>Penalties: +" + player.penaltiesSeconds.ToString("0") + "s (" + player.penaltyReason + ")</color>" : "No penalties"
             }, 340f, UiFactory.AccentAmber, null);
 
-            BuildReportCard(row, "Incidents & Session", new[]
+            List<string> incidentLines = new List<string>
             {
                 "Safety cars this race: " + race.SafetyCarDeploymentCount,
                 "Yellow/incidents flagged: " + race.IncidentCount
-            }, 300f, UiFactory.AccentGreen, card =>
+            };
+            if (race.RedFlagCount > 0)
+            {
+                incidentLines.Add("<color=#FF4D3D>Red flags: " + race.RedFlagCount + " (" + race.RedFlagReason + ")</color>");
+            }
+
+            BuildReportCard(row, "Incidents & Session", incidentLines.ToArray(), 300f, UiFactory.AccentGreen, card =>
             {
                 RectTransform lockupBar = UiFactory.CreateStatBar(card, "Lockups", player.lockups, 8f, UiFactory.AccentAmber, 268f);
                 PositionCardWidget(lockupBar, 16f, 46f);
@@ -3838,6 +3849,35 @@ namespace LocalFormulaRacing
             });
 
             BuildChampionshipCard(row, race);
+        }
+
+        // Race-control timeline: a compact, chronological line per flag/SC/red-
+        // flag/restart/penalty event this session (RaceManager.RaceControlHistory
+        // - deliberately only logs events race control actually acted on, not
+        // every minor incident, so this reads as "what happened" rather than a
+        // debug feed). Omits itself entirely for a clean green race rather than
+        // showing an empty section.
+        void BuildRaceControlTimeline(RectTransform content, RaceManager race)
+        {
+            if (race == null || race.RaceControlHistory == null || race.RaceControlHistory.Count == 0)
+            {
+                return;
+            }
+
+            UiFactory.CreateSubHeader(content, "Race Control Timeline");
+            RectTransform list = UiFactory.CreateRect(content, "Race control timeline list", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetSize(list, ReportContentWidth, race.RaceControlHistory.Count * 24f + 12f);
+            UiFactory.AddVerticalLayout(list, 4, new RectOffset(0, 0, 6, 6));
+            for (int i = 0; i < race.RaceControlHistory.Count; i++)
+            {
+                RaceManager.RaceControlHistoryEntry entry = race.RaceControlHistory[i];
+                Color labelColor = entry.label == "RED FLAG" ? UiFactory.Accent
+                    : (entry.label == "PENALTY" ? UiFactory.AccentAmber
+                    : (entry.label == "GREEN FLAG" ? UiFactory.AccentGreen : UiFactory.AccentCyan));
+                string line = "<color=#" + ColorUtility.ToHtmlStringRGB(labelColor) + ">" + entry.label + "</color>  Lap " + Mathf.Max(1, entry.lap) + "  ·  " + entry.detail;
+                Text row2 = UiFactory.CreateText(list, "Timeline entry " + i, line, 14, UiFactory.TextPrimary, TextAnchor.MiddleLeft);
+                UiFactory.SetSize(row2, ReportContentWidth, 20f);
+            }
         }
 
         // Career/championship movement card: driver and constructor standing

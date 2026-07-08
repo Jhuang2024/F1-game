@@ -117,14 +117,42 @@ namespace LocalFormulaRacing
         // very different confidence curves, not the same eased Lerp toward one floor.
         enum CornerType { HighSpeed, Medium, Slow, Hairpin }
 
-        // Part A.5: Expert gets wider HighSpeed/Medium buckets so it stops treating
-        // flowing bends as real corners the way lower tiers correctly still do -
-        // Easy/Medium/Hard keep the original thresholds untouched.
-        CornerType ClassifyUpcomingCorner(float apexSeverity, bool isExpert)
+        // Corner-speed fix: Hard used to get zero benefit from every isExpert-only
+        // branch in this classifier and in EstimateApexSpeedForCornerType below -
+        // only the literal Expert tier (gated further by ExpertIsRuthless) ever
+        // widened the HighSpeed/Medium buckets or raised their floors, so "Hard"
+        // cornered identically to Medium apart from the separate confidence/
+        // multiplier stats. skillTier replaces the flat isExpert bool with a
+        // continuous 0-1 blend (Easy/Medium=0, Hard=0.6, Expert=1) so Hard is
+        // genuinely, meaningfully faster through corners than Medium - not just
+        // "the same corner behaviour with a higher confidence number feeding it" -
+        // while staying clearly a notch behind Expert.
+        float CorneringSkillTier()
         {
-            float highSpeedCeiling = isExpert ? 0.30f : 0.25f;
-            float mediumCeiling = isExpert ? 0.55f : 0.5f;
-            float slowCeiling = isExpert ? 0.72f : 0.75f;
+            if (raceManager.IsExpertDifficulty)
+            {
+                return 1f;
+            }
+
+            RaceDifficulty difficulty = raceManager.Settings == null ? RaceDifficulty.Medium : raceManager.Settings.Difficulty;
+            if (difficulty == RaceDifficulty.Expert)
+            {
+                // Expert difficulty selected but ExpertIsRuthless is off - still
+                // meaningfully sharper than Hard, just not the absolute ceiling.
+                return 0.85f;
+            }
+
+            return difficulty == RaceDifficulty.Hard ? 0.6f : 0f;
+        }
+
+        // Part A.5: higher-skill tiers get wider HighSpeed/Medium buckets so they
+        // stop treating flowing bends as real corners the way lower tiers
+        // correctly still do.
+        CornerType ClassifyUpcomingCorner(float apexSeverity, float skillTier)
+        {
+            float highSpeedCeiling = Mathf.Lerp(0.25f, 0.30f, skillTier);
+            float mediumCeiling = Mathf.Lerp(0.5f, 0.55f, skillTier);
+            float slowCeiling = Mathf.Lerp(0.75f, 0.72f, skillTier);
 
             if (apexSeverity < highSpeedCeiling)
             {
@@ -146,39 +174,48 @@ namespace LocalFormulaRacing
 
         // Per-tier apex speed curve instead of one flat Pow(severity, 1.4) eased
         // toward the same hairpin floor for every corner. High-speed and medium
-        // corners get their own, much higher, floor so a confident (Hard/Expert)
-        // driver carries speed close to trueApexSpeed's upper end through a flowing
-        // bend instead of being dragged toward hairpin pace the moment severity
-        // crosses one broad threshold. apexConfidence (already difficulty+driver
-        // derived) blends the floor upward for a sharper driver on the same corner.
-        float EstimateApexSpeedForCornerType(CornerType type, float apexSeverity, float straightTargetSpeed, float hairpinSpeedKph, float gripMultiplier, float apexConfidence, bool isExpert)
+        // corners get their own, much higher, floor so a confident driver carries
+        // speed close to trueApexSpeed's upper end through a flowing bend instead
+        // of being dragged toward hairpin pace the moment severity crosses one
+        // broad threshold. apexConfidence (already difficulty+driver derived)
+        // blends the floor upward for a sharper driver on the same corner.
+        //
+        // Corner-speed fix: the low-confidence base floors (0.84/0.58/1.15) are
+        // raised across the board (0.88/0.64/1.25) - AI was reading as too slow
+        // even on Easy/Medium, and "the issue is corner speed" was a general
+        // complaint, not only a difficulty-scaling one. skillTier (0-1, see
+        // CorneringSkillTier) replaces the flat isExpert bool so Hard now gets a
+        // genuine, partial share of the high-confidence ceiling/ease-power
+        // instead of none at all, while Easy/Medium are untouched at skillTier=0.
+        float EstimateApexSpeedForCornerType(CornerType type, float apexSeverity, float straightTargetSpeed, float hairpinSpeedKph, float gripMultiplier, float apexConfidence, float skillTier)
         {
             float floorSpeed;
             float easePower;
             switch (type)
             {
                 case CornerType.HighSpeed:
-                    // Part A.5: Expert's ceiling pushed to 98% of straight-line speed
-                    // (from 94%) and the ease power raised so a high-speed kink stays
-                    // close to flat through most of its severity range, only bleeding
-                    // toward the floor right at the peak - "nearly flat" per the brief,
-                    // not the same curve as Hard just with a higher confidence input.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.84f, straightTargetSpeed * (isExpert ? 0.98f : 0.94f), apexConfidence);
-                    easePower = isExpert ? 3.4f : 2.6f;
+                    // Part A.5: ceiling pushed to 98% of straight-line speed at full
+                    // skill (from 94%) and the ease power raised so a high-speed kink
+                    // stays close to flat through most of its severity range, only
+                    // bleeding toward the floor right at the peak - "nearly flat" per
+                    // the brief, not the same curve just with a higher confidence input.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.88f, straightTargetSpeed * Mathf.Lerp(0.94f, 0.98f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(2.6f, 3.4f, skillTier);
                     break;
                 case CornerType.Medium:
-                    // Materially higher minimum speed floor for Expert (80% vs 72%).
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.58f, straightTargetSpeed * (isExpert ? 0.80f : 0.72f), apexConfidence);
-                    easePower = isExpert ? 2.1f : 1.8f;
+                    // Materially higher minimum speed floor at full skill (80% vs 72%).
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.64f, straightTargetSpeed * Mathf.Lerp(0.72f, 0.80f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(1.8f, 2.1f, skillTier);
                     break;
                 case CornerType.Slow:
-                    floorSpeed = Mathf.Lerp(hairpinSpeedKph * 1.15f, hairpinSpeedKph * 1.4f, apexConfidence);
+                    floorSpeed = Mathf.Lerp(hairpinSpeedKph * 1.25f, hairpinSpeedKph * 1.4f, apexConfidence);
                     easePower = 1.4f;
                     break;
                 default:
-                    // Hairpin floor deliberately untouched by isExpert - a hairpin is
-                    // still a hairpin. Expert only benefits here via the already-maxed
-                    // apexConfidence blend above (Part A.1), never a corner-type bonus.
+                    // Hairpin floor deliberately untouched by skill tier - a hairpin is
+                    // still a hairpin. A sharper driver only benefits here via the
+                    // already-maxed apexConfidence blend above (Part A.1), never a
+                    // corner-type bonus.
                     floorSpeed = hairpinSpeedKph;
                     easePower = 1.2f;
                     break;
@@ -319,6 +356,29 @@ namespace LocalFormulaRacing
                     bool facingWrongWay = Vector3.Dot(transform.forward, progress.forward) < -0.4f;
                     float recoverySteerSign = Mathf.Sign(Vector3.Cross(transform.forward, progress.forward).y);
                     float preferredSteerSide = recoverySteerSign == 0f ? preferredSide : recoverySteerSign;
+
+                    // Barrier-awareness fix: the maneuver used to pick its turn
+                    // side purely from heading alignment (cross product above),
+                    // with no idea which side of the track it's actually stuck
+                    // near - a car wedged against the right-hand barrier could
+                    // still choose to reverse/turn further into that same
+                    // barrier if heading alignment happened to favor that side.
+                    // When genuinely close to an edge (using the same widened,
+                    // hairpin-aware HalfWidthAt every other edge check in this
+                    // file already uses), steer away from that edge specifically
+                    // overrides the heading-based preference; a car stuck well
+                    // clear of either edge (e.g. wedged against another car)
+                    // keeps the original heading-based choice.
+                    float localHalfWidth = track.HalfWidthAt(progress.distance);
+                    if (localHalfWidth > 0.1f)
+                    {
+                        float edgeFraction = Mathf.Clamp01(Mathf.Abs(progress.lateralDistance) / localHalfWidth);
+                        if (edgeFraction > 0.55f)
+                        {
+                            preferredSteerSide = -Mathf.Sign(progress.lateralDistance);
+                        }
+                    }
+
                     // Escalating recovery (stuck-recovery fix): a car genuinely
                     // wedged against a wall/kerb at a bad angle will often fail
                     // the same fixed-direction maneuver the same way every
@@ -377,6 +437,11 @@ namespace LocalFormulaRacing
             // corner classification, corner-speed ceilings, traffic caution floor,
             // DRS commit and the overtake/defend RNG bypasses all read this once.
             bool isExpert = raceManager.IsExpertDifficulty;
+            // Continuous 0-1 skill blend for corner-speed tuning specifically (see
+            // CorneringSkillTier) - unlike isExpert above, Hard gets a genuine
+            // partial share of the higher-confidence corner-speed curves instead
+            // of none.
+            float skillTier = CorneringSkillTier();
 
             float severityHere = EstimateCornerSeverity(progress.distance);
             // Look further ahead with speed, but shorten in corners so the AI hits apexes
@@ -424,8 +489,8 @@ namespace LocalFormulaRacing
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
             // genuine hairpin need very different confidence curves (Part 2).
-            CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity, isExpert);
-            float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, straightTargetSpeed, hairpinSpeedKph, gripMultiplier, apexConfidence, isExpert);
+            CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity, skillTier);
+            float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, straightTargetSpeed, hairpinSpeedKph, gripMultiplier, apexConfidence, skillTier);
 
             // cornerSpeedMultiplier may exceed 1.0 for Hard/Expert: how much of the
             // tyre's real available grip a confident driver carries through the apex is
@@ -569,8 +634,17 @@ namespace LocalFormulaRacing
             // to the apex speed this driver is actually willing to carry, compared
             // against genuine remaining distance to the upcoming corner - not a single
             // blunt speed-delta formula with a fixed 55kph window.
+            // Corner-speed fix: this deceleration assumption used to sit well below
+            // what a confident driver would actually trust the brakes for, forcing
+            // an early, gentle-looking brake zone regardless of how high the apex
+            // target itself was - "brake less excessively" was as much about when/
+            // how hard braking starts as it was about the apex number. Raised
+            // across the board (later, more decisive braking for every difficulty)
+            // and scaled further by skillTier so Hard/Expert genuinely trail the
+            // brakes deeper into the zone instead of only reaching a higher target
+            // speed at the same conservative brake point.
             float brakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
-            float decelReference = Mathf.Lerp(9.5f, 15.5f, Mathf.Clamp01(brakingStat / 100f));
+            float decelReference = Mathf.Lerp(11.5f, 18f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1f, 1.15f, skillTier);
             // brakeConfidenceMultiplier folds in on top of brakeDistanceMultiplier so
             // Hard/Expert genuinely brake later/shorter, not just via the weaker base
             // multiplier alone: >1 shortens the effective distance (brakes later),
@@ -912,11 +986,16 @@ namespace LocalFormulaRacing
             // much lower, floor plus an additional reduction on top so a confident
             // Expert actually commits to a real gap instead of lifting for traffic it
             // can beat.
-            float cautionFloor = isExpert ? 0.15f : 0.5f;
+            // Collision-reduction pass: Expert's caution discount was strong enough
+            // that it committed to gaps other tiers correctly judged too tight,
+            // which read as constant contact rather than clean hard racing. Pulled
+            // back from *0.7 to *0.8 - still clearly the most committed tier, just
+            // with a genuine defensive margin left over instead of none.
+            float cautionFloor = isExpert ? 0.18f : 0.5f;
             float cautionFactor = Mathf.Clamp(profile.trafficAvoidanceCaution, cautionFloor, 1.4f);
             if (isExpert)
             {
-                cautionFactor *= 0.7f;
+                cautionFactor *= 0.8f;
             }
             bool legalDrsHere = raceManager.IsDrsAvailable(participant);
 
@@ -1016,9 +1095,15 @@ namespace LocalFormulaRacing
                         blockedRight = true;
                     }
 
-                    float sideOverlap = Mathf.Clamp01(1f - absX / 4.2f);
-                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.05f, 0.24f, sideOverlap);
-                    float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.66f, sideOverlap)) * cautionFactor);
+                    // Collision-reduction pass: the push-away response starts
+                    // slightly earlier (4.2m -> 4.8m window) and pushes noticeably
+                    // harder at genuine near-contact overlap (0.24 -> 0.34 ceiling)
+                    // - side-by-side pairs were converging further than this weak a
+                    // nudge could reliably resolve before it read as a collision
+                    // rather than hard-but-clean racing.
+                    float sideOverlap = Mathf.Clamp01(1f - absX / 4.8f);
+                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.06f, 0.34f, sideOverlap);
+                    float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.6f, sideOverlap)) * cautionFactor);
                     throttleLimit = Mathf.Min(throttleLimit, sideCutback);
                 }
             }
@@ -1087,7 +1172,15 @@ namespace LocalFormulaRacing
             apexDistanceAhead = 400f;
             apexSeverity = 0f;
             const float step = 20f;
-            const float maxLookahead = 180f;
+            // Corner-speed fix: 180m was shorter than the kinematic braking distance
+            // a fast car can need for a slow corner (well over 200m from high top
+            // speed down to a hairpin), so the corner sometimes wasn't detected
+            // until already inside its own required braking zone - the AI then had
+            // to stab the brakes hard the instant it appeared, which reads as
+            // panicked/overcautious even though the apex speed target itself was
+            // fine. A longer lookahead lets the braking-point model commit to a
+            // later, smoother, more confident brake instead of reacting last-second.
+            const float maxLookahead = 260f;
             for (float d = 0f; d <= maxLookahead; d += step)
             {
                 float severity = EstimateCornerSeverity(fromDistance + d);
@@ -1288,6 +1381,27 @@ namespace LocalFormulaRacing
                 {
                     pressureFactor = Mathf.Lerp(0.4f, 1f, commitment);
                     float attackOffset = attackSide * Mathf.Lerp(2f, legalLimit, commitment);
+                    // Collision-reduction pass: don't keep committing further toward
+                    // attackOffset once genuinely close alongside the car being
+                    // attacked - ApplyTrafficAvoidance's own steer nudge is a small
+                    // additive correction, not strong enough by itself to stop a car
+                    // that's still actively steering toward its full attack offset
+                    // from closing the last half-metre into contact. Capping the
+                    // target at the current aggressionOffset once the real lateral
+                    // gap is dangerously tight is what actually backs the car out of
+                    // a bad situation instead of only reacting after the gap (in
+                    // seconds, not metres) has already closed.
+                    if (ahead != null)
+                    {
+                        Vector3 aheadLocal = transform.InverseTransformPoint(ahead.transform.position);
+                        bool genuinelyAlongside = Mathf.Abs(aheadLocal.z) < 9f;
+                        bool dangerouslyClose = Mathf.Abs(aheadLocal.x) < 1.7f;
+                        if (genuinelyAlongside && dangerouslyClose)
+                        {
+                            attackOffset = Mathf.Clamp(aggressionOffset, -legalLimit, legalLimit);
+                        }
+                    }
+
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, Mathf.Clamp(attackOffset, -legalLimit, legalLimit), Time.deltaTime * 6.5f);
                     bool sideBySideNow = ahead != null && Mathf.Abs(transform.InverseTransformPoint(ahead.transform.position).z) < 6f;
                     if (sideBySideNow)

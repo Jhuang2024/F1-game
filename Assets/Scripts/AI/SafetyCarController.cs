@@ -49,7 +49,19 @@ namespace LocalFormulaRacing
         const float CruiseSpeedKph = 140f;
         const float MinCornerSpeedKph = 90f;
         const float PickupSpeedKph = 70f;
-        const float PitReturnDurationSeconds = 6f;
+        // Despawn used to fire on a flat timer regardless of whether the car
+        // was actually out of sight yet - if the queue hadn't fallen back far
+        // enough in that window (a close-forming queue, a short track, a
+        // corner right before the despawn point), the car would visibly
+        // vanish mid-shot. It now requires BOTH a minimum time (so it never
+        // reads as an instant blink-out even when the gap opens fast) and a
+        // real gap back to the trailing queue leader (leaderGapMeters, fed
+        // every frame by RaceManager) wide enough that it's plausible to be
+        // out of view - with a generous hard cap so it can never circulate
+        // forever if the gap somehow stalls.
+        const float PitReturnMinDurationSeconds = 3f;
+        const float PitReturnMaxDurationSeconds = 14f;
+        const float PitReturnSafeGapMeters = 130f;
 
         public void Configure(TrackRuntime trackRuntime, Renderer beaconRenderer, Renderer brakeLightRenderer)
         {
@@ -253,7 +265,10 @@ namespace LocalFormulaRacing
             if (IsReturningToPits)
             {
                 despawnTimer += Time.deltaTime;
-                if (despawnTimer > PitReturnDurationSeconds)
+                bool minTimeElapsed = despawnTimer >= PitReturnMinDurationSeconds;
+                bool genuinelyOutOfView = leaderGapMeters >= PitReturnSafeGapMeters;
+                bool hardCapReached = despawnTimer >= PitReturnMaxDurationSeconds;
+                if (minTimeElapsed && (genuinelyOutOfView || hardCapReached))
                 {
                     Deactivate();
                 }

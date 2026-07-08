@@ -17,7 +17,8 @@ namespace LocalFormulaRacing
         PitConfirm,
         Damage,
         Penalty,
-        FinalLap
+        FinalLap,
+        RedFlag
     }
 
     // Central audio hub: one instance for the whole game (DontDestroyOnLoad'd
@@ -338,6 +339,11 @@ namespace LocalFormulaRacing
             cueClips[(int)RaceAudioCue.Damage] = CreateTone("cue damage", 220f, 0.3f, 0.6f);
             cueClips[(int)RaceAudioCue.Penalty] = CreateTone("cue penalty", 260f, 0.35f, 0.7f);
             cueClips[(int)RaceAudioCue.FinalLap] = CreateChord("cue final lap", new[] { 523.25f, 783.99f }, 0.35f);
+            // Deliberately the most severe-sounding cue in the set (lowest
+            // pitch, longest decay, widest dissonant interval) - a red flag is
+            // an extreme outlier event and should be unmistakable from every
+            // other race-control stinger.
+            cueClips[(int)RaceAudioCue.RedFlag] = CreateChord("cue red flag", new[] { 196f, 207.65f }, 0.55f);
 
             rainClip = CreateSmoothedNoiseLoop("rain ambience", 2f, 0.18f);
             rainSource = gameObject.AddComponent<AudioSource>();

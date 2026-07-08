@@ -1359,8 +1359,24 @@ namespace LocalFormulaRacing
                         "SAFETY CAR IN THIS LAP", "Control returns at the restart - tyres will be cold", UiFactory.AccentAmber);
                     break;
                 case RaceManager.RaceControlState.Restart:
+                    if (race.RestartFollowsRedFlag)
+                    {
+                        UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                            "RESTART - FORM UP", "Rolling restart after the red flag - hold your grid order", Color.white);
+                    }
+                    else
+                    {
+                        UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                            "RESTART", "Green flag imminent - get ready to race", Color.white);
+                    }
+
+                    break;
+                case RaceManager.RaceControlState.RedFlagged:
+                    // UiFactory.Accent (not AccentAmber) deliberately - the
+                    // game's actual red, so a red flag reads as visibly more
+                    // severe than an amber caution banner.
                     UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
-                        "RESTART", "Green flag imminent - get ready to race", Color.white);
+                        "RED FLAG - RACE SUSPENDED", race.RedFlagReason + " - bring the car under control", UiFactory.Accent);
                     break;
             }
 
@@ -1821,7 +1837,11 @@ namespace LocalFormulaRacing
 
                 watchedFinalLap = finalLap;
 
-                bool pitWindow = race.ShouldPromptPlannedStop(player) && lap.CompletedLaps >= race.NextPlannedPitLapFor(player);
+                // DisplayLap (1-based), matching BuildPitPlanText's own "LATE"
+                // comparison and RaceManager's auto-pit trigger - NextPlannedPitLapFor
+                // returns a 1-based lap number, so comparing it against raw
+                // CompletedLaps (0-based) would flag the window open a lap late.
+                bool pitWindow = race.ShouldPromptPlannedStop(player) && lap.DisplayLap >= race.NextPlannedPitLapFor(player);
                 if (pitWindow && !watchedPitWindow)
                 {
                     PushNotification("PIT WINDOW OPEN", UiFactory.AccentCyan);

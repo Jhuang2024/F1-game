@@ -159,6 +159,15 @@ namespace LocalFormulaRacing
         bool cockpitDetailBuilt;
         bool liveryAccentBuilt;
 
+        // Halo front pillar + side arcs (reads as a curved tube hoop rather
+        // than the flat "halo rim" plate alone), rear light housing/bezel,
+        // and front/rear wing Gurney trim strips - same one-shot additive
+        // idiom as the passes above, added purely in this file so none of
+        // RaceManager's own car-builder code needs to change.
+        bool haloRingDetailBuilt;
+        bool rearLightDetailBuilt;
+        bool wingTrimDetailBuilt;
+
         // Tread-block suggestion baked into the tyre material's texture rather
         // than any extra geometry - applied once, independently of
         // UpdateTyreCompoundLook's own per-compound colour/sheen reapplication,
@@ -230,6 +239,9 @@ namespace LocalFormulaRacing
             EnsureHaloMountDetail();
             EnsureCockpitDetail();
             EnsureLiveryAccentVariety();
+            EnsureHaloRingDetail();
+            EnsureRearLightDetail();
+            EnsureWingTrimDetail();
         }
 
         // Front wing upper flap flexes back under aero load the faster the car
@@ -1017,12 +1029,38 @@ namespace LocalFormulaRacing
             cube.transform.localPosition = localPosition;
             cube.transform.localRotation = localRotation;
             cube.transform.localScale = localScale;
-            cube.GetComponent<Renderer>().sharedMaterial = material;
+            Renderer cubeRenderer = cube.GetComponent<Renderer>();
+            cubeRenderer.sharedMaterial = material;
+
+            // Explicit rather than relying on the primitive's default, so every
+            // additive detail piece this file builds is guaranteed to cast and
+            // receive shadows like the rest of the car body regardless of
+            // whatever Unity/project default happens to be in force.
+            cubeRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.On;
+            cubeRenderer.receiveShadows = true;
             Collider cubeCollider = cube.GetComponent<Collider>();
             if (cubeCollider != null)
             {
                 Destroy(cubeCollider);
             }
+        }
+
+        // Thin structural bar between two points in `parent`'s local space -
+        // mirrors RaceManager.CreateSuspensionArm's own midpoint/LookRotation/
+        // magnitude technique for a tube-like strut, reused here so the halo
+        // pillar/arcs below don't need per-piece hand-tuned Euler angles.
+        static void CreateAccentBar(Transform parent, string objectName, Vector3 a, Vector3 b, float thickness, Material material)
+        {
+            Vector3 delta = b - a;
+            float length = delta.magnitude;
+            if (length < 0.001f)
+            {
+                return;
+            }
+
+            Vector3 midpoint = (a + b) * 0.5f;
+            Quaternion rotation = Quaternion.LookRotation(delta.normalized, Vector3.up);
+            CreateAccentCube(parent, objectName, midpoint, rotation, new Vector3(thickness, thickness, length), material);
         }
 
         // A thin contrast tip on each of the four endplates RaceManager already
@@ -1179,6 +1217,89 @@ namespace LocalFormulaRacing
         {
             Material splitMaterial = CreateMaterial("livery nose split", secondary, 0.26f, 0.84f);
             CreateAccentCube(transform, "livery nose split", new Vector3(0f, 0.34f, 2.02f), Quaternion.Euler(0f, 0f, 20f), new Vector3(0.16f, 0.05f, 0.42f), splitMaterial);
+        }
+
+        // RaceManager's halo is "halo center" (a small post near the front of
+        // the ring) plus "halo rim" (one flat plate) and two rear "halo stay"
+        // legs - readable, but the rim reads as a slab rather than a curved
+        // hoop. A real halo's most distinctive trait is its tripod structure:
+        // one front pillar plus two rear legs holding up a loop. Bar struts
+        // from the existing front node down to a lower front-bulkhead point,
+        // and out to the two existing stay points, suggest that curve/tripod
+        // without needing actual geometry booleans (not available with the
+        // primitive-only toolset this codebase uses throughout).
+        void EnsureHaloRingDetail()
+        {
+            if (haloRingDetailBuilt)
+            {
+                return;
+            }
+
+            Transform center = transform.Find("halo center");
+            Transform leftStay = transform.Find("left halo stay");
+            Transform rightStay = transform.Find("right halo stay");
+            if (center == null || leftStay == null || rightStay == null)
+            {
+                return;
+            }
+
+            haloRingDetailBuilt = true;
+            Material tubeMaterial = CreateMaterial("halo tube", new Color(0.07f, 0.08f, 0.09f), 0.7f, 0.4f);
+
+            Vector3 frontNode = new Vector3(0f, 0.88f, 0.56f);
+            CreateAccentBar(transform, "halo front pillar", new Vector3(0f, 0.5f, 0.94f), frontNode, 0.045f, tubeMaterial);
+            CreateAccentBar(transform, "halo arc left", frontNode, new Vector3(-0.32f, 0.79f, 0.23f), 0.04f, tubeMaterial);
+            CreateAccentBar(transform, "halo arc right", frontNode, new Vector3(0.32f, 0.79f, 0.23f), 0.04f, tubeMaterial);
+        }
+
+        // A small dark housing/bezel behind the single rear rain light so it
+        // reads as a lens set into a real light pod rather than a bare glowing
+        // block - z is kept closer to the car body (less negative) than the
+        // light itself, which sits toward the very back of the gearbox, so
+        // the bezel forms a backing plate/frame rather than covering the lens.
+        void EnsureRearLightDetail()
+        {
+            if (rearLightDetailBuilt)
+            {
+                return;
+            }
+
+            Transform light = transform.Find("rear rain light");
+            if (light == null)
+            {
+                return;
+            }
+
+            rearLightDetailBuilt = true;
+            Material housingMaterial = CreateMaterial("rear light housing", new Color(0.025f, 0.025f, 0.03f), 0.55f, 0.3f);
+            CreateAccentCube(transform, "rear light housing", new Vector3(0f, 0.42f, -2.06f), new Vector3(0.16f, 0.28f, 0.05f), housingMaterial);
+            CreateAccentCube(transform, "rear light bezel", new Vector3(0f, 0.42f, -2.145f), new Vector3(0.14f, 0.25f, 0.02f), housingMaterial);
+        }
+
+        // A thin Gurney-flap lip on the front wing's widest element and the
+        // rear wing's main plane - both fixed (undamaged/non-DRS) transforms,
+        // so the trim never has to chase a moving part (the front wing base
+        // does still droop under damage and the rear flap swings with DRS,
+        // exactly like RaceManager's own endplate accents already sit near
+        // without literally being parented to those moving pieces).
+        void EnsureWingTrimDetail()
+        {
+            if (wingTrimDetailBuilt)
+            {
+                return;
+            }
+
+            Transform frontWing = transform.Find("front wing base");
+            Transform rearWing = transform.Find("rear wing main plane");
+            if (frontWing == null || rearWing == null)
+            {
+                return;
+            }
+
+            wingTrimDetailBuilt = true;
+            Material trimMaterial = CreateMaterial("wing gurney trim", new Color(0.85f, 0.86f, 0.88f), 0.2f, 0.55f);
+            CreateAccentCube(transform, "front wing gurney", new Vector3(0f, 0.185f, 2.62f), new Vector3(1.9f, 0.025f, 0.05f), trimMaterial);
+            CreateAccentCube(transform, "rear wing gurney", new Vector3(0f, 0.705f, -2.23f), Quaternion.Euler(9f, 0f, 0f), new Vector3(1.55f, 0.025f, 0.05f), trimMaterial);
         }
 
         // Cheap contact-shadow blob (see field comments above) built the first

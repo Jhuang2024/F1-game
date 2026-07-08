@@ -248,7 +248,13 @@ namespace LocalFormulaRacing
                 smoothedSteer = Mathf.Lerp(smoothedSteer, rawSteer, 1f - Mathf.Exp(-dt * 5f));
                 smoothedYawRate = Mathf.Lerp(smoothedYawRate, rawYawRate, 1f - Mathf.Exp(-dt * 6f));
                 float rawCornerSignal = smoothedSteer * 0.7f + Mathf.Clamp(smoothedYawRate * 0.45f, -1f, 1f) * 0.3f;
-                smoothedCornerSignal = Mathf.Lerp(smoothedCornerSignal, rawCornerSignal, 1f - Mathf.Exp(-dt * 8f));
+
+                // A touch quicker than the two input stages feeding it (5/6)
+                // so the combined corner signal doesn't add a third full lag
+                // stage on top - the camera should start anticipating a turn
+                // shortly after the driver actually commits to it, not noticeably
+                // behind the front-wheel turn-in.
+                smoothedCornerSignal = Mathf.Lerp(smoothedCornerSignal, rawCornerSignal, 1f - Mathf.Exp(-dt * 9.5f));
                 float cornerSignal = smoothedCornerSignal;
                 float cornerBiasScale = mode == 1 || mode == 4 ? Mathf.Lerp(0.12f, 0.5f, speed01) : Mathf.Lerp(0.25f, 1.4f, speed01);
                 Vector3 cornerBias = target.right * cornerSignal * cornerBiasScale;
@@ -296,8 +302,12 @@ namespace LocalFormulaRacing
             // (unlike the TV crane, which is anchored in world space), so it
             // reads as a composed tracking shot rather than either a glued-on
             // chase cam or a locked-off broadcast angle.
-            float baseFollowRate = mode == 1 || mode == 4 ? 17f : (mode == 2 ? 3.2f : (mode == 5 ? Mathf.Lerp(4.6f, 3.4f, speed01) : Mathf.Lerp(11.5f, 5.6f, speed01)));
-            float baseRotRate = chaseLike ? Mathf.Lerp(9.6f, 6.6f, speed01) : (mode == 5 ? 5.4f : 8.2f);
+            // Chase/rear-chase still loosen into a trailing feel as speed rises
+            // (that's what reads as fast on screen), but the floor is raised a
+            // little from the old 5.6/6.6 so the camera never feels fully
+            // detached from the car at v-max - just looser, not laggy.
+            float baseFollowRate = mode == 1 || mode == 4 ? 17f : (mode == 2 ? 3.2f : (mode == 5 ? Mathf.Lerp(4.6f, 3.4f, speed01) : Mathf.Lerp(11.5f, 6.4f, speed01)));
+            float baseRotRate = chaseLike ? Mathf.Lerp(9.6f, 7.2f, speed01) : (mode == 5 ? 5.4f : 8.2f);
             float followRate = Mathf.Lerp(baseFollowRate * 0.35f, baseFollowRate, blendEase);
             float rotRate = Mathf.Lerp(baseRotRate * 0.35f, baseRotRate, blendEase);
 
