@@ -1464,20 +1464,54 @@ namespace LocalFormulaRacing
             });
         }
 
+        // Rebuilt onto the same card + label/value row language as every other
+        // settings tab (Gameplay, Assists, Display & HUD), replacing a single
+        // hand-formatted paragraph of raw text - this was the one screen still
+        // reading as an unstyled reference sheet next to the rest of the app.
         public void ShowControls(GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
             Clear();
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Controls background", new Color(0.012f, 0.016f, 0.021f, 1f));
             BuildSettingsTabBar(background, data, career, settings, 3);
 
-            RectTransform panel = UiFactory.CreateCard(background, "Controls card", new Vector2(0.06f, 0.12f), new Vector2(0.72f, 0.76f));
-            Text controls = UiFactory.CreateText(panel, "Controls text", BuildControlsText(), 19, new Color(0.86f, 0.92f, 0.95f), TextAnchor.UpperLeft);
-            RectTransform controlsRect = controls.GetComponent<RectTransform>();
-            controlsRect.anchorMin = Vector2.zero;
-            controlsRect.anchorMax = Vector2.one;
-            controlsRect.offsetMin = new Vector2(28f, 28f);
-            controlsRect.offsetMax = new Vector2(-28f, -28f);
-            controls.verticalOverflow = VerticalWrapMode.Overflow;
+            RectTransform left = UiFactory.CreateCard(background, "Driving controls card", new Vector2(0.06f, 0.12f), new Vector2(0.5f, 0.76f));
+            RectTransform leftList = UiFactory.CreateScrollPanel(left, "Driving controls list", new Vector2(0.035f, 0.03f), new Vector2(0.965f, 0.97f), 6, new RectOffset(20, 20, 16, 16));
+            UiFactory.CreateSubHeader(leftList, "Driving");
+            const float rowWidth = 560f;
+            AddControlRow(leftList, "Throttle", "W  /  Up Arrow", rowWidth);
+            AddControlRow(leftList, "Brake / Reverse", "S  /  Down Arrow", rowWidth);
+            AddControlRow(leftList, "Steer Left / Right", "A/D  /  Left/Right Arrow", rowWidth);
+            AddControlRow(leftList, "Gamepad", "Vertical / Horizontal axes", rowWidth);
+            AddControlRow(leftList, "DRS Toggle", "Space (when race rules allow it)", rowWidth);
+            AddControlRow(leftList, "ERS Mode Cycle", "R", rowWidth);
+            AddControlRow(leftList, "ERS Manual Override", "Left Shift  /  Right Shift", rowWidth);
+            AddControlRow(leftList, "Manual Shift Down / Up", "Q  /  E  (Manual Gears only)", rowWidth);
+            AddControlRow(leftList, "Pit Request", "P", rowWidth);
+            AddControlRow(leftList, "Camera Toggle", "C", rowWidth);
+            AddControlRow(leftList, "Reset Car", "Hold R", rowWidth);
+            AddControlRow(leftList, "Debug Overlay", "F1", rowWidth);
+
+            RectTransform right = UiFactory.CreateCard(background, "Session controls card", new Vector2(0.54f, 0.12f), new Vector2(0.94f, 0.76f));
+            RectTransform rightList = UiFactory.CreateScrollPanel(right, "Session controls list", new Vector2(0.035f, 0.03f), new Vector2(0.965f, 0.97f), 6, new RectOffset(20, 20, 16, 16));
+            UiFactory.CreateSubHeader(rightList, "Session");
+            AddControlRow(rightList, "Pause / Resume", "Esc", rowWidth);
+            AddControlRow(rightList, "Restart Session", "Pause menu", rowWidth);
+            AddControlRow(rightList, "Return to Menu", "Pause menu", rowWidth);
+            UiFactory.CreateDivider(rightList);
+            UiFactory.CreateSubHeader(rightList, "Assists");
+            Text assistsNote = UiFactory.CreateText(rightList, "Assists note",
+                "Auto-brake, ABS, traction control, racing line, and input sensitivity are changed on the Assists tab. ERS mode can also be cycled in-race with R.",
+                14, new Color(0.78f, 0.86f, 0.9f), TextAnchor.UpperLeft);
+            assistsNote.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(assistsNote, rowWidth, 78f);
+        }
+
+        // Read-only key/binding row for the Controls screen - the same shape as
+        // every other label+value line in the app (CreateBreakdownRow), just
+        // pointed at a fixed input instead of a togglable setting.
+        void AddControlRow(Transform parent, string action, string binding, float width)
+        {
+            UiFactory.CreateBreakdownRow(parent, action, binding, UiFactory.TextPrimary, width);
         }
 
         public void ShowDriverRatings(GameDataRepository data, CareerManager career, GameSettingsStore settings)
@@ -3982,27 +4016,6 @@ namespace LocalFormulaRacing
 
             air = 22;
             track = 31;
-        }
-
-        string BuildControlsText()
-        {
-            return
-                "Driving\n" +
-                "Throttle: W or Up Arrow, gamepad Vertical axis up\n" +
-                "Brake / Reverse: S or Down Arrow, gamepad Vertical axis down\n" +
-                "Steer Left / Right: A/D or Left/Right Arrow, gamepad Horizontal axis\n" +
-                "ERS Mode Cycle: R\n" +
-                "ERS Manual Override: Left Shift or Right Shift\n" +
-                "DRS Toggle: Space, only when race rules allow it\n" +
-                "Camera Toggle: C\n" +
-                "Pit Request: P\n" +
-                "Manual Shift Down / Up: Q / E, only when Manual Gears is enabled\n\n" +
-                "Session\n" +
-                "Pause / Resume: Esc\n" +
-                "Restart Race: Pause menu button\n" +
-                "Return To Menu: Pause menu button\n\n" +
-                "Assists\n" +
-                "Auto-brake, ABS, traction control, racing line, input sensitivity, ERS mode, and manual gears are changed from Settings / Assists. ERS mode can also be cycled in-race with R.";
         }
 
         string OnOff(bool value)

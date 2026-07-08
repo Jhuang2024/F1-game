@@ -42,6 +42,11 @@ namespace LocalFormulaRacing
         Text[] towerLaps = new Text[TowerRowCount];
         Text[] towerGaps = new Text[TowerRowCount];
         Text[] towerIntervals = new Text[TowerRowCount];
+        // Small breathing dot beside the interval column: lit green while that
+        // car has DRS active/available, hidden otherwise - a broadcast-style
+        // "DRS detection zone" cue built from RaceManager.DrsStateText, which
+        // already exists for any participant, not just the player.
+        Image[] towerDrsDots = new Image[TowerRowCount];
         int visibleTowerRows = TowerRowCount;
 
         // Bottom dash.
@@ -73,6 +78,12 @@ namespace LocalFormulaRacing
         Text fuelValue;
         Image damageFill;
         Text damageValue;
+        // Accent bar of the merged tyre + car-systems card, flashed briefly
+        // white on a sudden damage jump (a collision) so the spike reads as an
+        // event distinct from the steady critical-damage flicker below.
+        Image carStatusAccent;
+        float damageSpikeFlashTimer;
+        float previousDamagePercent = -1f;
         Text pitStatusValue;
         Text pitPlanValue;
         Image pitFill;
@@ -103,6 +114,12 @@ namespace LocalFormulaRacing
         bool raceControlBannerWasVisible;
         RaceManager.RaceControlState previousRaceControlState;
         bool previousRaceControlStateCaptured;
+        // Brief white pulse on the banner's accent bar whenever its headline
+        // actually changes (e.g. yellow flag escalating to a full safety car)
+        // while it stays on screen - UiFadeIn already covers the first
+        // appearance, this covers an in-place escalation reading as an event.
+        string previousBannerTitle = "";
+        float bannerChangeFlashTimer;
         // Pace-limiter compliance readout, directly beneath the banner - only
         // ever visible alongside it, since compliance is meaningless outside a
         // pace-limited period.
@@ -114,6 +131,11 @@ namespace LocalFormulaRacing
         GameObject qualifyingFeedbackPanel;
         GameObject startLightPanel;
         Image[] startLightImages = new Image[5];
+        // Per-light scale punch the instant each light comes on, decaying back
+        // to rest - turns "lights out" from a flat color swap into a sequence
+        // with a bit of mechanical weight, like the real gantry.
+        float[] startLightPunch = new float[5];
+        int previousLitLightCount;
         // Shared "big moment" flash text - reused for lights-out, the SC/VSC
         // restart green flag, final lap, and the chequered finish moment instead
         // of a dedicated Text/timer pair per moment.
@@ -337,10 +359,19 @@ namespace LocalFormulaRacing
             mapWorldScale = (TrackMapSize - 26f) / span;
 
             // Track ribbon as dense dots; cheap, readable, and shape-accurate.
+            // Tinted by sector (S1/S2/S3) using the same normalized-progress
+            // thirds RaceManager/LapTracker already use for TrackProgress.sector,
+            // so the minimap reads like a broadcast track map instead of a flat
+            // gray outline - no new track data needed, just the same split.
             int step = Mathf.Max(1, line.Count / 110);
             for (int i = 0; i < line.Count; i += step)
             {
-                Image dot = CreateMapDot("Map track dot", 3.4f, new Color(0.55f, 0.66f, 0.76f, 0.6f));
+                float normalized = i / (float)line.Count;
+                Color sectorTint = normalized < 0.333f ? UiFactory.AccentCyan
+                    : normalized < 0.666f ? UiFactory.AccentAmber
+                    : UiFactory.AccentPurple;
+                Color ribbonColor = new Color(sectorTint.r, sectorTint.g, sectorTint.b, 0.55f);
+                Image dot = CreateMapDot("Map track dot", 3.4f, ribbonColor);
                 dot.rectTransform.anchoredPosition = WorldToMap(line[i]);
                 dot.raycastTarget = false;
             }
@@ -370,6 +401,16 @@ namespace LocalFormulaRacing
             }
 
             mapPlayerDot = CreateMapDot("Map player dot", 9.5f, UiFactory.Accent);
+            if (UiFactory.AnimationsEnabled)
+            {
+                // A subtle breathing highlight so the player's own car is never
+                // ambiguous with an AI dot at a glance, even on a busy map.
+                UiPulse playerPulse = mapPlayerDot.gameObject.AddComponent<UiPulse>();
+                playerPulse.speed = 2.4f;
+                playerPulse.minAlpha = 0.6f;
+                playerPulse.maxAlpha = 1f;
+            }
+
             if (compact)
             {
                 trackMap.gameObject.SetActive(false);
@@ -586,7 +627,7 @@ namespace LocalFormulaRacing
             rightStack = UiFactory.CreateResponsivePanel(transform, "Right card stack", new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(RightStackWidth, 640f), new Vector2(-16f, 0f), new Color(0f, 0f, 0f, 0f));
             ApplyPanelScale(rightStack);
             VerticalLayoutGroup layout = rightStack.gameObject.AddComponent<VerticalLayoutGroup>();
-            layout.spacing = 10f;
+            layout.spacing = UiFactory.HudCardSpacing;
             layout.padding = new RectOffset(0, 0, 0, 0);
             layout.childAlignment = TextAnchor.MiddleRight;
             layout.childControlWidth = false;
@@ -596,8 +637,7 @@ namespace LocalFormulaRacing
 
             if (!compact)
             {
-                BuildTyreCard();
-                BuildCarCard();
+                BuildCarStatusCard();
             }
 
             BuildPitCard();
@@ -606,15 +646,17 @@ namespace LocalFormulaRacing
             BuildRadioCard();
         }
 
-        void BuildTyreCard()
+        // Merged tyre + car-systems card. These used to be two separate panels
+        // but were always built and hidden together (both skip entirely in
+        // compact HUD), so one header/accent replaces two and a thin divider
+        // separates the tyre block from ERS/fuel/damage below it - a tighter
+        // right stack with the exact same readouts, just grouped by what they
+        // actually are (tyres vs. everything else about the car).
+        void BuildCarStatusCard()
         {
-            // Card grows by 24px over its original height to fit one extra tag
-            // line (lockup / flat spot state) between the Temp row and the wear
-            // meter; only the wear meter below it shifts down to match, nothing
-            // else in the card moves.
-            RectTransform card = UiFactory.CreateHudCard(rightStack, "Tyres", RightStackWidth, 152f, UiFactory.Accent);
+            RectTransform card = UiFactory.CreateHudCard(rightStack, "Car Status", RightStackWidth, 236f, UiFactory.AccentCyan, out carStatusAccent);
 
-            // 2x2 corner grid on the left half of the card.
+            // 2x2 tyre corner grid on the left half of the card.
             tyreFl = CreateTyreCorner(card, "FL", new Vector2(24f, -36f));
             tyreFr = CreateTyreCorner(card, "FR", new Vector2(74f, -36f));
             tyreRl = CreateTyreCorner(card, "RL", new Vector2(24f, -80f));
@@ -635,6 +677,12 @@ namespace LocalFormulaRacing
             tagRect.offsetMax = new Vector2(-10f, -80f);
 
             tyreWearFill = UiFactory.CreateHudMeter(card, "Wear", 116f, UiFactory.AccentAmber, out tyreWearValue);
+
+            UiFactory.CreateBand(card, "Car status divider", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(14f, -142f), new Vector2(-10f, -140f), new Color(1f, 1f, 1f, 0.08f));
+
+            ersFill = UiFactory.CreateHudMeter(card, "ERS", 152f, UiFactory.AccentCyan, out ersValue);
+            fuelFill = UiFactory.CreateHudMeter(card, "Fuel", 178f, new Color(0.7f, 0.95f, 1f), out fuelValue);
+            damageFill = UiFactory.CreateHudMeter(card, "Dmg", 204f, UiFactory.Accent, out damageValue);
         }
 
         // The tyre card shares its left half with the corner grid, so shift the
@@ -670,14 +718,6 @@ namespace LocalFormulaRacing
             labelRect.offsetMin = new Vector2(-6f, -14f);
             labelRect.offsetMax = new Vector2(6f, 0f);
             return image;
-        }
-
-        void BuildCarCard()
-        {
-            RectTransform card = UiFactory.CreateHudCard(rightStack, "Car", RightStackWidth, 110f, UiFactory.AccentCyan);
-            ersFill = UiFactory.CreateHudMeter(card, "ERS", 32f, UiFactory.AccentCyan, out ersValue);
-            fuelFill = UiFactory.CreateHudMeter(card, "Fuel", 58f, new Color(0.7f, 0.95f, 1f), out fuelValue);
-            damageFill = UiFactory.CreateHudMeter(card, "Dmg", 84f, UiFactory.Accent, out damageValue);
         }
 
         void BuildPitCard()
@@ -877,6 +917,15 @@ namespace LocalFormulaRacing
             watchedPlayerFinished = false;
             previousRaceControlStateCaptured = false;
             raceControlBannerWasVisible = false;
+            previousBannerTitle = "";
+            bannerChangeFlashTimer = 0f;
+            previousDamagePercent = -1f;
+            damageSpikeFlashTimer = 0f;
+            previousLitLightCount = 0;
+            for (int i = 0; i < startLightPunch.Length; i++)
+            {
+                startLightPunch[i] = 0f;
+            }
         }
 
         void Update()
@@ -897,6 +946,7 @@ namespace LocalFormulaRacing
             UpdateTrackMap();
             UpdateTopAccentFlash();
             UpdateFinishFlourish();
+            UpdateDamageSpikeFlash();
 
             if (Input.GetKeyDown(KeyCode.F1))
             {
@@ -1072,6 +1122,7 @@ namespace LocalFormulaRacing
                 raceControlBanner.gameObject.SetActive(visible);
             }
 
+            bool wasVisibleBefore = raceControlBannerWasVisible;
             if (visible && !raceControlBannerWasVisible && UiFactory.AnimationsEnabled)
             {
                 // Reuse the same fade/slide-in used for every panel at HUD build
@@ -1143,6 +1194,27 @@ namespace LocalFormulaRacing
             }
 
             UpdatePaceCompliancePill(nearLocalYellow);
+
+            // Escalation pulse: if the headline actually changed while the
+            // banner was already on screen (yellow -> VSC -> full SC, etc.),
+            // flash the accent bar toward white and let it decay back to the
+            // new state's color, so the change reads as an event rather than a
+            // silent text swap. Skipped on first appearance since UiFadeIn
+            // already animates that.
+            string currentBannerTitle = raceControlBannerTitle.text;
+            if (wasVisibleBefore && !string.IsNullOrEmpty(previousBannerTitle) && previousBannerTitle != currentBannerTitle && UiFactory.AnimationsEnabled)
+            {
+                bannerChangeFlashTimer = 0.4f;
+            }
+
+            previousBannerTitle = currentBannerTitle;
+
+            if (bannerChangeFlashTimer > 0f && raceControlBannerAccent != null)
+            {
+                bannerChangeFlashTimer -= Time.deltaTime;
+                float flashT = Mathf.Clamp01(bannerChangeFlashTimer / 0.4f);
+                raceControlBannerAccent.color = Color.Lerp(raceControlBannerAccent.color, Color.white, flashT);
+            }
         }
 
         // Live queue position/gap-to-slot suffix for the full-SC banner - only
@@ -1329,7 +1401,23 @@ namespace LocalFormulaRacing
 
             float wear01 = Mathf.Clamp01(car.Tyres.WearPercent / 100f);
             UiFactory.SetMeterValueAnimated(tyreWearFill, wear01);
-            tyreWearFill.color = wear01 > 0.62f ? UiFactory.Accent : UiFactory.AccentAmber;
+            // Past the critical threshold the meter itself flashes (fill and
+            // value swap between white and red) instead of just sitting at a
+            // static red - matches the same urgency language already used for
+            // low fuel and critical damage below.
+            bool tyreCritical = wear01 > 0.85f;
+            if (tyreCritical)
+            {
+                bool lit = Mathf.PingPong(Time.time * 3f, 1f) > 0.5f;
+                tyreWearFill.color = lit ? Color.white : UiFactory.Accent;
+                tyreWearValue.color = lit ? UiFactory.Accent : UiFactory.TextPrimary;
+            }
+            else
+            {
+                tyreWearFill.color = wear01 > 0.62f ? UiFactory.Accent : UiFactory.AccentAmber;
+                tyreWearValue.color = UiFactory.TextPrimary;
+            }
+
             tyreWearValue.text = Mathf.RoundToInt(car.Tyres.WearPercent) + "%";
         }
 
@@ -1357,6 +1445,39 @@ namespace LocalFormulaRacing
             damageFill.color = critical && Mathf.PingPong(Time.time * 3f, 1f) > 0.5f
                 ? Color.white
                 : (critical ? UiFactory.Accent : new Color(1f, 0.55f, 0.1f));
+
+            // A sudden jump (a real hit, not gradual wear) fires a one-shot
+            // white flash on the whole card's accent bar - see
+            // UpdateDamageSpikeFlash - distinct from the steady flicker above,
+            // which only communicates "damage is currently high".
+            if (previousDamagePercent >= 0f && car.Damage.OverallPercent - previousDamagePercent > 4f)
+            {
+                damageSpikeFlashTimer = 0.5f;
+            }
+
+            previousDamagePercent = car.Damage.OverallPercent;
+        }
+
+        // Decays the damage-spike flash triggered in UpdateCarCard - runs every
+        // frame (not just on the slow tick) so the fade-back-to-normal reads as
+        // smooth motion rather than a stepped animation.
+        void UpdateDamageSpikeFlash()
+        {
+            if (carStatusAccent == null)
+            {
+                return;
+            }
+
+            if (damageSpikeFlashTimer > 0f)
+            {
+                damageSpikeFlashTimer -= Time.deltaTime;
+                float t = Mathf.Clamp01(damageSpikeFlashTimer / 0.5f);
+                carStatusAccent.color = Color.Lerp(UiFactory.AccentCyan, Color.white, t);
+            }
+            else if (carStatusAccent.color != UiFactory.AccentCyan)
+            {
+                carStatusAccent.color = UiFactory.AccentCyan;
+            }
         }
 
         void UpdatePitCard(VehicleController car)
@@ -1679,23 +1800,42 @@ namespace LocalFormulaRacing
             float top = -42f - index * 21f;
             RectTransform row = UiFactory.CreateBand(parent, "Timing tower row " + index, new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(8f, top - 19f), new Vector2(-8f, top), index % 2 == 0 ? UiFactory.RowEven : UiFactory.RowOdd);
             towerRowBackgrounds[index] = row.GetComponent<Image>();
-            towerPositions[index] = CreateTowerCell(row, "Tower pos " + index, 6f, 34f, 13, TextAnchor.MiddleLeft);
-            towerDrivers[index] = CreateTowerCell(row, "Tower driver " + index, 36f, 82f, 13, TextAnchor.MiddleLeft);
+            // Position + driver code are the primary read of a timing tower row,
+            // so they're bold and near-white; lap/gap/interval are secondary and
+            // sit a step down in contrast - the same label>value>hint hierarchy
+            // used elsewhere in the HUD, applied to a dense table.
+            Color primaryCellColor = new Color(0.96f, 0.98f, 1f);
+            towerPositions[index] = CreateTowerCell(row, "Tower pos " + index, 6f, 34f, 13, TextAnchor.MiddleLeft, primaryCellColor, true);
+            towerDrivers[index] = CreateTowerCell(row, "Tower driver " + index, 36f, 82f, 13, TextAnchor.MiddleLeft, primaryCellColor, true);
             RectTransform tyre = UiFactory.CreateBand(row, "Tower tyre " + index, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(88f, -5f), new Vector2(98f, 5f), Color.white);
             towerTyres[index] = tyre.GetComponent<Image>();
-            towerLaps[index] = CreateTowerCell(row, "Tower lap " + index, 104f, 136f, 12, TextAnchor.MiddleLeft);
-            towerGaps[index] = CreateTowerCell(row, "Tower gap " + index, 140f, 222f, 12, TextAnchor.MiddleLeft);
-            towerIntervals[index] = CreateTowerCell(row, "Tower interval " + index, 226f, 306f, 12, TextAnchor.MiddleLeft);
+            towerLaps[index] = CreateTowerCell(row, "Tower lap " + index, 104f, 136f, 12, TextAnchor.MiddleLeft, new Color(0.7f, 0.78f, 0.83f), false);
+            towerGaps[index] = CreateTowerCell(row, "Tower gap " + index, 140f, 222f, 12, TextAnchor.MiddleLeft, new Color(0.85f, 0.91f, 0.94f), false);
+            towerIntervals[index] = CreateTowerCell(row, "Tower interval " + index, 226f, 292f, 12, TextAnchor.MiddleLeft, new Color(0.85f, 0.91f, 0.94f), false);
+
+            // Small DRS-detection dot at the row's right edge: lit green while
+            // that car has DRS active/available (from RaceManager.DrsStateText,
+            // already generic per-participant), invisible otherwise. Reads as a
+            // broadcast-style "DRS zone" cue without adding a new column.
+            RectTransform drsDot = UiFactory.CreateRect(row, "Tower drs " + index, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, Vector2.zero);
+            drsDot.sizeDelta = new Vector2(8f, 8f);
+            drsDot.anchoredPosition = new Vector2(299f, 0f);
+            Image drsDotImage = drsDot.gameObject.AddComponent<Image>();
+            drsDotImage.sprite = UiFactory.GlowSprite;
+            drsDotImage.color = new Color(0f, 0f, 0f, 0f);
+            drsDotImage.raycastTarget = false;
+            towerDrsDots[index] = drsDotImage;
         }
 
-        Text CreateTowerCell(RectTransform parent, string name, float minX, float maxX, int size, TextAnchor alignment)
+        Text CreateTowerCell(RectTransform parent, string name, float minX, float maxX, int size, TextAnchor alignment, Color color, bool bold)
         {
-            Text cell = UiFactory.CreateText(parent, name, "", size, new Color(0.9f, 0.96f, 0.98f), alignment);
+            Text cell = UiFactory.CreateText(parent, name, "", size, color, alignment);
             RectTransform rect = cell.GetComponent<RectTransform>();
             rect.anchorMin = new Vector2(0f, 0f);
             rect.anchorMax = new Vector2(0f, 1f);
             rect.offsetMin = new Vector2(minX, 0f);
             rect.offsetMax = new Vector2(maxX, 0f);
+            cell.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
             return cell;
         }
 
@@ -1711,7 +1851,9 @@ namespace LocalFormulaRacing
             {
                 tower.text = "TIME TRIAL";
                 LapTracker lap = player.lapTracker;
-                SetTowerRow(0, "P1", DriverCode(player), TyreColor(player.vehicle != null && player.vehicle.Tyres != null ? player.vehicle.Tyres.Compound.ToString() : ""), lap.DisplayLap.ToString("00"), UiFactory.FormatTime(lap.BestLapTime), "", true);
+                string ttDrsState = race.DrsStateText(player);
+                bool ttDrsHot = ttDrsState == "ACTIVE" || ttDrsState == "AVAILABLE";
+                SetTowerRow(0, "P1", DriverCode(player), TyreColor(player.vehicle != null && player.vehicle.Tyres != null ? player.vehicle.Tyres.Compound.ToString() : ""), lap.DisplayLap.ToString("00"), UiFactory.FormatTime(lap.BestLapTime), "", true, false, ttDrsHot);
                 for (int i = 1; i < TowerRowCount; i++)
                 {
                     SetTowerRowVisible(i, false);
@@ -1734,7 +1876,9 @@ namespace LocalFormulaRacing
                 RaceParticipant entry = order[i];
                 string tyreName = entry.vehicle == null || entry.vehicle.Tyres == null ? "" : entry.vehicle.Tyres.Compound.ToString();
                 string lap = entry.lapTracker == null ? "--" : entry.lapTracker.DisplayLap.ToString("00");
-                SetTowerRow(i, (i + 1).ToString("00"), DriverCode(entry), TyreColor(tyreName), lap, race.GapToLeaderText(entry), race.IntervalAheadText(entry), entry == player);
+                string drsState = race.DrsStateText(entry);
+                bool drsHot = drsState == "ACTIVE" || drsState == "AVAILABLE";
+                SetTowerRow(i, (i + 1).ToString("00"), DriverCode(entry), TyreColor(tyreName), lap, race.GapToLeaderText(entry), race.IntervalAheadText(entry), entry == player, entry.isPitting, drsHot);
             }
         }
 
@@ -1754,7 +1898,7 @@ namespace LocalFormulaRacing
             }
         }
 
-        void SetTowerRow(int index, string position, string driver, Color tyreColor, string lap, string gap, string interval, bool highlight)
+        void SetTowerRow(int index, string position, string driver, Color tyreColor, string lap, string gap, string interval, bool highlight, bool pit = false, bool drsHot = false)
         {
             SetTowerRowVisible(index, true);
             Color leaderTint = index == 0 && !highlight ? new Color(0.1f, 0.14f, 0.2f, 0.86f) : (index % 2 == 0 ? UiFactory.RowEven : UiFactory.RowOdd);
@@ -1764,7 +1908,18 @@ namespace LocalFormulaRacing
             towerTyres[index].color = tyreColor;
             towerLaps[index].text = lap;
             towerGaps[index].text = gap;
-            towerIntervals[index].text = interval;
+            // Pitting takes over the interval slot with a clear "PIT" tag - the
+            // interval-to-the-car-ahead is meaningless while a car is in the
+            // pit lane, so this is strictly more useful than a stale number.
+            towerIntervals[index].text = pit ? "PIT" : interval;
+            towerIntervals[index].color = pit ? UiFactory.AccentAmber : (highlight ? Color.white : new Color(0.85f, 0.91f, 0.94f));
+            towerIntervals[index].fontStyle = pit ? FontStyle.Bold : FontStyle.Normal;
+            if (towerDrsDots[index] != null)
+            {
+                towerDrsDots[index].color = pit
+                    ? new Color(0f, 0f, 0f, 0f)
+                    : (drsHot ? new Color(UiFactory.AccentGreen.r, UiFactory.AccentGreen.g, UiFactory.AccentGreen.b, 0.95f) : new Color(0f, 0f, 0f, 0f));
+            }
         }
 
         void SetTowerRowVisible(int index, bool visible)
@@ -1799,15 +1954,45 @@ namespace LocalFormulaRacing
 
             if (!visible)
             {
+                // Reset so the next sequence (e.g. a safety-car restart) starts
+                // its punch animation from the first light again instead of
+                // silently skipping it because the counter never rewound.
+                previousLitLightCount = 0;
                 return;
             }
 
             int lit = race.RaceStartLightCount;
+            // A quick scale punch on each light the instant it comes on, decaying
+            // back to rest - turns the sequence from a flat color swap into
+            // something with a bit of mechanical weight, like the real gantry.
+            if (lit > previousLitLightCount && UiFactory.AnimationsEnabled)
+            {
+                for (int i = previousLitLightCount; i < lit && i < startLightPunch.Length; i++)
+                {
+                    startLightPunch[i] = 1f;
+                }
+            }
+
+            previousLitLightCount = lit;
+
             for (int i = 0; i < startLightImages.Length; i++)
             {
-                if (startLightImages[i] != null)
+                if (startLightImages[i] == null)
                 {
-                    startLightImages[i].color = i < lit ? new Color(1f, 0.04f, 0.025f, 1f) : new Color(0.09f, 0.01f, 0.012f, 1f);
+                    continue;
+                }
+
+                startLightImages[i].color = i < lit ? new Color(1f, 0.04f, 0.025f, 1f) : new Color(0.09f, 0.01f, 0.012f, 1f);
+                RectTransform lightRect = startLightImages[i].rectTransform;
+                if (startLightPunch[i] > 0f)
+                {
+                    startLightPunch[i] = Mathf.Max(0f, startLightPunch[i] - Time.deltaTime * 3.2f);
+                    float scale = 1f + startLightPunch[i] * 0.22f;
+                    lightRect.localScale = new Vector3(scale, scale, 1f);
+                }
+                else if (lightRect.localScale != Vector3.one)
+                {
+                    lightRect.localScale = Vector3.one;
                 }
             }
         }

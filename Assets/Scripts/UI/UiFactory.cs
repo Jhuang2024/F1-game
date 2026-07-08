@@ -307,6 +307,11 @@ namespace LocalFormulaRacing
         public static readonly Color RowOdd = new Color(0.045f, 0.06f, 0.078f, 0.5f);
         public static readonly Color GlassHighlight = new Color(1f, 1f, 1f, 0.07f);
 
+        // Shared spacing rhythm for HUD card stacks and reference-style row lists,
+        // so panels read as one consistent grid instead of every call site picking
+        // its own gap.
+        public const float HudCardSpacing = 10f;
+
         static UnityEngine.Font cachedFont;
 
         public static UnityEngine.Font Font
@@ -1318,12 +1323,20 @@ namespace LocalFormulaRacing
         // positioned inside using the returned rect; the card itself is sized by the caller.
         public static RectTransform CreateHudCard(Transform parent, string title, float width, float height, Color accentColor)
         {
+            return CreateHudCard(parent, title, width, height, accentColor, out _);
+        }
+
+        // Overload that also hands back the accent bar Image, for callers that
+        // need to animate it directly (e.g. a brief white flash on a sudden
+        // state change) instead of re-deriving it with a Transform.Find lookup.
+        public static RectTransform CreateHudCard(Transform parent, string title, float width, float height, Color accentColor, out Image accentImage)
+        {
             RectTransform card = CreateRect(parent, title + " hud card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             card.sizeDelta = new Vector2(width, height);
             Image background = card.gameObject.AddComponent<Image>();
             StyleRounded(background, HudCardBackground);
             RectTransform accent = CreateRect(card, title + " card accent", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 8f), new Vector2(3f, -8f));
-            Image accentImage = accent.gameObject.AddComponent<Image>();
+            accentImage = accent.gameObject.AddComponent<Image>();
             StyleRoundedSmall(accentImage, accentColor);
             Text header = CreateText(card, title + " card title", title.ToUpperInvariant(), 12, TextMuted, TextAnchor.UpperLeft);
             RectTransform headerRect = header.GetComponent<RectTransform>();
