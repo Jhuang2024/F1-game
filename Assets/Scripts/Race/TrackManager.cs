@@ -873,6 +873,7 @@ namespace LocalFormulaRacing
             // ValidateBarrierColliderCoverage for why this is independent of the
             // solidObstacles-based checks ValidateGeneratedTrack already ran.
             ValidateBarrierColliderCoverage();
+            ValidateSceneryGrounding();
             BuildBoundaryDebugOverlay();
             return Runtime;
         }
@@ -3664,6 +3665,74 @@ namespace LocalFormulaRacing
                    (Runtime.styleName.Contains("street") || Runtime.styleName.Contains("Street"));
         }
 
+        // ---------- freestanding scenery grounding ----------
+        // Freestanding trackside scenery (marshal posts, floodlights, trees, grandstands,
+        // paddock buildings, camera pods, ...) stands on the flat ground plane, not on
+        // whatever height the road happens to be at the sample point it was offset from.
+        // On a normal stretch the two are the same to within camber noise (see
+        // CreateBridgeSupports' own <2m "not really elevated" cutoff), but near a
+        // bridge/hill the road can be many metres above true ground - building an
+        // object's base relative to that sampled track height (as several passes used
+        // to) left it floating at deck height with nothing visibly holding it up, since
+        // these objects don't reach back up to the deck the way a camera tower or light
+        // mast's own support legs do. This keeps the lateral (x/z) position exactly as
+        // sampled and only replaces the vertical component with the one flat ground
+        // reference the whole track actually rests on. Not used by passes that
+        // deliberately want the local sloped/elevated height (parkland hillside terrain,
+        // mountain-cliff dressing, anything mounted directly to the road/bridge
+        // structure itself) - see the call sites for why each of those is exempt.
+        Vector3 GroundedTrackPoint(Vector3 sampledPoint)
+        {
+            return new Vector3(sampledPoint.x, groundTopY, sampledPoint.z);
+        }
+
+        // Generic ground-support helper: given where a piece of scenery's base is
+        // actually sitting (and a rough footprint radius for sizing any fix), confirms
+        // it is already resting at/near true ground level and, if not, fills the gap
+        // with a short concrete pad (small gaps) or a support column (larger gaps) down
+        // to groundTopY - the same "column bridges the elevation gap" idea
+        // CreateBridgeSupports/CreateCameraTower already use, generalized for callers
+        // that have a deliberate reason to keep an object above flat ground (e.g. a
+        // hillside archetype's artificial "climbing the slope" offset) but still want it
+        // to read as resting on *something* rather than hanging in mid-air. Reuses
+        // concreteMaterial rather than adding a new one.
+        void EnsureGroundedBase(Vector3 objectBasePosition, float footprintRadius)
+        {
+            float gap = objectBasePosition.y - groundTopY;
+            if (gap <= 0.15f)
+            {
+                // Already resting on (or slightly into) the ground - nothing to add.
+                return;
+            }
+
+            float radius = Mathf.Max(0.6f, footprintRadius);
+            if (gap < 2f)
+            {
+                // Small gap: a flat plinth/pad reads better than a sliver-thin column.
+                CreateVisualBox("Scenery grounding pad", new Vector3(objectBasePosition.x, groundTopY + 0.05f, objectBasePosition.z),
+                    Quaternion.identity, new Vector3(radius * 1.6f, 0.1f, radius * 1.6f), concreteMaterial);
+                return;
+            }
+
+            Vector3 columnCenter = new Vector3(objectBasePosition.x, groundTopY + gap * 0.5f, objectBasePosition.z);
+            CreateVisualBox("Scenery support column", columnCenter, Quaternion.identity, new Vector3(radius * 1.1f, gap, radius * 1.1f), concreteMaterial);
+        }
+
+        // Thin visible ground patch/pad under a piece of scenery (a tree cluster's grass
+        // apron, a building/grandstand/tower's paved foundation, ...) so its base reads
+        // as sitting on believable ground instead of hovering a hair above unbroken,
+        // texture-less flat terrain. Purely cosmetic - always at groundTopY, since this
+        // is only ever called on scenery this pass has already grounded correctly.
+        void CreateGroundPatch(string name, Vector3 basePosition, float sizeX, float sizeZ, Material material, Quaternion rotation)
+        {
+            CreateVisualBox(name, new Vector3(basePosition.x, groundTopY + 0.02f, basePosition.z), rotation, new Vector3(sizeX, 0.05f, sizeZ), material);
+        }
+
+        void CreateGroundPatch(string name, Vector3 basePosition, float sizeX, float sizeZ, Material material)
+        {
+            CreateGroundPatch(name, basePosition, sizeX, sizeZ, material, Quaternion.identity);
+        }
+
         void CreateConcreteWall(Vector3 basePosition, Vector3 forward, float segmentLength)
         {
             GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
@@ -4159,6 +4228,109 @@ namespace LocalFormulaRacing
             }
 
             return best;
+        }
+
+        // ---------- debug scenery-grounding physics sweep ----------
+        // Mirrors ValidateBarrierColliderCoverage above: a debug-only, physics-driven
+        // spot-check that runs once after every scenery pass has finished, independent
+        // of the placement math itself, so a genuine "floating object" regression in any
+        // of the dozens of trackside-dressing passes above gets caught by what a player
+        // would actually see (a gap between an object and the ground) rather than by
+        // re-deriving every pass's own intended position a second time. Every piece of
+        // decorative scenery in this file is parented directly to this component's
+        // transform with no separate registry, so this instead stride-samples whatever
+        // actually got built: for a slice of the collider-free decorative objects
+        // (buildings, towers, posts, trees, ...) it fires a ray straight down against
+        // the real ground/road/barrier colliders every other pass leaves behind and
+        // flags - then auto-corrects with the same grounding-pad/column helper the
+        // passes above use - anything whose base doesn't come to rest within tolerance
+        // of the surface directly beneath it. Never throws, always warns.
+        const int SceneryGroundingSampleStride = 17;
+        const float SceneryGroundingRayHeight = 500f;
+
+        // Generous on purpose: plenty of legitimate scenery is mounted a metre or two
+        // above its own object's true ground contact point (a flag pole's cloth, a
+        // gantry's overhead deck, a post-mounted board) rather than being the ground
+        // contact point itself - this only needs to catch genuine multi-metre "floating
+        // at deck height" bugs, not every intentionally-elevated sub-component.
+        const float SceneryGroundingTolerance = 2.5f;
+
+        void ValidateSceneryGrounding()
+        {
+            if (Runtime == null || Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            int sampled = 0;
+            int flagged = 0;
+            int correctedCount = 0;
+            float worstGap = 0f;
+            int childCount = transform.childCount;
+            for (int i = 0; i < childCount; i += SceneryGroundingSampleStride)
+            {
+                Transform child = transform.GetChild(i);
+                if (child == null || !IsGroundingCheckCandidate(child))
+                {
+                    continue;
+                }
+
+                Renderer renderer = child.GetComponent<Renderer>();
+                Vector3 basePosition = renderer.bounds.center;
+                basePosition.y = renderer.bounds.min.y;
+                sampled++;
+
+                Vector3 rayOrigin = basePosition + Vector3.up * SceneryGroundingRayHeight;
+                RaycastHit hit;
+                if (!Physics.Raycast(rayOrigin, Vector3.down, out hit, SceneryGroundingRayHeight * 2f))
+                {
+                    continue;
+                }
+
+                float gap = basePosition.y - hit.point.y;
+                if (gap > SceneryGroundingTolerance)
+                {
+                    flagged++;
+                    worstGap = Mathf.Max(worstGap, gap);
+                    GameLog.Warn("[TrackValidation] Scenery grounding check FAILED: '" + child.name + "' base sits " +
+                                 gap.ToString("0.00") + "m above the surface below it on " + Runtime.displayName);
+
+                    // Auto-correct: drop the object straight down onto the surface found
+                    // by the ray, then reuse the same grounding-pad/column helper the
+                    // passes above call directly, in case the surface underneath doesn't
+                    // fully explain away the visual gap (e.g. a sloped hit point).
+                    child.position -= Vector3.up * gap;
+                    EnsureGroundedBase(hit.point, Mathf.Max(renderer.bounds.extents.x, renderer.bounds.extents.z));
+                    correctedCount++;
+                }
+            }
+
+            if (flagged == 0)
+            {
+                GameLog.Info("[TrackValidation] Scenery grounding sweep clean: " + sampled + " object(s) sampled, all within tolerance on " + Runtime.displayName);
+            }
+            else
+            {
+                GameLog.Warn("[TrackValidation] Scenery grounding sweep found " + flagged + "/" + sampled + " object(s) floating with an unexpected gap (worst " +
+                             worstGap.ToString("0.00") + "m), auto-corrected " + correctedCount + " on " + Runtime.displayName);
+            }
+        }
+
+        // Restricts the grounding sweep to plain decorative scenery: a MeshRenderer with
+        // no collider (everything CreateVisualBox/CreateVisualCone builds, and anything
+        // MakeVisualOnly stripped the collider from), excluding LineRenderers (the AI
+        // racing line/debug overlays span the whole lap and have no meaningful single
+        // "base") and TextMesh labels (mounted flush to whatever board/gantry placed
+        // them, not an independent ground-contact object).
+        bool IsGroundingCheckCandidate(Transform child)
+        {
+            if (child.GetComponent<Collider>() != null || child.GetComponent<LineRenderer>() != null || child.GetComponent<TextMesh>() != null)
+            {
+                return false;
+            }
+
+            Renderer renderer = child.GetComponent<Renderer>();
+            return renderer != null && renderer.enabled;
         }
 
         void CreateKerbBlock(Vector3 position, Vector3 forward, float seed, bool aggressive)
@@ -5191,6 +5363,10 @@ namespace LocalFormulaRacing
             Vector3 legBase = new Vector3(basePosition.x, groundTopY, basePosition.z);
             Vector3 platformCenter = legBase + Vector3.up * legHeight;
 
+            // Paved foundation pad under the four legs so the mast reads as anchored to
+            // a real base rather than four bare poles planted straight into open grass.
+            CreateGroundPatch("Camera tower foundation pad", legBase, 3.2f, 3.2f, concreteMaterial, rotation);
+
             // Four corner legs with two lattice bracing bands instead of one thick
             // central pole - reads as a real broadcast mast rather than a fence post
             // wearing a platform.
@@ -5286,7 +5462,10 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(corners[i].distance - 20f, out point, out forward, out right);
                 float side = i % 2 == 0 ? -1f : 1f;
-                CreateTracksideCameraPod(point + right * side * (Runtime.roadHalfWidth + 8f), forward);
+                // Grounded - a hard-braking corner can be an elevated stretch, and this
+                // pod's tripod legs are far too short to reach real ground from deck
+                // height the way CreateCameraTower's own legs are built to.
+                CreateTracksideCameraPod(GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 8f), forward);
             }
         }
 
@@ -5432,20 +5611,29 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
+                // Everything below except the sponsor board sits well clear of the road
+                // (6.5m+) and is meant to stand on real ground, not on whatever height
+                // the track happens to be at this sample - grounded so a floodlight/
+                // marshal post/tree/building near a bridge or hill doesn't float at deck
+                // height. The sponsor board stays keyed to the raw sampled point since
+                // it's mounted right at the trackside/barrier line, the same convention
+                // CreateSectorBoard/CreateDrsZoneBoard/CreateTimingGantry already use.
+                Vector3 groundPoint = GroundedTrackPoint(point);
+
                 // Trackside detail: floodlights and marshal posts. Frequencies tightened
                 // from the original 8/12/14 spacing (still scaled by sceneryDensity
                 // through the loop step above) so a lap reads as a built-up circuit
                 // rather than occasional furniture on an otherwise bare verge.
                 if (i % 6 == 0)
                 {
-                    CreateFloodlight(point + right * side * (Runtime.roadHalfWidth + 6.5f), forward, night || nightTrack || street);
+                    CreateFloodlight(groundPoint + right * side * (Runtime.roadHalfWidth + 6.5f), forward, night || nightTrack || street);
                 }
 
                 // Parkland circuits (the "old-school racing venue" archetypes) get a
                 // second marshal post slot for denser classic trackside furniture.
                 if (i % 10 == 4 || (parklandTrack && i % 10 == 9))
                 {
-                    CreateMarshalPost(point + right * side * (Runtime.roadHalfWidth + 9f), forward, i);
+                    CreateMarshalPost(groundPoint + right * side * (Runtime.roadHalfWidth + 9f), forward, i);
                 }
 
                 if (i % 11 == 9)
@@ -5455,17 +5643,17 @@ namespace LocalFormulaRacing
 
                 if (neonTrack && i % 16 == 6)
                 {
-                    CreateNeonPylon(point + right * side * (Runtime.roadHalfWidth + 11f), forward, i);
+                    CreateNeonPylon(groundPoint + right * side * (Runtime.roadHalfWidth + 11f), forward, i);
                 }
 
-                Vector3 basePosition = point + right * side * (Runtime.roadHalfWidth + (street ? 18f : 32f));
+                Vector3 basePosition = groundPoint + right * side * (Runtime.roadHalfWidth + (street ? 18f : 32f));
                 if (street)
                 {
                     // Tight street circuits keep buildings close; Monaco/Singapore/Vegas
                     // already ride this same lateral offset, but a closer second row on
                     // some passes sells the "canyon of buildings" feel harder.
                     CreateCityBlock(basePosition, forward, i, night);
-                    if (i % 7 == 0) CreateCityBlock(point + right * side * (Runtime.roadHalfWidth + 15f), forward, i + 2, night);
+                    if (i % 7 == 0) CreateCityBlock(groundPoint + right * side * (Runtime.roadHalfWidth + 15f), forward, i + 2, night);
                 }
                 else if (desertTrack)
                 {
@@ -5510,7 +5698,9 @@ namespace LocalFormulaRacing
                     Vector3 forward;
                     Vector3 right;
                     Runtime.SampleAtDistance(d, out point, out forward, out right);
-                    Vector3 desired = point + right * side * (Runtime.HalfWidthAt(d) + 11f);
+                    // Grounded - a freestanding flag pole 11m off the road edge, not
+                    // mounted to the track structure itself.
+                    Vector3 desired = GroundedTrackPoint(point) + right * side * (Runtime.HalfWidthAt(d) + 11f);
                     Vector3 basePosition;
                     if (!TryGetClearScenerySpot(desired, 0.6f, 3f, out basePosition))
                     {
@@ -5552,7 +5742,10 @@ namespace LocalFormulaRacing
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * 0.22f, out point, out forward, out right);
-                CreateToriiGate(point + right * (Runtime.roadHalfWidth + 16f), forward);
+                // Grounded - a freestanding landmark 16m off the road, not mounted to
+                // the track structure, so it must not float if this point on the lap
+                // happens to be elevated.
+                CreateToriiGate(GroundedTrackPoint(point) + right * (Runtime.roadHalfWidth + 16f), forward);
             }
 
             if (spaTrack)
@@ -5888,7 +6081,9 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? 1 : -1;
-                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 95f);
+                // Grounded - these circuit buildings stand well outside the corridor on
+                // real ground, not on the track's own sampled height.
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 95f);
                 float height = 20f + (i % 3) * 10f + (twilightTrack ? 6f : 0f);
                 CreateProceduralBuildingCluster(anchor, forward, 2, height, twilightTrack);
             }
@@ -5910,7 +6105,9 @@ namespace LocalFormulaRacing
             Vector3 forward;
             Vector3 right;
             Runtime.SampleAtDistance(Runtime.length * normalizedDistance, out point, out forward, out right);
-            Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 70f);
+            // Grounded: this stands 70m clear of the road on real ground, so it must not
+            // inherit an elevated sample point's deck height and float there instead.
+            Vector3 desired = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 70f);
             Vector3 basePosition;
             if (!TryGetClearScenerySpot(desired, 40f, 8f, out basePosition))
             {
@@ -5918,6 +6115,7 @@ namespace LocalFormulaRacing
             }
 
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            CreateGroundPatch("Paddock apron pad", basePosition, 24f, 50f, concreteMaterial, rotation);
             CreateVisualBox("Paddock building block", basePosition + Vector3.up * 5f, rotation, new Vector3(46f, 10f, 20f), concreteMaterial);
             CreateVisualBox("Paddock building fascia", basePosition + Vector3.up * 10.2f, rotation, new Vector3(46.4f, 0.4f, 20.4f), sceneryAccentMaterial);
             for (int i = -1; i <= 1; i++)
@@ -5944,7 +6142,10 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? -1 : 1;
-                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 38f);
+                // Grounded - these skyline blocks stand on real ground well clear of the
+                // road, not on the road's own (possibly elevated, e.g. Monaco's tunnel
+                // section) sampled height.
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 38f);
                 CreateProceduralBuildingCluster(anchor, forward, 3, 16f + (i % 4) * 8f, false, 2f);
             }
 
@@ -5960,7 +6161,7 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? 1 : -1;
-                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 58f);
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 58f);
                 CreateLuxuryApartmentCluster(anchor, forward, 2, 26f + (i % 2) * 10f);
             }
         }
@@ -5984,7 +6185,9 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? -1 : 1;
-                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 60f);
+                // Grounded - the neon skyline stands on real ground, not on the track's
+                // own sampled height wherever the lap happens to climb or dip.
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 60f);
                 CreateProceduralBuildingCluster(anchor, forward, 3, 30f + (i % 4) * 11f, true);
             }
 
@@ -6001,7 +6204,7 @@ namespace LocalFormulaRacing
                 Runtime.SampleAtDistance(Runtime.length * straightCenters[s], out point, out forward, out right);
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 46f);
+                    Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 46f);
                     CreateProceduralBuildingCluster(anchor, forward, 2, 40f + s * 10f, true, 3f);
                 }
             }
@@ -6023,7 +6226,9 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? -1 : 1;
-                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 42f);
+                // Grounded - the street-canyon skyline stands on real ground, not on the
+                // track's own sampled height.
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 42f);
                 CreateProceduralBuildingCluster(anchor, forward, 3, 22f + (i % 4) * 9f, false, 2.5f);
             }
 
@@ -6036,7 +6241,7 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? 1 : -1;
-                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 24f);
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 24f);
                 CreateProceduralBuildingCluster(anchor, forward, 2, 16f + (i % 3) * 6f, false, 2f);
             }
 
@@ -6058,7 +6263,9 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? -1 : 1;
-                Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 12f);
+                // Grounded - a freestanding alley wall set back from the road, not part
+                // of the road's own barrier/structure, so it must stand on real ground.
+                Vector3 desired = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 12f);
                 Vector3 safePosition;
                 if (!TryGetClearScenerySpot(desired, 2f, 2f, out safePosition))
                 {
@@ -6304,7 +6511,9 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? -1 : 1;
-                Vector3 nearDune = point + right * side * (Runtime.roadHalfWidth + 50f + (i % 3) * 20f);
+                // Grounded - dunes stand on real ground, not on the track's own sampled
+                // height wherever the coastline climbs or dips.
+                Vector3 nearDune = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 50f + (i % 3) * 20f);
                 CreateDune(nearDune, i + 70);
 
                 Vector3 farDesired = point + right * side * (Runtime.roadHalfWidth + 110f);
@@ -6427,7 +6636,10 @@ namespace LocalFormulaRacing
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
-                Vector3 desired = point - right * (Runtime.roadHalfWidth + 24f);
+                // Grounded - unlike the amphitheater banks above (which deliberately
+                // follow the local hillside height), a floodlight pole is a fixture that
+                // needs to stand on real ground.
+                Vector3 desired = GroundedTrackPoint(point) - right * (Runtime.roadHalfWidth + 24f);
                 Vector3 safePosition;
                 if (!TryGetClearScenerySpot(desired, 3f, 3f, out safePosition))
                 {
@@ -6455,8 +6667,14 @@ namespace LocalFormulaRacing
 
                 // Further clusters sit both further back and higher up, so the
                 // silhouette reads as stacking up a hillside rather than one flat row.
+                // Based on groundTopY (not the track's own sampled height) since this is
+                // a deliberate artistic "climbing the slope" offset, not a reflection of
+                // real track elevation - and there's no actual hill mesh underneath, so
+                // EnsureGroundedBase drops a support pad/column under each climbing tier
+                // rather than leaving the higher steps looking like they hang in mid-air.
                 int climbStep = i % 4;
-                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 48f + climbStep * 22f) + Vector3.up * (climbStep * 6f);
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 48f + climbStep * 22f) + Vector3.up * (climbStep * 6f);
+                EnsureGroundedBase(anchor, 9f);
                 CreateHillsideBuildingCluster(anchor, forward, 4, 12f + climbStep * 7f);
             }
         }
@@ -6512,7 +6730,7 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? 1 : -1;
-                Vector3 anchor = point + right * side * (Runtime.roadHalfWidth + 50f);
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 50f);
                 CreateProceduralBuildingCluster(anchor, forward, 2, 16f + (i % 2) * 6f, false);
             }
         }
@@ -6528,9 +6746,13 @@ namespace LocalFormulaRacing
             Runtime.SampleAtDistance(Runtime.length * normalized, out point, out forward, out right);
             for (int side = -1; side <= 1; side += 2)
             {
-                Vector3 basePosition = point + right * side * (Runtime.roadHalfWidth + 20f);
+                // Grounded - the closing corner complex this stadium bowl wraps can be
+                // an elevated stretch, and the bowl is a ground-standing structure well
+                // clear of the road (20m+), not something mounted to the road itself.
+                Vector3 basePosition = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 20f);
                 Vector3 lateral = right * side;
                 Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+                CreateGroundPatch("Stadium bowl foundation pad", basePosition + lateral * 6f, 14f, 56f, concreteMaterial, rotation);
 
                 // Bigger bowl (12 tiers, wider span) than the original 9-tier version for
                 // a stronger grandstand-bowl effect.
@@ -6555,7 +6777,7 @@ namespace LocalFormulaRacing
                 Vector3 wrapForward;
                 Vector3 wrapRight;
                 Runtime.SampleAtDistance(Runtime.length * (normalized + offset), out wrapPoint, out wrapForward, out wrapRight);
-                Vector3 desired = wrapPoint + wrapRight * (Runtime.roadHalfWidth + 20f);
+                Vector3 desired = GroundedTrackPoint(wrapPoint) + wrapRight * (Runtime.roadHalfWidth + 20f);
                 Vector3 safeAnchor;
                 if (!TryGetClearScenerySpot(desired, 15f, 4f, out safeAnchor))
                 {
@@ -6581,7 +6803,9 @@ namespace LocalFormulaRacing
             Vector3 forward;
             Vector3 right;
             Runtime.SampleAtDistance(Runtime.length * 0.5f, out point, out forward, out right);
-            Vector3 desired = point + right * (Runtime.roadHalfWidth + 150f);
+            // Grounded - this landmark sits 150m clear of the road on real ground, well
+            // outside anything an elevated stretch's deck height should influence.
+            Vector3 desired = GroundedTrackPoint(point) + right * (Runtime.roadHalfWidth + 150f);
             Vector3 basePosition;
             if (!TryGetClearScenerySpot(desired, 8f, 10f, out basePosition))
             {
@@ -6590,6 +6814,7 @@ namespace LocalFormulaRacing
 
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
             const float towerHeight = 96f; // taller and more iconic than the original 70f pole
+            CreateGroundPatch("Observation tower foundation pad", basePosition, 12f, 12f, concreteMaterial, rotation);
             CreateVisualBox("Observation tower shaft", basePosition + Vector3.up * towerHeight * 0.5f, rotation, new Vector3(3.4f, towerHeight, 3.4f), metalMaterial);
             CreateVisualBox("Observation tower deck", basePosition + Vector3.up * (towerHeight + 2f), rotation, new Vector3(10.5f, 1.8f, 10.5f), concreteMaterial);
 
@@ -6684,7 +6909,10 @@ namespace LocalFormulaRacing
             Vector3 forward;
             Vector3 right;
             Runtime.SampleAtDistance(Runtime.length * 0.975f, out point, out forward, out right);
-            Vector3 desired = point + right * (Runtime.PitLaneLateral + 42f);
+            // Grounded like BuildTracksideCrane/BuildHelipad already do - near the pit
+            // exit this is usually flat, but the tower must not silently float if that
+            // ever isn't true.
+            Vector3 desired = GroundedTrackPoint(point) + right * (Runtime.PitLaneLateral + 42f);
             Vector3 basePosition;
             if (!TryGetClearScenerySpot(desired, 6f, 8f, out basePosition))
             {
@@ -6694,6 +6922,7 @@ namespace LocalFormulaRacing
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
             const float shaftHeight = 27f;
             const float glassHeight = 11f;
+            CreateGroundPatch("Control tower foundation pad", basePosition, 9f, 9f, concreteMaterial, rotation);
             CreateVisualBox("Control tower shaft", basePosition + Vector3.up * shaftHeight * 0.5f, rotation, new Vector3(7.2f, shaftHeight, 7.2f), concreteMaterial);
             CreateVisualBox("Control tower glass band", basePosition + Vector3.up * (shaftHeight + glassHeight * 0.5f), rotation, new Vector3(7.6f, glassHeight, 7.6f), glassMaterial);
             CreateVisualBox("Control tower roof", basePosition + Vector3.up * (shaftHeight + glassHeight + 0.4f), rotation, new Vector3(8f, 0.7f, 8f), sceneryAccentMaterial);
@@ -6829,6 +7058,8 @@ namespace LocalFormulaRacing
 
             Quaternion postRotation = Quaternion.LookRotation(forward, Vector3.up);
             float pylonHeight = Mathf.Max(2f, deckY - groundTopY);
+            CreateGroundPatch("Billboard gantry pylon pad", leftSafe, 2f, 2f, concreteMaterial, postRotation);
+            CreateGroundPatch("Billboard gantry pylon pad", rightSafe, 2f, 2f, concreteMaterial, postRotation);
             CreateVisualBox("Billboard gantry pylon", new Vector3(leftSafe.x, groundTopY + pylonHeight * 0.5f, leftSafe.z), postRotation, new Vector3(1.1f, pylonHeight, 1.1f), metalMaterial);
             CreateVisualBox("Billboard gantry pylon", new Vector3(rightSafe.x, groundTopY + pylonHeight * 0.5f, rightSafe.z), postRotation, new Vector3(1.1f, pylonHeight, 1.1f), metalMaterial);
 
@@ -6860,7 +7091,7 @@ namespace LocalFormulaRacing
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
-                Vector3 desired = point + right * (Runtime.PitLaneLateral + 30f);
+                Vector3 desired = GroundedTrackPoint(point) + right * (Runtime.PitLaneLateral + 30f);
                 Vector3 safePosition;
                 if (!TryGetClearScenerySpot(desired, 6f, 4f, out safePosition))
                 {
@@ -6887,7 +7118,7 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(d + spacing * 0.5f, out point, out forward, out right);
                 int side = index % 2 == 0 ? -1 : 1;
-                Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 26f);
+                Vector3 desired = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 26f);
                 Vector3 safePosition;
                 if (TryGetClearScenerySpot(desired, 2f, 2f, out safePosition))
                 {
@@ -6911,7 +7142,7 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
                 float hullLength = 6.5f + (i % 3) * 3.5f;
-                Vector3 basePos = PushSceneryClearOfTrack(point + right * (Runtime.roadHalfWidth + 24f), 20f + hullLength * 0.3f);
+                Vector3 basePos = PushSceneryClearOfTrack(GroundedTrackPoint(point) + right * (Runtime.roadHalfWidth + 24f), 20f + hullLength * 0.3f);
                 Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
 
                 // Flat water surface under each yacht slot, overlapping its neighbours
@@ -7013,9 +7244,16 @@ namespace LocalFormulaRacing
             Vector3 forward;
             Vector3 right;
             Runtime.SampleAtDistance(Runtime.length * normalizedDistance, out point, out forward, out right);
-            Vector3 basePosition = point + right * side * (Runtime.roadHalfWidth + 18f);
+            // Grounded rather than built on the raw sampled track height - the stand
+            // sits well clear of the road (18m+) on real ground, so near a bridge/hill
+            // it must not float at deck height with the tiers dangling above bare air.
+            Vector3 basePosition = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 18f);
             Vector3 lateral = right * side;
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+
+            // Paved foundation pad under the stand so it reads as sitting on a real
+            // concourse rather than hovering just above unbroken bare ground.
+            CreateGroundPatch("Grandstand foundation pad", basePosition + lateral * 3f, 9f, 24f, concreteMaterial, rotation);
 
             // Tiered seating stepping up and away from the track, with colored crowd
             // blocks so the stands read as full rather than as bare metal shelves.
@@ -7088,7 +7326,9 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(corners[i].distance, out point, out forward, out right);
                 int side = i % 2 == 0 ? 1 : -1;
-                CreateTemporaryBleacher(point + right * side * (Runtime.roadHalfWidth + 15f), forward, i);
+                // Grounded like BuildGrandstand - a corner can easily be an elevated
+                // stretch, and this stand sits well clear of the road on real ground.
+                CreateTemporaryBleacher(GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 15f), forward, i);
                 placed++;
             }
         }
@@ -7201,6 +7441,12 @@ namespace LocalFormulaRacing
 
         void CreateTreeCluster(Vector3 position, int index)
         {
+            // Small grass apron under the cluster so it reads as a planted stand rather
+            // than three trees hovering just above unbroken bare ground. Placed at the
+            // cluster's own incoming y (not groundTopY) so it stays correct both for the
+            // flat-ground BuildScenery callers and the hillside backdrop passes that
+            // deliberately pass in a locally-elevated position for this same function.
+            CreateVisualBox("Tree cluster ground patch", position + Vector3.up * 0.02f, Quaternion.identity, new Vector3(7f, 0.05f, 5f), grassMaterial);
             for (int i = 0; i < 3; i++)
             {
                 Vector3 offset = new Vector3((i - 1) * 2.3f, 0f, (index % 3 - 1) * 1.4f);

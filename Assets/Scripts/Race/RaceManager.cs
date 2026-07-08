@@ -1500,6 +1500,17 @@ namespace LocalFormulaRacing
 
                 bool destroyed = participant.vehicle.Damage != null && participant.vehicle.Damage.IsDestroyed;
                 bool blockingLine = Mathf.Abs(progress.lateralDistance) <= Track.HalfWidthAt(progress.distance) * 0.85f;
+                // Wall/barrier-stuck fix: a car that stalls PINNED AGAINST THE
+                // BARRIER sits right at (or just past) the true track edge, which
+                // blockingLine's 85%-of-halfwidth test was deliberately designed to
+                // exclude - fine for a car parked deep in a wide, harmless runoff,
+                // but a car wedged against the wall is a very different case: with
+                // barriers now flush to the paved edge (see TrackManager's
+                // FlushBarrierLateral), that's still the outer edge of every other
+                // car's racing line through the corner, not a safe verge. Only used
+                // to widen the ActuallyStranded hazard check below - the collision-
+                // severity thresholds above are untouched.
+                bool pinnedAtEdge = Mathf.Abs(progress.lateralDistance) >= Track.HalfWidthAt(progress.distance) * 0.92f;
 
                 if (destroyed)
                 {
@@ -1591,6 +1602,13 @@ namespace LocalFormulaRacing
                 // or very near the racing line is an actual hazard, which is exactly
                 // when this is Medium rather than Minor, so blockingLine alone is the
                 // correct yellow-justification signal here.
+                // Wall/barrier-stuck fix: a car pinned against the barrier (see
+                // pinnedAtEdge above) is just as much a hazard as one sitting on the
+                // racing line - this is exactly the "player crashes into a wall and
+                // gets stuck" case, previously undervalued as Minor (no yellow) purely
+                // because it sits outside the racing-line band, never because of who
+                // (or what) is driving the car.
+                bool strandedIsHazard = blockingLine || pinnedAtEdge;
                 if (newRecoveryState == CarRecoveryState.ActuallyStranded)
                 {
                     if (participant.stoppedOnTrackTimer > StrandedRetireSeconds)
@@ -1598,7 +1616,8 @@ namespace LocalFormulaRacing
                         RetireParticipant(participant, "Stranded");
                     }
 
-                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Stopped/stranded", false, blockingLine);
+                    string strandedCause = pinnedAtEdge && !blockingLine ? "Stuck against barrier/wall" : "Stopped/stranded";
+                    RegisterIncident(participant, strandedIsHazard ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, strandedCause, false, strandedIsHazard);
                     // Part 3: longer per-incident suppression so a car still sitting in
                     // the same stranded episode doesn't re-register (and re-roll a VSC/
                     // SC chance) every few seconds while race control already knows.
@@ -1684,7 +1703,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            ApplyIncidentSeverity(participant, severity, progress, freqScale, escalationAllowed, forceEscalate, yellowJustified);
+            ApplyIncidentSeverity(participant, severity, progress, freqScale, escalationAllowed, cause, forceEscalate, yellowJustified);
         }
 
         // Extremely rare by design - red flags must read as a genuine outlier,
@@ -1855,7 +1874,7 @@ namespace LocalFormulaRacing
             }
         }
 
-        void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, bool forceEscalate = false, bool yellowJustified = false)
+        void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause = null, bool forceEscalate = false, bool yellowJustified = false)
         {
             // Part 3: only Major incidents always raise the local sector yellow
             // regardless of the safety-car frequency setting (Off only disables
@@ -1869,13 +1888,13 @@ namespace LocalFormulaRacing
             // bunching never reads as a constant background of yellow flags.
             if (severity == IncidentSeverity.Major)
             {
-                TriggerYellowSector(progress.sector, participant);
+                TriggerYellowSector(progress.sector, participant, cause);
             }
             else if (yellowJustified)
             {
                 if (RaceElapsed >= globalMinorYellowCooldownUntil)
                 {
-                    TriggerYellowSector(progress.sector, participant);
+                    TriggerYellowSector(progress.sector, participant, cause);
                     globalMinorYellowCooldownUntil = RaceElapsed + GlobalMinorYellowCooldownSeconds;
                 }
                 else
@@ -1980,7 +1999,7 @@ namespace LocalFormulaRacing
 
         int yellowSectorNumber = -1;
 
-        void TriggerYellowSector(int sector, RaceParticipant involved = null)
+        void TriggerYellowSector(int sector, RaceParticipant involved = null, string cause = null)
         {
             bool sameActiveSector = yellowSectorNumber == sector && yellowSectorClearTimer > 0f;
 
@@ -2037,10 +2056,16 @@ namespace LocalFormulaRacing
             // which still refreshes this timer (up to the episode cap above).
             yellowSectorClearTimer = 7f;
             yellowSectorCooldownUntil[sector] = RaceElapsed + yellowSectorClearTimer + YellowSectorCooldownAfterClearSeconds;
-            // Radio clarity: declares WHO triggered the flag and roughly WHERE
-            // (sector) instead of a bare "yellow flag, sector N" - matches what
-            // a real broadcast/race-engineer callout would actually say.
-            string involvedText = involved != null ? " - " + involved.driverName + " has gone off" : "";
+            // Radio clarity: declares WHO triggered the flag, roughly WHERE
+            // (sector), and now WHY (RadioCausePhraseFor) instead of a bare
+            // "yellow flag, sector N" or a generic "has gone off" regardless of
+            // what actually happened - matches what a real broadcast/race-
+            // engineer callout would say. The player is addressed directly
+            // ("your car") rather than by name, same convention every other
+            // player-facing race-control message in this file already uses.
+            string involvedText = involved != null
+                ? " - " + (involved.isPlayer ? "your car" : involved.driverName) + " " + RadioCausePhraseFor(cause)
+                : "";
             if (freshFlag)
             {
                 GameLog.Info("[RaceControl] Yellow flag, sector " + sector + involvedText + ".");
@@ -2050,6 +2075,56 @@ namespace LocalFormulaRacing
                     PostEngineerMessage("Yellow flag, sector " + sector + involvedText + ".", false, RaceAudioCue.Yellow);
                 }
             }
+        }
+
+        // Turns RegisterIncident's internal, diagnostic cause string (which can
+        // include raw numbers, e.g. "Collision (speedDrop=45 damageJump=12.3)")
+        // into a short, spoken-radio-appropriate phrase. Falls back to a generic
+        // phrase for anything unrecognized rather than ever reading the raw
+        // diagnostic text over the radio.
+        static string RadioCausePhraseFor(string cause)
+        {
+            if (string.IsNullOrEmpty(cause))
+            {
+                return "in trouble";
+            }
+
+            if (cause.StartsWith("Stuck against barrier"))
+            {
+                return "stuck against the barrier";
+            }
+
+            if (cause.StartsWith("Stopped/stranded"))
+            {
+                return "stranded";
+            }
+
+            if (cause.StartsWith("Wrong way"))
+            {
+                return "facing the wrong way";
+            }
+
+            if (cause.StartsWith("Destroyed"))
+            {
+                return "in a heavy crash";
+            }
+
+            if (cause.StartsWith("Severe damage"))
+            {
+                return "stopped with severe damage";
+            }
+
+            if (cause.StartsWith("Mechanical failure"))
+            {
+                return "stopped with a mechanical failure";
+            }
+
+            if (cause.StartsWith("Collision") || cause.StartsWith("Car contact") || cause.StartsWith("Solo contact"))
+            {
+                return "involved in an incident";
+            }
+
+            return "in trouble";
         }
 
         void BeginVirtualSafetyCar(RaceParticipant involved = null, int sector = 0)
@@ -2951,31 +3026,44 @@ namespace LocalFormulaRacing
                         safetyCarQueueLeader = null;
                         lastRestartLightCountPlayed = -1;
                         SimpleAudioManager.PlayStartLight(5);
-                        // Autopilot doesn't let go the instant Green fires - it
-                        // keeps holding/pacing the field for a short ramp so every
-                        // car accelerates away together instead of the whole
-                        // grid snapping to full racing behaviour on the same frame.
-                        // restartHandbackMessageSent fires the honest "control's
-                        // yours now" message once that ramp actually finishes.
-                        restartRampTimer = RestartRampDurationSeconds;
-                        restartHandbackMessageSent = false;
-                        GameLog.Info("[RaceControl] Restart complete, green flag.");
                         if (RestartFollowsRedFlag)
                         {
-                            LogRaceControlHistory("RACE RESTART", "Green flag from the red-flag grid, running order preserved");
+                            // Standing-restart fix: a red-flag restart is a real
+                            // standing start, not a rolling one - the moment the
+                            // lights go out, control returns immediately and in
+                            // full, exactly like the original grid start
+                            // (HoldGridCars(false) there does the same thing).
+                            // No autopilot ramp: that mechanism exists to bring a
+                            // moving safety-car convoy back up to racing pace
+                            // together, which doesn't apply to cars launching
+                            // individually from a dead stop.
+                            HoldGridCars(false);
+                            restartRampTimer = 0f;
+                            restartHandbackMessageSent = true;
+                            LogRaceControlHistory("RACE RESTART", "Standing restart - green flag from the red-flag grid, running order preserved");
                             if (Settings != null && Settings.Current.raceControlMessages)
                             {
-                                PostEngineerMessage("Race restart - green flag, go go go!", true, RaceAudioCue.Green);
+                                PostEngineerMessage("Lights out - race restart, go go go!", true, RaceAudioCue.Green);
                             }
                         }
                         else
                         {
+                            // Autopilot doesn't let go the instant Green fires - it
+                            // keeps holding/pacing the field for a short ramp so every
+                            // car accelerates away together instead of the whole
+                            // grid snapping to full racing behaviour on the same frame.
+                            // restartHandbackMessageSent fires the honest "control's
+                            // yours now" message once that ramp actually finishes.
+                            restartRampTimer = RestartRampDurationSeconds;
+                            restartHandbackMessageSent = false;
                             LogRaceControlHistory("GREEN FLAG", "Restart after safety car");
                             if (Settings != null && Settings.Current.raceControlMessages)
                             {
                                 PostEngineerMessage("Green flag - power builds back progressively, hold your line.", true, RaceAudioCue.Green);
                             }
                         }
+
+                        GameLog.Info("[RaceControl] Restart complete, green flag.");
                     }
                     break;
 
@@ -2996,6 +3084,23 @@ namespace LocalFormulaRacing
                         // (redFlagGridOrder - see BeginRedFlag/TeleportFieldToRedFlagGrid).
                         // Never the original race-start grid, never re-sorted.
                         TeleportFieldToRedFlagGrid();
+
+                        // Standing-restart fix: this state used to hand the field
+                        // straight to the safety-car convoy-chase autopilot
+                        // (BuildRaceControlAutopilotCommand) for the whole hold,
+                        // which drives cars toward a moving queue-slot target - a
+                        // rolling-start mechanism, not a standing one, and the
+                        // reason a red-flag restart could read as "already
+                        // moving" and let cars drift off their exact teleported
+                        // slot before the green flag. HoldGridCars(true) uses the
+                        // exact same hard physics freeze (VehicleController.
+                        // SetGridHold, position/rotation pinned every FixedUpdate)
+                        // the original grid start already relies on, so cars are
+                        // genuinely stationary - not merely braking toward zero -
+                        // for the whole restart hold. Released in the Restart ->
+                        // Green transition below, only for a red-flag-originated
+                        // restart; the safety-car restart path is untouched.
+                        HoldGridCars(true);
 
                         float gridDistance;
                         float lane;
