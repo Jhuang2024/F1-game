@@ -494,6 +494,16 @@ namespace LocalFormulaRacing
         Material rockMaterial;
         Material checkerDarkMaterial;
 
+        // Round 3 surface/barrier/scenery pass: a glossier top layer for the session
+        // rubber build-up, a second tyre-marble tint for corner-exit variety, a blue
+        // kerb-paint alternative for coastal/technical circuits, and a canvas tone
+        // for temporary bleacher sun-shades - each distinct from the nearest existing
+        // material rather than reusing a near-match.
+        Material rubberSheenMaterial;
+        Material tyreMarbleMaterialLight;
+        Material kerbMaterialBlue;
+        Material bleacherCanvasMaterial;
+
         public TrackRuntime Build(CalendarEventData eventData)
         {
             return Build(eventData, true);
@@ -537,19 +547,23 @@ namespace LocalFormulaRacing
             BuildRoadMesh();
             BuildRoadPaint();
             BuildAsphaltDetail();
+            BuildRubberBuildup();
             BuildGridPaint();
             BuildKerbs();
             BuildContinuousEdgeBarriers();
             BuildTrackMarkers();
             BuildDrsZoneBoards();
+            BuildAdvertisingHoardings();
             BuildPitLane();
             BuildStartGantry();
             BuildFinishLinePresentation();
             BuildScenery();
+            BuildTemporaryBleachers();
             BuildCircuitLandmarks();
             BuildEnvironmentIdentity();
             BuildTrackInfrastructure();
             BuildCameraTowers();
+            BuildTracksideCameraPods();
             BuildCircuitLightMasts();
             if (wetTrack)
             {
@@ -1467,6 +1481,12 @@ namespace LocalFormulaRacing
             kerbMaterial = CreateMaterial("Runtime Kerb", new Color(0.94f, 0.04f, 0.03f), 0.02f, 0.64f);
             kerbMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.92f, 0.92f, 0.92f), 0.08f);
             kerbMaterial.mainTextureScale = new Vector2(6f, 1.5f);
+            // Blue/white kerb-paint scheme used at coastal and technical-parkland
+            // circuits (see CreateKerbBlock) instead of the default red/white, so not
+            // every corner on every track shares one painted colour pair.
+            kerbMaterialBlue = CreateMaterial("Runtime Kerb Blue", new Color(0.04f, 0.15f, 0.5f), 0.02f, 0.64f);
+            kerbMaterialBlue.mainTexture = BuildNoiseTexture(64, new Color(0.9f, 0.9f, 0.94f), 0.08f);
+            kerbMaterialBlue.mainTextureScale = new Vector2(6f, 1.5f);
             grassMaterial = CreateMaterial("Runtime Runoff", runoff, 0.01f, runoffSmoothness, runoffEmission);
             // Grass/runoff covers the most screen space of anything in the scene, so a
             // tiled neutral-grey noise texture (multiplied against the tinted runoff
@@ -1484,7 +1504,22 @@ namespace LocalFormulaRacing
             tyreMarbleMaterial = CreateMaterial("Runtime Tyre Marbles", new Color(0.63f, 0.59f, 0.49f), 0f, 0.18f);
             tyreMarbleMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.68f, 0.63f, 0.5f), 0.24f);
             tyreMarbleMaterial.mainTextureScale = new Vector2(5f, 2f);
+            // Sun-bleached companion tint mixed into corner-exit marble patches for
+            // extra variety instead of every patch sharing one flat marble colour.
+            tyreMarbleMaterialLight = CreateMaterial("Runtime Tyre Marbles Light", new Color(0.74f, 0.68f, 0.55f), 0f, 0.14f);
+            tyreMarbleMaterialLight.mainTexture = BuildNoiseTexture(64, new Color(0.78f, 0.72f, 0.57f), 0.22f);
+            tyreMarbleMaterialLight.mainTextureScale = new Vector2(4f, 2f);
             asphaltPatchMaterial = CreateMaterial("Runtime Asphalt Patch", new Color(0.033f, 0.036f, 0.039f), 0f, rain ? 0.72f : 0.5f);
+            // Blotchy low-frequency patch texture (distinct from the fine-grain
+            // roadMaterial noise) so the "grain variation" stripes BuildAsphaltDetail
+            // lays down read as uneven resurfacing/wear rather than a second copy of
+            // the base road texture.
+            asphaltPatchMaterial.mainTexture = GetAsphaltWearTexture();
+            asphaltPatchMaterial.mainTextureScale = new Vector2(2.4f, 0.8f);
+            // Darker, glossier top layer for the session rubber build-up (see
+            // BuildRubberBuildup) so the outermost, most-driven groove reads as wetter
+            // and more polished than the flatter base rubberMaterial underneath it.
+            rubberSheenMaterial = CreateMaterial("Runtime Rubber Sheen", new Color(0.008f, 0.008f, 0.01f), 0.08f, 0.55f);
             skidMarkMaterial = CreateMaterial("Runtime Skid Mark", new Color(0.001f, 0.001f, 0.001f, 0.92f), 0f, 0.16f);
             barrierMaterial = CreateMaterial("Runtime Barrier", monacoTrack ? new Color(0.86f, 0.85f, 0.8f) : new Color(0.68f, 0.72f, 0.74f), 0.12f, monacoTrack ? 0.55f : 0.62f);
             barrierMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.87f, 0.87f, 0.87f), 0.1f);
@@ -1492,12 +1527,24 @@ namespace LocalFormulaRacing
             // Brighter, more metallic than the concrete/painted barrierMaterial so the
             // continuous Armco/guardrail sections read as steel rail rather than a wall.
             armcoMaterial = CreateMaterial("Runtime Armco Guardrail", new Color(0.72f, 0.74f, 0.76f), 0.72f, 0.58f);
-            armcoMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.8f, 0.8f, 0.82f), 0.07f);
-            armcoMaterial.mainTextureScale = new Vector2(5f, 1f);
+            // Corrugated horizontal rib pattern (with faint bolt-head dots) baked into
+            // the texture itself, layered underneath CreateArmcoSegment's separate rib
+            // geometry - richer close-up detail purely from the material, without
+            // touching that placement/geometry function.
+            armcoMaterial.mainTexture = GetArmcoCorrugationTexture();
+            armcoMaterial.mainTextureScale = new Vector2(6f, 1f);
             tireBarrierMaterial = CreateMaterial("Runtime Tyre Barrier", new Color(0.015f, 0.016f, 0.017f), 0.02f, 0.28f);
+            // Concentric tread-band texture so a stack reads as real tyres rather than
+            // a flat black slab, distinct from the plain BuildNoiseTexture speckle used
+            // on the other barrier materials below.
+            tireBarrierMaterial.mainTexture = GetTyreTreadTexture();
+            tireBarrierMaterial.mainTextureScale = new Vector2(3f, 2.5f);
             concreteMaterial = CreateMaterial("Runtime Concrete Wall", desertTrack ? new Color(0.72f, 0.66f, 0.5f) : new Color(0.56f, 0.58f, 0.59f), 0.04f, desertTrack ? 0.5f : 0.32f, desertTrack ? new Color(0.06f, 0.05f, 0.02f) : Color.black);
-            concreteMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.85f, 0.85f, 0.85f), 0.09f);
-            concreteMaterial.mainTextureScale = new Vector2(3f, 1f);
+            // Pre-cast panel seam lines plus streaked staining instead of the plain
+            // speckle noise every other barrier material uses, so bridge/tower/wall
+            // concrete reads as jointed panel sections rather than one smooth slab.
+            concreteMaterial.mainTexture = GetConcretePanelTexture();
+            concreteMaterial.mainTextureScale = new Vector2(2.2f, 0.9f);
             fenceMaterial = CreateMaterial("Runtime Catch Fence", new Color(0.75f, 0.78f, 0.8f), 0.42f, 0.44f);
             // Cutout lattice instead of a flat opaque colour so the catch fence reads as
             // fine mesh you can see through rather than a second solid wall.
@@ -1505,6 +1552,11 @@ namespace LocalFormulaRacing
             fenceMaterial.mainTextureScale = new Vector2(14f, 3.5f);
             SetupCutoutTransparency(fenceMaterial, 0.35f);
             fencePostMaterial = CreateMaterial("Runtime Fence Post", new Color(0.4f, 0.44f, 0.47f), 0.55f, 0.66f);
+            // Subtle brushed-metal grain so fence posts/rails and every other object
+            // sharing fencePostMaterial (tower lattice, gantry rails) stop reading as
+            // one flat painted colour up close.
+            fencePostMaterial.mainTexture = BuildNoiseTexture(32, new Color(0.44f, 0.48f, 0.51f), 0.1f);
+            fencePostMaterial.mainTextureScale = new Vector2(2f, 4f);
             foliageMaterial = CreateMaterial("Runtime Foliage", spaTrack ? new Color(0.05f, 0.22f, 0.14f) : new Color(0.04f, 0.32f, 0.12f), 0f, 0.42f);
             // Trees used to borrow the bright red scenery-accent material for their
             // trunks (fine for kerb-style trim, glaring as bark) - a dedicated dull
@@ -1615,6 +1667,12 @@ namespace LocalFormulaRacing
             // checker pattern - the file had no true dark/light pair small enough to tile
             // as individual flag squares before this.
             checkerDarkMaterial = CreateMaterial("Runtime Checker Dark", new Color(0.05f, 0.05f, 0.06f), 0f, 0.5f);
+
+            // Muted navy canvas tone for temporary bleacher sun-shades (see
+            // CreateTemporaryBleacher) - distinct from every other fabric/panel colour
+            // in the file so a scaffold stand doesn't borrow sceneryAccentMaterial's
+            // bright red.
+            bleacherCanvasMaterial = CreateMaterial("Runtime Bleacher Canvas", new Color(0.16f, 0.22f, 0.4f), 0f, 0.3f);
         }
 
         // Standard shader in alpha-blended Fade mode: used for the wet-track sheen and
@@ -1754,6 +1812,146 @@ namespace LocalFormulaRacing
             chainLinkTexture.SetPixels(pixels);
             chainLinkTexture.Apply(true);
             return chainLinkTexture;
+        }
+
+        static Texture2D asphaltWearTexture;
+
+        // Blotchy low-frequency patches layered over fine grain - distinct from
+        // GetAsphaltNoiseTexture's uniform fine grain - so asphaltPatchMaterial reads
+        // as uneven resurfacing/wear rather than a second copy of the base road tarmac.
+        static Texture2D GetAsphaltWearTexture()
+        {
+            if (asphaltWearTexture != null)
+            {
+                return asphaltWearTexture;
+            }
+
+            const int size = 128;
+            asphaltWearTexture = new Texture2D(size, size, TextureFormat.RGB24, true);
+            asphaltWearTexture.name = "Runtime asphalt wear";
+            asphaltWearTexture.wrapMode = TextureWrapMode.Repeat;
+            asphaltWearTexture.filterMode = FilterMode.Trilinear;
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float patch = Mathf.PerlinNoise(x * 0.045f + 4.1f, y * 0.045f + 8.3f);
+                    float grain = Mathf.PerlinNoise(x * 0.3f + 61f, y * 0.3f + 19f);
+                    float value = Mathf.Clamp01(0.5f + patch * 0.32f + grain * 0.1f);
+                    pixels[y * size + x] = new Color(value, value * 0.99f, value * 0.97f);
+                }
+            }
+
+            asphaltWearTexture.SetPixels(pixels);
+            asphaltWearTexture.Apply(true);
+            return asphaltWearTexture;
+        }
+
+        static Texture2D armcoCorrugationTexture;
+
+        // Horizontal light/dark corrugation bands with faint bolt-head dots along the
+        // top and bottom edge, so armcoMaterial itself carries a corrugated-steel rib
+        // read at the texture level - layered underneath (not replacing)
+        // CreateArmcoSegment's separate rib geometry.
+        static Texture2D GetArmcoCorrugationTexture()
+        {
+            if (armcoCorrugationTexture != null)
+            {
+                return armcoCorrugationTexture;
+            }
+
+            const int size = 64;
+            armcoCorrugationTexture = new Texture2D(size, size, TextureFormat.RGB24, true);
+            armcoCorrugationTexture.name = "Runtime armco corrugation";
+            armcoCorrugationTexture.wrapMode = TextureWrapMode.Repeat;
+            armcoCorrugationTexture.filterMode = FilterMode.Bilinear;
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float wave = Mathf.Sin(y / (float)size * Mathf.PI * 6f) * 0.5f + 0.5f;
+                    float grain = Mathf.PerlinNoise(x * 0.15f, y * 0.15f) * 0.08f;
+                    int localY = y % size;
+                    bool bolt = x % 16 < 2 && (localY < 3 || (localY > size / 2 - 2 && localY < size / 2 + 1));
+                    float value = Mathf.Clamp01(0.72f + wave * 0.22f + grain - (bolt ? 0.18f : 0f));
+                    pixels[y * size + x] = new Color(value, value, value * 1.02f);
+                }
+            }
+
+            armcoCorrugationTexture.SetPixels(pixels);
+            armcoCorrugationTexture.Apply(true);
+            return armcoCorrugationTexture;
+        }
+
+        static Texture2D concretePanelTexture;
+
+        // Vertical/horizontal seam lines plus streaked staining, so the shared
+        // concrete wall/tower/bridge material reads as jointed pre-cast panel
+        // sections instead of one smooth grey slab.
+        static Texture2D GetConcretePanelTexture()
+        {
+            if (concretePanelTexture != null)
+            {
+                return concretePanelTexture;
+            }
+
+            const int size = 128;
+            concretePanelTexture = new Texture2D(size, size, TextureFormat.RGB24, true);
+            concretePanelTexture.name = "Runtime concrete panel";
+            concretePanelTexture.wrapMode = TextureWrapMode.Repeat;
+            concretePanelTexture.filterMode = FilterMode.Bilinear;
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    float stain = Mathf.PerlinNoise(x * 0.02f, y * 0.06f) * 0.14f;
+                    float grain = Mathf.PerlinNoise(x * 0.2f + 9f, y * 0.2f + 4f) * 0.08f;
+                    bool seam = x % 32 < 1 || y % 64 < 1;
+                    float value = Mathf.Clamp01(0.82f - stain + grain - (seam ? 0.22f : 0f));
+                    pixels[y * size + x] = new Color(value, value, value * 0.98f);
+                }
+            }
+
+            concretePanelTexture.SetPixels(pixels);
+            concretePanelTexture.Apply(true);
+            return concretePanelTexture;
+        }
+
+        static Texture2D tyreTreadTexture;
+
+        // Dark concentric-ish tread bands standing in for stacked tyre sidewalls, so
+        // tireBarrierMaterial reads as a real tyre stack rather than a flat black slab.
+        static Texture2D GetTyreTreadTexture()
+        {
+            if (tyreTreadTexture != null)
+            {
+                return tyreTreadTexture;
+            }
+
+            const int size = 64;
+            tyreTreadTexture = new Texture2D(size, size, TextureFormat.RGB24, true);
+            tyreTreadTexture.name = "Runtime tyre tread";
+            tyreTreadTexture.wrapMode = TextureWrapMode.Repeat;
+            tyreTreadTexture.filterMode = FilterMode.Bilinear;
+            Color[] pixels = new Color[size * size];
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    int ring = y % 16;
+                    float rim = ring < 2 ? 0.06f : 0f;
+                    float grain = Mathf.PerlinNoise(x * 0.3f, y * 0.3f) * 0.03f;
+                    float value = 0.02f + rim + grain;
+                    pixels[y * size + x] = new Color(value, value, value * 1.05f);
+                }
+            }
+
+            tyreTreadTexture.SetPixels(pixels);
+            tyreTreadTexture.Apply(true);
+            return tyreTreadTexture;
         }
 
         // Switches a Standard-shader material to cutout (alpha-tested) transparency so a
@@ -2074,6 +2272,43 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Extra rubber build-up layered on top of the flat per-segment racing line
+        // above, concentrated at every real corner's acceleration zone rather than
+        // spread evenly - several narrowing, progressively glossier stripes standing
+        // in for a lap's worth of rubber laid down over a session instead of one
+        // uniform band painted once. Uses the same DetectCorners severity test the
+        // braking-board/tyre-marble passes already share.
+        void BuildRubberBuildup()
+        {
+            List<CornerInfo> corners = DetectCorners(30f);
+            int layers = Mathf.Clamp(Mathf.RoundToInt(3f * Mathf.Clamp(sceneryDensity, 0.25f, 2f)), 2, 4);
+            for (int c = 0; c < corners.Count; c++)
+            {
+                Vector3 approachPoint;
+                Vector3 approachForward;
+                Vector3 approachRight;
+                Runtime.SampleAtDistance(corners[c].distance - 8f, out approachPoint, out approachForward, out approachRight);
+                Vector3 apexPoint;
+                Vector3 apexForward;
+                Vector3 apexRight;
+                Runtime.SampleAtDistance(corners[c].distance, out apexPoint, out apexForward, out apexRight);
+                float turnSign = Mathf.Sign(Vector3.Cross(approachForward, apexForward).y);
+
+                for (int layer = 0; layer < layers; layer++)
+                {
+                    float exitDistance = corners[c].distance + 6f + layer * 6.5f;
+                    Vector3 point;
+                    Vector3 forward;
+                    Vector3 right;
+                    Runtime.SampleAtDistance(exitDistance, out point, out forward, out right);
+                    float lateral = -turnSign * (0.6f - layer * 0.08f);
+                    float width = Mathf.Max(0.4f, 2.6f - layer * 0.45f);
+                    Material layerMaterial = layer == layers - 1 ? rubberSheenMaterial : rubberMaterial;
+                    CreateRoadStripe(point + right * lateral, forward, width, 6.6f, layerMaterial, "Session rubber build-up", 9);
+                }
+            }
+        }
+
         // Base decal height plus a small per-layer step. Several stripe kinds share the
         // same lateral band (racing line rubber vs skid mark on top of it, asphalt grain
         // vs the darker rubber patch drawn over it), and painting them at one identical Y
@@ -2163,7 +2398,34 @@ namespace LocalFormulaRacing
                         CreateKerbBlock(inner, forward, Runtime.cumulativeDistances[i] + offset + 2f, aggressive);
                     }
                 }
+
+                // Painted apex chevron on the runoff at hairpin-severity corners only -
+                // a single directional marker distinct from the kerb dashes above,
+                // echoing the arrow paint real circuits add at their tightest corners.
+                if (aggressive)
+                {
+                    Vector3 apexPoint;
+                    Vector3 apexForward;
+                    Vector3 apexRight;
+                    Runtime.SampleAtDistance(Runtime.cumulativeDistances[i], out apexPoint, out apexForward, out apexRight);
+                    CreateApexChevron(apexPoint + apexRight * turnSign * (Runtime.roadHalfWidth + 1.6f), apexForward, turnSign);
+                }
             }
+        }
+
+        // Small painted V pointing back at the apex, built from two angled paint
+        // stripes rather than a custom mesh - visual-only decal on the runoff,
+        // reusing CreateRoadStripe/paint-layer the same way every other track
+        // marking in this file does.
+        void CreateApexChevron(Vector3 position, Vector3 forward, float turnSign)
+        {
+            // Biased a few degrees toward turnSign so the V visibly leans into the
+            // corner's own turn direction instead of always drawing a symmetric
+            // arrow regardless of whether the apex bends left or right.
+            Vector3 armA = (Quaternion.Euler(0f, 28f + turnSign * 6f, 0f) * forward).normalized;
+            Vector3 armB = (Quaternion.Euler(0f, -28f + turnSign * 6f, 0f) * forward).normalized;
+            CreateRoadStripe(position + armA * 1.1f, armA, 0.18f, 2.2f, lineMaterial, "Runoff apex chevron", 8);
+            CreateRoadStripe(position + armB * 1.1f, armB, 0.18f, 2.2f, lineMaterial, "Runoff apex chevron", 8);
         }
 
         // ---------- continuous edge barriers ----------
@@ -2796,8 +3058,13 @@ namespace LocalFormulaRacing
         void CreateKerbBlock(Vector3 position, Vector3 forward, float seed, bool aggressive)
         {
             bool whiteBase = Mathf.FloorToInt(seed / 16f) % 2 == 0;
-            Material material = whiteBase ? lineMaterial : kerbMaterial;
-            Material accentMaterial = whiteBase ? kerbMaterial : lineMaterial;
+            // Coastal and technical-parkland circuits get a blue/white kerb scheme
+            // instead of the default red/white, echoing real circuits' use of
+            // colour-coded kerbing so every corner on every track doesn't share one
+            // painted pair.
+            Material coloredMaterial = (coastalTrack || technicalParklandTrack) ? kerbMaterialBlue : kerbMaterial;
+            Material material = whiteBase ? lineMaterial : coloredMaterial;
+            Material accentMaterial = whiteBase ? coloredMaterial : lineMaterial;
 
             // Hairpins/high-severity corners get a taller, wider block than a sweeping
             // corner's kerb - real circuits raise the profile exactly where cars run
@@ -2882,7 +3149,11 @@ namespace LocalFormulaRacing
                 Vector3 patchRight;
                 Runtime.SampleAtDistance(exitDistance, out patchPoint, out patchForward, out patchRight);
                 float lateral = outsideSide * (Runtime.roadHalfWidth * 0.7f + p * 0.4f);
-                CreateRoadStripe(patchPoint + patchRight * lateral, patchForward, 1.5f + p * 0.12f, 4.6f, tyreMarbleMaterial, "Tyre marbles", 7);
+                // Alternate the base marble tint with the sun-bleached variant so a
+                // multi-patch scatter reads as debris from different laps/compounds
+                // rather than one uniform colour repeated down the exit kerb.
+                Material marbleMaterial = p % 2 == 0 ? tyreMarbleMaterial : tyreMarbleMaterialLight;
+                CreateRoadStripe(patchPoint + patchRight * lateral, patchForward, 1.5f + p * 0.12f, 4.6f, marbleMaterial, "Tyre marbles", 7);
             }
         }
 
@@ -3010,6 +3281,24 @@ namespace LocalFormulaRacing
                 CreateVisualBox("Marshal utility vehicle body", vehiclePosition + Vector3.up * 0.55f, rotation, new Vector3(1.6f, 0.9f, 3.2f), metalMaterial);
                 CreateVisualBox("Marshal utility vehicle cab", vehiclePosition - forward * 1.1f + Vector3.up * 1.05f, rotation, new Vector3(1.5f, 0.85f, 1.3f), glassMaterial);
                 CreateVisualBox("Marshal utility vehicle beacon", vehiclePosition + Vector3.up * 1.55f, rotation, new Vector3(0.3f, 0.2f, 0.3f), lightGlowMaterial);
+            }
+
+            // Short marshal-access fence run behind the post with a visible gap in the
+            // middle - a cheap decorative nod to the pedestrian access points marshals
+            // use to reach the fence line, built entirely from generic posts/panels and
+            // never touching CreateCatchFence's own barrier geometry. Every other post
+            // only, so it stays a sparse accent rather than a second fence line.
+            if (index % 2 == 0)
+            {
+                Vector3 fenceRight = Vector3.Cross(Vector3.up, forward).normalized;
+                Vector3 fenceBase = safePosition + fenceRight * 2.4f + Vector3.up * 0.6f;
+                CreateVisualBox("Marshal access fence post", fenceBase + forward * 2.2f, rotation, new Vector3(0.08f, 1.2f, 0.08f), fencePostMaterial);
+                CreateVisualBox("Marshal access fence panel", fenceBase + forward * 1.55f, rotation, new Vector3(0.04f, 1.1f, 1.1f), fenceMaterial);
+                CreateVisualBox("Marshal access fence post", fenceBase + forward * 0.9f, rotation, new Vector3(0.08f, 1.2f, 0.08f), fencePostMaterial);
+                // Gap between here and -forward*0.9 reads as the access opening.
+                CreateVisualBox("Marshal access fence post", fenceBase - forward * 0.9f, rotation, new Vector3(0.08f, 1.2f, 0.08f), fencePostMaterial);
+                CreateVisualBox("Marshal access fence panel", fenceBase - forward * 1.55f, rotation, new Vector3(0.04f, 1.1f, 1.1f), fenceMaterial);
+                CreateVisualBox("Marshal access fence post", fenceBase - forward * 2.2f, rotation, new Vector3(0.08f, 1.2f, 0.08f), fencePostMaterial);
             }
         }
 
@@ -3164,6 +3453,56 @@ namespace LocalFormulaRacing
             CreateVisualBox("Sponsor board frame", position + Vector3.up * 1.5f, rotation, new Vector3(0.18f, 1.85f, 3.85f), metalMaterial);
             CreateVisualBox("Sponsor board panel", position + Vector3.up * 1.5f + faceOffset, rotation, new Vector3(0.1f, 1.6f, 3.6f), board);
             CreateVisualBox("Sponsor board post", position + Vector3.up * 0.5f, rotation, new Vector3(0.14f, 1f, 0.14f), metalMaterial);
+        }
+
+        // Low continuous run of generic, unbranded advertising hoarding panels bolted
+        // just behind the trackside barrier line - denser and lower than the sparse
+        // CreateSponsorBoard posts, so straights don't read as an empty run of bare
+        // barrier between them. Skipped on street circuits (their wall already carries
+        // the alternating accent-stripe look from CreateStreetWallSegment) and through
+        // the pit corridor, where the pit wall/garage frontage already carries its own
+        // signage. Spacing scales with sceneryDensity but never drops below a wide
+        // per-lap minimum, so this stays sparse trackside dressing, not per-meter clutter.
+        void BuildAdvertisingHoardings()
+        {
+            if (streetTrack)
+            {
+                return;
+            }
+
+            float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+            float spacing = Mathf.Lerp(90f, 48f, Mathf.InverseLerp(0.25f, 2f, density));
+            int index = 0;
+            for (float d = 0f; d < Runtime.length; d += spacing)
+            {
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+                index++;
+                if (normalized > 0.83f || normalized < 0.06f)
+                {
+                    continue;
+                }
+
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                float side = index % 2 == 0 ? -1f : 1f;
+                CreateAdvertisingHoarding(point + right * side * (Runtime.roadHalfWidth + 3.3f), forward, index);
+            }
+        }
+
+        // Small low panel plus trim stripe standing in for a generic sponsor-neutral
+        // hoarding board, cycling the same invented SponsorPalette CreateSponsorBoard
+        // and the billboard/bridge panels already share rather than inventing another
+        // colour set.
+        void CreateAdvertisingHoarding(Vector3 position, Vector3 forward, int index)
+        {
+            Vector3 outward = Vector3.Cross(Vector3.up, forward).normalized;
+            Quaternion rotation = Quaternion.LookRotation(outward, Vector3.up);
+            Color panelColor = SponsorPalette[index % SponsorPalette.Length];
+            Material panel = CreateMaterial("Hoarding panel material", panelColor, 0.03f, 0.4f, (nightTrack || twilightTrack) ? panelColor * 0.3f : Color.black);
+            CreateVisualBox("Advertising hoarding panel", position + Vector3.up * 0.55f, rotation, new Vector3(0.05f, 0.85f, 3.2f), panel);
+            CreateVisualBox("Advertising hoarding trim", position + Vector3.up * 0.97f, rotation, new Vector3(0.06f, 0.12f, 3.2f), lineMaterial);
         }
 
         void BuildPitLane()
@@ -3577,6 +3916,51 @@ namespace LocalFormulaRacing
             CreateVisualBox("Tower lattice brace", a + delta * 0.5f, Quaternion.LookRotation(delta.normalized, Vector3.up), new Vector3(thickness, thickness, length), material);
         }
 
+        // Small ground-level tripod camera pods at hard-braking corners - cheaper and
+        // more numerous than the four tall BuildCameraTowers masts, so corners the
+        // towers don't reach still get a "watched by broadcast" trackside read.
+        // Density-gated to half the detected corners at low detail settings.
+        void BuildTracksideCameraPods()
+        {
+            List<CornerInfo> corners = DetectCorners(35f);
+            float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+            for (int i = 0; i < corners.Count; i++)
+            {
+                if (density < 1f && i % 2 == 1)
+                {
+                    continue;
+                }
+
+                float normalized = corners[i].distance / Mathf.Max(1f, Runtime.length);
+                if (normalized > 0.83f || normalized < 0.06f)
+                {
+                    continue;
+                }
+
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(corners[i].distance - 20f, out point, out forward, out right);
+                float side = i % 2 == 0 ? -1f : 1f;
+                CreateTracksideCameraPod(point + right * side * (Runtime.roadHalfWidth + 8f), forward);
+            }
+        }
+
+        void CreateTracksideCameraPod(Vector3 position, Vector3 forward)
+        {
+            Vector3 safePosition = PushSceneryClearOfTrack(position, 6f);
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            CreateVisualBox("Camera pod tripod leg", safePosition + Vector3.up * 0.65f, rotation, new Vector3(0.08f, 1.3f, 0.08f), metalMaterial);
+            CreateVisualBox("Camera pod tripod leg", safePosition + Vector3.up * 0.65f + forward * 0.32f, rotation, new Vector3(0.08f, 1.3f, 0.08f), metalMaterial);
+            CreateVisualBox("Camera pod tripod leg", safePosition + Vector3.up * 0.65f - forward * 0.32f, rotation, new Vector3(0.08f, 1.3f, 0.08f), metalMaterial);
+            CreateVisualBox("Camera pod head", safePosition + Vector3.up * 1.35f, rotation, new Vector3(0.3f, 0.28f, 0.55f), metalMaterial);
+            CreateVisualBox("Camera pod lens", safePosition + Vector3.up * 1.35f + forward * 0.3f, rotation, new Vector3(0.16f, 0.16f, 0.16f), glassMaterial);
+            if (nightTrack || twilightTrack)
+            {
+                CreateVisualBox("Camera pod beacon", safePosition + Vector3.up * 1.55f, rotation, new Vector3(0.12f, 0.12f, 0.12f), lightGlowMaterial);
+            }
+        }
+
         // Tall circuit lighting masts for night/twilight races - a handful of ~20m
         // poles with a canted bank of emissive lamp heads, an order of scale above
         // the small CreateFloodlight poles BuildScenery scatters, so a night race
@@ -3824,6 +4208,12 @@ namespace LocalFormulaRacing
 
             BuildMountainBackdrop(density, ridgeTint);
 
+            // Mid-distance parallax layer, closer than the mountain ridge ring above
+            // and further back than BuildScenery's trackside trees/buildings, so the
+            // horizon reads with a genuine third depth plane on every track instead of
+            // jumping straight from near scenery to the far ridge.
+            BuildDistantParallaxLayer(density, cityStreet, nightNeon);
+
             if (desertTrack)
             {
                 BuildDesertBackdrop(density);
@@ -3890,6 +4280,62 @@ namespace LocalFormulaRacing
             if (id.Contains("austin") || id.Contains("cota") || id.Contains("united_states"))
             {
                 CreateObservationTower();
+            }
+        }
+
+        // Sparse mid-distance ring sitting between the near trackside scenery
+        // (BuildScenery's trees/buildings) and the far mountain ridge above - hazy
+        // tree-line blobs for natural circuits, hazy building silhouettes for street/
+        // neon/Monaco circuits, at a fixed radius so it reads as a genuine extra depth
+        // plane rather than more of the same near-scenery. Reuses existing materials
+        // (foliage/concrete/glass) rather than adding another one-off tint.
+        void BuildDistantParallaxLayer(float density, bool cityStreet, bool nightNeon)
+        {
+            Bounds bounds = new Bounds(Runtime.centerLine[0], Vector3.zero);
+            for (int i = 1; i < Runtime.centerLine.Count; i++)
+            {
+                bounds.Encapsulate(Runtime.centerLine[i]);
+            }
+
+            float ringRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) * 1.15f + 140f;
+            Vector3 ringCenter = new Vector3(bounds.center.x, groundTopY, bounds.center.z);
+            int segments = Mathf.Max(6, Mathf.RoundToInt(10f * density));
+            bool silhouetteBuildings = cityStreet || nightNeon || monacoTrack;
+            for (int i = 0; i < segments; i++)
+            {
+                float angle = (i / (float)segments) * Mathf.PI * 2f;
+                Vector3 direction = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+                Vector3 desired = ringCenter + direction * ringRadius;
+                float objectRadius = silhouetteBuildings ? 10f : 40f;
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, objectRadius, 14f, out safePosition))
+                {
+                    continue;
+                }
+
+                if (silhouetteBuildings)
+                {
+                    float height = 16f + (i % 4) * 7f;
+                    GameObject block = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                    block.name = "Distant parallax skyline block";
+                    block.transform.SetParent(transform);
+                    block.transform.position = new Vector3(safePosition.x, groundTopY + height * 0.5f, safePosition.z);
+                    block.transform.localScale = new Vector3(14f + (i % 3) * 4f, height, 12f);
+                    block.GetComponent<Renderer>().sharedMaterial = nightNeon ? glassMaterial : concreteMaterial;
+                    MakeVisualOnly(block);
+                }
+                else
+                {
+                    float widthScale = 60f + (i % 4) * 20f;
+                    float heightScale = 14f + (i % 3) * 6f;
+                    GameObject silhouette = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                    silhouette.name = "Distant parallax tree line";
+                    silhouette.transform.SetParent(transform);
+                    silhouette.transform.position = new Vector3(safePosition.x, groundTopY + heightScale * 0.4f, safePosition.z);
+                    silhouette.transform.localScale = new Vector3(widthScale, heightScale, widthScale * 0.55f);
+                    silhouette.GetComponent<Renderer>().sharedMaterial = desertTrack ? grassMaterial : foliageMaterial;
+                    MakeVisualOnly(silhouette);
+                }
             }
         }
 
@@ -5108,6 +5554,74 @@ namespace LocalFormulaRacing
             for (int pylon = -1; pylon <= 1; pylon++)
             {
                 CreateVisualBox("Grandstand pylon", basePosition + lateral * 7.2f + forward * pylon * 9.5f + Vector3.up * 2.7f, rotation, new Vector3(0.4f, 5.4f, 0.4f), metalMaterial);
+            }
+        }
+
+        // Extra small scaffold-style temporary bleachers at additional corners beyond
+        // BuildGrandstand's fixed permanent-stand set - fills in thin spots on a wide
+        // shot without growing the permanent grandstand count. Skipped entirely below
+        // 0.6 density and capped at a handful per lap either way, so this stays
+        // landmark-sparse rather than per-corner clutter.
+        void BuildTemporaryBleachers()
+        {
+            float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+            if (density < 0.6f)
+            {
+                return;
+            }
+
+            List<CornerInfo> corners = DetectCorners(40f);
+            if (corners.Count == 0)
+            {
+                return;
+            }
+
+            int count = Mathf.Clamp(Mathf.RoundToInt(2f * density), 1, 4);
+            int step = Mathf.Max(1, corners.Count / count);
+            int placed = 0;
+            for (int i = 0; i < corners.Count && placed < count; i += step)
+            {
+                float normalized = corners[i].distance / Mathf.Max(1f, Runtime.length);
+                if (normalized > 0.8f || normalized < 0.08f)
+                {
+                    continue;
+                }
+
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(corners[i].distance, out point, out forward, out right);
+                int side = i % 2 == 0 ? 1 : -1;
+                CreateTemporaryBleacher(point + right * side * (Runtime.roadHalfWidth + 15f), forward, i);
+                placed++;
+            }
+        }
+
+        // Cheap scaffold-and-canvas stand distinct from BuildGrandstand's permanent
+        // tiered structure - three low rows on a tube frame with a canvas sun-shade
+        // roof, standing in for the temporary grandstands real circuits erect at
+        // popular corners for a single event weekend.
+        void CreateTemporaryBleacher(Vector3 position, Vector3 forward, int index)
+        {
+            Vector3 safePosition = PushSceneryClearOfTrack(position, 9f);
+            Vector3 lateral = Vector3.Cross(Vector3.up, forward).normalized;
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            for (int row = 0; row < 3; row++)
+            {
+                Vector3 rowCenter = safePosition + Vector3.up * (0.35f + row * 0.55f) + lateral * row * 1.05f;
+                CreateVisualBox("Temporary bleacher tier", rowCenter, rotation, new Vector3(1f, 0.42f, 12f), fencePostMaterial);
+                CreateVisualBox("Temporary bleacher crowd block", rowCenter + Vector3.up * 0.38f, rotation, new Vector3(0.75f, 0.36f, 11.4f), row % 2 == 0 ? sceneryAccentMaterial : glassMaterial);
+            }
+
+            for (int leg = -1; leg <= 1; leg++)
+            {
+                CreateVisualBox("Temporary bleacher scaffold leg", safePosition + Vector3.up * 1f + forward * leg * 5.6f, rotation, new Vector3(0.12f, 2f, 0.12f), metalMaterial);
+            }
+
+            CreateVisualBox("Temporary bleacher canopy", safePosition + Vector3.up * 2.3f + lateral * 1.6f, rotation, new Vector3(3.6f, 0.1f, 12.4f), bleacherCanvasMaterial);
+            if (index % 3 == 0)
+            {
+                CreateVisualBox("Temporary bleacher flag", safePosition + Vector3.up * 2.6f - lateral * 1.6f, rotation, new Vector3(0.05f, 0.5f, 0.34f), sceneryAccentMaterial);
             }
         }
 
