@@ -615,6 +615,19 @@ namespace LocalFormulaRacing
                 ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.022f, 0.05f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
+            else if (!ErsDeploying)
+            {
+                // ERS passive trickle: real ERS also recovers some energy outside of
+                // hard braking or a full lift-off coast (residual MGU-H/engine-driven
+                // recovery) - without this the battery only ever moved under braking
+                // or an off-throttle coast, both comparatively rare moments in a lap
+                // compared to normal throttle-on driving. Deliberately much slower
+                // than either the braking or coasting rate above (roughly 1/20th of
+                // the braking rate, well under half the coasting rate) so it reads as
+                // a slow background trickle, not a third harvesting mode.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.007f, 0.015f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsHarvesting = true;
+            }
 
             float forwardSpeedKph = Mathf.Max(0f, forwardSpeed * 3.6f);
             float speedRatio = Mathf.Clamp01(forwardSpeedKph / Mathf.Max(1f, TargetTopSpeedKph));
