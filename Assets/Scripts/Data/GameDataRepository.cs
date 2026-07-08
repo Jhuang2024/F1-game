@@ -287,5 +287,202 @@ namespace LocalFormulaRacing
 
             return standings;
         }
+
+        // Part 20: driver-card presentation data. Strengths/weaknesses are the
+        // stats that sit clearly above/below this driver's own average (not a
+        // fixed threshold), so a well-rounded 90-rated driver and a raw 70-rated
+        // rookie both get a sensible 2-3 item list instead of an empty one.
+        public DriverProfileSummary GetDriverProfileSummary(DriverData driver)
+        {
+            DriverProfileSummary summary = new DriverProfileSummary();
+            if (driver == null)
+            {
+                return summary;
+            }
+
+            summary.driverId = driver.id;
+            summary.displayName = driver.displayName;
+            summary.overallRating = driver.OverallRating;
+
+            KeyValuePair<string, int>[] stats =
+            {
+                new KeyValuePair<string, int>("Pace", driver.pace),
+                new KeyValuePair<string, int>("Racecraft", driver.racecraft),
+                new KeyValuePair<string, int>("Qualifying", driver.qualifying),
+                new KeyValuePair<string, int>("Tyre Management", driver.tyreManagement),
+                new KeyValuePair<string, int>("Wet Weather", driver.wetSkill),
+                new KeyValuePair<string, int>("Consistency", driver.consistency),
+                new KeyValuePair<string, int>("Defending", driver.defending),
+                new KeyValuePair<string, int>("Overtaking", driver.overtaking),
+                new KeyValuePair<string, int>("Awareness", driver.awareness),
+                new KeyValuePair<string, int>("Experience", driver.experience)
+            };
+
+            ClassifyStrengthsWeaknesses(stats, summary.strengths, summary.weaknesses);
+            summary.archetype = ClassifyDriverArchetype(driver);
+            return summary;
+        }
+
+        string ClassifyDriverArchetype(DriverData driver)
+        {
+            if (driver.wetSkill >= driver.pace + 8 && driver.wetSkill >= 80)
+            {
+                return "Wet Weather Ace";
+            }
+
+            if (driver.qualifying >= driver.racecraft + 8)
+            {
+                return "Qualifying Specialist";
+            }
+
+            if (driver.racecraft >= driver.qualifying + 8 || driver.overtaking >= driver.qualifying + 10)
+            {
+                return "Race-Day Charger";
+            }
+
+            if (driver.consistency >= 85 && driver.aggression <= 65)
+            {
+                return "Metronome";
+            }
+
+            if (driver.aggression >= 85 && driver.defending >= 80)
+            {
+                return "Uncompromising Racer";
+            }
+
+            if (driver.experience <= 45 && driver.developmentPotential >= 80)
+            {
+                return "Rising Talent";
+            }
+
+            return "All-Rounder";
+        }
+
+        // Part 20: team-rating-card presentation data. Pass the car currently
+        // fitted to the team (career code should pass the upgrade-tuned car for
+        // the player's own team) so strengths/weaknesses reflect the season so far.
+        public TeamProfileSummary GetTeamProfileSummary(TeamData team, CarPerformanceData car)
+        {
+            TeamProfileSummary summary = new TeamProfileSummary();
+            if (team == null)
+            {
+                return summary;
+            }
+
+            summary.teamId = team.id;
+            summary.teamName = team.name;
+
+            if (car != null)
+            {
+                KeyValuePair<string, int>[] stats =
+                {
+                    new KeyValuePair<string, int>("Top Speed", car.topSpeed / 3),
+                    new KeyValuePair<string, int>("Acceleration", car.acceleration),
+                    new KeyValuePair<string, int>("Cornering", car.cornering),
+                    new KeyValuePair<string, int>("Braking", car.braking),
+                    new KeyValuePair<string, int>("Reliability", car.reliability),
+                    new KeyValuePair<string, int>("ERS Efficiency", car.ersEfficiency),
+                    new KeyValuePair<string, int>("Tyre Management", car.tyreManagement),
+                    new KeyValuePair<string, int>("Aero Efficiency", car.aeroEfficiency),
+                    new KeyValuePair<string, int>("Chassis Balance", car.chassisBalance),
+                    new KeyValuePair<string, int>("Engine Power", car.enginePower)
+                };
+
+                ClassifyStrengthsWeaknesses(stats, summary.strengths, summary.weaknesses);
+                int total = car.acceleration + car.cornering + car.braking + car.ersEfficiency + car.tyreManagement +
+                            car.aeroEfficiency + car.chassisBalance + car.enginePower;
+                summary.overallCarRating = Mathf.RoundToInt(total / 8f);
+            }
+
+            summary.competitivenessTier = team.reputation >= 88 ? "Championship Contender" :
+                team.reputation >= 78 ? "Front-runner" :
+                team.reputation >= 68 ? "Midfield" : "Backmarker";
+            return summary;
+        }
+
+        // Ranks the given (name, value) stat pairs against their own average so
+        // the strongest/weakest 2-3 stand out regardless of the driver/car's
+        // overall level, then writes the names into the caller's lists.
+        void ClassifyStrengthsWeaknesses(KeyValuePair<string, int>[] stats, List<string> strengths, List<string> weaknesses)
+        {
+            if (stats.Length == 0)
+            {
+                return;
+            }
+
+            float average = 0f;
+            for (int i = 0; i < stats.Length; i++)
+            {
+                average += stats[i].Value;
+            }
+
+            average /= stats.Length;
+
+            List<KeyValuePair<string, int>> ranked = new List<KeyValuePair<string, int>>(stats);
+            ranked.Sort((a, b) => b.Value.CompareTo(a.Value));
+
+            for (int i = 0; i < ranked.Count && strengths.Count < 3; i++)
+            {
+                if (ranked[i].Value > average + 1f)
+                {
+                    strengths.Add(ranked[i].Key);
+                }
+            }
+
+            for (int i = ranked.Count - 1; i >= 0 && weaknesses.Count < 3; i--)
+            {
+                if (ranked[i].Value < average - 1f)
+                {
+                    weaknesses.Add(ranked[i].Key);
+                }
+            }
+        }
+
+        // Part 20: heuristic track-characteristics summary for race-weekend
+        // depth data (setup recommendation, tyre strategy, pit window). Keyed
+        // off the calendar trackId/displayName/weatherProfile the same way
+        // TrackManager's own visual-style flags are, but kept independent
+        // since this describes gameplay characteristics, not scenery.
+        public TrackCharacteristicsSummaryData GetTrackCharacteristics(CalendarEventData eventData)
+        {
+            TrackCharacteristicsSummaryData summary = new TrackCharacteristicsSummaryData();
+            if (eventData == null)
+            {
+                summary.trackId = "unknown";
+                summary.displayName = "Unknown Circuit";
+                summary.overtakingDifficulty = "Medium";
+                summary.tyreDegradation = "Medium";
+                summary.downforceLevel = "Medium";
+                summary.estimatedPitLaneLossSeconds = 21f;
+                summary.styleDescription = "No calendar data available for this round.";
+                return summary;
+            }
+
+            string id = eventData.trackId == null ? "" : eventData.trackId.ToLowerInvariant();
+            summary.trackId = eventData.trackId;
+            summary.displayName = eventData.displayName;
+            summary.streetCircuit = id.Contains("monaco") || id.Contains("singapore") || id.Contains("las_vegas") ||
+                                     id.Contains("baku") || id.Contains("jeddah");
+
+            bool highSpeed = id.Contains("monza") || id.Contains("spa") || id.Contains("silverstone") ||
+                              id.Contains("las_vegas") || id.Contains("baku");
+            bool tight = summary.streetCircuit || id.Contains("hungary") || id.Contains("zandvoort");
+            bool abrasive = id.Contains("bahrain") || id.Contains("qatar") || id.Contains("barcelona") ||
+                             id.Contains("silverstone");
+
+            summary.downforceLevel = highSpeed ? "Low" : tight ? "High" : "Medium";
+            summary.overtakingDifficulty = summary.streetCircuit ? "High" : highSpeed ? "Low" : "Medium";
+            summary.tyreDegradation = abrasive ? "High" : tight ? "Low" : "Medium";
+            summary.estimatedPitLaneLossSeconds = summary.streetCircuit ? 24f : highSpeed ? 18f : 21f;
+
+            summary.styleDescription = summary.streetCircuit
+                ? summary.displayName + " is a tight street circuit - track position and clean laps matter more than outright pace."
+                : highSpeed
+                    ? summary.displayName + " rewards a low-downforce setup and strong straight-line speed."
+                    : tight
+                        ? summary.displayName + " is a technical, high-downforce lap where mechanical grip counts."
+                        : summary.displayName + " is a balanced, all-round circuit with no single dominant trait.";
+            return summary;
+        }
     }
 }

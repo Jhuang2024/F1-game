@@ -27,6 +27,16 @@ namespace LocalFormulaRacing
         public const int ProjectFailed = 2;
         public const int ProjectReworkAvailable = 3;
 
+        // Part 20: news article categories, shared by AddNewsArticle callers so
+        // a future news screen can filter/tag consistently.
+        public const string NewsCategoryRace = "Race";
+        public const string NewsCategoryRnd = "R&D";
+        public const string NewsCategoryRivalry = "Rivalry";
+        public const string NewsCategoryRaceControl = "Race Control";
+        public const string NewsCategoryRegulations = "Regulations";
+        public const string NewsCategoryRumour = "Paddock Rumour";
+        public const string NewsCategoryGeneral = "Career";
+
         readonly GameDataRepository data;
 
         public CareerSaveData Save { get; private set; }
@@ -136,7 +146,177 @@ namespace LocalFormulaRacing
             return team == null ? data.Cars.cars[0] : data.FindCar(team.carPerformanceId);
         }
 
+        // Part 20: race-weekend depth data for the current round - practice
+        // program summary, a setup recommendation, a tyre strategy preview, a
+        // weather forecast (built on the existing WeatherState/weatherProfile
+        // system), track characteristics, and a pit window estimate. Generated
+        // on demand rather than persisted, since it's fully re-derivable from
+        // calendar + career state.
+        public RaceWeekendBriefing GenerateRaceWeekendBriefing()
+        {
+            CalendarEventData currentEvent = CurrentEvent();
+            RaceWeekendBriefing briefing = new RaceWeekendBriefing();
+            briefing.track = data.GetTrackCharacteristics(currentEvent);
+            briefing.weather = BuildWeatherForecast(currentEvent);
+            briefing.practice = BuildPracticeProgramSummary();
+            CarPerformanceData tunedCar = ApplyCareerUpgrades(GetPlayerCar());
+            briefing.setup = BuildSetupRecommendation(briefing.track, tunedCar);
+            briefing.tyreStrategy = BuildTyreStrategyPreview(briefing.track, briefing.weather, tunedCar);
+            briefing.pitWindow = BuildPitWindowEstimate(currentEvent, briefing.tyreStrategy.recommendedStopCount);
+            return briefing;
+        }
+
+        // Heuristic forecast built from CalendarEventData.weatherProfile (the
+        // same field RaceManager reads to seed Track.weather / decide rain
+        // transitions) - no separate weather system, just a read of the
+        // existing one.
+        WeatherForecastData BuildWeatherForecast(CalendarEventData currentEvent)
+        {
+            WeatherForecastData forecast = new WeatherForecastData();
+            string profile = currentEvent == null || string.IsNullOrEmpty(currentEvent.weatherProfile) ? "" : currentEvent.weatherProfile.ToLowerInvariant();
+            bool mixed = profile.Contains("mixed");
+            bool wet = profile.Contains("wet") || profile.Contains("rain");
+            bool hot = profile.Contains("hot") || profile.Contains("desert");
+
+            WeatherState baseState = wet ? WeatherState.LightRain : (profile.Contains("cloud") ? WeatherState.Cloudy : WeatherState.Clear);
+            forecast.practiceForecast = baseState;
+            forecast.qualifyingForecast = mixed && Random.value < 0.35f ? WeatherState.Cloudy : baseState;
+            forecast.raceForecast = mixed
+                ? (Random.value < 0.4f ? WeatherState.LightRain : baseState)
+                : (wet ? (Random.value < 0.3f ? WeatherState.HeavyRain : WeatherState.LightRain) : baseState);
+
+            forecast.rainChancePercent = wet ? 70 : mixed ? 40 : hot ? 5 : 15;
+            forecast.summaryText = mixed
+                ? "Mixed conditions expected - showers may move through at any point across the weekend."
+                : wet
+                    ? "Wet weekend expected - rain is likely to affect multiple sessions."
+                    : hot
+                        ? "Hot and dry all weekend, with track temperature the main tyre concern."
+                        : "Largely stable conditions expected across the weekend.";
+            return forecast;
+        }
+
+        static readonly Dictionary<string, string> PracticeProgramDisplayNames = new Dictionary<string, string>
+        {
+            { "acclimatisation", "Track Acclimatisation" },
+            { "tyreManagement", "Tyre Management" },
+            { "ersManagement", "ERS Management" },
+            { "qualifyingPace", "Qualifying Pace" },
+            { "racePace", "Race Pace" }
+        };
+
+        // Reads the "s{season}_r{round}_{programId}" completion keys the
+        // practice-program UI writes into Save.completedPracticePrograms and
+        // summarises just the current round's entries.
+        PracticeProgramSummaryData BuildPracticeProgramSummary()
+        {
+            PracticeProgramSummaryData summary = new PracticeProgramSummaryData();
+            string prefix = "s" + Save.currentSeason + "_r" + Save.currentRound + "_";
+            if (Save.completedPracticePrograms != null)
+            {
+                for (int i = 0; i < Save.completedPracticePrograms.Count; i++)
+                {
+                    string key = Save.completedPracticePrograms[i];
+                    if (string.IsNullOrEmpty(key) || !key.StartsWith(prefix))
+                    {
+                        continue;
+                    }
+
+                    string programId = key.Substring(prefix.Length);
+                    string friendly;
+                    summary.completedProgramNames.Add(PracticeProgramDisplayNames.TryGetValue(programId, out friendly) ? friendly : programId);
+                }
+            }
+
+            summary.programsCompleted = summary.completedProgramNames.Count;
+            summary.qualityRating = Save.practiceQualityThisRound;
+            summary.summaryText = summary.programsCompleted == 0
+                ? "No practice programs completed yet this weekend."
+                : summary.programsCompleted + " of " + summary.programsAvailable + " practice programs complete (" +
+                  string.Join(", ", summary.completedProgramNames.ToArray()) + ").";
+            return summary;
+        }
+
+        SetupRecommendationData BuildSetupRecommendation(TrackCharacteristicsSummaryData track, CarPerformanceData car)
+        {
+            SetupRecommendationData setup = new SetupRecommendationData();
+            if (track.downforceLevel == "High")
+            {
+                setup.recommendedFrontWing = 4;
+                setup.recommendedRearWing = 4;
+            }
+            else if (track.downforceLevel == "Low")
+            {
+                setup.recommendedFrontWing = 2;
+                setup.recommendedRearWing = 2;
+            }
+
+            setup.recommendedRideHeight = track.streetCircuit ? 4 : 3;
+            setup.recommendedSuspension = track.tyreDegradation == "High" ? 2 : 3;
+            setup.recommendedBrakeBias = track.streetCircuit ? 4 : 3;
+
+            if (car != null && car.chassisBalance < 70)
+            {
+                setup.recommendedRearWing = Mathf.Min(5, setup.recommendedRearWing + 1);
+            }
+
+            setup.reasoning = "Recommendation based on " + track.displayName + "'s " + track.downforceLevel.ToLowerInvariant() +
+                "-downforce, " + track.tyreDegradation.ToLowerInvariant() + "-degradation characteristics" +
+                (track.streetCircuit ? ", plus extra ride height for the kerbs." : ".");
+            return setup;
+        }
+
+        TyreStrategyPreviewData BuildTyreStrategyPreview(TrackCharacteristicsSummaryData track, WeatherForecastData weather, CarPerformanceData car)
+        {
+            TyreStrategyPreviewData preview = new TyreStrategyPreviewData();
+            bool wetRace = weather.raceForecast == WeatherState.LightRain || weather.raceForecast == WeatherState.HeavyRain;
+            if (wetRace)
+            {
+                preview.recommendedStopCount = weather.raceForecast == WeatherState.HeavyRain ? 2 : 1;
+                preview.recommendedStartCompound = weather.raceForecast == WeatherState.HeavyRain ? "Wet" : "Intermediate";
+                preview.recommendedSecondCompound = "Intermediate";
+                preview.recommendedThirdCompound = "Medium";
+                preview.reasoning = "Wet forecast for the race - start on " + preview.recommendedStartCompound + "s and react to the track drying out.";
+                return preview;
+            }
+
+            int tyreRating = car != null ? car.tyreManagement : 80;
+            bool highDeg = track.tyreDegradation == "High";
+            preview.recommendedStopCount = highDeg || tyreRating < 70 ? 2 : 1;
+            preview.recommendedStartCompound = track.streetCircuit ? "Medium" : "Soft";
+            preview.recommendedSecondCompound = preview.recommendedStopCount >= 2 ? "Medium" : "Hard";
+            preview.recommendedThirdCompound = preview.recommendedStopCount >= 2 ? "Hard" : "";
+            preview.reasoning = highDeg
+                ? track.displayName + " chews through tyres - a " + preview.recommendedStopCount + "-stop looks safer than pushing one set too far."
+                : "Tyre wear looks manageable at " + track.displayName + " - a " + preview.recommendedStopCount + "-stop should be quickest if track position allows.";
+            return preview;
+        }
+
+        PitWindowEstimateData BuildPitWindowEstimate(CalendarEventData currentEvent, int stopCount)
+        {
+            PitWindowEstimateData window = new PitWindowEstimateData();
+            int totalLaps = currentEvent == null
+                ? 20
+                : (currentEvent.laps25Percent > 0 ? currentEvent.laps25Percent : (currentEvent.laps5 > 0 ? currentEvent.laps5 : Mathf.Max(3, currentEvent.laps3)));
+            window.totalLaps = totalLaps;
+            int stintCount = Mathf.Max(1, stopCount + 1);
+            window.estimatedStintLength = Mathf.Max(1, totalLaps / stintCount);
+            window.earliestLap = Mathf.Clamp(Mathf.RoundToInt(totalLaps * 0.22f), 1, totalLaps);
+            window.optimalLap = Mathf.Clamp(totalLaps / stintCount, 1, totalLaps);
+            window.latestLap = Mathf.Clamp(Mathf.RoundToInt(totalLaps * 0.78f), window.earliestLap, totalLaps);
+            return window;
+        }
+
         public void ApplyRaceResults(CalendarEventData raceEvent, List<RaceResultEntry> results)
+        {
+            ApplyRaceResults(raceEvent, results, -1, -1, -1);
+        }
+
+        // incidentCount/safetyCarDeploymentCount/aiOvertakesCompletedCount mirror
+        // RaceManager's own public IncidentCount / SafetyCarDeploymentCount /
+        // AiOvertakesCompletedCount fields (Part 20 race-report plumbing) - pass
+        // -1 for any that aren't available to mean "no data" rather than "zero".
+        public void ApplyRaceResults(CalendarEventData raceEvent, List<RaceResultEntry> results, int incidentCount, int safetyCarDeploymentCount, int aiOvertakesCompletedCount)
         {
             for (int i = 0; i < results.Count; i++)
             {
@@ -155,6 +335,16 @@ namespace LocalFormulaRacing
                 results = results
             };
             Save.raceResults.Add(record);
+
+            RaceReportRecord report = BuildRaceReport(raceEvent, results, incidentCount, safetyCarDeploymentCount, aiOvertakesCompletedCount);
+            Save.raceReports.Add(report);
+            while (Save.raceReports.Count > 12)
+            {
+                Save.raceReports.RemoveAt(0);
+            }
+
+            GenerateRaceControlNews(report);
+            GenerateAiPerformanceNews(report);
 
             RaceResultEntry player = results.Find(entry => entry.isPlayer);
             if (player != null)
@@ -180,7 +370,310 @@ namespace LocalFormulaRacing
 
             SortStandings(Save.driverStandings);
             SortStandings(Save.constructorStandings);
+            GenerateFillerNewsIfNeeded();
             Write();
+        }
+
+        // Part 20: aggregates the classification RaceManager already computed
+        // (race control counts, if provided) with the per-driver result fields
+        // RaceParticipant.ToResultEntry already fills in (pit stops, overtakes,
+        // lockups, flat spots, track limit warnings, penalties, strategy) into
+        // one report record for a results/report screen.
+        RaceReportRecord BuildRaceReport(CalendarEventData raceEvent, List<RaceResultEntry> results, int incidentCount, int safetyCarDeploymentCount, int aiOvertakesCompletedCount)
+        {
+            RaceReportRecord report = new RaceReportRecord
+            {
+                season = Save.currentSeason,
+                round = Save.currentRound,
+                eventName = raceEvent != null ? raceEvent.displayName : "Prototype GP"
+            };
+
+            report.raceControl.incidentCount = incidentCount;
+            report.raceControl.safetyCarDeployments = safetyCarDeploymentCount;
+            report.raceControl.wasChaotic = incidentCount >= 5 || safetyCarDeploymentCount >= 2;
+            report.raceControl.narrative = BuildRaceControlNarrative(incidentCount, safetyCarDeploymentCount, report.eventName);
+
+            int lockups = 0;
+            int trackLimitWarnings = 0;
+            int heavyLockupDrivers = 0;
+            int pitStopTotal = 0;
+            float flatSpotTotal = 0f;
+            int penalizedDrivers = 0;
+            float penaltySecondsTotal = 0f;
+            Dictionary<string, int> penaltyReasons = new Dictionary<string, int>();
+            Dictionary<string, int> finalCompoundCounts = new Dictionary<string, int>();
+            for (int i = 0; i < results.Count; i++)
+            {
+                RaceResultEntry entry = results[i];
+                lockups += entry.lockups;
+                trackLimitWarnings += entry.trackLimitWarnings;
+                flatSpotTotal += entry.flatSpotPercent;
+                pitStopTotal += entry.pitStops;
+                if (entry.lockups >= 3)
+                {
+                    heavyLockupDrivers++;
+                }
+
+                if (entry.penaltiesSeconds > 0f)
+                {
+                    penalizedDrivers++;
+                    penaltySecondsTotal += entry.penaltiesSeconds;
+                    string reason = string.IsNullOrEmpty(entry.penaltyReason) ? "Time penalty" : entry.penaltyReason;
+                    penaltyReasons[reason] = penaltyReasons.ContainsKey(reason) ? penaltyReasons[reason] + 1 : 1;
+                }
+
+                if (!string.IsNullOrEmpty(entry.tyreCompound))
+                {
+                    finalCompoundCounts[entry.tyreCompound] = finalCompoundCounts.ContainsKey(entry.tyreCompound) ? finalCompoundCounts[entry.tyreCompound] + 1 : 1;
+                }
+            }
+
+            report.incidents.totalLockups = lockups;
+            report.incidents.totalTrackLimitWarnings = trackLimitWarnings;
+            report.incidents.averageFlatSpotPercent = results.Count > 0 ? flatSpotTotal / results.Count : 0f;
+            report.incidents.driversWithHeavyLockups = heavyLockupDrivers;
+
+            report.penalties.driversPenalized = penalizedDrivers;
+            report.penalties.totalPenaltySeconds = penaltySecondsTotal;
+            report.penalties.mostCommonReason = PickMostCommonKey(penaltyReasons);
+
+            RaceResultEntry player = results.Find(entry => entry.isPlayer);
+            report.strategy.averagePitStops = results.Count > 0 ? pitStopTotal / (float)results.Count : 0f;
+            report.strategy.playerPitStops = player != null ? player.pitStops : 0;
+            report.strategy.playerStrategyText = player != null ? player.strategySummary : "";
+            report.strategy.mostCommonFinalCompound = PickMostCommonKey(finalCompoundCounts);
+
+            int aiOvertakes = aiOvertakesCompletedCount >= 0 ? aiOvertakesCompletedCount : SumAiOvertakes(results);
+            report.aiPerformance.totalAiOvertakes = aiOvertakes;
+            RaceResultEntry standoutAi = FindStandoutAiDriver(results);
+            if (standoutAi != null)
+            {
+                report.aiPerformance.standoutAiDriverName = standoutAi.driverName;
+                report.aiPerformance.standoutAiPositionsGained = standoutAi.gridPosition - standoutAi.finishingPosition;
+            }
+
+            report.headline = BuildRaceReportHeadline(report, player);
+            return report;
+        }
+
+        string BuildRaceControlNarrative(int incidentCount, int safetyCarDeploymentCount, string eventName)
+        {
+            if (safetyCarDeploymentCount < 0 && incidentCount < 0)
+            {
+                return "Race control data unavailable for this round.";
+            }
+
+            if (safetyCarDeploymentCount >= 2 || incidentCount >= 6)
+            {
+                return "Safety car chaos at " + eventName + " - race control was called into action repeatedly.";
+            }
+
+            if (safetyCarDeploymentCount == 1)
+            {
+                return "A single safety car period reshuffled the order at " + eventName + ".";
+            }
+
+            if (incidentCount >= 3)
+            {
+                return "A scrappy, incident-filled race at " + eventName + ", though it stayed green.";
+            }
+
+            return "A clean race at " + eventName + " with race control largely a spectator.";
+        }
+
+        string BuildRaceReportHeadline(RaceReportRecord report, RaceResultEntry player)
+        {
+            string flavor = report.raceControl.wasChaotic ? "chaotic" : "controlled";
+            if (player != null)
+            {
+                return "Race Report - " + report.eventName + ": " + player.driverName + " finishes P" + player.finishingPosition + " in a " + flavor + " race.";
+            }
+
+            return "Race Report - " + report.eventName + ": a " + flavor + " race.";
+        }
+
+        string PickMostCommonKey(Dictionary<string, int> counts)
+        {
+            string best = "";
+            int bestCount = 0;
+            foreach (KeyValuePair<string, int> pair in counts)
+            {
+                if (pair.Value > bestCount)
+                {
+                    bestCount = pair.Value;
+                    best = pair.Key;
+                }
+            }
+
+            return best;
+        }
+
+        int SumAiOvertakes(List<RaceResultEntry> results)
+        {
+            int total = 0;
+            for (int i = 0; i < results.Count; i++)
+            {
+                if (!results[i].isPlayer)
+                {
+                    total += results[i].overtakesMade;
+                }
+            }
+
+            return total;
+        }
+
+        RaceResultEntry FindStandoutAiDriver(List<RaceResultEntry> results)
+        {
+            RaceResultEntry best = null;
+            int bestGain = 4;
+            for (int i = 0; i < results.Count; i++)
+            {
+                RaceResultEntry entry = results[i];
+                if (entry.isPlayer)
+                {
+                    continue;
+                }
+
+                int gain = entry.gridPosition - entry.finishingPosition;
+                if (gain > bestGain)
+                {
+                    bestGain = gain;
+                    best = entry;
+                }
+            }
+
+            return best;
+        }
+
+        // Only worth a headline when it was a genuinely notable safety car
+        // period or incident-heavy race - safetyCarDeploymentCount < 0 means
+        // the caller didn't supply race-control stats, so stay silent rather
+        // than reporting "zero" as if it were real data.
+        void GenerateRaceControlNews(RaceReportRecord report)
+        {
+            if (report.raceControl.safetyCarDeployments < 0)
+            {
+                return;
+            }
+
+            if (report.raceControl.safetyCarDeployments >= 2)
+            {
+                AddNewsArticle(
+                    "Safety car chaos overshadows " + report.eventName,
+                    "Race control deployed the safety car " + report.raceControl.safetyCarDeployments + " times amid " +
+                    Mathf.Max(0, report.raceControl.incidentCount) + " recorded incidents at " + report.eventName + ", scrambling strategy up and down the field.",
+                    NewsCategoryRaceControl);
+            }
+            else if (report.raceControl.safetyCarDeployments == 1)
+            {
+                AddNewsArticle(
+                    "Safety car shuffles the order at " + report.eventName,
+                    "A single safety car period at " + report.eventName + " bunched the field and forced a round of early strategy calls.",
+                    NewsCategoryRaceControl);
+            }
+            else if (report.raceControl.incidentCount >= 5)
+            {
+                AddNewsArticle(
+                    "Scrappy afternoon at " + report.eventName,
+                    report.eventName + " stayed green throughout, but race control logged " + report.raceControl.incidentCount +
+                    " incidents as drivers pushed the limits.",
+                    NewsCategoryRaceControl);
+            }
+        }
+
+        void GenerateAiPerformanceNews(RaceReportRecord report)
+        {
+            if (string.IsNullOrEmpty(report.aiPerformance.standoutAiDriverName) || report.aiPerformance.standoutAiPositionsGained < 5)
+            {
+                return;
+            }
+
+            AddNewsArticle(
+                report.aiPerformance.standoutAiDriverName + " carves through the field at " + report.eventName,
+                report.aiPerformance.standoutAiDriverName + " gained " + report.aiPerformance.standoutAiPositionsGained + " places at " +
+                report.eventName + ", one of the drives of the weekend.",
+                NewsCategoryRace);
+        }
+
+        // Part 20: regulation-rumour/silly-season filler articles for flavor
+        // between races - templated but built from real save state (team,
+        // rival, standings, resources, next event) so they aren't generic.
+        void GenerateFillerNewsIfNeeded()
+        {
+            if (Random.value > 0.4f)
+            {
+                return;
+            }
+
+            TeamData playerTeam = data.FindTeam(Save.playerTeamId);
+            string teamName = playerTeam != null ? playerTeam.name : "the team";
+            DriverData rival = string.IsNullOrEmpty(Save.rivalDriverId) ? null : data.FindDriver(Save.rivalDriverId);
+            CalendarEventData nextEvent = data.FindEventForRound(Save.currentRound);
+            string nextTrackName = nextEvent != null ? nextEvent.displayName : "the next round";
+            int position = PlayerStandingPosition();
+            string focusDepartment = Save.regulationAffectedCategories != null && Save.regulationAffectedCategories.Count > 0
+                ? Save.regulationAffectedCategories[Random.Range(0, Save.regulationAffectedCategories.Count)]
+                : DepartmentNames[Random.Range(0, DepartmentNames.Length)];
+
+            List<KeyValuePair<string, string>> templates = new List<KeyValuePair<string, string>>();
+            templates.Add(new KeyValuePair<string, string>(
+                "Paddock buzzes over " + teamName + "'s " + focusDepartment.ToLowerInvariant() + " plans",
+                "Sources in the paddock suggest " + teamName + " is quietly reshuffling its " + focusDepartment.ToLowerInvariant() +
+                " programme ahead of " + nextTrackName + ", though nothing has been confirmed."));
+            templates.Add(new KeyValuePair<string, string>(
+                "Silly season speculation grows",
+                "With several seats still unresolved for next year, rumours continue to swirl in the paddock about who will partner whom."));
+            templates.Add(new KeyValuePair<string, string>(
+                "Contract talk follows " + Save.playerDriverName,
+                Save.playerDriverName + " currently sits P" + position + " in the standings against a target of P" + Save.contractTargetPosition +
+                " - insiders say the team is watching closely."));
+            templates.Add(new KeyValuePair<string, string>(
+                "FIA scrutiny on " + focusDepartment + " regulations",
+                "Technical delegates are reportedly reviewing the " + focusDepartment.ToLowerInvariant() + " regulations again, with teams bracing for another shake-up."));
+            templates.Add(new KeyValuePair<string, string>(
+                nextTrackName + " expected to reward bold strategy",
+                "Strategists are already debating tyre allocation for " + nextTrackName + ", with several teams expected to gamble on an aggressive approach."));
+            templates.Add(new KeyValuePair<string, string>(
+                teamName + " budget speculation",
+                "With " + Save.resourcePoints + " development points banked, whispers suggest " + teamName + " could accelerate its upgrade programme in the coming rounds."));
+            templates.Add(new KeyValuePair<string, string>(
+                "Fans debate the championship picture",
+                "With " + teamName + " sitting in the " + CompetitivenessLabel(playerTeam) + " bracket, fans are debating how much further the team can climb this season."));
+            if (rival != null)
+            {
+                templates.Add(new KeyValuePair<string, string>(
+                    rival.displayName + " talked up ahead of " + nextTrackName,
+                    "Pundits are tipping " + rival.displayName + " for a strong showing at " + nextTrackName +
+                    ", setting up another chapter in the rivalry with " + Save.playerDriverName + "."));
+            }
+
+            int index = Random.Range(0, templates.Count);
+            AddNewsArticle(templates[index].Key, templates[index].Value, NewsCategoryRumour);
+        }
+
+        int PlayerStandingPosition()
+        {
+            for (int i = 0; i < Save.driverStandings.Count; i++)
+            {
+                if (Save.driverStandings[i].id == "player")
+                {
+                    return i + 1;
+                }
+            }
+
+            return Save.driverStandings.Count;
+        }
+
+        string CompetitivenessLabel(TeamData team)
+        {
+            if (team == null)
+            {
+                return "midfield";
+            }
+
+            return team.reputation >= 88 ? "championship-contender" :
+                team.reputation >= 78 ? "front-running" :
+                team.reputation >= 68 ? "midfield" : "backmarker";
         }
 
         public void ApplyQualifyingResults(CalendarEventData raceEvent, List<QualifyingResultEntry> results)
@@ -218,11 +711,20 @@ namespace LocalFormulaRacing
                 if (player.finishingPosition < teammate.finishingPosition)
                 {
                     Save.teammateRaceWins++;
-                    AddNews(Save.playerDriverName + " beat their teammate again at " + eventName + ".");
+                    AddNewsArticle(
+                        Save.playerDriverName + " beats teammate again at " + eventName,
+                        Save.playerDriverName + " finished P" + player.finishingPosition + " to " + teammate.driverName + "'s P" + teammate.finishingPosition +
+                        " at " + eventName + ", extending the intra-team head-to-head to " + Save.teammateRaceWins + "-" + Save.teammateRaceLosses + ".",
+                        NewsCategoryRivalry);
                 }
                 else if (player.finishingPosition > teammate.finishingPosition)
                 {
                     Save.teammateRaceLosses++;
+                    AddNewsArticle(
+                        teammate.driverName + " gets the upper hand at " + eventName,
+                        teammate.driverName + " out-raced " + Save.playerDriverName + " at " + eventName + " (P" + teammate.finishingPosition + " to P" +
+                        player.finishingPosition + "), with the teammate battle now " + Save.teammateRaceWins + "-" + Save.teammateRaceLosses + ".",
+                        NewsCategoryRivalry);
                 }
             }
 
@@ -232,21 +734,51 @@ namespace LocalFormulaRacing
                 if (player.finishingPosition < rival.finishingPosition)
                 {
                     Save.rivalRaceWins++;
+                    if (Save.rivalRaceWins % 2 == 0 || player.finishingPosition <= 3)
+                    {
+                        AddNewsArticle(
+                            Save.playerDriverName + " gets the better of rival " + rival.driverName,
+                            Save.playerDriverName + " beat championship rival " + rival.driverName + " at " + eventName +
+                            " (P" + player.finishingPosition + " to P" + rival.finishingPosition + "), taking the head-to-head to " +
+                            Save.rivalRaceWins + "-" + Save.rivalRaceLosses + ".",
+                            NewsCategoryRivalry);
+                    }
                 }
                 else if (player.finishingPosition > rival.finishingPosition)
                 {
                     Save.rivalRaceLosses++;
-                    AddNews(rival.driverName + " got the better of " + Save.playerDriverName + " at " + eventName + ".");
+                    AddNewsArticle(
+                        rival.driverName + " gets the better of " + Save.playerDriverName,
+                        rival.driverName + " out-raced " + Save.playerDriverName + " at " + eventName + " (P" + rival.finishingPosition +
+                        " to P" + player.finishingPosition + "). The rivalry now stands at " + Save.rivalRaceWins + "-" + Save.rivalRaceLosses +
+                        " in race wins.",
+                        NewsCategoryRivalry);
                 }
             }
 
             if (player.finishingPosition == 1)
             {
-                AddNews(Save.playerDriverName + " wins at " + eventName + "!");
+                StandingEntry playerStanding = Save.driverStandings.Find(entry => entry.id == "player");
+                int winCount = playerStanding != null ? playerStanding.wins + 1 : 1;
+                AddNewsArticle(
+                    Save.playerDriverName + " wins at " + eventName + "!",
+                    Save.playerDriverName + " took victory at " + eventName + ", career win number " + winCount + ".",
+                    NewsCategoryRace);
             }
             else if (player.finishingPosition <= 3)
             {
-                AddNews(Save.playerDriverName + " takes a podium finish at " + eventName + ".");
+                AddNewsArticle(
+                    Save.playerDriverName + " takes a podium finish at " + eventName,
+                    Save.playerDriverName + " crossed the line P" + player.finishingPosition + " at " + eventName + ", a solid points haul for the team.",
+                    NewsCategoryRace);
+            }
+            else if (player.finishingPosition > Save.contractTargetPosition + 3)
+            {
+                AddNewsArticle(
+                    "Difficult afternoon for " + Save.playerDriverName + " at " + eventName,
+                    Save.playerDriverName + " could only manage P" + player.finishingPosition + " at " + eventName +
+                    ", well short of the team's P" + Save.contractTargetPosition + " target.",
+                    NewsCategoryRace);
             }
 
             Save.recentFormPositions.Add(player.finishingPosition);
@@ -258,7 +790,10 @@ namespace LocalFormulaRacing
             int reputationBefore = Save.reputationHistory.Count > 0 ? Save.reputationHistory[Save.reputationHistory.Count - 1] : Save.reputation;
             if (Save.reputation - reputationBefore >= 3)
             {
-                AddNews("Team confidence increased after a strong result at " + eventName + ".");
+                AddNewsArticle(
+                    "Team confidence rises after " + eventName,
+                    "A strong result at " + eventName + " has lifted spirits inside the team, with reputation climbing to " + Save.reputation + ".",
+                    NewsCategoryGeneral);
             }
 
             Save.reputationHistory.Add(Save.reputation);
@@ -297,12 +832,24 @@ namespace LocalFormulaRacing
                     Save.rivalQualifyingWins++;
                     if (player.position <= 3)
                     {
-                        AddNews(Save.playerDriverName + " out-qualified their rival again at Q" + player.position + ".");
+                        AddNewsArticle(
+                            Save.playerDriverName + " out-qualifies rival again",
+                            Save.playerDriverName + " starts P" + player.position + ", ahead of rival " + rival.driverName + " in P" + rival.position +
+                            ". Qualifying head-to-head now " + Save.rivalQualifyingWins + "-" + Save.rivalQualifyingLosses + ".",
+                            NewsCategoryRivalry);
                     }
                 }
                 else if (player.position > rival.position)
                 {
                     Save.rivalQualifyingLosses++;
+                    if (rival.position <= 3)
+                    {
+                        AddNewsArticle(
+                            rival.driverName + " beats " + Save.playerDriverName + " to grid slot",
+                            rival.driverName + " out-qualified " + Save.playerDriverName + ", starting P" + rival.position + " to P" + player.position +
+                            ". Qualifying head-to-head now " + Save.rivalQualifyingWins + "-" + Save.rivalQualifyingLosses + ".",
+                            NewsCategoryRivalry);
+                    }
                 }
             }
         }
@@ -359,11 +906,23 @@ namespace LocalFormulaRacing
                 Save.rivalRaceLosses = 0;
                 Save.rivalQualifyingWins = 0;
                 Save.rivalQualifyingLosses = 0;
-                AddNews("New championship rival: " + closest.displayName + " is now " + Save.playerDriverName + "'s closest title threat.");
+                AddNewsArticle(
+                    "New championship rival: " + closest.displayName,
+                    closest.displayName + " is now " + Save.playerDriverName + "'s closest title threat, sitting just " + closestGap +
+                    " point" + (closestGap == 1 ? "" : "s") + " away in the standings.",
+                    NewsCategoryRivalry);
             }
         }
 
         public void AddNews(string headline)
+        {
+            AddNewsArticle(headline, headline, NewsCategoryGeneral);
+        }
+
+        // Part 20: adds both the short headline (existing newsFeed strip) and a
+        // full article (headline + body + category + timestamp) in one call, so
+        // every career event only needs to be written once.
+        public void AddNewsArticle(string headline, string body, string category)
         {
             if (string.IsNullOrEmpty(headline) || Save.newsFeed == null)
             {
@@ -375,6 +934,70 @@ namespace LocalFormulaRacing
             {
                 Save.newsFeed.RemoveAt(0);
             }
+
+            if (Save.newsArticles == null)
+            {
+                Save.newsArticles = new List<NewsArticle>();
+            }
+
+            Save.newsArticles.Add(new NewsArticle
+            {
+                headline = headline,
+                body = string.IsNullOrEmpty(body) ? headline : body,
+                category = string.IsNullOrEmpty(category) ? NewsCategoryGeneral : category,
+                season = Save.currentSeason,
+                round = Save.currentRound,
+                raceWeekLabel = "Season " + Save.currentSeason + ", Round " + Save.currentRound
+            });
+            while (Save.newsArticles.Count > 30)
+            {
+                Save.newsArticles.RemoveAt(0);
+            }
+        }
+
+        public List<NewsArticle> GetNewsArticles()
+        {
+            return Save.newsArticles;
+        }
+
+        public List<RaceReportRecord> GetRaceReports()
+        {
+            return Save.raceReports;
+        }
+
+        public RaceReportRecord GetLatestRaceReport()
+        {
+            return Save.raceReports != null && Save.raceReports.Count > 0 ? Save.raceReports[Save.raceReports.Count - 1] : null;
+        }
+
+        // Part 20: driver/team presentation passthroughs. Team lookups apply the
+        // player's own R&D upgrades only when asking about the player's own car -
+        // an AI team's card should reflect its own base car, not the player's R&D.
+        public DriverProfileSummary GetDriverProfileSummary(string driverId)
+        {
+            return data.GetDriverProfileSummary(data.FindDriver(driverId));
+        }
+
+        public TeamProfileSummary GetTeamProfileSummary(string teamId)
+        {
+            TeamData team = data.FindTeam(teamId);
+            if (team == null)
+            {
+                return data.GetTeamProfileSummary(null, null);
+            }
+
+            CarPerformanceData car = data.FindCar(team.carPerformanceId);
+            if (team.id == Save.playerTeamId)
+            {
+                car = ApplyCareerUpgrades(car);
+            }
+
+            return data.GetTeamProfileSummary(team, car);
+        }
+
+        public TeamProfileSummary GetPlayerTeamProfileSummary()
+        {
+            return GetTeamProfileSummary(Save.playerTeamId);
         }
 
         public bool TryPurchaseUpgrade(string upgradeId)
@@ -663,22 +1286,36 @@ namespace LocalFormulaRacing
                     }
 
                     Save.reputation += 1;
+                    string department = upgrade != null ? upgrade.category : "engineering";
                     if (project.riskMode == RiskExperimental && Random.value <= 0.25f)
                     {
                         project.bonusApplied = true;
                         Save.pendingRndMessages.Add(projectName + " delivered with an experimental breakthrough - effect boosted 30%.");
-                        AddNews(projectName + " lands with an experimental breakthrough - big step for the team.");
+                        AddNewsArticle(
+                            projectName + " lands with an experimental breakthrough",
+                            "The " + department + " department's gamble on " + projectName + " has paid off in style, with early data showing a bigger " +
+                            "gain than planned - a real step forward for the team.",
+                            NewsCategoryRnd);
                     }
                     else
                     {
                         Save.pendingRndMessages.Add(projectName + " development complete - fitted to the car.");
-                        AddNews(projectName + " development complete, fitted to the car for the next round.");
+                        AddNewsArticle(
+                            projectName + " completes development",
+                            "The " + department + " department has finished work on " + projectName + ", which will be fitted to the car from the next round.",
+                            NewsCategoryRnd);
                     }
                 }
                 else
                 {
                     project.status = ProjectReworkAvailable;
                     Save.pendingRndMessages.Add(projectName + " development failed - rework available at 40% cost.");
+                    string department = upgrade != null ? upgrade.category : "engineering";
+                    AddNewsArticle(
+                        projectName + " development setback",
+                        "The " + department + " department has hit a setback with " + projectName + " - the project has stalled and will need a " +
+                        "costly rework to get back on track.",
+                        NewsCategoryRnd);
                 }
             }
 
@@ -917,6 +1554,16 @@ namespace LocalFormulaRacing
             {
                 Save.newsFeed = new List<string>();
             }
+
+            if (Save.newsArticles == null)
+            {
+                Save.newsArticles = new List<NewsArticle>();
+            }
+
+            if (Save.raceReports == null)
+            {
+                Save.raceReports = new List<RaceReportRecord>();
+            }
         }
 
         void PickRegulationTargets()
@@ -1006,12 +1653,20 @@ namespace LocalFormulaRacing
             if (removed > 0)
             {
                 Save.pendingRndMessages.Add("Regulation change hit " + affected + ": " + removed + " development project" + (removed == 1 ? "" : "s") + " scrapped for Season " + Save.currentSeason + ".");
-                AddNews("Regulation shake-up wipes out " + removed + " development project" + (removed == 1 ? "" : "s") + " across the field.");
+                AddNewsArticle(
+                    "Regulation shake-up wipes out development work",
+                    "New Season " + Save.currentSeason + " regulations targeting " + affected + " have scrapped " + removed +
+                    " completed development project" + (removed == 1 ? "" : "s") + " across the field - teams will need to redevelop from scratch.",
+                    NewsCategoryRegulations);
             }
             else
             {
                 Save.pendingRndMessages.Add("Season " + Save.currentSeason + " regulation change in " + affected + " arrived - no completed projects affected.");
-                AddNews("New season regulations target " + affected + " - teams begin adapting.");
+                AddNewsArticle(
+                    "New season regulations announced",
+                    "Season " + Save.currentSeason + " regulations target " + affected + ". None of the team's completed projects fell foul of the " +
+                    "change, but the field begins adapting regardless.",
+                    NewsCategoryRegulations);
             }
 
             PickRegulationTargets();

@@ -221,6 +221,17 @@ namespace LocalFormulaRacing
         // race/R&D/rivalry events, most recent last, capped in CareerManager.
         public List<string> newsFeed = new List<string>();
 
+        // Part 20: the same news events as newsFeed, but as full articles
+        // (headline + body + category + timestamp) for a dedicated news
+        // screen. Populated alongside newsFeed by CareerManager.AddNewsArticle,
+        // capped independently (larger backlog than the short headline strip).
+        public List<NewsArticle> newsArticles = new List<NewsArticle>();
+
+        // Part 20: one aggregated report per completed race (race control,
+        // incidents, penalties, strategy, AI performance) for a results/report
+        // screen, most recent last, capped in CareerManager.RecordRaceReport.
+        public List<RaceReportRecord> raceReports = new List<RaceReportRecord>();
+
         // R&D management state. Initializers are the old-save defaults; the
         // matching null/size guards live in CareerManager.EnsureStandingLists.
         public List<ActiveUpgradeProject> activeUpgradeProjects = new List<ActiveUpgradeProject>();
@@ -228,6 +239,186 @@ namespace LocalFormulaRacing
         public List<int> departmentLevels = new List<int>();
         public List<string> regulationAffectedCategories = new List<string>();
         public int practiceQualityThisRound;
+    }
+
+    // Part 20: a single news-feed entry with real body copy and a category,
+    // generated from an actual career/race event (see CareerManager.AddNewsArticle).
+    [Serializable]
+    public class NewsArticle
+    {
+        public string headline;
+        public string body;
+        public string category;
+        public int season;
+        public int round;
+        public string raceWeekLabel;
+    }
+
+    // Part 20: per-race report aggregated from the classification passed into
+    // CareerManager.ApplyRaceResults, stored into career history for a
+    // results/report screen built elsewhere.
+    [Serializable]
+    public class RaceReportRecord
+    {
+        public int season;
+        public int round;
+        public string eventName;
+        public string headline;
+        public RaceControlSummary raceControl = new RaceControlSummary();
+        public IncidentSummary incidents = new IncidentSummary();
+        public PenaltySummary penalties = new PenaltySummary();
+        public StrategySummary strategy = new StrategySummary();
+        public AiPerformanceSummary aiPerformance = new AiPerformanceSummary();
+    }
+
+    [Serializable]
+    public class RaceControlSummary
+    {
+        // -1 means "not reported by the race session" (older saves / a race
+        // that didn't pass safety-car stats through), so UI can distinguish
+        // "no data" from "a clean race with zero incidents".
+        public int incidentCount = -1;
+        public int safetyCarDeployments = -1;
+        public bool wasChaotic;
+        public string narrative;
+    }
+
+    [Serializable]
+    public class IncidentSummary
+    {
+        public int totalLockups;
+        public int totalTrackLimitWarnings;
+        public float averageFlatSpotPercent;
+        public int driversWithHeavyLockups;
+    }
+
+    [Serializable]
+    public class PenaltySummary
+    {
+        public int driversPenalized;
+        public float totalPenaltySeconds;
+        public string mostCommonReason;
+    }
+
+    [Serializable]
+    public class StrategySummary
+    {
+        public float averagePitStops;
+        public int playerPitStops;
+        public string playerStrategyText;
+        public string mostCommonFinalCompound;
+    }
+
+    [Serializable]
+    public class AiPerformanceSummary
+    {
+        public int totalAiOvertakes;
+        public string standoutAiDriverName;
+        public int standoutAiPositionsGained;
+    }
+
+    // Part 20: race-weekend depth data, generated on demand by
+    // CareerManager.GenerateRaceWeekendBriefing for the current round - not
+    // persisted, since it's re-derivable from the calendar/career state.
+    [Serializable]
+    public class RaceWeekendBriefing
+    {
+        public PracticeProgramSummaryData practice = new PracticeProgramSummaryData();
+        public SetupRecommendationData setup = new SetupRecommendationData();
+        public TyreStrategyPreviewData tyreStrategy = new TyreStrategyPreviewData();
+        public WeatherForecastData weather = new WeatherForecastData();
+        public TrackCharacteristicsSummaryData track = new TrackCharacteristicsSummaryData();
+        public PitWindowEstimateData pitWindow = new PitWindowEstimateData();
+    }
+
+    [Serializable]
+    public class PracticeProgramSummaryData
+    {
+        public int programsCompleted;
+        public int programsAvailable = 5;
+        public int qualityRating;
+        public List<string> completedProgramNames = new List<string>();
+        public string summaryText;
+    }
+
+    [Serializable]
+    public class SetupRecommendationData
+    {
+        // 1..5, 3 = neutral, matching GameSettingsData.setupFrontWing etc.
+        public int recommendedFrontWing = 3;
+        public int recommendedRearWing = 3;
+        public int recommendedBrakeBias = 3;
+        public int recommendedSuspension = 3;
+        public int recommendedRideHeight = 3;
+        public string reasoning;
+    }
+
+    [Serializable]
+    public class TyreStrategyPreviewData
+    {
+        public int recommendedStopCount = 1;
+        public string recommendedStartCompound;
+        public string recommendedSecondCompound;
+        public string recommendedThirdCompound;
+        public string reasoning;
+    }
+
+    [Serializable]
+    public class WeatherForecastData
+    {
+        public WeatherState practiceForecast;
+        public WeatherState qualifyingForecast;
+        public WeatherState raceForecast;
+        public int rainChancePercent;
+        public string summaryText;
+    }
+
+    [Serializable]
+    public class TrackCharacteristicsSummaryData
+    {
+        public string trackId;
+        public string displayName;
+        public bool streetCircuit;
+        public string overtakingDifficulty;
+        public string tyreDegradation;
+        public string downforceLevel;
+        public float estimatedPitLaneLossSeconds;
+        public string styleDescription;
+    }
+
+    [Serializable]
+    public class PitWindowEstimateData
+    {
+        public int totalLaps;
+        public int earliestLap;
+        public int optimalLap;
+        public int latestLap;
+        public int estimatedStintLength;
+    }
+
+    // Part 20: richer driver-card / team-rating-card presentation data,
+    // derived from the existing DriverData / TeamData / CarPerformanceData
+    // stat blocks rather than duplicating them.
+    [Serializable]
+    public class DriverProfileSummary
+    {
+        public string driverId;
+        public string displayName;
+        public int overallRating;
+        public List<string> strengths = new List<string>();
+        public List<string> weaknesses = new List<string>();
+        public string archetype;
+    }
+
+    [Serializable]
+    public class TeamProfileSummary
+    {
+        public string teamId;
+        public string teamName;
+        public int overallCarRating;
+        public List<string> strengths = new List<string>();
+        public List<string> weaknesses = new List<string>();
+        public string competitivenessTier;
     }
 
     [Serializable]
