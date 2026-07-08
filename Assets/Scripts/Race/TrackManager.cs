@@ -2265,7 +2265,12 @@ namespace LocalFormulaRacing
             else
             {
                 style = EdgeBarrierStyle.Armco;
-                baseLateral = Runtime.roadHalfWidth + 5.5f;
+                // Barrier gap fix: this used to sit at +5.5m, which left a wide,
+                // visually empty band of nothing between the kerb (which ends
+                // around +1.3m) and the rail. Pulled in to hug the edge like the
+                // street/elevated styles already do - see CreateArmcoSegment for
+                // the matching clearance-profile tightening this requires.
+                baseLateral = Runtime.roadHalfWidth + 2.6f;
                 // High-speed circuits get a catch fence along their fast (non-corner)
                 // stretches specifically; every circuit gets tyre stacks at its worst corners.
                 catchFence = highSpeedTrack && !nearHighRiskCorner;
@@ -2383,7 +2388,16 @@ namespace LocalFormulaRacing
             Vector3 scale = new Vector3(0.16f, EdgeBarrierMinHeight, segmentLength);
             rail.transform.localScale = scale;
             rail.GetComponent<Renderer>().sharedMaterial = armcoMaterial;
-            if (!TryPlaceSolidObstacle(rail, "armco-rail", basePosition, forward, scale, EdgeBarrierMinHeight * 0.5f, 3f))
+            // Barrier gap fix: minimumClearance must stay well under the rail's
+            // own ~2.5m distance from the paved edge (baseLateral 2.6m minus the
+            // rail's own half-width) or IsObstacleClearOfRacingSurface would
+            // treat every single segment as "too close" and hand it straight to
+            // the repair path in TryPlaceSolidObstacle, which used to be exactly
+            // what pushed Armco segments back out to a much wider gap than
+            // intended (and, on curves, inconsistently from one segment to the
+            // next). 1.8m leaves real margin for curvature-induced measurement
+            // noise while still comfortably clearing the kerb line (~1.3m).
+            if (!TryPlaceSolidObstacle(rail, "armco-rail", basePosition, forward, scale, EdgeBarrierMinHeight * 0.5f, 1.8f))
             {
                 return;
             }
@@ -2429,7 +2443,10 @@ namespace LocalFormulaRacing
             Runtime.SampleAtDistance(distance, out point, out forward, out right);
             for (int side = -1; side <= 1; side += 2)
             {
-                CreateTyreBarrierStack(point + right * side * (Runtime.roadHalfWidth + 2.6f), forward, 4.6f);
+                // Sits just inside the (now tighter) Armco line at
+                // roadHalfWidth+2.6f so the stack still reads as sitting in the
+                // runoff in front of the wall, not coincident with it.
+                CreateTyreBarrierStack(point + right * side * (Runtime.roadHalfWidth + 1.9f), forward, 4.6f);
             }
         }
 
@@ -2665,7 +2682,14 @@ namespace LocalFormulaRacing
         // placement/repositioning logic in TryPlaceSolidObstacle still gets caught and
         // logged instead of shipping silently.
         const float BarrierGapCheckStep = 8f;
-        const float BarrierGapThreshold = 18f;
+        // Barrier gap fix: tightened from 18m - that threshold only ever caught
+        // huge missing sections, not the smaller (but still clearly visible)
+        // seams this pass is meant to catch. Segments overlap by
+        // EdgeBarrierOverlap and are placed every ~8-10m, so under normal
+        // conditions the nearest protection to any sample point is only a
+        // couple of metres away - 10m leaves headroom for sampling/curvature
+        // noise while still flagging anything a player would actually notice.
+        const float BarrierGapThreshold = 10f;
 
         void ValidateBarrierCoverage(TrackValidationReport report)
         {
@@ -2679,7 +2703,7 @@ namespace LocalFormulaRacing
                 float normalized = d / Mathf.Max(1f, Runtime.length);
                 float baseLateral = IsElevatedAtDistance(d)
                     ? Runtime.roadHalfWidth + 1.15f
-                    : (streetTrack ? Runtime.roadHalfWidth + 2f : Runtime.roadHalfWidth + 5.5f);
+                    : (streetTrack ? Runtime.roadHalfWidth + 2f : Runtime.roadHalfWidth + 2.6f);
 
                 for (int side = -1; side <= 1; side += 2)
                 {
@@ -2922,10 +2946,14 @@ namespace LocalFormulaRacing
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(exitDistance, out point, out forward, out right);
-                // Stays inside the Armco's +5.5m offset (see BuildBarrierSegmentForSide)
-                // so the trap always reads as sitting in front of the barrier line.
-                float lateral = turnSign * (Runtime.roadHalfWidth + 2.4f + p * 1.1f);
-                CreateVisualBox("Gravel trap patch", point + right * lateral + Vector3.up * 0.03f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(4.5f + p, 0.05f, 7f), gravelMaterial);
+                // Barrier gap fix: the runoff band between the kerb (~+1.3m) and
+                // the (now tightened) Armco line at +2.6m is much narrower than
+                // it used to be, so both the patch width and its lateral spread
+                // were cut to match - it still reads as a gravel strip in front
+                // of the barrier, just sized to the tighter gap rather than
+                // spilling past the wall.
+                float lateral = turnSign * (Runtime.roadHalfWidth + 1.5f + p * 0.3f);
+                CreateVisualBox("Gravel trap patch", point + right * lateral + Vector3.up * 0.03f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1f, 0.05f, 7f), gravelMaterial);
             }
         }
 
@@ -5493,10 +5521,24 @@ namespace LocalFormulaRacing
                     }
                 }
 
+                // Barrier gap fix: search outward starting from how far the
+                // obstacle was ORIGINALLY meant to sit (its own desired lateral
+                // distance from the centerline), not from a small
+                // minimumClearance-based fallback. The old fallback reset every
+                // repaired segment to roughly roadHalfWidth+minimumClearance,
+                // which on a barrier placed deliberately much further out (or on
+                // a tight corner where curvature makes the naive chord position
+                // read as falsely "too close") snapped it back to a much closer
+                // distance than its straight-section neighbours - exactly the
+                // kind of inconsistent kink/gap in an otherwise continuous wall
+                // this pass exists to prevent. Nudging outward in small steps
+                // from the original intent instead keeps a repaired segment
+                // visually consistent with the rest of the barrier line.
+                float desiredLateral = Mathf.Max(Runtime.roadHalfWidth + minimumClearance + localScale.x * 0.5f, Mathf.Abs(progress.lateralDistance));
                 bool repaired = false;
                 for (int step = 0; step < 10; step++)
                 {
-                    float lateral = Runtime.roadHalfWidth + minimumClearance + localScale.x * 0.5f + step * 1.5f;
+                    float lateral = desiredLateral + step * 0.6f;
                     candidate = progress.nearestPoint + trackRight * side * lateral + Vector3.up * verticalOffset;
                     obstacle.transform.position = candidate;
                     if (IsObstacleClearOfRacingSurface(candidate, forward, localScale, minimumClearance))

@@ -96,9 +96,13 @@ namespace LocalFormulaRacing
         readonly Dictionary<int, float> yellowSectorCooldownUntil = new Dictionary<int, float>();
         float globalMinorYellowCooldownUntil;
         float yellowSectorEpisodeStartTime = -999f;
-        const float YellowSectorCooldownAfterClearSeconds = 20f;
-        const float GlobalMinorYellowCooldownSeconds = 25f;
-        const float MaxYellowEpisodeSeconds = 30f;
+        // Part 3 retune: raised again (was 20/25) so a sector that just cleared,
+        // or a run of scattered minor incidents anywhere on track, genuinely
+        // cannot re-trigger a fresh banner for a good while - yellows should
+        // read as occasional and localized, not a recurring background noise.
+        const float YellowSectorCooldownAfterClearSeconds = 35f;
+        const float GlobalMinorYellowCooldownSeconds = 40f;
+        const float MaxYellowEpisodeSeconds = 26f;
         float drsRestartCooldownTimer;
         RaceParticipant safetyCarQueueLeader;
         float lastIncidentTime = -999f;
@@ -114,10 +118,11 @@ namespace LocalFormulaRacing
         // Green, so one incident's aftermath can't chain into a second SC/VSC the
         // moment the first ends - yellow flags themselves are unaffected.
         float postEscalationCooldownTimer;
-        // Part 2 retune: lengthened again (was 45s) so back-to-back incidents in
-        // the laps right after a restart can't immediately chain into another
-        // SC/VSC - a real cooling-off period, not just a few corners' grace.
-        const float PostEscalationCooldownSeconds = 90f;
+        // Part 3 retune: lengthened again (was 90s) - a real cooling-off period
+        // long enough that a full SC/VSC period genuinely reads as a rare,
+        // meaningful event rather than something that can recur a couple of
+        // times in one short race.
+        const float PostEscalationCooldownSeconds = 110f;
 
         // Part 1/2 retune: how long a car must be nearly stationary, with none of
         // the legitimate exclusions active, before race control ever calls it
@@ -127,11 +132,11 @@ namespace LocalFormulaRacing
         // far. RecoveryGraceSeconds is the window after a spin/contact event
         // during which the sustained-stop timer can't accumulate at all, giving
         // the car a real chance to drive away before it's ever considered.
-        // Part 2 retune: raised again (was 8/20) so declaring a car genuinely
+        // Part 3 retune: raised again (was 11/26) so declaring a car genuinely
         // stranded takes a real, sustained stop rather than a long-but-not-that-
         // long pause.
-        const float StrandedDeclareSeconds = 11f;
-        const float StrandedRetireSeconds = 26f;
+        const float StrandedDeclareSeconds = 14f;
+        const float StrandedRetireSeconds = 30f;
         const float RecoveryGraceSeconds = 4f;
 
         // Player race-control pace-limiter compliance tracking (Task 2/3): how long
@@ -1001,13 +1006,13 @@ namespace LocalFormulaRacing
         {
             int freqSetting = Settings == null ? 2 : Mathf.Clamp(Settings.Current.safetyCarFrequency, 0, 3);
             bool escalationAllowed = freqSetting > 0;
-            // Retuned (Part 2, second pass): cut roughly in half again from the
-            // previous 0/0.22/0.48/0.85 scale. Off still fully disables VSC/SC
-            // escalation; Reduced/Standard/High now land at "very rare" /
-            // "rare" / "occasional, never chaotic" against the lower baseline
-            // chances below - Standard should not feel like every race has
-            // multiple yellows/VSC/SC.
-            float freqScale = freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.12f : (freqSetting == 3 ? 0.55f : 0.26f));
+            // Retuned (Part 3): cut roughly in half again from the previous
+            // 0/0.12/0.26/0.55 scale. Off still fully disables VSC/SC
+            // escalation; Reduced is now "almost never", Standard is "rare",
+            // High is "occasional but never chaotic" - a short prototype race
+            // should usually run green start to finish unless something
+            // genuinely serious happens.
+            float freqScale = freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.06f : (freqSetting == 3 ? 0.28f : 0.13f));
             bool preRace = StartCountdown > 0f;
             int mechanicalMode = Settings == null ? 2 : Settings.Current.mechanicalFailureMode;
 
@@ -1064,12 +1069,13 @@ namespace LocalFormulaRacing
                 // spin/impact loses speed involuntarily, intentional braking doesn't
                 // count here (a hit that happens mid-braking is still caught by
                 // damageSignal below, which has no such gate).
-                // Part 2 retune: raised again (was 15) - collision-class detection
-                // needs a bigger, clearly-involuntary speed loss before it counts.
-                bool speedSignal = speedDrop > 20f && participant.vehicle.EffectiveBrake < 0.3f;
-                // Part 2 retune: raised from 4 - only a real hit registers, not a
+                // Part 3 retune: raised again (was 20) - collision-class detection
+                // needs a bigger, clearly-involuntary speed loss before it counts,
+                // so ordinary AI bunching/braking/wall brushes stay well clear.
+                bool speedSignal = speedDrop > 26f && participant.vehicle.EffectiveBrake < 0.3f;
+                // Part 3 retune: raised from 6 - only a real hit registers, not a
                 // graze.
-                bool damageSignal = damageJump > 6f;
+                bool damageSignal = damageJump > 9f;
                 // Part 3: a car under SC/VSC pacing or race-control autopilot is
                 // fully exempt from collision detection - its speed/pace is race
                 // control's own doing, never a driver incident.
@@ -1216,7 +1222,7 @@ namespace LocalFormulaRacing
                     // A destroyed car that ISN'T blocking the line is Minor and does
                     // NOT need a yellow flag - it is off the racing line, not a hazard.
                     RegisterIncident(participant, blockingLine ? IncidentSeverity.Major : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Destroyed", blockingLine, false);
-                    participant.incidentCooldownTimer = 26f;
+                    participant.incidentCooldownTimer = 30f;
                     continue;
                 }
 
@@ -1224,16 +1230,16 @@ namespace LocalFormulaRacing
                 {
                     // Severity now reflects either signal, not damageJump alone - a
                     // hard speed-only spin (no wall contact) can still read Medium,
-                    // and a big simultaneous hit is always at least Medium. Part 2
+                    // and a big simultaneous hit is always at least Medium. Part 3
                     // retune: bars raised again so only genuinely hard hits reach
-                    // Medium/Major - a light scrape stays Minor and, per the Minor
-                    // yellow policy below, does not flag race control at all.
+                    // Medium/Major - a light scrape stays Minor and, per the yellow
+                    // policy below, does not flag race control at all.
                     IncidentSeverity severity;
-                    if (damageJump > 28f || speedDrop > 105f)
+                    if (damageJump > 36f || speedDrop > 130f)
                     {
                         severity = IncidentSeverity.Major;
                     }
-                    else if (damageJump > 15f || speedDrop > 55f || (speedSignal && damageSignal))
+                    else if (damageJump > 20f || speedDrop > 70f || (speedSignal && damageSignal))
                     {
                         severity = IncidentSeverity.Medium;
                     }
@@ -1242,19 +1248,23 @@ namespace LocalFormulaRacing
                         severity = IncidentSeverity.Minor;
                     }
 
-                    // Minor-severity collisions are, by definition, not "significant" -
-                    // they are logged for stats but never raise a yellow flag.
-                    RegisterIncident(participant, severity, progress, freqScale, escalationAllowed, "Collision (speedDrop=" + speedDrop.ToString("0") + " damageJump=" + damageJump.ToString("0.0") + ")", false, false);
-                    // Part 2: longer per-incident suppression (was 18s) so the same
+                    // Part 3: Medium is no longer an automatic yellow either - a
+                    // "medium-ish" scrape/spin that isn't actually blocking the
+                    // racing line is logged for stats only, same as Minor. Major
+                    // always flags (that tier is reserved for genuinely serious
+                    // events); Minor never does regardless of position.
+                    bool collisionYellowJustified = severity == IncidentSeverity.Medium && blockingLine;
+                    RegisterIncident(participant, severity, progress, freqScale, escalationAllowed, "Collision (speedDrop=" + speedDrop.ToString("0") + " damageJump=" + damageJump.ToString("0.0") + ")", false, collisionYellowJustified);
+                    // Part 3: longer per-incident suppression (was 24s) so the same
                     // scrape/spin can't repeatedly re-roll an escalation chance.
-                    participant.incidentCooldownTimer = 24f;
+                    participant.incidentCooldownTimer = 30f;
                     continue;
                 }
 
                 if (damagePercent >= 85f)
                 {
                     RegisterIncident(participant, IncidentSeverity.Major, progress, freqScale, escalationAllowed, "Severe damage");
-                    participant.incidentCooldownTimer = 32f;
+                    participant.incidentCooldownTimer = 38f;
                     continue;
                 }
 
@@ -1263,7 +1273,9 @@ namespace LocalFormulaRacing
                 // legitimate exclusion checked) can ever reach race control - no
                 // separate, laxer off-track-only path any more. Minor (not blocking
                 // the line) never raises a yellow - only a stranded car sitting in
-                // or very near the racing line is an actual hazard.
+                // or very near the racing line is an actual hazard, which is exactly
+                // when this is Medium rather than Minor, so blockingLine alone is the
+                // correct yellow-justification signal here.
                 if (newRecoveryState == CarRecoveryState.ActuallyStranded)
                 {
                     if (participant.stoppedOnTrackTimer > StrandedRetireSeconds)
@@ -1271,19 +1283,19 @@ namespace LocalFormulaRacing
                         RetireParticipant(participant, "Stranded");
                     }
 
-                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Stopped/stranded", false, false);
-                    // Part 2: longer per-incident suppression so a car still sitting in
+                    RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Stopped/stranded", false, blockingLine);
+                    // Part 3: longer per-incident suppression so a car still sitting in
                     // the same stranded episode doesn't re-register (and re-roll a VSC/
                     // SC chance) every few seconds while race control already knows.
-                    participant.incidentCooldownTimer = 32f;
+                    participant.incidentCooldownTimer = 38f;
                     continue;
                 }
 
-                // Part 2 retune: longer sustained duration (was 5s) so a car briefly
+                // Part 3 retune: longer sustained duration (was 7s) so a car briefly
                 // pointed backward while gathering itself out of a spin - already
                 // excluded above while recoveryGraceActive/Recovering - isn't flagged
                 // the moment it lapses if it's still slowly correcting.
-                if (participant.wrongWayTimer > 7f)
+                if (participant.wrongWayTimer > 10f)
                 {
                     // A wrong-way car only warrants a yellow if it is actually near
                     // other traffic - alone on an empty stretch of track it is not
@@ -1291,7 +1303,7 @@ namespace LocalFormulaRacing
                     // incident and still retires/cools down normally.
                     bool nearTraffic = FindCarAhead(participant, 100f) != null || FindCarBehind(participant, 100f) != null;
                     RegisterIncident(participant, IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Wrong way", false, nearTraffic);
-                    participant.incidentCooldownTimer = 22f;
+                    participant.incidentCooldownTimer = 28f;
                     continue;
                 }
 
@@ -1304,12 +1316,12 @@ namespace LocalFormulaRacing
                 if (mechanicalEligible)
                 {
                     float reliability = participant.carData == null ? 88f : participant.carData.reliability;
-                    float perSecondChance = Mathf.Lerp(0.00003f, 0.000002f, Mathf.Clamp01(reliability / 100f));
+                    float perSecondChance = Mathf.Lerp(0.000015f, 0.000001f, Mathf.Clamp01(reliability / 100f));
                     if (Random.value < perSecondChance * RaceControlCheckInterval)
                     {
                         RetireParticipant(participant, "Mechanical failure");
-                        RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Mechanical failure", false, false);
-                        participant.incidentCooldownTimer = 42f;
+                        RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Mechanical failure", false, blockingLine);
+                        participant.incidentCooldownTimer = 48f;
                     }
                 }
             }
@@ -1318,7 +1330,7 @@ namespace LocalFormulaRacing
         // Groups incidents that land within a few seconds and a short stretch of
         // track into one escalated event (a simple pileup approximation) rather
         // than full physics collision-graph analysis.
-        void RegisterIncident(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause, bool forceEscalate = false, bool minorYellowJustified = false)
+        void RegisterIncident(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause, bool forceEscalate = false, bool yellowJustified = false)
         {
             IncidentCount++;
             bool pileup = (RaceElapsed - lastIncidentTime) < 6f && Mathf.Abs(Track.WrapDistance(progress.distance - lastIncidentDistance)) < 40f;
@@ -1327,33 +1339,35 @@ namespace LocalFormulaRacing
             if (pileup && severity != IncidentSeverity.Major)
             {
                 severity = severity == IncidentSeverity.Minor ? IncidentSeverity.Medium : IncidentSeverity.Major;
-                // A pileup that escalated a Minor incident's severity is, by
-                // construction, no longer an isolated minor case - it now
-                // qualifies for a yellow on its own merits.
-                minorYellowJustified = true;
+                // A pileup that escalated an incident's severity is, by
+                // construction, no longer an isolated case - it now qualifies
+                // for a yellow on its own merits.
+                yellowJustified = true;
             }
 
             GameLog.Info("[RaceControl] Incident: " + (participant == null ? "?" : participant.driverName) +
                 " cause=" + cause + " severity=" + severity + " sector=" + progress.sector + (pileup ? " (pileup-escalated)" : "") + (forceEscalate ? " (force-escalate)" : ""));
 
-            ApplyIncidentSeverity(participant, severity, progress, freqScale, escalationAllowed, forceEscalate, minorYellowJustified);
+            ApplyIncidentSeverity(participant, severity, progress, freqScale, escalationAllowed, forceEscalate, yellowJustified);
         }
 
-        void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, bool forceEscalate = false, bool minorYellowJustified = false)
+        void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, bool forceEscalate = false, bool yellowJustified = false)
         {
-            // Part 3: Medium/Major incidents are real hazards and always raise
-            // the local sector yellow regardless of the safety-car frequency
-            // setting (Off only disables VSC/SC escalation, not flags
-            // entirely). Minor incidents only ever raise a yellow when the
-            // call site has judged them still genuinely dangerous (blocking
-            // the line, near traffic, etc) AND the global minor-incident
-            // cooldown has lapsed - most minor incidents are simply logged for
-            // stats with no race-control flag at all.
-            if (severity != IncidentSeverity.Minor)
+            // Part 3: only Major incidents always raise the local sector yellow
+            // regardless of the safety-car frequency setting (Off only disables
+            // VSC/SC escalation, not flags entirely) - that tier is reserved
+            // for genuinely serious events. Medium AND Minor incidents only
+            // ever raise a yellow when the call site has judged them still
+            // genuinely dangerous (blocking the line, near traffic, etc) AND
+            // the global minor-incident cooldown has lapsed - most incidents
+            // reaching this point are simply logged for stats with no
+            // race-control flag at all, so a run of ordinary scrapes/spins/
+            // bunching never reads as a constant background of yellow flags.
+            if (severity == IncidentSeverity.Major)
             {
                 TriggerYellowSector(progress.sector);
             }
-            else if (minorYellowJustified)
+            else if (yellowJustified)
             {
                 if (RaceElapsed >= globalMinorYellowCooldownUntil)
                 {
@@ -1362,13 +1376,13 @@ namespace LocalFormulaRacing
                 }
                 else
                 {
-                    GameLog.Info("[RaceControl] Minor incident yellow suppressed by global minor-yellow cooldown (" +
+                    GameLog.Info("[RaceControl] " + severity + " incident yellow suppressed by global minor-yellow cooldown (" +
                         (globalMinorYellowCooldownUntil - RaceElapsed).ToString("0.0") + "s remaining).");
                 }
             }
             else
             {
-                GameLog.Info("[RaceControl] Minor incident logged without a race-control flag (not near the racing line / not significant).");
+                GameLog.Info("[RaceControl] " + severity + " incident logged without a race-control flag (not near the racing line / not significant).");
             }
 
             bool alreadyEscalated = CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
@@ -1397,17 +1411,28 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            // Part 2 (fourth retune): cut again from 0.28/0.35/0.42 - with false
+            // Part 3: a Medium incident that isn't even yellow-justified (not
+            // blocking the line / no nearby traffic) is not a real hazard to
+            // anyone - it never gets a VSC roll at all, only a genuinely
+            // positioned Medium incident does.
+            if (severity == IncidentSeverity.Medium && !yellowJustified)
+            {
+                GameLog.Info("[RaceControl] Medium incident not blocking the line - no VSC roll.");
+                return;
+            }
+
+            // Part 3 (fifth retune): cut again from 0.15/0.20/0.28 - with false
             // positives fixed and thresholds raised upstream, incidents reaching
             // this point are essentially all genuine, so the roll itself can be
             // much stingier and still produce a meaningful, rare event. VSC
-            // should read as "occasional", full SC as "rare and meaningful".
+            // should read as "uncommon", full SC as "rare and meaningful" - a
+            // short prototype race should usually run green throughout.
             if (severity == IncidentSeverity.Medium)
             {
                 if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar)
                 {
                     float roll = Random.value;
-                    float chance = Mathf.Clamp01(0.15f * freqScale);
+                    float chance = Mathf.Clamp01(0.08f * freqScale);
                     bool escalate = roll < chance;
                     GameLog.Info("[RaceControl] Medium incident escalation: roll=" + roll.ToString("0.00") + " chance=" + chance.ToString("0.00") + " result=" + (escalate ? "VSC deployed" : "no escalation"));
                     if (escalate)
@@ -1421,7 +1446,7 @@ namespace LocalFormulaRacing
 
             // Major.
             float scRoll = Random.value;
-            float scChance = Mathf.Clamp01(0.20f * freqScale);
+            float scChance = Mathf.Clamp01(0.10f * freqScale);
             bool deploySc = scRoll < scChance;
             if (deploySc)
             {
@@ -1437,7 +1462,7 @@ namespace LocalFormulaRacing
             if (CurrentRaceControlState != RaceControlState.VirtualSafetyCar)
             {
                 float vscFallbackRoll = Random.value;
-                float vscFallbackChance = Mathf.Clamp01(0.28f * freqScale);
+                float vscFallbackChance = Mathf.Clamp01(0.14f * freqScale);
                 bool vscFallback = vscFallbackRoll < vscFallbackChance;
                 GameLog.Info("[RaceControl] Major incident escalation: scRoll=" + scRoll.ToString("0.00") + " scChance=" + scChance.ToString("0.00") +
                     " (no SC) vscFallbackRoll=" + vscFallbackRoll.ToString("0.00") + " vscFallbackChance=" + vscFallbackChance.ToString("0.00") +
