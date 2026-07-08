@@ -260,16 +260,13 @@ namespace LocalFormulaRacing
                     easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
-                    // Tight-corner speed calibration: previous rounds scaled this
-                    // relative to straightTargetSpeed, which chased the numbers up to
-                    // essentially Medium-bucket pace and lost any sense of "this is a
-                    // genuinely tight corner". Pinned to an explicit ~150-200kph target
-                    // instead (apexConfidence still blends toward the low end, skillTier
-                    // still lifts the ceiling within that band) - Mathf.Min against
-                    // straightTargetSpeed keeps the same overspeed/wall-crash guard for
-                    // the rare case a car's own straight-line pace is below this (e.g.
-                    // under a safety car).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(150f, Mathf.Lerp(170f, 200f, skillTier), apexConfidence));
+                    // Tight-corner speed calibration round 2: raised from the previous
+                    // ~150-200kph target to ~250-300kph (apexConfidence still blends
+                    // toward the low end, skillTier still lifts the ceiling within that
+                    // band) - Mathf.Min against straightTargetSpeed keeps the same
+                    // overspeed/wall-crash guard for the rare case a car's own
+                    // straight-line pace is below this (e.g. under a safety car).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(250f, Mathf.Lerp(275f, 300f, skillTier), apexConfidence));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 default:
