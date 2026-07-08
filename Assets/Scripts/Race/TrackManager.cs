@@ -680,7 +680,7 @@ namespace LocalFormulaRacing
         public int shortSegmentsMerged;
         public int violentAnglesSmoothed;
         public bool roadColliderValid;
-        public int invalidObstaclesRemoved;
+        public int invalidObstaclesFlagged;
         public bool gridSpawnValid = true;
         public bool pitPosesValid = true;
         public readonly List<string> warnings = new List<string>();
@@ -698,7 +698,7 @@ namespace LocalFormulaRacing
                    " | length=" + trackLength.ToString("0") + "m" +
                    " | roadCollider=" + (roadColliderValid ? "OK" : "INVALID") +
                    " | repaired(split=" + longSegmentsSplit + " merged=" + shortSegmentsMerged + " smoothed=" + violentAnglesSmoothed + ")" +
-                   " | obstaclesRemoved=" + invalidObstaclesRemoved +
+                   " | obstaclesFlagged=" + invalidObstaclesFlagged +
                    " | grid=" + (gridSpawnValid ? "OK" : "INVALID") +
                    " | pit=" + (pitPosesValid ? "OK" : "INVALID") +
                    " | warnings=" + warnings.Count;
@@ -727,6 +727,11 @@ namespace LocalFormulaRacing
         Material armcoMaterial;
         Material tireBarrierMaterial;
         Material concreteMaterial;
+        // Cached so ValidatePitLaneSurfaceCoverage's auto-fill (CheckPitSurfaceRange)
+        // can drop a patch of real pit asphalt at any raycast-detected floor gap using
+        // the exact same material every other pit surface piece uses, instead of
+        // needing BuildPitLane's local material threaded all the way through.
+        Material pitLaneMaterial;
         Material fenceMaterial;
         Material fencePostMaterial;
         Material foliageMaterial;
@@ -4861,14 +4866,17 @@ namespace LocalFormulaRacing
                 Runtime.SampleAtDistance(distance, out point, out discard, out right);
 
                 float lateral;
+                float patchWidth;
                 if (isRamp)
                 {
                     float halfWidth;
                     PitRampEnvelopeAt(normalized, distance, out lateral, out halfWidth);
+                    patchWidth = halfWidth * 2f;
                 }
                 else
                 {
                     lateral = Runtime.PitLaneLateral;
+                    patchWidth = PitRampFullWidth;
                 }
 
                 Vector3 rayOrigin = point + right * lateral + Vector3.up * PitSurfaceCheckRayHeight;
@@ -4880,8 +4888,35 @@ namespace LocalFormulaRacing
                     gaps++;
                     GameLog.Warn("[TrackValidation] Pit lane surface check FAILED near " + distance.ToString("0") +
                                  "m: no drivable pavement found under the pit path on " + Runtime.displayName);
+
+                    // Pit-floor fix: this used to only log the gap - the hole stayed in
+                    // the actual driving surface. Drop a real, collidable patch of pit
+                    // asphalt right at the failed sample, generously overlapping its
+                    // neighbours (double the check step) so no seam can reopen a hole
+                    // between this patch and whatever paving already exists around it.
+                    Vector3 forward;
+                    Vector3 discardPoint;
+                    Vector3 discardRight;
+                    Runtime.SampleAtDistance(distance, out discardPoint, out forward, out discardRight);
+                    CreateCollidablePitSurface(
+                        "Auto-filled pit surface",
+                        point + right * lateral + Vector3.up * 0.02f,
+                        Quaternion.LookRotation(forward, Vector3.up),
+                        new Vector3(Mathf.Max(patchWidth, PitRampNarrowWidth) + 2f, 0.18f, PitSurfaceCheckStep * 2f),
+                        pitLaneMaterial != null ? pitLaneMaterial : GetDefaultPitLaneMaterial());
+                    GameLog.Info("[TrackValidation] Auto-filled pit surface gap at " + distance.ToString("0") + "m on " + Runtime.displayName);
                 }
             }
+        }
+
+        // Fallback for the (practically unreachable, since BuildPitLane always runs
+        // first) case this validation pass ever ran before pitLaneMaterial was
+        // cached - keeps the auto-fill patch from ever being placed with a null
+        // material instead of skipping the fix.
+        Material GetDefaultPitLaneMaterial()
+        {
+            pitLaneMaterial = CreateMaterial("Pit lane material", new Color(0.12f, 0.13f, 0.15f), 0.02f, 0.55f);
+            return pitLaneMaterial;
         }
 
         void CreateKerbBlock(Vector3 position, Vector3 forward, float seed, bool aggressive)
@@ -5411,6 +5446,7 @@ namespace LocalFormulaRacing
         void BuildPitLane()
         {
             Material pitMaterial = CreateMaterial("Pit lane material", new Color(0.12f, 0.13f, 0.15f), 0.02f, 0.55f);
+            pitLaneMaterial = pitMaterial;
 
             // The pit corridor follows the track from just before pit entry to the
             // release point, so surfaces, walls, boxes, and buildings are sampled
@@ -8326,64 +8362,25 @@ namespace LocalFormulaRacing
             CreateVisualBox("Traffic cone base plate", basePosition + Vector3.up * 0.02f, rotation, new Vector3(0.5f, 0.04f, 0.5f), lineMaterial);
         }
 
+        // Barrier-continuity fix: this used to run every barrier/fence/wall segment
+        // through a "clear of the racing surface" geometry check and, on a failure,
+        // either nudge it outward or destroy it outright. Every caller of this
+        // function is a barrier-family object whose position is already computed
+        // by exact flush-to-edge math (FlushBarrierLateral) - it can never
+        // legitimately overlap the road. The "too close" check was tripped instead
+        // by the check's own straight-chord/box-corner approximation disagreeing
+        // with that math at curvature, and its fix was worse than the disease: a
+        // repositioned segment sits at a different offset than its neighbours
+        // (the reported "jagged" look), and a segment that failed the repair loop
+        // was silently deleted with nothing placed in its spot (the reported
+        // "missing" barriers). This function now only ever places geometry exactly
+        // where it was asked to and registers it - never moves or removes it.
         bool TryPlaceSolidObstacle(GameObject obstacle, string obstacleType, Vector3 desiredBasePosition, Vector3 forward, Vector3 localScale, float verticalOffset, float minimumClearance)
         {
             Vector3 candidate = desiredBasePosition + Vector3.up * verticalOffset;
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
             obstacle.transform.rotation = rotation;
             obstacle.transform.position = candidate;
-
-            if (!IsObstacleClearOfRacingSurface(candidate, forward, localScale, minimumClearance))
-            {
-                TrackProgress progress = Runtime.GetProgress(desiredBasePosition);
-                Vector3 trackRight = Vector3.Cross(Vector3.up, progress.forward).normalized;
-                float side = Mathf.Sign(progress.lateralDistance);
-                if (Mathf.Abs(side) < 0.1f)
-                {
-                    side = Mathf.Sign(Vector3.Dot(desiredBasePosition - progress.nearestPoint, trackRight));
-                    if (Mathf.Abs(side) < 0.1f)
-                    {
-                        side = 1f;
-                    }
-                }
-
-                // Barrier gap fix: search outward starting from how far the
-                // obstacle was ORIGINALLY meant to sit (its own desired lateral
-                // distance from the centerline), not from a small
-                // minimumClearance-based fallback. The old fallback reset every
-                // repaired segment to roughly roadHalfWidth+minimumClearance,
-                // which on a barrier placed deliberately much further out (or on
-                // a tight corner where curvature makes the naive chord position
-                // read as falsely "too close") snapped it back to a much closer
-                // distance than its straight-section neighbours - exactly the
-                // kind of inconsistent kink/gap in an otherwise continuous wall
-                // this pass exists to prevent. Nudging outward in small steps
-                // from the original intent instead keeps a repaired segment
-                // visually consistent with the rest of the barrier line.
-                float desiredLateral = Mathf.Max(Runtime.HalfWidthAt(progress.distance) + minimumClearance + localScale.x * 0.5f, Mathf.Abs(progress.lateralDistance));
-                bool repaired = false;
-                for (int step = 0; step < 10; step++)
-                {
-                    float lateral = desiredLateral + step * 0.6f;
-                    candidate = progress.nearestPoint + trackRight * side * lateral + Vector3.up * verticalOffset;
-                    obstacle.transform.position = candidate;
-                    if (IsObstacleClearOfRacingSurface(candidate, forward, localScale, minimumClearance))
-                    {
-                        repaired = true;
-                        break;
-                    }
-                }
-
-                if (!repaired)
-                {
-                    GameLog.Warn("[TrackValidation] Removed " + obstacle.name + " because it intersected the racing surface near " + desiredBasePosition);
-                    obstacle.SetActive(false);
-                    Destroy(obstacle);
-                    return false;
-                }
-
-                GameLog.Warn("[TrackValidation] Repositioned " + obstacle.name + " away from racing surface to " + candidate);
-            }
 
             TrackSolidObstacle solid = obstacle.AddComponent<TrackSolidObstacle>();
             solid.obstacleType = obstacleType;
@@ -8458,6 +8455,15 @@ namespace LocalFormulaRacing
                 report.Warn("track length " + Runtime.length.ToString("0") + "m exceeds the expected normalization ceiling.");
             }
 
+            // Barrier-continuity fix: this used to destroy any already-placed
+            // barrier/fence/wall segment that failed the same approximate
+            // clearance geometry check TryPlaceSolidObstacle no longer uses -
+            // silently punching holes in an otherwise correctly generated
+            // boundary. Every one of these objects is a barrier-family piece
+            // placed by exact flush-to-edge math, so it is never actually
+            // wrong to keep it; this pass now only counts/logs a suspicious
+            // one for visibility (see the boundary debug overlay) instead of
+            // removing real, correctly-placed geometry.
             for (int i = solidObstacles.Count - 1; i >= 0; i--)
             {
                 TrackSolidObstacle obstacle = solidObstacles[i];
@@ -8469,10 +8475,9 @@ namespace LocalFormulaRacing
 
                 if (!IsObstacleClearOfRacingSurface(obstacle.transform.position, obstacle.transform.forward, obstacle.localScaleAtValidation, obstacle.minimumClearance))
                 {
-                    report.invalidObstaclesRemoved++;
-                    obstacle.gameObject.SetActive(false);
-                    Destroy(obstacle.gameObject);
-                    solidObstacles.RemoveAt(i);
+                    report.invalidObstaclesFlagged++;
+                    GameLog.Warn("[TrackValidation] " + obstacle.obstacleType + " at " + obstacle.transform.position +
+                                 " sits close to the racing surface by the approximate check - left in place (barriers are never auto-removed).");
                 }
             }
 
