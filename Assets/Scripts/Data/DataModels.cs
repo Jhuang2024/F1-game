@@ -514,6 +514,11 @@ namespace LocalFormulaRacing
         public bool manualGears;
         public bool cameraShake = true;
         public bool audioEnabled = true;
+        public float masterVolume = 0.8f;
+        public float engineVolume = 0.8f;
+        public float uiVolume = 0.7f;
+        public float radioVolume = 0.85f;
+        public float ambienceVolume = 0.6f;
         public string tyreCompound = "Medium";
         public int aiOpponentCount = 21;
         public bool autoBrakeAssist;

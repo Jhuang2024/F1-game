@@ -18,6 +18,12 @@ namespace LocalFormulaRacing
 
             Current.aiOpponentCount = 21;
 
+            Current.masterVolume = Mathf.Clamp01(Current.masterVolume);
+            Current.engineVolume = Mathf.Clamp01(Current.engineVolume);
+            Current.uiVolume = Mathf.Clamp01(Current.uiVolume);
+            Current.radioVolume = Mathf.Clamp01(Current.radioVolume);
+            Current.ambienceVolume = Mathf.Clamp01(Current.ambienceVolume);
+
             Current.steeringSensitivity = ClampSetting(Current.steeringSensitivity, 1f, 0.45f, 1.65f);
             Current.throttleSensitivity = ClampSetting(Current.throttleSensitivity, 1f, 0.45f, 1.65f);
             Current.brakeSensitivity = ClampSetting(Current.brakeSensitivity, 1f, 0.45f, 1.65f);

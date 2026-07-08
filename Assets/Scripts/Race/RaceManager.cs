@@ -293,6 +293,7 @@ namespace LocalFormulaRacing
         bool engineerLockupWarningSent;
         int lastTeammateGapReportLap = -1;
         bool engineerPodiumMessageSent;
+        int lastStartLightCountPlayed = -1;
         struct HudToast { public string text; public int colorKind; }
         readonly Queue<HudToast> hudToastQueue = new Queue<HudToast>();
         const int HudToastQueueCap = 6;
@@ -430,6 +431,7 @@ namespace LocalFormulaRacing
             preserveQualifyingState = false;
             raceStartSequenceDuration = session == RaceWeekendSession.Qualifying || IsTimeTrial ? 1.5f : Random.Range(5.4f, 6.8f);
             StartCountdown = raceStartSequenceDuration;
+            lastStartLightCountPlayed = -1;
             SessionMessage = session == RaceWeekendSession.Qualifying ? "Q" + qualifyingPhase + " out lap ready" : (IsTimeTrial ? "Time trial: set a lap" : "Race start");
             Time.timeScale = 1f;
 
@@ -461,6 +463,7 @@ namespace LocalFormulaRacing
             }
 
             SimpleAudioManager.SetRain(Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain);
+            SimpleAudioManager.SetRaceAmbience(true);
             GameLog.Info("[RoadPhysics] Race start roadColliderExists=" + (Track.roadCollider != null) +
                       " roadLayer=" + (Track.roadCollider == null ? "none" : LayerMask.LayerToName(Track.roadCollider.gameObject.layer)) +
                       " roadIsTrigger=" + (Track.roadCollider != null && Track.roadCollider.isTrigger) +
@@ -677,6 +680,15 @@ namespace LocalFormulaRacing
                 {
                     SessionMessage = "Hold... lights out pending";
                 }
+
+                // Edge-triggered beep per light as the build-up sequence lights each
+                // one in turn, rather than every frame that light stays lit.
+                if (CurrentSession != RaceWeekendSession.Qualifying && RaceStartLightCount != lastStartLightCountPlayed && RaceStartLightCount > 0)
+                {
+                    lastStartLightCountPlayed = RaceStartLightCount;
+                    SimpleAudioManager.PlayStartLight(RaceStartLightCount - 1);
+                }
+
                 if (StartCountdown <= 0f)
                 {
                     HoldGridCars(false);
@@ -687,6 +699,7 @@ namespace LocalFormulaRacing
                         lightsOutTime = Time.time;
                         waitingForPlayerReaction = true;
                         playerReactionTime = -1f;
+                        SimpleAudioManager.PlayStartLight(5);
                     }
                 }
                 return;
@@ -746,6 +759,11 @@ namespace LocalFormulaRacing
                     if (participant.vehicle.ErsDeploying) participant.ersDeployFrameCount++;
                     if (participant.vehicle.DrsActive) participant.drsActiveFrameCount++;
                 }
+            }
+
+            if (PlayerParticipant != null)
+            {
+                SimpleAudioManager.SetPitAmbienceTarget(PlayerParticipant.isPitting || PlayerParticipant.pitPhase != PitPhase.None);
             }
 
             ResolveLowSpeedStacks();
@@ -843,6 +861,7 @@ namespace LocalFormulaRacing
             }
 
             SimpleAudioManager.SetRain(false);
+            SimpleAudioManager.SetRaceAmbience(false);
         }
 
         public void PrepareNewQualifyingWeekend()
@@ -1167,7 +1186,7 @@ namespace LocalFormulaRacing
                 // duration AND excluded from every legitimate reason to be slow can
                 // ever reach ActuallyStranded; everything else is Recovering/Queued/
                 // PitSequence/RaceControlPacing and never registers an incident.
-                bool offTrackNow = Mathf.Abs(progress.lateralDistance) > Track.roadHalfWidth + 1.5f;
+                bool offTrackNow = Mathf.Abs(progress.lateralDistance) > Track.HalfWidthAt(progress.distance) + 1.5f;
                 // A car off track but still aimed roughly the right way (not spun
                 // fully backward) and crawling is actively working its way back,
                 // not stuck - this is the single biggest source of the old false
@@ -1276,7 +1295,7 @@ namespace LocalFormulaRacing
                 }
 
                 bool destroyed = participant.vehicle.Damage != null && participant.vehicle.Damage.IsDestroyed;
-                bool blockingLine = Mathf.Abs(progress.lateralDistance) <= Track.roadHalfWidth * 0.85f;
+                bool blockingLine = Mathf.Abs(progress.lateralDistance) <= Track.HalfWidthAt(progress.distance) * 0.85f;
 
                 if (destroyed)
                 {
@@ -1587,7 +1606,7 @@ namespace LocalFormulaRacing
                 GameLog.Info("[RaceControl] Yellow flag, sector " + sector + ".");
                 if (Settings != null && Settings.Current.raceControlMessages)
                 {
-                    PostEngineerMessage("Yellow flag, sector " + sector + ".", false);
+                    PostEngineerMessage("Yellow flag, sector " + sector + ".", false, RaceAudioCue.Yellow);
                 }
             }
         }
@@ -1601,7 +1620,7 @@ namespace LocalFormulaRacing
             GameLog.Info("[RaceControl] Virtual safety car deployed. duration=" + safetyCarTimer.ToString("0.0") + "s");
             if (Settings != null && Settings.Current.raceControlMessages)
             {
-                PostEngineerMessage("Virtual safety car deployed.", true);
+                PostEngineerMessage("Virtual safety car deployed.", true, RaceAudioCue.Vsc);
             }
         }
 
@@ -1662,7 +1681,7 @@ namespace LocalFormulaRacing
             GameLog.Info("[RaceControl] Safety car deployment triggered. targetSpeed=" + SafetyCarTargetSpeedKph.ToString("0") + "kph deploymentCount=" + SafetyCarDeploymentCount);
             if (Settings != null && Settings.Current.raceControlMessages)
             {
-                PostEngineerMessage("Safety car deployed.", true);
+                PostEngineerMessage("Safety car deployed.", true, RaceAudioCue.SafetyCar);
                 PostEngineerMessage("Safety car deployed, car is under race-control autopilot.", true);
                 PostEngineerMessage("You can request a pit stop under safety car.", false);
             }
@@ -2226,7 +2245,7 @@ namespace LocalFormulaRacing
                         GameLog.Info("[RaceControl] VSC ending, green flag.");
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
-                            PostEngineerMessage("VSC ending, green flag.", true);
+                            PostEngineerMessage("VSC ending, green flag.", true, RaceAudioCue.Green);
                         }
                     }
                     break;
@@ -2297,7 +2316,7 @@ namespace LocalFormulaRacing
                         GameLog.Info("[RaceControl] Restart imminent.");
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
-                            PostEngineerMessage("Green flag imminent, get ready.", true);
+                            PostEngineerMessage("Green flag imminent, get ready.", true, RaceAudioCue.Green);
                         }
                     }
                     break;
@@ -2546,7 +2565,7 @@ namespace LocalFormulaRacing
                         }
                         else if (passed.isPlayer && Settings != null && Settings.Current.raceControlMessages)
                         {
-                            PostEngineerMessage(mover.driverName + " passed you illegally - race control has given them 5 seconds.", false);
+                            PostEngineerMessage(mover.driverName + " passed you illegally - race control has given them 5 seconds.", false, RaceAudioCue.Penalty);
                         }
                     }
                 }
@@ -2839,6 +2858,17 @@ namespace LocalFormulaRacing
         // can still mute all of this without touching a single call site.
         void PostEngineerMessage(string message, bool priority)
         {
+            PostEngineerMessage(message, priority, RaceAudioCue.None);
+        }
+
+        // cue plays a short race-control stinger alongside the text (throttled
+        // by SimpleAudioManager's own cooldown, so a burst of several messages
+        // in one frame - e.g. safety-car deployment - never stacks several
+        // sounds on top of each other). Only the moments that actually warrant
+        // an audio cue pass one; everything else keeps using the 2-arg
+        // overload above and stays silent.
+        void PostEngineerMessage(string message, bool priority, RaceAudioCue cue)
+        {
             if (string.IsNullOrEmpty(message))
             {
                 return;
@@ -2863,6 +2893,10 @@ namespace LocalFormulaRacing
             {
                 return;
             }
+
+            // Only reached once the message has cleared every suppression check
+            // above, so the cue and the text it accompanies always agree.
+            SimpleAudioManager.PlayRaceControlCue(cue);
 
             if (activeEngineerMessages.Count >= MaxActiveEngineerMessages)
             {
@@ -3159,7 +3193,7 @@ namespace LocalFormulaRacing
             if (completedLaps == RaceLaps - 1 && !engineerFinalLapSent)
             {
                 engineerFinalLapSent = true;
-                PostEngineerMessage("Final lap. Bring it home, watch the tyres.", true);
+                PostEngineerMessage("Final lap. Bring it home, watch the tyres.", true, RaceAudioCue.FinalLap);
                 return;
             }
 
@@ -3173,7 +3207,7 @@ namespace LocalFormulaRacing
             if (car.Damage.OverallPercent > 45f && !engineerDamageWarningSent)
             {
                 engineerDamageWarningSent = true;
-                PostEngineerMessage("We are seeing damage on the car. Consider a stop for repairs.", false);
+                PostEngineerMessage("We are seeing damage on the car. Consider a stop for repairs.", false, RaceAudioCue.Damage);
                 return;
             }
             if (ShouldPromptPlannedStop(PlayerParticipant) && !PlayerParticipant.isPitting)
@@ -3203,7 +3237,7 @@ namespace LocalFormulaRacing
             if (PlayerParticipant.trackLimitWarnings >= 2 && !engineerTrackLimitsSent)
             {
                 engineerTrackLimitsSent = true;
-                PostEngineerMessage("Careful with track limits. One more warning is a time penalty.", true);
+                PostEngineerMessage("Careful with track limits. One more warning is a time penalty.", true, RaceAudioCue.Penalty);
                 return;
             }
 
@@ -3620,7 +3654,7 @@ namespace LocalFormulaRacing
             // vehicle.PitRequested is already latched true from here.
             participant.pitAutoTriggered = false;
             SessionMessage = "Pit request: choose tyre 1-5";
-            PostEngineerMessage("Pit request received. Select tyres: 1 Soft, 2 Medium, 3 Hard, 4 Intermediate, 5 Wet.", true);
+            PostEngineerMessage("Pit request received. Select tyres: 1 Soft, 2 Medium, 3 Hard, 4 Intermediate, 5 Wet.", true, RaceAudioCue.PitCall);
         }
 
         public void SelectPlayerPitTyre(RaceParticipant participant, TyreCompound compound)
@@ -5194,7 +5228,7 @@ namespace LocalFormulaRacing
             TrackProgress progress = Track.GetProgress(participant.transform.position);
             float heightOffset = participant.transform.position.y - progress.nearestPoint.y;
             bool stableOnRoad =
-                Mathf.Abs(progress.lateralDistance) <= Track.roadHalfWidth &&
+                Mathf.Abs(progress.lateralDistance) <= Track.HalfWidthAt(progress.distance) &&
                 heightOffset >= -0.35f &&
                 heightOffset <= 2.25f;
 
@@ -6037,7 +6071,7 @@ namespace LocalFormulaRacing
             if (pitApproach && participant.isPlayer && !engineerPitRequestConfirmed)
             {
                 engineerPitRequestConfirmed = true;
-                PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is 80 km/h.", true);
+                PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is 80 km/h.", true, RaceAudioCue.PitConfirm);
             }
 
             if (Track.IsInPitEntryZone(normalized))
@@ -6369,7 +6403,7 @@ namespace LocalFormulaRacing
             if (participant.isPlayer)
             {
                 SessionMessage = "Pit release: limiter active";
-                PostEngineerMessage("Stop complete. Release, limiter remains active until pit exit.", true);
+                PostEngineerMessage("Stop complete. Release, limiter remains active until pit exit.", true, RaceAudioCue.PitConfirm);
             }
         }
 
@@ -6447,8 +6481,13 @@ namespace LocalFormulaRacing
 
             TrackProgress progress = participant.lapTracker.CurrentProgress;
             float lateral = Mathf.Abs(progress.lateralDistance);
-            bool outsideWhiteLine = lateral > Track.roadHalfWidth + 2.2f;
-            bool gainedTime = lateral > Track.roadHalfWidth + 5.2f && participant.vehicle != null && Mathf.Abs(participant.vehicle.CurrentSpeedKph) > 70f;
+            // Track-limits penalties must key off the actual (possibly hairpin-
+            // widened) drivable surface, not the flat field - otherwise a car using
+            // the extra tarmac a widened hairpin exists to provide would rack up
+            // false track-limits warnings and penalties for it.
+            float localHalfWidth = Track.HalfWidthAt(progress.distance);
+            bool outsideWhiteLine = lateral > localHalfWidth + 2.2f;
+            bool gainedTime = lateral > localHalfWidth + 5.2f && participant.vehicle != null && Mathf.Abs(participant.vehicle.CurrentSpeedKph) > 70f;
             if (outsideWhiteLine)
             {
                 participant.lapTracker.InvalidateCurrentLap();
@@ -6698,7 +6737,7 @@ namespace LocalFormulaRacing
             // Never push a car off the road; clamp the nudge inside the surface.
             Vector3 target = participant.transform.position + separation;
             TrackProgress targetProgress = Track.GetProgress(target);
-            if (Mathf.Abs(targetProgress.lateralDistance) > Track.roadHalfWidth - 1.2f)
+            if (Mathf.Abs(targetProgress.lateralDistance) > Track.HalfWidthAt(targetProgress.distance) - 1.2f)
             {
                 return;
             }
@@ -6768,6 +6807,8 @@ namespace LocalFormulaRacing
 
             RecordPlayerRaceStats(results);
             LogAiDiagnostics(results);
+            SimpleAudioManager.SetRaceAmbience(false);
+            SimpleAudioManager.PlayResultsFlourish();
             ui.ShowResults(this, results, IsCareerRace);
         }
 

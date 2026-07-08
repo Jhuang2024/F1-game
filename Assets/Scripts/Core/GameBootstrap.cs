@@ -39,7 +39,7 @@ namespace LocalFormulaRacing
             ui.Initialize(this);
             raceManager = gameObject.AddComponent<RaceManager>();
             SimpleAudioManager.Ensure(transform);
-            SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
+            SimpleAudioManager.ApplySettings(settings.Current);
             UiFactory.AnimationsEnabled = settings.Current.uiAnimations;
         }
 
@@ -55,7 +55,7 @@ namespace LocalFormulaRacing
                 raceManager.CleanupRaceWorld();
             }
 
-            SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
+            SimpleAudioManager.ApplySettings(settings.Current);
             ui.ShowMainMenu(data, career, settings);
         }
 
@@ -114,7 +114,7 @@ namespace LocalFormulaRacing
                 raceEvent = data.Calendar.events.Count > 0 ? data.Calendar.events[0] : career.CurrentEvent();
             }
 
-            SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
+            SimpleAudioManager.ApplySettings(settings.Current);
             raceManager.StartTimeTrial(
                 data,
                 career,
@@ -134,7 +134,7 @@ namespace LocalFormulaRacing
             CalendarEventData raceEvent = ui.QuickRaceSelectedEvent != null
                 ? ui.QuickRaceSelectedEvent
                 : (data.Calendar.events.Count > 0 ? data.Calendar.events[0] : career.CurrentEvent());
-            SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
+            SimpleAudioManager.ApplySettings(settings.Current);
             raceManager.StartRace(
                 data,
                 career,
@@ -161,7 +161,7 @@ namespace LocalFormulaRacing
         public void BeginCareerQualifying()
         {
             CalendarEventData raceEvent = career.CurrentEvent();
-            SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
+            SimpleAudioManager.ApplySettings(settings.Current);
             raceManager.StartSession(
                 data,
                 career,
@@ -177,7 +177,7 @@ namespace LocalFormulaRacing
         public void SimulateCareerQualifying()
         {
             CalendarEventData raceEvent = career.CurrentEvent();
-            SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
+            SimpleAudioManager.ApplySettings(settings.Current);
             raceManager.SimulateQualifyingWeekend(
                 data,
                 career,
@@ -203,7 +203,7 @@ namespace LocalFormulaRacing
         public void BeginCareerRace()
         {
             CalendarEventData raceEvent = career.CurrentEvent();
-            SimpleAudioManager.SetEnabled(settings.Current.audioEnabled);
+            SimpleAudioManager.ApplySettings(settings.Current);
             raceManager.StartSession(
                 data,
                 career,

@@ -1476,8 +1476,15 @@ namespace LocalFormulaRacing
             {
                 settings.Current.audioEnabled = !settings.Current.audioEnabled;
                 settings.Save();
+                SimpleAudioManager.ApplySettings(settings.Current);
                 ShowSettings(data, career, settings);
             });
+
+            AddVolumeRow(list, "Master Volume", settings, () => settings.Current.masterVolume, v => settings.Current.masterVolume = v, data, career);
+            AddVolumeRow(list, "Engine Volume", settings, () => settings.Current.engineVolume, v => settings.Current.engineVolume = v, data, career);
+            AddVolumeRow(list, "UI Volume", settings, () => settings.Current.uiVolume, v => settings.Current.uiVolume = v, data, career);
+            AddVolumeRow(list, "Radio Volume", settings, () => settings.Current.radioVolume, v => settings.Current.radioVolume = v, data, career);
+            AddVolumeRow(list, "Ambience Volume", settings, () => settings.Current.ambienceVolume, v => settings.Current.ambienceVolume = v, data, career);
 
             // Race control / safety car pass: its own card in the unused right
             // portion of the Gameplay tab, mirroring the left/right two-card split
@@ -4589,6 +4596,24 @@ namespace LocalFormulaRacing
         string OnOff(bool value)
         {
             return value ? "On" : "Off";
+        }
+
+        // Shared row builder for the five audio volume categories - a
+        // percentage cycle control in 10% steps, matching the existing
+        // sensitivity-slider rows (CycleFloat) rather than a new widget type.
+        // Applies immediately to SimpleAudioManager so a volume change is
+        // audible without leaving the settings screen.
+        void AddVolumeRow(RectTransform list, string label, GameSettingsStore settings, System.Func<float> getValue, System.Action<float> setValue, GameDataRepository data, CareerManager career)
+        {
+            RectTransform control;
+            UiFactory.CreateSettingRow(list, label, "", out control);
+            UiFactory.CreateCycleControl(control, Mathf.RoundToInt(getValue() * 100f) + "%", () =>
+            {
+                setValue(CycleFloat(getValue(), 0f, 1f, 0.1f));
+                settings.Save();
+                SimpleAudioManager.ApplySettings(settings.Current);
+                ShowSettings(data, career, settings);
+            });
         }
 
         float CycleFloat(float value, float min, float max, float step)

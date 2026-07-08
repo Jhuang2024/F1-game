@@ -10,10 +10,12 @@ namespace LocalFormulaRacing
         AudioSource scrubSource;
         int lastGear;
         bool enabledAudio;
+        float carVolumeScale;
 
         public void Initialize(bool audioEnabled, float volume)
         {
             enabledAudio = audioEnabled;
+            carVolumeScale = volume;
             vehicle = GetComponent<VehicleController>();
             engineSource = gameObject.AddComponent<AudioSource>();
             engineSource.clip = CreateEngineLoop();
@@ -44,10 +46,11 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            engineSource.mute = !enabledAudio;
+            float categoryVolume = SimpleAudioManager.EngineVolumeScale;
+            engineSource.mute = !enabledAudio || categoryVolume <= 0f;
             float speed01 = Mathf.Clamp01(Mathf.Abs(vehicle.CurrentSpeedKph) / 330f);
             engineSource.pitch = Mathf.Lerp(0.65f, 1.95f, speed01) + vehicle.CurrentGear * 0.035f;
-            engineSource.volume = Mathf.Lerp(0.18f, 0.5f, speed01);
+            engineSource.volume = Mathf.Lerp(0.18f, 0.5f, speed01) * carVolumeScale * 2f * categoryVolume;
             if (lastGear != 0 && vehicle.CurrentGear != lastGear)
             {
                 SimpleAudioManager.PlayShift(transform.position);
@@ -55,16 +58,18 @@ namespace LocalFormulaRacing
 
             lastGear = vehicle.CurrentGear;
 
-            // Tyre scrub when sliding, low rumble when riding kerbs.
+            // Tyre scrub when sliding, kerb rumble when riding kerbs, a duller
+            // rumble when running through gravel/runoff.
             if (scrubSource != null)
             {
-                scrubSource.mute = !enabledAudio;
+                scrubSource.mute = !enabledAudio || categoryVolume <= 0f;
                 float slip = Mathf.Clamp01(vehicle.OversteerAmount + vehicle.UndersteerAmount * 0.5f);
                 float scrub = slip * Mathf.Clamp01(speed01 * 2.2f) * 0.28f;
                 float kerb = vehicle.IsOnKerb && speed01 > 0.1f ? 0.22f : 0f;
-                float target = Mathf.Max(scrub, kerb);
+                float gravel = vehicle.IsOffTrackSlowdown && speed01 > 0.08f ? 0.3f : 0f;
+                float target = Mathf.Max(scrub, Mathf.Max(kerb, gravel)) * carVolumeScale * 2f * categoryVolume;
                 scrubSource.volume = Mathf.MoveTowards(scrubSource.volume, target, Time.deltaTime * 1.8f);
-                scrubSource.pitch = vehicle.IsOnKerb ? 0.55f : Mathf.Lerp(0.85f, 1.25f, slip);
+                scrubSource.pitch = gravel > 0f ? 0.4f : (vehicle.IsOnKerb ? 0.55f : Mathf.Lerp(0.85f, 1.25f, slip));
             }
         }
 

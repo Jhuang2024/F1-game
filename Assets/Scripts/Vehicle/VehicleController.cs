@@ -321,7 +321,10 @@ namespace LocalFormulaRacing
             float absoluteSpeedKph = body.velocity.magnitude * 3.6f;
             TrackProgress progress = Track == null ? new TrackProgress() : Track.GetProgress(transform.position);
             LateralDistance = progress.lateralDistance;
-            IsOffTrackSlowdown = Track != null && Mathf.Abs(progress.lateralDistance) > Track.roadHalfWidth + 1.6f;
+            // Uses the actual (possibly hairpin-widened) drivable half-width at this
+            // point on track - the flat field would apply an off-track slowdown
+            // penalty on tarmac that's legitimately part of a widened hairpin.
+            IsOffTrackSlowdown = Track != null && Mathf.Abs(progress.lateralDistance) > Track.HalfWidthAt(progress.distance) + 1.6f;
             if (PitLimiterActive)
             {
                 IsOffTrackSlowdown = false;
@@ -902,7 +905,7 @@ namespace LocalFormulaRacing
                           " sustained=" + sustained +
                           " delta=" + delta.ToString("0.0") +
                           "% total=" + Damage.OverallPercent.ToString("0.0") + "%");
-                SimpleAudioManager.PlayCollision(transform.position, impactSpeedKph / 3.6f);
+                SimpleAudioManager.PlayCollision(transform.position, impactSpeedKph / 3.6f, impactType);
             }
             else if (!sustained)
             {

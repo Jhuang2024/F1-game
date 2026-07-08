@@ -470,7 +470,11 @@ namespace LocalFormulaRacing
 
             // Off-track recovery: drive straight back toward the centerline at reduced pace
             // instead of chasing the racing line offset from the grass.
-            bool offTrack = Mathf.Abs(progress.lateralDistance) > track.roadHalfWidth + 0.6f;
+            // Uses the actual (possibly hairpin-widened) drivable half-width at this
+            // point on track, not the flat field - otherwise AI would treat the extra
+            // tarmac at a widened hairpin as off-track and brake/recover exactly where
+            // the widening was meant to give it more room to work with.
+            bool offTrack = Mathf.Abs(progress.lateralDistance) > track.HalfWidthAt(progress.distance) + 0.6f;
             if (offTrack)
             {
                 cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, 118f);
@@ -496,7 +500,7 @@ namespace LocalFormulaRacing
             // Outside-inside-outside line: bias toward the outside on entry/exit
             // (curvature rising or falling) and clip toward the apex near the
             // tightest, steady point - diluted by this driver's apex precision.
-            float legalLimit = LegalOffsetLimit(severityHere);
+            float legalLimit = LegalOffsetLimit(severityHere, progress.distance);
             float perCarApexError = profile.apexErrorMeters * Mathf.Lerp(1.4f, 0.6f, consistency / 100f);
             float wobble = (Mathf.PerlinNoise(noiseSeed, Time.time * 0.5f) * 2f - 1f) * profile.lineOffsetNoise;
             float lineBias = 0f;
@@ -530,7 +534,7 @@ namespace LocalFormulaRacing
             float desiredOffset = offTrack ? 0f : ConstrainLegalLineOffset(progress, requestedOffset, severityHere);
             targetPoint += right * desiredOffset;
             TrackProgress targetProgress = track.GetProgress(targetPoint);
-            float legalTargetLimit = LegalOffsetLimit(severityHere);
+            float legalTargetLimit = LegalOffsetLimit(severityHere, progress.distance);
             if (Mathf.Abs(targetProgress.lateralDistance) > legalTargetLimit)
             {
                 track.SampleAtDistance(targetProgress.distance, out targetPoint, out forward, out right);
@@ -550,7 +554,11 @@ namespace LocalFormulaRacing
             // the correction is already building well before the car is
             // actually at risk, reaching a much stronger pull only right at
             // the limit.
-            float edgeMargin = track.roadHalfWidth - 2.4f;
+            // Uses the local (possibly hairpin-widened) half-width so this correction
+            // still keys off "how close to the true edge", not a stale flat distance
+            // that would fire early and fight the extra room a widened hairpin exists
+            // to give the AI in the first place.
+            float edgeMargin = track.HalfWidthAt(progress.distance) - 2.4f;
             float edgeOvershoot = Mathf.Abs(progress.lateralDistance) - edgeMargin;
             float edgeRecovery = edgeOvershoot > 0f
                 ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.15f, 0.95f, Mathf.Clamp01(edgeOvershoot / 2.4f))
@@ -1134,7 +1142,7 @@ namespace LocalFormulaRacing
         {
             RaceParticipant ahead = raceManager.FindCarAhead(participant, 46f);
             RaceParticipant behind = raceManager.FindCarBehind(participant, 32f);
-            float legalLimit = LegalOffsetLimit(severityHere);
+            float legalLimit = LegalOffsetLimit(severityHere, progress.distance);
             float commitment = Mathf.Clamp01(profile.overtakeCommitment * Mathf.Lerp(0.7f, 1.15f, (aggression + overtaking) / 200f));
             float defendCommitment = Mathf.Clamp01(profile.defendCommitment * Mathf.Lerp(0.7f, 1.15f, defending / 100f));
 
@@ -1392,7 +1400,7 @@ namespace LocalFormulaRacing
 
         float ConstrainLegalLineOffset(TrackProgress progress, float requestedOffset, float cornerSeverity)
         {
-            float legalLimit = LegalOffsetLimit(cornerSeverity);
+            float legalLimit = LegalOffsetLimit(cornerSeverity, progress.distance);
             float turnSign = EstimateTurnDirection(progress.distance);
             float desired = Mathf.Clamp(requestedOffset, -legalLimit, legalLimit);
             if (Mathf.Abs(turnSign) > 0.01f && cornerSeverity > 0.18f)
@@ -1408,7 +1416,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            if (Mathf.Abs(progress.lateralDistance) > track.roadHalfWidth - 1.6f)
+            if (Mathf.Abs(progress.lateralDistance) > track.HalfWidthAt(progress.distance) - 1.6f)
             {
                 desired = Mathf.MoveTowards(desired, 0f, Mathf.Lerp(2.2f, 5.2f, cornerSeverity));
             }
@@ -1416,11 +1424,12 @@ namespace LocalFormulaRacing
             return desired;
         }
 
-        float LegalOffsetLimit(float cornerSeverity)
+        float LegalOffsetLimit(float cornerSeverity, float distance)
         {
             float margin = Mathf.Lerp(1.8f, 3.1f, cornerSeverity);
-            float kerbLimit = track.kerbStart > 0f ? track.kerbStart - 0.8f : track.roadHalfWidth - margin;
-            return Mathf.Max(0.75f, Mathf.Min(track.roadHalfWidth - margin, kerbLimit));
+            float localHalfWidth = track.HalfWidthAt(distance);
+            float kerbLimit = track.kerbStart > 0f ? track.kerbStart - 0.8f : localHalfWidth - margin;
+            return Mathf.Max(0.75f, Mathf.Min(localHalfWidth - margin, kerbLimit));
         }
 
         float EstimateTurnDirection(float distance)

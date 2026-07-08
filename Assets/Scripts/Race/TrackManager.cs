@@ -185,17 +185,22 @@ namespace LocalFormulaRacing
             return candidate;
         }
 
+        // Off-track/kerb detection has to follow the same widened half-width the
+        // road mesh itself uses (HalfWidthAt), or the extra tarmac painted in at a
+        // hairpin would still read as "off track" here - actively working against
+        // the whole point of widening those corners (fewer track-limits penalties/
+        // off-track slowdowns exactly where cars need the room most).
         public bool IsOnRoad(Vector3 worldPosition)
         {
             TrackProgress progress = GetProgress(worldPosition);
-            return Mathf.Abs(progress.lateralDistance) <= roadHalfWidth;
+            return Mathf.Abs(progress.lateralDistance) <= HalfWidthAt(progress.distance);
         }
 
         public bool IsOnKerb(Vector3 worldPosition)
         {
             TrackProgress progress = GetProgress(worldPosition);
             float lateral = Mathf.Abs(progress.lateralDistance);
-            return lateral >= kerbStart && lateral <= roadHalfWidth + 1.3f;
+            return lateral >= kerbStart && lateral <= HalfWidthAt(progress.distance) + 1.3f;
         }
 
         public bool IsInDrsZone(float normalizedProgress)
@@ -231,6 +236,101 @@ namespace LocalFormulaRacing
         public bool IsInPitExitLimiterZone(float normalizedProgress)
         {
             return normalizedProgress > 0.955f || normalizedProgress < 0.115f;
+        }
+
+        // ---------- hairpin widening ----------
+        // Single shared width source so hairpins are physically wider - AI cars were
+        // clipping barriers/each other in tight corners because every consumer (road
+        // mesh/collider, kerbs, barriers, runoff) drew from the same flat roadHalfWidth
+        // with no extra room at the tightest corners. HalfWidthAt(distance) is that
+        // shared source: it returns the base roadHalfWidth everywhere except near a
+        // hairpin, where it eases up to roadHalfWidth+HairpinExtraHalfWidth. Every
+        // TrackManager pass that lays out the physical road, kerbs, barriers, runoff
+        // furniture or racing surface should sample THIS instead of the flat field so a
+        // widened hairpin is honored everywhere uniformly.
+        //
+        // "Hairpin" reuses the exact severity threshold BuildKerbs/BuildContinuousEdgeBarriers
+        // already established elsewhere in TrackManager for "this corner gets the
+        // aggressive kerb / tyre stack / apex chevron treatment" (a >55 degree turn
+        // between consecutive centerline segments) rather than inventing a new
+        // classification, so "hairpin" means the same thing everywhere in the file.
+        public const float HairpinCornerAngleThreshold = 55f;
+        public const float HairpinExtraHalfWidth = 4.5f;
+        public const float HairpinBlendDistance = 24f;
+
+        readonly List<float> hairpinCenters = new List<float>();
+
+        public IReadOnlyList<float> HairpinCenters { get { return hairpinCenters; } }
+
+        // Recomputes the hairpin center list from the FINAL centerline (after layout
+        // repair/scaling), so it stays in lock-step with cumulativeDistances. Call
+        // once right after RecalculateDistances(); nothing else mutates centerLine
+        // after that point during Build().
+        public void RecalculateHairpinWidening()
+        {
+            hairpinCenters.Clear();
+            if (centerLine.Count < 4)
+            {
+                return;
+            }
+
+            for (int i = 0; i < centerLine.Count; i++)
+            {
+                Vector3 previous = centerLine[(i - 1 + centerLine.Count) % centerLine.Count];
+                Vector3 current = centerLine[i];
+                Vector3 next = centerLine[(i + 1) % centerLine.Count];
+                Vector3 entry = (current - previous).normalized;
+                Vector3 exit = (next - current).normalized;
+                float angle = Vector3.Angle(entry, exit);
+                if (angle > HairpinCornerAngleThreshold)
+                {
+                    hairpinCenters.Add(cumulativeDistances[i]);
+                }
+            }
+        }
+
+        // Extra half-width at this distance, eased from HairpinExtraHalfWidth at a
+        // hairpin's own centerline vertex down to zero at HairpinBlendDistance away
+        // (smoothstep, not a hard step) so entry/apex/exit all widen gradually rather
+        // than the road suddenly stepping wider/narrower. Two hairpins closer together
+        // than 2x HairpinBlendDistance simply take the nearer one's bonus each side
+        // rather than stacking, so back-to-back tight corners never compound into an
+        // unbounded width.
+        public float HairpinWidthBonus(float distance)
+        {
+            if (hairpinCenters.Count == 0 || length <= 0f)
+            {
+                return 0f;
+            }
+
+            float wrapped = WrapDistance(distance);
+            float nearest = float.MaxValue;
+            for (int i = 0; i < hairpinCenters.Count; i++)
+            {
+                float delta = Mathf.Abs(wrapped - hairpinCenters[i]);
+                float wrappedDelta = Mathf.Min(delta, length - delta);
+                if (wrappedDelta < nearest)
+                {
+                    nearest = wrappedDelta;
+                }
+            }
+
+            if (nearest >= HairpinBlendDistance)
+            {
+                return 0f;
+            }
+
+            float t = 1f - Mathf.Clamp01(nearest / HairpinBlendDistance);
+            float eased = t * t * (3f - 2f * t);
+            return HairpinExtraHalfWidth * eased;
+        }
+
+        // The single shared width source described above - every road/kerb/barrier/
+        // runoff pass in TrackManager should call this instead of reading the flat
+        // roadHalfWidth field directly.
+        public float HalfWidthAt(float distance)
+        {
+            return roadHalfWidth + HairpinWidthBonus(distance);
         }
 
         // ---------- grid layout ----------
@@ -636,6 +736,11 @@ namespace LocalFormulaRacing
 
             AddLayoutPoints(runtime);
             runtime.RecalculateDistances();
+            // Hairpin centers are derived from the FINAL, fully-repaired/scaled
+            // centerline (AddLayoutPoints already ran repair + NormalizeTrackLength +
+            // a second repair pass above), so this must run after that and after
+            // RecalculateDistances so cumulativeDistances line up with centerLine.
+            runtime.RecalculateHairpinWidening();
             return runtime;
         }
 
@@ -2193,11 +2298,16 @@ namespace LocalFormulaRacing
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.cumulativeDistances[i], out point, out forward, out right);
-                vertices[i * 2] = point - right * Runtime.roadHalfWidth + Vector3.up * 0.015f;
-                vertices[i * 2 + 1] = point + right * Runtime.roadHalfWidth + Vector3.up * 0.015f;
+                // The physical drivable surface (and its MeshCollider) is the ultimate
+                // ground truth for how wide the track actually is, so it must sample the
+                // same widened HalfWidthAt used by kerbs/barriers - otherwise a hairpin
+                // could paint/fence wider than the tarmac cars can actually drive on.
+                float localHalfWidth = Runtime.HalfWidthAt(Runtime.cumulativeDistances[i]);
+                vertices[i * 2] = point - right * localHalfWidth + Vector3.up * 0.015f;
+                vertices[i * 2 + 1] = point + right * localHalfWidth + Vector3.up * 0.015f;
                 float v = Runtime.cumulativeDistances[i] / 12f; // Tiled UV for asphalt detail
                 uvs[i * 2] = new Vector2(0f, v);
-                uvs[i * 2 + 1] = new Vector2(Runtime.roadHalfWidth * 0.5f, v);
+                uvs[i * 2 + 1] = new Vector2(localHalfWidth * 0.5f, v);
 
                 int next = (i + 1) % count;
                 int tri = i * 6;
@@ -2247,15 +2357,19 @@ namespace LocalFormulaRacing
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
+                // Paint follows the same widened edge the road mesh itself uses, so lines
+                // stay on the true edge through a hairpin instead of reading as painted
+                // mid-track (too narrow) or off the tarmac entirely (too wide).
+                float localHalfWidth = Runtime.HalfWidthAt(d);
 
                 // Edge lines; emissive at night so the circuit reads under floodlights.
-                CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, edgeGlowMaterial, "Left edge line", 0);
-                CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, edgeGlowMaterial, "Right edge line", 0);
+                CreateRoadStripe(point - right * (localHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, edgeGlowMaterial, "Left edge line", 0);
+                CreateRoadStripe(point + right * (localHalfWidth - 0.45f), forward, 0.25f, spacing * 0.95f, edgeGlowMaterial, "Right edge line", 0);
 
                 // Racing line rubbering
                 if (Mathf.FloorToInt(d / spacing) % 2 == 0)
                 {
-                    float lateralOffset = Mathf.Sin(d * 0.02f) * (Runtime.roadHalfWidth * 0.35f);
+                    float lateralOffset = Mathf.Sin(d * 0.02f) * (localHalfWidth * 0.35f);
                     CreateRoadStripe(point + right * lateralOffset, forward, 4.2f, spacing * 1.1f, rubberMaterial, "Rubbered racing line", 1);
                     CreateRoadStripe(point + right * (lateralOffset + 0.15f), forward, 1.2f, spacing * 0.5f, rubberMaterial, "Rubbered skid mark", 2);
                 }
@@ -2263,8 +2377,8 @@ namespace LocalFormulaRacing
                 float normalized = d / Mathf.Max(1f, Runtime.length);
                 if (Runtime.IsInDrsZone(normalized) && Mathf.FloorToInt(d / spacing) % 2 == 0)
                 {
-                    CreateRoadStripe(point - right * (Runtime.roadHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint", 3);
-                    CreateRoadStripe(point + right * (Runtime.roadHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint", 3);
+                    CreateRoadStripe(point - right * (localHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint", 3);
+                    CreateRoadStripe(point + right * (localHalfWidth - 1.5f), forward, 0.8f, 8f, drsPaintMaterial, "DRS zone paint", 3);
                 }
             }
         }
@@ -2280,8 +2394,9 @@ namespace LocalFormulaRacing
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
                 float normalized = d / Mathf.Max(1f, Runtime.length);
                 float laneBias = Mathf.Sin(normalized * Mathf.PI * 10f) * 0.34f;
-                CreateRoadStripe(point + right * laneBias, forward, Runtime.roadHalfWidth * 0.82f, spacing * 0.76f, asphaltPatchMaterial, "Asphalt grain variation", 4);
-                CreateRoadStripe(point + right * (laneBias * 0.45f), forward, Runtime.roadHalfWidth * 0.42f, spacing * 0.82f, rubberMaterial, "Dark racing line rubber", 5);
+                float localHalfWidth = Runtime.HalfWidthAt(d);
+                CreateRoadStripe(point + right * laneBias, forward, localHalfWidth * 0.82f, spacing * 0.76f, asphaltPatchMaterial, "Asphalt grain variation", 4);
+                CreateRoadStripe(point + right * (laneBias * 0.45f), forward, localHalfWidth * 0.42f, spacing * 0.82f, rubberMaterial, "Dark racing line rubber", 5);
 
                 if (Mathf.FloorToInt(d / spacing) % 4 == 1)
                 {
@@ -2404,17 +2519,22 @@ namespace LocalFormulaRacing
                     Vector3 point;
                     Vector3 forward;
                     Vector3 right;
-                    Runtime.SampleAtDistance(Runtime.cumulativeDistances[i] + offset, out point, out forward, out right);
+                    float sampleDistance = Runtime.cumulativeDistances[i] + offset;
+                    Runtime.SampleAtDistance(sampleDistance, out point, out forward, out right);
+                    // Kerbs hug the same widened edge the road mesh/barriers use, so a
+                    // hairpin's kerb line moves out with the rest of the track instead of
+                    // sitting stranded mid-tarmac once the road widens under it.
+                    float localHalfWidth = Runtime.HalfWidthAt(sampleDistance);
 
                     // Outer kerb (Apex or Exit)
-                    Vector3 outer = point + right * turnSign * (Runtime.roadHalfWidth + 0.35f);
-                    CreateKerbBlock(outer, forward, Runtime.cumulativeDistances[i] + offset, aggressive);
+                    Vector3 outer = point + right * turnSign * (localHalfWidth + 0.35f);
+                    CreateKerbBlock(outer, forward, sampleDistance, aggressive);
 
                     // Inner kerb (if sharp turn)
                     if (angle > 35f)
                     {
-                        Vector3 inner = point - right * turnSign * (Runtime.roadHalfWidth + 0.25f);
-                        CreateKerbBlock(inner, forward, Runtime.cumulativeDistances[i] + offset + 2f, aggressive);
+                        Vector3 inner = point - right * turnSign * (localHalfWidth + 0.25f);
+                        CreateKerbBlock(inner, forward, sampleDistance + 2f, aggressive);
                     }
                 }
 
@@ -2427,7 +2547,8 @@ namespace LocalFormulaRacing
                     Vector3 apexForward;
                     Vector3 apexRight;
                     Runtime.SampleAtDistance(Runtime.cumulativeDistances[i], out apexPoint, out apexForward, out apexRight);
-                    CreateApexChevron(apexPoint + apexRight * turnSign * (Runtime.roadHalfWidth + 1.6f), apexForward, turnSign);
+                    float apexHalfWidth = Runtime.HalfWidthAt(Runtime.cumulativeDistances[i]);
+                    CreateApexChevron(apexPoint + apexRight * turnSign * (apexHalfWidth + 1.6f), apexForward, turnSign);
                 }
             }
         }
@@ -2550,17 +2671,22 @@ namespace LocalFormulaRacing
             bool catchFence;
             bool tyreStack;
 
+            // Sampled at the segment midpoint - the same distance CreateEdgeBarrierSegment
+            // actually places basePosition at - so a hairpin's widened half-width lines up
+            // exactly with where the barrier geometry gets built, not the segment's start.
+            float localHalfWidth = Runtime.HalfWidthAt(distance + step * 0.5f);
+
             if (elevated)
             {
                 style = EdgeBarrierStyle.Elevated;
-                baseLateral = Runtime.roadHalfWidth + EdgeBarrierClearance + ConcreteWallHalfWidth;
+                baseLateral = localHalfWidth + EdgeBarrierClearance + ConcreteWallHalfWidth;
                 catchFence = NeedsCatchFence(distance);
                 tyreStack = false;
             }
             else if (streetTrack)
             {
                 style = EdgeBarrierStyle.StreetWall;
-                baseLateral = Runtime.roadHalfWidth + EdgeBarrierClearance + StreetWallHalfWidth;
+                baseLateral = localHalfWidth + EdgeBarrierClearance + StreetWallHalfWidth;
                 catchFence = true;
                 tyreStack = false;
             }
@@ -2581,12 +2707,21 @@ namespace LocalFormulaRacing
                     // sitting coincident with the stack, so there's no gap
                     // between the two and no gap between the stack and the
                     // track edge either.
-                    baseLateral = Runtime.roadHalfWidth + EdgeBarrierClearance + TyreStackHalfWidth * 2f + ArmcoHalfWidth;
+                    baseLateral = localHalfWidth + EdgeBarrierClearance + TyreStackHalfWidth * 2f + ArmcoHalfWidth;
                 }
                 else
                 {
-                    baseLateral = Runtime.roadHalfWidth + EdgeBarrierClearance + ArmcoHalfWidth;
+                    baseLateral = localHalfWidth + EdgeBarrierClearance + ArmcoHalfWidth;
                 }
+            }
+
+            // Every hairpin gets continuous catch fencing through entry, apex and exit,
+            // regardless of barrier style/track type - this is the same per-segment loop
+            // that builds the rest of the barrier run, so the fencing follows the widened
+            // hairpin shape exactly and has no gaps, rather than being placed separately.
+            if (Runtime.HairpinWidthBonus(distance + step * 0.5f) > 0f)
+            {
+                catchFence = true;
             }
 
             float lateral = baseLateral;
@@ -2663,8 +2798,10 @@ namespace LocalFormulaRacing
                 // rail's basePosition, which BuildBarrierSegmentForSide has
                 // already pushed further out specifically to leave room for
                 // this stack) so the stack itself is what actually sits
-                // against the track edge, with the rail directly behind it.
-                Vector3 stackPosition = mid + right * side * (Runtime.roadHalfWidth + EdgeBarrierClearance + TyreStackHalfWidth);
+                // against the track edge, with the rail directly behind it. Sampled at
+                // the same distance+step*0.5 midpoint "mid" itself was sampled at, so a
+                // widened hairpin's stack lines up with the rest of this segment.
+                Vector3 stackPosition = mid + right * side * (Runtime.HalfWidthAt(distance + step * 0.5f) + EdgeBarrierClearance + TyreStackHalfWidth);
                 CreateTyreBarrierStack(stackPosition, chordForward, Mathf.Min(segmentLength, 4.6f));
             }
         }
@@ -2804,7 +2941,7 @@ namespace LocalFormulaRacing
                 // CreateEdgeBarrierSegment) so an elevation transition reads
                 // as continuous with the rest of the barrier run instead of
                 // opening its own gap right at the transition point.
-                CreateTyreBarrierStack(point + right * side * (Runtime.roadHalfWidth + EdgeBarrierClearance + TyreStackHalfWidth), forward, 4.6f);
+                CreateTyreBarrierStack(point + right * side * (Runtime.HalfWidthAt(distance) + EdgeBarrierClearance + TyreStackHalfWidth), forward, 4.6f);
             }
         }
 
@@ -2979,7 +3116,10 @@ namespace LocalFormulaRacing
 
             Vector3 columnCenter = new Vector3(point.x, groundTopY + height * 0.5f, point.z);
             CreateVisualBox("Bridge support column", columnCenter, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1.7f, height, 1.7f), concreteMaterial);
-            CreateVisualBox("Bridge support crossbeam", new Vector3(point.x, point.y - 0.55f, point.z), Quaternion.LookRotation(forward, Vector3.up), new Vector3(Runtime.roadHalfWidth * 2f + 1.6f, 0.5f, 1.9f), concreteMaterial);
+            // Crossbeam spans the full road width, so a widened elevated hairpin needs a
+            // wider crossbeam too or the deck would overhang its own support.
+            float spanWidth = Runtime.HalfWidthAt(distance) * 2f + 1.6f;
+            CreateVisualBox("Bridge support crossbeam", new Vector3(point.x, point.y - 0.55f, point.z), Quaternion.LookRotation(forward, Vector3.up), new Vector3(spanWidth, 0.5f, 1.9f), concreteMaterial);
         }
 
         // Audit pass: every elevated sample must have solid protection close by on
@@ -3252,7 +3392,7 @@ namespace LocalFormulaRacing
                 Vector3 patchForward;
                 Vector3 patchRight;
                 Runtime.SampleAtDistance(exitDistance, out patchPoint, out patchForward, out patchRight);
-                float lateral = outsideSide * (Runtime.roadHalfWidth * 0.7f + p * 0.4f);
+                float lateral = outsideSide * (Runtime.HalfWidthAt(exitDistance) * 0.7f + p * 0.4f);
                 // Alternate the base marble tint with the sun-bleached variant so a
                 // multi-patch scatter reads as debris from different laps/compounds
                 // rather than one uniform colour repeated down the exit kerb.
@@ -3326,8 +3466,10 @@ namespace LocalFormulaRacing
                 // it used to be, so both the patch width and its lateral spread
                 // were cut to match - it still reads as a gravel strip in front
                 // of the barrier, just sized to the tighter gap rather than
-                // spilling past the wall.
-                float lateral = turnSign * (Runtime.roadHalfWidth + 1.5f + p * 0.3f);
+                // spilling past the wall. Sampled at the local (possibly hairpin-
+                // widened) half-width so the patch stays between the kerb and the
+                // barrier line even where a hairpin has pushed both further out.
+                float lateral = turnSign * (Runtime.HalfWidthAt(exitDistance) + 1.5f + p * 0.3f);
                 CreateVisualBox("Gravel trap patch", point + right * lateral + Vector3.up * 0.03f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1f, 0.05f, 7f), gravelMaterial);
             }
         }
@@ -3339,8 +3481,12 @@ namespace LocalFormulaRacing
             Vector3 right;
             Runtime.SampleAtDistance(distance, out point, out forward, out right);
             Material boardMaterial = CreateMaterial("Sector board material", color, 0.05f, 0.7f, nightTrack ? color * 0.4f : Color.black);
-            CreateVisualBox("Sector board", point - right * (Runtime.roadHalfWidth + 3.2f) + Vector3.up * 2.1f, Quaternion.LookRotation(right, Vector3.up), new Vector3(0.14f, 1f, 1.6f), boardMaterial);
-            CreateVisualBox("Sector board post", point - right * (Runtime.roadHalfWidth + 3.2f) + Vector3.up * 0.8f, Quaternion.LookRotation(right, Vector3.up), new Vector3(0.12f, 1.6f, 0.12f), metalMaterial);
+            // Sector split points fall at fixed lap fractions, not corner-derived
+            // distances, so one can legitimately land inside a widened hairpin - use the
+            // local half-width so the board never ends up planted on the wider tarmac.
+            float boardLateral = Runtime.HalfWidthAt(distance) + 3.2f;
+            CreateVisualBox("Sector board", point - right * boardLateral + Vector3.up * 2.1f, Quaternion.LookRotation(right, Vector3.up), new Vector3(0.14f, 1f, 1.6f), boardMaterial);
+            CreateVisualBox("Sector board post", point - right * boardLateral + Vector3.up * 0.8f, Quaternion.LookRotation(right, Vector3.up), new Vector3(0.12f, 1.6f, 0.12f), metalMaterial);
         }
 
         // Small marshal hut with a flag pole; placed sparsely around the lap.
@@ -5957,7 +6103,7 @@ namespace LocalFormulaRacing
         Vector3 PushSceneryClearOfTrack(Vector3 position, float clearance)
         {
             TrackProgress progress = Runtime.GetProgress(position);
-            float minimum = Runtime.roadHalfWidth + clearance;
+            float minimum = Runtime.HalfWidthAt(progress.distance) + clearance;
             if (Mathf.Abs(progress.lateralDistance) >= minimum)
             {
                 return position;
@@ -5986,7 +6132,7 @@ namespace LocalFormulaRacing
             TrackProgress progress = Runtime.GetProgress(center);
             Vector3 flatCenter = new Vector3(center.x, progress.nearestPoint.y, center.z);
             float distanceToCenterline = Vector3.Distance(flatCenter, progress.nearestPoint);
-            float required = Runtime.roadHalfWidth + TrackCorridorRunoffWidth + objectRadius + extraMargin;
+            float required = Runtime.HalfWidthAt(progress.distance) + TrackCorridorRunoffWidth + objectRadius + extraMargin;
             return distanceToCenterline >= required;
         }
 
@@ -6005,7 +6151,7 @@ namespace LocalFormulaRacing
             TrackProgress progress = Runtime.GetProgress(desiredPosition);
             Vector3 right = Vector3.Cross(Vector3.up, progress.forward).normalized;
             float side = progress.lateralDistance >= 0f ? 1f : -1f;
-            float required = Runtime.roadHalfWidth + TrackCorridorRunoffWidth + objectRadius + extraMargin;
+            float required = Runtime.HalfWidthAt(progress.distance) + TrackCorridorRunoffWidth + objectRadius + extraMargin;
             Vector3 moved = progress.nearestPoint + right * side * required;
             moved.y = desiredPosition.y;
             result = moved;
@@ -6210,7 +6356,7 @@ namespace LocalFormulaRacing
                 // this pass exists to prevent. Nudging outward in small steps
                 // from the original intent instead keeps a repaired segment
                 // visually consistent with the rest of the barrier line.
-                float desiredLateral = Mathf.Max(Runtime.roadHalfWidth + minimumClearance + localScale.x * 0.5f, Mathf.Abs(progress.lateralDistance));
+                float desiredLateral = Mathf.Max(Runtime.HalfWidthAt(progress.distance) + minimumClearance + localScale.x * 0.5f, Mathf.Abs(progress.lateralDistance));
                 bool repaired = false;
                 for (int step = 0; step < 10; step++)
                 {
@@ -6270,7 +6416,11 @@ namespace LocalFormulaRacing
             for (int i = 0; i < samples.Length; i++)
             {
                 TrackProgress progress = Runtime.GetProgress(samples[i]);
-                if (Mathf.Abs(progress.lateralDistance) < Runtime.roadHalfWidth + minimumClearance)
+                // Must check against the actual (possibly hairpin-widened) drivable
+                // surface at this sample's own distance, not the flat field - otherwise
+                // an obstacle sitting just beyond the old narrow width could pass this
+                // check while still resting on the now-wider tarmac at a hairpin.
+                if (Mathf.Abs(progress.lateralDistance) < Runtime.HalfWidthAt(progress.distance) + minimumClearance)
                 {
                     return false;
                 }
@@ -6466,7 +6616,11 @@ namespace LocalFormulaRacing
             for (int sample = 0; sample < samples.Length; sample++)
             {
                 TrackProgress progress = Runtime.GetProgress(samples[sample]);
-                bool nearRoad = Mathf.Abs(progress.lateralDistance) < Runtime.roadHalfWidth + 0.55f;
+                // Uses the widened per-distance half-width as a general safety net: any
+                // decorative object that ends up sitting on the now-wider hairpin tarmac
+                // gets caught here even if its own placement code wasn't individually
+                // updated to account for the widening.
+                bool nearRoad = Mathf.Abs(progress.lateralDistance) < Runtime.HalfWidthAt(progress.distance) + 0.55f;
                 bool nearRoadHeight = bounds.min.y < progress.nearestPoint.y + 2.2f && bounds.max.y > progress.nearestPoint.y - 0.4f;
                 if (nearRoad && nearRoadHeight)
                 {
