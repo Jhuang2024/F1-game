@@ -81,6 +81,40 @@ namespace LocalFormulaRacing
         bool wheelRestPositionsCaptured;
         Vector3 flRestLocalPos, frRestLocalPos, rlRestLocalPos, rrRestLocalPos;
 
+        // Rear diffuser sags under floor damage the same way the front wing
+        // droops under nose damage above - same lazy-find/rest-pose/ease-back
+        // idiom, just driven by Damage.floor instead of Damage.frontWing.
+        Transform rearDiffuser;
+        bool rearDiffuserSearched;
+        Quaternion rearDiffuserRestRotation;
+        Vector3 rearDiffuserRestPosition;
+
+        // Suspension arms sink a hair under load - nose dives under braking,
+        // rear squats under power - a cheap position-only cue rather than
+        // re-deriving each arm's endpoints/orientation from scratch. Gathered
+        // via GetComponentsInChildren since "suspension arm" is reused across
+        // all eight arms (RaceManager.CreateSuspensionArm), unlike the other
+        // lazy lookups above which each target one uniquely named transform.
+        Transform[] suspensionArms;
+        Vector3[] suspensionArmRestPositions;
+        bool suspensionArmsSearched;
+        bool suspensionArmsCaptured;
+
+        // Brake caliper glows faintly with the same heat ramp as the disc/rim
+        // above - shared across all four wheels the same way rimMaterial is,
+        // so one lazy lookup lights every caliper.
+        Material caliperMaterial;
+        bool caliperMaterialSearched;
+
+        // One-time paint/carbon/metal contrast pass - see ApplyMaterialContrastPass.
+        bool materialContrastSearched;
+
+        // Center-lock hub cap + lug ring built once per car directly under each
+        // wheel pivot, mirroring RaceManager's own "wheel cover" cylinder
+        // convention (outboard X offset, Euler(0,0,90) rotation) so it spins
+        // correctly with the wheel without any extra per-frame work.
+        bool wheelHubDetailBuilt;
+
         static readonly Color GlowColor = new Color(1f, 0.06f, 0.04f);
         static readonly Color DiscGlowColor = new Color(1f, 0.32f, 0.05f);
         static readonly Color DiscCoolColor = new Color(0.42f, 0.05f, 0.02f);
@@ -135,6 +169,10 @@ namespace LocalFormulaRacing
             UpdateTyreCompoundLook();
             UpdateWetBodySheen();
             UpdateFrontWingDamage();
+            UpdateFloorDamage();
+            UpdateSuspensionFlex();
+            ApplyMaterialContrastPass();
+            EnsureWheelHubDetail();
         }
 
         void UpdateDrsFlap()
@@ -224,6 +262,7 @@ namespace LocalFormulaRacing
             Color rampColor = DiscTemperatureColor(brakeGlowHeat);
             brakeDiscMaterial.SetColor("_EmissionColor", rampColor * brakeGlowHeat * 1.4f);
             UpdateRimHighlight(rampColor, brakeGlowHeat);
+            UpdateCaliperHighlight(rampColor, brakeGlowHeat);
         }
 
         // Colour, not just brightness, shifts with heat - dull red under a
@@ -272,6 +311,42 @@ namespace LocalFormulaRacing
             }
 
             rimMaterial.SetColor("_EmissionColor", rampColor * heat * 0.35f);
+        }
+
+        // Caliper is a direct child of the car root (not the wheel pivot, so it
+        // doesn't spin - see RaceManager.CreateWheel), and all four wheels share
+        // one caliperMaterial instance the same way rimMaterial is shared, so
+        // finding the first "brake caliper" by name lights every one. Bumped to
+        // a raw cast-metal look (high metallic, low gloss) the first time it's
+        // found, distinct from the disc's polished carbon-ceramic finish.
+        void UpdateCaliperHighlight(Color rampColor, float heat)
+        {
+            if (!caliperMaterialSearched)
+            {
+                caliperMaterialSearched = true;
+                Transform caliper = transform.Find("brake caliper");
+                if (caliper != null)
+                {
+                    Renderer caliperRenderer = caliper.GetComponent<Renderer>();
+                    if (caliperRenderer != null)
+                    {
+                        caliperMaterial = caliperRenderer.sharedMaterial;
+                        if (caliperMaterial != null)
+                        {
+                            caliperMaterial.EnableKeyword("_EMISSION");
+                            caliperMaterial.SetFloat("_Metallic", 0.78f);
+                            caliperMaterial.SetFloat("_Glossiness", 0.42f);
+                        }
+                    }
+                }
+            }
+
+            if (caliperMaterial == null)
+            {
+                return;
+            }
+
+            caliperMaterial.SetColor("_EmissionColor", rampColor * heat * 0.22f);
         }
 
         void UpdateRainLight()
@@ -561,6 +636,257 @@ namespace LocalFormulaRacing
             frontWingBase.localPosition = Vector3.MoveTowards(frontWingBase.localPosition, targetPosition, Time.deltaTime * 0.3f);
         }
 
+        // A scraped/cracked floor visibly drags rather than staying rigid while
+        // Damage.floor climbs - mirrors UpdateFrontWingDamage exactly (lazy find,
+        // rest pose captured once, eased toward a damage-driven target rather
+        // than snapping) just targeting the rear diffuser and Damage.floor
+        // instead of the nose and Damage.frontWing.
+        void UpdateFloorDamage()
+        {
+            if (!rearDiffuserSearched)
+            {
+                rearDiffuserSearched = true;
+                Transform found = transform.Find("rear diffuser");
+                if (found != null)
+                {
+                    rearDiffuser = found;
+                    rearDiffuserRestRotation = found.localRotation;
+                    rearDiffuserRestPosition = found.localPosition;
+                }
+            }
+
+            if (rearDiffuser == null || vehicle.Damage == null)
+            {
+                return;
+            }
+
+            float damage = Mathf.Clamp01(vehicle.Damage.floor);
+            Quaternion targetRotation = rearDiffuserRestRotation * Quaternion.Euler(-damage * 14f, 0f, 0f);
+            Vector3 targetPosition = rearDiffuserRestPosition + new Vector3(0f, -damage * 0.07f, 0f);
+            rearDiffuser.localRotation = Quaternion.Slerp(rearDiffuser.localRotation, targetRotation, Time.deltaTime * 4f);
+            rearDiffuser.localPosition = Vector3.MoveTowards(rearDiffuser.localPosition, targetPosition, Time.deltaTime * 0.3f);
+        }
+
+        // Front arms dive under braking, rear arms squat under power - a small,
+        // position-only offset from each arm's captured rest pose (no
+        // re-derivation of the arm's endpoints/rotation/scale, which would need
+        // the original a/b anchor points CreateSuspensionArm computed and never
+        // exposes) so it reads as suspension travel without touching the wheel
+        // or chassis transforms driven elsewhere.
+        void EnsureSuspensionArms()
+        {
+            if (suspensionArmsSearched)
+            {
+                return;
+            }
+
+            suspensionArmsSearched = true;
+            Transform[] all = GetComponentsInChildren<Transform>();
+            int count = 0;
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].name == "suspension arm")
+                {
+                    count++;
+                }
+            }
+
+            if (count == 0)
+            {
+                return;
+            }
+
+            suspensionArms = new Transform[count];
+            suspensionArmRestPositions = new Vector3[count];
+            int index = 0;
+            for (int i = 0; i < all.Length; i++)
+            {
+                if (all[i].name == "suspension arm")
+                {
+                    suspensionArms[index] = all[i];
+                    suspensionArmRestPositions[index] = all[i].localPosition;
+                    index++;
+                }
+            }
+
+            suspensionArmsCaptured = true;
+        }
+
+        void UpdateSuspensionFlex()
+        {
+            EnsureSuspensionArms();
+            if (!suspensionArmsCaptured)
+            {
+                return;
+            }
+
+            float dive = vehicle.EffectiveBrake * 0.03f;
+            float squat = vehicle.EffectiveThrottle * 0.022f;
+            for (int i = 0; i < suspensionArms.Length; i++)
+            {
+                Transform arm = suspensionArms[i];
+                if (arm == null)
+                {
+                    continue;
+                }
+
+                // Front arms were built at positive local Z, rear at negative
+                // (matches every other front/rear split in this file, e.g. the
+                // wheel pivots and front wing).
+                Vector3 rest = suspensionArmRestPositions[i];
+                float droop = rest.z > 0f ? -dive : -squat;
+                Vector3 target = rest + new Vector3(0f, droop, 0f);
+                arm.localPosition = Vector3.Lerp(arm.localPosition, target, Time.deltaTime * 8f);
+            }
+        }
+
+        // One-time material tuning pass so paint / carbon / technical-metal /
+        // caliper-metal read as genuinely distinct finishes instead of landing
+        // in the same mid-metallic/mid-gloss band RaceManager's base
+        // CreateMaterial calls default to. Every material touched here is
+        // unique per car (driverName-prefixed in RaceManager, not literally
+        // shared across the grid) so tweaking the shared instance only affects
+        // this car, the same safety property UpdateWetBodySheen already relies on.
+        void ApplyMaterialContrastPass()
+        {
+            if (materialContrastSearched)
+            {
+                return;
+            }
+
+            materialContrastSearched = true;
+
+            // Carbon floor/diffuser: low metallic, pushed glossier for a
+            // wet-look clearcoat weave rather than a flat matte panel.
+            TuneMaterialContrast("carbon floor", 0.3f, 0.78f);
+
+            // Livery accent flash (shared with every other secondary-colour
+            // panel - endplates, rear wing, halo rim, engine stripe): a
+            // metallic-flake paint finish to contrast against the primary's
+            // plainer gloss.
+            TuneMaterialContrast("left livery flash", 0.32f, 0.88f);
+
+            // Technical/detail parts (shared across wing pylons, halo stays,
+            // bargeboards, steering wheel): brushed metal rather than painted
+            // plastic.
+            TuneMaterialContrast("steering wheel", 0.7f, 0.6f);
+        }
+
+        void TuneMaterialContrast(string childName, float metallic, float smoothness)
+        {
+            Transform found = transform.Find(childName);
+            if (found == null)
+            {
+                return;
+            }
+
+            Renderer foundRenderer = found.GetComponent<Renderer>();
+            if (foundRenderer == null || foundRenderer.sharedMaterial == null)
+            {
+                return;
+            }
+
+            foundRenderer.sharedMaterial.SetFloat("_Metallic", metallic);
+            foundRenderer.sharedMaterial.SetFloat("_Glossiness", smoothness);
+        }
+
+        // Center-lock hub cap + a small lug ring on each wheel, built once the
+        // wheel pivots are known. Mirrors RaceManager.CreateWheel's own "wheel
+        // cover" cylinder convention (outboard X offset off the pivot, Euler
+        // (0,0,90) rotation so the cylinder's height axis lies along the axle)
+        // so it sits flush on the outboard face and spins for free with the
+        // pivot UpdateWheels already rotates - no extra per-frame work needed.
+        void EnsureWheelHubDetail()
+        {
+            if (wheelHubDetailBuilt)
+            {
+                return;
+            }
+
+            if (frontLeft == null || frontRight == null || rearLeft == null || rearRight == null)
+            {
+                return;
+            }
+
+            wheelHubDetailBuilt = true;
+            Material hubCapMaterial = CreateMaterial("wheel hub cap material", new Color(0.045f, 0.045f, 0.05f), 0.85f, 0.55f);
+            Material lugMaterial = CreateMaterial("wheel hub lug material", new Color(0.72f, 0.73f, 0.76f), 0.9f, 0.6f);
+            BuildWheelHub(frontLeft, hubCapMaterial, lugMaterial);
+            BuildWheelHub(frontRight, hubCapMaterial, lugMaterial);
+            BuildWheelHub(rearLeft, hubCapMaterial, lugMaterial);
+            BuildWheelHub(rearRight, hubCapMaterial, lugMaterial);
+        }
+
+        static void BuildWheelHub(Transform pivot, Material hubCapMaterial, Material lugMaterial)
+        {
+            if (pivot == null)
+            {
+                return;
+            }
+
+            float outboard = pivot.localPosition.x < 0f ? -0.29f : 0.29f;
+
+            GameObject hubCap = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            hubCap.name = "wheel hub cap";
+            hubCap.transform.SetParent(pivot, false);
+            hubCap.transform.localPosition = new Vector3(outboard, 0f, 0f);
+            hubCap.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+            hubCap.transform.localScale = new Vector3(0.16f, 0.02f, 0.16f);
+            hubCap.GetComponent<Renderer>().sharedMaterial = hubCapMaterial;
+            Collider hubCollider = hubCap.GetComponent<Collider>();
+            if (hubCollider != null)
+            {
+                Destroy(hubCollider);
+            }
+
+            // Small lug nuts ring the hub between the cap and the rim's outer
+            // edge - spheres rather than oriented cubes so there's no rotation
+            // math to get subtly wrong per lug, just a radius and an angle.
+            const int lugCount = 5;
+            for (int i = 0; i < lugCount; i++)
+            {
+                float angle = i * (360f / lugCount) * Mathf.Deg2Rad;
+                GameObject lug = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                lug.name = "wheel hub lug";
+                lug.transform.SetParent(pivot, false);
+                lug.transform.localPosition = new Vector3(outboard * 1.05f, Mathf.Cos(angle) * 0.11f, Mathf.Sin(angle) * 0.11f);
+                lug.transform.localScale = new Vector3(0.028f, 0.028f, 0.028f);
+                lug.GetComponent<Renderer>().sharedMaterial = lugMaterial;
+                Collider lugCollider = lug.GetComponent<Collider>();
+                if (lugCollider != null)
+                {
+                    Destroy(lugCollider);
+                }
+            }
+        }
+
+        // This file otherwise reaches into RaceManager-built materials by name
+        // rather than creating its own, except for the skid trail material
+        // below - mirrors RaceManager.CreateMaterial's own two overloads
+        // (Standard shader, _Metallic/_Glossiness, optional _EmissionColor) so
+        // any new procedural detail built here follows the same convention.
+        static Material CreateMaterial(string materialName, Color color, float metallic, float smoothness)
+        {
+            Material material = new Material(Shader.Find("Standard"));
+            material.name = materialName;
+            material.color = color;
+            material.SetFloat("_Metallic", metallic);
+            material.SetFloat("_Glossiness", smoothness);
+            return material;
+        }
+
+        static Material CreateMaterial(string materialName, Color color, float metallic, float smoothness, Color emission)
+        {
+            Material material = CreateMaterial(materialName, color, metallic, smoothness);
+            if (emission.r > 0f || emission.g > 0f || emission.b > 0f)
+            {
+                material.EnableKeyword("_EMISSION");
+                material.SetColor("_EmissionColor", emission);
+            }
+
+            return material;
+        }
+
         // A flat-spotted tyre thumps once per revolution rather than smoothly
         // vibrating - the bump is synced to wheelSpinAngle (the same angle driving
         // the visible spin in UpdateWheels) via a rectified sine, so it always lands
@@ -796,7 +1122,35 @@ namespace LocalFormulaRacing
             bool underLoad = engineLoad > 0.7f && speedKph > 25f;
             SetRate(heatHaze, underLoad ? Mathf.Lerp(3f, 12f, Mathf.InverseLerp(0.7f, 1f, engineLoad)) : 0f);
 
+            UpdateKerbSparks(speedKph);
             UpdateDamageEffects();
+        }
+
+        // Kerb strikes and a heavily scraped/cracked floor throw a scatter of
+        // sparks off the skid plate at real speed - reuses the same spark
+        // emitter as collisions/damage bursts (fixed at floor height) rather
+        // than a new system, just driven by a continuous rate instead of the
+        // one-off Emit() bursts those use. Position is re-pinned to the floor
+        // each time this fires a rate above zero since OnCollisionEnter/
+        // UpdateDamageEffects both relocate this same emitter to a world-space
+        // contact point for their one-off bursts.
+        void UpdateKerbSparks(float speedKph)
+        {
+            if (sparks == null)
+            {
+                return;
+            }
+
+            bool kerbSparking = vehicle.IsOnKerb && speedKph > 130f;
+            float floorScrape = vehicle.Damage != null ? Mathf.Clamp01(vehicle.Damage.floor) : 0f;
+            float rate = kerbSparking ? Mathf.Lerp(4f, 24f, Mathf.InverseLerp(130f, 320f, speedKph)) : 0f;
+            rate += floorScrape * Mathf.InverseLerp(80f, 300f, speedKph) * 14f;
+            if (rate > 0f)
+            {
+                sparks.transform.localPosition = new Vector3(0f, 0.22f, 0f);
+            }
+
+            SetRate(sparks, rate);
         }
 
         // Accumulated damage above ~60% trails a progressively thicker, darker

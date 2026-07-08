@@ -30,6 +30,7 @@ namespace LocalFormulaRacing
         Vector3 velocitySmoothed;
         float smoothedSpeedKph;
         float previousRawSpeedKph = -1f;
+        float previousDamagePercent = -1f;
         float rollAngle;
         float impulseShake;
         float clatterShake;
@@ -154,6 +155,23 @@ namespace LocalFormulaRacing
 
             previousRawSpeedKph = rawSpeedKph;
 
+            // The speed-drop check above catches a hard, sudden hit but misses
+            // a sustained scrape along a wall/barrier at fairly steady speed,
+            // or a bottomed-out floor - both still climb Damage.OverallPercent,
+            // so a meaningful jump there earns its own (smaller) impulse rather
+            // than the crash going visually silent just because road speed
+            // barely moved.
+            if (targetVehicle != null && targetVehicle.Damage != null)
+            {
+                float damagePercent = targetVehicle.Damage.OverallPercent;
+                if (previousDamagePercent >= 0f && damagePercent > previousDamagePercent + 3f)
+                {
+                    AddImpulseShake(Mathf.Clamp(0.02f + (damagePercent - previousDamagePercent) * 0.0022f, 0.02f, 0.11f));
+                }
+
+                previousDamagePercent = damagePercent;
+            }
+
             modeBlend = Mathf.Min(1f, modeBlend + dt / ModeBlendDuration);
             float blendEase = Mathf.SmoothStep(0f, 1f, modeBlend);
 
@@ -163,8 +181,15 @@ namespace LocalFormulaRacing
             if (mode == 2)
             {
                 // TV cam drifts alongside the racing line rather than sitting glued
-                // overhead, which reads much more like a broadcast crane.
-                desired = target.position + offset + velocitySmoothed * 0.22f;
+                // overhead, which reads much more like a broadcast crane. A slow,
+                // low-amplitude Perlin sway on top of that sells a human operator
+                // holding the rig rather than a perfectly locked-off camera.
+                float swayTime = Time.unscaledTime;
+                Vector3 craneSway = new Vector3(
+                    (Mathf.PerlinNoise(swayTime * 0.12f, 3.7f) - 0.5f) * 0.7f,
+                    (Mathf.PerlinNoise(5.1f, swayTime * 0.09f) - 0.5f) * 0.4f,
+                    0f);
+                desired = target.position + offset + velocitySmoothed * 0.22f + craneSway;
                 desiredRotation = Quaternion.LookRotation(target.position + velocitySmoothed * 0.55f + Vector3.up * 0.5f - desired, Vector3.up);
             }
             else
@@ -243,7 +268,10 @@ namespace LocalFormulaRacing
                 // Same curved punch as the shake offset below (see ImpactPunchCurve)
                 // so a solid hit snaps the lens in noticeably harder than a graze,
                 // instead of the old flat linear pull that barely told them apart.
-                fovTarget += smoothedDrsBoost * 2.6f - ImpactPunchCurve(impulseShake) * 26f;
+                // A locked tyre pulls the lens in slightly too - a mild tunnel-vision
+                // cue riding on top of the existing DRS widen/impact punch terms.
+                float lockupSeverity = targetVehicle != null && targetVehicle.Tyres != null ? targetVehicle.Tyres.LockupSeverity : 0f;
+                fovTarget += smoothedDrsBoost * 2.6f - ImpactPunchCurve(impulseShake) * 26f - lockupSeverity * 3.2f;
             }
 
             float fovBlendRate = Mathf.Lerp(1.4f, 3f, blendEase);
@@ -251,6 +279,12 @@ namespace LocalFormulaRacing
             followCamera.fieldOfView = Mathf.Clamp(desiredFov, 40f, 100f);
             followCamera.transform.localPosition = Vector3.zero;
             followCamera.transform.localRotation = Quaternion.identity;
+
+            // Weather can transition mid-session (see VehicleController.SetWeather);
+            // keep the camera's clear colour synced every frame rather than only
+            // once at Initialize, so a dry-to-wet change doesn't leave the old fog
+            // tint baked into the background between cars/skybox-less tracks.
+            followCamera.backgroundColor = RenderSettings.fogColor;
         }
 
         // Shake only when the situation earns it: very high speed, heavy braking,
@@ -366,7 +400,11 @@ namespace LocalFormulaRacing
                 clatterOffset = new Vector3(clatterX, clatterY, 0f) * clatterShake * 1.1f;
             }
 
-            return (rumbleOffset + judderOffset + offTrackOffset + impactOffset + clatterOffset) * shakeStrength * 1.6f;
+            // Nose cam sits low and close to the tarmac, so the same underlying
+            // shake should read stronger there; cockpit is meant to feel more
+            // anchored/isolated from the chassis, so it gets a touch less.
+            float modeShakeMultiplier = mode == 4 ? 1.22f : (mode == 1 ? 0.85f : 1f);
+            return (rumbleOffset + judderOffset + offTrackOffset + impactOffset + clatterOffset) * shakeStrength * 1.6f * modeShakeMultiplier;
         }
 
         // Curves a raw impulseShake reading (0-MaxImpulseShake) so small taps
