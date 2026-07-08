@@ -706,11 +706,17 @@ namespace LocalFormulaRacing
             // carrying meaningfully more speed at the same point on track than
             // before, so the recovery pull needs to start building earlier to
             // still catch it in time.
-            float edgeMarginDistance = Mathf.Lerp(2.4f, 3.6f, Mathf.Clamp01(speedKph / 260f));
+            // Barrier-avoidance fix round 2: widened further (was 2.4-3.6) - the AI
+            // now legitimately carries speed close to straight-line pace through
+            // genuine fast corners, closing the reaction window this correction has
+            // to actually catch a line error before the barrier. Starting further
+            // out and reaching full strength sooner gives it more real time/distance
+            // to correct at the speeds it's now carrying.
+            float edgeMarginDistance = Mathf.Lerp(3.2f, 5.2f, Mathf.Clamp01(speedKph / 280f));
             float edgeMargin = track.HalfWidthAt(progress.distance) - edgeMarginDistance;
             float edgeOvershoot = Mathf.Abs(progress.lateralDistance) - edgeMargin;
             float edgeRecovery = edgeOvershoot > 0f
-                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.15f, 0.95f, Mathf.Clamp01(edgeOvershoot / edgeMarginDistance))
+                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.22f, 1f, Mathf.Clamp01(edgeOvershoot / edgeMarginDistance))
                 : 0f;
             command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
 
@@ -727,8 +733,14 @@ namespace LocalFormulaRacing
             // and scaled further by skillTier so Hard/Expert genuinely trail the
             // brakes deeper into the zone instead of only reaching a higher target
             // speed at the same conservative brake point.
+            // Entry-speed fix: pushed again (was 11.5-18 base / 1.0-1.15 skill-scaled)
+            // so the brake zone itself starts later for the same apex target,
+            // carrying more speed deeper into corner entry - this is a genuinely
+            // separate lever from the apex target speed above (which is already
+            // capped at straight-line pace), so it doesn't reopen the overspeed/
+            // wall-crash bug that cap fixed.
             float brakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
-            float decelReference = Mathf.Lerp(11.5f, 18f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1f, 1.15f, skillTier);
+            float decelReference = Mathf.Lerp(13f, 21f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1f, 1.22f, skillTier);
             // brakeConfidenceMultiplier folds in on top of brakeDistanceMultiplier so
             // Hard/Expert genuinely brake later/shorter, not just via the weaker base
             // multiplier alone: >1 shortens the effective distance (brakes later),

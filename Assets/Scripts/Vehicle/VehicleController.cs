@@ -750,9 +750,20 @@ namespace LocalFormulaRacing
             // speedFactor's max (1.0 is reached by ~62kph already, well above a real
             // hairpin's actual radius requirement) - without this, cars physically
             // could not tighten their arc enough and ran wide through the tightest
-            // corners no matter how low a speed the driver braked to. Fades out by
-            // 120kph so medium/fast corner handling is untouched.
-            float tightCorneringBoost = Mathf.Lerp(1.4f, 1f, Mathf.Clamp01((speedKph - 35f) / 85f));
+            // corners no matter how low a speed the driver braked to.
+            // Medium/fast-corner extension: this used to fade out completely by
+            // 120kph, so a car carrying real medium/fast-corner speed (which the AI
+            // now legitimately targets, up to ~100% of straight-line pace) had no
+            // extra turning margin at all beyond the base curve - any small line
+            // error clipped the barrier instead of being correctable. Extended into
+            // a second, gentler taper through the medium-speed range instead of
+            // snapping straight to 1x, so cars can actually hold a tighter line at
+            // the higher speeds they're now carrying without needing to slow down
+            // further. Still converges to 1x (no change at all) by ~280kph, so
+            // genuine high-speed/straight-line stability is untouched.
+            float tightCorneringBoost = speedKph <= 120f
+                ? Mathf.Lerp(1.4f, 1.12f, Mathf.Clamp01((speedKph - 35f) / 85f))
+                : Mathf.Lerp(1.12f, 1f, Mathf.Clamp01((speedKph - 120f) / 160f));
             turnRate *= tightCorneringBoost;
             turnRate *= Mathf.Lerp(1.04f, 0.72f, UndersteerAmount);
             float steerAmount = activeCommand.steer * turnRate * dt;
