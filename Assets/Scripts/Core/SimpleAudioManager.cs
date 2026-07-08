@@ -47,6 +47,12 @@ namespace LocalFormulaRacing
         AudioClip collisionCarClip;
         AudioClip collisionWallClip;
         AudioClip drsClip;
+        // Pit-stop tyre-change cues: a rattling "wheel gun" burst per corner,
+        // a lower thud for the car dropping off the jacks, and a rising sweep
+        // for the release/limiter-still-on departure.
+        AudioClip pitGunClip;
+        AudioClip pitJackDownClip;
+        AudioClip pitReleaseClip;
         AudioClip rainClip;
         AudioClip crowdClip;
         AudioClip windClip;
@@ -176,6 +182,33 @@ namespace LocalFormulaRacing
             AudioClip clip = impactType == DamageImpactType.Car ? instance.collisionCarClip : instance.collisionWallClip;
             float volume = Mathf.Clamp01(strength / 16f) * 0.45f * instance.EngineVolume;
             AudioSource.PlayClipAtPoint(clip, position, volume);
+        }
+
+        // Tyre-change animation cues (see VehicleVisuals.BeginPitStopVisual):
+        // a short wheel-gun burst per corner as each tyre is swapped, one jack-
+        // down thud, and a release sweep as the car is sent on its way.
+        public static void PlayPitGun(Vector3 position)
+        {
+            if (instance != null && instance.enabledAudio && instance.pitGunClip != null)
+            {
+                AudioSource.PlayClipAtPoint(instance.pitGunClip, position, 0.3f * instance.EngineVolume);
+            }
+        }
+
+        public static void PlayPitJackDown(Vector3 position)
+        {
+            if (instance != null && instance.enabledAudio && instance.pitJackDownClip != null)
+            {
+                AudioSource.PlayClipAtPoint(instance.pitJackDownClip, position, 0.32f * instance.EngineVolume);
+            }
+        }
+
+        public static void PlayPitRelease(Vector3 position)
+        {
+            if (instance != null && instance.enabledAudio && instance.pitReleaseClip != null)
+            {
+                AudioSource.PlayClipAtPoint(instance.pitReleaseClip, position, 0.28f * instance.EngineVolume);
+            }
         }
 
         public static void PlayDrsAvailable()
@@ -322,6 +355,9 @@ namespace LocalFormulaRacing
             drsClip = CreateTone("drs available", 1320f, 0.08f, 0.55f);
             collisionCarClip = CreateNoise("car contact", 0.1f, 1600f);
             collisionWallClip = CreateNoise("wall contact", 0.16f, 340f);
+            pitGunClip = CreateNoise("pit wheel gun", 0.22f, 2400f);
+            pitJackDownClip = CreateTone("pit jack down", 160f, 0.14f, 0.5f);
+            pitReleaseClip = CreateSweep("pit release", 480f, 900f, 0.16f);
 
             startLightClips = new AudioClip[6];
             for (int i = 0; i < startLightClips.Length; i++)

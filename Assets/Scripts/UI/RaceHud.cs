@@ -1392,8 +1392,9 @@ namespace LocalFormulaRacing
                 case RaceManager.RaceControlState.Restart:
                     if (race.RestartFollowsRedFlag)
                     {
+                        int restartCountdown = Mathf.CeilToInt(race.RestartCountdownSeconds);
                         UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
-                            "RESTART - FORM UP", "Rolling restart after the red flag - hold your grid order", Color.white);
+                            "GRID RESET - RACE RESTART", "Grid reset based on the running order when the flag came out - restarting in " + restartCountdown + "s", Color.white);
                     }
                     else
                     {
@@ -1403,12 +1404,18 @@ namespace LocalFormulaRacing
 
                     break;
                 case RaceManager.RaceControlState.RedFlagged:
+                {
                     // UiFactory.Accent (not AccentAmber) deliberately - the
                     // game's actual red, so a red flag reads as visibly more
                     // severe than an amber caution banner.
+                    int holdCountdown = Mathf.CeilToInt(race.RedFlagTimeRemaining);
+                    string subtitle = holdCountdown > 0
+                        ? race.RedFlagReason + " - race suspended. Restart in " + holdCountdown + "s"
+                        : race.RedFlagReason + " - race suspended.";
                     UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
-                        "RED FLAG - RACE SUSPENDED", race.RedFlagReason + " - bring the car under control", UiFactory.Accent);
+                        "RED FLAG - RACE SUSPENDED", subtitle, UiFactory.Accent);
                     break;
+                }
             }
 
             UpdatePaceCompliancePill(nearLocalYellow);

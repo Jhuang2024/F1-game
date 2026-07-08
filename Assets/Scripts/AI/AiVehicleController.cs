@@ -150,9 +150,17 @@ namespace LocalFormulaRacing
         // correctly still do.
         CornerType ClassifyUpcomingCorner(float apexSeverity, float skillTier)
         {
-            float highSpeedCeiling = Mathf.Lerp(0.25f, 0.30f, skillTier);
-            float mediumCeiling = Mathf.Lerp(0.5f, 0.55f, skillTier);
-            float slowCeiling = Mathf.Lerp(0.75f, 0.72f, skillTier);
+            // Corner-speed pass: the old bands (0.25-0.30 / 0.5-0.55) were
+            // systematically mis-bucketing genuinely fast, flowing corners
+            // (a Copse/Maggotts-style sweep) into the Medium tier, which has
+            // a much lower confidence floor - the AI read as "scared of every
+            // corner" even after the HighSpeed bucket itself was tuned to be
+            // fast, because too few real corners ever landed in that bucket.
+            // Widened further for higher-skill tiers so Hard/Expert commit a
+            // meaningfully larger share of the curve to the confident bands.
+            float highSpeedCeiling = Mathf.Lerp(0.27f, 0.38f, skillTier);
+            float mediumCeiling = Mathf.Lerp(0.52f, 0.62f, skillTier);
+            float slowCeiling = Mathf.Lerp(0.75f, 0.74f, skillTier);
 
             if (apexSeverity < highSpeedCeiling)
             {
@@ -194,18 +202,23 @@ namespace LocalFormulaRacing
             switch (type)
             {
                 case CornerType.HighSpeed:
-                    // Part A.5: ceiling pushed to 98% of straight-line speed at full
-                    // skill (from 94%) and the ease power raised so a high-speed kink
-                    // stays close to flat through most of its severity range, only
-                    // bleeding toward the floor right at the peak - "nearly flat" per
-                    // the brief, not the same curve just with a higher confidence input.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.88f, straightTargetSpeed * Mathf.Lerp(0.94f, 0.98f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(2.6f, 3.4f, skillTier);
+                    // Corner-speed pass (aggressive): ceiling pushed to ~101% of
+                    // straight-line speed at full skill (from 98%) - a true
+                    // high-speed corner should read as barely a lift for a
+                    // confident driver, not a meaningful slowdown - and the ease
+                    // power raised further so the curve stays essentially flat
+                    // across nearly the whole HighSpeed severity band, only
+                    // bleeding toward the floor right at the very top of it.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.92f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.01f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.Medium:
-                    // Materially higher minimum speed floor at full skill (80% vs 72%).
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.64f, straightTargetSpeed * Mathf.Lerp(0.72f, 0.80f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(1.8f, 2.1f, skillTier);
+                    // Materially higher minimum speed floor at full skill (88% vs 80%)
+                    // - this bucket now also catches faster flowing corners pushed
+                    // down from a widened HighSpeed band, so it can no longer read
+                    // as timid either.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.70f, straightTargetSpeed * Mathf.Lerp(0.80f, 0.88f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(2.0f, 2.4f, skillTier);
                     break;
                 case CornerType.Slow:
                     floorSpeed = Mathf.Lerp(hairpinSpeedKph * 1.25f, hairpinSpeedKph * 1.4f, apexConfidence);
@@ -588,6 +601,24 @@ namespace LocalFormulaRacing
             previousSeverityHere = severityHere;
 
             float requestedOffset = wobble + lineBias + aggressionOffset + mistakeSteer;
+
+            // Pit-entry fix: steer visibly toward the pit side under completely
+            // normal driving well before the guided/kinematic entry phase can
+            // ever trigger (RaceManager.BeginPitEntry, gated on track distance
+            // alone) - without this the car drove the ordinary racing line
+            // right up to that distance threshold and the guided system then
+            // had to silently snap it sideways, reading exactly like "the pit
+            // animation starts before the car is anywhere near pit entry".
+            // Blended in only across the approach window and only while a pit
+            // stop is actually requested and not yet underway, so a car simply
+            // passing the pit entry on a normal lap never gets pulled off-line.
+            if (participant.pitPhase == PitPhase.None && vehicle.PitRequested && track.IsInPitApproach(progress.normalized))
+            {
+                float approachBlend = Mathf.Clamp01((progress.normalized - 0.78f) / (0.955f - 0.78f));
+                float pitApproachTargetLateral = track.HalfWidthAt(progress.distance) * 0.82f;
+                requestedOffset = Mathf.Lerp(requestedOffset, pitApproachTargetLateral, approachBlend * approachBlend);
+            }
+
             // Opening seconds: hold the assigned fan-out lane, blending back to the
             // racing line as the field strings out.
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.RaceElapsed < OpeningFanDuration)
@@ -623,10 +654,16 @@ namespace LocalFormulaRacing
             // still keys off "how close to the true edge", not a stale flat distance
             // that would fire early and fight the extra room a widened hairpin exists
             // to give the AI in the first place.
-            float edgeMargin = track.HalfWidthAt(progress.distance) - 2.4f;
+            // Corner-speed pass: margin now widens a little with speed - raising
+            // apex confidence through fast/medium corners means the car can be
+            // carrying meaningfully more speed at the same point on track than
+            // before, so the recovery pull needs to start building earlier to
+            // still catch it in time.
+            float edgeMarginDistance = Mathf.Lerp(2.4f, 3.6f, Mathf.Clamp01(speedKph / 260f));
+            float edgeMargin = track.HalfWidthAt(progress.distance) - edgeMarginDistance;
             float edgeOvershoot = Mathf.Abs(progress.lateralDistance) - edgeMargin;
             float edgeRecovery = edgeOvershoot > 0f
-                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.15f, 0.95f, Mathf.Clamp01(edgeOvershoot / 2.4f))
+                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.15f, 0.95f, Mathf.Clamp01(edgeOvershoot / edgeMarginDistance))
                 : 0f;
             command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
 

@@ -175,6 +175,29 @@ namespace LocalFormulaRacing
         bool tyreTreadTextureApplied;
         static Texture2D sharedTreadTexture;
 
+        // Pit-stop tyre-change animation: a real, visible swap synced to the
+        // service timer instead of the car just sitting still for a few
+        // seconds. Four simple procedural "wheel gun" props (one per corner)
+        // pop in, the tyre meshes shrink away ("old set pulled") then pop back
+        // to full size with the new compound's look already applied ("fresh
+        // set fitted"), and the props retract - all driven off one 0-1
+        // progress value so the whole thing always finishes exactly when the
+        // service timer does, however long that stop happens to be.
+        bool pitStopAnimActive;
+        float pitStopAnimDuration;
+        float pitStopAnimTimer;
+        int pitStopAudioPhase;
+        Transform[] pitStopWheelTyres;
+        bool pitStopWheelTyresFound;
+        GameObject[] pitStopGunProps;
+        static readonly Vector3[] PitStopWheelLocalOffsets = new Vector3[]
+        {
+            new Vector3(-0.62f, 0f, 1.35f),
+            new Vector3(0.62f, 0f, 1.35f),
+            new Vector3(-0.62f, 0f, -1.35f),
+            new Vector3(0.62f, 0f, -1.35f)
+        };
+
         static readonly Color GlowColor = new Color(1f, 0.06f, 0.04f);
         static readonly Color DiscGlowColor = new Color(1f, 0.32f, 0.05f);
         static readonly Color DiscCoolColor = new Color(0.42f, 0.05f, 0.02f);
@@ -196,6 +219,164 @@ namespace LocalFormulaRacing
             frontRight = fr;
             rearLeft = rl;
             rearRight = rr;
+        }
+
+        // Called once by RaceManager.BeginPitStop with the exact same duration
+        // the stationary service timer uses, so the animation always finishes
+        // in lockstep with the gameplay stop regardless of how long it rolls
+        // (1.8-3.0s per the pit-stop brief).
+        public void BeginPitStopVisual(float duration)
+        {
+            pitStopAnimActive = true;
+            pitStopAnimDuration = Mathf.Max(0.4f, duration);
+            pitStopAnimTimer = 0f;
+            pitStopAudioPhase = 0;
+            SpawnPitStopGunProps();
+        }
+
+        void EnsurePitStopWheelTyresFound()
+        {
+            if (pitStopWheelTyresFound)
+            {
+                return;
+            }
+
+            pitStopWheelTyresFound = true;
+            pitStopWheelTyres = new Transform[4];
+            Transform[] pivots = { frontLeft, frontRight, rearLeft, rearRight };
+            for (int i = 0; i < 4; i++)
+            {
+                pitStopWheelTyres[i] = pivots[i] != null ? pivots[i].Find("open wheel") : null;
+            }
+        }
+
+        void SpawnPitStopGunProps()
+        {
+            EnsurePitStopWheelTyresFound();
+            if (pitStopGunProps == null)
+            {
+                pitStopGunProps = new GameObject[4];
+            }
+
+            Transform[] pivots = { frontLeft, frontRight, rearLeft, rearRight };
+            for (int i = 0; i < 4; i++)
+            {
+                if (pitStopGunProps[i] != null || pivots[i] == null)
+                {
+                    continue;
+                }
+
+                // A plain generic cylinder standing in for a wheel-gun/mechanic
+                // prop - deliberately simple geometry, no branded/real-world
+                // pit-crew asset, just enough to read as "someone is working on
+                // this corner" from the chase camera.
+                GameObject gun = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                gun.name = "Pit stop wheel gun";
+                Object.Destroy(gun.GetComponent<Collider>());
+                gun.transform.SetParent(transform, false);
+                gun.transform.localPosition = pivots[i].localPosition + PitStopWheelLocalOffsets[i];
+                gun.transform.localRotation = Quaternion.Euler(0f, 0f, 90f);
+                gun.transform.localScale = new Vector3(0.11f, 0.34f, 0.11f);
+                Renderer renderer = gun.GetComponent<Renderer>();
+                if (renderer != null)
+                {
+                    renderer.sharedMaterial = new Material(Shader.Find("Standard"));
+                    renderer.sharedMaterial.color = new Color(0.85f, 0.1f, 0.08f);
+                }
+
+                pitStopGunProps[i] = gun;
+            }
+        }
+
+        void ClearPitStopGunProps()
+        {
+            if (pitStopGunProps == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < pitStopGunProps.Length; i++)
+            {
+                if (pitStopGunProps[i] != null)
+                {
+                    Object.Destroy(pitStopGunProps[i]);
+                    pitStopGunProps[i] = null;
+                }
+            }
+        }
+
+        void UpdatePitStopAnimation()
+        {
+            if (!pitStopAnimActive)
+            {
+                return;
+            }
+
+            EnsurePitStopWheelTyresFound();
+            pitStopAnimTimer += Time.deltaTime;
+            float progress = Mathf.Clamp01(pitStopAnimTimer / pitStopAnimDuration);
+
+            // Old set off (0-40%), swap moment (~45%), new set on (45-75%),
+            // props clear and settle (75-100%) - always relative to progress,
+            // so a 1.8s and a 3.0s stop both read the same shape, just faster
+            // or slower.
+            float wheelScale;
+            if (progress < 0.4f)
+            {
+                wheelScale = Mathf.Lerp(1f, 0.1f, progress / 0.4f);
+            }
+            else if (progress < 0.75f)
+            {
+                wheelScale = Mathf.Lerp(0.1f, 1f, (progress - 0.4f) / 0.35f);
+            }
+            else
+            {
+                wheelScale = 1f;
+            }
+
+            if (pitStopWheelTyres != null)
+            {
+                for (int i = 0; i < pitStopWheelTyres.Length; i++)
+                {
+                    if (pitStopWheelTyres[i] != null)
+                    {
+                        pitStopWheelTyres[i].localScale = Vector3.one * wheelScale;
+                    }
+                }
+            }
+
+            if (pitStopAudioPhase == 0 && progress >= 0.02f)
+            {
+                pitStopAudioPhase = 1;
+                SimpleAudioManager.PlayPitGun(transform.position);
+            }
+            else if (pitStopAudioPhase == 1 && progress >= 0.42f)
+            {
+                pitStopAudioPhase = 2;
+                // New set going on - a second, shorter gun burst per corner.
+                SimpleAudioManager.PlayPitGun(transform.position + transform.forward * 0.1f);
+            }
+            else if (pitStopAudioPhase == 2 && progress >= 0.8f)
+            {
+                pitStopAudioPhase = 3;
+                SimpleAudioManager.PlayPitJackDown(transform.position);
+            }
+
+            if (progress >= 1f)
+            {
+                pitStopAnimActive = false;
+                ClearPitStopGunProps();
+                if (pitStopWheelTyres != null)
+                {
+                    for (int i = 0; i < pitStopWheelTyres.Length; i++)
+                    {
+                        if (pitStopWheelTyres[i] != null)
+                        {
+                            pitStopWheelTyres[i].localScale = Vector3.one;
+                        }
+                    }
+                }
+            }
         }
 
         public void SetBrakeGlowMaterial(Material discMaterial)
@@ -221,6 +402,7 @@ namespace LocalFormulaRacing
             }
 
             UpdateWheels();
+            UpdatePitStopAnimation();
             UpdateFlatSpotWobble();
             UpdateBrakeGlow();
             UpdateRainLight();

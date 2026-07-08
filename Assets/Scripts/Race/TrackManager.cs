@@ -674,6 +674,7 @@ namespace LocalFormulaRacing
             BuildTimingGantries();
             BuildAdvertisingHoardings();
             BuildPitLane();
+            BuildPitLaneDividerFence();
             BuildStartGantry();
             BuildFinishLinePresentation();
             BuildScenery();
@@ -2628,6 +2629,15 @@ namespace LocalFormulaRacing
         {
             public float distance;
             public float angle;
+            // Arc length (metres) of the whole above-threshold run this corner
+            // was detected from - 0 for a sharp, single-vertex corner, wider
+            // for a spread-out multi-apex complex. IsNearCorner adds half of
+            // this to its own radius so a wide corner's fencing/containment
+            // coverage reaches its true entry and exit, while single-point
+            // consumers (braking boards, marbles, rubber build-up, etc.) can
+            // simply keep using `distance` as one representative point exactly
+            // like before.
+            public float span;
         }
 
         void BuildContinuousEdgeBarriers()
@@ -3025,25 +3035,210 @@ namespace LocalFormulaRacing
             return Runtime.PitLaneLateral + 15f + 5.5f + 2.5f;
         }
 
+        // ---------- pit lane / track divider ----------
+        // The old barrier layout only ever fenced the pit complex's OUTER edge
+        // (BuildBarrierSegmentForSide fans the main right-side barrier out to
+        // PitOuterLateral through the corridor) - there was never anything at
+        // all between the racing surface's own right edge and the pit lane's
+        // driving surface, so a car could freely drift between the two with no
+        // physical or visual boundary. This adds that missing inner wall: a
+        // continuous divider that runs only through the flat pit corridor
+        // (PitCorridorStartNormalized..PitZoneExitRampStart, i.e. exactly
+        // where PitZoneBlend==1 and the outer wall has fully committed to
+        // being the pit complex's own wall) so the entry/exit ramp zones on
+        // either end - where PitZoneBlend eases from 0 to 1 - remain the only
+        // way through, reading as deliberate openings rather than a random gap.
+        // The pit lane's own paved surface (BuildPitLane) is 13.5m wide centred
+        // on PitLaneLateral, so its inner edge sits at roadHalfWidth+2.45 -
+        // this divider sits just inside that, leaving a small intentional
+        // runoff strip on the track side that the wall itself immediately
+        // encloses (never a bare open gap).
+        const float PitDividerLateral = 2.0f;
+        const float PitDividerHalfWidth = 0.3f;
+        const float PitDividerStep = 10f;
+        const float PitDividerOverlap = 2.5f;
+
+        void BuildPitLaneDividerFence()
+        {
+            if (Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            float startDistance = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
+            float endDistance = Runtime.length * PitZoneExitRampStart;
+            float span = endDistance - startDistance;
+            if (span < 0f)
+            {
+                span += Runtime.length;
+            }
+
+            for (float d = 0f; d < span; d += PitDividerStep)
+            {
+                float distance = Runtime.WrapDistance(startDistance + d);
+                CreatePitDividerSegment(distance, PitDividerStep, PitDividerStep + PitDividerOverlap);
+            }
+        }
+
+        void CreatePitDividerSegment(float distance, float step, float segmentLength)
+        {
+            Vector3 a;
+            Vector3 b;
+            Vector3 mid;
+            Vector3 forward;
+            Vector3 right;
+            Vector3 discard;
+            Runtime.SampleAtDistance(distance, out a, out discard, out right);
+            Runtime.SampleAtDistance(distance + step, out b, out discard, out right);
+            Runtime.SampleAtDistance(distance + step * 0.5f, out mid, out forward, out right);
+
+            Vector3 chord = b - a;
+            Vector3 chordForward = chord.sqrMagnitude > 0.01f ? chord.normalized : forward;
+            float lateral = Runtime.HalfWidthAt(distance + step * 0.5f) + PitDividerLateral;
+            Vector3 basePosition = mid + right * lateral;
+
+            GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            wall.name = "Pit lane divider wall";
+            wall.transform.SetParent(transform);
+            Vector3 scale = new Vector3(PitDividerHalfWidth * 2f, 1.05f, segmentLength);
+            wall.transform.localScale = scale;
+            wall.GetComponent<Renderer>().sharedMaterial = barrierMaterial;
+            if (!TryPlaceSolidObstacle(wall, "pit-divider", basePosition, chordForward, scale, 0.52f, PitDividerLateral * 0.5f))
+            {
+                return;
+            }
+
+            Vector3 placed = wall.transform.position;
+            Quaternion rotation = Quaternion.LookRotation(wall.transform.forward, Vector3.up);
+            CreateVisualBox("Pit divider hazard stripe", placed + Vector3.up * 0.58f, rotation, new Vector3(PitDividerHalfWidth * 2f + 0.02f, 0.14f, segmentLength - 0.2f), flagYellowMaterial);
+        }
+
         // ---------- corner severity ----------
         // Shared with the braking-board placement in BuildTrackMarkers so "high-risk
         // corner" means the same thing everywhere in this file.
+        //
+        // Fencing-gap root cause fix: this used to measure only the instantaneous
+        // angle between three CONSECUTIVE raw centerline points. That reads fine
+        // for a corner whose whole direction change is concentrated at one sharp
+        // vertex, but a real tight, multi-apex complex (Silverstone's Village/
+        // The Loop, Baku's Castle section) is built from several moderate
+        // anchor-to-anchor turns strung together and then smoothed - each
+        // individual fine segment's angle can sit well under even a lenient
+        // threshold while the corner as a whole is a genuine hairpin-grade turn,
+        // and how finely that turn gets subdivided (a per-track constant) only
+        // makes the effect worse, never better. Sampling at a fixed real-world
+        // arc-length step and summing the turn over a trailing window catches
+        // the true cumulative curvature of the corner regardless of how many
+        // points the underlying spline happens to be built from.
+        const float CornerSampleStepMeters = 8f;
+        const float CornerWindowSpanMeters = 56f;
+
         List<CornerInfo> DetectCorners(float angleThreshold)
         {
             List<CornerInfo> corners = new List<CornerInfo>();
-            for (int i = 0; i < Runtime.centerLine.Count; i++)
+            float length = Runtime.length;
+            if (length <= 1f)
             {
-                Vector3 current = Runtime.centerLine[i];
-                Vector3 next = Runtime.centerLine[(i + 1) % Runtime.centerLine.Count];
-                Vector3 afterNext = Runtime.centerLine[(i + 2) % Runtime.centerLine.Count];
-                float angle = Vector3.Angle((next - current).normalized, (afterNext - next).normalized);
-                if (angle > angleThreshold)
+                return corners;
+            }
+
+            int sampleCount = Mathf.Clamp(Mathf.RoundToInt(length / CornerSampleStepMeters), 12, 2000);
+            int windowSamples = Mathf.Max(2, Mathf.RoundToInt(CornerWindowSpanMeters / (length / sampleCount)));
+
+            Vector3[] forwards = new Vector3[sampleCount];
+            for (int i = 0; i < sampleCount; i++)
+            {
+                float d = length * i / sampleCount;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                forwards[i] = forward;
+            }
+
+            // Cumulative turn accumulated by the windowSamples segments
+            // immediately behind sample i, then collapse contiguous runs of
+            // samples that clear the threshold into a single CornerInfo at the
+            // run's peak - so a wide multi-apex complex still reports as one
+            // corner for IsNearCorner's radius-based lookup, not one per sample.
+            float[] cumulative = new float[sampleCount];
+            for (int i = 0; i < sampleCount; i++)
+            {
+                float sum = 0f;
+                for (int w = 0; w < windowSamples; w++)
                 {
-                    corners.Add(new CornerInfo { distance = Runtime.cumulativeDistances[i], angle = angle });
+                    int a = (i - w - 1 + sampleCount * 4) % sampleCount;
+                    int b = (i - w + sampleCount * 4) % sampleCount;
+                    sum += Vector3.Angle(forwards[a], forwards[b]);
+                }
+
+                cumulative[i] = sum;
+            }
+
+            // One CornerInfo per distinct contiguous above-threshold run, at its
+            // peak - single-point consumers (braking boards, tyre marbles,
+            // rubber build-up, apex cones, gravel traps) all iterate this list
+            // once per real corner exactly like before, so a wide multi-apex
+            // complex must NOT explode into dozens of closely-spaced entries
+            // (that would multiply every one of those per-corner scenery
+            // passes many times over). The run's own physical length is kept
+            // as `span` instead, purely for IsNearCorner (see there) to widen
+            // its containment/fencing radius so a wide corner's entry and exit
+            // still both read as "near a corner" without needing extra entries.
+            int runStart = -1;
+            int runPeakIndex = 0;
+            float runPeakValue = 0f;
+            for (int i = 0; i < sampleCount * 2; i++)
+            {
+                int idx = i % sampleCount;
+                bool above = cumulative[idx] > angleThreshold;
+                if (above)
+                {
+                    if (runStart < 0)
+                    {
+                        runStart = i;
+                        runPeakIndex = idx;
+                        runPeakValue = cumulative[idx];
+                    }
+                    else if (cumulative[idx] > runPeakValue)
+                    {
+                        runPeakIndex = idx;
+                        runPeakValue = cumulative[idx];
+                    }
+                }
+                else if (runStart >= 0)
+                {
+                    float peakDistance = length * runPeakIndex / sampleCount;
+                    float runSpan = Mathf.Min(length, (i - runStart) * length / sampleCount);
+                    if (!ContainsCornerNear(corners, peakDistance, length, CornerWindowSpanMeters * 0.5f))
+                    {
+                        corners.Add(new CornerInfo { distance = peakDistance, angle = runPeakValue, span = runSpan });
+                    }
+
+                    runStart = -1;
+                }
+
+                if (i >= sampleCount && runStart < 0)
+                {
+                    break;
                 }
             }
 
             return corners;
+        }
+
+        bool ContainsCornerNear(List<CornerInfo> corners, float distance, float length, float proximity)
+        {
+            for (int i = 0; i < corners.Count; i++)
+            {
+                float delta = Mathf.Abs(Runtime.WrapDistance(distance - corners[i].distance));
+                if (Mathf.Min(delta, length - delta) < proximity)
+                {
+                    return true;
+                }
+            }
+
+            return false;
         }
 
         bool IsNearCorner(float distance, List<CornerInfo> corners, float radius)
@@ -3052,7 +3247,12 @@ namespace LocalFormulaRacing
             {
                 float delta = Mathf.Abs(Runtime.WrapDistance(distance - corners[i].distance));
                 float wrapped = Mathf.Min(delta, Runtime.length - delta);
-                if (wrapped <= radius)
+                // A wide multi-apex corner's own physical length (span) widens
+                // the effective radius so containment/fencing reaches its true
+                // entry and exit, not just a fixed distance from its peak -
+                // see CornerInfo.span and DetectCorners for why a corner is
+                // represented as one peak point rather than many entries.
+                if (wrapped <= radius + corners[i].span * 0.5f)
                 {
                     return true;
                 }

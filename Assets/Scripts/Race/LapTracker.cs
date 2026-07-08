@@ -108,12 +108,21 @@ namespace LocalFormulaRacing
             }
 
             int forwardDelta = (checkpoint - lastCheckpointIndex + CheckpointCount) % CheckpointCount;
-            if (forwardDelta == 1)
+            // Pit-lane lap-counter fix: a pit-guided car can legitimately advance
+            // a few checkpoint bands in one tick if its guide waypoint has to
+            // correct a small discontinuity (a phase-transition snap within
+            // RaceManager's pit-guidance tolerances, or a red-flag grid
+            // teleport handled separately via ConfigureRaceGridStart) - none of
+            // that should cost the lap. Only what's genuinely ambiguous with
+            // reversing/a real teleport (more than half the checkpoint ring)
+            // still resyncs without credit; every smaller forward step counts
+            // in full so pit lane traversal can never under-count checkpoints.
+            if (forwardDelta >= 1 && forwardDelta <= CheckpointCount / 2)
             {
                 lastCheckpointIndex = checkpoint;
-                checkpointsPassedThisLap++;
+                checkpointsPassedThisLap += forwardDelta;
             }
-            else if (forwardDelta > 3)
+            else
             {
                 // Teleport, respawn, or reversing: resync without crediting progress.
                 lastCheckpointIndex = checkpoint;

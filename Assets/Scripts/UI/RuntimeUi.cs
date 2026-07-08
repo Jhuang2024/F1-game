@@ -3891,9 +3891,9 @@ namespace LocalFormulaRacing
             for (int i = 0; i < race.RaceControlHistory.Count; i++)
             {
                 RaceManager.RaceControlHistoryEntry entry = race.RaceControlHistory[i];
-                Color labelColor = entry.label == "RED FLAG" ? UiFactory.Accent
+                Color labelColor = (entry.label == "RED FLAG" || entry.label == "GRID RESET") ? UiFactory.Accent
                     : (entry.label == "PENALTY" ? UiFactory.AccentAmber
-                    : (entry.label == "GREEN FLAG" ? UiFactory.AccentGreen : UiFactory.AccentCyan));
+                    : ((entry.label == "GREEN FLAG" || entry.label == "RACE RESTART") ? UiFactory.AccentGreen : UiFactory.AccentCyan));
                 string line = "<color=#" + ColorUtility.ToHtmlStringRGB(labelColor) + ">" + entry.label + "</color>  Lap " + Mathf.Max(1, entry.lap) + "  ·  " + entry.detail;
                 Text row2 = UiFactory.CreateText(list, "Timeline entry " + i, line, 14, UiFactory.TextPrimary, TextAnchor.MiddleLeft);
                 UiFactory.SetSize(row2, ReportContentWidth, 20f);
