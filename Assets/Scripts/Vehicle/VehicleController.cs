@@ -601,8 +601,11 @@ namespace LocalFormulaRacing
                 // before the straight ran out. This range, combined with the
                 // steeper/earlier ramp-in below, is tuned to land in the
                 // requested 15-20 km/h felt-gain range on a typical straight.
+                // ERS drain-rate fix: slowed down from 0.11-0.16 - deploy now costs
+                // meaningfully less battery per second of use, so a deploy lasts
+                // noticeably longer before the car is forced back to harvesting.
                 ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
-                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.11f, 0.16f, activeCommand.throttle));
+                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.085f, 0.12f, activeCommand.throttle));
             }
 
             if (activeCommand.brake > 0.1f)
@@ -610,9 +613,13 @@ namespace LocalFormulaRacing
                 ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.28f, 0.42f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
+            // Non-braking recharge fix: both the off-throttle coasting rate and the
+            // passive trickle rate below are nudged up slightly - only recovery that
+            // happens outside a genuine braking zone (which keeps its own rate above,
+            // untouched), so the battery fills a bit faster through the rest of a lap.
             else if (activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.022f, 0.05f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.027f, 0.06f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ErsDeploying)
@@ -625,7 +632,7 @@ namespace LocalFormulaRacing
                 // than either the braking or coasting rate above (roughly 1/20th of
                 // the braking rate, well under half the coasting rate) so it reads as
                 // a slow background trickle, not a third harvesting mode.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.007f, 0.015f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0085f, 0.018f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
