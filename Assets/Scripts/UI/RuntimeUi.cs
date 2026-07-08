@@ -2059,13 +2059,33 @@ namespace LocalFormulaRacing
             SetTopLeft(numberText.rectTransform, 88f, 30f);
             UiFactory.SetSize(numberText, 160f, 18f);
 
+            // Long-name overflow fix: a handful of drivers (e.g. "Gabriel
+            // Bortoleto", "Carlos Sainz Jr.") don't fit this 160px column at a
+            // flat size 17 - the old fixed size wrapped to a second line that
+            // the fixed 24px-tall box then silently truncated, dropping the
+            // surname entirely and inviting overlap with the team line right
+            // below. Best-fit shrinks the font instead of wrapping, and the
+            // overflow safety net (matching the pattern already used for the
+            // chip labels/radio cards) means a hypothetical name that still
+            // doesn't fit at the floor size bleeds slightly rather than
+            // vanishing.
             Text nameText = UiFactory.CreateText(card, "Driver card name", driver.displayName, 17, Color.white, TextAnchor.UpperLeft);
             nameText.fontStyle = FontStyle.Bold;
+            nameText.resizeTextForBestFit = true;
+            nameText.resizeTextMinSize = 12;
+            nameText.resizeTextMaxSize = 17;
+            nameText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            nameText.verticalOverflow = VerticalWrapMode.Overflow;
             SetTopLeft(nameText.rectTransform, 88f, 48f);
             UiFactory.SetSize(nameText, 160f, 24f);
 
             string teamName = team == null ? driver.teamId : team.name;
             Text teamText = UiFactory.CreateText(card, "Driver card team", teamName, 12, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            teamText.resizeTextForBestFit = true;
+            teamText.resizeTextMinSize = 9;
+            teamText.resizeTextMaxSize = 12;
+            teamText.horizontalOverflow = HorizontalWrapMode.Overflow;
+            teamText.verticalOverflow = VerticalWrapMode.Overflow;
             SetTopLeft(teamText.rectTransform, 88f, 72f);
             UiFactory.SetSize(teamText, 160f, 16f);
 

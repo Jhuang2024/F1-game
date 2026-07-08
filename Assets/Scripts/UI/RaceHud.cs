@@ -734,12 +734,43 @@ namespace LocalFormulaRacing
             return image;
         }
 
+        // Pit card fix: the old Status/Plan rows used CreateHudLabelValueRow,
+        // a half-card-width single-line value column meant for short values
+        // ("1:23.456") - but PitStatusText/BuildPitPlanText return full
+        // sentences ("PIT LANE  DRIVING TO BOX 2  LIMITER 80",
+        // "STOP 2  Lap 24  ·  MEDIUM  LATE") that silently lost their tail
+        // (including the LATE flag) to that column's fixed width/height.
+        // Both now run full card width and can wrap to a second line, and the
+        // status line is colored to make auto-vs-manual unambiguous at a
+        // glance (see UpdatePitCard) instead of only living in the wording.
         void BuildPitCard()
         {
-            RectTransform card = UiFactory.CreateHudCard(rightStack, "Pit", RightStackWidth, 100f, UiFactory.AccentAmber);
-            UiFactory.CreateHudLabelValueRow(card, "Status", 28f, out pitStatusValue);
-            UiFactory.CreateHudLabelValueRow(card, "Plan", 50f, out pitPlanValue);
-            pitFill = UiFactory.CreateHudMeter(card, "Stop", 76f, UiFactory.AccentAmber, out pitFillValue);
+            RectTransform card = UiFactory.CreateHudCard(rightStack, "Pit", RightStackWidth, 144f, UiFactory.AccentAmber);
+
+            pitStatusValue = UiFactory.CreateText(card, "Pit status", "", 14, UiFactory.TextPrimary, TextAnchor.UpperLeft);
+            pitStatusValue.fontStyle = FontStyle.Bold;
+            pitStatusValue.verticalOverflow = VerticalWrapMode.Overflow;
+            RectTransform statusRect = pitStatusValue.GetComponent<RectTransform>();
+            statusRect.anchorMin = new Vector2(0f, 1f);
+            statusRect.anchorMax = new Vector2(1f, 1f);
+            statusRect.offsetMin = new Vector2(14f, -64f);
+            statusRect.offsetMax = new Vector2(-10f, -26f);
+
+            // Plan: the strategy's own next lap/compound target, always
+            // tagged AUTO (see BuildPitPlanText) since it fires on its own the
+            // moment the window opens unless the status line above shows a
+            // manual override already queued.
+            pitPlanValue = UiFactory.CreateText(card, "Pit plan", "", 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            pitPlanValue.verticalOverflow = VerticalWrapMode.Overflow;
+            RectTransform planRect = pitPlanValue.GetComponent<RectTransform>();
+            planRect.anchorMin = new Vector2(0f, 1f);
+            planRect.anchorMax = new Vector2(1f, 1f);
+            planRect.offsetMin = new Vector2(14f, -96f);
+            planRect.offsetMax = new Vector2(-10f, -68f);
+
+            UiFactory.CreateBand(card, "Pit card divider", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(14f, -104f), new Vector2(-10f, -102f), new Color(1f, 1f, 1f, 0.08f));
+
+            pitFill = UiFactory.CreateHudMeter(card, "Stop", 116f, UiFactory.AccentAmber, out pitFillValue);
         }
 
         // Non-intrusive box-now suggestion during a safety car / VSC period.
@@ -1669,7 +1700,22 @@ namespace LocalFormulaRacing
 
         void UpdatePitCard(VehicleController car)
         {
-            pitStatusValue.text = car.PitLimiterActive ? "LIMITER 80" : race.PitStatusText(player);
+            bool limiterOnly = car.PitLimiterActive;
+            pitStatusValue.text = limiterOnly ? "LIMITER 80" : race.PitStatusText(player);
+
+            // Color the headline by what's actually driving it, so "did the
+            // plan just fire itself or did I just force it" reads instantly
+            // instead of only living in the phrasing: cyan while the
+            // strategy plan's own request is queued, purple the moment a
+            // manual override (the P key, ahead of the plan) is queued
+            // instead, neutral otherwise (mid pit-lane phase, nothing
+            // queued yet, mandatory stop still pending, etc).
+            bool requestQueued = !limiterOnly && player.vehicle != null && player.vehicle.PitRequested &&
+                                  player.pitPhase == PitPhase.None && !player.isPitting;
+            pitStatusValue.color = requestQueued
+                ? (player.pitAutoTriggered ? UiFactory.AccentCyan : UiFactory.AccentPurple)
+                : UiFactory.TextPrimary;
+
             pitPlanValue.text = BuildPitPlanText();
             float progress = race.PitStopProgress01(player);
             UiFactory.SetMeterValueAnimated(pitFill, progress);
@@ -1686,14 +1732,19 @@ namespace LocalFormulaRacing
             int nextLap = race.NextPlannedPitLapFor(player);
             if (nextLap <= 0)
             {
-                return "STOPS DONE";
+                return "<color=#6CFF8D>STOPS DONE</color>";
             }
 
             TyreCompound compound = race.NextPlannedPitCompoundFor(player);
             int currentLap = player.lapTracker != null ? player.lapTracker.DisplayLap : 1;
             string status = currentLap > nextLap ? "  <color=#FFC85C>LATE</color>" : "";
             string stopLabel = race.GetPlannedStopCount() >= 2 ? (player.pitStops == 0 ? "STOP 1  " : "STOP 2  ") : "";
-            return stopLabel + "Lap " + nextLap + "  ·  " + compound.ToString().ToUpperInvariant() + status;
+            // AUTO tag: this plan fires on its own once the window opens
+            // (UpdatePlayerAutoPitStrategy in RaceManager) unless the player
+            // overrides it early - the status line above is what actually
+            // reports a manual override once one is queued.
+            string autoTag = "<color=#" + ColorUtility.ToHtmlStringRGB(UiFactory.AccentCyan) + ">AUTO</color>  ";
+            return autoTag + stopLabel + "Lap " + nextLap + "  ·  " + compound.ToString().ToUpperInvariant() + status;
         }
 
         // Surfaces the pit-under-safety-car recommendation from RaceManager next
