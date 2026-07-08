@@ -1290,6 +1290,123 @@ namespace LocalFormulaRacing
             return cursorY + chipHeight;
         }
 
+        // ---------- auto-sizing report primitives ----------
+        // The Race Report screen (RuntimeUi.ShowResults) stacks everything inside
+        // one CreateScrollPanel content rect whose VerticalLayoutGroup has
+        // childControlHeight/Width = false - which means it positions each direct
+        // child using that child's *raw* RectTransform.sizeDelta, never anything
+        // computed from actual rendered content (wrapped text, nested rows, ...).
+        // Every hardcoded "guess how tall this will render" sizeDelta was a latent
+        // overflow bug: once real content (a long detail string, an extra
+        // classification row, a two-line wrap) exceeded the guess, it rendered past
+        // its own box with nothing clipping it, silently bleeding into whatever the
+        // layout group stacked next - which is why sections further down the report
+        // (most visibly Full Classification) could end up overlapped, clipped, or
+        // scrolled out of the reachable range entirely. These helpers close that gap
+        // by wiring a real ContentSizeFitter (PreferredSize) onto both plain wrapped
+        // text and whole card containers, so their sizeDelta always reflects what
+        // Unity's layout system actually computed for their content - not a
+        // hand-typed constant. They report accurate height once a layout pass has
+        // run; callers that read sizes synchronously right after building the tree
+        // should follow with a single LayoutRebuilder.ForceRebuildLayoutImmediate on
+        // the outermost container after all children exist (ShowResults does this
+        // once, at the end, exactly like RaceHud's radio stack already does).
+
+        // Wrapping paragraph text that reports its own true rendered height instead
+        // of a fixed guess - safe to nest inside any VerticalLayoutGroup (including
+        // one with childControlHeight = false) or inside a CreateAutoCard/
+        // CreateAutoHeightList content area.
+        public static Text CreateAutoText(Transform parent, string name, string value, int size, Color color, TextAnchor alignment, float width)
+        {
+            Text text = CreateText(parent, name, value, size, color, alignment);
+            RectTransform rect = text.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(width, size + 6f);
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            // Overflow rather than Truncate: the ContentSizeFitter below computes
+            // this rect's height from the wrapped text every rebuild, so nothing
+            // ever actually needs to be clipped - Truncate would just hide a line
+            // for one stale frame before the fitter catches up.
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            ContentSizeFitter fitter = text.gameObject.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            return text;
+        }
+
+        // A vertical list container (fixed width, auto height) for any run of rows
+        // whose combined height shouldn't be hand-computed by the caller (e.g. "count
+        // * rowHeight + padding", which drifts the moment a row wraps to two lines).
+        // Add children via AddVerticalLayout's own convention (they still need their
+        // own correct sizeDelta.y - use CreateAutoText/CreateAutoCard/fixed-height
+        // rows as appropriate) and this container's own ContentSizeFitter reports the
+        // real total back up to whatever stacked it.
+        public static RectTransform CreateAutoHeightList(Transform parent, string name, float width, int spacing, RectOffset padding)
+        {
+            RectTransform list = CreateRect(parent, name, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            list.sizeDelta = new Vector2(width, 10f);
+            AddVerticalLayout(list, spacing, padding);
+            ContentSizeFitter fitter = list.gameObject.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            return list;
+        }
+
+        // Horizontal counterpart: a row of cards/widgets (fixed width, auto height)
+        // that reports the tallest child's real height instead of a guessed row
+        // height - the "highlight cards" / "report cards" rows used to hardcode a
+        // row height that had no relationship to the (also auto-sizing) cards inside
+        // it. Caller can restyle childAlignment on the returned HorizontalLayoutGroup
+        // afterward (e.g. LowerCenter for the podium row).
+        public static RectTransform CreateAutoHeightRow(Transform parent, string name, float width, int spacing, RectOffset padding)
+        {
+            RectTransform row = CreateRect(parent, name, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            row.sizeDelta = new Vector2(width, 10f);
+            AddHorizontalLayout(row, spacing, padding);
+            ContentSizeFitter fitter = row.gameObject.AddComponent<ContentSizeFitter>();
+            fitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            return row;
+        }
+
+        // Auto-sizing report card: rounded panel, small accent title, and a content
+        // area beneath it that stacks whatever the caller adds (auto-height text,
+        // stat bars, comparison bars, ...) and reports its own real total height.
+        // Replaces the old BuildReportCard's fixed 190f-tall card body, which
+        // silently clipped/overlapped the moment a card's line count or a single
+        // long wrapped line exceeded that guess.
+        public static RectTransform CreateAutoCard(Transform parent, string name, string title, Color accent, float width, out RectTransform contentArea)
+        {
+            RectTransform card = CreateRect(parent, name + " auto card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            card.sizeDelta = new Vector2(width, 10f);
+            Image background = card.gameObject.AddComponent<Image>();
+            StyleRounded(background, PanelDarker);
+            AddVerticalLayout(card, 10, new RectOffset(18, 16, 16, 16));
+            ContentSizeFitter cardFitter = card.gameObject.AddComponent<ContentSizeFitter>();
+            cardFitter.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+            // title is optional: sections that already have their own
+            // CreateSubHeader immediately above (most of the Race Report's
+            // required 9 sections) pass an empty title so the card doesn't draw
+            // a second, redundant heading directly under the real one.
+            if (!string.IsNullOrEmpty(title))
+            {
+                RectTransform titleRow = CreateRect(card, name + " auto title row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                titleRow.sizeDelta = new Vector2(width - 34f, 20f);
+                RectTransform rule = CreateRect(titleRow, name + " auto rule", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, Vector2.zero);
+                rule.pivot = new Vector2(0f, 0.5f);
+                rule.sizeDelta = new Vector2(26f, 3f);
+                Image ruleImage = rule.gameObject.AddComponent<Image>();
+                StyleRoundedSmall(ruleImage, accent);
+                Text titleText = CreateText(titleRow, name + " auto title", title.ToUpperInvariant(), 13, accent, TextAnchor.MiddleLeft);
+                titleText.fontStyle = FontStyle.Bold;
+                RectTransform titleTextRect = titleText.GetComponent<RectTransform>();
+                titleTextRect.anchorMin = Vector2.zero;
+                titleTextRect.anchorMax = Vector2.one;
+                titleTextRect.offsetMin = new Vector2(36f, 0f);
+                titleTextRect.offsetMax = Vector2.zero;
+            }
+
+            contentArea = CreateAutoHeightList(card, name + " auto content", width - 34f, 8, new RectOffset(0, 0, 0, 0));
+            return card;
+        }
+
         // Small breathing status dot for live/attention states.
         public static Image CreatePulsingDot(Transform parent, string name, float size, Color color)
         {
@@ -2122,46 +2239,63 @@ namespace LocalFormulaRacing
                 : position == 2 ? new Color(0.8f, 0.85f, 0.9f, 1f)
                 : new Color(0.82f, 0.53f, 0.26f, 1f);
 
+            // The winner reads clearly as the winner: a bigger avatar, medal tag
+            // and name than P2/P3, not just a taller platform underneath them.
+            bool winner = position == 1;
+            float avatarSize = winner ? 76f : 56f;
+            int medalFontSize = winner ? 15 : 13;
+            int nameFontSize = winner ? 22 : 17;
+
             RectTransform top = CreateRect(card, "Podium rule", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -4f), Vector2.zero);
             top.sizeDelta = new Vector2(0f, 4f);
             Image topImage = top.gameObject.AddComponent<Image>();
             StyleRoundedSmall(topImage, medal);
             topImage.raycastTarget = false;
 
-            RectTransform avatar = CreateProceduralHelmetIcon(card, position.ToString(), teamColor, 56f);
+            RectTransform avatar = CreateProceduralHelmetIcon(card, position.ToString(), teamColor, avatarSize);
             avatar.anchorMin = new Vector2(0.5f, 1f);
             avatar.anchorMax = new Vector2(0.5f, 1f);
-            avatar.anchoredPosition = new Vector2(0f, -46f);
+            avatar.anchoredPosition = new Vector2(0f, -16f - avatarSize * 0.5f);
 
-            Text medalLabel = CreateText(card, "Podium medal", position == 1 ? "WINNER" : "P" + position, 13, medal, TextAnchor.UpperCenter);
+            float cursorTop = 26f + avatarSize;
+
+            Text medalLabel = CreateText(card, "Podium medal", position == 1 ? "WINNER" : "P" + position, medalFontSize, medal, TextAnchor.UpperCenter);
             medalLabel.fontStyle = FontStyle.Bold;
             RectTransform medalRect = medalLabel.GetComponent<RectTransform>();
             medalRect.anchorMin = new Vector2(0f, 1f);
             medalRect.anchorMax = new Vector2(1f, 1f);
-            medalRect.offsetMin = new Vector2(6f, -92f);
-            medalRect.offsetMax = new Vector2(-6f, -74f);
+            medalRect.offsetMin = new Vector2(6f, -(cursorTop + 22f));
+            medalRect.offsetMax = new Vector2(-6f, -cursorTop);
+            cursorTop += 26f;
 
-            Text nameText = CreateText(card, "Podium name", driverName, 17, TextPrimary, TextAnchor.UpperCenter);
+            Text nameText = CreateText(card, "Podium name", driverName, nameFontSize, TextPrimary, TextAnchor.UpperCenter);
             nameText.fontStyle = FontStyle.Bold;
+            nameText.resizeTextForBestFit = true;
+            nameText.resizeTextMinSize = 13;
+            nameText.resizeTextMaxSize = nameFontSize;
             RectTransform nameRect = nameText.GetComponent<RectTransform>();
             nameRect.anchorMin = new Vector2(0f, 1f);
             nameRect.anchorMax = new Vector2(1f, 1f);
-            nameRect.offsetMin = new Vector2(6f, -122f);
-            nameRect.offsetMax = new Vector2(-6f, -94f);
+            nameRect.offsetMin = new Vector2(6f, -(cursorTop + 28f));
+            nameRect.offsetMax = new Vector2(-6f, -cursorTop);
+            cursorTop += 32f;
 
+            // Team name stays visible but secondary - smaller and muted below
+            // the driver name, never competing with it for attention.
             Text teamText = CreateText(card, "Podium team", teamLabel, 13, TextMuted, TextAnchor.UpperCenter);
             RectTransform teamRect = teamText.GetComponent<RectTransform>();
             teamRect.anchorMin = new Vector2(0f, 1f);
             teamRect.anchorMax = new Vector2(1f, 1f);
-            teamRect.offsetMin = new Vector2(6f, -142f);
-            teamRect.offsetMax = new Vector2(-6f, -124f);
+            teamRect.offsetMin = new Vector2(6f, -(cursorTop + 20f));
+            teamRect.offsetMax = new Vector2(-6f, -cursorTop);
 
-            Text timeText = CreateText(card, "Podium time", timeLabel, 13, medal, TextAnchor.LowerCenter);
+            Text timeText = CreateText(card, "Podium time", timeLabel, 14, medal, TextAnchor.LowerCenter);
+            timeText.fontStyle = FontStyle.Bold;
             RectTransform timeRect = timeText.GetComponent<RectTransform>();
             timeRect.anchorMin = Vector2.zero;
             timeRect.anchorMax = new Vector2(1f, 0f);
             timeRect.offsetMin = new Vector2(6f, 12f);
-            timeRect.offsetMax = new Vector2(-6f, 34f);
+            timeRect.offsetMax = new Vector2(-6f, 36f);
 
             return card;
         }

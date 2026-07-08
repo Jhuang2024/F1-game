@@ -4347,6 +4347,23 @@ namespace LocalFormulaRacing
         // table below them so the whole report reads as one aligned column.
         const float ReportContentWidth = 1240f;
 
+        // Full redesign (not a patch): the report used to build every section
+        // straight onto CreateScrollPanel's content rect using hand-guessed
+        // sizeDelta heights (see UiFactory's "auto-sizing report primitives"
+        // comment for the full root-cause writeup). Any guess that undershot the
+        // real rendered height - most catastrophically the race-control timeline's
+        // `count * 24f + 12f`, but really any wrapped text anywhere above the
+        // classification table - meant the outer ScrollRect's content height
+        // came out too short, so long sections could visually bleed into / cover
+        // whatever followed and the table itself could end up beyond the
+        // reachable scroll range. Every section below now either has a fixed,
+        // provably-sufficient height, or uses UiFactory's CreateAutoCard /
+        // CreateAutoHeightList / CreateAutoHeightRow / CreateAutoText helpers so
+        // its sizeDelta always reflects Unity's own computed preferred size. The
+        // single LayoutRebuilder.ForceRebuildLayoutImmediate call at the end
+        // guarantees all of that has actually resolved before the report is
+        // shown, exactly like RaceHud's radio stack already does for its own
+        // dynamically-built content.
         public void ShowResults(RaceManager race, List<RaceResultEntry> results, bool careerRace)
         {
             Clear();
@@ -4356,136 +4373,35 @@ namespace LocalFormulaRacing
             // screen back to the in-race chequered finish flourish.
             UiFactory.CreateCheckeredBand(background, "Results chequered accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -96f), new Vector2(0f, -92f));
 
-            RectTransform content = UiFactory.CreateScrollPanel(background, "Results report", new Vector2(0.05f, 0.12f), new Vector2(0.95f, 0.88f), 14, new RectOffset(6, 6, 6, 12));
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Results report", new Vector2(0.05f, 0.12f), new Vector2(0.95f, 0.88f), 20, new RectOffset(6, 6, 6, 16));
 
             RaceResultEntry player = results != null ? results.Find(entry => entry.isPlayer) : null;
 
-            // Podium: top-3 finishers as designed podium cards (P2, P1, P3 order,
-            // P1 tallest) instead of a flat "Winner" stat card.
-            if (results != null && results.Count > 0)
-            {
-                UiFactory.CreateSubHeader(content, "Race Result");
-                RectTransform podiumRow = UiFactory.CreateRect(content, "Podium row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-                // Bug fix: this row (and every other CreateRect(...zero...) row below)
-                // used to only get a LayoutElement via SetFixedRowHeight, never an
-                // actual sizeDelta. CreateScrollPanel's VerticalLayoutGroup has
-                // childControlHeight/Width = false, so it stacks children using their
-                // *real* RectTransform size, not the LayoutElement - a zero-size row
-                // reports zero height AND zero width to the stack, so every section
-                // after it collapsed onto the same Y position and the podium's
-                // LowerCenter alignment centered inside a zero-width box (shoved off
-                // to the left). SetSize actually resizes the rect, which is what both
-                // the vertical stacking and the horizontal centering need.
-                UiFactory.SetSize(podiumRow, ReportContentWidth, 236f);
-                HorizontalLayoutGroup podiumLayout = UiFactory.AddHorizontalLayout(podiumRow, 16, new RectOffset(0, 0, 0, 0));
-                podiumLayout.childAlignment = TextAnchor.LowerCenter;
-                if (results.Count > 1)
-                {
-                    BuildPodiumSlot(podiumRow, race, results, 1);
-                }
-
-                BuildPodiumSlot(podiumRow, race, results, 0);
-                if (results.Count > 2)
-                {
-                    BuildPodiumSlot(podiumRow, race, results, 2);
-                }
-            }
-
-            // Highlight cards: fastest lap, biggest mover, player result, cautions.
-            RectTransform highlights = UiFactory.CreateRect(content, "Result highlights", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            UiFactory.SetSize(highlights, ReportContentWidth, 74f);
-            UiFactory.AddHorizontalLayout(highlights, 14, new RectOffset(0, 0, 0, 0));
-            if (results != null && results.Count > 0)
-            {
-                RaceResultEntry fastest = FindFastestLap(results);
-                if (fastest != null)
-                {
-                    UiFactory.CreateStatCard(highlights, "Fastest Lap", fastest.driverName + "  " + UiFactory.FormatTime(fastest.bestLapTime), 320f);
-                }
-
-                RaceResultEntry mover = FindBiggestMover(results);
-                if (mover != null)
-                {
-                    UiFactory.CreateStatCard(highlights, "Biggest Mover", mover.driverName + "  +" + (mover.gridPosition - mover.finishingPosition), 300f);
-                }
-
-                if (player != null)
-                {
-                    UiFactory.CreateStatCard(highlights, "You Finished", "P" + player.finishingPosition + "  (" + player.points + " pts)", 260f);
-                }
-
-                if (race != null)
-                {
-                    UiFactory.CreateStatCard(highlights, "Cautions", race.SafetyCarDeploymentCount + " SC/VSC  ·  " + race.IncidentCount + " incidents", 320f);
-                    if (race.RedFlagCount > 0)
-                    {
-                        UiFactory.CreateStatCard(highlights, "Red Flag", race.RedFlagCount + "x - " + race.RedFlagReason, 360f);
-                    }
-                }
-            }
-
-            BuildReportBadgeRow(content, race, results, player);
-            BuildReportCardRow(content, race, results, player);
+            // Required top-to-bottom order: podium, player summary, teammate,
+            // strategy, incidents/race-control, achievements, race-control
+            // timeline, full classification, championship impact. Cornering
+            // telemetry isn't one of the required 9 - it's extra player
+            // performance content folded in right after the player summary.
+            BuildPodiumSection(content, race, results);
+            BuildPlayerSummarySection(content, race, results, player);
             BuildCorneringTelemetryCard(content, race);
+            BuildTeammateSection(content, results, player);
+            BuildStrategySection(content, race, player);
+            BuildIncidentSection(content, race, results, player);
+            BuildAchievementsSection(content, race, results, player);
             BuildRaceControlTimeline(content, race);
 
             UiFactory.CreateDivider(content);
             UiFactory.CreateSubHeader(content, "Full Classification");
+            BuildFullClassificationTable(content, race, results);
 
-            RectTransform headerRow = UiFactory.CreateTableRow(content, "Results header row", 1240f, 26f, false, 1);
-            headerRow.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
-            UiFactory.AddRowCell(headerRow, "H pos", "POS", 0.0f, 0.05f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H grid", "GRID", 0.05f, 0.1f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H driver", "DRIVER", 0.11f, 0.36f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H team", "TEAM", 0.36f, 0.5f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H tyre", "TYRE", 0.5f, 0.55f, 13, UiFactory.Accent, TextAnchor.MiddleCenter);
-            UiFactory.AddRowCell(headerRow, "H gap", "TOTAL / GAP", 0.56f, 0.69f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H best", "BEST LAP", 0.69f, 0.79f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            // Widened from the original 0.81-0.88 so a retired car's DNF reason
-            // (collision damage, mechanical failure, stranded, ...) actually has
-            // room to render instead of being silently dropped in favor of the
-            // bare "DNF" tag already shown in the Gap column.
-            UiFactory.AddRowCell(headerRow, "H pen", "PEN / STATUS", 0.79f, 0.9f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
-            UiFactory.AddRowCell(headerRow, "H pts", "PTS", 0.9f, 0.97f, 13, UiFactory.Accent, TextAnchor.MiddleRight);
-            if (results != null && results.Count > 0)
-            {
-                float winnerTime = results[0].totalTime + results[0].penaltiesSeconds;
-                for (int i = 0; i < results.Count; i++)
-                {
-                    RaceResultEntry entry = results[i];
-                    float classifiedTime = entry.totalTime + entry.penaltiesSeconds;
-                    bool dnf = !string.IsNullOrEmpty(entry.penaltyReason) && entry.penaltyReason.Contains("DNF");
-                    string gap = dnf ? "DNF" : (i == 0 ? UiFactory.FormatTime(classifiedTime) : "+" + (classifiedTime - winnerTime).ToString("0.0") + "s");
-                    // For classified cars this is just the time penalty, same as
-                    // before. For retired cars it now shows the actual reason
-                    // (collision damage, mechanical failure, stranded, ...)
-                    // instead of leaving the column at a wasted "--".
-                    string penColumnText = dnf ? DnfReasonLabel(entry.penaltyReason) : (entry.penaltiesSeconds > 0f ? "+" + entry.penaltiesSeconds.ToString("0") + "s" : "--");
-                    Color penColumnColor = dnf ? UiFactory.TextMuted : (entry.penaltiesSeconds > 0f ? UiFactory.AccentAmber : UiFactory.TextMuted);
-                    RectTransform row = UiFactory.CreateTableRow(content, "Result row " + i, 1240f, 32f, entry.isPlayer, i);
-                    UiFactory.AddPositionBadge(row, entry.finishingPosition, entry.isPlayer);
-                    Color textColor = entry.isPlayer ? Color.white : (dnf ? UiFactory.TextMuted : new Color(0.9f, 0.95f, 0.98f));
-                    UiFactory.AddRowCell(row, "Grid", entry.gridPosition > 0 ? entry.gridPosition.ToString() : "--", 0.05f, 0.1f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
-                    UiFactory.AddRowCell(row, "Driver", entry.driverName, 0.11f, 0.36f, 15, textColor, TextAnchor.MiddleLeft);
-                    UiFactory.AddRowCell(row, "Team", TeamLabel(race, entry.teamId), 0.36f, 0.5f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
-                    UiFactory.AddRowDot(row, "Tyre dot", 0.525f, 13f, TyreDotColor(entry.tyreCompound));
-                    UiFactory.AddRowCell(row, "Gap", gap, 0.56f, 0.69f, 14, dnf ? UiFactory.Accent : textColor, TextAnchor.MiddleLeft);
-                    UiFactory.AddRowCell(row, "Best", UiFactory.FormatTime(entry.bestLapTime), 0.69f, 0.79f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
-                    UiFactory.AddRowCell(row, "Pen", penColumnText, 0.79f, 0.9f, dnf ? 12 : 14, penColumnColor, TextAnchor.MiddleLeft);
-                    UiFactory.AddRowCell(row, "Pts", entry.points.ToString(), 0.9f, 0.97f, 15, entry.points > 0 ? UiFactory.AccentGreen : UiFactory.TextMuted, TextAnchor.MiddleRight);
+            BuildChampionshipSection(content, race, player);
 
-                    if (UiFactory.AnimationsEnabled)
-                    {
-                        UiFadeIn reveal = row.gameObject.AddComponent<UiFadeIn>();
-                        reveal.startDelay = Mathf.Min(i, 14) * 0.03f;
-                    }
-                }
-            }
-            else
-            {
-                Text empty = UiFactory.CreateText(content, "No results", "No results.", 18, UiFactory.TextMuted, TextAnchor.MiddleLeft);
-                UiFactory.SetSize(empty, 600f, 30f);
-            }
+            // See the class-level comment above this method: forces every
+            // ContentSizeFitter/LayoutGroup added above to resolve its final
+            // size now, in one pass, before the ScrollRect's content height
+            // (and therefore the reachable scroll range) is used for anything.
+            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
 
             RectTransform footerLeft;
             RectTransform footerRight;
@@ -4501,10 +4417,348 @@ namespace LocalFormulaRacing
             }
         }
 
-        // Part 2: post-race report. A row of achievement-style chips (Part 17)
-        // above the detail cards - kept short and computed straight from the
-        // actual result data rather than anything scripted/random.
-        void BuildReportBadgeRow(RectTransform content, RaceManager race, List<RaceResultEntry> results, RaceResultEntry player)
+        // Section 1: podium / top-3. Centered, P1 clearly emphasized (bigger
+        // avatar/medal/name via UiFactory.CreatePodiumCard), P2/P3 aligned to a
+        // common baseline via the row's LowerCenter alignment.
+        void BuildPodiumSection(RectTransform content, RaceManager race, List<RaceResultEntry> results)
+        {
+            if (results == null || results.Count == 0)
+            {
+                return;
+            }
+
+            UiFactory.CreateSubHeader(content, "Race Result");
+            RectTransform podiumRow = UiFactory.CreateAutoHeightRow(content, "Podium row", ReportContentWidth, 24, new RectOffset(0, 0, 0, 0));
+            podiumRow.GetComponent<HorizontalLayoutGroup>().childAlignment = TextAnchor.LowerCenter;
+            if (results.Count > 1)
+            {
+                BuildPodiumSlot(podiumRow, race, results, 1);
+            }
+
+            BuildPodiumSlot(podiumRow, race, results, 0);
+            if (results.Count > 2)
+            {
+                BuildPodiumSlot(podiumRow, race, results, 2);
+            }
+        }
+
+        // Section 2: player result summary - race-wide highlight cards (fastest
+        // lap / biggest mover / player finish / flags-and-safety-cars), a "Your
+        // Race" card, and a short generated Race Story paragraph tying the
+        // result, teammate, race-control context, strategy and any penalty/DNF
+        // together in plain language.
+        void BuildPlayerSummarySection(RectTransform content, RaceManager race, List<RaceResultEntry> results, RaceResultEntry player)
+        {
+            if (results == null || results.Count == 0)
+            {
+                return;
+            }
+
+            UiFactory.CreateSubHeader(content, "Player Result Summary");
+
+            RectTransform highlights = UiFactory.CreateAutoHeightRow(content, "Result highlights", ReportContentWidth, 14, new RectOffset(0, 0, 0, 0));
+            RaceResultEntry fastest = FindFastestLap(results);
+            if (fastest != null)
+            {
+                UiFactory.CreateStatCard(highlights, "Fastest Lap", fastest.driverName + "  " + UiFactory.FormatTime(fastest.bestLapTime), 300f);
+            }
+
+            RaceResultEntry mover = FindBiggestMover(results);
+            if (mover != null)
+            {
+                UiFactory.CreateStatCard(highlights, "Biggest Mover", mover.driverName + "  +" + (mover.gridPosition - mover.finishingPosition), 280f);
+            }
+
+            if (player != null)
+            {
+                UiFactory.CreateStatCard(highlights, "You Finished", "P" + player.finishingPosition + "  (" + player.points + " pts)", 260f);
+            }
+
+            if (race != null)
+            {
+                // Reworded from the old "N SC/VSC - M incidents" line, which
+                // conflated a genuine race-control count with race.IncidentCount
+                // (a raw, uncapped internal detector tick that could read in the
+                // hundreds and meant nothing to a player). Every number here now
+                // comes from the RaceControlHistory-backed counters, so it always
+                // agrees with the Race Control Timeline and Incidents section
+                // below.
+                string flagsSummary = race.YellowFlagEventCount + " yellow · " + race.VirtualSafetyCarEventCount + " VSC · " + race.SafetyCarDeploymentCount + " SC";
+                UiFactory.CreateStatCard(highlights, "Flags & Safety Cars", flagsSummary, 300f);
+            }
+
+            if (player == null)
+            {
+                return;
+            }
+
+            RaceResultEntry winner = results[0];
+            float winnerTime = winner.totalTime + winner.penaltiesSeconds;
+            float playerTime = player.totalTime + player.penaltiesSeconds;
+            int positionsChanged = player.gridPosition > 0 ? player.gridPosition - player.finishingPosition : 0;
+            Color positionsColor = positionsChanged > 0 ? UiFactory.AccentGreen : (positionsChanged < 0 ? UiFactory.Accent : UiFactory.TextMuted);
+            string positionsLine = positionsChanged == 0 ? "No positions changed"
+                : (positionsChanged > 0 ? "+" + positionsChanged + " positions gained" : positionsChanged + " positions lost");
+
+            RectTransform yourRaceContentArea;
+            UiFactory.CreateAutoCard(content, "Your race", "Your Race", UiFactory.Accent, ReportContentWidth, out yourRaceContentArea);
+            float innerWidth = ReportContentWidth - 34f;
+            UiFactory.CreateAutoText(yourRaceContentArea, "Your race grid", "Grid P" + (player.gridPosition > 0 ? player.gridPosition.ToString() : "-") + " -> Finish P" + player.finishingPosition, 15, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(yourRaceContentArea, "Your race positions", positionsLine, 14, positionsColor, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(yourRaceContentArea, "Your race gap", "Gap to winner: " + (player.finishingPosition == 1 ? "--" : "+" + Mathf.Max(0f, playerTime - winnerTime).ToString("0.0") + "s"), 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(yourRaceContentArea, "Your race overtakes", "Overtakes made: " + player.overtakesMade, 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(yourRaceContentArea, "Your race best lap", "Best lap: " + UiFactory.FormatTime(player.bestLapTime), 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+
+            RaceResultEntry teammate = results.Find(entry => entry.teamId == player.teamId && entry.driverId != player.driverId);
+            string story = BuildRaceStoryText(race, player, teammate);
+            if (!string.IsNullOrEmpty(story))
+            {
+                RectTransform storyContentArea;
+                UiFactory.CreateAutoCard(content, "Race story", "Race Story", UiFactory.AccentCyan, ReportContentWidth, out storyContentArea);
+                UiFactory.CreateAutoText(storyContentArea, "Race story text", story, 14, new Color(0.88f, 0.93f, 0.97f), TextAnchor.UpperLeft, innerWidth);
+            }
+        }
+
+        // Generates the 2-4 sentence Race Story paragraph from real fields only -
+        // no placeholder text for anything unavailable, that clause is simply
+        // omitted. Mentions start->finish, the teammate's finish, safety-car/red-
+        // flag context (from the RaceControlHistory-backed counters, never the
+        // raw incident tick), strategy, and any penalty/DNF affecting the player.
+        string BuildRaceStoryText(RaceManager race, RaceResultEntry player, RaceResultEntry teammate)
+        {
+            if (player == null)
+            {
+                return "";
+            }
+
+            bool dnf = !string.IsNullOrEmpty(player.penaltyReason) && player.penaltyReason.Contains("DNF");
+            string gridText = player.gridPosition > 0 ? "P" + player.gridPosition : "the back of the field";
+            List<string> sentences = new List<string>();
+
+            if (dnf)
+            {
+                sentences.Add("Starting from " + gridText + ", " + player.driverName + " didn't see the chequered flag (" + DnfReasonLabel(player.penaltyReason).ToLowerInvariant() + ").");
+            }
+            else
+            {
+                int gained = player.gridPosition > 0 ? player.gridPosition - player.finishingPosition : 0;
+                string moveText = gained > 0 ? ", gaining " + gained + " place" + (gained == 1 ? "" : "s") + " along the way"
+                    : gained < 0 ? ", losing " + (-gained) + " place" + (gained == -1 ? "" : "s") + " along the way"
+                    : "";
+                sentences.Add("Started " + gridText + " and brought it home P" + player.finishingPosition + moveText + ".");
+            }
+
+            if (teammate != null)
+            {
+                bool teammateAhead = teammate.finishingPosition < player.finishingPosition;
+                sentences.Add(teammate.driverName + " finished P" + teammate.finishingPosition + (teammateAhead ? ", ahead of their teammate." : "."));
+            }
+
+            if (race != null)
+            {
+                if (race.RedFlagCount > 0)
+                {
+                    sentences.Add("The race was stopped with a red flag" + (string.IsNullOrEmpty(race.RedFlagReason) ? "." : " for " + race.RedFlagReason.ToLowerInvariant() + "."));
+                }
+                else if (race.SafetyCarDeploymentCount > 0)
+                {
+                    string vscClause = race.VirtualSafetyCarEventCount > 0 ? " and " + race.VirtualSafetyCarEventCount + " virtual safety car" + (race.VirtualSafetyCarEventCount == 1 ? "" : "s") : "";
+                    sentences.Add("The race ran under " + race.SafetyCarDeploymentCount + " safety car period" + (race.SafetyCarDeploymentCount == 1 ? "" : "s") + vscClause + ".");
+                }
+                else if (race.YellowFlagEventCount > 0)
+                {
+                    sentences.Add("A largely clean race, punctuated by " + race.YellowFlagEventCount + " yellow flag" + (race.YellowFlagEventCount == 1 ? "" : "s") + ".");
+                }
+            }
+
+            if (!dnf)
+            {
+                string strategyClause = !string.IsNullOrEmpty(player.strategySummary)
+                    ? "Ran a " + player.strategySummary + " strategy across " + player.pitStops + " stop" + (player.pitStops == 1 ? "" : "s")
+                    : (player.pitStops > 0 ? "Made " + player.pitStops + " pit stop" + (player.pitStops == 1 ? "" : "s") : "");
+                if (player.penaltiesSeconds > 0f)
+                {
+                    string penaltyClause = "a " + player.penaltiesSeconds.ToString("0") + "s penalty" + (string.IsNullOrEmpty(player.penaltyReason) ? "" : " (" + player.penaltyReason + ")") + " affected the final result";
+                    sentences.Add(string.IsNullOrEmpty(strategyClause) ? "However, " + penaltyClause + "." : strategyClause + "; " + penaltyClause + ".");
+                }
+                else if (!string.IsNullOrEmpty(strategyClause))
+                {
+                    sentences.Add(strategyClause + ".");
+                }
+            }
+
+            return string.Join(" ", sentences);
+        }
+
+        // Section 3: teammate comparison - finishing position, best lap and pit
+        // stop head-to-head bars (UiFactory.CreateComparisonBar), and points
+        // gained. Absorbs the old "Teammate Battle" card so there's exactly one
+        // teammate-focused card, not two overlapping ones.
+        void BuildTeammateSection(RectTransform content, List<RaceResultEntry> results, RaceResultEntry player)
+        {
+            if (player == null || results == null)
+            {
+                return;
+            }
+
+            RaceResultEntry teammate = results.Find(entry => entry.teamId == player.teamId && entry.driverId != player.driverId);
+            if (teammate == null)
+            {
+                return;
+            }
+
+            UiFactory.CreateSubHeader(content, "Teammate Comparison");
+            float teammateTime = teammate.totalTime + teammate.penaltiesSeconds;
+            float playerTime = player.totalTime + player.penaltiesSeconds;
+            bool playerAhead = player.finishingPosition < teammate.finishingPosition;
+            int pointsGap = player.points - teammate.points;
+
+            RectTransform contentArea;
+            UiFactory.CreateAutoCard(content, "Teammate comparison", "", UiFactory.AccentCyan, ReportContentWidth, out contentArea);
+            float innerWidth = ReportContentWidth - 34f;
+            UiFactory.CreateAutoText(contentArea, "Teammate comparison headline", player.driverName + " P" + player.finishingPosition + "   vs   " + teammate.driverName + " P" + teammate.finishingPosition, 15, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(contentArea, "Teammate comparison verdict", playerAhead ? "You finished ahead of your teammate" : "Your teammate finished ahead of you", 14, playerAhead ? UiFactory.AccentGreen : UiFactory.Accent, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(contentArea, "Teammate comparison gap", "Gap: " + Mathf.Abs(teammateTime - playerTime).ToString("0.0") + "s   ·   Points: " + player.points + " vs " + teammate.points + (pointsGap != 0 ? "  (" + (pointsGap > 0 ? "+" : "") + pointsGap + ")" : ""), 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+
+            float lapCeiling = Mathf.Max(player.bestLapTime, teammate.bestLapTime) * 1.02f;
+            int stopCeiling = Mathf.Max(1, Mathf.Max(player.pitStops, teammate.pitStops));
+            UiFactory.CreateComparisonBar(contentArea, "Best Lap (s)", player.bestLapTime, UiFactory.Accent, teammate.bestLapTime, UiFactory.AccentCyan, lapCeiling, innerWidth);
+            UiFactory.CreateComparisonBar(contentArea, "Pit Stops", player.pitStops, UiFactory.Accent, teammate.pitStops, UiFactory.AccentCyan, stopCeiling, innerWidth);
+        }
+
+        // Section 4: strategy - actual strategy summary/pit stops/track limits/
+        // penalties alongside a new Strategy Review card comparing the planned
+        // stop count/window/compound(s) (RaceManager.GetPlannedStopCount /
+        // GetPlannedPitLapForStop / GetPlannedCompoundForStop - all always
+        // available, career or Quick Race, since they read GameSettingsStore with
+        // safe defaults) against what actually happened. There is no per-stop
+        // actual lap tracked anywhere in the data model, so only stop count and
+        // compound sequence are compared - no fabricated lap numbers.
+        void BuildStrategySection(RectTransform content, RaceManager race, RaceResultEntry player)
+        {
+            if (player == null)
+            {
+                return;
+            }
+
+            UiFactory.CreateSubHeader(content, "Strategy");
+            RectTransform row = UiFactory.CreateAutoHeightRow(content, "Strategy row", ReportContentWidth, 14, new RectOffset(0, 0, 0, 0));
+            float halfWidth = (ReportContentWidth - 14f) / 2f;
+            float innerWidth = halfWidth - 34f;
+
+            RectTransform actualContentArea;
+            UiFactory.CreateAutoCard(row, "Your strategy", "Your Strategy", UiFactory.AccentAmber, halfWidth, out actualContentArea);
+            UiFactory.CreateAutoText(actualContentArea, "Strategy pit stops", "Pit stops: " + player.pitStops, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(actualContentArea, "Strategy summary", string.IsNullOrEmpty(player.strategySummary) ? "No stops made" : player.strategySummary, 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(actualContentArea, "Strategy track limits", "Track limit warnings: " + player.trackLimitWarnings, 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(actualContentArea, "Strategy penalties", player.penaltiesSeconds > 0f ? "Penalties: +" + player.penaltiesSeconds.ToString("0") + "s (" + player.penaltyReason + ")" : "No penalties", 14, player.penaltiesSeconds > 0f ? UiFactory.AccentAmber : UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+
+            if (race != null)
+            {
+                BuildStrategyReviewCard(row, race, player, halfWidth);
+            }
+        }
+
+        void BuildStrategyReviewCard(RectTransform row, RaceManager race, RaceResultEntry player, float width)
+        {
+            int plannedStops = race.GetPlannedStopCount();
+            List<string> plannedParts = new List<string>();
+            for (int stop = 1; stop <= plannedStops; stop++)
+            {
+                plannedParts.Add(race.GetPlannedCompoundForStop(stop) + " (~lap " + race.GetPlannedPitLapForStop(stop) + ")");
+            }
+
+            bool dnf = !string.IsNullOrEmpty(player.penaltyReason) && player.penaltyReason.Contains("DNF");
+            string verdict;
+            Color verdictColor;
+            if (dnf)
+            {
+                verdict = "Race ended before the plan could play out";
+                verdictColor = UiFactory.TextMuted;
+            }
+            else if (player.pitStops == plannedStops)
+            {
+                verdict = "Matched the plan";
+                verdictColor = UiFactory.AccentGreen;
+            }
+            else if (player.pitStops > plannedStops)
+            {
+                verdict = "Pitted more than planned (+" + (player.pitStops - plannedStops) + ")";
+                verdictColor = UiFactory.AccentAmber;
+            }
+            else
+            {
+                verdict = "Pitted fewer times than planned (-" + (plannedStops - player.pitStops) + ")";
+                verdictColor = UiFactory.AccentCyan;
+            }
+
+            RectTransform contentArea;
+            UiFactory.CreateAutoCard(row, "Strategy review", "Strategy Review", UiFactory.AccentPurple, width, out contentArea);
+            float innerWidth = width - 34f;
+            UiFactory.CreateAutoText(contentArea, "Strategy review planned", "Planned: " + plannedStops + "-stop - " + string.Join(" -> ", plannedParts), 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(contentArea, "Strategy review actual", "Actual: " + (string.IsNullOrEmpty(player.strategySummary) ? player.pitStops + " stop(s)" : player.strategySummary), 14, new Color(0.88f, 0.93f, 0.97f), TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(contentArea, "Strategy review verdict", verdict, 14, verdictColor, TextAnchor.UpperLeft, innerWidth);
+        }
+
+        // Section 5: incidents/race-control summary - genuine race-control totals
+        // (yellow/VSC/safety car/red flag/penalty counts, all derived from
+        // RaceManager.RaceControlHistory so they always agree with the timeline
+        // below) alongside a clearly-separate informational card for diagnostic
+        // collision counters, DNFs, and the player's own lockup/flat-spot/track-
+        // limit telemetry - never mixed into the same numbers as race control.
+        void BuildIncidentSection(RectTransform content, RaceManager race, List<RaceResultEntry> results, RaceResultEntry player)
+        {
+            if (race == null)
+            {
+                return;
+            }
+
+            UiFactory.CreateSubHeader(content, "Incidents & Race Control");
+            RectTransform row = UiFactory.CreateAutoHeightRow(content, "Incident row", ReportContentWidth, 14, new RectOffset(0, 0, 0, 0));
+            float halfWidth = (ReportContentWidth - 14f) / 2f;
+            float innerWidth = halfWidth - 34f;
+
+            RectTransform rcContentArea;
+            UiFactory.CreateAutoCard(row, "Race control totals", "Race Control", UiFactory.AccentGreen, halfWidth, out rcContentArea);
+            UiFactory.CreateAutoText(rcContentArea, "RC yellow", "Yellow flags: " + race.YellowFlagEventCount, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(rcContentArea, "RC vsc", "Virtual safety cars: " + race.VirtualSafetyCarEventCount, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(rcContentArea, "RC sc", "Safety cars: " + race.SafetyCarDeploymentCount, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(rcContentArea, "RC penalties", "Penalties issued: " + race.PenaltyEventCount, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            if (race.RedFlagCount > 0)
+            {
+                UiFactory.CreateAutoText(rcContentArea, "RC red flag", "Red flags: " + race.RedFlagCount + " (" + race.RedFlagReason + ")", 14, UiFactory.Accent, TextAnchor.UpperLeft, innerWidth);
+            }
+
+            int dnfCount = 0;
+            if (results != null)
+            {
+                for (int i = 0; i < results.Count; i++)
+                {
+                    if (!string.IsNullOrEmpty(results[i].penaltyReason) && results[i].penaltyReason.Contains("DNF"))
+                    {
+                        dnfCount++;
+                    }
+                }
+            }
+
+            RectTransform infoContentArea;
+            UiFactory.CreateAutoCard(row, "Incident cleanup", "Incident Cleanup", UiFactory.AccentCyan, halfWidth, out infoContentArea);
+            UiFactory.CreateAutoText(infoContentArea, "Info header", "INFORMATIONAL - NOT RACE CONTROL", 12, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(infoContentArea, "Info car contact", "Car-contact incidents: " + race.CarContactIncidentCount, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(infoContentArea, "Info solo", "Solo incidents (spins/walls): " + race.SoloContactIncidentCount, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(infoContentArea, "Info dnf", "Retirements (DNF): " + dnfCount, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            if (player != null)
+            {
+                UiFactory.CreateAutoText(infoContentArea, "Info player telemetry header", "YOUR CAR", 12, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+                UiFactory.CreateStatBar(infoContentArea, "Lockups", player.lockups, 8f, UiFactory.AccentAmber, innerWidth);
+                UiFactory.CreateStatBar(infoContentArea, "Flat Spot", player.flatSpotPercent, 100f, UiFactory.AccentAmber, innerWidth);
+            }
+        }
+
+        // Section 6: achievements - a row of wrapping badge chips (Part 17),
+        // now inside a proper rounded card so it reads as one designed section
+        // instead of chips floating loose on the background.
+        void BuildAchievementsSection(RectTransform content, RaceManager race, List<RaceResultEntry> results, RaceResultEntry player)
         {
             if (results == null || results.Count == 0)
             {
@@ -4549,114 +4803,33 @@ namespace LocalFormulaRacing
             // + clean race, say) can produce five-plus badges, which used to just run
             // off the right edge of the screen with no way to see them. The lead badge
             // (Driver of the Day when present) keeps its own purple accent; the rest
-            // wrap in green beneath it.
+            // wrap in green beneath it. Now sits in a proper rounded card (16px
+            // padding on every edge) instead of loose on the content background.
             RectTransform row = UiFactory.CreateRect(content, "Report badges", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            Image rowBackground = row.gameObject.AddComponent<Image>();
+            UiFactory.StyleRounded(rowBackground, UiFactory.PanelDarker);
             List<string> leadBadge = new List<string> { badges[0] };
             List<string> restBadges = badges.GetRange(1, badges.Count - 1);
-            float rowHeight = UiFactory.CreateWrappingChipRow(row, "Report badges lead", leadBadge, UiFactory.AccentPurple, 0f, 0f, ReportContentWidth);
+            float innerWidth = ReportContentWidth - 32f;
+            float leadHeight = UiFactory.CreateWrappingChipRow(row, "Report badges lead", leadBadge, UiFactory.AccentPurple, 16f, 16f, innerWidth);
+            float totalHeight = leadHeight;
             if (restBadges.Count > 0)
             {
-                rowHeight += 6f;
-                rowHeight += UiFactory.CreateWrappingChipRow(row, "Report badges rest", restBadges, UiFactory.AccentGreen, 0f, rowHeight, ReportContentWidth);
+                float restOriginY = 16f + leadHeight + 8f;
+                float restHeight = UiFactory.CreateWrappingChipRow(row, "Report badges rest", restBadges, UiFactory.AccentGreen, 16f, restOriginY, innerWidth);
+                totalHeight = leadHeight + 8f + restHeight;
             }
 
-            UiFactory.SetSize(row, ReportContentWidth, rowHeight);
+            UiFactory.SetSize(row, ReportContentWidth, totalHeight + 32f);
         }
 
-        // Part 2: the actual report cards - teammate comparison, strategy summary,
-        // incidents/penalties, and safety-car/session context - laid out as a
-        // horizontal row of fixed-size cards so it reads as cards/stat-blocks
-        // rather than a wall of text.
-        void BuildReportCardRow(RectTransform content, RaceManager race, List<RaceResultEntry> results, RaceResultEntry player)
-        {
-            if (player == null || results == null || results.Count == 0)
-            {
-                return;
-            }
-
-            UiFactory.CreateSubHeader(content, "Race Summary");
-
-            RectTransform row = UiFactory.CreateRect(content, "Report cards", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            UiFactory.SetSize(row, ReportContentWidth, 190f);
-            UiFactory.AddHorizontalLayout(row, 14, new RectOffset(0, 0, 0, 0));
-
-            RaceResultEntry winner = results[0];
-            float winnerTime = winner.totalTime + winner.penaltiesSeconds;
-            float playerTime = player.totalTime + player.penaltiesSeconds;
-            int positionsChanged = player.gridPosition > 0 ? player.gridPosition - player.finishingPosition : 0;
-            string positionsLine = positionsChanged == 0 ? "No positions changed"
-                : (positionsChanged > 0 ? "<color=#6CFF8D>+" + positionsChanged + " positions gained</color>" : "<color=#FF6C6C>" + positionsChanged + " positions lost</color>");
-
-            BuildReportCard(row, "Your Race", new[]
-            {
-                "Grid P" + (player.gridPosition > 0 ? player.gridPosition.ToString() : "-") + " -> Finish P" + player.finishingPosition,
-                positionsLine,
-                "Gap to winner: " + (player.finishingPosition == 1 ? "--" : "+" + Mathf.Max(0f, playerTime - winnerTime).ToString("0.0") + "s"),
-                "Overtakes made: " + player.overtakesMade,
-                "Best lap: " + UiFactory.FormatTime(player.bestLapTime)
-            }, 300f, UiFactory.Accent, null);
-
-            RaceResultEntry teammate = results.Find(entry => entry.teamId == player.teamId && entry.driverId != player.driverId);
-            if (teammate != null)
-            {
-                float teammateTime = teammate.totalTime + teammate.penaltiesSeconds;
-                bool playerAhead = player.finishingPosition < teammate.finishingPosition;
-                List<string> teammateLines = new List<string>
-                {
-                    teammate.driverName + ": P" + teammate.finishingPosition,
-                    playerAhead ? "<color=#6CFF8D>You beat your teammate</color>" : "<color=#FF6C6C>Teammate finished ahead</color>",
-                    "Gap: " + Mathf.Abs(teammateTime - playerTime).ToString("0.0") + "s"
-                };
-
-                // Direct head-to-head bars (best lap, pit stops) instead of two
-                // more text lines - two figures on the same track read as an
-                // actual comparison rather than numbers you have to mentally diff.
-                float lapCeiling = Mathf.Max(player.bestLapTime, teammate.bestLapTime) * 1.02f;
-                int stopCeiling = Mathf.Max(1, Mathf.Max(player.pitStops, teammate.pitStops));
-                BuildReportCard(row, "Teammate Battle", teammateLines.ToArray(), 300f, UiFactory.AccentCyan, card =>
-                {
-                    RectTransform lapBar = UiFactory.CreateComparisonBar(card, "Best Lap (s)", player.bestLapTime, UiFactory.Accent, teammate.bestLapTime, UiFactory.AccentCyan, lapCeiling, 268f);
-                    PositionCardWidget(lapBar, 16f, 46f);
-                    RectTransform stopBar = UiFactory.CreateComparisonBar(card, "Pit Stops", player.pitStops, UiFactory.Accent, teammate.pitStops, UiFactory.AccentCyan, stopCeiling, 268f);
-                    PositionCardWidget(stopBar, 16f, 6f);
-                });
-            }
-
-            BuildReportCard(row, "Strategy", new[]
-            {
-                "Pit stops: " + player.pitStops,
-                string.IsNullOrEmpty(player.strategySummary) ? "No stops made" : player.strategySummary,
-                "Track limit warnings: " + player.trackLimitWarnings,
-                player.penaltiesSeconds > 0f ? "<color=#FFC85C>Penalties: +" + player.penaltiesSeconds.ToString("0") + "s (" + player.penaltyReason + ")</color>" : "No penalties"
-            }, 340f, UiFactory.AccentAmber, null);
-
-            List<string> incidentLines = new List<string>
-            {
-                "Safety cars this race: " + race.SafetyCarDeploymentCount,
-                "Yellow/incidents flagged: " + race.IncidentCount
-            };
-            if (race.RedFlagCount > 0)
-            {
-                incidentLines.Add("<color=#FF4D3D>Red flags: " + race.RedFlagCount + " (" + race.RedFlagReason + ")</color>");
-            }
-
-            BuildReportCard(row, "Incidents & Session", incidentLines.ToArray(), 300f, UiFactory.AccentGreen, card =>
-            {
-                RectTransform lockupBar = UiFactory.CreateStatBar(card, "Lockups", player.lockups, 8f, UiFactory.AccentAmber, 268f);
-                PositionCardWidget(lockupBar, 16f, 46f);
-                RectTransform flatSpotBar = UiFactory.CreateStatBar(card, "Flat Spot", player.flatSpotPercent, 100f, UiFactory.AccentAmber, 268f);
-                PositionCardWidget(flatSpotBar, 16f, 6f);
-            });
-
-            BuildChampionshipCard(row, race);
-        }
-
-        // Race-control timeline: a compact, chronological line per flag/SC/red-
-        // flag/restart/penalty event this session (RaceManager.RaceControlHistory
-        // - deliberately only logs events race control actually acted on, not
-        // every minor incident, so this reads as "what happened" rather than a
-        // debug feed). Omits itself entirely for a clean green race rather than
-        // showing an empty section.
+        // Section 7: race-control timeline - one card-style row per genuine
+        // race-control event (RaceManager.RaceControlHistory - already excludes
+        // minor incidents by design), grouped under a "Lap N" sub-header once
+        // there are more than ~10 entries so a wild race stays scannable. Every
+        // row auto-sizes via UiFactory.CreateAutoText instead of the old
+        // `count * 24f + 12f` guess, which drifted the moment a detail string
+        // wrapped to two lines. Omits itself entirely for a clean race.
         void BuildRaceControlTimeline(RectTransform content, RaceManager race)
         {
             if (race == null || race.RaceControlHistory == null || race.RaceControlHistory.Count == 0)
@@ -4665,29 +4838,113 @@ namespace LocalFormulaRacing
             }
 
             UiFactory.CreateSubHeader(content, "Race Control Timeline");
-            RectTransform list = UiFactory.CreateRect(content, "Race control timeline list", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            UiFactory.SetSize(list, ReportContentWidth, race.RaceControlHistory.Count * 24f + 12f);
-            UiFactory.AddVerticalLayout(list, 4, new RectOffset(0, 0, 6, 6));
-            for (int i = 0; i < race.RaceControlHistory.Count; i++)
+            IReadOnlyList<RaceManager.RaceControlHistoryEntry> history = race.RaceControlHistory;
+            bool grouped = history.Count > 10;
+
+            RectTransform list = UiFactory.CreateAutoHeightList(content, "Race control timeline list", ReportContentWidth, 6, new RectOffset(16, 16, 16, 16));
+            Image listBackground = list.gameObject.AddComponent<Image>();
+            UiFactory.StyleRounded(listBackground, UiFactory.PanelDarker);
+            float innerWidth = ReportContentWidth - 32f;
+
+            int lastLap = int.MinValue;
+            for (int i = 0; i < history.Count; i++)
             {
-                RaceManager.RaceControlHistoryEntry entry = race.RaceControlHistory[i];
+                RaceManager.RaceControlHistoryEntry entry = history[i];
+                int lap = Mathf.Max(1, entry.lap);
+                if (grouped && lap != lastLap)
+                {
+                    Text lapHeader = UiFactory.CreateAutoText(list, "Timeline lap header " + i, "LAP " + lap, 12, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+                    lapHeader.fontStyle = FontStyle.Bold;
+                    lastLap = lap;
+                }
+
                 Color labelColor = (entry.label == "RED FLAG" || entry.label == "GRID RESET") ? UiFactory.Accent
                     : (entry.label == "PENALTY" ? UiFactory.AccentAmber
                     : ((entry.label == "GREEN FLAG" || entry.label == "RACE RESTART") ? UiFactory.AccentGreen : UiFactory.AccentCyan));
-                string line = "<color=#" + ColorUtility.ToHtmlStringRGB(labelColor) + ">" + entry.label + "</color>  Lap " + Mathf.Max(1, entry.lap) + "  ·  " + entry.detail;
-                Text row2 = UiFactory.CreateText(list, "Timeline entry " + i, line, 14, UiFactory.TextPrimary, TextAnchor.MiddleLeft);
-                UiFactory.SetSize(row2, ReportContentWidth, 20f);
+                string lapPrefix = grouped ? "" : ("Lap " + lap + "  ·  ");
+                string line = "<color=#" + ColorUtility.ToHtmlStringRGB(labelColor) + "><b>" + entry.label + "</b></color>  " + lapPrefix + entry.detail;
+                UiFactory.CreateAutoText(list, "Timeline entry " + i, line, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
             }
         }
 
-        // Career/championship movement card: driver and constructor standing
-        // before/after this race, sourced from the RaceReportRecord CareerManager
-        // just appended in ApplyRaceResults (Part 2 "Championship Impact" data).
-        // Quick Race has no Career/standings context, so this card simply omits
-        // itself rather than showing fabricated numbers.
-        void BuildChampionshipCard(RectTransform row, RaceManager race)
+        // Full Classification table - every entry in `results` (the full,
+        // already-sorted field), never filtered/limited. Row height bumped
+        // slightly (32f -> 34f) over the old value for a little more breathing
+        // room; driver/team cells keep CreateText's default Wrap (not Overflow)
+        // so a long name wraps or gets vertically truncated instead of bleeding
+        // into the next column or the next row.
+        void BuildFullClassificationTable(RectTransform content, RaceManager race, List<RaceResultEntry> results)
         {
-            if (race == null || !race.IsCareerRace || race.Career == null)
+            RectTransform headerRow = UiFactory.CreateTableRow(content, "Results header row", ReportContentWidth, 28f, false, 1);
+            headerRow.GetComponent<Image>().color = new Color(0f, 0f, 0f, 0f);
+            UiFactory.AddRowCell(headerRow, "H pos", "POS", 0.0f, 0.05f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            UiFactory.AddRowCell(headerRow, "H grid", "GRID", 0.05f, 0.1f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            UiFactory.AddRowCell(headerRow, "H driver", "DRIVER", 0.11f, 0.36f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            UiFactory.AddRowCell(headerRow, "H team", "TEAM", 0.36f, 0.5f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            UiFactory.AddRowCell(headerRow, "H tyre", "TYRE", 0.5f, 0.55f, 13, UiFactory.Accent, TextAnchor.MiddleCenter);
+            UiFactory.AddRowCell(headerRow, "H gap", "TOTAL / GAP", 0.56f, 0.69f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            UiFactory.AddRowCell(headerRow, "H best", "BEST LAP", 0.69f, 0.79f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            // Widened from the original 0.81-0.88 so a retired car's DNF reason
+            // (collision damage, mechanical failure, stranded, ...) actually has
+            // room to render instead of being silently dropped in favor of the
+            // bare "DNF" tag already shown in the Gap column.
+            UiFactory.AddRowCell(headerRow, "H pen", "PEN / STATUS", 0.79f, 0.9f, 13, UiFactory.Accent, TextAnchor.MiddleLeft);
+            UiFactory.AddRowCell(headerRow, "H pts", "PTS", 0.9f, 0.97f, 13, UiFactory.Accent, TextAnchor.MiddleRight);
+
+            if (results == null || results.Count == 0)
+            {
+                Text empty = UiFactory.CreateText(content, "No results", "No results.", 18, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                UiFactory.SetSize(empty, 600f, 30f);
+                return;
+            }
+
+            float winnerTime = results[0].totalTime + results[0].penaltiesSeconds;
+            for (int i = 0; i < results.Count; i++)
+            {
+                RaceResultEntry entry = results[i];
+                float classifiedTime = entry.totalTime + entry.penaltiesSeconds;
+                bool dnf = !string.IsNullOrEmpty(entry.penaltyReason) && entry.penaltyReason.Contains("DNF");
+                string gap = dnf ? "DNF" : (i == 0 ? UiFactory.FormatTime(classifiedTime) : "+" + (classifiedTime - winnerTime).ToString("0.0") + "s");
+                // For classified cars this is just the time penalty, same as
+                // before. For retired cars it now shows the actual reason
+                // (collision damage, mechanical failure, stranded, ...)
+                // instead of leaving the column at a wasted "--".
+                string penColumnText = dnf ? DnfReasonLabel(entry.penaltyReason) : (entry.penaltiesSeconds > 0f ? "+" + entry.penaltiesSeconds.ToString("0") + "s" : "--");
+                Color penColumnColor = dnf ? UiFactory.TextMuted : (entry.penaltiesSeconds > 0f ? UiFactory.AccentAmber : UiFactory.TextMuted);
+                RectTransform row = UiFactory.CreateTableRow(content, "Result row " + i, ReportContentWidth, 34f, entry.isPlayer, i);
+                UiFactory.AddPositionBadge(row, entry.finishingPosition, entry.isPlayer);
+                Color textColor = entry.isPlayer ? Color.white : (dnf ? UiFactory.TextMuted : new Color(0.9f, 0.95f, 0.98f));
+                UiFactory.AddRowCell(row, "Grid", entry.gridPosition > 0 ? entry.gridPosition.ToString() : "--", 0.05f, 0.1f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Driver", entry.driverName, 0.11f, 0.36f, 15, textColor, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Team", TeamLabel(race, entry.teamId), 0.36f, 0.5f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                UiFactory.AddRowDot(row, "Tyre dot", 0.525f, 13f, TyreDotColor(entry.tyreCompound));
+                UiFactory.AddRowCell(row, "Gap", gap, 0.56f, 0.69f, 14, dnf ? UiFactory.Accent : textColor, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Best", UiFactory.FormatTime(entry.bestLapTime), 0.69f, 0.79f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Pen", penColumnText, 0.79f, 0.9f, dnf ? 12 : 14, penColumnColor, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Pts", entry.points.ToString(), 0.9f, 0.97f, 15, entry.points > 0 ? UiFactory.AccentGreen : UiFactory.TextMuted, TextAnchor.MiddleRight);
+
+                if (UiFactory.AnimationsEnabled)
+                {
+                    UiFadeIn reveal = row.gameObject.AddComponent<UiFadeIn>();
+                    reveal.startDelay = Mathf.Min(i, 14) * 0.03f;
+                }
+            }
+        }
+
+        // Section 9: championship impact - driver/constructor standing and
+        // points before/after this race (StandingsMovementSummary, from the
+        // RaceReportRecord CareerManager just appended in ApplyRaceResults), now
+        // also showing the points gap to the next-better position for both
+        // driver and team, computed from the live, already-updated
+        // driverStandings/constructorStandings lists (same convention as
+        // FindStandingsRank above: list order is rank order, so the entry one
+        // index better than the player's position is literally "next"). Quick
+        // Race has no Career/standings context, so this section omits itself
+        // entirely rather than showing fabricated numbers - unchanged from
+        // before.
+        void BuildChampionshipSection(RectTransform content, RaceManager race, RaceResultEntry player)
+        {
+            if (race == null || !race.IsCareerRace || race.Career == null || player == null)
             {
                 return;
             }
@@ -4699,20 +4956,71 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            UiFactory.CreateSubHeader(content, "Championship Impact");
             StandingsMovementSummary standings = latest.standings;
             string driverLine = standings.driverPositionBefore > 0
                 ? "Driver: P" + standings.driverPositionAfter + "  (was P" + standings.driverPositionBefore + ")"
                 : "Driver: P" + standings.driverPositionAfter + "  (debut points)";
             string driverMoveLine = standings.driverPositionBefore <= 0 ? ""
-                : standings.driverPositionAfter < standings.driverPositionBefore ? "<color=#6CFF8D>Up " + (standings.driverPositionBefore - standings.driverPositionAfter) + " place(s)</color>"
-                : standings.driverPositionAfter > standings.driverPositionBefore ? "<color=#FF6C6C>Down " + (standings.driverPositionAfter - standings.driverPositionBefore) + " place(s)</color>"
+                : standings.driverPositionAfter < standings.driverPositionBefore ? "Up " + (standings.driverPositionBefore - standings.driverPositionAfter) + " place(s)"
+                : standings.driverPositionAfter > standings.driverPositionBefore ? "Down " + (standings.driverPositionAfter - standings.driverPositionBefore) + " place(s)"
                 : "Position held";
+            Color driverMoveColor = standings.driverPositionBefore <= 0 ? UiFactory.TextMuted
+                : standings.driverPositionAfter < standings.driverPositionBefore ? UiFactory.AccentGreen
+                : standings.driverPositionAfter > standings.driverPositionBefore ? UiFactory.Accent
+                : UiFactory.TextMuted;
             string pointsLine = "Points: " + standings.driverPointsAfter + "  (+" + (standings.driverPointsAfter - standings.driverPointsBefore) + ")";
             string constructorLine = standings.constructorPositionAfter > 0
                 ? "Constructors: P" + standings.constructorPositionAfter + (standings.constructorPositionBefore > 0 && standings.constructorPositionBefore != standings.constructorPositionAfter ? "  (was P" + standings.constructorPositionBefore + ")" : "")
                 : "Constructors: --";
+            string driverGapLine = ComputeChampionshipGapLine(race.Career.Save.driverStandings, player.driverId, standings.driverPositionAfter);
+            string teamGapLine = ComputeChampionshipGapLine(race.Career.Save.constructorStandings, player.teamId, standings.constructorPositionAfter);
 
-            BuildReportCard(row, "Championship Impact", new[] { driverLine, driverMoveLine, pointsLine, constructorLine }, 280f, UiFactory.AccentPurple, null);
+            RectTransform contentArea;
+            UiFactory.CreateAutoCard(content, "Championship impact", "", UiFactory.AccentPurple, ReportContentWidth, out contentArea);
+            float innerWidth = ReportContentWidth - 34f;
+            UiFactory.CreateAutoText(contentArea, "Championship driver", driverLine, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            if (!string.IsNullOrEmpty(driverMoveLine))
+            {
+                UiFactory.CreateAutoText(contentArea, "Championship driver move", driverMoveLine, 14, driverMoveColor, TextAnchor.UpperLeft, innerWidth);
+            }
+
+            UiFactory.CreateAutoText(contentArea, "Championship points", pointsLine, 14, UiFactory.AccentGreen, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(contentArea, "Championship driver gap", driverGapLine, 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(contentArea, "Championship constructor", constructorLine, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(contentArea, "Championship constructor gap", teamGapLine, 14, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+        }
+
+        // Points gap between `id`'s standings entry and the entry one place
+        // better than `positionAfter` - "Leader" at P1, "--" when there's no
+        // usable standings data for this id/position.
+        string ComputeChampionshipGapLine(List<StandingEntry> standings, string id, int positionAfter)
+        {
+            if (standings == null || positionAfter <= 0 || string.IsNullOrEmpty(id))
+            {
+                return "Gap to next: --";
+            }
+
+            if (positionAfter == 1)
+            {
+                return "Gap to next: Leader";
+            }
+
+            int aheadIndex = positionAfter - 2;
+            if (aheadIndex < 0 || aheadIndex >= standings.Count)
+            {
+                return "Gap to next: --";
+            }
+
+            StandingEntry mine = standings.Find(entry => entry.id == id);
+            if (mine == null)
+            {
+                return "Gap to next: --";
+            }
+
+            StandingEntry ahead = standings[aheadIndex];
+            int gap = ahead.points - mine.points;
+            return "Gap to P" + (positionAfter - 1) + ": " + gap + " pts";
         }
 
         // "Where you gained/lost time" cornering breakdown - average actual vs
@@ -4751,13 +5059,9 @@ namespace LocalFormulaRacing
             }
 
             UiFactory.CreateSubHeader(content, "Cornering Analysis");
-            RectTransform card = UiFactory.CreateRect(content, "Cornering telemetry card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            UiFactory.SetSize(card, ReportContentWidth, 3 * 32f + 24f);
-            Image cardBackground = card.gameObject.AddComponent<Image>();
-            UiFactory.StyleRounded(cardBackground, UiFactory.PanelDarker);
-            RectTransform list = UiFactory.CreateRect(card, "Cornering telemetry list", Vector2.zero, Vector2.one, new Vector2(20f, 10f), new Vector2(-20f, -10f));
-            UiFactory.AddVerticalLayout(list, 4, new RectOffset(0, 0, 0, 0));
-            UiFactory.StretchListChildrenWidth(list);
+            RectTransform contentArea;
+            UiFactory.CreateAutoCard(content, "Cornering analysis", "", UiFactory.AccentGreen, ReportContentWidth, out contentArea);
+            float innerWidth = ReportContentWidth - 34f;
 
             for (int i = 0; i < 3; i++)
             {
@@ -4765,7 +5069,7 @@ namespace LocalFormulaRacing
                 string label = CorneringTierLabels[i] + " (" + CorneringTierHints[i] + ")";
                 if (samples <= 0)
                 {
-                    UiFactory.CreateBreakdownRow(list, label, "Not enough data this race", UiFactory.TextMuted, ReportContentWidth - 40f);
+                    UiFactory.CreateBreakdownRow(contentArea, label, "Not enough data this race", UiFactory.TextMuted, innerWidth);
                     continue;
                 }
 
@@ -4774,57 +5078,8 @@ namespace LocalFormulaRacing
                 float gapPercent = avgReference > 0.01f ? (avgActual - avgReference) / avgReference * 100f : 0f;
                 string valueText = avgActual.ToString("0.0") + " km/h vs " + avgReference.ToString("0.0") + " km/h ref  (" + (gapPercent >= 0f ? "+" : "") + gapPercent.ToString("0.0") + "%)";
                 Color valueColor = gapPercent >= -1f ? UiFactory.AccentGreen : (gapPercent >= -4f ? UiFactory.AccentAmber : UiFactory.Accent);
-                UiFactory.CreateBreakdownRow(list, label, valueText, valueColor, ReportContentWidth - 40f);
+                UiFactory.CreateBreakdownRow(contentArea, label, valueText, valueColor, innerWidth);
             }
-        }
-
-        // Anchors a widget generated with the point-anchor / default-pivot
-        // convention (CreateStatBar, CreateComparisonBar, ...) to a fixed
-        // bottom-left offset inside one of these absolutely-positioned report
-        // cards, matching how the card's own rule/title chrome is placed.
-        void PositionCardWidget(RectTransform widget, float x, float y)
-        {
-            widget.anchorMin = new Vector2(0f, 0f);
-            widget.anchorMax = new Vector2(0f, 0f);
-            widget.pivot = new Vector2(0f, 0f);
-            widget.anchoredPosition = new Vector2(x, y);
-        }
-
-        RectTransform BuildReportCard(Transform parent, string title, string[] lines, float width, Color accent, System.Action<RectTransform> extraContent = null)
-        {
-            RectTransform card = UiFactory.CreateRect(parent, title + " report card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            card.sizeDelta = new Vector2(width, 190f);
-            Image background = card.gameObject.AddComponent<Image>();
-            UiFactory.StyleRounded(background, UiFactory.PanelDarker);
-
-            RectTransform rule = UiFactory.CreateRect(card, title + " rule", new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
-            rule.pivot = new Vector2(0f, 1f);
-            rule.sizeDelta = new Vector2(46f, 3f);
-            rule.anchoredPosition = new Vector2(16f, -14f);
-            Image ruleImage = rule.gameObject.AddComponent<Image>();
-            UiFactory.StyleRoundedSmall(ruleImage, accent);
-
-            Text titleText = UiFactory.CreateText(card, title + " title", title.ToUpperInvariant(), 13, accent, TextAnchor.UpperLeft);
-            RectTransform titleRect = titleText.GetComponent<RectTransform>();
-            titleRect.anchorMin = new Vector2(0f, 1f);
-            titleRect.anchorMax = new Vector2(1f, 1f);
-            titleRect.offsetMin = new Vector2(16f, -34f);
-            titleRect.offsetMax = new Vector2(-10f, -12f);
-
-            Text bodyText = UiFactory.CreateText(card, title + " body", string.Join("\n", lines), 14, new Color(0.88f, 0.93f, 0.97f), TextAnchor.UpperLeft);
-            RectTransform bodyRect = bodyText.GetComponent<RectTransform>();
-            bodyRect.anchorMin = Vector2.zero;
-            bodyRect.anchorMax = Vector2.one;
-            bodyRect.offsetMin = new Vector2(16f, 10f);
-            bodyRect.offsetMax = new Vector2(-10f, -38f);
-            bodyText.lineSpacing = 1.3f;
-
-            if (extraContent != null)
-            {
-                extraContent(card);
-            }
-
-            return card;
         }
 
         RaceResultEntry FindBiggestLoser(List<RaceResultEntry> results)
@@ -4930,11 +5185,15 @@ namespace LocalFormulaRacing
 
             RaceResultEntry entry = results[index];
             int position = entry.finishingPosition > 0 ? entry.finishingPosition : index + 1;
-            float height = position == 1 ? 236f : (position == 2 ? 200f : 180f);
+            // Bumped up from the old 220x(236/200/180) - "too small for the
+            // screen" was the explicit complaint - and the P1/P2/P3 height
+            // spread widened too, so the winner's platform reads as clearly
+            // taller rather than just marginally so.
+            float height = position == 1 ? 300f : (position == 2 ? 254f : 224f);
             TeamData team = race != null && race.Data != null ? race.Data.FindTeam(entry.teamId) : null;
             Color teamColor = team != null ? team.PrimaryUnityColor : new Color(0.6f, 0.66f, 0.72f);
             string timeLabel = position == 1 ? UiFactory.FormatTime(entry.totalTime + entry.penaltiesSeconds) : GapLabel(results, entry);
-            UiFactory.CreatePodiumCard(parent, position, entry.driverName, TeamLabel(race, entry.teamId), teamColor, timeLabel, 220f, height);
+            UiFactory.CreatePodiumCard(parent, position, entry.driverName, TeamLabel(race, entry.teamId), teamColor, timeLabel, 280f, height);
         }
 
         // Gap-to-winner text for a classified entry, or "DNF" for a retirement -

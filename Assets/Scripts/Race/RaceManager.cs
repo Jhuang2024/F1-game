@@ -80,11 +80,40 @@ namespace LocalFormulaRacing
         // -1 when no sector-local yellow is active; otherwise the 1-3 sector index
         // overtaking is currently banned in, independent of the full SC/VSC ban above.
         public int YellowFlagSector { get; private set; } = -1;
+        // Raw internal incident-detector count: increments on every single
+        // RegisterIncident call, including minor scrapes/spins/stranded cars/
+        // mechanical gremlins that never come anywhere near a yellow flag -
+        // with ~20 AI cars over a full race this is routinely in the
+        // hundreds. Diagnostics/tuning only - see RaceControlIncidentCount
+        // below for the number that's actually safe to show a player.
         public int IncidentCount { get; private set; }
         public int SafetyCarDeploymentCount { get; private set; }
         public int AiOvertakesCompletedCount { get; private set; }
         public int RedFlagCount { get; private set; }
         public string RedFlagReason { get; private set; } = "";
+
+        // Report/UI-facing incident count fix: the post-race report and
+        // CareerManager's team-news narrative used to read the raw
+        // IncidentCount above directly, so a perfectly clean race with only
+        // one real yellow flag could report "188 incidents" - every minor
+        // scrape/spin/stranded-car detection tick counted equally with an
+        // actual race-control action, and the number bore no relation to
+        // what the race-control timeline actually showed. This instead
+        // counts only genuine race-control escalations - exactly the entries
+        // that appear in RaceControlHistory - so the summary and the
+        // timeline can never disagree by construction.
+        public int YellowFlagEventCount { get { return CountRaceControlHistoryLabel("YELLOW FLAG"); } }
+        public int VirtualSafetyCarEventCount { get { return CountRaceControlHistoryLabel("VSC"); } }
+        public int PenaltyEventCount { get { return CountRaceControlHistoryLabel("PENALTY"); } }
+        public int RaceControlIncidentCount { get { return YellowFlagEventCount + VirtualSafetyCarEventCount + SafetyCarDeploymentCount + RedFlagCount; } }
+        // Incident-cleanup breakdown (report "Incidents" card, not race-control
+        // logic): a car-to-car contact has another participant within a tight
+        // radius at the moment of detection; anything else that registers as a
+        // collision (a spin, a wall/barrier brush, a kerb strike) is a solo
+        // contact. Purely descriptive counters, never read by any escalation
+        // decision - see DetectIncidents' collision branch.
+        public int CarContactIncidentCount { get; private set; }
+        public int SoloContactIncidentCount { get; private set; }
         // Seconds remaining in the current red-flag suspension; 0/negative once
         // race control has moved on to the restart. HUD-facing only.
         public float RedFlagTimeRemaining { get { return Mathf.Max(0f, redFlagTimer); } }
@@ -140,6 +169,20 @@ namespace LocalFormulaRacing
             {
                 raceControlHistory.RemoveAt(0);
             }
+        }
+
+        int CountRaceControlHistoryLabel(string label)
+        {
+            int count = 0;
+            for (int i = 0; i < raceControlHistory.Count; i++)
+            {
+                if (raceControlHistory[i].label == label)
+                {
+                    count++;
+                }
+            }
+
+            return count;
         }
 
         float redFlagTimer;
@@ -1088,6 +1131,8 @@ namespace LocalFormulaRacing
             IsOvertakingAllowed = true;
             YellowFlagSector = -1;
             IncidentCount = 0;
+            CarContactIncidentCount = 0;
+            SoloContactIncidentCount = 0;
             SafetyCarDeploymentCount = 0;
             AiOvertakesCompletedCount = 0;
             RedFlagCount = 0;
@@ -1470,7 +1515,23 @@ namespace LocalFormulaRacing
                     // always flags (that tier is reserved for genuinely serious
                     // events); Minor never does regardless of position.
                     bool collisionYellowJustified = severity == IncidentSeverity.Medium && blockingLine;
-                    RegisterIncident(participant, severity, progress, freqScale, escalationAllowed, "Collision (speedDrop=" + speedDrop.ToString("0") + " damageJump=" + damageJump.ToString("0.0") + ")", false, collisionYellowJustified);
+                    // Incident-cleanup classification only (never read by any
+                    // escalation decision above) - another car within a tight
+                    // radius at the moment of detection reads as car-to-car
+                    // contact; anything else (a solo spin, a wall/barrier
+                    // brush, a kerb strike) is a solo contact.
+                    bool carNearby = FindCarAhead(participant, 7f) != null || FindCarBehind(participant, 7f) != null;
+                    if (carNearby)
+                    {
+                        CarContactIncidentCount++;
+                    }
+                    else
+                    {
+                        SoloContactIncidentCount++;
+                    }
+
+                    string collisionCause = (carNearby ? "Car contact" : "Solo contact/wall") + " (speedDrop=" + speedDrop.ToString("0") + " damageJump=" + damageJump.ToString("0.0") + ")";
+                    RegisterIncident(participant, severity, progress, freqScale, escalationAllowed, collisionCause, false, collisionYellowJustified);
                     // Part 3: longer per-incident suppression (was 24s) so the same
                     // scrape/spin can't repeatedly re-roll an escalation chance.
                     participant.incidentCooldownTimer = 30f;
@@ -3139,9 +3200,80 @@ namespace LocalFormulaRacing
                 }
             }
 
+            TrackPlayerOvertakesCompleted(currentOrder);
+
             raceControlOrderSnapshot.Clear();
             raceControlOrderSnapshot.AddRange(currentOrder);
             restrictionActiveAtLastSnapshot = restrictionActiveNow;
+        }
+
+        // Overtakes-made fix: RaceParticipant.overtakesCompleted was only ever
+        // incremented by ReportAiOvertakeCompleted, which AiVehicleController
+        // calls from its own AttackingInside/AttackingOutside/SideBySide ->
+        // CompletingPass state transition - a transition the player, driven by
+        // PlayerVehicleInput, never runs through. That left the post-race
+        // report's "Overtakes made" line hardcoded at 0 for a human-driven car
+        // no matter how many cars it actually passed. This reuses the exact
+        // same clean-pass definition CheckIllegalOvertakesUnderYellow already
+        // established just above (two running-order snapshots ~0.5s apart,
+        // IsPositionCorrectionAllowed excluding pit/retired/recovering/crawling
+        // cars) so "genuine overtake" means the same thing here as it does for
+        // the illegal-overtake penalty - just applied unconditionally (not
+        // gated behind a yellow/VSC/SC restriction, since most real overtakes
+        // happen under green) and only for the player, since AI already has
+        // its own precise, independent counter and running this for AI too
+        // would double-count against it.
+        void TrackPlayerOvertakesCompleted(List<RaceParticipant> currentOrder)
+        {
+            if (raceControlOrderSnapshot.Count <= 1)
+            {
+                return;
+            }
+
+            RaceParticipant player = null;
+            int playerCurrentIndex = -1;
+            for (int i = 0; i < currentOrder.Count; i++)
+            {
+                if (currentOrder[i].isPlayer)
+                {
+                    player = currentOrder[i];
+                    playerCurrentIndex = i;
+                    break;
+                }
+            }
+
+            if (player == null)
+            {
+                return;
+            }
+
+            int playerPreviousIndex = raceControlOrderSnapshot.IndexOf(player);
+            if (playerPreviousIndex <= 0)
+            {
+                return;
+            }
+
+            for (int d = 0; d < playerPreviousIndex; d++)
+            {
+                RaceParticipant passed = raceControlOrderSnapshot[d];
+                if (passed == null)
+                {
+                    continue;
+                }
+
+                int passedCurrentIndex = currentOrder.IndexOf(passed);
+                if (passedCurrentIndex < 0 || passedCurrentIndex <= playerCurrentIndex)
+                {
+                    continue;
+                }
+
+                if (IsPositionCorrectionAllowed(player, passed))
+                {
+                    continue;
+                }
+
+                player.overtakesCompleted++;
+            }
         }
 
         // AI (and, via RecommendedPitUnderSafetyCar, the player HUD) pit-under-SC
@@ -7618,7 +7750,15 @@ namespace LocalFormulaRacing
                 // counts to -1 ("no data") - that silently suppressed every race-control news
                 // article (GenerateRaceControlNews bails out on safetyCarDeployments < 0) even
                 // though this race tracked all three. Pass the real counts through.
-                Career.ApplyRaceResults(EventData, results, IncidentCount, SafetyCarDeploymentCount, AiOvertakesCompletedCount, RedFlagCount, RedFlagReason);
+                //
+                // 188-incidents fix: this used to pass the raw internal IncidentCount, which
+                // counts every single minor scrape/spin/stranded-car detection tick (routinely
+                // in the hundreds over a full race) - CareerManager's team-news narrative and
+                // "wasChaotic" classification read that number directly, so a perfectly normal
+                // race could generate a "188 recorded incidents, utter chaos" story. Passing
+                // RaceControlIncidentCount instead (genuine yellow/VSC/SC/red-flag actions only)
+                // makes the narrative match what race control actually did.
+                Career.ApplyRaceResults(EventData, results, RaceControlIncidentCount, SafetyCarDeploymentCount, AiOvertakesCompletedCount, RedFlagCount, RedFlagReason);
             }
 
             RecordPlayerRaceStats(results);
@@ -7689,7 +7829,8 @@ namespace LocalFormulaRacing
                          " aiTotalErsDeployFrames=" + ersFrameTotal +
                          " aiTotalOvertakesCompleted=" + aiOvertakesTotal +
                          " aiTotalLockups=" + aiLockupsTotal +
-                         " incidentCount=" + IncidentCount +
+                         " rawIncidentDetections=" + IncidentCount +
+                         " raceControlIncidents=" + RaceControlIncidentCount +
                          " safetyCarDeployments=" + SafetyCarDeploymentCount);
 
             if (Settings.Difficulty == RaceDifficulty.Expert && playerBest > 0f && fastestAi > 0f && fastestAi - playerBest > 10f)
