@@ -3683,6 +3683,38 @@ namespace LocalFormulaRacing
             return NextPlannedPitLapFor(participant) > 0;
         }
 
+        // Recommendation reason (#67): short, additive clause naming whichever of
+        // tyre wear / rain crossover is genuinely true right now, appended onto
+        // the "Box this lap" call alongside the mandatory-rule/undercut reasons
+        // already built into that message. Returns "" when neither applies -
+        // the base message already stands on its own without this.
+        string PitRecommendationReasonClause(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null || participant.vehicle.Tyres == null)
+            {
+                return "";
+            }
+
+            bool tyresWorn = participant.vehicle.Tyres.WearPercent > 65f;
+            WeatherState currentWeather = Track == null ? WeatherState.Clear : Track.weather;
+            bool wetNow = currentWeather == WeatherState.LightRain || currentWeather == WeatherState.HeavyRain;
+            TyreCompound currentCompound = participant.vehicle.Tyres.Compound;
+            bool onWetTyre = currentCompound == TyreCompound.Intermediate || currentCompound == TyreCompound.Wet;
+            bool weatherMismatch = wetNow != onWetTyre;
+
+            if (weatherMismatch)
+            {
+                return wetNow ? " Track's too wet for these tyres." : " Track's drying out - these won't last.";
+            }
+
+            if (tyresWorn)
+            {
+                return " Tyre wear is high.";
+            }
+
+            return "";
+        }
+
         // Player pit plan: kept for any other/legacy callers. Now stop-aware -
         // resolves to whichever stop is currently pending (stop 1 if none taken yet,
         // stop 2 if the first is done and a 2-stop plan is selected), falling back to
@@ -4111,7 +4143,13 @@ namespace LocalFormulaRacing
                     float undercutGap = GetIntervalToAheadSeconds(PlayerParticipant);
                     string undercut = undercutGap > 0f && undercutGap < 2.5f ? " The undercut on the car ahead is live." : "";
                     string requirement = mandatoryStopStillOwed ? "Mandatory stop still required." : "Second stop window is here.";
-                    PostEngineerMessage("Box this lap for " + plannedCompound + "s. " + requirement + undercut, true);
+                    // Recommendation reason: the requirement/undercut clauses above
+                    // already cover "mandatory rule" and "undercut threat" - this
+                    // adds the other two most common real reasons (tyre wear, rain
+                    // crossover) whenever they're ALSO genuinely true this stop, so
+                    // the call reads as "why", not just "when".
+                    string extraReason = PitRecommendationReasonClause(PlayerParticipant);
+                    PostEngineerMessage("Box this lap for " + plannedCompound + "s. " + requirement + undercut + extraReason, true);
                     return;
                 }
 
@@ -7763,10 +7801,21 @@ namespace LocalFormulaRacing
             // player's own track-limits margin is, not AI behaviour.
             bool outsideWhiteLine = lateral > localHalfWidth + 0.5f;
             bool gainedTime = lateral > localHalfWidth + 1.0f && participant.vehicle != null && Mathf.Abs(participant.vehicle.CurrentSpeedKph) > 70f;
+            // Stewarding depth: capture whether the lap was already invalidated
+            // BEFORE this call, so a "lap deleted" moment only fires once per
+            // lap (the very first excursion) instead of every single frame the
+            // car stays outside the line for the rest of that lap.
+            bool alreadyInvalidated = participant.lapTracker.CurrentLapInvalidated;
             if (outsideWhiteLine)
             {
                 participant.lapTracker.InvalidateCurrentLap();
                 participant.offTrackTimer += Time.deltaTime;
+                if (!alreadyInvalidated && participant.lapTracker.CurrentLapInvalidated && participant.isPlayer &&
+                    CurrentSession == RaceWeekendSession.Qualifying)
+                {
+                    QueueHudToast("LAP DELETED - Sector " + progress.sector, ToastColorAmber);
+                    PostEngineerMessage("Lap deleted, track limits in sector " + progress.sector + ". Push again on the next one.", false);
+                }
             }
             else
             {
@@ -7777,6 +7826,17 @@ namespace LocalFormulaRacing
             {
                 participant.trackLimitWarnings++;
                 participant.offTrackTimer = -1.6f;
+                // Stewarding depth: log the individual event (lap/sector) rather
+                // than only the running count - capped so a persistent offender
+                // over a long race can't grow this unbounded.
+                int displayLap = participant.lapTracker.CompletedLaps + 1;
+                participant.trackLimitEventLog.Add("Lap " + displayLap + " - Sector " + progress.sector);
+                const int maxTrackLimitEventLog = 8;
+                if (participant.trackLimitEventLog.Count > maxTrackLimitEventLog)
+                {
+                    participant.trackLimitEventLog.RemoveAt(0);
+                }
+
                 if (participant.trackLimitWarnings >= 3)
                 {
                     participant.trackLimitWarnings = 0;
@@ -7784,10 +7844,17 @@ namespace LocalFormulaRacing
                     if (participant.isPlayer)
                     {
                         SessionMessage = "Track limits: +5s";
+                        QueueHudToast("5S PENALTY - TRACK LIMITS", ToastColorAmber);
                     }
                 }
                 else if (participant.isPlayer)
                 {
+                    // RaceHud already watches player.trackLimitWarnings itself and
+                    // raises its own "TRACK LIMITS WARNING n/3" toast (see
+                    // RaceHud.UpdateTopAccentFlash) - only SessionMessage (the small
+                    // top status line) is set here, not a second QueueHudToast, to
+                    // avoid showing the same warning twice. RaceHud reads the sector
+                    // detail straight off trackLimitEventLog above.
                     SessionMessage = "Track limits warning " + participant.trackLimitWarnings + "/3";
                 }
             }
@@ -7850,6 +7917,16 @@ namespace LocalFormulaRacing
         void ApplyMandatoryPitPenalty(RaceParticipant participant)
         {
             if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
+            {
+                return;
+            }
+
+            // Configurable race length: a compulsory stop makes no sense on a
+            // genuinely short race (a 3-lap blast can't fit a competitive pit
+            // window at all) - same RaceLaps<=3 threshold RecommendedPitLap
+            // already uses for the same reason, rather than inventing a second
+            // one here.
+            if (RaceLaps <= 3)
             {
                 return;
             }

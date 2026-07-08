@@ -43,6 +43,13 @@ namespace LocalFormulaRacing
         public string penaltyReason = "";
         public int trackLimitWarnings;
         public float offTrackTimer;
+        // Track-limit stewarding depth: a short, capped log of individual
+        // events ("Lap 4 - Sector 2") rather than just the running warning
+        // count, so the post-race report can list exactly where/when each
+        // one happened instead of only a bare total. Capped (see
+        // RaceManager.HandleTrackLimits) since a long race with a persistent
+        // offender could otherwise grow this unbounded.
+        public List<string> trackLimitEventLog = new List<string>();
         // Cornering telemetry (post-race "where did I gain/lose time" report):
         // one running speed-sum/reference-sum/sample-count triple per
         // TrackRuntime.CornerRisk tier (Low/Medium/High), fed by
@@ -237,6 +244,7 @@ namespace LocalFormulaRacing
                 lockups = vehicle == null || vehicle.Tyres == null ? 0 : vehicle.Tyres.TotalLockups,
                 flatSpotPercent = vehicle == null || vehicle.Tyres == null ? 0f : vehicle.Tyres.FlatSpotLevel * 100f,
                 trackLimitWarnings = trackLimitWarnings,
+                trackLimitEvents = new List<string>(trackLimitEventLog),
                 strategySummary = strategySummary
             };
         }

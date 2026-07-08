@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using UnityEngine;
@@ -2335,6 +2336,25 @@ namespace LocalFormulaRacing
                 ShowDisplaySettings(data, career, settings);
             });
 
+            // HUD module toggles: independent of Compact HUD above (which is a
+            // single all-or-nothing preset) - these let a player keep the full HUD
+            // but drop just the one or two modules they personally don't want.
+            UiFactory.CreateSubHeader(leftList, "HUD Modules");
+            AddHudModuleToggle(leftList, "Timing Tower", "The full running order down the left side.", settings, data, career,
+                s => s.hudShowTimingTower, (s, v) => s.hudShowTimingTower = v);
+            AddHudModuleToggle(leftList, "Track Map", "The mini circuit map with car positions.", settings, data, career,
+                s => s.hudShowTrackMap, (s, v) => s.hudShowTrackMap = v);
+            AddHudModuleToggle(leftList, "Input Telemetry", "Throttle/brake/ERS input bars.", settings, data, career,
+                s => s.hudShowInputTelemetry, (s, v) => s.hudShowInputTelemetry = v);
+            AddHudModuleToggle(leftList, "Car Status Card", "Tyres, fuel, ERS, and damage readout.", settings, data, career,
+                s => s.hudShowCarStatus, (s, v) => s.hudShowCarStatus = v);
+            AddHudModuleToggle(leftList, "Radio Messages", "The engineer message stack.", settings, data, career,
+                s => s.hudShowRadio, (s, v) => s.hudShowRadio = v);
+            AddHudModuleToggle(leftList, "Race Control Banner", "Yellow/VSC/safety car/red flag status banner.", settings, data, career,
+                s => s.hudShowRaceControlBanner, (s, v) => s.hudShowRaceControlBanner = v);
+            AddHudModuleToggle(leftList, "Progress Strip", "The thin field-position strip along the top.", settings, data, career,
+                s => s.hudShowProgressStrip, (s, v) => s.hudShowProgressStrip = v);
+
             RectTransform right = UiFactory.CreateCard(background, "Graphics card", new Vector2(0.54f, 0.12f), new Vector2(0.94f, 0.76f));
             RectTransform rightList = UiFactory.CreateScrollPanel(right, "Graphics list", new Vector2(0.035f, 0.03f), new Vector2(0.965f, 0.97f), 8, new RectOffset(20, 20, 16, 16));
             UiFactory.StretchListChildrenWidth(rightList);
@@ -2363,6 +2383,22 @@ namespace LocalFormulaRacing
             UiFactory.CreateCycleControl(sceneryControl, settings.Current.sceneryDensity.ToString("0.00"), () =>
             {
                 settings.Current.sceneryDensity = CycleFloat(settings.Current.sceneryDensity, 0.5f, 2f, 0.5f);
+                settings.Save();
+                ShowDisplaySettings(data, career, settings);
+            });
+        }
+
+        // One row per HUD module toggle - a getter/setter pair keeps this to a
+        // single-line call site per module instead of seven near-identical
+        // CreateSettingRow/CreateToggleControl blocks in ShowDisplaySettings.
+        void AddHudModuleToggle(RectTransform parent, string label, string description, GameSettingsStore settings, GameDataRepository data, CareerManager career,
+            Func<GameSettingsData, bool> getter, Action<GameSettingsData, bool> setter)
+        {
+            RectTransform control;
+            UiFactory.CreateSettingRow(parent, label, description, out control);
+            UiFactory.CreateToggleControl(control, getter(settings.Current), () =>
+            {
+                setter(settings.Current, !getter(settings.Current));
                 settings.Save();
                 ShowDisplaySettings(data, career, settings);
             });
@@ -3648,10 +3684,16 @@ namespace LocalFormulaRacing
 
             UiFactory.CreateSubHeader(railList, "Race Setup");
             RectTransform lapsControl;
-            UiFactory.CreateSettingRow(railList, "Race Laps", "Shorter for a quick blast, longer for a full race.", out lapsControl);
-            UiFactory.CreateCycleControl(lapsControl, settings.Current.laps.ToString(), () =>
+            // Configurable race length: cycles a PRESET (settings.raceLengthPreset,
+            // an existing but previously-unused field), not a raw lap count -
+            // no specific track is chosen yet on this screen, so 25%/50%/Full only
+            // resolve to an actual lap count once a track is picked (see
+            // SelectQuickRaceTrack, which reads this same preset against that
+            // track's own laps3/laps5/laps25Percent).
+            UiFactory.CreateSettingRow(railList, "Race Length", "Preset applies once you pick a track below - percent presets scale to that circuit's own distance.", out lapsControl);
+            UiFactory.CreateCycleControl(lapsControl, RaceLengthPresetLabel(settings.Current.raceLengthPreset), () =>
             {
-                settings.Current.laps = settings.Current.laps == 3 ? 5 : (settings.Current.laps == 5 ? 14 : 3);
+                settings.Current.raceLengthPreset = (settings.Current.raceLengthPreset + 1) % RaceLengthPresetCount;
                 settings.Save();
                 ShowQuickRaceTrackSelect(data, career, settings);
             });
@@ -3732,7 +3774,50 @@ namespace LocalFormulaRacing
         void SelectQuickRaceTrack(CalendarEventData raceEvent, GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
             quickRaceSelectedEvent = raceEvent;
+            // Configurable race length: resolve the preset picked in the setup
+            // rail against THIS track's own lap data now that it's known, and
+            // write the result into the plain settings.laps field RaceManager
+            // already reads (RaceManager.RaceLaps) - keeps every downstream
+            // consumer (mandatory pit rule, strategy planner, HUD lap counter)
+            // unchanged, since they only ever see a normal lap count.
+            settings.Current.laps = ResolveRaceLengthLaps(raceEvent, settings.Current.raceLengthPreset);
+            settings.Save();
             ShowRaceTyreSelect(data, career, settings, false);
+        }
+
+        // Configurable race length presets (#99): 3/5 lap presets prefer the
+        // track's own tuned laps3/laps5 values over a flat literal, since those
+        // already account for that circuit's own lap length; 10 laps is a flat
+        // literal per the requested preset list; 25/50/Full derive from the
+        // track's existing laps25Percent (50% = double, Full = quadruple - the
+        // only distances derivable from a single quarter-distance data point).
+        const int RaceLengthPresetCount = 6;
+
+        string RaceLengthPresetLabel(int preset)
+        {
+            switch (((preset % RaceLengthPresetCount) + RaceLengthPresetCount) % RaceLengthPresetCount)
+            {
+                case 0: return "3 Laps";
+                case 1: return "5 Laps";
+                case 2: return "10 Laps";
+                case 3: return "25% Race";
+                case 4: return "50% Race";
+                default: return "Full Race";
+            }
+        }
+
+        int ResolveRaceLengthLaps(CalendarEventData raceEvent, int preset)
+        {
+            int quarter = raceEvent != null && raceEvent.laps25Percent > 0 ? raceEvent.laps25Percent : 12;
+            switch (((preset % RaceLengthPresetCount) + RaceLengthPresetCount) % RaceLengthPresetCount)
+            {
+                case 0: return Mathf.Max(3, raceEvent != null && raceEvent.laps3 > 0 ? raceEvent.laps3 : 3);
+                case 1: return Mathf.Max(3, raceEvent != null && raceEvent.laps5 > 0 ? raceEvent.laps5 : 5);
+                case 2: return Mathf.Max(3, 10);
+                case 3: return Mathf.Max(3, quarter);
+                case 4: return Mathf.Max(3, quarter * 2);
+                default: return Mathf.Max(3, quarter * 4);
+            }
         }
 
         // Redundancy audit: this used to be two near-identical screens
@@ -5495,6 +5580,18 @@ namespace LocalFormulaRacing
                 UiFactory.CreateAutoText(infoContentArea, "Info player telemetry header", "YOUR CAR", 12, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
                 UiFactory.CreateStatBar(infoContentArea, "Lockups", player.lockups, 8f, UiFactory.AccentAmber, innerWidth);
                 UiFactory.CreateStatBar(infoContentArea, "Flat Spot", player.flatSpotPercent, 100f, UiFactory.AccentAmber, innerWidth);
+
+                // Track-limit stewarding depth: the per-event log (lap/sector),
+                // not just a bare warning count - shows exactly where each one
+                // happened instead of leaving the player to guess.
+                if (player.trackLimitEvents != null && player.trackLimitEvents.Count > 0)
+                {
+                    UiFactory.CreateAutoText(infoContentArea, "Info track limits header", "TRACK LIMIT EVENTS", 12, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+                    for (int i = 0; i < player.trackLimitEvents.Count; i++)
+                    {
+                        UiFactory.CreateAutoText(infoContentArea, "Info track limit event " + i, player.trackLimitEvents[i], 13, UiFactory.AccentAmber, TextAnchor.UpperLeft, innerWidth);
+                    }
+                }
             }
         }
 

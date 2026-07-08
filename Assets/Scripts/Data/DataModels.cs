@@ -681,6 +681,14 @@ namespace LocalFormulaRacing
         public int lockups;
         public float flatSpotPercent;
         public int trackLimitWarnings;
+        // Track-limit stewarding depth: paired with trackLimitWarnings above -
+        // this is the per-event detail ("Lap 4 - Sector 2") the post-race
+        // report lists, while trackLimitWarnings stays the simple running
+        // total every existing reader (records, clean-race check) already
+        // uses. Defaults to an empty list so older saved race reports
+        // (written before this field existed) deserialize with no events
+        // rather than failing.
+        public List<string> trackLimitEvents = new List<string>();
         public string strategySummary;
     }
 
@@ -746,6 +754,17 @@ namespace LocalFormulaRacing
         // HUD / visual additions.
         public bool compactHud;
         public bool particlesEnabled = true;
+
+        // Per-module HUD visibility toggles. All default true so an existing
+        // save's HUD looks identical to before these fields existed - only an
+        // explicit opt-out in Display Settings hides a module.
+        public bool hudShowTimingTower = true;
+        public bool hudShowTrackMap = true;
+        public bool hudShowInputTelemetry = true;
+        public bool hudShowCarStatus = true;
+        public bool hudShowRadio = true;
+        public bool hudShowRaceControlBanner = true;
+        public bool hudShowProgressStrip = true;
 
         // Car setup (1..5, 3 = neutral). Applied as small physics trade-offs.
         public int setupFrontWing = 3;

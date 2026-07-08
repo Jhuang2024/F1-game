@@ -212,6 +212,7 @@ namespace LocalFormulaRacing
                 participant.penaltiesSeconds = 0;
                 participant.penaltyReason = "";
                 participant.trackLimitWarnings = 0;
+                participant.trackLimitEventLog.Clear();
             }
             FinishedCount = 0;
             SortRunningOrder();
