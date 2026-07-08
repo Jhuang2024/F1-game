@@ -1073,6 +1073,123 @@ namespace LocalFormulaRacing
             return Save.raceReports != null && Save.raceReports.Count > 0 ? Save.raceReports[Save.raceReports.Count - 1] : null;
         }
 
+        // ---------- WDC/WCC championship graph data ----------
+        // Save.raceResults already stores one RaceResultRecord per completed
+        // race (season/round/eventName + the full grid's RaceResultEntry list,
+        // including points earned that race) and is never trimmed/capped the
+        // way raceReports is - so the whole season's points progression can be
+        // derived from it directly rather than needing a new, separate history
+        // list to keep in sync. Works identically whether a race was driven or
+        // simulated, since both paths funnel through the same ApplyRaceResults
+        // -> Save.raceResults.Add call.
+        public class ChampionshipSeries
+        {
+            public string id;
+            public string label;
+            public bool isPlayer;
+            public bool isPlayerTeam;
+            // Index-aligned with ChampionshipProgression.rounds - cumulative
+            // points AFTER that round.
+            public List<int> cumulativePoints = new List<int>();
+        }
+
+        public class ChampionshipProgression
+        {
+            public List<int> rounds = new List<int>();
+            public List<string> roundLabels = new List<string>();
+            public List<ChampionshipSeries> series = new List<ChampionshipSeries>();
+        }
+
+        public ChampionshipProgression GetDriverChampionshipProgression()
+        {
+            return BuildChampionshipProgression(false);
+        }
+
+        public ChampionshipProgression GetConstructorChampionshipProgression()
+        {
+            return BuildChampionshipProgression(true);
+        }
+
+        ChampionshipProgression BuildChampionshipProgression(bool constructors)
+        {
+            ChampionshipProgression result = new ChampionshipProgression();
+            if (Save.raceResults == null || Save.raceResults.Count == 0)
+            {
+                return result;
+            }
+
+            List<RaceResultRecord> seasonRecords = Save.raceResults.FindAll(r => r.season == Save.currentSeason);
+            seasonRecords.Sort((a, b) => a.round.CompareTo(b.round));
+
+            Dictionary<string, ChampionshipSeries> byId = new Dictionary<string, ChampionshipSeries>();
+            List<string> order = new List<string>();
+
+            for (int r = 0; r < seasonRecords.Count; r++)
+            {
+                RaceResultRecord record = seasonRecords[r];
+                result.rounds.Add(record.round);
+                result.roundLabels.Add(string.IsNullOrEmpty(record.eventName) ? "Round " + record.round : record.eventName);
+
+                // Points earned by each id THIS round, so a constructor's total
+                // is its two drivers' points summed rather than double-adding a
+                // stale per-driver cumulative value.
+                Dictionary<string, int> gainedThisRound = new Dictionary<string, int>();
+                for (int i = 0; i < record.results.Count; i++)
+                {
+                    RaceResultEntry entry = record.results[i];
+                    string id = constructors ? entry.teamId : entry.driverId;
+                    if (string.IsNullOrEmpty(id))
+                    {
+                        continue;
+                    }
+
+                    if (!byId.ContainsKey(id))
+                    {
+                        TeamData team = data.FindTeam(entry.teamId);
+                        string label = constructors
+                            ? (team != null ? team.shortName : entry.teamId)
+                            : entry.driverName;
+                        byId[id] = new ChampionshipSeries
+                        {
+                            id = id,
+                            label = string.IsNullOrEmpty(label) ? id : label,
+                            isPlayer = !constructors && entry.isPlayer,
+                            isPlayerTeam = constructors && entry.teamId == Save.playerTeamId
+                        };
+                        order.Add(id);
+                    }
+                    else if (!constructors && entry.isPlayer)
+                    {
+                        // The player's driver id/name can change mid-season
+                        // (a mid-career driver swap) - keep the series flagged
+                        // correctly and relabelled to whoever is player now.
+                        byId[id].isPlayer = true;
+                        byId[id].label = entry.driverName;
+                    }
+
+                    int gained;
+                    gainedThisRound.TryGetValue(id, out gained);
+                    gainedThisRound[id] = gained + Mathf.Max(0, entry.points);
+                }
+
+                for (int i = 0; i < order.Count; i++)
+                {
+                    ChampionshipSeries series = byId[order[i]];
+                    int previous = series.cumulativePoints.Count > 0 ? series.cumulativePoints[series.cumulativePoints.Count - 1] : 0;
+                    int gained;
+                    gainedThisRound.TryGetValue(order[i], out gained);
+                    series.cumulativePoints.Add(previous + gained);
+                }
+            }
+
+            for (int i = 0; i < order.Count; i++)
+            {
+                result.series.Add(byId[order[i]]);
+            }
+
+            return result;
+        }
+
         // Part 20: driver/team presentation passthroughs. Team lookups apply the
         // player's own R&D upgrades only when asking about the player's own car -
         // an AI team's card should reflect its own base car, not the player's R&D.

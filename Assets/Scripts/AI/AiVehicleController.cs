@@ -467,7 +467,7 @@ namespace LocalFormulaRacing
 
             float apexDistanceAhead;
             float apexSeverity;
-            FindUpcomingApex(progress.distance, out apexDistanceAhead, out apexSeverity);
+            FindUpcomingApex(progress.distance, speedKph, out apexDistanceAhead, out apexSeverity);
             float turnSign = EstimateTurnDirection(progress.distance);
 
             // Real ceiling, not an invented ~330-350kph clamp: the same DRS/ERS-aware
@@ -1204,7 +1204,7 @@ namespace LocalFormulaRacing
         // point within lookahead range, giving a genuine "distance to the corner"
         // and "how sharp" pair for the braking-point model, instead of only ever
         // reacting to the curvature directly under the car.
-        void FindUpcomingApex(float fromDistance, out float apexDistanceAhead, out float apexSeverity)
+        void FindUpcomingApex(float fromDistance, float speedKph, out float apexDistanceAhead, out float apexSeverity)
         {
             apexDistanceAhead = 400f;
             apexSeverity = 0f;
@@ -1217,7 +1217,13 @@ namespace LocalFormulaRacing
             // panicked/overcautious even though the apex speed target itself was
             // fine. A longer lookahead lets the braking-point model commit to a
             // later, smoother, more confident brake instead of reacting last-second.
-            const float maxLookahead = 260f;
+            // Corner-speed pass 3: now also scales with the car's OWN current
+            // speed - a car doing 320 km/h needs to "see" a corner much further
+            // out than one doing 140 km/h for the braking-point model to ever
+            // have a chance at a late, confident brake instead of a panicked
+            // one, and a fixed 260m regardless of speed under-served exactly
+            // the fastest, most important corners.
+            float maxLookahead = Mathf.Lerp(220f, 340f, Mathf.Clamp01(speedKph / 320f));
             for (float d = 0f; d <= maxLookahead; d += step)
             {
                 float severity = EstimateCornerSeverity(fromDistance + d);

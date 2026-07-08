@@ -43,6 +43,21 @@ namespace LocalFormulaRacing
         public string penaltyReason = "";
         public int trackLimitWarnings;
         public float offTrackTimer;
+        // Cornering telemetry (post-race "where did I gain/lose time" report):
+        // one running speed-sum/reference-sum/sample-count triple per
+        // TrackRuntime.CornerRisk tier (Low/Medium/High), fed by
+        // RaceManager.SampleCorneringTelemetry once per corner per lap.
+        // Deliberately a few small running sums rather than a growing
+        // per-corner-instance log, so this stays cheap over a long race with
+        // many corners and many laps.
+        public readonly float[] cornerSpeedSumByRisk = new float[3];
+        public readonly float[] cornerReferenceSumByRisk = new float[3];
+        public readonly int[] cornerSampleCountByRisk = new int[3];
+        // Which corner (by its peak distance, rounded) was most recently
+        // sampled, so a car lingering near the same corner for several ticks
+        // (slow traffic, recovery) is only ever counted once.
+        float lastTelemetryCornerDistance = -9999f;
+        public float LastTelemetryCornerDistance { get { return lastTelemetryCornerDistance; } set { lastTelemetryCornerDistance = value; } }
         public float startReactionDelay;
         public bool jumpStartPenaltyApplied;
         public bool isPitting;

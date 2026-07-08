@@ -9,6 +9,10 @@ namespace LocalFormulaRacing
         public CareerManager Career { get; private set; }
         public GameSettingsStore Settings { get; private set; }
         public TrackRuntime Track { get; private set; }
+        // Cached once per Build() (see SpawnRaceGrid/session setup) for
+        // SampleCorneringTelemetry - TrackRuntime.ClassifyCorners does a real
+        // curvature scan and must never be called per participant per frame.
+        List<TrackRuntime.CornerRiskInfo> telemetryCorners;
         public CalendarEventData EventData { get; private set; }
         public RaceParticipant PlayerParticipant { get; private set; }
         public bool IsPaused { get; private set; }
@@ -194,9 +198,17 @@ namespace LocalFormulaRacing
         // or a run of scattered minor incidents anywhere on track, genuinely
         // cannot re-trigger a fresh banner for a good while - yellows should
         // read as occasional and localized, not a recurring background noise.
-        const float YellowSectorCooldownAfterClearSeconds = 35f;
+        const float YellowSectorCooldownAfterClearSeconds = 45f;
         const float GlobalMinorYellowCooldownSeconds = 40f;
         const float MaxYellowEpisodeSeconds = 26f;
+        // Part 4 retune: a genuinely global (cross-sector) cooldown, separate
+        // from GlobalMinorYellowCooldownSeconds above (which only ever gated
+        // the Minor/Medium yellowJustified path) - this one gates EVERY new
+        // yellow flag, Major-severity included, which previously had no
+        // global gate at all and could fire in a different sector the moment
+        // that OTHER sector's own per-sector cooldown happened to be clear.
+        const float GlobalYellowFlagCooldownSeconds = 30f;
+        float globalYellowFlagCooldownUntil;
         float drsRestartCooldownTimer;
         RaceParticipant safetyCarQueueLeader;
         float lastIncidentTime = -999f;
@@ -549,6 +561,7 @@ namespace LocalFormulaRacing
             trackManager.transform.SetParent(raceWorld.transform);
             trackManager.sceneryDensity = Settings.Current.sceneryDensity;
             Track = trackManager.Build(eventData, Settings.Current.racingLineAssist);
+            telemetryCorners = Track.ClassifyCorners();
             if (session == RaceWeekendSession.Qualifying)
             {
                 ResetQualifyingSectorState();
@@ -839,6 +852,7 @@ namespace LocalFormulaRacing
                     }
 
                     UpdateSectorRecords(participant);
+                    SampleCorneringTelemetry(participant);
                     if (participant.isPlayer && CurrentSession == RaceWeekendSession.Qualifying)
                     {
                         CapturePlayerQualifyingBestLap(participant.lapTracker);
@@ -1097,6 +1111,7 @@ namespace LocalFormulaRacing
             yellowSectorClearTimer = 0f;
             yellowSectorCooldownUntil.Clear();
             globalMinorYellowCooldownUntil = 0f;
+            globalYellowFlagCooldownUntil = 0f;
             yellowSectorEpisodeStartTime = -999f;
             drsRestartCooldownTimer = 0f;
             safetyCarQueueLeader = null;
@@ -1430,12 +1445,17 @@ namespace LocalFormulaRacing
                     // retune: bars raised again so only genuinely hard hits reach
                     // Medium/Major - a light scrape stays Minor and, per the yellow
                     // policy below, does not flag race control at all.
+                    // Part 4 retune: raised again (was 36/130 and 20/70) - yellows
+                    // were still reading as too common, and this collision
+                    // classification is the single biggest source of them (Major
+                    // always flags with no roll at all). A normal wheel-to-wheel
+                    // rub, a small spin, or a wall brush needs to stay Minor.
                     IncidentSeverity severity;
-                    if (damageJump > 36f || speedDrop > 130f)
+                    if (damageJump > 46f || speedDrop > 150f)
                     {
                         severity = IncidentSeverity.Major;
                     }
-                    else if (damageJump > 20f || speedDrop > 70f || (speedSignal && damageSignal))
+                    else if (damageJump > 28f || speedDrop > 85f || (speedSignal && damageSignal))
                     {
                         severity = IncidentSeverity.Medium;
                     }
@@ -1529,7 +1549,12 @@ namespace LocalFormulaRacing
         void RegisterIncident(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause, bool forceEscalate = false, bool yellowJustified = false)
         {
             IncidentCount++;
-            bool pileup = (RaceElapsed - lastIncidentTime) < 6f && Mathf.Abs(Track.WrapDistance(progress.distance - lastIncidentDistance)) < 40f;
+            // Part 4 retune: tightened from 6s/40m - with ~20 cars on track,
+            // two genuinely unrelated minor incidents landing within a loose
+            // 6s/40m window purely by chance was common enough to keep
+            // manufacturing guaranteed-yellow Major escalations out of two
+            // ordinary scrapes that never actually interacted.
+            bool pileup = (RaceElapsed - lastIncidentTime) < 4f && Mathf.Abs(Track.WrapDistance(progress.distance - lastIncidentDistance)) < 25f;
             lastIncidentTime = RaceElapsed;
             lastIncidentDistance = progress.distance;
             if (pileup && severity != IncidentSeverity.Major)
@@ -1880,8 +1905,25 @@ namespace LocalFormulaRacing
                     return;
                 }
 
+                // Part 4 retune: a per-sector cooldown alone let a fresh yellow
+                // fire in sector 2 the instant sector 1's own cooldown was
+                // still running, reading as one continuous stream of flags
+                // across the lap even though any one sector was individually
+                // "cooling down". This global gate blocks any BRAND NEW yellow
+                // (in any sector) for a while after the last one, without
+                // touching an already-active episode's own ability to refresh
+                // in its own sector (the sameActiveSector branch above).
+                if (RaceElapsed < globalYellowFlagCooldownUntil)
+                {
+                    GameLog.Info("[RaceControl] Yellow flag suppressed - global cooldown active (" +
+                        (globalYellowFlagCooldownUntil - RaceElapsed).ToString("0.0") + "s remaining).");
+                    return;
+                }
+
                 yellowSectorEpisodeStartTime = RaceElapsed;
             }
+
+            globalYellowFlagCooldownUntil = RaceElapsed + GlobalYellowFlagCooldownSeconds;
 
             if (CurrentRaceControlState == RaceControlState.Green)
             {
@@ -4622,8 +4664,11 @@ namespace LocalFormulaRacing
                     brakeDistanceMultiplier = 0.94f,
                     minimumCornerSpeedConfidence = 0.85f,
                     apexErrorMeters = 1.4f,
-                    throttleDelay = 0.30f,
-                    exitThrottleConfidence = 0.78f,
+                    // Corner-speed pass 3: Medium should stay clearly more
+                    // cautious than Hard/Expert but shouldn't read as broken -
+                    // a slightly quicker exit pickup (was 0.30/0.78).
+                    throttleDelay = 0.24f,
+                    exitThrottleConfidence = 0.82f,
                     lineOffsetNoise = 0.75f,
                     reactionTimeSeconds = 0.55f,
                     overtakeCommitment = 0.55f,
@@ -4662,8 +4707,12 @@ namespace LocalFormulaRacing
                     // Medium through medium/fast corners, not just a hair sharper.
                     minimumCornerSpeedConfidence = 0.94f,
                     apexErrorMeters = 0.75f,
-                    throttleDelay = 0.16f,
-                    exitThrottleConfidence = 0.92f,
+                    // Corner-speed pass 3: exit hesitation shortened further
+                    // (was 0.16) and exit confidence raised (was 0.92) - "get
+                    // back to power earlier on exit" was as much about this as
+                    // the apex-speed floors themselves.
+                    throttleDelay = 0.10f,
+                    exitThrottleConfidence = 0.95f,
                     lineOffsetNoise = 0.36f,
                     reactionTimeSeconds = 0.32f,
                     overtakeCommitment = 0.77f,
@@ -5183,6 +5232,67 @@ namespace LocalFormulaRacing
             CheckCompletedSector(participant, 1, lap.LastSector1Time, lap.BestSector1Time, lap.CurrentLapInvalidated);
             CheckCompletedSector(participant, 2, lap.LastSector2Time, lap.BestSector2Time, lap.CurrentLapInvalidated);
             CheckCompletedSector(participant, 3, lap.LastSector3Time, lap.BestSector3Time, lap.LastLapInvalidated);
+        }
+
+        // Cornering performance telemetry: samples this car's actual speed the
+        // moment it passes each classified corner's peak (see
+        // TrackRuntime.ClassifyCorners, cached once as telemetryCorners at
+        // track build time) against a simple reference speed for that corner's
+        // risk tier, so a post-race/post-session report can show where time
+        // was actually gained or lost by corner type. Deliberately a live
+        // apex-speed-vs-reference comparison rather than a full ghost-lap
+        // system - much cheaper to build and still answers the real question
+        // ("am I carrying enough speed through high-speed corners specifically,
+        // or hairpins specifically") without needing lap-to-lap replay data.
+        const float TelemetryCornerCaptureRadius = 12f;
+
+        void SampleCorneringTelemetry(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null || telemetryCorners == null || telemetryCorners.Count == 0 || Track == null)
+            {
+                return;
+            }
+
+            if (participant.retired || participant.finished || participant.isPitting || participant.pitPhase != PitPhase.None)
+            {
+                return;
+            }
+
+            float distance = participant.lapTracker != null ? participant.lapTracker.CurrentProgress.distance : 0f;
+            for (int i = 0; i < telemetryCorners.Count; i++)
+            {
+                TrackRuntime.CornerRiskInfo corner = telemetryCorners[i];
+                float delta = Mathf.Abs(Track.WrapDistance(distance - corner.distance));
+                float wrapped = Mathf.Min(delta, Track.length - delta);
+                if (wrapped > TelemetryCornerCaptureRadius)
+                {
+                    continue;
+                }
+
+                // Only once per approach - a car crawling/recovering right at
+                // a corner apex for several ticks (traffic, a spin) must not
+                // flood the same sample in over and over.
+                if (Mathf.Abs(participant.LastTelemetryCornerDistance - corner.distance) < 1f)
+                {
+                    continue;
+                }
+
+                participant.LastTelemetryCornerDistance = corner.distance;
+
+                float carTopSpeed = participant.vehicle.CarData == null || participant.vehicle.CarData.topSpeed <= 0 ? 337f : participant.vehicle.CarData.topSpeed;
+                // Rough real-world fraction of top speed a well-driven car
+                // carries through each risk tier - deliberately simple and
+                // clearly a reference/approximation, not a claim of physical
+                // precision.
+                float referenceFraction = corner.risk == TrackRuntime.CornerRisk.Low ? 0.90f : (corner.risk == TrackRuntime.CornerRisk.Medium ? 0.68f : 0.45f);
+                float referenceSpeedKph = carTopSpeed * referenceFraction;
+                float actualSpeedKph = Mathf.Abs(participant.vehicle.CurrentSpeedKph);
+
+                int index = (int)corner.risk;
+                participant.cornerSpeedSumByRisk[index] += actualSpeedKph;
+                participant.cornerReferenceSumByRisk[index] += referenceSpeedKph;
+                participant.cornerSampleCountByRisk[index]++;
+            }
         }
 
         void CheckCompletedSector(RaceParticipant participant, int sector, float sectorTime, float personalBest, bool invalidated)

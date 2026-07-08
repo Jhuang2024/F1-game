@@ -220,6 +220,19 @@ namespace LocalFormulaRacing
         float pitStopAnimTimer;
         int pitStopAudioPhase;
         Transform[] pitStopWheelTyres;
+        // Post-pit tyre-scaling bug fix: the tyre mesh's authored local scale
+        // is NOT (1,1,1) - CreateWheelPart builds "open wheel" as a squashed
+        // cylinder (roughly 0.62 x 0.24 x 0.62, see RaceManager.cs) to get the
+        // tyre's actual proportions. The old animation scaled toward/away from
+        // Vector3.one directly and restored to Vector3.one at the end, which
+        // silently threw away that authored shape - after the FIRST pit stop
+        // every tyre was left at a full (1,1,1) cube-ish scale (visibly much
+        // wider, since the real width axis was only 0.24). Capturing each
+        // wheel's real original scale once, before any animation ever runs,
+        // and always scaling/restoring relative to THIS (never a hardcoded
+        // constant) means repeated stops in the same race can never compound
+        // an error either.
+        Vector3[] pitStopWheelRestScale;
         bool pitStopWheelTyresFound;
         GameObject[] pitStopGunProps;
         static readonly Vector3[] PitStopWheelLocalOffsets = new Vector3[]
@@ -275,10 +288,12 @@ namespace LocalFormulaRacing
 
             pitStopWheelTyresFound = true;
             pitStopWheelTyres = new Transform[4];
+            pitStopWheelRestScale = new Vector3[4];
             Transform[] pivots = { frontLeft, frontRight, rearLeft, rearRight };
             for (int i = 0; i < 4; i++)
             {
                 pitStopWheelTyres[i] = pivots[i] != null ? pivots[i].Find("open wheel") : null;
+                pitStopWheelRestScale[i] = pitStopWheelTyres[i] != null ? pitStopWheelTyres[i].localScale : Vector3.one;
             }
         }
 
@@ -372,7 +387,7 @@ namespace LocalFormulaRacing
                 {
                     if (pitStopWheelTyres[i] != null)
                     {
-                        pitStopWheelTyres[i].localScale = Vector3.one * wheelScale;
+                        pitStopWheelTyres[i].localScale = pitStopWheelRestScale[i] * wheelScale;
                     }
                 }
             }
@@ -404,7 +419,7 @@ namespace LocalFormulaRacing
                     {
                         if (pitStopWheelTyres[i] != null)
                         {
-                            pitStopWheelTyres[i].localScale = Vector3.one;
+                            pitStopWheelTyres[i].localScale = pitStopWheelRestScale[i];
                         }
                     }
                 }
