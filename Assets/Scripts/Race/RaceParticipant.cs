@@ -85,6 +85,15 @@ namespace LocalFormulaRacing
         public bool hasPitGuideState;
         public float pitGuideDistance;
         public float pitGuideLateral;
+        // Pit-lane stuck watchdog (RaceManager.UpdatePitDrivingStuckWatchdog): last
+        // distance-along-track this car was confirmed making real forward progress
+        // while actively guided (Entry/Release), how long it's been stuck since,
+        // and how many times it's already been nudged back onto the path this stop -
+        // a car nudged repeatedly gets an actual (last-resort) reposition instead of
+        // being nudged forever.
+        public float pitStuckWatchdogTimer;
+        public float pitStuckLastDistance = -1f;
+        public int pitStuckRecoveryCount;
         // Lightweight per-race ERS/DRS usage counters for post-session diagnostics.
         public int ersDeployFrameCount;
         public int drsActiveFrameCount;

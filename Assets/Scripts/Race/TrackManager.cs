@@ -843,6 +843,7 @@ namespace LocalFormulaRacing
             BuildAdvertisingHoardings();
             BuildPitLane();
             BuildPitLaneDividerFence();
+            BuildPitRampGuideFences();
             BuildStartGantry();
             BuildFinishLinePresentation();
             BuildScenery();
@@ -874,6 +875,8 @@ namespace LocalFormulaRacing
             // solidObstacles-based checks ValidateGeneratedTrack already ran.
             ValidateBarrierColliderCoverage();
             ValidateSceneryGrounding();
+            ValidateBarrierSmoothness();
+            ValidatePitLaneSurfaceCoverage();
             BuildBoundaryDebugOverlay();
             return Runtime;
         }
@@ -914,6 +917,48 @@ namespace LocalFormulaRacing
                 Runtime.length * PitZoneEntryRampStart, Runtime.length * PitZoneEntryRampEnd);
             CreateBoundaryDebugLine(overlay.transform, "Pit exit opening (intentional)", new Color(1f, 0.55f, 0f), d => Runtime.HalfWidthAt(d) + EdgeBarrierClearance,
                 Runtime.length * PitZoneExitRampStart, Runtime.length * PitZoneExitRampEnd);
+
+            // Pit lane path overlay (this pass): traces the actual driving path through
+            // the pits rather than just its boundaries/walls, in colours that don't
+            // collide with anything already used above (cyan/red/yellow/plain
+            // green/orange/magenta are all already spoken for). Reuses PitRampEnvelopeAt
+            // and PitLaneLateral directly rather than re-deriving the taper/corridor
+            // constants a second time.
+            CreateBoundaryDebugLine(overlay.transform, "Pit entry path", new Color(0.3f, 1f, 0.4f), d =>
+                {
+                    float lateral;
+                    float halfWidth;
+                    PitRampEnvelopeAt(d / Runtime.length, d, out lateral, out halfWidth);
+                    return lateral;
+                }, Runtime.length * PitZoneEntryRampStart, Runtime.length * PitZoneEntryRampEnd);
+
+            CreateBoundaryDebugLine(overlay.transform, "Pit exit path", new Color(0.65f, 0.25f, 0.95f), d =>
+                {
+                    float lateral;
+                    float halfWidth;
+                    PitRampEnvelopeAt(d / Runtime.length, d, out lateral, out halfWidth);
+                    return lateral;
+                }, Runtime.length * PitZoneExitRampStart, Runtime.length * PitZoneExitRampEnd);
+
+            CreateBoundaryDebugLine(overlay.transform, "Pit box corridor centerline", new Color(0.15f, 0.55f, 1f), d => Runtime.PitLaneLateral, corridorStart, corridorEnd);
+
+            // Merge-point markers at the true entry/exit points - the exact distances
+            // where a car physically crosses between the racing surface and the pit
+            // lane, right on the true track edge (Runtime.HalfWidthAt), not the wall's
+            // set-back fan-out line.
+            float entryMergeDistance = Runtime.length * PitZoneEntryRampStart;
+            Vector3 entryMergePoint;
+            Vector3 entryMergeForward;
+            Vector3 entryMergeRight;
+            Runtime.SampleAtDistance(entryMergeDistance, out entryMergePoint, out entryMergeForward, out entryMergeRight);
+            CreateBoundaryDebugMarker(overlay.transform, "Pit entry merge point", Color.white, entryMergePoint + entryMergeRight * Runtime.HalfWidthAt(entryMergeDistance));
+
+            float exitMergeDistance = Runtime.length * PitZoneExitRampEnd;
+            Vector3 exitMergePoint;
+            Vector3 exitMergeForward;
+            Vector3 exitMergeRight;
+            Runtime.SampleAtDistance(exitMergeDistance, out exitMergePoint, out exitMergeForward, out exitMergeRight);
+            CreateBoundaryDebugMarker(overlay.transform, "Pit exit merge point", Color.white, exitMergePoint + exitMergeRight * Runtime.HalfWidthAt(exitMergeDistance));
 
             // Every point the generation-time flush sweep actually flagged (see
             // ValidateBarrierColliderCoverage) - auto-filled immediately, but still
@@ -2963,6 +3008,31 @@ namespace LocalFormulaRacing
             public float span;
         }
 
+        // Two-pass barrier placement support (smoothing pass, this round): computing a
+        // segment's style/lateral offset used to happen in the same breath as placing
+        // its geometry, each segment sampled independently of its neighbours. That's
+        // fine wherever the lateral target is already a smooth, continuous function of
+        // distance (mostly true - see FlushBarrierLateral/HalfWidthAt), but a few
+        // decisions genuinely are discrete per segment (the pit fan-out engaging, a
+        // corner's tyre-stack standoff switching on/off) and can step the lateral
+        // target briefly INWARD right at their own boundary - exactly the "sudden
+        // inward notch"/trap-pocket a spinning car's corner can wedge into. Buffering
+        // a whole lap's planned offsets per side before placing anything lets
+        // SmoothBarrierLateralSequence below erase that, without touching the
+        // style/catchFence/tyreStack decisions or where any segment starts/stops.
+        struct BarrierPlanEntry
+        {
+            public float distance;
+            public float step;
+            public float segmentLength;
+            public int side;
+            public float lateral;
+            public EdgeBarrierStyle style;
+            public bool catchFence;
+            public bool tyreStack;
+            public int stripeIndex;
+        }
+
         void BuildContinuousEdgeBarriers()
         {
             float step = streetTrack ? StreetEdgeBarrierStep : EdgeBarrierStep;
@@ -2975,6 +3045,8 @@ namespace LocalFormulaRacing
 
             bool previousElevated = IsElevatedAtDistance(-step);
             int stripeIndex = 0;
+            List<BarrierPlanEntry> leftPlan = new List<BarrierPlanEntry>();
+            List<BarrierPlanEntry> rightPlan = new List<BarrierPlanEntry>();
             for (float d = 0f; d < Runtime.length;)
             {
                 bool nearHighRiskCorner = IsNearCorner(d, highRiskCorners, 45f);
@@ -2982,6 +3054,18 @@ namespace LocalFormulaRacing
                 // band - drives containment (fencing + overlap) only, never the tyre-stack
                 // or widening decisions which still key off nearHighRiskCorner alone.
                 bool nearTightFenceCorner = nearHighRiskCorner || IsNearCorner(d, tightFenceCorners, TightCornerFenceRadius);
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+
+                // Facet-density fix, pit ramp extension: the entry/exit ramps are
+                // explicitly the zone that needs "smooth, gradual lane transitions" -
+                // the fan-out's own lateral target changes fastest exactly while
+                // PitZoneBlend is still easing between 0 and 1, the same "fixed step
+                // facets a fast-changing target" problem tight corners have, just
+                // driven by the pit blend instead of track curvature. Treat "still
+                // easing" the same as a tight-fence corner for sampling density/overlap
+                // purposes only - PitZoneBlend() itself still decides the actual target.
+                float pitBlendAtSample = PitZoneBlend(normalized);
+                bool nearPitRampTransition = pitBlendAtSample > 0f && pitBlendAtSample < 1f;
 
                 // A hairpin's whole direction change is usually concentrated at one
                 // centerline vertex rather than spread evenly, so a fixed-length chord
@@ -2997,12 +3081,17 @@ namespace LocalFormulaRacing
                 // largest, so it needs the most samples and the most overlap.
                 float localStep = nearHighRiskCorner ? step * 0.3f : (nearTightFenceCorner ? step * 0.5f : step);
                 float localOverlap = nearHighRiskCorner ? EdgeBarrierOverlap * 3f : (nearTightFenceCorner ? EdgeBarrierOverlap * 2f : EdgeBarrierOverlap);
+                if (nearPitRampTransition)
+                {
+                    localStep = Mathf.Min(localStep, step * 0.5f);
+                    localOverlap = Mathf.Max(localOverlap, EdgeBarrierOverlap * 2f);
+                }
+
                 float segmentLength = localStep + localOverlap;
                 bool elevated = IsElevatedAtDistance(d) || IsElevatedAtDistance(d + localStep * 0.5f) || IsElevatedAtDistance(d + localStep);
-                float normalized = d / Mathf.Max(1f, Runtime.length);
 
-                BuildBarrierSegmentForSide(d, localStep, segmentLength, -1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, nearTightFenceCorner, stripeIndex);
-                BuildBarrierSegmentForSide(d, localStep, segmentLength, 1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, nearTightFenceCorner, stripeIndex);
+                leftPlan.Add(ComputeBarrierPlan(d, localStep, segmentLength, -1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, nearTightFenceCorner, stripeIndex));
+                rightPlan.Add(ComputeBarrierPlan(d, localStep, segmentLength, 1, elevated, normalized, highSpeedTrack, nearHighRiskCorner, nearTightFenceCorner, stripeIndex));
 
                 if (elevated && ElevationAboveGround(d) > 4f && Mathf.FloorToInt(d / step) % 3 == 0)
                 {
@@ -3019,6 +3108,64 @@ namespace LocalFormulaRacing
                 previousElevated = elevated;
                 stripeIndex++;
                 d += localStep;
+            }
+
+            // Smoothing pass (see SmoothBarrierLateralSequence): erases any single
+            // sample's lateral target dipping inward relative to its neighbours before
+            // a single piece of barrier geometry is actually placed, so a tightening-
+            // then-loosening corner or a discrete style/fan-out transition can never
+            // leave a trap-pocket notch for a car to catch a corner on.
+            SmoothBarrierLateralSequence(leftPlan);
+            SmoothBarrierLateralSequence(rightPlan);
+
+            for (int i = 0; i < leftPlan.Count; i++)
+            {
+                PlaceBarrierPlanEntry(leftPlan[i]);
+            }
+
+            for (int i = 0; i < rightPlan.Count; i++)
+            {
+                PlaceBarrierPlanEntry(rightPlan[i]);
+            }
+        }
+
+        void PlaceBarrierPlanEntry(BarrierPlanEntry entry)
+        {
+            CreateEdgeBarrierSegment(entry.distance, entry.step, entry.side, entry.lateral, entry.segmentLength, entry.style, entry.catchFence, entry.tyreStack, entry.stripeIndex);
+        }
+
+        // Smooths the interior of one side's whole-lap lateral-offset sequence so no
+        // single segment's target sits meaningfully closer to the racing line than the
+        // general trend around it (see ValidateBarrierSmoothness for the automated
+        // check this pass exists to satisfy). Deliberately one-sided: each smoothed
+        // value is the LARGER of its own original target and the 3-point moving
+        // average around it, so this can only ever push a barrier segment OUTWARD to
+        // erase an inward notch/trap-pocket - never pull one INWARD and risk narrowing
+        // the track or moving a collision footprint toward the racing line. The whole
+        // lap is a closed loop with no real start/end seam to preserve (unlike, say, a
+        // single corner's own fence run), so neighbours simply wrap around.
+        void SmoothBarrierLateralSequence(List<BarrierPlanEntry> plan)
+        {
+            int count = plan.Count;
+            if (count < 3)
+            {
+                return;
+            }
+
+            float[] original = new float[count];
+            for (int i = 0; i < count; i++)
+            {
+                original[i] = plan[i].lateral;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                int prev = (i - 1 + count) % count;
+                int next = (i + 1) % count;
+                float average = (original[prev] + original[i] + original[next]) / 3f;
+                BarrierPlanEntry entry = plan[i];
+                entry.lateral = Mathf.Max(entry.lateral, average);
+                plan[i] = entry;
             }
         }
 
@@ -3040,8 +3187,13 @@ namespace LocalFormulaRacing
         }
 
         // Decides style/offset for one side at one step, including the pit-corridor
-        // fan-out on the right side, then hands off to the shared segment builder.
-        void BuildBarrierSegmentForSide(float distance, float step, float segmentLength, int side, bool elevated, float normalized, bool highSpeedTrack, bool nearHighRiskCorner, bool nearTightFenceCorner, int stripeIndex)
+        // fan-out on the right side, and returns the plan rather than placing geometry
+        // directly - BuildContinuousEdgeBarriers buffers a whole lap's worth of these,
+        // runs them through SmoothBarrierLateralSequence, and only then hands each one
+        // to CreateEdgeBarrierSegment (see PlaceBarrierPlanEntry). Also reused directly
+        // by ValidateBarrierSmoothness to re-derive the same targets for its own,
+        // independent fine-step sweep.
+        BarrierPlanEntry ComputeBarrierPlan(float distance, float step, float segmentLength, int side, bool elevated, float normalized, bool highSpeedTrack, bool nearHighRiskCorner, bool nearTightFenceCorner, int stripeIndex)
         {
             EdgeBarrierStyle style;
             float baseLateral;
@@ -3128,7 +3280,18 @@ namespace LocalFormulaRacing
                 }
             }
 
-            CreateEdgeBarrierSegment(distance, step, side, lateral, segmentLength, style, catchFence, tyreStack, stripeIndex);
+            return new BarrierPlanEntry
+            {
+                distance = distance,
+                step = step,
+                segmentLength = segmentLength,
+                side = side,
+                lateral = lateral,
+                style = style,
+                catchFence = catchFence,
+                tyreStack = tyreStack,
+                stripeIndex = stripeIndex
+            };
         }
 
         // One barrier segment on one side, sampled along the local chord (the same
@@ -3181,7 +3344,7 @@ namespace LocalFormulaRacing
             if (wantsTyreStack)
             {
                 // Placed on its own absolute hug line (not relative to the
-                // rail's basePosition, which BuildBarrierSegmentForSide has
+                // rail's basePosition, which ComputeBarrierPlan has
                 // already pushed further out specifically to leave room for
                 // this stack) so the stack itself is what actually sits
                 // against the track edge, with the rail directly behind it. Sampled at
@@ -3249,7 +3412,7 @@ namespace LocalFormulaRacing
             rail.GetComponent<Renderer>().sharedMaterial = armcoMaterial;
             // Barrier gap fix: minimumClearance must equal the same
             // EdgeBarrierClearance the rail's own basePosition was placed
-            // with (see BuildBarrierSegmentForSide), not some larger,
+            // with (see ComputeBarrierPlan), not some larger,
             // independently-chosen safety margin - otherwise
             // IsObstacleClearOfRacingSurface treats every single segment as
             // "too close" (since the rail deliberately sits right at that
@@ -3396,7 +3559,7 @@ namespace LocalFormulaRacing
 
         // ---------- pit lane / track divider ----------
         // The old barrier layout only ever fenced the pit complex's OUTER edge
-        // (BuildBarrierSegmentForSide fans the main right-side barrier out to
+        // (ComputeBarrierPlan fans the main right-side barrier out to
         // PitOuterLateral through the corridor) - there was never anything at
         // all between the racing surface's own right edge and the pit lane's
         // driving surface, so a car could freely drift between the two with no
@@ -3476,6 +3639,139 @@ namespace LocalFormulaRacing
 
             GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
             wall.name = "Pit lane divider wall";
+            wall.transform.SetParent(transform);
+            Vector3 scale = new Vector3(wallHalfWidth * 2f, 1.05f, segmentLength);
+            wall.transform.localScale = scale;
+            wall.GetComponent<Renderer>().sharedMaterial = barrierMaterial;
+            if (!TryPlaceSolidObstacle(wall, "pit-divider", basePosition, chordForward, scale, 0.52f, EdgeBarrierClearance))
+            {
+                return;
+            }
+
+            Vector3 placed = wall.transform.position;
+            Quaternion rotation = Quaternion.LookRotation(wall.transform.forward, Vector3.up);
+            CreateVisualBox("Pit divider hazard stripe", placed + Vector3.up * 0.58f, rotation, new Vector3(wallHalfWidth * 2f + 0.02f, 0.14f, segmentLength - 0.2f), flagYellowMaterial);
+        }
+
+        // ---------- pit entry/exit guide fencing ----------
+        // Enclosure root-cause fix: BuildPitLaneDividerFence above only ever walls the
+        // flat corridor where PitZoneBlend==1 - by design, since a literal wall through
+        // the merge lane itself would either sit on top of the ramp's own drivable
+        // surface (near the true entry/exit point, where the ramp has barely started
+        // separating from the track) or, worse, dip back onto the MAIN TRACK's own
+        // surface. But that left the entire back half of each ramp - the part where a
+        // car has already visibly committed to the pit lane and the ramp surface has
+        // separated enough to have real room for a wall - completely open, which is
+        // the concrete gap behind "cars can randomly cut from track to pit lane or pit
+        // lane to track" and "the pit lane doesn't feel enclosed". This adds a second,
+        // shorter guide-wall pass that only activates for the committed half of each
+        // ramp (PitZoneBlend >= PitRampGuideFenceMinBlend) and follows the ramp's own
+        // widening/narrowing taper (the exact same lerp BuildPitRampSurface paves)
+        // instead of the corridor's fixed target, so it always sits flush in the real
+        // gap between the true track edge and the ramp's own near edge - never over
+        // the ramp's pavement, never over the track's. Segments simply skip themselves
+        // (CreatePitRampGuideSegment's outerFace<=innerFace guard) for the low-blend
+        // tip of the ramp closest to the actual merge point, which is exactly the
+        // genuine "opening" a car needs to physically cross through - so the fence
+        // never blocks the intended entry/exit itself, only the already-committed lane
+        // behind it.
+        const float PitRampGuideFenceMinBlend = 0.42f;
+
+        void BuildPitRampGuideFences()
+        {
+            if (Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            BuildPitRampGuideFence(PitZoneEntryRampStart, PitZoneEntryRampEnd);
+            BuildPitRampGuideFence(PitZoneExitRampStart, PitZoneExitRampEnd);
+        }
+
+        void BuildPitRampGuideFence(float startNormalized, float endNormalized)
+        {
+            float length = Runtime.length;
+            float startDistance = length * startNormalized;
+            float endDistance = length * endNormalized;
+            float span = endDistance - startDistance;
+            if (span <= 0f)
+            {
+                span += length;
+            }
+
+            for (float d = 0f; d < span; d += PitDividerStep)
+            {
+                float distance = Runtime.WrapDistance(startDistance + d);
+                float sampleNormalized = Runtime.WrapDistance(startDistance + d + PitDividerStep * 0.5f) / length;
+                if (PitZoneBlend(sampleNormalized) < PitRampGuideFenceMinBlend)
+                {
+                    // Still inside the genuine merge opening near the true entry/exit
+                    // point - leave it open rather than forcing a wall into the gap.
+                    continue;
+                }
+
+                CreatePitRampGuideSegment(distance, PitDividerStep, PitDividerStep + PitDividerOverlap);
+            }
+        }
+
+        // Same widening/narrowing taper BuildPitRampSurface uses to pave the ramp
+        // itself, so the guide wall's outer face always tracks the ramp's own real
+        // near edge instead of a fixed corridor distance that would either float off
+        // the ramp (too far out) or cut into its drivable surface (too far in).
+        void PitRampEnvelopeAt(float normalized, float distance, out float lateral, out float halfWidth)
+        {
+            float trackEdgeLateral = Runtime.HalfWidthAt(distance) + PitRampNearTrackLateral;
+            if (normalized >= PitZoneEntryRampStart && normalized < PitZoneEntryRampEnd)
+            {
+                float t = Mathf.InverseLerp(PitZoneEntryRampStart, PitZoneEntryRampEnd, normalized);
+                lateral = Mathf.Lerp(trackEdgeLateral, Runtime.PitLaneLateral, t);
+                halfWidth = Mathf.Lerp(PitRampNarrowWidth, PitRampFullWidth, t) * 0.5f;
+                return;
+            }
+
+            float wrapTotal = (1f - PitZoneExitRampStart) + PitZoneExitRampEnd;
+            float wrapped = normalized > PitZoneExitRampStart ? normalized - PitZoneExitRampStart : (1f - PitZoneExitRampStart) + normalized;
+            float exitT = wrapTotal <= 0.0001f ? 0f : Mathf.Clamp01(wrapped / wrapTotal);
+            lateral = Mathf.Lerp(Runtime.PitLaneLateral, trackEdgeLateral, exitT);
+            halfWidth = Mathf.Lerp(PitRampFullWidth, PitRampNarrowWidth, exitT) * 0.5f;
+        }
+
+        void CreatePitRampGuideSegment(float distance, float step, float segmentLength)
+        {
+            Vector3 a;
+            Vector3 b;
+            Vector3 mid;
+            Vector3 forward;
+            Vector3 right;
+            Vector3 discard;
+            Runtime.SampleAtDistance(distance, out a, out discard, out right);
+            Runtime.SampleAtDistance(distance + step, out b, out discard, out right);
+            Runtime.SampleAtDistance(distance + step * 0.5f, out mid, out forward, out right);
+
+            Vector3 chord = b - a;
+            Vector3 chordForward = chord.sqrMagnitude > 0.01f ? chord.normalized : forward;
+
+            float midDistance = distance + step * 0.5f;
+            float normalized = Runtime.WrapDistance(midDistance) / Runtime.length;
+            float rampLateral;
+            float rampHalfWidth;
+            PitRampEnvelopeAt(normalized, midDistance, out rampLateral, out rampHalfWidth);
+
+            float innerFace = Runtime.HalfWidthAt(midDistance) + EdgeBarrierClearance;
+            float outerFace = (rampLateral - rampHalfWidth) - PitDividerPitSideClearance;
+            if (outerFace <= innerFace + PitDividerMinHalfWidth * 2f)
+            {
+                // Too close to the true merge point for a wall to fit without either
+                // sitting on the ramp's own surface or the track's - leave it open.
+                return;
+            }
+
+            float wallHalfWidth = (outerFace - innerFace) * 0.5f;
+            float centerLateral = innerFace + wallHalfWidth;
+            Vector3 basePosition = mid + right * centerLateral;
+
+            GameObject wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            wall.name = "Pit ramp guide wall";
             wall.transform.SetParent(transform);
             Vector3 scale = new Vector3(wallHalfWidth * 2f, 1.05f, segmentLength);
             wall.transform.localScale = scale;
@@ -3747,7 +4043,7 @@ namespace LocalFormulaRacing
             // riding the full width of the kerb could clip a wall that exists
             // specifically to stop it falling off an elevated section.
             // EdgeBarrierClearance matches the placement in
-            // BuildBarrierSegmentForSide so the wall both hugs the edge and
+            // ComputeBarrierPlan so the wall both hugs the edge and
             // stays safely past that leniency boundary.
             TryPlaceSolidObstacle(wall, "bridge-wall", basePosition, forward, scale, 0.62f, EdgeBarrierClearance);
         }
@@ -4230,6 +4526,98 @@ namespace LocalFormulaRacing
             return best;
         }
 
+        // ---------- debug barrier-smoothness sweep ----------
+        // Companion to the flush-distance sweep above: ValidateBarrierColliderCoverage
+        // only asks "is a barrier there at all, and is it flush" - it says nothing about
+        // whether the run reads as SMOOTH along the way. Re-derives the exact same
+        // per-side lateral-offset decision ComputeBarrierPlan makes (minus actually
+        // placing geometry) at a fine, fixed step for the whole lap, then flags two
+        // distinct "still looks/feels sharp" symptoms a car can find even when the
+        // collider itself is technically continuous: a NOTCH (one sample's offset dips
+        // inward of the local 3-point trend by more than tolerance - a candidate trap
+        // pocket) and a FACET (the track tangent swings by more than the angle
+        // tolerance between two adjacent samples - a visible/felt kink). Debug-only,
+        // warn-only, never modifies geometry, never throws - mirrors
+        // ValidateBarrierColliderCoverage/ValidateSceneryGrounding exactly.
+        const float BarrierSmoothnessSampleStep = 6f;
+        const float BarrierSmoothnessNotchTolerance = 0.3f;
+        const float BarrierSmoothnessAngleTolerance = 20f;
+
+        void ValidateBarrierSmoothness()
+        {
+            if (Runtime == null || Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            ValidateBarrierSmoothnessForSide(-1);
+            ValidateBarrierSmoothnessForSide(1);
+        }
+
+        void ValidateBarrierSmoothnessForSide(int side)
+        {
+            float length = Runtime.length;
+            bool highSpeedTrack = length > HighSpeedTrackLength;
+            List<CornerInfo> highRiskCorners = DetectCorners(HighRiskCornerAngle);
+            List<CornerInfo> tightFenceCorners = DetectCorners(TightCornerFenceAngle);
+
+            int sampleCount = Mathf.Clamp(Mathf.RoundToInt(length / BarrierSmoothnessSampleStep), 12, 4000);
+            float[] lateral = new float[sampleCount];
+            Vector3[] forwards = new Vector3[sampleCount];
+
+            for (int i = 0; i < sampleCount; i++)
+            {
+                float d = length * i / sampleCount;
+                float normalized = d / length;
+                bool elevated = IsElevatedAtDistance(d);
+                bool nearHighRiskCorner = IsNearCorner(d, highRiskCorners, 45f);
+                bool nearTightFenceCorner = nearHighRiskCorner || IsNearCorner(d, tightFenceCorners, TightCornerFenceRadius);
+                BarrierPlanEntry entry = ComputeBarrierPlan(d, BarrierSmoothnessSampleStep, BarrierSmoothnessSampleStep, side, elevated, normalized, highSpeedTrack, nearHighRiskCorner, nearTightFenceCorner, 0);
+                lateral[i] = entry.lateral;
+
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                forwards[i] = forward;
+            }
+
+            int notches = 0;
+            int facets = 0;
+            for (int i = 0; i < sampleCount; i++)
+            {
+                int prev = (i - 1 + sampleCount) % sampleCount;
+                int next = (i + 1) % sampleCount;
+                float trend = (lateral[prev] + lateral[i] + lateral[next]) / 3f;
+                float inwardDip = trend - lateral[i];
+                float d = length * i / sampleCount;
+                if (inwardDip > BarrierSmoothnessNotchTolerance)
+                {
+                    notches++;
+                    GameLog.Warn("[TrackValidation] Barrier smoothness check: possible notch on " + (side < 0 ? "left" : "right") +
+                                 " side near " + d.ToString("0") + "m (" + inwardDip.ToString("0.00") + "m inward of local trend) on " + Runtime.displayName);
+                }
+
+                float angleChange = Vector3.Angle(forwards[i], forwards[next]);
+                if (angleChange > BarrierSmoothnessAngleTolerance)
+                {
+                    facets++;
+                    GameLog.Warn("[TrackValidation] Barrier smoothness check: sharp facet on " + (side < 0 ? "left" : "right") +
+                                 " side near " + d.ToString("0") + "m (" + angleChange.ToString("0.0") + " deg tangent change) on " + Runtime.displayName);
+                }
+            }
+
+            if (notches == 0 && facets == 0)
+            {
+                GameLog.Info("[TrackValidation] Barrier smoothness sweep clean on " + (side < 0 ? "left" : "right") + " side: " + sampleCount + " sample(s), no notches or sharp facets on " + Runtime.displayName);
+            }
+            else
+            {
+                GameLog.Warn("[TrackValidation] Barrier smoothness sweep on " + (side < 0 ? "left" : "right") + " side found " + notches + " notch(es) and " + facets +
+                             " sharp facet(s) out of " + sampleCount + " sample(s) on " + Runtime.displayName);
+            }
+        }
+
         // ---------- debug scenery-grounding physics sweep ----------
         // Mirrors ValidateBarrierColliderCoverage above: a debug-only, physics-driven
         // spot-check that runs once after every scenery pass has finished, independent
@@ -4331,6 +4719,97 @@ namespace LocalFormulaRacing
 
             Renderer renderer = child.GetComponent<Renderer>();
             return renderer != null && renderer.enabled;
+        }
+
+        // ---------- debug pit-lane surface continuity sweep ----------
+        // ValidatePitCorridorSealed (further below) already exists and means something
+        // different - it measures distance to the nearest BARRIER (is the corridor
+        // walled off), using the same solidObstacles bookkeeping every other barrier
+        // validator relies on. A barrier can be perfectly sealed while the ground
+        // directly under the driving line is still bare, uncollidable terrain - the
+        // "visible gaps in the track/ground in the pit lane and pit entry" complaint
+        // this pass exists for. This instead raycasts straight down at a handful of
+        // points along the entry ramp, the flat corridor, and the exit ramp and checks
+        // that whatever it actually hits is built from the single shared low-friction
+        // asphalt physics material every drivable surface (main road AND pit-lane
+        // pavement alike) uses - see GetRoadPhysicsMaterial, the same singleton both
+        // BuildRoadMesh's MeshCollider and CreateCollidablePitSurface's BoxColliders
+        // are assigned. Mirrors ValidateSceneryGrounding's raycast-sweep style.
+        // Debug-only, warn-only, never modifies geometry, never throws.
+        const float PitSurfaceCheckStep = 12f;
+        const float PitSurfaceCheckRayHeight = 60f;
+
+        void ValidatePitLaneSurfaceCoverage()
+        {
+            if (Runtime == null || Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            int checkedPoints = 0;
+            int gaps = 0;
+            CheckPitSurfaceRange(Runtime.length * PitZoneEntryRampStart, Runtime.length * PitZoneEntryRampEnd, true, ref checkedPoints, ref gaps);
+            CheckPitSurfaceRange(Runtime.length * TrackRuntime.PitCorridorStartNormalized, Runtime.length * PitZoneExitRampStart, false, ref checkedPoints, ref gaps);
+            CheckPitSurfaceRange(Runtime.length * PitZoneExitRampStart, Runtime.length * PitZoneExitRampEnd, true, ref checkedPoints, ref gaps);
+
+            if (gaps == 0)
+            {
+                GameLog.Info("[TrackValidation] Pit lane surface sweep clean: " + checkedPoints + " point(s) checked, drivable pavement found under every one on " + Runtime.displayName);
+            }
+            else
+            {
+                GameLog.Warn("[TrackValidation] Pit lane surface sweep found " + gaps + "/" + checkedPoints +
+                             " point(s) along the pit entry/corridor/exit with no drivable pavement detected on " + Runtime.displayName);
+            }
+        }
+
+        // isRamp selects which envelope the check point's lateral offset follows:
+        // the tapering ramp envelope (PitRampEnvelopeAt, only valid inside the actual
+        // entry/exit ramp normalized windows) or the flat corridor's own constant
+        // PitLaneLateral - using the ramp formula outside its own window would give a
+        // nonsense answer (see PitRampEnvelopeAt's own wrap-based exit-taper math).
+        void CheckPitSurfaceRange(float startDistance, float endDistance, bool isRamp, ref int checkedPoints, ref int gaps)
+        {
+            float length = Runtime.length;
+            float span = endDistance - startDistance;
+            if (span <= 0f)
+            {
+                span += length;
+            }
+
+            PhysicMaterial expectedSurface = GetRoadPhysicsMaterial();
+            for (float d = 0f; d < span; d += PitSurfaceCheckStep)
+            {
+                float distance = Runtime.WrapDistance(startDistance + d);
+                float normalized = distance / length;
+
+                Vector3 point;
+                Vector3 discard;
+                Vector3 right;
+                Runtime.SampleAtDistance(distance, out point, out discard, out right);
+
+                float lateral;
+                if (isRamp)
+                {
+                    float halfWidth;
+                    PitRampEnvelopeAt(normalized, distance, out lateral, out halfWidth);
+                }
+                else
+                {
+                    lateral = Runtime.PitLaneLateral;
+                }
+
+                Vector3 rayOrigin = point + right * lateral + Vector3.up * PitSurfaceCheckRayHeight;
+                checkedPoints++;
+                RaycastHit hit;
+                bool found = Physics.Raycast(rayOrigin, Vector3.down, out hit, PitSurfaceCheckRayHeight * 2f) && hit.collider.sharedMaterial == expectedSurface;
+                if (!found)
+                {
+                    gaps++;
+                    GameLog.Warn("[TrackValidation] Pit lane surface check FAILED near " + distance.ToString("0") +
+                                 "m: no drivable pavement found under the pit path on " + Runtime.displayName);
+                }
+            }
         }
 
         void CreateKerbBlock(Vector3 position, Vector3 forward, float seed, bool aggressive)
@@ -4918,14 +5397,25 @@ namespace LocalFormulaRacing
             }
 
             // Garage complex behind the boxes, split into segments that follow the lane.
+            // Grounding fix: every other trackside building in this file already anchors
+            // off GroundedTrackPoint (the flat true-ground reference, not whatever height
+            // the road happens to sample at) - this loop was still anchoring off the raw
+            // sampled `point` directly, so on an elevated pit lane stretch the garage row
+            // could float or sit disconnected from visible ground the way other buildings
+            // used to before that fix. Also drops the same foundation pad every other
+            // building in this file gets (CreateGroundPatch always sits flush at
+            // groundTopY, so this is purely cosmetic) so the row never reads as hovering
+            // over bare, unbroken terrain.
             for (float d = corridorStart + 20f; d < corridorEnd - 30f; d += 34f)
             {
                 Vector3 point;
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(d + 17f, out point, out forward, out right);
-                Vector3 basePosition = point + right * (Runtime.PitLaneLateral + 15f);
+                Vector3 groundedPoint = GroundedTrackPoint(point);
+                Vector3 basePosition = groundedPoint + right * (Runtime.PitLaneLateral + 15f);
                 Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+                CreateGroundPatch("Pit garage foundation pad", basePosition, 14f, 36f, concreteMaterial, rotation);
                 CreateVisualBox("Pit building block", basePosition + Vector3.up * 6f, rotation, new Vector3(11f, 12f, 33f), metalMaterial);
                 CreateVisualBox("Pit building fascia", basePosition + right * -5.6f + Vector3.up * 4.4f, rotation, new Vector3(0.3f, 3.2f, 33f), glassMaterial);
                 CreateVisualBox("Pit building roof trim", basePosition + Vector3.up * 12.2f, rotation, new Vector3(11.6f, 0.4f, 33.6f), sceneryAccentMaterial);
@@ -5010,7 +5500,15 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(distance + segStep * 0.5f, out point, out forward, out right);
 
-                float trackEdgeLateral = Runtime.roadHalfWidth + PitRampNearTrackLateral;
+                // Consistency/gap fix: the main road mesh (BuildRoadMesh) and this same
+                // ramp's own guide fence (PitRampEnvelopeAt, built this session) both key
+                // off Runtime.HalfWidthAt here, not the flat roadHalfWidth - matching that
+                // keeps this surface's overlap margin against the TRUE track edge constant
+                // even where a hairpin's widening bonus happens to reach into a pit entry/
+                // exit ramp, instead of that margin shrinking as the bonus grows (worst
+                // case with the old flat roadHalfWidth: as little as ~0.1m left on the
+                // outer edge of the taper at the maximum hairpin bonus).
+                float trackEdgeLateral = Runtime.HalfWidthAt(distance + segStep * 0.5f) + PitRampNearTrackLateral;
                 float lateral = inbound ? Mathf.Lerp(trackEdgeLateral, Runtime.PitLaneLateral, t) : Mathf.Lerp(Runtime.PitLaneLateral, trackEdgeLateral, t);
                 float width = inbound ? Mathf.Lerp(PitRampNarrowWidth, PitRampFullWidth, t) : Mathf.Lerp(PitRampFullWidth, PitRampNarrowWidth, t);
 

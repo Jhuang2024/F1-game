@@ -139,10 +139,14 @@ namespace LocalFormulaRacing
             {
                 // Expert difficulty selected but ExpertIsRuthless is off - still
                 // meaningfully sharper than Hard, just not the absolute ceiling.
-                return 0.85f;
+                // Cornering buff round 5 (was 0.85).
+                return 0.92f;
             }
 
-            return difficulty == RaceDifficulty.Hard ? 0.6f : 0f;
+            // Cornering buff round 5: Hard pulled closer to Expert's cornering
+            // commitment (was 0.6) - Hard should be meaningfully competitive through
+            // corners, not just "clearly better than Medium".
+            return difficulty == RaceDifficulty.Hard ? 0.72f : 0f;
         }
 
         // Part A.5: higher-skill tiers get wider HighSpeed/Medium buckets so they
@@ -158,8 +162,12 @@ namespace LocalFormulaRacing
             // fast, because too few real corners ever landed in that bucket.
             // Widened further for higher-skill tiers so Hard/Expert commit a
             // meaningfully larger share of the curve to the confident bands.
-            float highSpeedCeiling = Mathf.Lerp(0.27f, 0.38f, skillTier);
-            float mediumCeiling = Mathf.Lerp(0.52f, 0.62f, skillTier);
+            // Cornering buff round 5: widened again at full skill (was 0.38/0.62) so
+            // Hard/Expert commit an even larger share of the severity curve to the
+            // confident HighSpeed/Medium bands instead of dropping into Slow/Hairpin
+            // pacing on bends that are still genuinely fast for a committed driver.
+            float highSpeedCeiling = Mathf.Lerp(0.27f, 0.43f, skillTier);
+            float mediumCeiling = Mathf.Lerp(0.52f, 0.67f, skillTier);
             float slowCeiling = Mathf.Lerp(0.75f, 0.74f, skillTier);
 
             if (apexSeverity < highSpeedCeiling)
@@ -202,26 +210,30 @@ namespace LocalFormulaRacing
             switch (type)
             {
                 case CornerType.HighSpeed:
-                    // Corner-speed pass 4 (aggressive): ceiling pushed again to ~104%
-                    // of straight-line speed at full skill (from 101%) and the ease
-                    // power raised further still - Hard/Expert should barely lift at
-                    // all through a genuine high-speed sweep, essentially flat across
-                    // the whole HighSpeed band and only bleeding toward the floor
-                    // right at its very top.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.92f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.04f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(3.4f, 5.4f, skillTier);
+                    // Cornering buff round 5: ceiling pushed again to ~108% of
+                    // straight-line speed at full skill (from 104%) and the ease power
+                    // raised further still - Hard/Expert should barely lift at all
+                    // through a genuine high-speed sweep, essentially flat across the
+                    // whole HighSpeed band and only bleeding toward the floor right at
+                    // its very top.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.92f, straightTargetSpeed * Mathf.Lerp(0.99f, 1.08f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(3.4f, 6.2f, skillTier);
                     break;
                 case CornerType.Medium:
-                    // Corner-speed pass 4: pushed again (92% vs 88% at full skill) -
-                    // this bucket now also catches faster flowing corners pushed
-                    // down from a widened HighSpeed band, so it can no longer read
-                    // as timid either.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.70f, straightTargetSpeed * Mathf.Lerp(0.80f, 0.92f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(2.0f, 2.6f, skillTier);
+                    // Cornering buff round 5: pushed again (96% vs 92% at full skill) -
+                    // this bucket now also catches faster flowing corners pushed down
+                    // from a widened HighSpeed band, so it can no longer read as timid
+                    // either.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.70f, straightTargetSpeed * Mathf.Lerp(0.83f, 0.96f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(2.0f, 3.0f, skillTier);
                     break;
                 case CornerType.Slow:
-                    floorSpeed = Mathf.Lerp(hairpinSpeedKph * 1.25f, hairpinSpeedKph * 1.4f, apexConfidence);
-                    easePower = 1.4f;
+                    // Cornering buff round 5: a small skillTier lift added here too
+                    // (was flat 1.4x regardless of difficulty) - a genuine slow corner
+                    // should still feel meaningfully slower than Medium/HighSpeed, but
+                    // Hard/Expert shouldn't brake for it exactly like Easy does either.
+                    floorSpeed = Mathf.Lerp(hairpinSpeedKph * 1.25f, hairpinSpeedKph * Mathf.Lerp(1.4f, 1.52f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(1.4f, 1.6f, skillTier);
                     break;
                 default:
                     // Hairpin floor deliberately untouched by skill tier - a hairpin is
@@ -1257,7 +1269,11 @@ namespace LocalFormulaRacing
             // lets Hard/Expert commit to the later, flatter braking points their
             // raised apex-speed floors above now expect without ever having to
             // react to a corner that "appeared" late and panic-brake for it.
-            float maxLookahead = Mathf.Lerp(220f, Mathf.Lerp(340f, 400f, skillTier), Mathf.Clamp01(speedKph / 320f));
+            // Cornering buff round 5: lookahead ceiling raised again (was 340/400) -
+            // Hard/Expert's later braking points and higher apex floors below need
+            // correspondingly earlier, more confident corner detection to never read
+            // as a late "surprise" panic-brake.
+            float maxLookahead = Mathf.Lerp(220f, Mathf.Lerp(365f, 440f, skillTier), Mathf.Clamp01(speedKph / 320f));
             for (float d = 0f; d <= maxLookahead; d += step)
             {
                 float severity = EstimateCornerSeverity(fromDistance + d);

@@ -4943,7 +4943,10 @@ namespace LocalFormulaRacing
                     // cautious than Hard/Expert but shouldn't read as broken -
                     // a slightly quicker exit pickup (was 0.30/0.78).
                     throttleDelay = 0.24f,
-                    exitThrottleConfidence = 0.82f,
+                    // Cornering buff round 5: Medium gets a modest, deliberately small
+                    // lift (was 0.82/1.00/1.00) - "decent, not broken", nowhere near
+                    // the Hard/Expert jump below.
+                    exitThrottleConfidence = 0.86f,
                     lineOffsetNoise = 0.75f,
                     reactionTimeSeconds = 0.55f,
                     overtakeCommitment = 0.55f,
@@ -4955,21 +4958,22 @@ namespace LocalFormulaRacing
                     wetWeatherCaution = 1.2f,
                     tyreSavingBias = 0.20f,
                     paceMultiplier = 1.01f,
-                    cornerSpeedMultiplier = 1.00f,
+                    cornerSpeedMultiplier = 1.05f,
                     straightSpeedMultiplier = 0.98f,
-                    brakeConfidenceMultiplier = 1.00f,
-                    throttleAggressionMultiplier = 1.00f
+                    brakeConfidenceMultiplier = 1.05f,
+                    throttleAggressionMultiplier = 1.05f
                 };
             }
 
             if (difficulty == RaceDifficulty.Hard)
             {
-                // Slight nerf pass: Hard and Expert were a little too strong -
-                // pulled back a notch on pace, reaction time, cornering
-                // confidence and consistency (apexErrorMeters/mistakeChancePerLap)
-                // without touching Easy/Medium at all and without collapsing the
-                // Medium -> Hard -> Expert gap. Hard stays clearly strong, just
-                // no longer quite as razor-sharp as before.
+                // Cornering buff round 5: pushed meaningfully further on top of the
+                // corner-speed pass 4 numbers below - Hard should be clearly,
+                // competitively fast through corners, not just "a notch above
+                // Medium". trafficAvoidanceCaution raised alongside the speed/
+                // confidence numbers (was 0.74) so the extra pace is paired with
+                // more avoidance margin, not less - carrying more corner speed
+                // shouldn't also mean crashing into traffic more often.
                 return new AiDifficultyProfile
                 {
                     brakeDistanceMultiplier = 1.00f,
@@ -4980,17 +4984,14 @@ namespace LocalFormulaRacing
                     // as "meaningfully faster through corners". Bumped alongside
                     // the new skillTier blend so Hard is now clearly quicker than
                     // Medium through medium/fast corners, not just a hair sharper.
-                    // Corner-speed pass 4: entry confidence pushed further still
-                    // (was 0.94) - Hard should commit to a corner's entry with
-                    // barely any hesitation.
-                    minimumCornerSpeedConfidence = 0.97f,
-                    apexErrorMeters = 0.75f,
-                    // Corner-speed pass 3: exit hesitation shortened further
-                    // (was 0.16) and exit confidence raised (was 0.92) - "get
-                    // back to power earlier on exit" was as much about this as
-                    // the apex-speed floors themselves.
-                    throttleDelay = 0.10f,
-                    exitThrottleConfidence = 0.95f,
+                    minimumCornerSpeedConfidence = 0.985f,
+                    apexErrorMeters = 0.55f,
+                    // Cornering buff round 5: exit hesitation shortened again (was
+                    // 0.10) and exit confidence raised again (was 0.95) - "pick up
+                    // throttle earlier on exit" was as much about this as the
+                    // apex-speed floors themselves.
+                    throttleDelay = 0.07f,
+                    exitThrottleConfidence = 0.97f,
                     lineOffsetNoise = 0.36f,
                     reactionTimeSeconds = 0.32f,
                     overtakeCommitment = 0.77f,
@@ -4998,39 +4999,39 @@ namespace LocalFormulaRacing
                     ersDeploymentQuality = 0.87f,
                     drsUsageQuality = 0.94f,
                     mistakeChancePerLap = 0.045f,
-                    trafficAvoidanceCaution = 0.74f,
+                    trafficAvoidanceCaution = 0.82f,
                     wetWeatherCaution = 0.98f,
                     tyreSavingBias = 0.12f,
                     paceMultiplier = 1.08f,
-                    // Corner-speed pass 4: pushed further still (was 1.16/1.18) -
-                    // Hard was reading as too cautious specifically through fast
-                    // corners even after the per-corner-type floors above were
-                    // raised, since this multiplier and brakeConfidenceMultiplier
+                    // Cornering buff round 5: pushed further still (was 1.22/1.24/
+                    // 1.28) - Hard was still leaving speed on the table specifically
+                    // through medium/fast corners even after four prior corner-speed
+                    // passes, since this multiplier and brakeConfidenceMultiplier
                     // scale that curve's output and braking point respectively.
-                    cornerSpeedMultiplier = 1.22f,
+                    cornerSpeedMultiplier = 1.30f,
                     straightSpeedMultiplier = 1.00f,
-                    brakeConfidenceMultiplier = 1.24f,
-                    throttleAggressionMultiplier = 1.28f
+                    brakeConfidenceMultiplier = 1.34f,
+                    throttleAggressionMultiplier = 1.38f
                 };
             }
 
-            // Expert - still the ceiling tier, but no longer AT the absolute
-            // practical ceiling on every axis (slight nerf pass, same intent as
-            // Hard above). straightSpeedMultiplier is still the one hard rule
-            // that can never move past 1.0, since it scales against
-            // vehicle.TargetTopSpeedKph, the same DRS/ERS-aware physics ceiling
-            // the player's own car uses. Expert should still comfortably punish
-            // sloppy driving - it just no longer reacts and corners with
-            // literally zero margin for error.
+            // Expert - the ceiling tier. straightSpeedMultiplier is still the one
+            // hard rule that can never move past 1.0, since it scales against
+            // vehicle.TargetTopSpeedKph, the same DRS/ERS-aware physics ceiling the
+            // player's own car uses - every buff below is a cornering-confidence/
+            // braking-point/throttle-pickup number, never a straight-line speed one.
+            // trafficAvoidanceCaution raised alongside the rest (was 0.31), same
+            // reasoning as Hard above: more committed cornering pairs with more
+            // avoidance margin, not less.
             return new AiDifficultyProfile
             {
                 brakeDistanceMultiplier = 1.06f,
-                // Corner-speed pass 4: pushed to the practical ceiling (was 0.98) -
-                // Expert should show essentially zero entry hesitation.
-                minimumCornerSpeedConfidence = 0.995f,
-                apexErrorMeters = 0.22f,
-                throttleDelay = 0.05f,
-                exitThrottleConfidence = 0.99f,
+                // Cornering buff round 5: pushed to the practical ceiling (was
+                // 0.995) - Expert should show essentially zero entry hesitation.
+                minimumCornerSpeedConfidence = 0.999f,
+                apexErrorMeters = 0.14f,
+                throttleDelay = 0.03f,
+                exitThrottleConfidence = 0.995f,
                 lineOffsetNoise = 0.12f,
                 reactionTimeSeconds = 0.11f,
                 overtakeCommitment = 0.93f,
@@ -5038,18 +5039,18 @@ namespace LocalFormulaRacing
                 ersDeploymentQuality = 0.96f,
                 drsUsageQuality = 0.98f,
                 mistakeChancePerLap = 0.0045f,
-                trafficAvoidanceCaution = 0.31f,
+                trafficAvoidanceCaution = 0.42f,
                 wetWeatherCaution = 0.88f,
                 tyreSavingBias = 0.07f,
                 paceMultiplier = 1.15f,
-                // Corner-speed pass 4: pushed further still (was 1.27/1.48) for the
-                // same reason as Hard above - Expert should be the fastest, most
-                // committed tier through high-speed corners specifically, not
+                // Cornering buff round 5: pushed further still (was 1.34/1.58/1.70)
+                // for the same reason as Hard above - Expert should be the fastest,
+                // most committed tier through high-speed corners specifically, not
                 // just on straight-line pace.
-                cornerSpeedMultiplier = 1.34f,
+                cornerSpeedMultiplier = 1.44f,
                 straightSpeedMultiplier = 1.00f,
-                brakeConfidenceMultiplier = 1.58f,
-                throttleAggressionMultiplier = 1.70f
+                brakeConfidenceMultiplier = 1.70f,
+                throttleAggressionMultiplier = 1.85f
             };
         }
 
@@ -6995,6 +6996,104 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Pit-lane stuck watchdog: pitting cars are deliberately excluded from the
+        // general off-track/stranded incident detection (CarRecoveryState.PitSequence,
+        // RaceManager.DetectIncidents) since that machinery assumes normal racing
+        // physics, not a kinematic guided rail - but that also meant NOTHING was ever
+        // watching for a pit-guided car that stops making real progress while actively
+        // driving (Entry: turning in / queueing to box, Release: leaving the box /
+        // merging out), whatever the underlying cause (a stale guide-distance
+        // reference, a queue target that never resolves, or anything else no fix here
+        // can fully rule out without live testing). Only watches the two DRIVING
+        // sub-phases - Service itself is deliberately excluded, since sitting
+        // stationary in the box for pitServiceDuration (or the release-gap hold) is
+        // completely normal, not stuck.
+        const float PitStuckProgressEpsilon = 1.5f;
+        const float PitStuckTimeoutSeconds = 4.5f;
+        const int PitStuckHardResetAfterAttempts = 3;
+
+        void UpdatePitDrivingStuckWatchdog(RaceParticipant participant, TrackProgress currentProgress)
+        {
+            if (participant.pitPhase != PitPhase.Entry && participant.pitPhase != PitPhase.Release)
+            {
+                participant.pitStuckWatchdogTimer = 0f;
+                participant.pitStuckLastDistance = -1f;
+                participant.pitStuckRecoveryCount = 0;
+                return;
+            }
+
+            float distance = currentProgress.distance;
+            if (participant.pitStuckLastDistance < 0f)
+            {
+                participant.pitStuckLastDistance = distance;
+                participant.pitStuckWatchdogTimer = 0f;
+                return;
+            }
+
+            float advanced = Track.WrapDistance(distance - participant.pitStuckLastDistance);
+            if (advanced > Track.length * 0.5f)
+            {
+                advanced -= Track.length;
+            }
+
+            if (Mathf.Abs(advanced) >= PitStuckProgressEpsilon)
+            {
+                participant.pitStuckLastDistance = distance;
+                participant.pitStuckWatchdogTimer = 0f;
+                return;
+            }
+
+            participant.pitStuckWatchdogTimer += Time.deltaTime;
+            if (participant.pitStuckWatchdogTimer < PitStuckTimeoutSeconds)
+            {
+                return;
+            }
+
+            participant.pitStuckWatchdogTimer = 0f;
+            participant.pitStuckLastDistance = distance;
+            participant.pitStuckRecoveryCount++;
+
+            if (participant.pitStuckRecoveryCount >= PitStuckHardResetAfterAttempts)
+            {
+                // Nudging alone hasn't worked three times in a row - a genuine problem,
+                // not a transient one. Fall back to an actual reposition onto a known-
+                // good pose for whatever phase it's in, the true last resort, then
+                // resync the AI's own progress reference exactly like every other
+                // forced-reposition path in this file already does.
+                Vector3 fallbackPosition;
+                Quaternion fallbackRotation;
+                if (participant.pitPhase == PitPhase.Entry)
+                {
+                    Track.GetPitServicePose(participant.pitBoxIndex, out fallbackPosition, out fallbackRotation);
+                }
+                else
+                {
+                    Track.GetPitReleasePose(participant.pitReleaseStagger, out fallbackPosition, out fallbackRotation);
+                }
+
+                participant.vehicle.SnapToPitPose(fallbackPosition, fallbackRotation);
+                participant.hasPitGuideState = false;
+                participant.pitStuckRecoveryCount = 0;
+                AiVehicleController stuckAi = participant.GetComponent<AiVehicleController>();
+                if (stuckAi != null)
+                {
+                    stuckAi.ResyncAfterForcedReposition();
+                }
+
+                GameLog.Warn("[PitLane] " + participant.driverName + " repeatedly stuck in " + participant.pitPhase + ", force-repositioned to a known-good pit-lane pose.");
+                return;
+            }
+
+            // Gentle recovery: re-seed the guide waypoint fresh from wherever the car
+            // actually is right now (the same reset AdvancePitGuideTarget already uses
+            // at the start of every new phase), which drops whatever stale distance/
+            // lateral chase state was holding it in place and lets it resume closing
+            // the gap toward the current target - the "next valid pit-lane path point"
+            // - under its own normal guided pace next tick, without ever teleporting.
+            participant.hasPitGuideState = false;
+            GameLog.Warn("[PitLane] " + participant.driverName + " made no progress in " + participant.pitPhase + " for " + PitStuckTimeoutSeconds.ToString("0.0") + "s, nudged back onto the pit-lane path (attempt " + participant.pitStuckRecoveryCount + ").");
+        }
+
         void HandlePitService(RaceParticipant participant)
         {
             if (participant == null || participant.vehicle == null || participant.lapTracker == null)
@@ -7029,6 +7128,8 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            UpdatePitDrivingStuckWatchdog(participant, currentProgress);
+
             if (participant.pitLimiterUntilExit)
             {
                 participant.vehicle.SetPitLimiter(true);
@@ -7039,8 +7140,8 @@ namespace LocalFormulaRacing
                     participant.vehicle.SetPitExitFastLimiter(false);
                     if (participant.isPlayer)
                     {
-                        SessionMessage = "Pit exit clear";
-                        PostEngineerMessage("Pit exit clear. You can race at full speed.", true);
+                        SessionMessage = "Pit exit: limiter off, resume racing speed";
+                        PostEngineerMessage("Pit exit. Limiter off. Resume racing speed.", true);
                     }
                 }
             }
@@ -7357,11 +7458,24 @@ namespace LocalFormulaRacing
             return State != null ? State.GetCurrentProgress(participant) : Track.GetProgress(participant.transform.position);
         }
 
+        // Queue-target fix: this used to derive the holdback purely from the
+        // participant's OWN current distance to its OWN box - never actually
+        // looking at where the blocking car in front of it really is. Two cars
+        // queueing for boxes at different distances down the lane would each
+        // compute a different, own-box-relative number, but neither number
+        // described "how far behind the car actually ahead of me should I
+        // wait" - so a trailing car could end up targeting a queue point that
+        // was already occupied, sitting right on top of (or past) the real
+        // blocker with nothing left to close, which reads as the car just
+        // stopping dead / going nowhere even though it's "queueing". Basing
+        // the holdback on the real live gap to the blocking car's own current
+        // position keeps every queued car a consistent distance behind
+        // whoever is actually ahead of it, regardless of box index.
         float PitQueueHoldback(RaceParticipant participant, RaceParticipant blocking)
         {
-            float ownDistance = GetPitAwareProgress(participant).distance;
+            float blockingDistance = GetPitAwareProgress(blocking).distance;
             float target = Track.PitBoxDistance(participant.pitBoxIndex);
-            return Mathf.Clamp(target - ownDistance + 8f, 8f, 60f);
+            return Mathf.Clamp(Track.WrapDistance(target - blockingDistance) + 8f, 8f, 60f);
         }
 
         // Any other car still occupying the shared pit-entry coordinate: either
