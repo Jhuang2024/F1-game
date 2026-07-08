@@ -161,10 +161,28 @@ namespace LocalFormulaRacing
             return difficulty == RaceDifficulty.Medium ? 0.32f : 0f;
         }
 
+        // EstimateCornerSeverity measures heading change over a short, fixed ~32-36m
+        // window and clamps at 1.0 for anything tighter than roughly a 44m-radius
+        // turn - a genuinely tight corner and an actual near-180-degree hairpin both
+        // saturate that metric identically, so it alone can't tell them apart. This
+        // instead compares forward direction well before and well after the apex
+        // (a much wider baseline) to measure how much of a real U-turn the corner
+        // actually is - a track like Japan/Suzuka, whose tightest corners are real
+        // but well short of a full U-turn, saturates EstimateCornerSeverity the same
+        // as a genuine hairpin but should never read as one here.
+        float MeasureHairpinTurnAngle(float apexDistance)
+        {
+            Vector3 pointBefore, forwardBefore, rightBefore;
+            Vector3 pointAfter, forwardAfter, rightAfter;
+            track.SampleAtDistance(apexDistance - 55f, out pointBefore, out forwardBefore, out rightBefore);
+            track.SampleAtDistance(apexDistance + 55f, out pointAfter, out forwardAfter, out rightAfter);
+            return Vector3.Angle(forwardBefore, forwardAfter);
+        }
+
         // Part A.5: higher-skill tiers get wider HighSpeed/Medium buckets so they
         // stop treating flowing bends as real corners the way lower tiers
         // correctly still do.
-        CornerType ClassifyUpcomingCorner(float apexSeverity, float skillTier)
+        CornerType ClassifyUpcomingCorner(float apexSeverity, float skillTier, float hairpinTurnAngleDegrees)
         {
             // Corner-speed pass: the old bands (0.25-0.30 / 0.5-0.55) were
             // systematically mis-bucketing genuinely fast, flowing corners
@@ -214,7 +232,14 @@ namespace LocalFormulaRacing
                 return CornerType.VeryTight;
             }
 
-            return CornerType.Hairpin;
+            // Genuine hairpin reservation: apexSeverity has saturated at 1.0, but that
+            // alone just means "tighter than ~44m radius" - it says nothing about
+            // whether the corner is actually close to a full 180-degree turn. Only
+            // promote to Hairpin when the wide-baseline turn angle backs that up;
+            // otherwise this is a very tight corner, not a hairpin (e.g. Japan/Suzuka's
+            // tightest corners, which saturate apexSeverity without ever approaching a
+            // true U-turn), and stays classified as VeryTight instead.
+            return hairpinTurnAngleDegrees >= 150f ? CornerType.Hairpin : CornerType.VeryTight;
         }
 
         // Per-tier apex speed curve instead of one flat Pow(severity, 1.4) eased
@@ -271,18 +296,18 @@ namespace LocalFormulaRacing
                     easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
-                    // Tight-corner speed calibration round 2: raised from the previous
-                    // ~150-200kph target to ~250-300kph (apexConfidence still blends
-                    // toward the low end, skillTier still lifts the ceiling within that
-                    // band) - Mathf.Min against straightTargetSpeed keeps the same
+                    // Tight-corner speed calibration round 3: raised again from
+                    // ~250-300kph to ~300-310kph (apexConfidence still blends toward the
+                    // low end, skillTier still lifts the ceiling within that band) -
+                    // Mathf.Min against straightTargetSpeed keeps the same
                     // overspeed/wall-crash guard for the rare case a car's own
                     // straight-line pace is below this (e.g. under a safety car).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(250f, Mathf.Lerp(275f, 300f, skillTier), apexConfidence));
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(300f, Mathf.Lerp(305f, 310f, skillTier), apexConfidence));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
                     // "Very very tight" corners: a distinct tier between Slow's
-                    // ~250-300kph tight corner and Hairpin's ~50-75kph crawl - pinned to
+                    // ~300-310kph tight corner and Hairpin's ~50-75kph crawl - pinned to
                     // an explicit ~150kph target (130 low-confidence base, 150-165
                     // skill-scaled ceiling) rather than a range, since this tier is
                     // meant to read as one consistent speed rather than a wide band.
@@ -581,7 +606,8 @@ namespace LocalFormulaRacing
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
             // genuine hairpin need very different confidence curves (Part 2).
-            CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity, skillTier);
+            float hairpinTurnAngle = MeasureHairpinTurnAngle(progress.distance + apexDistanceAhead);
+            CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity, skillTier, hairpinTurnAngle);
             float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, straightTargetSpeed, hairpinSpeedKph, gripMultiplier, apexConfidence, skillTier);
 
             // Cornering buff round 8: profile.cornerSpeedMultiplier is no longer
