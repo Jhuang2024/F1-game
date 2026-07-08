@@ -211,7 +211,16 @@ namespace LocalFormulaRacing
         bool watchedPlayerFinished;
 
         // Queued notification system: short race events fade in, hold, and fade out
-        // instead of popping. One notification is visible at a time.
+        // instead of popping.
+        // Stacking fix: this used to be a single slot, so a second event queued
+        // while the first was still holding (losing a position right after gaining
+        // one, a fastest lap alongside an overtake) sat waiting for the full ~3s
+        // fade-in/hold/fade-out cycle to finish before it ever appeared - by the
+        // time it showed, the moment it described was already old, reading as
+        // "delayed". NotificationSlotCount independent slots (same fade in/hold/
+        // fade out state machine each, stacked top-to-bottom) let that many events
+        // display at once instead of queuing behind one another.
+        const int NotificationSlotCount = 2;
         struct HudNotification
         {
             public string text;
@@ -219,11 +228,11 @@ namespace LocalFormulaRacing
         }
 
         readonly Queue<HudNotification> notificationQueue = new Queue<HudNotification>();
-        CanvasGroup notificationGroup;
-        Text notificationText;
-        Image notificationAccent;
-        float notificationTimer;
-        int notificationPhase; // 0 idle, 1 fade in, 2 hold, 3 fade out
+        readonly CanvasGroup[] notificationGroups = new CanvasGroup[NotificationSlotCount];
+        readonly Text[] notificationTexts = new Text[NotificationSlotCount];
+        readonly Image[] notificationAccents = new Image[NotificationSlotCount];
+        readonly float[] notificationTimers = new float[NotificationSlotCount];
+        readonly int[] notificationPhases = new int[NotificationSlotCount]; // 0 idle, 1 fade in, 2 hold, 3 fade out
 
         // Watched values for notification triggers.
         string watchedTyreTemp = "";
@@ -607,21 +616,28 @@ namespace LocalFormulaRacing
             }
         }
 
+        const float NotificationBandHeight = 48f;
+        const float NotificationBandSpacing = 8f;
+
         void BuildNotificationPanel()
         {
-            RectTransform band = UiFactory.CreateResponsivePanel(transform, "HUD notification", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(470f, 48f), new Vector2(0f, -92f), new Color(0.006f, 0.009f, 0.012f, 0.88f));
-            ApplyPanelScale(band);
-            notificationAccent = UiFactory.CreateBand(band, "Notification accent", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(4f, 0f), UiFactory.Accent).GetComponent<Image>();
-            notificationText = UiFactory.CreateText(band, "Notification text", "", 18, UiFactory.TextPrimary, TextAnchor.MiddleCenter);
-            RectTransform textRect = notificationText.GetComponent<RectTransform>();
-            textRect.anchorMin = Vector2.zero;
-            textRect.anchorMax = Vector2.one;
-            textRect.offsetMin = new Vector2(16f, 4f);
-            textRect.offsetMax = new Vector2(-12f, -4f);
-            notificationGroup = band.gameObject.AddComponent<CanvasGroup>();
-            notificationGroup.alpha = 0f;
-            notificationGroup.blocksRaycasts = false;
-            notificationGroup.interactable = false;
+            for (int i = 0; i < NotificationSlotCount; i++)
+            {
+                float yOffset = -92f - i * (NotificationBandHeight + NotificationBandSpacing);
+                RectTransform band = UiFactory.CreateResponsivePanel(transform, "HUD notification " + i, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(470f, NotificationBandHeight), new Vector2(0f, yOffset), new Color(0.006f, 0.009f, 0.012f, 0.88f));
+                ApplyPanelScale(band);
+                notificationAccents[i] = UiFactory.CreateBand(band, "Notification accent " + i, new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(4f, 0f), UiFactory.Accent).GetComponent<Image>();
+                notificationTexts[i] = UiFactory.CreateText(band, "Notification text " + i, "", 18, UiFactory.TextPrimary, TextAnchor.MiddleCenter);
+                RectTransform textRect = notificationTexts[i].GetComponent<RectTransform>();
+                textRect.anchorMin = Vector2.zero;
+                textRect.anchorMax = Vector2.one;
+                textRect.offsetMin = new Vector2(16f, 4f);
+                textRect.offsetMax = new Vector2(-12f, -4f);
+                notificationGroups[i] = band.gameObject.AddComponent<CanvasGroup>();
+                notificationGroups[i].alpha = 0f;
+                notificationGroups[i].blocksRaycasts = false;
+                notificationGroups[i].interactable = false;
+            }
         }
 
         void BuildTimingTower()
@@ -2348,7 +2364,15 @@ namespace LocalFormulaRacing
 
         void UpdateNotificationAnimation()
         {
-            if (notificationPhase == 0)
+            for (int i = 0; i < NotificationSlotCount; i++)
+            {
+                UpdateNotificationSlot(i);
+            }
+        }
+
+        void UpdateNotificationSlot(int slot)
+        {
+            if (notificationPhases[slot] == 0)
             {
                 if (notificationQueue.Count == 0)
                 {
@@ -2356,38 +2380,39 @@ namespace LocalFormulaRacing
                 }
 
                 HudNotification next = notificationQueue.Dequeue();
-                notificationText.text = next.text;
-                notificationAccent.color = next.color;
-                notificationPhase = 1;
-                notificationTimer = 0f;
+                notificationTexts[slot].text = next.text;
+                notificationAccents[slot].color = next.color;
+                notificationPhases[slot] = 1;
+                notificationTimers[slot] = 0f;
             }
 
-            notificationTimer += Time.deltaTime;
-            if (notificationPhase == 1)
+            notificationTimers[slot] += Time.deltaTime;
+            CanvasGroup group = notificationGroups[slot];
+            if (notificationPhases[slot] == 1)
             {
-                notificationGroup.alpha = Mathf.Clamp01(notificationTimer / 0.25f);
-                if (notificationTimer >= 0.25f)
+                group.alpha = Mathf.Clamp01(notificationTimers[slot] / 0.25f);
+                if (notificationTimers[slot] >= 0.25f)
                 {
-                    notificationPhase = 2;
-                    notificationTimer = 0f;
+                    notificationPhases[slot] = 2;
+                    notificationTimers[slot] = 0f;
                 }
             }
-            else if (notificationPhase == 2)
+            else if (notificationPhases[slot] == 2)
             {
-                notificationGroup.alpha = 1f;
-                if (notificationTimer >= 2.4f)
+                group.alpha = 1f;
+                if (notificationTimers[slot] >= 2.4f)
                 {
-                    notificationPhase = 3;
-                    notificationTimer = 0f;
+                    notificationPhases[slot] = 3;
+                    notificationTimers[slot] = 0f;
                 }
             }
-            else if (notificationPhase == 3)
+            else if (notificationPhases[slot] == 3)
             {
-                notificationGroup.alpha = 1f - Mathf.Clamp01(notificationTimer / 0.4f);
-                if (notificationTimer >= 0.4f)
+                group.alpha = 1f - Mathf.Clamp01(notificationTimers[slot] / 0.4f);
+                if (notificationTimers[slot] >= 0.4f)
                 {
-                    notificationPhase = 0;
-                    notificationGroup.alpha = 0f;
+                    notificationPhases[slot] = 0;
+                    group.alpha = 0f;
                 }
             }
         }

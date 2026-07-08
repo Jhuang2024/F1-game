@@ -210,29 +210,34 @@ namespace LocalFormulaRacing
             switch (type)
             {
                 case CornerType.HighSpeed:
-                    // Cornering buff round 5: ceiling pushed again to ~108% of
-                    // straight-line speed at full skill (from 104%) and the ease power
-                    // raised further still - Hard/Expert should barely lift at all
-                    // through a genuine high-speed sweep, essentially flat across the
-                    // whole HighSpeed band and only bleeding toward the floor right at
-                    // its very top.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.92f, straightTargetSpeed * Mathf.Lerp(0.99f, 1.08f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(3.4f, 6.2f, skillTier);
+                    // Cornering buff round 6: player feedback is still "I beat the AI a
+                    // lot through fast corners" even after five prior passes - ceiling
+                    // pushed again (was 0.99-1.08x skill-scaled) and the ease power
+                    // raised further still so Hard/Expert are essentially flat-out
+                    // through a genuine high-speed sweep with almost no bleed toward
+                    // the floor until right at the very top of the band.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.95f, straightTargetSpeed * Mathf.Lerp(1.02f, 1.13f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(4.2f, 7.4f, skillTier);
                     break;
                 case CornerType.Medium:
-                    // Cornering buff round 5: pushed again (96% vs 92% at full skill) -
-                    // this bucket now also catches faster flowing corners pushed down
-                    // from a widened HighSpeed band, so it can no longer read as timid
-                    // either.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.70f, straightTargetSpeed * Mathf.Lerp(0.83f, 0.96f, skillTier), apexConfidence);
-                    easePower = Mathf.Lerp(2.0f, 3.0f, skillTier);
+                    // Cornering buff round 6: pushed again alongside HighSpeed above -
+                    // same "still losing fast corners to the AI" feedback applies here,
+                    // since a lot of real fast corners land in this bucket too.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.76f, straightTargetSpeed * Mathf.Lerp(0.90f, 1.04f, skillTier), apexConfidence);
+                    easePower = Mathf.Lerp(2.3f, 3.4f, skillTier);
                     break;
                 case CornerType.Slow:
-                    // Cornering buff round 5: a small skillTier lift added here too
-                    // (was flat 1.4x regardless of difficulty) - a genuine slow corner
-                    // should still feel meaningfully slower than Medium/HighSpeed, but
-                    // Hard/Expert shouldn't brake for it exactly like Easy does either.
-                    floorSpeed = Mathf.Lerp(hairpinSpeedKph * 1.25f, hairpinSpeedKph * Mathf.Lerp(1.4f, 1.52f, skillTier), apexConfidence);
+                    // Tight-corner-vs-hairpin fix: this floor used to scale directly off
+                    // hairpinSpeedKph (a small 1.25-1.52x multiplier of it) - harmless
+                    // while that floor sat at 76-108kph, but once the hairpin floor was
+                    // dropped to ~26-34kph for genuine hairpins, this bucket (a real but
+                    // NON-hairpin tight corner - Slow is one full classification band
+                    // above Hairpin) collapsed right along with it to a near-hairpin
+                    // crawl. A tight corner and a hairpin are not the same thing, so this
+                    // no longer derives from the hairpin number at all - it gets its own
+                    // straight-speed-relative floor, clearly below Medium but nowhere
+                    // near hairpin pace.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.34f, straightTargetSpeed * Mathf.Lerp(0.42f, 0.52f, skillTier), apexConfidence);
                     easePower = Mathf.Lerp(1.4f, 1.6f, skillTier);
                     break;
                 default:
@@ -513,15 +518,13 @@ namespace LocalFormulaRacing
             // Car-relative hairpin floor instead of one flat number for every car: a
             // stronger braking/cornering car has a genuinely higher minimum apex speed
             // even at a true hairpin.
-            // Tight-corner fix round 2: 58-82kph (round 1's fix) was still faster than
-            // this game's actual generated hairpins can physically be taken at, per
-            // direct playtest feedback - this track generator's tightest corners are
-            // materially tighter than a real-world hairpin like Monaco's Grand Hotel
-            // (~10m radius), so the real-world-radius assumption round 1 was built on
-            // didn't hold here. Dropped to a near-walking-pace floor (was 58-82).
+            // Tight-corner fix round 3: round 2's 15-28kph landed too slow per direct
+            // feedback (15kph reads as basically stopped) - settled on a car-relative
+            // ~26-34kph instead. Genuine hairpins only; a merely-tight corner is the
+            // separate Slow bucket below and no longer derives from this number at all.
             float carBrakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
             float carCorneringStat = vehicle.CarData == null ? 78f : vehicle.CarData.cornering;
-            float hairpinSpeedKph = Mathf.Lerp(15f, 28f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
+            float hairpinSpeedKph = Mathf.Lerp(26f, 34f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a

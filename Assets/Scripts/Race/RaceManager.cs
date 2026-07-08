@@ -1878,8 +1878,25 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Race-start yellow-flag dampener: the opening-lap scramble (grid still
+        // bunched, cars still finding their braking points) produces far more
+        // incidents than mid-race running, which read as "there's a yellow flag
+        // basically every start". Cuts the chance any non-catastrophic incident in
+        // this window actually raises a flag (or escalates) by 75%, rather than
+        // touching the underlying collision/incident detection itself - a genuinely
+        // catastrophic, track-blocking incident (forceEscalate) is never suppressed.
+        const float RaceStartYellowGraceSeconds = 30f;
+        const float RaceStartYellowSuppressionChance = 0.75f;
+
         void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause = null, bool forceEscalate = false, bool yellowJustified = false)
         {
+            bool duringRaceStartWindow = CurrentSession != RaceWeekendSession.Qualifying && RaceElapsed < RaceStartYellowGraceSeconds;
+            if (duringRaceStartWindow && !forceEscalate && Random.value < RaceStartYellowSuppressionChance)
+            {
+                GameLog.Info("[RaceControl] " + severity + " incident yellow/escalation suppressed by the race-start grace window (" + RaceElapsed.ToString("0.0") + "s in).");
+                return;
+            }
+
             // Part 3: only Major incidents always raise the local sector yellow
             // regardless of the safety-car frequency setting (Off only disables
             // VSC/SC escalation, not flags entirely) - that tier is reserved
@@ -5010,12 +5027,13 @@ namespace LocalFormulaRacing
                     wetWeatherCaution = 0.98f,
                     tyreSavingBias = 0.12f,
                     paceMultiplier = 1.08f,
-                    // Cornering buff round 5: pushed further still (was 1.22/1.24/
-                    // 1.28) - Hard was still leaving speed on the table specifically
-                    // through medium/fast corners even after four prior corner-speed
-                    // passes, since this multiplier and brakeConfidenceMultiplier
-                    // scale that curve's output and braking point respectively.
-                    cornerSpeedMultiplier = 1.30f,
+                    // Cornering buff round 6: pushed again (was 1.22/1.24/1.28/1.30) -
+                    // still losing fast corners to the player after five prior passes.
+                    // No longer touches genuine hairpins at all (see the Hairpin-type
+                    // exemption in AiVehicleController), so this only ever buffs
+                    // HighSpeed/Medium/Slow corners now - safe to push harder here
+                    // without also making hairpins faster again.
+                    cornerSpeedMultiplier = 1.42f,
                     straightSpeedMultiplier = 1.00f,
                     brakeConfidenceMultiplier = 1.34f,
                     throttleAggressionMultiplier = 1.38f
@@ -5050,11 +5068,12 @@ namespace LocalFormulaRacing
                 wetWeatherCaution = 0.88f,
                 tyreSavingBias = 0.07f,
                 paceMultiplier = 1.15f,
-                // Cornering buff round 5: pushed further still (was 1.34/1.58/1.70)
-                // for the same reason as Hard above - Expert should be the fastest,
-                // most committed tier through high-speed corners specifically, not
-                // just on straight-line pace.
-                cornerSpeedMultiplier = 1.44f,
+                // Cornering buff round 6: pushed further still (was 1.34/1.58/1.70/
+                // 1.44) for the same reason as Hard above, and for the same reason no
+                // longer touches genuine hairpins (see the Hairpin-type exemption in
+                // AiVehicleController) - Expert should be the fastest, most committed
+                // tier through fast corners specifically, not through hairpins too.
+                cornerSpeedMultiplier = 1.62f,
                 straightSpeedMultiplier = 1.00f,
                 brakeConfidenceMultiplier = 1.70f,
                 throttleAggressionMultiplier = 1.85f
