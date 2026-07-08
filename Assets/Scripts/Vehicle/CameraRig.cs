@@ -287,6 +287,27 @@ namespace LocalFormulaRacing
 
             desired += ComputeShakeOffset(speed01);
 
+            // A touch of slow handheld-style breathing once the car is essentially
+            // stationary (grid, pit box, post-spin standstill), so a long static hold
+            // on the chase/rear-chase/side-cinematic angles doesn't read as a frozen
+            // viewport - real broadcast operators never sit perfectly still even on a
+            // parked car. Fades to nothing well before the car is actually rolling so
+            // it never touches on-track framing; cockpit/nose stay rigidly mounted on
+            // purpose and the TV crane already has its own craneSway above.
+            if (mode == 0 || mode == 3 || mode == 5)
+            {
+                float idleAmount = Mathf.Clamp01(1f - speed01 / 0.05f);
+                if (idleAmount > 0.001f)
+                {
+                    float breatheTime = Time.unscaledTime;
+                    Vector3 breathe = new Vector3(
+                        (Mathf.PerlinNoise(breatheTime * 0.35f, 11.3f) - 0.5f) * 0.05f,
+                        (Mathf.PerlinNoise(2.7f, breatheTime * 0.3f) - 0.5f) * 0.03f,
+                        0f);
+                    desired += breathe * idleAmount;
+                }
+            }
+
             // Chase and rear-chase get quick, precise response at low speed
             // (good for threading a chicane) that loosens into a trailing,
             // slightly-behind feel at speed, which is what actually reads as

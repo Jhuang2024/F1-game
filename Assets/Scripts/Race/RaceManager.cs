@@ -1603,19 +1603,19 @@ namespace LocalFormulaRacing
             // Only count incidents genuinely bunched at the same spot on track -
             // a real pileup, not scattered incidents that merely happened
             // within the same rolling time window.
-            int clustered = 0;
+            List<RaceParticipant> clusteredDrivers = new List<RaceParticipant>();
             for (int i = 0; i < recentCatastrophicIncidentDistances.Count; i++)
             {
                 float separation = Track == null ? 0f : Mathf.Abs(Track.WrapDistance(recentCatastrophicIncidentDistances[i] - incidentDistance));
                 if (separation <= CatastrophicIncidentClusterRadiusMeters)
                 {
-                    clustered++;
+                    clusteredDrivers.Add(recentCatastrophicIncidents[i]);
                 }
             }
 
-            if (clustered >= RedFlagMultiCarThreshold)
+            if (clusteredDrivers.Count >= RedFlagMultiCarThreshold)
             {
-                BeginRedFlag("Huge multi-car pileup - track completely blocked");
+                BeginRedFlag("Huge multi-car pileup - track completely blocked", clusteredDrivers);
                 return;
             }
 
@@ -1629,16 +1629,44 @@ namespace LocalFormulaRacing
                 GameLog.Info("[RaceControl] Red flag consideration (single catastrophic incident): roll=" + roll.ToString("0.000") + " chance=" + chance.ToString("0.000"));
                 if (roll < chance)
                 {
-                    BeginRedFlag("Catastrophic accident - car destroyed and blocking the racing line");
+                    BeginRedFlag("Catastrophic accident - car destroyed and blocking the racing line", new List<RaceParticipant> { participant });
                 }
             }
         }
 
-        void BeginRedFlag(string reason)
+        void BeginRedFlag(string reason, List<RaceParticipant> involvedDrivers)
         {
+            // A red flag must mean the accident was serious enough that
+            // whoever caused it is out of the race - never a driver who just
+            // carries on after the restart as if nothing happened.
+            string involvedNames = "";
+            int sector = 0;
+            if (involvedDrivers != null)
+            {
+                for (int i = 0; i < involvedDrivers.Count; i++)
+                {
+                    RaceParticipant involved = involvedDrivers[i];
+                    if (involved == null)
+                    {
+                        continue;
+                    }
+
+                    if (sector == 0 && State != null)
+                    {
+                        sector = State.GetCurrentProgress(involved).sector;
+                    }
+
+                    involvedNames += (involvedNames.Length > 0 ? (i == involvedDrivers.Count - 1 ? " and " : ", ") : "") + involved.driverName;
+                    RetireParticipant(involved, "Red flag - race-ending accident");
+                }
+            }
+
+            string locationText = sector > 0 ? " in Sector " + sector : "";
+            string fullReason = string.IsNullOrEmpty(involvedNames) ? reason : reason + " - " + involvedNames + locationText;
+
             CurrentRaceControlState = RaceControlState.RedFlagged;
             RedFlagCount++;
-            RedFlagReason = reason;
+            RedFlagReason = fullReason;
             // Simple, fixed procedure: hold for exactly 5 seconds while every
             // car is neutralized in place, then the field is teleported back
             // to a grid built from the running order frozen right now (see
@@ -1682,11 +1710,16 @@ namespace LocalFormulaRacing
                 }
             }
 
-            GameLog.Warn("[RaceControl] RED FLAG: " + reason + " (deployment #" + RedFlagCount + ")");
-            LogRaceControlHistory("RED FLAG", reason);
+            GameLog.Warn("[RaceControl] RED FLAG: " + fullReason + " (deployment #" + RedFlagCount + ")");
+            LogRaceControlHistory("RED FLAG", fullReason);
             if (Settings != null && Settings.Current.raceControlMessages)
             {
-                PostEngineerMessage("Red flag, red flag! Race suspended - " + reason + ".", true, RaceAudioCue.RedFlag);
+                PostEngineerMessage("Red flag, red flag! Race suspended - " + fullReason + ".", true, RaceAudioCue.RedFlag);
+                if (!string.IsNullOrEmpty(involvedNames))
+                {
+                    PostEngineerMessage(involvedNames + " will not be continuing - car retired on the spot.", true);
+                }
+
                 PostEngineerMessage("Hold position and bring the car to a safe stop. Restart in 5 seconds.", true);
             }
         }
@@ -1705,13 +1738,13 @@ namespace LocalFormulaRacing
             // bunching never reads as a constant background of yellow flags.
             if (severity == IncidentSeverity.Major)
             {
-                TriggerYellowSector(progress.sector);
+                TriggerYellowSector(progress.sector, participant);
             }
             else if (yellowJustified)
             {
                 if (RaceElapsed >= globalMinorYellowCooldownUntil)
                 {
-                    TriggerYellowSector(progress.sector);
+                    TriggerYellowSector(progress.sector, participant);
                     globalMinorYellowCooldownUntil = RaceElapsed + GlobalMinorYellowCooldownSeconds;
                 }
                 else
@@ -1741,7 +1774,7 @@ namespace LocalFormulaRacing
             if (forceEscalate)
             {
                 GameLog.Info("[RaceControl] Forced escalation (catastrophic, blocking): deploying safety car.");
-                BeginSafetyCarDeployment();
+                BeginSafetyCarDeployment(participant, progress.sector);
                 return;
             }
 
@@ -1777,7 +1810,7 @@ namespace LocalFormulaRacing
                     GameLog.Info("[RaceControl] Medium incident escalation: roll=" + roll.ToString("0.00") + " chance=" + chance.ToString("0.00") + " result=" + (escalate ? "VSC deployed" : "no escalation"));
                     if (escalate)
                     {
-                        BeginVirtualSafetyCar();
+                        BeginVirtualSafetyCar(participant, progress.sector);
                     }
                 }
 
@@ -1791,7 +1824,7 @@ namespace LocalFormulaRacing
             if (deploySc)
             {
                 GameLog.Info("[RaceControl] Major incident escalation: roll=" + scRoll.ToString("0.00") + " chance=" + scChance.ToString("0.00") + " result=Safety car deployed");
-                BeginSafetyCarDeployment();
+                BeginSafetyCarDeployment(participant, progress.sector);
                 return;
             }
 
@@ -1809,14 +1842,14 @@ namespace LocalFormulaRacing
                     " result=" + (vscFallback ? "VSC deployed" : "no escalation, yellow only"));
                 if (vscFallback)
                 {
-                    BeginVirtualSafetyCar();
+                    BeginVirtualSafetyCar(participant, progress.sector);
                 }
             }
         }
 
         int yellowSectorNumber = -1;
 
-        void TriggerYellowSector(int sector)
+        void TriggerYellowSector(int sector, RaceParticipant involved = null)
         {
             bool sameActiveSector = yellowSectorNumber == sector && yellowSectorClearTimer > 0f;
 
@@ -1856,32 +1889,39 @@ namespace LocalFormulaRacing
             // which still refreshes this timer (up to the episode cap above).
             yellowSectorClearTimer = 7f;
             yellowSectorCooldownUntil[sector] = RaceElapsed + yellowSectorClearTimer + YellowSectorCooldownAfterClearSeconds;
+            // Radio clarity: declares WHO triggered the flag and roughly WHERE
+            // (sector) instead of a bare "yellow flag, sector N" - matches what
+            // a real broadcast/race-engineer callout would actually say.
+            string involvedText = involved != null ? " - " + involved.driverName + " has gone off" : "";
             if (freshFlag)
             {
-                GameLog.Info("[RaceControl] Yellow flag, sector " + sector + ".");
-                LogRaceControlHistory("YELLOW FLAG", "Sector " + sector);
+                GameLog.Info("[RaceControl] Yellow flag, sector " + sector + involvedText + ".");
+                LogRaceControlHistory("YELLOW FLAG", "Sector " + sector + involvedText);
                 if (Settings != null && Settings.Current.raceControlMessages)
                 {
-                    PostEngineerMessage("Yellow flag, sector " + sector + ".", false, RaceAudioCue.Yellow);
+                    PostEngineerMessage("Yellow flag, sector " + sector + involvedText + ".", false, RaceAudioCue.Yellow);
                 }
             }
         }
 
-        void BeginVirtualSafetyCar()
+        void BeginVirtualSafetyCar(RaceParticipant involved = null, int sector = 0)
         {
             CurrentRaceControlState = RaceControlState.VirtualSafetyCar;
             safetyCarTimer = Random.Range(14f, 24f);
             IsOvertakingAllowed = false;
             playerScPitPromptSent = false;
-            GameLog.Info("[RaceControl] Virtual safety car deployed. duration=" + safetyCarTimer.ToString("0.0") + "s");
-            LogRaceControlHistory("VSC", "Virtual safety car deployed");
+            // Radio clarity: declares who caused it and where instead of a
+            // bare "virtual safety car deployed".
+            string cause = involved != null ? " - " + involved.driverName + (sector > 0 ? " in trouble at Sector " + sector : " in trouble") : "";
+            GameLog.Info("[RaceControl] Virtual safety car deployed. duration=" + safetyCarTimer.ToString("0.0") + "s" + cause);
+            LogRaceControlHistory("VSC", "Virtual safety car deployed" + cause);
             if (Settings != null && Settings.Current.raceControlMessages)
             {
-                PostEngineerMessage("Virtual safety car deployed.", true, RaceAudioCue.Vsc);
+                PostEngineerMessage("Virtual safety car deployed" + cause + ".", true, RaceAudioCue.Vsc);
             }
         }
 
-        void BeginSafetyCarDeployment()
+        void BeginSafetyCarDeployment(RaceParticipant involved = null, int sector = 0)
         {
             CurrentRaceControlState = RaceControlState.SafetyCarDeploying;
             safetyCarTimer = Random.Range(6f, 10f);
@@ -1889,6 +1929,9 @@ namespace LocalFormulaRacing
             SafetyCarDeploymentCount++;
             playerScPitPromptSent = false;
             playerScQueueWarningSent = false;
+            // Radio clarity: declares who caused it and where instead of a
+            // bare "safety car deployed".
+            string safetyCarCause = involved != null ? " - " + involved.driverName + (sector > 0 ? " has crashed at Sector " + sector : " has crashed") : "";
             List<RaceParticipant> order = GetRunningOrderSnapshot();
             safetyCarQueueLeader = order.Count > 0 ? order[0] : null;
 
@@ -5402,12 +5445,37 @@ namespace LocalFormulaRacing
 
         string ReplacedDriverIdForPlayerTeam(string playerTeamId)
         {
-            if (Career != null && Career.Save != null && !string.IsNullOrEmpty(Career.Save.selectedDriverId))
+            List<DriverData> teamDrivers = Data.GetDriversForTeam(playerTeamId);
+
+            // Teammate-duplicate fix: this used to trust Career.Save.selectedDriverId
+            // completely whenever it was non-empty, with no validation - a save
+            // whose selectedDriverId was ever empty/stale (a real possibility for
+            // any career predating a stricter write-side fix, since nothing ever
+            // repaired it on load) fell through to "the first driver on this
+            // team", which is backwards: on a two-real-driver team that IS the
+            // teammate's id, not the player's own. FindTeammateDriver then
+            // excluded the teammate (mistaken for the player) and handed back
+            // the player's OWN driver record as their "teammate" - the reported
+            // bug of racing against a duplicate of yourself instead of your
+            // real teammate. Now validated against this team's actual roster
+            // before being trusted, with a same-name recovery path (and a
+            // write-back repair) before ever falling back to "just pick one".
+            if (Career != null && Career.Save != null && !string.IsNullOrEmpty(Career.Save.selectedDriverId) &&
+                teamDrivers.Exists(d => d.id == Career.Save.selectedDriverId))
             {
                 return Career.Save.selectedDriverId;
             }
 
-            List<DriverData> teamDrivers = Data.GetDriversForTeam(playerTeamId);
+            if (Career != null && Career.Save != null && !string.IsNullOrEmpty(Career.Save.playerDriverName))
+            {
+                DriverData byName = teamDrivers.Find(d => string.Equals(d.displayName, Career.Save.playerDriverName, System.StringComparison.OrdinalIgnoreCase));
+                if (byName != null)
+                {
+                    Career.Save.selectedDriverId = byName.id;
+                    return byName.id;
+                }
+            }
+
             return teamDrivers.Count > 0 ? teamDrivers[0].id : "";
         }
 
@@ -6420,14 +6488,25 @@ namespace LocalFormulaRacing
             fillLight.range = 350f;
             fillLight.shadows = LightShadows.None;
 
+            // Performance fix: this was Realtime + EveryFrame - a full 6-face
+            // cubemap re-render of the ENTIRE scene, every single frame, on
+            // top of the main camera's own render. With a procedurally built
+            // track carrying thousands of objects, this alone was enough to
+            // crater the frame rate (users reporting ~20fps). A single
+            // ViaScripting refresh right after the track/lighting finishes
+            // building captures the same reflection once and never re-renders
+            // it - correct for a track that doesn't change shape mid-race.
             GameObject probeObject = new GameObject("Runtime reflection probe");
             probeObject.transform.SetParent(raceWorld.transform);
             probeObject.transform.position = new Vector3(40f, 18f, 40f);
             ReflectionProbe probe = probeObject.AddComponent<ReflectionProbe>();
             probe.mode = UnityEngine.Rendering.ReflectionProbeMode.Realtime;
-            probe.refreshMode = UnityEngine.Rendering.ReflectionProbeRefreshMode.EveryFrame;
+            probe.refreshMode = UnityEngine.Rendering.ReflectionProbeRefreshMode.ViaScripting;
             probe.intensity = rainThreat ? 0.78f : 0.46f;
             probe.size = new Vector3(520f, 120f, 520f);
+            probe.resolution = 128;
+            probe.timeSlicingMode = UnityEngine.Rendering.ReflectionProbeTimeSlicingMode.AllFacesAtOnce;
+            probe.RenderProbe();
 
             if (night)
             {

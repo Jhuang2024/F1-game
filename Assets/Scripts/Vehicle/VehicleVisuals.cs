@@ -168,6 +168,11 @@ namespace LocalFormulaRacing
         bool rearLightDetailBuilt;
         bool wingTrimDetailBuilt;
 
+        // Panel-seam accent lines dropped across real bodywork joins (nose/cockpit,
+        // sidepod inlet trailing edge, engine cover/airbox, gearbox) - same one-shot
+        // additive idiom as the passes above.
+        bool bodyPanelLineDetailBuilt;
+
         // Tread-block suggestion baked into the tyre material's texture rather
         // than any extra geometry - applied once, independently of
         // UpdateTyreCompoundLook's own per-compound colour/sheen reapplication,
@@ -424,6 +429,7 @@ namespace LocalFormulaRacing
             EnsureHaloRingDetail();
             EnsureRearLightDetail();
             EnsureWingTrimDetail();
+            EnsureBodyPanelLineDetail();
         }
 
         // Front wing upper flap flexes back under aero load the faster the car
@@ -707,18 +713,37 @@ namespace LocalFormulaRacing
         // lockup leaves a faint, quickly-fading mark and a big one leaves an
         // obvious dark stripe that lingers on the tarmac, instead of one fixed
         // width/opacity/duration regardless of how hard the tyre is locked.
+        // Performance fix: this used to allocate a brand-new Gradient (plus two
+        // fresh key arrays) every single call - with every locking-wheel car
+        // on track calling this every frame, that was real, avoidable GC
+        // garbage piling up during exactly the moments (heavy braking, several
+        // cars fighting for a corner) the frame rate can least afford it. A
+        // single cached Gradient/key-array set is reused and just has its
+        // alpha value overwritten each call; colorGradient's setter copies the
+        // data out at assignment time, so it's safe to share across every
+        // trail on every car.
+        static Gradient sharedSkidGradient;
+        static GradientColorKey[] sharedSkidColorKeys;
+        static GradientAlphaKey[] sharedSkidAlphaKeys;
+
         static void ApplySkidTrailSeverity(TrailRenderer trail, float severity)
         {
             trail.startWidth = Mathf.Lerp(0.07f, 0.32f, severity);
             trail.endWidth = Mathf.Lerp(0.01f, 0.05f, severity);
             trail.time = Mathf.Lerp(1f, 2.6f, severity);
 
+            if (sharedSkidGradient == null)
+            {
+                sharedSkidGradient = new Gradient();
+                sharedSkidColorKeys = new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) };
+                sharedSkidAlphaKeys = new[] { new GradientAlphaKey(0f, 0f), new GradientAlphaKey(0f, 1f) };
+            }
+
             float alpha = Mathf.Lerp(0.14f, 0.7f, severity);
-            Gradient gradient = new Gradient();
-            gradient.SetKeys(
-                new[] { new GradientColorKey(Color.white, 0f), new GradientColorKey(Color.white, 1f) },
-                new[] { new GradientAlphaKey(alpha, 0f), new GradientAlphaKey(0f, 1f) });
-            trail.colorGradient = gradient;
+            sharedSkidAlphaKeys[0].alpha = alpha;
+            sharedSkidAlphaKeys[1].alpha = 0f;
+            sharedSkidGradient.SetKeys(sharedSkidColorKeys, sharedSkidAlphaKeys);
+            trail.colorGradient = sharedSkidGradient;
         }
 
         // Lazily builds the skid trail renderers the first time we have both wheel
@@ -1482,6 +1507,49 @@ namespace LocalFormulaRacing
             Material trimMaterial = CreateMaterial("wing gurney trim", new Color(0.85f, 0.86f, 0.88f), 0.2f, 0.55f);
             CreateAccentCube(transform, "front wing gurney", new Vector3(0f, 0.185f, 2.62f), new Vector3(1.9f, 0.025f, 0.05f), trimMaterial);
             CreateAccentCube(transform, "rear wing gurney", new Vector3(0f, 0.705f, -2.23f), Quaternion.Euler(9f, 0f, 0f), new Vector3(1.55f, 0.025f, 0.05f), trimMaterial);
+        }
+
+        // Thin dark seam lines dropped across the real panel breaks RaceManager's
+        // bodywork already has - nose-to-cockpit, sidepod inlet trailing edge, engine
+        // cover-to-airbox, and the gearbox/rear-bodywork break ahead of the diffuser -
+        // so up close the car reads as separate moulded panels bolted together
+        // instead of one seamless painted shell. Same additive-accent idiom as the
+        // endplate/halo/cockpit detail above: found lazily off known body transforms,
+        // built once, no collider (CreateAccentCube already strips it).
+        void EnsureBodyPanelLineDetail()
+        {
+            if (bodyPanelLineDetailBuilt)
+            {
+                return;
+            }
+
+            if (transform.Find("survival cell") == null)
+            {
+                return;
+            }
+
+            bodyPanelLineDetailBuilt = true;
+            Material seamMaterial = CreateMaterial("body panel seam", new Color(0.03f, 0.03f, 0.035f), 0.15f, 0.35f);
+
+            // Nose-to-cockpit join, just ahead of the cockpit surround pad.
+            CreateAccentCube(transform, "nose panel seam", new Vector3(0f, 0.34f, 1.42f), new Vector3(0.9f, 0.012f, 0.02f), seamMaterial);
+
+            // Trailing edge of each sidepod inlet, where the inlet's own moulding
+            // would meet the rest of the sidepod skin.
+            if (transform.Find("left sidepod inlet") != null && transform.Find("right sidepod inlet") != null)
+            {
+                CreateAccentCube(transform, "left sidepod trailing seam", new Vector3(-0.86f, 0.4f, -0.24f), new Vector3(0.02f, 0.2f, 0.012f), seamMaterial);
+                CreateAccentCube(transform, "right sidepod trailing seam", new Vector3(0.86f, 0.4f, -0.24f), new Vector3(0.02f, 0.2f, 0.012f), seamMaterial);
+            }
+
+            // Engine cover to airbox transition.
+            if (transform.Find("airbox") != null)
+            {
+                CreateAccentCube(transform, "engine cover seam", new Vector3(0f, 0.93f, -0.52f), new Vector3(0.36f, 0.012f, 0.02f), seamMaterial);
+            }
+
+            // Gearbox/rear-bodywork break just ahead of the beam wing/diffuser.
+            CreateAccentCube(transform, "gearbox panel seam", new Vector3(0f, 0.5f, -1.62f), new Vector3(0.62f, 0.012f, 0.02f), seamMaterial);
         }
 
         // Cheap contact-shadow blob (see field comments above) built the first

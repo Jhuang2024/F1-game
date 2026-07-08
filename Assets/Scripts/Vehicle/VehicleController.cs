@@ -72,7 +72,11 @@ namespace LocalFormulaRacing
         // clamped away to nothing on cars whose base target is already near 350.
         const float DrsSpeedCeilingKph = 392f;
         const float DrsTopSpeedBonusKph = 32f;
-        const float ErsTopSpeedBonusKph = 20f;
+        // ERS buff: raised from 20 - with the stronger deploy force below the
+        // car can now actually accelerate up to a ceiling this much higher
+        // within a normal straight, instead of the old ceiling being mostly
+        // aspirational because the underlying push was too weak to reach it.
+        const float ErsTopSpeedBonusKph = 26f;
         static readonly float[] AutoShiftUpKph = { 0f, 62f, 102f, 142f, 186f, 232f, 282f, 322f };
         static readonly float[] GearTorqueMultipliers = { 1.72f, 1.52f, 1.34f, 1.18f, 1.05f, 0.94f, 0.84f, 0.76f };
 
@@ -561,10 +565,13 @@ namespace LocalFormulaRacing
             ErsHarvesting = false;
             if (ErsDeploying)
             {
-                // A real, felt push out of corners and down straights without being
-                // an arcade nitro button - roughly half of base acceleration on top,
-                // gated by remaining battery.
-                ersBoost = Mathf.Lerp(11f, 18f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
+                // ERS buff: raised from 11-18 - the old range only ever translated
+                // into a ~6 km/h felt gain on a straight because the force was too
+                // weak to meaningfully move the equilibrium speed against drag
+                // before the straight ran out. This range, combined with the
+                // steeper/earlier ramp-in below, is tuned to land in the
+                // requested 15-20 km/h felt-gain range on a typical straight.
+                ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
                 ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.11f, 0.16f, activeCommand.throttle));
             }
 
@@ -608,8 +615,10 @@ namespace LocalFormulaRacing
                                           Mathf.Lerp(0.72f, 1f, Mathf.InverseLerp(32f, 145f, forwardSpeedKph));
                 // ERS deploy is throttled down at low speed so the extra shove doesn't
                 // turn corner exits into wheelspin chaos - it ramps up to full strength
-                // by the time the car is doing meaningful straight-line speed.
-                float ersSpeedRamp = Mathf.Lerp(0.35f, 1f, Mathf.InverseLerp(40f, 140f, forwardSpeedKph));
+                // by the time the car is doing meaningful straight-line speed. Ramp
+                // widened/moved earlier (was 40-140) so the boost is already near full
+                // strength for most of a straight rather than only right at the end.
+                float ersSpeedRamp = Mathf.Lerp(0.5f, 1f, Mathf.InverseLerp(25f, 105f, forwardSpeedKph));
                 body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp), ForceMode.Acceleration);
                 if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
                 {

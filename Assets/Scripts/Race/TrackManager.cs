@@ -235,7 +235,15 @@ namespace LocalFormulaRacing
 
         public bool IsInPitExitLimiterZone(float normalizedProgress)
         {
-            return normalizedProgress > 0.955f || normalizedProgress < 0.115f;
+            // Pit-exit slowness fix: this used to span 0.955-1.115 (wrapped) -
+            // ~16% of an entire lap at an 80 km/h hard cap, which alone could
+            // take 20-30+ seconds to clear regardless of how well a car (AI or
+            // player) accelerated out of the pits. A real pit-exit limiter zone
+            // only needs to cover the merge point itself plus a short stretch
+            // after it, not most of the following straight - narrowed to just
+            // past the release point (see GetPitReleasePose, ~0.992) through a
+            // modest distance into the next lap.
+            return normalizedProgress > 0.985f || normalizedProgress < 0.03f;
         }
 
         // ---------- hairpin widening ----------
@@ -622,6 +630,13 @@ namespace LocalFormulaRacing
         Material kerbMaterialBlue;
         Material bleacherCanvasMaterial;
 
+        // Barrier weathering pass: a low, dark grime/rust streak material layered
+        // near the base of Armco rails and street walls so a barrier that has stood
+        // through a season of races reads as weathered rather than freshly painted,
+        // distinct from both the clean barrierMaterial/armcoMaterial finish and the
+        // rubberMaterial the surface-detail passes already use.
+        Material barrierWeatherMaterial;
+
         public TrackRuntime Build(CalendarEventData eventData)
         {
             return Build(eventData, true);
@@ -699,6 +714,12 @@ namespace LocalFormulaRacing
             ValidateDecorativeObjectsClearTrack();
             ValidateGeneratedTrack();
             SetupRaceControlVisualDriver();
+
+            // Debug-only diagnostic: runs once, after every other pass above has had
+            // its chance to place/repair/remove obstacles, and only ever warns - see
+            // ValidateBarrierColliderCoverage for why this is independent of the
+            // solidObstacles-based checks ValidateGeneratedTrack already ran.
+            ValidateBarrierColliderCoverage();
             return Runtime;
         }
 
@@ -1658,6 +1679,15 @@ namespace LocalFormulaRacing
             // touching that placement/geometry function.
             armcoMaterial.mainTexture = GetArmcoCorrugationTexture();
             armcoMaterial.mainTextureScale = new Vector2(6f, 1f);
+            // Low, dark grime/rust streak band layered near the base of a fraction of
+            // Armco/street-wall segments (see CreateArmcoSegment/CreateStreetWallSegment)
+            // so a barrier that has stood through a season of races reads as weathered
+            // rather than freshly painted end to end - same speckled-noise idiom every
+            // other surface material in this file already uses, just darker and duller
+            // than the clean armco/barrier finish above it.
+            barrierWeatherMaterial = CreateMaterial("Runtime Barrier Weathering", new Color(0.16f, 0.15f, 0.13f), 0.15f, 0.22f);
+            barrierWeatherMaterial.mainTexture = BuildNoiseTexture(48, new Color(0.2f, 0.19f, 0.16f), 0.3f);
+            barrierWeatherMaterial.mainTextureScale = new Vector2(5f, 1f);
             tireBarrierMaterial = CreateMaterial("Runtime Tyre Barrier", new Color(0.015f, 0.016f, 0.017f), 0.02f, 0.28f);
             // Concentric tread-band texture so a stack reads as real tyres rather than
             // a flat black slab, distinct from the plain BuildNoiseTexture speckle used
@@ -2386,7 +2416,16 @@ namespace LocalFormulaRacing
 
         void BuildAsphaltDetail()
         {
-            float spacing = 24f;
+            // The one surface-detail pass in this file that never read
+            // sceneryDensity at all - every sibling pass (BuildRubberBuildup,
+            // CreateTyreMarbles, CreateLockupSkidMarks) already scales patch/streak
+            // counts with it. Tighter spacing at the high end reads as a heavily-used
+            // surface with near-continuous grain/rubber variation; the low end keeps
+            // close to the original 24m spacing so nothing gets more expensive by
+            // default.
+            float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+            float spacing = Mathf.Lerp(30f, 18f, Mathf.InverseLerp(0.25f, 2f, density));
+            int patchIndex = 0;
             for (float d = 0f; d < Runtime.length; d += spacing)
             {
                 Vector3 point;
@@ -2399,11 +2438,30 @@ namespace LocalFormulaRacing
                 CreateRoadStripe(point + right * laneBias, forward, localHalfWidth * 0.82f, spacing * 0.76f, asphaltPatchMaterial, "Asphalt grain variation", 4);
                 CreateRoadStripe(point + right * (laneBias * 0.45f), forward, localHalfWidth * 0.42f, spacing * 0.82f, rubberMaterial, "Dark racing line rubber", 5);
 
+                // Deterministic per-patch lateral jitter (Perlin, not true random) so
+                // the skid marks below don't all land at the exact same two lateral
+                // offsets down the whole lap - a real surface's braking scars scatter
+                // a little from lap to lap over a session.
+                float jitter = (Mathf.PerlinNoise(patchIndex * 0.37f, 4.2f) - 0.5f) * 0.6f;
+
                 if (Mathf.FloorToInt(d / spacing) % 4 == 1)
                 {
-                    CreateRoadStripe(point - right * 1.05f, forward, 0.16f, 7.6f, skidMarkMaterial, "Heavy braking skid mark", 6);
-                    CreateRoadStripe(point + right * 1.25f, forward, 0.14f, 6.8f, skidMarkMaterial, "Heavy braking skid mark", 6);
+                    CreateRoadStripe(point - right * (1.05f + jitter), forward, 0.16f, 7.6f, skidMarkMaterial, "Heavy braking skid mark", 6);
+                    CreateRoadStripe(point + right * (1.25f + jitter), forward, 0.14f, 6.8f, skidMarkMaterial, "Heavy braking skid mark", 6);
                 }
+
+                // Higher density settings layer in a second, lighter sun-bleached
+                // rubber sheen patch between the skid-mark stretches - the same
+                // progressive rubber-build-up idea BuildRubberBuildup already applies
+                // at corner exits, extended along plain straights so a dense setting
+                // reads as a full session's rubber laid down everywhere, not only at
+                // the corners.
+                if (density >= 1.1f && Mathf.FloorToInt(d / spacing) % 4 == 3)
+                {
+                    CreateRoadStripe(point + right * (laneBias * 0.3f + jitter * 0.4f), forward, localHalfWidth * 0.3f, spacing * 0.5f, rubberSheenMaterial, "Session rubber sheen variation", 5);
+                }
+
+                patchIndex++;
             }
         }
 
@@ -2879,6 +2937,15 @@ namespace LocalFormulaRacing
                 CreateVisualBox("Street wall light strip", placed + Vector3.up * 1.05f, rotation, new Vector3(0.4f, 0.08f, segmentLength - 0.3f), lightGlowMaterial);
             }
 
+            // Low grime streak on a fraction of segments so a long, continuous run of
+            // wall doesn't read as freshly painted its entire length - see
+            // barrierWeatherMaterial. Kept infrequent (every 5th segment) since a wall
+            // run is already the densest object count on the whole track.
+            if (stripeIndex % 5 == 0)
+            {
+                CreateVisualBox("Street wall grime streak", placed + Vector3.up * 0.14f, rotation, new Vector3(0.47f, 0.22f, segmentLength - 0.4f), barrierWeatherMaterial);
+            }
+
             if (stripeIndex % 46 == 5)
             {
                 CreateMarshalGapAccent(placed, placedForward, segmentLength);
@@ -2918,6 +2985,14 @@ namespace LocalFormulaRacing
             if (stripeIndex % 2 == 0)
             {
                 CreateVisualBox("Armco post", placed - Vector3.up * (EdgeBarrierMinHeight * 0.5f - 0.02f), rotation, new Vector3(0.1f, 0.42f, 0.12f), fencePostMaterial);
+            }
+
+            // Low grime/rust streak on a fraction of rails - see barrierWeatherMaterial
+            // and the matching street-wall treatment above. Sits just under the lower
+            // rib rather than coincident with it, so there's no z-fighting.
+            if (stripeIndex % 5 == 2)
+            {
+                CreateVisualBox("Armco grime streak", placed - Vector3.up * (EdgeBarrierMinHeight * 0.4f), rotation, new Vector3(0.17f, 0.08f, segmentLength - 0.2f), barrierWeatherMaterial);
             }
 
             if (stripeIndex % 46 == 5)
@@ -3533,6 +3608,110 @@ namespace LocalFormulaRacing
             return best;
         }
 
+        // ---------- debug barrier-collider physics sweep ----------
+        // ValidateBarrierCoverage/ValidatePitCorridorSealed above already reason about
+        // gaps using solidObstacles, the bookkeeping list this script itself appends to
+        // every time TryPlaceSolidObstacle succeeds - useful, but it can only ever be as
+        // honest as that bookkeeping. It stays blind to any mismatch between the list
+        // and what Unity's physics world actually has a live collider for right now
+        // (a segment whose collider got disabled/destroyed by something else after
+        // being recorded, or - looking ahead - any future barrier-style pass that
+        // forgets to route through TryPlaceSolidObstacle at all). This sweep asks
+        // Physics.CheckSphere directly, independent of that bookkeeping, whether a real
+        // barrier-tagged collider actually exists near the hug line every edge-barrier
+        // style targets. Purely diagnostic: runs once after the whole Build() sequence
+        // finishes, never modifies geometry, never throws, and only warns.
+        const float BarrierColliderCheckStep = 9f;
+
+        // Generous enough to cover every style's small near-face offset differences
+        // (Armco/street-wall/elevated-wall half-widths, plus the extra push a
+        // tyre-stack corner adds - see TyreStackHalfWidth in BuildBarrierSegmentForSide)
+        // without being so wide it would mask an actual multi-metre gap.
+        const float BarrierColliderCheckRadius = 1.8f;
+
+        void ValidateBarrierColliderCoverage()
+        {
+            if (Runtime == null || Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            int gaps = 0;
+            int checkedPoints = 0;
+            for (float d = 0f; d < Runtime.length; d += BarrierColliderCheckStep)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                float localHalfWidth = Runtime.HalfWidthAt(d);
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+                bool elevated = IsElevatedAtDistance(d);
+                // Mirrors BuildBarrierSegmentForSide's own style/offset choice closely
+                // enough for a presence check (the tyre-stack-corner nudge and the
+                // pit-corridor fan-out both fall inside BarrierColliderCheckRadius of
+                // this estimate), without needing to duplicate its full branching.
+                float baseLateral = elevated
+                    ? localHalfWidth + EdgeBarrierClearance + ConcreteWallHalfWidth
+                    : (streetTrack ? localHalfWidth + EdgeBarrierClearance + StreetWallHalfWidth : localHalfWidth + EdgeBarrierClearance + ArmcoHalfWidth);
+
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    float lateral = baseLateral;
+                    if (side > 0)
+                    {
+                        float blend = PitZoneBlend(normalized);
+                        if (blend > 0f)
+                        {
+                            lateral = Mathf.Lerp(baseLateral, PitOuterLateral(), blend);
+                        }
+                    }
+
+                    Vector3 expected = point + right * side * lateral + Vector3.up * 0.55f;
+                    checkedPoints++;
+                    if (!HasBarrierColliderNear(expected))
+                    {
+                        gaps++;
+                        GameLog.Warn("[TrackValidation] Barrier collider sweep: no barrier-like collider found near " + d.ToString("0") +
+                                     "m " + (side < 0 ? "left" : "right") + " side (expected around " + expected.ToString("F1") + ", radius " +
+                                     BarrierColliderCheckRadius.ToString("0.0") + "m) on " + Runtime.displayName);
+                    }
+                }
+            }
+
+            if (gaps == 0)
+            {
+                GameLog.Info("[TrackValidation] Barrier collider sweep clean: " + checkedPoints + " points checked, no gaps on " + Runtime.displayName);
+            }
+        }
+
+        bool HasBarrierColliderNear(Vector3 position)
+        {
+            Collider[] hits = Physics.OverlapSphere(position, BarrierColliderCheckRadius);
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider hit = hits[i];
+                if (hit == null)
+                {
+                    continue;
+                }
+
+                TrackSolidObstacle solid = hit.GetComponentInParent<TrackSolidObstacle>();
+                if (solid == null)
+                {
+                    continue;
+                }
+
+                string type = solid.obstacleType ?? "";
+                if (type.Contains("wall") || type.Contains("fence") || type.Contains("barrier") || type.Contains("rail") || type.Contains("divider"))
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         void CreateKerbBlock(Vector3 position, Vector3 forward, float seed, bool aggressive)
         {
             bool whiteBase = Mathf.FloorToInt(seed / 16f) % 2 == 0;
@@ -3566,6 +3745,24 @@ namespace LocalFormulaRacing
             if (aggressive)
             {
                 CreateVisualBox("Painted kerb accent", position + Vector3.up * accentY + forward * 2.1f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(1f * widthScale, 0.02f, 1.6f), accentMaterial);
+            }
+
+            // Wear variation so kerbing reads as driven-over rather than a flat,
+            // pristine painted block every single time: about a third of blocks get a
+            // dark rubber scuff smear (reusing the same rubberMaterial the racing-line
+            // build-up elsewhere already uses, tying the two surface-detail passes
+            // together), and a separate third get a duller, sun-bleached strip
+            // standing in for faded paint. Deterministic off the block's own seed
+            // (its sample distance) rather than random, so a rebuild of the same
+            // track looks identical every time.
+            int wearVariant = Mathf.FloorToInt(seed / 5.5f) % 3;
+            if (wearVariant == 0)
+            {
+                CreateVisualBox("Kerb rubber scuff", position + Vector3.up * (blockY + 0.021f) - forward * 0.9f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(0.55f * widthScale, 0.015f, 1.3f), rubberMaterial);
+            }
+            else if (wearVariant == 1)
+            {
+                CreateVisualBox("Kerb faded paint patch", position + Vector3.up * (accentY + 0.002f) + forward * 1.0f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(0.7f * widthScale, 0.012f, 0.9f), tyreMarbleMaterialLight);
             }
         }
 
@@ -3865,13 +4062,18 @@ namespace LocalFormulaRacing
             CreateVisualBox("DRS zone board post", basePosition + Vector3.up * 1f, rotation, new Vector3(0.14f, 2f, 0.14f), metalMaterial);
             CreateVisualBox("DRS zone board", basePosition + Vector3.up * 2.3f, rotation, new Vector3(0.16f, 1.2f, 2.2f), drsPaintMaterial);
 
-            // The board's readable face points along the track direction (same as the
-            // braking boards), so the text is pushed proud along -forward rather than
-            // buried inside the solid board.
+            // Mirrored-text fix: this was rotated to face -forward (back down
+            // the straight), which reads correctly to a car driving away from
+            // the board but backwards/mirrored to the approaching car actually
+            // meant to read it. A driver approaching travels in +forward, so
+            // the readable face needs to point in that same +forward
+            // direction to be legible on approach - text is still pushed
+            // proud of the board along -forward so it doesn't sit buried in
+            // the solid box.
             GameObject text = new GameObject("DRS zone board text");
             text.transform.SetParent(transform);
             text.transform.position = basePosition + Vector3.up * 2.3f - forward.normalized * 0.11f;
-            text.transform.rotation = Quaternion.LookRotation(-forward, Vector3.up);
+            text.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
             TextMesh textMesh = text.AddComponent<TextMesh>();
             textMesh.text = "DRS";
             textMesh.fontSize = 48;
@@ -4354,6 +4556,24 @@ namespace LocalFormulaRacing
             {
                 CreateCameraTower(Runtime.length * positions[i], i);
             }
+
+            // Every sibling per-lap furniture pass (BuildTracksideCameraPods,
+            // BuildCircuitLightMasts) already scales its count with the track's own
+            // density/length signal - this one stayed hardcoded at exactly 4 towers
+            // regardless of sceneryDensity, the one clear outlier. Extra towers at
+            // fresh normalized slots (not overlapping the fixed set above) so a
+            // fully "dense" setting gets more broadcast coverage without changing
+            // anything at the default/low end.
+            float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+            if (density >= 1.5f)
+            {
+                CreateCameraTower(Runtime.length * 0.88f, 4);
+            }
+
+            if (density >= 1.85f)
+            {
+                CreateCameraTower(Runtime.length * 0.4f, 5);
+            }
         }
 
         // Tall thin broadcast tower. Legs are grounded at groundTopY rather than at the
@@ -4597,6 +4817,11 @@ namespace LocalFormulaRacing
                 BuildGrandstand(0.72f, -1);
             }
 
+            // Row of trackside flags flanking the start/finish straight - see
+            // BuildFlagRow for why this filled a genuine gap rather than duplicating
+            // the sparse single race-control pole CreateMarshalPost already plants.
+            BuildFlagRow(density);
+
             int step = Mathf.Max(1, Mathf.RoundToInt(2f / density));
             for (int i = 0; i < Runtime.centerLine.Count; i += step)
             {
@@ -4662,6 +4887,55 @@ namespace LocalFormulaRacing
                     if (spaTrack || i % 6 == 0) CreateTreeCluster(basePosition + right * side * 40f, i);
                 }
             }
+        }
+
+        // Row of generic solid-colour flags lining the start/finish straight, both
+        // sides. The only flag dressing this file had before was a single
+        // race-control pole bolted to each sparse CreateMarshalPost - real circuits
+        // line their main straight with dozens of trackside flags, which was a
+        // genuinely thin/missing category rather than a duplicate of anything
+        // already built. Cycles the same invented SponsorPalette every other
+        // generic marking in this file already reuses (sponsor boards, grandstand
+        // bunting) so nothing here reads as real branding, and spacing/count scale
+        // with sceneryDensity like the rest of the per-lap furniture. Pure
+        // background dressing (CreateVisualBox never adds a collider), so this
+        // carries no collision risk regardless of how close to the corridor it
+        // ends up, and TryGetClearScenerySpot still keeps it visually clear of the
+        // racing surface and runoff.
+        void BuildFlagRow(float density)
+        {
+            float spacing = Mathf.Lerp(34f, 16f, Mathf.InverseLerp(0.25f, 2f, density));
+            float span = Mathf.Min(Runtime.length * 0.5f, 220f);
+            int index = 0;
+            for (float d = 12f; d < span; d += spacing)
+            {
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    Vector3 point;
+                    Vector3 forward;
+                    Vector3 right;
+                    Runtime.SampleAtDistance(d, out point, out forward, out right);
+                    Vector3 desired = point + right * side * (Runtime.HalfWidthAt(d) + 11f);
+                    Vector3 basePosition;
+                    if (!TryGetClearScenerySpot(desired, 0.6f, 3f, out basePosition))
+                    {
+                        continue;
+                    }
+
+                    CreateTracksideFlag(basePosition, forward, index);
+                    index++;
+                }
+            }
+        }
+
+        void CreateTracksideFlag(Vector3 position, Vector3 forward, int index)
+        {
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            CreateVisualBox("Trackside flag pole", position + Vector3.up * 1.4f, rotation, new Vector3(0.05f, 2.8f, 0.05f), metalMaterial);
+
+            Vector3 right = Vector3.Cross(Vector3.up, forward).normalized;
+            Material clothMaterial = CreateMaterial("Trackside flag cloth " + index, SponsorPalette[index % SponsorPalette.Length], 0f, 0.4f);
+            CreateVisualBox("Trackside flag cloth", position + Vector3.up * 2.55f + right * 0.32f, Quaternion.LookRotation(right, Vector3.up), new Vector3(0.02f, 0.34f, 0.64f), clothMaterial);
         }
 
         // One-off signature set pieces for circuits that need more than a colour swap
@@ -5785,6 +6059,7 @@ namespace LocalFormulaRacing
             float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
             BuildControlTower();
             BuildTracksideCrane();
+            BuildHelipad();
             BuildBillboardGantries(density);
             BuildParkingBlocks(density);
             BuildServiceRoadStrips(density);
@@ -5865,6 +6140,59 @@ namespace LocalFormulaRacing
             if (nightTrack || twilightTrack)
             {
                 CreateVisualBox("Trackside crane beacon", position + Vector3.up * (mastHeight + 0.6f), rotation, new Vector3(0.25f, 0.25f, 0.25f), lightGlowMaterial);
+            }
+        }
+
+        // Generic medical/broadcast helicopter landing pad near the paddock - every
+        // real circuit has one close to the pit complex, and this was a category of
+        // paddock dressing that didn't exist anywhere in this file yet (unlike the
+        // control tower/crane/parking blocks that already cover the rest of that same
+        // footprint). Placed at its own normalized distance and lateral offset so it
+        // doesn't overlap BuildControlTower (+42m at 0.975) or BuildTracksideCrane
+        // (+62m at 0.955). Entirely visual-only pieces (CreateVisualBox/visual-only
+        // cylinder never add a collider), so it carries zero collision risk on top of
+        // TryGetClearScenerySpot already keeping it clear of the racing corridor.
+        void BuildHelipad()
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(Runtime.length * 0.9f, out point, out forward, out right);
+            Vector3 desired = point + right * (Runtime.PitLaneLateral + 46f);
+            Vector3 basePosition;
+            if (!TryGetClearScenerySpot(desired, 7f, 8f, out basePosition))
+            {
+                return;
+            }
+
+            basePosition = new Vector3(basePosition.x, groundTopY, basePosition.z);
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+
+            GameObject pad = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            pad.name = "Helipad surface";
+            pad.transform.SetParent(transform);
+            pad.transform.position = basePosition + Vector3.up * 0.05f;
+            pad.transform.localScale = new Vector3(7f, 0.05f, 7f);
+            pad.GetComponent<Renderer>().sharedMaterial = weatheredConcreteMaterial;
+            MakeVisualOnly(pad);
+
+            // Painted "H" built from the same thin CreateVisualBox stripes every other
+            // painted marking in this file uses, rather than a texture/decal.
+            CreateVisualBox("Helipad H left bar", basePosition + Vector3.up * 0.09f - right * 1.1f, rotation, new Vector3(0.5f, 0.02f, 2.6f), lineMaterial);
+            CreateVisualBox("Helipad H right bar", basePosition + Vector3.up * 0.09f + right * 1.1f, rotation, new Vector3(0.5f, 0.02f, 2.6f), lineMaterial);
+            CreateVisualBox("Helipad H cross bar", basePosition + Vector3.up * 0.09f, rotation, new Vector3(2.2f, 0.02f, 0.5f), lineMaterial);
+
+            // Windsock on its own pole beside the pad - a generic wind indicator, no
+            // text or logos.
+            Vector3 polePosition = basePosition + right * 5.2f;
+            CreateVisualBox("Helipad windsock pole", polePosition + Vector3.up * 2.5f, rotation, new Vector3(0.08f, 5f, 0.08f), metalMaterial);
+            Material sockMaterial = CreateMaterial("Helipad windsock", new Color(0.92f, 0.42f, 0.05f), 0f, 0.4f);
+            CreateVisualBox("Helipad windsock", polePosition + Vector3.up * 4.6f + forward * 0.45f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(0.32f, 0.28f, 0.9f), sockMaterial);
+
+            if (nightTrack || twilightTrack)
+            {
+                CreateVisualBox("Helipad perimeter light", basePosition + Vector3.up * 0.12f + forward * 3.4f, rotation, new Vector3(0.18f, 0.1f, 0.18f), lightGlowMaterial);
+                CreateVisualBox("Helipad perimeter light", basePosition + Vector3.up * 0.12f - forward * 3.4f, rotation, new Vector3(0.18f, 0.1f, 0.18f), lightGlowMaterial);
             }
         }
 

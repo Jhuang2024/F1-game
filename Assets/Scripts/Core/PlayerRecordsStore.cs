@@ -109,6 +109,16 @@ namespace LocalFormulaRacing
             LocalJsonStore.Save(RecordsFile, data);
         }
 
+        // Clears every stored per-track best-lap record (time trial and race
+        // sessions alike) so the player can start a fresh set of records
+        // without touching the separate career-wide stats (wins/podiums/
+        // points/etc) tracked above.
+        public static void ResetTrackRecords()
+        {
+            Data.trackRecords.Clear();
+            LocalJsonStore.Save(RecordsFile, Data);
+        }
+
         public static void RecordQualifyingResult(int position)
         {
             if (position <= 0)

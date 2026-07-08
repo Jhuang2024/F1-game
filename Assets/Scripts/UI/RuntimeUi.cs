@@ -608,7 +608,7 @@ namespace LocalFormulaRacing
                 SetTopLeft(headline.rectTransform, bodyStartX, 8f);
                 UiFactory.SetSize(headline, newsWidth - bodyStartX - 190f, 22f);
 
-                Text roundLabel = UiFactory.CreateText(row, "News round", article.raceWeekLabel, 11, UiFactory.TextMuted, TextAnchor.UpperRight);
+                Text roundLabel = UiFactory.CreateText(row, "News round", article.raceWeekLabel, 13, UiFactory.TextMuted, TextAnchor.UpperRight);
                 SetTopRight(roundLabel.rectTransform, 14f, 10f);
                 UiFactory.SetSize(roundLabel, 170f, 18f);
 
@@ -1306,7 +1306,14 @@ namespace LocalFormulaRacing
 
             if (!affordable || slotsFull)
             {
-                Text lockedText = UiFactory.CreateText(card, upgrade.id + " risk " + slot, label, 12, UiFactory.TextMuted, TextAnchor.MiddleCenter);
+                Text lockedText = UiFactory.CreateText(card, upgrade.id + " risk " + slot, label, 13, UiFactory.TextMuted, TextAnchor.MiddleCenter);
+                // Best-fit rather than a flat size: "CONSERVATIVE 5wk 45%" and
+                // similar longer combinations don't reliably fit this narrow
+                // 148px control at a fixed 13pt without wrapping and clipping
+                // against the fixed 30px height.
+                lockedText.resizeTextForBestFit = true;
+                lockedText.resizeTextMinSize = 10;
+                lockedText.resizeTextMaxSize = 13;
                 RectTransform lockedRect = lockedText.GetComponent<RectTransform>();
                 PositionRiskModeControl(lockedRect, slot);
                 return;
@@ -1318,6 +1325,19 @@ namespace LocalFormulaRacing
                 ShowRndCenter(data, career, settings);
             });
             PositionRiskModeControl(riskButton.GetComponent<RectTransform>(), slot);
+            // Clipping fix: CreateButton's label defaults to a flat 19pt, which
+            // does not reliably fit longer combinations like "CONSERVATIVE
+            // 5wk 45%" inside this control's narrow 148px width once resized
+            // down to slot size - best-fit keeps every risk label fully
+            // visible instead of wrapping and truncating against the 30px
+            // control height.
+            Text riskButtonLabel = riskButton.GetComponentInChildren<Text>();
+            if (riskButtonLabel != null)
+            {
+                riskButtonLabel.resizeTextForBestFit = true;
+                riskButtonLabel.resizeTextMinSize = 10;
+                riskButtonLabel.resizeTextMaxSize = 15;
+            }
         }
 
         void PositionRiskModeControl(RectTransform rect, int slot)
@@ -1613,6 +1633,15 @@ namespace LocalFormulaRacing
             {
                 settings.Current.careerNewsFeedEnabled = !settings.Current.careerNewsFeedEnabled;
                 settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
+            UiFactory.CreateDivider(raceControlList);
+            RectTransform trackRecordsControl;
+            UiFactory.CreateSettingRow(raceControlList, "Track Records", "Clears every locally stored best-lap time so records start fresh.", out trackRecordsControl);
+            UiFactory.CreateCycleControl(trackRecordsControl, "Reset Records", () =>
+            {
+                PlayerRecordsStore.ResetTrackRecords();
                 ShowSettings(data, career, settings);
             });
         }
@@ -2034,9 +2063,13 @@ namespace LocalFormulaRacing
         // shares one fixed size regardless of how many rows any single card's
         // chips actually need - see BuildDriverCard/BuildTeamCard.
         const float DriverCardWidth = 330f;
-        const float DriverCardHeight = 372f;
+        // +12 vs the old 372: CreateStatBar's rows grew (bigger label/value
+        // font) so the 4-row stat block below needs a little more room.
+        const float DriverCardHeight = 384f;
         const float TeamCardWidth = 350f;
-        const float TeamCardHeight = 486f;
+        // +19 vs the old 486: CreateStatBar's row growth across 5 rows, plus
+        // the taller STRENGTHS/WEAKNESSES section labels above it.
+        const float TeamCardHeight = 505f;
 
         void BuildDriverCard(RectTransform parent, DriverData driver, TeamData team, bool isPlayer, bool isTeammate)
         {
@@ -2049,10 +2082,10 @@ namespace LocalFormulaRacing
 
             if (isPlayer || isTeammate)
             {
-                Text roleBadge = UiFactory.CreateText(card, "Driver card role badge", isPlayer ? "YOU" : "TEAMMATE", 11, isPlayer ? UiFactory.AccentGreen : UiFactory.AccentCyan, TextAnchor.UpperLeft);
+                Text roleBadge = UiFactory.CreateText(card, "Driver card role badge", isPlayer ? "YOU" : "TEAMMATE", 13, isPlayer ? UiFactory.AccentGreen : UiFactory.AccentCyan, TextAnchor.UpperLeft);
                 roleBadge.fontStyle = FontStyle.Bold;
                 SetTopLeft(roleBadge.rectTransform, 88f, 8f);
-                UiFactory.SetSize(roleBadge, 150f, 16f);
+                UiFactory.SetSize(roleBadge, 150f, 18f);
             }
 
             Text numberText = UiFactory.CreateText(card, "Driver card number", "#" + driver.number + "  " + driver.abbreviation.ToUpperInvariant(), 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
@@ -2080,14 +2113,14 @@ namespace LocalFormulaRacing
             UiFactory.SetSize(nameText, 160f, 24f);
 
             string teamName = team == null ? driver.teamId : team.name;
-            Text teamText = UiFactory.CreateText(card, "Driver card team", teamName, 12, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text teamText = UiFactory.CreateText(card, "Driver card team", teamName, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
             teamText.resizeTextForBestFit = true;
-            teamText.resizeTextMinSize = 9;
-            teamText.resizeTextMaxSize = 12;
+            teamText.resizeTextMinSize = 10;
+            teamText.resizeTextMaxSize = 13;
             teamText.horizontalOverflow = HorizontalWrapMode.Overflow;
             teamText.verticalOverflow = VerticalWrapMode.Overflow;
             SetTopLeft(teamText.rectTransform, 88f, 72f);
-            UiFactory.SetSize(teamText, 160f, 16f);
+            UiFactory.SetSize(teamText, 160f, 18f);
 
             int overall = driver.OverallRating;
             Color overallColor = StatTierColor(overall);
@@ -2116,7 +2149,9 @@ namespace LocalFormulaRacing
             int[] values = { driver.pace, driver.qualifying, driver.racecraft, driver.overtaking, driver.defending, driver.consistency, driver.tyreManagement, driver.wetSkill };
             const float columnWidth = 128f;
             float startY = tagRowY + tagRowHeight + 12f;
-            const float rowHeight = 38f;
+            // +3 vs the old 38: CreateStatBar's own row grew a few px to fit
+            // its larger label/value font without clipping.
+            const float rowHeight = 41f;
             for (int i = 0; i < labels.Length; i++)
             {
                 int column = i / 4;
@@ -2310,10 +2345,10 @@ namespace LocalFormulaRacing
 
             if (isPlayerTeam)
             {
-                Text yourTeamBadge = UiFactory.CreateText(card, "Team card your team badge", "YOUR TEAM", 11, UiFactory.AccentGreen, TextAnchor.UpperLeft);
+                Text yourTeamBadge = UiFactory.CreateText(card, "Team card your team badge", "YOUR TEAM", 13, UiFactory.AccentGreen, TextAnchor.UpperLeft);
                 yourTeamBadge.fontStyle = FontStyle.Bold;
                 SetTopLeft(yourTeamBadge.rectTransform, 66f, 8f);
-                UiFactory.SetSize(yourTeamBadge, 180f, 16f);
+                UiFactory.SetSize(yourTeamBadge, 180f, 18f);
             }
 
             Text nameText = UiFactory.CreateText(card, "Team card name", team.name, 18, Color.white, TextAnchor.UpperLeft);
@@ -2321,9 +2356,9 @@ namespace LocalFormulaRacing
             SetTopLeft(nameText.rectTransform, 66f, 26f);
             UiFactory.SetSize(nameText, 190f, 24f);
 
-            Text shortText = UiFactory.CreateText(card, "Team card short", team.shortName.ToUpperInvariant(), 12, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text shortText = UiFactory.CreateText(card, "Team card short", team.shortName.ToUpperInvariant(), 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
             SetTopLeft(shortText.rectTransform, 66f, 50f);
-            UiFactory.SetSize(shortText, 190f, 16f);
+            UiFactory.SetSize(shortText, 190f, 18f);
 
             float overall = ComputeCarOverall(car);
             Color overallColor = StatTierColor(overall);
@@ -2336,7 +2371,7 @@ namespace LocalFormulaRacing
             overallText.fontStyle = FontStyle.Bold;
             StretchFull(overallText.GetComponent<RectTransform>());
 
-            Text repText = UiFactory.CreateText(card, "Team card reputation", "REP " + team.reputation + "   ·   RELIABILITY " + team.reliability, 12, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text repText = UiFactory.CreateText(card, "Team card reputation", "REP " + team.reputation + "   ·   RELIABILITY " + team.reliability, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
             SetTopLeft(repText.rectTransform, 16f, 78f);
             UiFactory.SetSize(repText, 310f, 18f);
 
@@ -2360,23 +2395,25 @@ namespace LocalFormulaRacing
             List<KeyValuePair<string, float>> ranked = new List<KeyValuePair<string, float>>(stats);
             ranked.Sort((a, b) => b.Value.CompareTo(a.Value));
 
-            Text strengthsLabel = UiFactory.CreateText(card, "Team card strengths label", "STRENGTHS", 11, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text strengthsLabel = UiFactory.CreateText(card, "Team card strengths label", "STRENGTHS", 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
             SetTopLeft(strengthsLabel.rectTransform, 16f, cursorY);
-            UiFactory.SetSize(strengthsLabel, sectionWidth, 14f);
-            cursorY += 16f;
+            UiFactory.SetSize(strengthsLabel, sectionWidth, 16f);
+            cursorY += 18f;
             List<string> strengthChips = new List<string> { ShortStatLabel(ranked[0].Key), ShortStatLabel(ranked[1].Key) };
             cursorY += UiFactory.CreateWrappingChipRow(card, "Team card strengths", strengthChips, UiFactory.AccentGreen, 16f, cursorY, sectionWidth) + 10f;
 
-            Text weaknessesLabel = UiFactory.CreateText(card, "Team card weaknesses label", "WEAKNESSES", 11, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text weaknessesLabel = UiFactory.CreateText(card, "Team card weaknesses label", "WEAKNESSES", 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
             SetTopLeft(weaknessesLabel.rectTransform, 16f, cursorY);
-            UiFactory.SetSize(weaknessesLabel, sectionWidth, 14f);
-            cursorY += 16f;
+            UiFactory.SetSize(weaknessesLabel, sectionWidth, 16f);
+            cursorY += 18f;
             List<string> weaknessChips = new List<string> { ShortStatLabel(ranked[ranked.Count - 1].Key), ShortStatLabel(ranked[ranked.Count - 2].Key) };
             cursorY += UiFactory.CreateWrappingChipRow(card, "Team card weaknesses", weaknessChips, UiFactory.Accent, 16f, cursorY, sectionWidth) + 14f;
 
             const float columnWidth = 145f;
             float startY = cursorY;
-            const float rowHeight = 40f;
+            // +3 vs the old 40: CreateStatBar's own row grew a few px to fit
+            // its larger label/value font without clipping.
+            const float rowHeight = 43f;
             for (int i = 0; i < stats.Count; i++)
             {
                 int column = i / 5;
@@ -2980,7 +3017,7 @@ namespace LocalFormulaRacing
             nameRect.offsetMin = new Vector2(36f, -30f);
             nameRect.offsetMax = new Vector2(-8f, -10f);
 
-            Text descriptorText = UiFactory.CreateText(card, tyreName + " descriptor", TyreShortDescriptor(tyreName), 12, selected ? new Color(1f, 0.88f, 0.86f) : UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text descriptorText = UiFactory.CreateText(card, tyreName + " descriptor", TyreShortDescriptor(tyreName), 13, selected ? new Color(1f, 0.88f, 0.86f) : UiFactory.TextMuted, TextAnchor.UpperLeft);
             RectTransform descriptorRect = descriptorText.GetComponent<RectTransform>();
             descriptorRect.anchorMin = new Vector2(0f, 1f);
             descriptorRect.anchorMax = new Vector2(1f, 1f);
@@ -4335,9 +4372,9 @@ namespace LocalFormulaRacing
 
             Text body = UiFactory.CreateText(wrap, "Locked body",
                 "Starting positions are unknown until qualifying is complete.\nDrive qualifying yourself or simulate it to reveal the grid.",
-                14, new Color(0.62f, 0.7f, 0.76f), TextAnchor.MiddleCenter);
+                16, new Color(0.62f, 0.7f, 0.76f), TextAnchor.MiddleCenter);
             body.verticalOverflow = VerticalWrapMode.Overflow;
-            UiFactory.SetSize(body, 420f, 56f);
+            UiFactory.SetSize(body, 440f, 60f);
         }
 
         // Turns the sim qualifying explanation string (built in RaceManager as

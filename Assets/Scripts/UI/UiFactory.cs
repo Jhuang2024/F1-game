@@ -1140,7 +1140,7 @@ namespace LocalFormulaRacing
             RectTransform rule = CreateRect(card, "Stat rule", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 10f), new Vector2(3f, -10f));
             Image ruleImage = rule.gameObject.AddComponent<Image>();
             StyleRoundedSmall(ruleImage, Accent);
-            Text labelText = CreateText(card, "Stat label", label.ToUpperInvariant(), 12, TextMuted, TextAnchor.UpperLeft);
+            Text labelText = CreateText(card, "Stat label", label.ToUpperInvariant(), 13, TextMuted, TextAnchor.UpperLeft);
             RectTransform labelRect = labelText.GetComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0f, 1f);
             labelRect.anchorMax = new Vector2(1f, 1f);
@@ -1199,11 +1199,11 @@ namespace LocalFormulaRacing
                 return 0f;
             }
 
-            const float chipHeight = 24f;
+            const float chipHeight = 26f;
             const float rowSpacing = 6f;
             const float chipSpacing = 6f;
-            const float charWidth = 7.6f;
-            const float chipPadding = 22f;
+            const float charWidth = 8.2f;
+            const float chipPadding = 24f;
             const float maxChipWidth = 190f;
 
             float cursorX = 0f;
@@ -1235,15 +1235,15 @@ namespace LocalFormulaRacing
                 pill.anchoredPosition = new Vector2(originX + cursorX, -(originYFromTop + cursorY));
                 Image background = pill.gameObject.AddComponent<Image>();
                 StyleRoundedSmall(background, new Color(color.r, color.g, color.b, 0.2f));
-                Text text = CreateText(pill, "chip text", label, 12, color, TextAnchor.MiddleCenter);
+                Text text = CreateText(pill, "chip text", label, 13, color, TextAnchor.MiddleCenter);
                 RectTransform textRect = text.GetComponent<RectTransform>();
                 textRect.anchorMin = Vector2.zero;
                 textRect.anchorMax = Vector2.one;
                 textRect.offsetMin = new Vector2(5f, 0f);
                 textRect.offsetMax = new Vector2(-5f, 0f);
                 text.resizeTextForBestFit = true;
-                text.resizeTextMinSize = 8;
-                text.resizeTextMaxSize = 12;
+                text.resizeTextMinSize = 9;
+                text.resizeTextMaxSize = 13;
                 text.horizontalOverflow = HorizontalWrapMode.Wrap;
                 text.verticalOverflow = VerticalWrapMode.Truncate;
 
@@ -1424,11 +1424,11 @@ namespace LocalFormulaRacing
             RectTransform accent = CreateRect(card, title + " card accent", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 8f), new Vector2(3f, -8f));
             accentImage = accent.gameObject.AddComponent<Image>();
             StyleRoundedSmall(accentImage, accentColor);
-            Text header = CreateText(card, title + " card title", title.ToUpperInvariant(), 12, TextMuted, TextAnchor.UpperLeft);
+            Text header = CreateText(card, title + " card title", title.ToUpperInvariant(), 13, TextMuted, TextAnchor.UpperLeft);
             RectTransform headerRect = header.GetComponent<RectTransform>();
             headerRect.anchorMin = new Vector2(0f, 1f);
             headerRect.anchorMax = new Vector2(1f, 1f);
-            headerRect.offsetMin = new Vector2(14f, -24f);
+            headerRect.offsetMin = new Vector2(14f, -26f);
             headerRect.offsetMax = new Vector2(-10f, -6f);
             return card;
         }
@@ -1456,14 +1456,14 @@ namespace LocalFormulaRacing
         // resize with SetMeterValue so anchors stay clean.
         public static Image CreateHudMeter(RectTransform card, string label, float topOffset, Color fillColor, out Text valueText)
         {
-            Text labelText = CreateText(card, label + " meter label", label.ToUpperInvariant(), 12, TextMuted, TextAnchor.MiddleLeft);
+            Text labelText = CreateText(card, label + " meter label", label.ToUpperInvariant(), 13, TextMuted, TextAnchor.MiddleLeft);
             RectTransform labelRect = labelText.GetComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0f, 1f);
             labelRect.anchorMax = new Vector2(0f, 1f);
             labelRect.offsetMin = new Vector2(14f, -topOffset - 18f);
             labelRect.offsetMax = new Vector2(64f, -topOffset);
 
-            valueText = CreateText(card, label + " meter value", "", 12, TextPrimary, TextAnchor.MiddleRight);
+            valueText = CreateText(card, label + " meter value", "", 13, TextPrimary, TextAnchor.MiddleRight);
             RectTransform valueRect = valueText.GetComponent<RectTransform>();
             valueRect.anchorMin = new Vector2(1f, 1f);
             valueRect.anchorMax = new Vector2(1f, 1f);
@@ -1525,12 +1525,12 @@ namespace LocalFormulaRacing
             Image trackImage = track.gameObject.AddComponent<Image>();
             StyleRoundedSmall(trackImage, MeterTrack);
             RectTransform fill = CreateBand(track, name + " vbar fill", Vector2.zero, new Vector2(1f, 0f), Vector2.zero, Vector2.zero, fillColor);
-            label = CreateText(track, name + " vbar label", name.ToUpperInvariant(), 10, TextMuted, TextAnchor.UpperCenter);
+            label = CreateText(track, name + " vbar label", name.ToUpperInvariant(), 13, TextMuted, TextAnchor.UpperCenter);
             RectTransform labelRect = label.GetComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0f, 0f);
             labelRect.anchorMax = new Vector2(1f, 0f);
-            labelRect.offsetMin = new Vector2(-14f, -16f);
-            labelRect.offsetMax = new Vector2(14f, -2f);
+            labelRect.offsetMin = new Vector2(-16f, -18f);
+            labelRect.offsetMax = new Vector2(16f, -2f);
             return fill.GetComponent<Image>();
         }
 
@@ -1599,22 +1599,33 @@ namespace LocalFormulaRacing
             dotRect.anchorMax = new Vector2(1f, 1f);
             dotRect.anchoredPosition = new Vector2(-14f, -14f);
 
-            titleText = CreateText(rect, name + " banner title", "", 17, TextPrimary, TextAnchor.UpperLeft);
+            titleText = CreateText(rect, name + " banner title", "", 19, TextPrimary, TextAnchor.UpperLeft);
             titleText.fontStyle = FontStyle.Bold;
+            // Overflow rather than Wrap: the title is a short all-caps state
+            // name (RED FLAG - RACE SUSPENDED, GRID RESET - RACE RESTART) that
+            // must always read as one line - wrapping it would eat into the
+            // subtitle's already-tight vertical budget below.
             titleText.horizontalOverflow = HorizontalWrapMode.Overflow;
             RectTransform titleRect = titleText.GetComponent<RectTransform>();
-            titleRect.anchorMin = new Vector2(0f, 0.52f);
+            titleRect.anchorMin = new Vector2(0f, 0.5f);
             titleRect.anchorMax = new Vector2(1f, 1f);
             titleRect.offsetMin = new Vector2(18f, 0f);
-            titleRect.offsetMax = new Vector2(-26f, -8f);
+            titleRect.offsetMax = new Vector2(-26f, -10f);
 
-            subtitleText = CreateText(rect, name + " banner subtitle", "", 13, TextMuted, TextAnchor.LowerLeft);
+            // Subtitle now regularly carries a full sentence plus a live
+            // countdown number (e.g. "Grid reset based on the running order
+            // when the flag came out - restarting in 8s"), so it needs real
+            // wrap room - see the taller banner size passed by RaceHud's
+            // BuildRaceControlBanner - and Overflow vertically so a third
+            // wrapped line still renders instead of being silently truncated.
+            subtitleText = CreateText(rect, name + " banner subtitle", "", 14, TextMuted, TextAnchor.UpperLeft);
             subtitleText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            subtitleText.verticalOverflow = VerticalWrapMode.Overflow;
             RectTransform subtitleRect = subtitleText.GetComponent<RectTransform>();
             subtitleRect.anchorMin = new Vector2(0f, 0f);
-            subtitleRect.anchorMax = new Vector2(1f, 0.52f);
-            subtitleRect.offsetMin = new Vector2(18f, 8f);
-            subtitleRect.offsetMax = new Vector2(-14f, 0f);
+            subtitleRect.anchorMax = new Vector2(1f, 0.5f);
+            subtitleRect.offsetMin = new Vector2(18f, 10f);
+            subtitleRect.offsetMax = new Vector2(-14f, -4f);
 
             return rect;
         }
@@ -2030,20 +2041,25 @@ namespace LocalFormulaRacing
         public static RectTransform CreateStatBar(Transform parent, string label, float value, float maxValue, Color fillColor, float width)
         {
             RectTransform row = CreateRect(parent, label + " stat bar", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            row.sizeDelta = new Vector2(width, 30f);
+            row.sizeDelta = new Vector2(width, 33f);
 
-            Text labelText = CreateText(row, "Stat bar label", label.ToUpperInvariant(), 11, TextMuted, TextAnchor.UpperLeft);
+            Text labelText = CreateText(row, "Stat bar label", label.ToUpperInvariant(), 13, TextMuted, TextAnchor.UpperLeft);
             RectTransform labelRect = labelText.GetComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0f, 1f);
             labelRect.anchorMax = new Vector2(0.7f, 1f);
-            labelRect.offsetMin = new Vector2(0f, -14f);
+            labelRect.offsetMin = new Vector2(0f, -16f);
             labelRect.offsetMax = new Vector2(0f, 0f);
 
-            Text valueText = CreateText(row, "Stat bar value", Mathf.RoundToInt(value).ToString(), 11, TextPrimary, TextAnchor.UpperRight);
+            // Bug fix: offsetMin/offsetMax on the y-axis here used to both be
+            // zero while anchorMin.y == anchorMax.y == 1 (a point anchor on
+            // that axis) - that collapses the rect to zero height, so this
+            // value text never actually had room to render. Mirrors the
+            // label rect's height above instead.
+            Text valueText = CreateText(row, "Stat bar value", Mathf.RoundToInt(value).ToString(), 13, TextPrimary, TextAnchor.UpperRight);
             RectTransform valueRect = valueText.GetComponent<RectTransform>();
             valueRect.anchorMin = new Vector2(0.7f, 1f);
             valueRect.anchorMax = new Vector2(1f, 1f);
-            valueRect.offsetMin = Vector2.zero;
+            valueRect.offsetMin = new Vector2(0f, -16f);
             valueRect.offsetMax = Vector2.zero;
 
             RectTransform track = CreateRect(row, "Stat bar track", new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 3f), new Vector2(0f, 13f));
@@ -2080,7 +2096,7 @@ namespace LocalFormulaRacing
             avatar.anchorMax = new Vector2(0.5f, 1f);
             avatar.anchoredPosition = new Vector2(0f, -46f);
 
-            Text medalLabel = CreateText(card, "Podium medal", position == 1 ? "WINNER" : "P" + position, 12, medal, TextAnchor.UpperCenter);
+            Text medalLabel = CreateText(card, "Podium medal", position == 1 ? "WINNER" : "P" + position, 13, medal, TextAnchor.UpperCenter);
             medalLabel.fontStyle = FontStyle.Bold;
             RectTransform medalRect = medalLabel.GetComponent<RectTransform>();
             medalRect.anchorMin = new Vector2(0f, 1f);
@@ -2096,7 +2112,7 @@ namespace LocalFormulaRacing
             nameRect.offsetMin = new Vector2(6f, -122f);
             nameRect.offsetMax = new Vector2(-6f, -94f);
 
-            Text teamText = CreateText(card, "Podium team", teamLabel, 12, TextMuted, TextAnchor.UpperCenter);
+            Text teamText = CreateText(card, "Podium team", teamLabel, 13, TextMuted, TextAnchor.UpperCenter);
             RectTransform teamRect = teamText.GetComponent<RectTransform>();
             teamRect.anchorMin = new Vector2(0f, 1f);
             teamRect.anchorMax = new Vector2(1f, 1f);
@@ -2119,13 +2135,13 @@ namespace LocalFormulaRacing
         public static RectTransform CreateComparisonBar(Transform parent, string label, float valueA, Color colorA, float valueB, Color colorB, float maxValue, float width)
         {
             RectTransform row = CreateRect(parent, label + " comparison bar", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            row.sizeDelta = new Vector2(width, 34f);
+            row.sizeDelta = new Vector2(width, 36f);
 
-            Text labelText = CreateText(row, "Comparison label", label.ToUpperInvariant(), 11, TextMuted, TextAnchor.UpperLeft);
+            Text labelText = CreateText(row, "Comparison label", label.ToUpperInvariant(), 13, TextMuted, TextAnchor.UpperLeft);
             RectTransform labelRect = labelText.GetComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0f, 1f);
             labelRect.anchorMax = new Vector2(1f, 1f);
-            labelRect.offsetMin = new Vector2(0f, -14f);
+            labelRect.offsetMin = new Vector2(0f, -16f);
             labelRect.offsetMax = Vector2.zero;
 
             RectTransform track = CreateRect(row, "Comparison track", new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(0f, 4f), new Vector2(0f, 18f));

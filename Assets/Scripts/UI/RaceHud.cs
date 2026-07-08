@@ -88,6 +88,11 @@ namespace LocalFormulaRacing
         Text pitPlanValue;
         Image pitFill;
         Text pitFillValue;
+        // Plain-language pit phase pill (Entering pit lane / In pit lane / Box
+        // stop / Pit exit) shown above the existing technical status line -
+        // see UpdatePitCard/PitPhasePillState. Reuses the same pill widget as
+        // the DRS/ERS/fuel state pills instead of a new widget type.
+        HudPill pitPhasePill;
         // Radio message stacking fix: up to MaxRadioCards independently
         // active, independently fading compact cards (newest at index 0)
         // instead of one shared card/text pair a single message occupied at
@@ -307,7 +312,14 @@ namespace LocalFormulaRacing
         // only appears while a state is actually active.
         void BuildRaceControlBanner()
         {
-            raceControlBanner = UiFactory.CreateStatusBanner(transform, "Race Control", 328f, 68f, out raceControlBannerAccent, out raceControlBannerDot, out raceControlBannerTitle, out raceControlBannerSubtitle);
+            // Sized generously (was 328x68): red-flag/restart subtitles now
+            // routinely carry a full sentence plus a live countdown number
+            // ("Grid reset based on the running order when the flag came out -
+            // restarting in 8s"), which used to wrap past the old banner's
+            // height and get silently truncated. The wider, taller banner
+            // gives both the bold state title and a 2-3 line wrapped subtitle
+            // real room without cramping.
+            raceControlBanner = UiFactory.CreateStatusBanner(transform, "Race Control", 460f, 118f, out raceControlBannerAccent, out raceControlBannerDot, out raceControlBannerTitle, out raceControlBannerSubtitle);
             raceControlBanner.anchorMin = new Vector2(0f, 1f);
             raceControlBanner.anchorMax = new Vector2(0f, 1f);
             raceControlBanner.pivot = new Vector2(0f, 1f);
@@ -317,12 +329,13 @@ namespace LocalFormulaRacing
 
             // Smaller companion pill directly under the banner: only ever shown
             // while the banner is, so it never appears as an orphaned "DELTA OK"
-            // during a normal green-flag race.
+            // during a normal green-flag race. Pushed down to clear the taller
+            // banner above it.
             paceCompliancePill = UiFactory.CreatePill(transform, "Pace Compliance", 220f, 30f);
             paceCompliancePill.root.anchorMin = new Vector2(0f, 1f);
             paceCompliancePill.root.anchorMax = new Vector2(0f, 1f);
             paceCompliancePill.root.pivot = new Vector2(0f, 1f);
-            paceCompliancePill.root.anchoredPosition = new Vector2(16f, -82f);
+            paceCompliancePill.root.anchoredPosition = new Vector2(16f, -132f);
             ApplyPanelScale(paceCompliancePill.root);
             paceCompliancePill.root.gameObject.SetActive(false);
         }
@@ -535,7 +548,7 @@ namespace LocalFormulaRacing
             RectTransform towerBand = UiFactory.CreateResponsivePanel(transform, "Timing tower", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(324f, height), new Vector2(16f, 40f), new Color(0.006f, 0.009f, 0.012f, 0.72f));
             ApplyPanelScale(towerBand);
             UiFactory.CreateBand(towerBand, "Tower accent", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.Accent);
-            tower = UiFactory.CreateText(towerBand, "Tower header", "", 12, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+            tower = UiFactory.CreateText(towerBand, "Tower header", "", 13, UiFactory.TextMuted, TextAnchor.MiddleLeft);
             RectTransform towerRect = tower.GetComponent<RectTransform>();
             towerRect.anchorMin = new Vector2(0f, 1f);
             towerRect.anchorMax = new Vector2(1f, 1f);
@@ -578,7 +591,7 @@ namespace LocalFormulaRacing
             gearRect.offsetMin = new Vector2(0f, -12f);
             gearRect.offsetMax = new Vector2(0f, 40f);
 
-            Text gearLabel = UiFactory.CreateText(dash, "Gear label", "GEAR", 11, UiFactory.TextMuted, TextAnchor.MiddleCenter);
+            Text gearLabel = UiFactory.CreateText(dash, "Gear label", "GEAR", 13, UiFactory.TextMuted, TextAnchor.MiddleCenter);
             RectTransform gearLabelRect = gearLabel.GetComponent<RectTransform>();
             gearLabelRect.anchorMin = new Vector2(0.44f, 0.5f);
             gearLabelRect.anchorMax = new Vector2(0.6f, 0.5f);
@@ -610,7 +623,7 @@ namespace LocalFormulaRacing
             RectTransform card = UiFactory.CreateResponsivePanel(transform, "Timing card", new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(324f, 168f), new Vector2(16f, 12f), UiFactory.HudCardBackground);
             ApplyPanelScale(card);
             UiFactory.CreateBand(card, "Timing accent", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.AccentCyan);
-            Text title = UiFactory.CreateText(card, "Timing title", "TIMING", 12, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text title = UiFactory.CreateText(card, "Timing title", "TIMING", 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
             RectTransform titleRect = title.GetComponent<RectTransform>();
             titleRect.anchorMin = new Vector2(0f, 1f);
             titleRect.anchorMax = new Vector2(1f, 1f);
@@ -683,7 +696,7 @@ namespace LocalFormulaRacing
 
             // Lockup / flat spot tags: blank most of the time, so it reads as
             // empty space rather than a widget until there's something to say.
-            tyreTagText = UiFactory.CreateText(card, "Tyre condition tags", "", 12, UiFactory.AccentAmber, TextAnchor.MiddleLeft);
+            tyreTagText = UiFactory.CreateText(card, "Tyre condition tags", "", 13, UiFactory.AccentAmber, TextAnchor.MiddleLeft);
             RectTransform tagRect = tyreTagText.GetComponent<RectTransform>();
             tagRect.anchorMin = new Vector2(0f, 1f);
             tagRect.anchorMax = new Vector2(1f, 1f);
@@ -725,12 +738,12 @@ namespace LocalFormulaRacing
             Image image = corner.gameObject.AddComponent<Image>();
             image.color = UiFactory.AccentGreen;
 
-            Text label = UiFactory.CreateText(corner, cornerName + " label", cornerName, 10, UiFactory.TextMuted, TextAnchor.MiddleCenter);
+            Text label = UiFactory.CreateText(corner, cornerName + " label", cornerName, 13, UiFactory.TextMuted, TextAnchor.MiddleCenter);
             RectTransform labelRect = label.GetComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0f, 0f);
             labelRect.anchorMax = new Vector2(1f, 0f);
-            labelRect.offsetMin = new Vector2(-6f, -14f);
-            labelRect.offsetMax = new Vector2(6f, 0f);
+            labelRect.offsetMin = new Vector2(-10f, -17f);
+            labelRect.offsetMax = new Vector2(10f, 0f);
             return image;
         }
 
@@ -745,7 +758,18 @@ namespace LocalFormulaRacing
         // glance (see UpdatePitCard) instead of only living in the wording.
         void BuildPitCard()
         {
-            RectTransform card = UiFactory.CreateHudCard(rightStack, "Pit", RightStackWidth, 144f, UiFactory.AccentAmber);
+            // Card grew (was 144 tall) to fit the new plain-language phase
+            // pill (Entering pit lane / In pit lane / Box stop / Pit exit)
+            // above the existing technical status/plan lines - see
+            // UpdatePitCard/PitPhasePillState.
+            RectTransform card = UiFactory.CreateHudCard(rightStack, "Pit", RightStackWidth, 184f, UiFactory.AccentAmber);
+
+            pitPhasePill = UiFactory.CreatePill(card, "Pit Phase", 210f, 26f);
+            pitPhasePill.root.anchorMin = new Vector2(0f, 1f);
+            pitPhasePill.root.anchorMax = new Vector2(0f, 1f);
+            pitPhasePill.root.pivot = new Vector2(0f, 1f);
+            pitPhasePill.root.anchoredPosition = new Vector2(14f, -34f);
+            pitPhasePill.root.gameObject.SetActive(false);
 
             pitStatusValue = UiFactory.CreateText(card, "Pit status", "", 14, UiFactory.TextPrimary, TextAnchor.UpperLeft);
             pitStatusValue.fontStyle = FontStyle.Bold;
@@ -753,8 +777,8 @@ namespace LocalFormulaRacing
             RectTransform statusRect = pitStatusValue.GetComponent<RectTransform>();
             statusRect.anchorMin = new Vector2(0f, 1f);
             statusRect.anchorMax = new Vector2(1f, 1f);
-            statusRect.offsetMin = new Vector2(14f, -64f);
-            statusRect.offsetMax = new Vector2(-10f, -26f);
+            statusRect.offsetMin = new Vector2(14f, -102f);
+            statusRect.offsetMax = new Vector2(-10f, -64f);
 
             // Plan: the strategy's own next lap/compound target, always
             // tagged AUTO (see BuildPitPlanText) since it fires on its own the
@@ -765,12 +789,12 @@ namespace LocalFormulaRacing
             RectTransform planRect = pitPlanValue.GetComponent<RectTransform>();
             planRect.anchorMin = new Vector2(0f, 1f);
             planRect.anchorMax = new Vector2(1f, 1f);
-            planRect.offsetMin = new Vector2(14f, -96f);
-            planRect.offsetMax = new Vector2(-10f, -68f);
+            planRect.offsetMin = new Vector2(14f, -134f);
+            planRect.offsetMax = new Vector2(-10f, -106f);
 
-            UiFactory.CreateBand(card, "Pit card divider", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(14f, -104f), new Vector2(-10f, -102f), new Color(1f, 1f, 1f, 0.08f));
+            UiFactory.CreateBand(card, "Pit card divider", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(14f, -142f), new Vector2(-10f, -140f), new Color(1f, 1f, 1f, 0.08f));
 
-            pitFill = UiFactory.CreateHudMeter(card, "Stop", 116f, UiFactory.AccentAmber, out pitFillValue);
+            pitFill = UiFactory.CreateHudMeter(card, "Stop", 154f, UiFactory.AccentAmber, out pitFillValue);
         }
 
         // Non-intrusive box-now suggestion during a safety car / VSC period.
@@ -972,7 +996,7 @@ namespace LocalFormulaRacing
             string hintText = race != null && race.IsTimeTrial
                 ? "Esc pause   Shift ERS deploy   R mode (hold: reset car)   C camera   F1 debug   F2 next track"
                 : "Esc pause   Space DRS   Shift ERS deploy   R mode (hold: reset car)   C camera   P pit   F1 debug";
-            hint = UiFactory.CreateText(hintBand, "Hint", hintText, 12, new Color(0.7f, 0.8f, 0.85f, 0.9f), TextAnchor.MiddleCenter);
+            hint = UiFactory.CreateText(hintBand, "Hint", hintText, 13, new Color(0.7f, 0.8f, 0.85f, 0.9f), TextAnchor.MiddleCenter);
             RectTransform hintRect = hint.GetComponent<RectTransform>();
             hintRect.anchorMin = Vector2.zero;
             hintRect.anchorMax = Vector2.one;
@@ -1727,6 +1751,69 @@ namespace LocalFormulaRacing
             float progress = race.PitStopProgress01(player);
             UiFactory.SetMeterValueAnimated(pitFill, progress);
             pitFillValue.text = progress > 0.001f ? Mathf.RoundToInt(progress * 100f) + "%" : "";
+            UpdatePitPhasePill();
+        }
+
+        // Plain-language headline (Entering pit lane / In pit lane / Box stop /
+        // Pit exit) for the player's own car, built directly from
+        // RaceParticipant.pitPhase/isPitting/pitAwaitingRelease/pitEntryAligned.
+        // A clearer companion to the technical PitStatusText line below it
+        // (which keeps the box number/limiter/compound detail) rather than a
+        // replacement for it, and reuses the same HudPill widget the DRS/ERS/
+        // fuel state pills already use instead of a new UI element type.
+        // Hidden entirely outside an actual pit-lane visit so it never
+        // competes with the queued-request/plan messaging shown the rest of
+        // the race.
+        void UpdatePitPhasePill()
+        {
+            if (pitPhasePill == null)
+            {
+                return;
+            }
+
+            string phaseText = null;
+            Color phaseColor = UiFactory.AccentAmber;
+            switch (player.pitPhase)
+            {
+                case PitPhase.Entry:
+                    // Distinguish "still turning into the lane" from "aligned
+                    // and now rolling to the box" - same distinction
+                    // RaceManager.PitStatusText already makes for its own line.
+                    phaseText = player.pitEntryAligned ? "IN PIT LANE" : "ENTERING PIT LANE";
+                    phaseColor = UiFactory.AccentAmber;
+                    break;
+                case PitPhase.Service:
+                    phaseText = player.pitAwaitingRelease ? "BOX STOP - HOLD" : "BOX STOP";
+                    phaseColor = UiFactory.Accent;
+                    break;
+                case PitPhase.Release:
+                    phaseText = "PIT EXIT";
+                    phaseColor = UiFactory.AccentCyan;
+                    break;
+                default:
+                    // isPitting can stay true for a brief tail (limiter-until-
+                    // exit) after the phase machine has already reset to
+                    // None - still reads as "pit exit" instead of blanking
+                    // out a beat early.
+                    if (player.isPitting)
+                    {
+                        phaseText = "PIT EXIT";
+                        phaseColor = UiFactory.AccentCyan;
+                    }
+
+                    break;
+            }
+
+            bool show = phaseText != null;
+            if (pitPhasePill.root.gameObject.activeSelf != show)
+            {
+                pitPhasePill.root.gameObject.SetActive(show);
+            }
+
+            if (show)
+            {
+                pitPhasePill.SetState(phaseText, phaseColor, true);
+            }
         }
 
         string BuildPitPlanText()
@@ -2058,9 +2145,9 @@ namespace LocalFormulaRacing
             towerDrivers[index] = CreateTowerCell(row, "Tower driver " + index, 36f, 82f, 13, TextAnchor.MiddleLeft, primaryCellColor, true);
             RectTransform tyre = UiFactory.CreateBand(row, "Tower tyre " + index, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(88f, -5f), new Vector2(98f, 5f), Color.white);
             towerTyres[index] = tyre.GetComponent<Image>();
-            towerLaps[index] = CreateTowerCell(row, "Tower lap " + index, 104f, 136f, 12, TextAnchor.MiddleLeft, new Color(0.7f, 0.78f, 0.83f), false);
-            towerGaps[index] = CreateTowerCell(row, "Tower gap " + index, 140f, 222f, 12, TextAnchor.MiddleLeft, new Color(0.85f, 0.91f, 0.94f), false);
-            towerIntervals[index] = CreateTowerCell(row, "Tower interval " + index, 226f, 292f, 12, TextAnchor.MiddleLeft, new Color(0.85f, 0.91f, 0.94f), false);
+            towerLaps[index] = CreateTowerCell(row, "Tower lap " + index, 104f, 136f, 13, TextAnchor.MiddleLeft, new Color(0.7f, 0.78f, 0.83f), false);
+            towerGaps[index] = CreateTowerCell(row, "Tower gap " + index, 140f, 222f, 13, TextAnchor.MiddleLeft, new Color(0.85f, 0.91f, 0.94f), false);
+            towerIntervals[index] = CreateTowerCell(row, "Tower interval " + index, 226f, 292f, 13, TextAnchor.MiddleLeft, new Color(0.85f, 0.91f, 0.94f), false);
 
             // Small DRS-detection dot at the row's right edge: lit green while
             // that car has DRS active/available (from RaceManager.DrsStateText,
