@@ -35,6 +35,18 @@ namespace LocalFormulaRacing
 
         // Timing tower.
         Text tower;
+        RectTransform towerHeaderRow;
+        Text towerHeaderPos;
+        Text towerHeaderDriver;
+        Text towerHeaderLap;
+        Text towerHeaderGap;
+        Text towerHeaderInterval;
+        // True while the tower's columns are laid out for qualifying's
+        // POS/DVR/BEST/GAP shape (BEST needs real width for a full lap time
+        // like "01:23.456", unlike race mode's 2-digit lap counter) rather
+        // than race mode's POS/DVR/T/LAP/GAP/INT shape - see
+        // SetTowerLayoutForQualifying.
+        bool towerQualifyingLayout;
         Image[] towerRowBackgrounds = new Image[TowerRowCount];
         Text[] towerPositions = new Text[TowerRowCount];
         Text[] towerDrivers = new Text[TowerRowCount];
@@ -2304,6 +2316,12 @@ namespace LocalFormulaRacing
             rect.offsetMin = new Vector2(minX, 0f);
             rect.offsetMax = new Vector2(maxX, 0f);
             cell.fontStyle = bold ? FontStyle.Bold : FontStyle.Normal;
+            // Overflow rather than the CreateText default of Wrap: every
+            // tower cell is a single fixed-height row, so wrapped text would
+            // just get vertically truncated back down to unreadable anyway -
+            // letting a rare too-wide value spill a few pixels past its
+            // column reads better than silently eating characters.
+            cell.horizontalOverflow = HorizontalWrapMode.Overflow;
             return cell;
         }
 
@@ -2317,6 +2335,7 @@ namespace LocalFormulaRacing
 
             if (race.IsTimeTrial)
             {
+                SetTowerHeaderMode(true, false);
                 tower.text = "TIME TRIAL";
                 LapTracker lap = player.lapTracker;
                 string ttDrsState = race.DrsStateText(player);
@@ -2330,7 +2349,7 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            tower.text = "POS  DVR     T  LAP    GAP       INT";
+            SetTowerHeaderMode(false, false);
             List<RaceParticipant> order = race.GetRunningOrderSnapshot();
             int count = Mathf.Min(visibleTowerRows, order.Count);
             for (int i = 0; i < TowerRowCount; i++)
@@ -2352,7 +2371,7 @@ namespace LocalFormulaRacing
 
         void UpdateQualifyingTowerRows()
         {
-            tower.text = "POS  DVR     BEST         GAP";
+            SetTowerHeaderMode(false, true);
             List<RaceManager.QualifyingTowerRow> rows = race.BuildQualifyingTowerRows(visibleTowerRows);
             for (int i = 0; i < rows.Count; i++)
             {
@@ -2364,6 +2383,72 @@ namespace LocalFormulaRacing
             {
                 SetTowerRowVisible(i, false);
             }
+        }
+
+        // Switches between the three header/column shapes the tower can show:
+        // Time Trial's single centered label, race mode's POS/DVR/T/LAP/GAP/INT
+        // columns, and qualifying's POS/DVR/BEST/GAP columns (BEST needs real
+        // width - see SetTowerLayoutForQualifying). Centralized here instead of
+        // scattered SetActive/text calls so the header and every row always
+        // agree on which shape is current.
+        void SetTowerHeaderMode(bool timeTrial, bool qualifying)
+        {
+            if (tower.gameObject.activeSelf != timeTrial)
+            {
+                tower.gameObject.SetActive(timeTrial);
+            }
+
+            if (towerHeaderRow.gameObject.activeSelf == timeTrial)
+            {
+                towerHeaderRow.gameObject.SetActive(!timeTrial);
+            }
+
+            SetTowerLayoutForQualifying(qualifying);
+        }
+
+        // Qualifying's "BEST" column carries a full lap time ("01:23.456", ~9
+        // characters) instead of race mode's 2-digit lap counter, so it needs
+        // real width - the tyre swatch and DRS dot are meaningless in
+        // qualifying anyway, so that reclaimed space is handed to BEST/GAP
+        // instead of squeezing a full time string into a 32px column built
+        // for "12". Clipping fix: previously every session reused the exact
+        // same narrow rect, silently truncating the qualifying time.
+        void SetTowerLayoutForQualifying(bool qualifying)
+        {
+            if (towerQualifyingLayout == qualifying)
+            {
+                return;
+            }
+
+            towerQualifyingLayout = qualifying;
+
+            float lapMinX = qualifying ? 88f : 104f;
+            float lapMaxX = qualifying ? 208f : 136f;
+            float gapMinX = qualifying ? 212f : 140f;
+            float gapMaxX = qualifying ? 300f : 222f;
+
+            SetCellRectX(towerHeaderLap, lapMinX, lapMaxX);
+            SetCellRectX(towerHeaderGap, gapMinX, gapMaxX);
+            towerHeaderLap.text = qualifying ? "BEST" : "LAP";
+            towerHeaderInterval.gameObject.SetActive(!qualifying);
+
+            for (int i = 0; i < TowerRowCount; i++)
+            {
+                SetCellRectX(towerLaps[i], lapMinX, lapMaxX);
+                SetCellRectX(towerGaps[i], gapMinX, gapMaxX);
+                towerTyres[i].gameObject.SetActive(!qualifying);
+                if (towerDrsDots[i] != null)
+                {
+                    towerDrsDots[i].gameObject.SetActive(!qualifying);
+                }
+            }
+        }
+
+        void SetCellRectX(Text cell, float minX, float maxX)
+        {
+            RectTransform rect = cell.GetComponent<RectTransform>();
+            rect.offsetMin = new Vector2(minX, rect.offsetMin.y);
+            rect.offsetMax = new Vector2(maxX, rect.offsetMax.y);
         }
 
         void SetTowerRow(int index, string position, string driver, Color tyreColor, string lap, string gap, string interval, bool highlight, bool pit = false, bool drsHot = false)

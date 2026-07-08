@@ -54,6 +54,11 @@ namespace LocalFormulaRacing
         public void ShowMainMenu(GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
             Clear();
+            // Reapply the player's saved UI Scale here (main menu is always
+            // the first screen shown, and the return point from everywhere
+            // else) so it takes effect as soon as settings are loaded, not
+            // only after the player revisits Display Settings.
+            UiFactory.ApplyUiScale(canvas, settings.UiScale);
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Main background", new Color(0.004f, 0.007f, 0.011f, 1f));
             UiFactory.CreateBand(background, "Top accent", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -10f), Vector2.zero, new Color(0.95f, 0.03f, 0.025f, 1f));
             UiFactory.CreateBand(background, "Header wash", new Vector2(0f, 0.74f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero, new Color(0.045f, 0.055f, 0.064f, 0.72f));
@@ -175,6 +180,9 @@ namespace LocalFormulaRacing
         public void ShowCareerHub(GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
             Clear();
+            // See ShowMainMenu - reapplied here too since a career can resume
+            // straight into this hub without passing through the main menu.
+            UiFactory.ApplyUiScale(canvas, settings.UiScale);
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Career background", new Color(0.012f, 0.016f, 0.021f, 1f));
             TeamData headerTeam = data.FindTeam(career.Save.playerTeamId);
             UiFactory.CreateScreenHeader(background, "Career",
@@ -436,7 +444,7 @@ namespace LocalFormulaRacing
 
             Text incidentsNote = UiFactory.CreateText(list, "Rival incidents note",
                 "Incidents between the two of you aren't tracked individually yet - see the post-race report for full incident detail.",
-                12, UiFactory.TextMuted, TextAnchor.UpperLeft);
+                13, UiFactory.TextMuted, TextAnchor.UpperLeft);
             incidentsNote.fontStyle = FontStyle.Italic;
             incidentsNote.verticalOverflow = VerticalWrapMode.Overflow;
             UiFactory.SetSize(incidentsNote, RivalryPanelContentWidth, 34f);
@@ -1727,6 +1735,23 @@ namespace LocalFormulaRacing
             {
                 settings.Current.hudScale = CycleFloat(settings.Current.hudScale, 0.8f, 1.25f, 0.15f);
                 settings.Save();
+                ShowDisplaySettings(data, career, settings);
+            });
+
+            // UI Scale: unlike HUD Scale above (which only resizes in-race
+            // panels), this is a single global multiplier applied to the
+            // whole runtime canvas (menus AND the HUD) via
+            // UiFactory.ApplyUiScale - see GameSettingsStore.UiScale for why
+            // it's stored outside the main settings blob. Applied immediately
+            // on change (not just on next screen load) so the cycle control's
+            // own label and every row on this screen visibly resize right
+            // away, giving instant feedback on what the player just picked.
+            RectTransform uiScaleControl;
+            UiFactory.CreateSettingRow(leftList, "UI Scale", "Resizes every menu and HUD panel - use this if text feels too small or too big for your display.", out uiScaleControl);
+            UiFactory.CreateCycleControl(uiScaleControl, settings.UiScale.ToString("0.00"), () =>
+            {
+                settings.SetUiScale(CycleFloat(settings.UiScale, GameSettingsStore.UiScaleMin, GameSettingsStore.UiScaleMax, 0.05f));
+                UiFactory.ApplyUiScale(canvas, settings.UiScale);
                 ShowDisplaySettings(data, career, settings);
             });
 
@@ -3080,13 +3105,16 @@ namespace LocalFormulaRacing
         // Quick Race track picker: the flow used to jump straight into tyre
         // select using a hardcoded data.Calendar.events[0], so it always raced
         // the same track no matter what the player wanted. This is now the
-        // actual first step (Track -> Race Setup -> Start Race); picking a row
-        // stores the event on quickRaceSelectedEvent and continues into the
-        // existing tyre-select/setup screen, which reads that field instead of
-        // defaulting. No minimap - TrackManager only builds track geometry
-        // inside an actual loaded race scene, so a fabricated preview isn't
-        // feasible here; the traits line (reused from ShowTrackInfo) gives the
-        // same "what kind of circuit is this" read as clean stat text instead.
+        // actual first step (Track -> Preview -> Race Setup -> Start Race);
+        // picking a row stores the event on quickRaceSelectedEvent and
+        // continues into the existing tyre-select/setup screen, which reads
+        // that field instead of defaulting. Each row now also shows a track
+        // preview widget (see BuildTrackPreview) - real per-track geometry
+        // isn't available here since TrackManager only builds it inside an
+        // actual loaded race scene, so it's a seeded procedural approximation
+        // rather than a literal trace of the circuit; the traits line (reused
+        // from ShowTrackInfo) still carries the "what kind of circuit is
+        // this" read as clean stat text alongside it.
         public void ShowQuickRaceTrackSelect(GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
             Clear();
@@ -3139,35 +3167,55 @@ namespace LocalFormulaRacing
         // and the player's best recorded lap there if any.
         void BuildQuickRaceTrackRow(RectTransform parent, CalendarEventData raceEvent, GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
+            // Row grew (was 92 tall) to fit the new track preview widget - see
+            // BuildTrackPreview. This is the very first screen of Quick Race,
+            // so it's the natural place for the "clean track preview" the
+            // selection flow was missing before picking a track and moving on
+            // into tyre/strategy setup.
             RectTransform card = UiFactory.CreateRect(parent, raceEvent.trackId + " quick race card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            card.sizeDelta = new Vector2(1180f, 92f);
+            card.sizeDelta = new Vector2(1180f, 132f);
             Image background = card.gameObject.AddComponent<Image>();
             background.color = UiFactory.PanelDark;
             UiFactory.CreateBand(card, "Quick race card rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.Accent);
 
             Text titleText = UiFactory.CreateText(card, "Quick race card title", "R" + raceEvent.round.ToString("00") + "  " + raceEvent.displayName, 19, UiFactory.TextPrimary, TextAnchor.UpperLeft);
-            SetTopLeft(titleText.rectTransform, 16f, 12f);
-            UiFactory.SetSize(titleText, 520f, 26f);
+            SetTopLeft(titleText.rectTransform, 16f, 14f);
+            UiFactory.SetSize(titleText, 380f, 26f);
 
             Text metaText = UiFactory.CreateText(card, "Quick race card meta",
                 raceEvent.country + "   ·   " + WeatherProfileText(raceEvent.weatherProfile).ToUpperInvariant() + "   ·   " + raceEvent.laps25Percent + " LAPS TYPICAL",
                 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            SetTopLeft(metaText.rectTransform, 16f, 42f);
-            UiFactory.SetSize(metaText, 520f, 20f);
+            SetTopLeft(metaText.rectTransform, 16f, 46f);
+            UiFactory.SetSize(metaText, 380f, 20f);
 
             float best = PlayerRecordsStore.GetBestLap(raceEvent.trackId);
             Text bestText = UiFactory.CreateText(card, "Quick race card best", best > 0f ? "BEST " + UiFactory.FormatTime(best) : "NO RECORD", 13, best > 0f ? UiFactory.AccentPurple : UiFactory.TextMuted, TextAnchor.UpperLeft);
-            SetTopLeft(bestText.rectTransform, 16f, 66f);
+            SetTopLeft(bestText.rectTransform, 16f, 74f);
             UiFactory.SetSize(bestText, 300f, 18f);
 
-            Text traitsText = UiFactory.CreateText(card, "Quick race card traits", TrackTraits(raceEvent), 13, UiFactory.AccentCyan, TextAnchor.UpperLeft);
+            // Track preview: see BuildTrackPreview for what it draws and why.
+            RectTransform preview = BuildTrackPreview(card, raceEvent, 100f);
+            preview.anchorMin = new Vector2(0f, 0.5f);
+            preview.anchorMax = new Vector2(0f, 0.5f);
+            preview.pivot = new Vector2(0f, 0.5f);
+            preview.anchoredPosition = new Vector2(420f, 0f);
+
+            Text traitsText = UiFactory.CreateText(card, "Quick race card traits", TrackTraits(raceEvent), 13, UiFactory.AccentCyan, TextAnchor.MiddleLeft);
             traitsText.verticalOverflow = VerticalWrapMode.Overflow;
-            SetTopLeft(traitsText.rectTransform, 560f, 12f);
-            UiFactory.SetSize(traitsText, 460f, 72f);
+            RectTransform traitsRect = traitsText.GetComponent<RectTransform>();
+            traitsRect.anchorMin = new Vector2(0f, 0.5f);
+            traitsRect.anchorMax = new Vector2(0f, 0.5f);
+            traitsRect.pivot = new Vector2(0f, 0.5f);
+            traitsRect.anchoredPosition = new Vector2(680f, 0f);
+            UiFactory.SetSize(traitsText, 226f, 100f);
 
             Button select = UiFactory.CreatePrimaryButton(card, "Select", () => SelectQuickRaceTrack(raceEvent, data, career, settings));
             UiFactory.SetSize(select, 130f, 44f);
-            SetTopRight(select.GetComponent<RectTransform>(), 16f, 24f);
+            RectTransform selectRect = select.GetComponent<RectTransform>();
+            selectRect.anchorMin = new Vector2(1f, 0.5f);
+            selectRect.anchorMax = new Vector2(1f, 0.5f);
+            selectRect.pivot = new Vector2(1f, 0.5f);
+            selectRect.anchoredPosition = new Vector2(-16f, 0f);
         }
 
         void SelectQuickRaceTrack(CalendarEventData raceEvent, GameDataRepository data, CareerManager career, GameSettingsStore settings)
@@ -3382,7 +3430,7 @@ namespace LocalFormulaRacing
                 UiFactory.AddRowCell(row, "Time", UiFactory.FormatTime(entry.bestLapTime), 0.6f, 0.78f, 14, UiFactory.AccentCyan, TextAnchor.MiddleLeft);
                 if (!string.IsNullOrEmpty(entry.context))
                 {
-                    UiFactory.AddRowCell(row, "Context", entry.context.ToUpperInvariant(), 0.78f, 1f, 12, UiFactory.TextMuted, TextAnchor.MiddleRight);
+                    UiFactory.AddRowCell(row, "Context", entry.context.ToUpperInvariant(), 0.78f, 1f, 13, UiFactory.TextMuted, TextAnchor.MiddleRight);
                 }
             }
 
@@ -3485,40 +3533,46 @@ namespace LocalFormulaRacing
         // and layout traits; clicking it launches a time trial on that circuit.
         void CreateTrackInfoRow(RectTransform parent, CalendarEventData raceEvent)
         {
+            // Row grew (was 72 tall, fractional-anchor columns) to fit the new
+            // track preview widget - switched to the same fixed-pixel
+            // SetTopLeft/anchored-pivot layout BuildQuickRaceTrackRow already
+            // uses, since that reads more predictably once a widget with its
+            // own internal layout (map + legend) needs a real, guaranteed slot
+            // rather than a fractional share of the row.
             RectTransform card = UiFactory.CreateRect(parent, raceEvent.trackId + " info card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            card.sizeDelta = new Vector2(1180f, 72f);
+            card.sizeDelta = new Vector2(1180f, 132f);
             Image background = card.gameObject.AddComponent<Image>();
             background.color = UiFactory.PanelDark;
             UiFactory.CreateBand(card, "Track info rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.Accent);
 
             Text titleText = UiFactory.CreateText(card, "Track title", "R" + raceEvent.round.ToString("00") + "  " + raceEvent.displayName, 18, UiFactory.TextPrimary, TextAnchor.UpperLeft);
-            RectTransform titleRect = titleText.GetComponent<RectTransform>();
-            titleRect.anchorMin = new Vector2(0f, 1f);
-            titleRect.anchorMax = new Vector2(0.4f, 1f);
-            titleRect.offsetMin = new Vector2(16f, -30f);
-            titleRect.offsetMax = new Vector2(0f, -6f);
+            SetTopLeft(titleText.rectTransform, 16f, 14f);
+            UiFactory.SetSize(titleText, 380f, 26f);
 
             Text metaText = UiFactory.CreateText(card, "Track meta", raceEvent.country + "   ·   " + WeatherProfileText(raceEvent.weatherProfile).ToUpperInvariant() + "   ·   " + raceEvent.laps25Percent + " LAPS", 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
-            RectTransform metaRect = metaText.GetComponent<RectTransform>();
-            metaRect.anchorMin = new Vector2(0f, 0f);
-            metaRect.anchorMax = new Vector2(0.4f, 1f);
-            metaRect.offsetMin = new Vector2(16f, 8f);
-            metaRect.offsetMax = new Vector2(0f, -34f);
-
-            Text traitsText = UiFactory.CreateText(card, "Track traits", TrackTraits(raceEvent), 14, UiFactory.AccentCyan, TextAnchor.MiddleLeft);
-            RectTransform traitsRect = traitsText.GetComponent<RectTransform>();
-            traitsRect.anchorMin = new Vector2(0.4f, 0f);
-            traitsRect.anchorMax = new Vector2(0.64f, 1f);
-            traitsRect.offsetMin = Vector2.zero;
-            traitsRect.offsetMax = Vector2.zero;
+            SetTopLeft(metaText.rectTransform, 16f, 46f);
+            UiFactory.SetSize(metaText, 380f, 20f);
 
             float best = PlayerRecordsStore.GetBestLap(raceEvent.trackId);
-            Text bestText = UiFactory.CreateText(card, "Track best", best > 0f ? "BEST " + UiFactory.FormatTime(best) : "NO RECORD", 14, best > 0f ? UiFactory.AccentPurple : UiFactory.TextMuted, TextAnchor.MiddleLeft);
-            RectTransform bestRect = bestText.GetComponent<RectTransform>();
-            bestRect.anchorMin = new Vector2(0.64f, 0f);
-            bestRect.anchorMax = new Vector2(0.83f, 1f);
-            bestRect.offsetMin = Vector2.zero;
-            bestRect.offsetMax = Vector2.zero;
+            Text bestText = UiFactory.CreateText(card, "Track best", best > 0f ? "BEST " + UiFactory.FormatTime(best) : "NO RECORD", 14, best > 0f ? UiFactory.AccentPurple : UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(bestText.rectTransform, 16f, 74f);
+            UiFactory.SetSize(bestText, 300f, 20f);
+
+            // Track preview: see BuildTrackPreview for what it draws and why.
+            RectTransform preview = BuildTrackPreview(card, raceEvent, 100f);
+            preview.anchorMin = new Vector2(0f, 0.5f);
+            preview.anchorMax = new Vector2(0f, 0.5f);
+            preview.pivot = new Vector2(0f, 0.5f);
+            preview.anchoredPosition = new Vector2(420f, 0f);
+
+            Text traitsText = UiFactory.CreateText(card, "Track traits", TrackTraits(raceEvent), 14, UiFactory.AccentCyan, TextAnchor.MiddleLeft);
+            traitsText.verticalOverflow = VerticalWrapMode.Overflow;
+            RectTransform traitsRect = traitsText.GetComponent<RectTransform>();
+            traitsRect.anchorMin = new Vector2(0f, 0.5f);
+            traitsRect.anchorMax = new Vector2(0f, 0.5f);
+            traitsRect.pivot = new Vector2(0f, 0.5f);
+            traitsRect.anchoredPosition = new Vector2(680f, 0f);
+            UiFactory.SetSize(traitsText, 320f, 110f);
 
             // Explicit action instead of the whole row being clickable - a
             // screen whose job is "show me info about this track" should never
@@ -3528,11 +3582,195 @@ namespace LocalFormulaRacing
             // BuildQuickRaceTrackRow's "Select" button.
             Button launch = UiFactory.CreateSecondaryButton(card, "Time Trial", () => bootstrap.BeginTimeTrial(raceEvent));
             RectTransform launchRect = launch.GetComponent<RectTransform>();
-            launchRect.anchorMin = new Vector2(0.85f, 0.5f);
-            launchRect.anchorMax = new Vector2(0.85f, 0.5f);
-            launchRect.pivot = new Vector2(0f, 0.5f);
+            launchRect.anchorMin = new Vector2(1f, 0.5f);
+            launchRect.anchorMax = new Vector2(1f, 0.5f);
+            launchRect.pivot = new Vector2(1f, 0.5f);
             launchRect.sizeDelta = new Vector2(148f, 42f);
-            launchRect.anchoredPosition = Vector2.zero;
+            launchRect.anchoredPosition = new Vector2(-16f, 0f);
+        }
+
+        // ---------- track preview ----------
+        // New feature: a small visual "shape of the lap" widget for the track
+        // selection and track info screens, with pit entry/exit and
+        // tightest/highest-speed corner call-outs. No live per-track geometry
+        // is available here - TrackManager only builds the real circuit mesh
+        // inside an actual loaded race scene (see the comment that used to be
+        // on ShowQuickRaceTrackSelect explaining why this never existed
+        // before) - so this draws a deterministic procedural approximation of
+        // a lap instead: seeded from the track's own id, so the same track
+        // always renders the same shape, but it is not a literal trace of the
+        // real circuit. The pit entry marker uses the actual shared
+        // TrackRuntime.PitCorridorStartNormalized constant (a fraction of the
+        // lap shared by every real circuit, so that part is accurate); pit
+        // exit has no equivalent public constant to read, so it mirrors the
+        // 0.992 literal TrackRuntime.GetPitReleasePose uses internally.
+        // TODO(barrier-fix): if TrackManager/RaceManager ever expose a
+        // scene-independent per-track corner list (distance + turn angle) and
+        // a named pit-exit-normalized constant, swap this generator for that
+        // real data so the preview traces the actual circuit instead of an
+        // approximation. Tightest-corner/highest-speed markers below are
+        // computed directly from this generated loop's own curvature - real
+        // geometry analysis, just of an approximated lap rather than the true
+        // one.
+        const int TrackPreviewPointCount = 48;
+        const float TrackPreviewPitEntryNormalized = 0.885f; // TrackRuntime.PitCorridorStartNormalized
+        const float TrackPreviewPitExitNormalized = 0.992f; // matches TrackRuntime.GetPitReleasePose's internal constant
+
+        // Builds the widget and returns its root RectTransform (caller
+        // positions/parents it like any other element). mapSize is the
+        // square map's edge length; a short color-keyed legend is placed to
+        // its right, so the whole widget's footprint is
+        // (mapSize + legend column) wide by mapSize tall.
+        RectTransform BuildTrackPreview(Transform parent, CalendarEventData raceEvent, float mapSize)
+        {
+            const float legendColumnWidth = 128f;
+            string name = (raceEvent != null && !string.IsNullOrEmpty(raceEvent.trackId) ? raceEvent.trackId : "track") + " preview";
+            RectTransform root = UiFactory.CreateRect(parent, name, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            root.sizeDelta = new Vector2(mapSize + 8f + legendColumnWidth, mapSize);
+
+            RectTransform mapArea = UiFactory.CreateRect(root, name + " map", new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+            mapArea.pivot = new Vector2(0f, 1f);
+            mapArea.sizeDelta = new Vector2(mapSize, mapSize);
+            Image mapBackground = mapArea.gameObject.AddComponent<Image>();
+            UiFactory.StyleRoundedSmall(mapBackground, new Color(0.02f, 0.03f, 0.045f, 0.92f));
+
+            string seedKey = raceEvent != null && !string.IsNullOrEmpty(raceEvent.trackId) ? raceEvent.trackId : "default_track";
+            System.Random rng = new System.Random(seedKey.GetHashCode());
+
+            float centerX = mapSize * 0.5f;
+            float centerY = mapSize * 0.5f;
+            float baseRx = mapSize * 0.36f;
+            float baseRy = mapSize * 0.3f;
+            float amp1 = 0.10f + (float)rng.NextDouble() * 0.10f;
+            float amp2 = 0.06f + (float)rng.NextDouble() * 0.08f;
+            int harmonicOne = 2 + rng.Next(0, 2);
+            int harmonicTwo = 3 + rng.Next(0, 3);
+            float phase1 = (float)(rng.NextDouble() * Mathf.PI * 2.0);
+            float phase2 = (float)(rng.NextDouble() * Mathf.PI * 2.0);
+
+            Vector2[] points = new Vector2[TrackPreviewPointCount];
+            for (int i = 0; i < TrackPreviewPointCount; i++)
+            {
+                float t = i / (float)TrackPreviewPointCount;
+                float angle = t * Mathf.PI * 2f;
+                float radiusScale = 1f + amp1 * Mathf.Sin(harmonicOne * angle + phase1) + amp2 * Mathf.Sin(harmonicTwo * angle + phase2);
+                points[i] = new Vector2(centerX + Mathf.Cos(angle) * baseRx * radiusScale, centerY + Mathf.Sin(angle) * baseRy * radiusScale);
+            }
+
+            float[] cumulative = new float[TrackPreviewPointCount + 1];
+            for (int i = 0; i < TrackPreviewPointCount; i++)
+            {
+                Vector2 next = points[(i + 1) % TrackPreviewPointCount];
+                cumulative[i + 1] = cumulative[i] + Vector2.Distance(points[i], next);
+            }
+
+            float totalLength = cumulative[TrackPreviewPointCount];
+
+            // Ribbon.
+            for (int i = 0; i < TrackPreviewPointCount; i++)
+            {
+                CreatePreviewDot(mapArea, points[i], 4f, new Color(0.2f, 0.72f, 1f, 0.55f));
+            }
+
+            // Start/finish.
+            CreatePreviewDot(mapArea, points[0], 8f, Color.white);
+
+            // Pit entry/exit - see the class comment above for accuracy notes.
+            Vector2 pitEntryPoint = SamplePreviewLoop(points, cumulative, totalLength, TrackPreviewPitEntryNormalized);
+            Vector2 pitExitPoint = SamplePreviewLoop(points, cumulative, totalLength, TrackPreviewPitExitNormalized);
+            CreatePreviewDot(mapArea, pitEntryPoint, 7f, UiFactory.AccentAmber);
+            CreatePreviewDot(mapArea, pitExitPoint, 7f, UiFactory.AccentAmber);
+
+            // Tightest / highest-speed corner, derived from this generated
+            // loop's own curvature rather than guessed from the track id.
+            int tightestIndex = 0;
+            float tightestAngle = -1f;
+            int fastestIndex = 0;
+            float fastestAngle = float.MaxValue;
+            for (int i = 0; i < TrackPreviewPointCount; i++)
+            {
+                Vector2 previous = points[(i - 1 + TrackPreviewPointCount) % TrackPreviewPointCount];
+                Vector2 current = points[i];
+                Vector2 next = points[(i + 1) % TrackPreviewPointCount];
+                Vector2 entryDirection = (current - previous).normalized;
+                Vector2 exitDirection = (next - current).normalized;
+                float turnAngle = Vector2.Angle(entryDirection, exitDirection);
+                if (turnAngle > tightestAngle)
+                {
+                    tightestAngle = turnAngle;
+                    tightestIndex = i;
+                }
+
+                if (turnAngle < fastestAngle)
+                {
+                    fastestAngle = turnAngle;
+                    fastestIndex = i;
+                }
+            }
+
+            CreatePreviewDot(mapArea, points[tightestIndex], 7f, UiFactory.AccentPurple);
+            CreatePreviewDot(mapArea, points[fastestIndex], 7f, UiFactory.AccentGreen);
+
+            string legendText =
+                ColorTag(Color.white, "●") + " Start / Finish\n" +
+                ColorTag(UiFactory.AccentAmber, "●") + " Pit In\n" +
+                ColorTag(UiFactory.AccentAmber, "●") + " Pit Out\n" +
+                ColorTag(UiFactory.AccentPurple, "●") + " Tightest Corner\n" +
+                ColorTag(UiFactory.AccentGreen, "●") + " Highest Speed";
+            Text legend = UiFactory.CreateText(root, name + " legend", legendText, 13, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+            legend.verticalOverflow = VerticalWrapMode.Overflow;
+            RectTransform legendRect = legend.GetComponent<RectTransform>();
+            legendRect.anchorMin = new Vector2(0f, 0f);
+            legendRect.anchorMax = new Vector2(0f, 1f);
+            legendRect.pivot = new Vector2(0f, 0.5f);
+            legendRect.offsetMin = new Vector2(mapSize + 8f, 0f);
+            legendRect.offsetMax = new Vector2(mapSize + 8f + legendColumnWidth, 0f);
+
+            return root;
+        }
+
+        void CreatePreviewDot(Transform parent, Vector2 localPoint, float size, Color color)
+        {
+            RectTransform dot = UiFactory.CreateRect(parent, "Preview dot", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            dot.pivot = new Vector2(0.5f, 0.5f);
+            dot.sizeDelta = new Vector2(size, size);
+            dot.anchorMin = new Vector2(0f, 1f);
+            dot.anchorMax = new Vector2(0f, 1f);
+            dot.anchoredPosition = new Vector2(localPoint.x, -localPoint.y);
+            Image image = dot.gameObject.AddComponent<Image>();
+            image.sprite = UiFactory.GlowSprite;
+            image.color = color;
+            image.raycastTarget = false;
+        }
+
+        // Linearly interpolates a point on the generated loop at the given
+        // normalized progress (0..1), matching how TrackRuntime.SampleAtDistance
+        // maps a normalized fraction of the real lap to a world point.
+        Vector2 SamplePreviewLoop(Vector2[] points, float[] cumulative, float totalLength, float normalized)
+        {
+            if (totalLength <= 0f || points.Length == 0)
+            {
+                return Vector2.zero;
+            }
+
+            float targetDistance = Mathf.Repeat(normalized, 1f) * totalLength;
+            for (int i = 0; i < points.Length; i++)
+            {
+                if (cumulative[i + 1] >= targetDistance)
+                {
+                    float segmentLength = cumulative[i + 1] - cumulative[i];
+                    float segmentT = segmentLength > 0.0001f ? (targetDistance - cumulative[i]) / segmentLength : 0f;
+                    Vector2 next = points[(i + 1) % points.Length];
+                    return Vector2.Lerp(points[i], next, segmentT);
+                }
+            }
+
+            return points[points.Length - 1];
+        }
+
+        static string ColorTag(Color color, string text)
+        {
+            return "<color=#" + ColorUtility.ToHtmlStringRGB(color) + ">" + text + "</color>";
         }
 
         // Heuristic layout traits by circuit family: enough for strategy flavor
@@ -4338,7 +4576,7 @@ namespace LocalFormulaRacing
                 UiFactory.AddPositionBadge(row, entry.position, entry.isPlayer);
                 Color textColor = entry.isPlayer ? Color.white : new Color(0.9f, 0.95f, 0.98f);
                 UiFactory.AddRowCell(row, "Driver", entry.driverName, 0.13f, 0.55f, 14, textColor, TextAnchor.MiddleLeft);
-                UiFactory.AddRowCell(row, "Team", teamCode, 0.55f, 0.76f, 12, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Team", teamCode, 0.55f, 0.76f, 13, UiFactory.TextMuted, TextAnchor.MiddleLeft);
                 UiFactory.AddRowCell(row, "Best", lapLabel, 0.76f, 1f, 13, entry.bestLapTime >= 9998f ? UiFactory.Accent : UiFactory.TextMuted, TextAnchor.MiddleRight);
             }
         }
