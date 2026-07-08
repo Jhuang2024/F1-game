@@ -1881,17 +1881,22 @@ namespace LocalFormulaRacing
         // Race-start yellow-flag dampener: the opening-lap scramble (grid still
         // bunched, cars still finding their braking points) produces far more
         // incidents than mid-race running, which read as "there's a yellow flag
-        // basically every start". Cuts the chance any non-catastrophic incident in
-        // this window actually raises a flag (or escalates) by 75%, rather than
-        // touching the underlying collision/incident detection itself - a genuinely
-        // catastrophic, track-blocking incident (forceEscalate) is never suppressed.
-        const float RaceStartYellowGraceSeconds = 30f;
-        const float RaceStartYellowSuppressionChance = 0.75f;
+        // basically every start" and disrupted the starting procedure itself.
+        // Round 2: a 75% cut still let one in four opening-lap incidents through,
+        // which was still enough to interrupt starts regularly - now fully
+        // suppressed (100%) for the whole window, and the window itself widened
+        // (30s -> 45s) to actually cover a full opening lap rather than cutting
+        // out right as the pack is still sorting itself out through the first
+        // sequence of corners. This never touches the underlying collision/
+        // incident detection - a genuinely catastrophic, track-blocking incident
+        // (forceEscalate) is still never suppressed, regardless of timing.
+        const float RaceStartYellowGraceSeconds = 45f;
+        const float RaceStartYellowSuppressionChance = 1f;
 
         void ApplyIncidentSeverity(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause = null, bool forceEscalate = false, bool yellowJustified = false)
         {
             bool duringRaceStartWindow = CurrentSession != RaceWeekendSession.Qualifying && RaceElapsed < RaceStartYellowGraceSeconds;
-            if (duringRaceStartWindow && !forceEscalate && Random.value < RaceStartYellowSuppressionChance)
+            if (duringRaceStartWindow && !forceEscalate && (RaceStartYellowSuppressionChance >= 1f || Random.value < RaceStartYellowSuppressionChance))
             {
                 GameLog.Info("[RaceControl] " + severity + " incident yellow/escalation suppressed by the race-start grace window (" + RaceElapsed.ToString("0.0") + "s in).");
                 return;
@@ -4917,6 +4922,14 @@ namespace LocalFormulaRacing
             // exceed 1.0 for Hard/Expert since a corner apex or braking point is a
             // driving-skill judgment call, not a hard physics limit.
             public float paceMultiplier;
+            // Cornering buff round 8: no longer consumed by AiVehicleController's
+            // apex-speed calculation - it used to stack multiplicatively on top of
+            // EstimateApexSpeedForCornerType's own skillTier-scaled floor/ceiling,
+            // which could push the AI's target speed past its own straight-line top
+            // speed through a corner (physically unachievable) and send it straight
+            // into the wall. Left declared/assigned per-tier rather than removed
+            // outright, since ordering across the four difficulty profiles still
+            // documents relative intent even though nothing reads it anymore.
             public float cornerSpeedMultiplier;
             public float straightSpeedMultiplier;
             public float brakeConfidenceMultiplier;

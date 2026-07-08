@@ -216,20 +216,27 @@ namespace LocalFormulaRacing
             switch (type)
             {
                 case CornerType.HighSpeed:
-                    // Cornering buff round 7: pushed again (was 0.95 base / 1.02-1.13
-                    // skill-scaled ceiling) - "fast corners need to be A LOT faster".
-                    // Combined with the widened HighSpeed band above, Hard/Expert now
-                    // barely lift off straight-line speed at all through anything
-                    // this bucket classifies as fast.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 1.0f, straightTargetSpeed * Mathf.Lerp(1.08f, 1.22f, skillTier), apexConfidence);
+                    // Cornering buff round 8: round 7 pushed this ceiling PAST 100% of
+                    // straightTargetSpeed (up to 1.22x) and then apexTargetSpeed below
+                    // multiplied the result by profile.cornerSpeedMultiplier (up to
+                    // 1.85x for Expert) on top of that - two independent
+                    // difficulty-scaled multipliers stacking on the same number. The
+                    // AI ended up targeting speeds meaningfully ABOVE its own
+                    // straight-line top speed through a corner with real curvature,
+                    // which is not achievable by any amount of steering authority -
+                    // it ran wide and hit the wall exactly as reported. A corner can
+                    // at best approach straight-line speed, never exceed it, so this
+                    // is now hard-capped at 1.0x and cornerSpeedMultiplier no longer
+                    // applies to any corner type (see apexTargetSpeed below) - skillTier
+                    // alone drives how close to that 1.0x ceiling a sharper difficulty
+                    // gets, with no second multiplier stacked on top.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.90f, straightTargetSpeed * Mathf.Lerp(0.96f, 1.0f, skillTier), apexConfidence);
                     easePower = Mathf.Lerp(5.5f, 9f, skillTier);
                     break;
                 case CornerType.Medium:
-                    // Cornering buff round 7: pushed again alongside HighSpeed above,
-                    // and this bucket now also catches genuinely fast corners pushed
-                    // down from the widened HighSpeed band at lower skill tiers, so it
-                    // needs to read as fast too, not just "less slow than before".
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.85f, straightTargetSpeed * Mathf.Lerp(1.0f, 1.15f, skillTier), apexConfidence);
+                    // Cornering buff round 8: same overshoot-past-100%-then-multiplied
+                    // bug as HighSpeed above - capped the same way.
+                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.66f, straightTargetSpeed * Mathf.Lerp(0.82f, 0.94f, skillTier), apexConfidence);
                     easePower = Mathf.Lerp(3.2f, 4.6f, skillTier);
                     break;
                 case CornerType.Slow:
@@ -538,16 +545,17 @@ namespace LocalFormulaRacing
             CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity, skillTier);
             float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, straightTargetSpeed, hairpinSpeedKph, gripMultiplier, apexConfidence, skillTier);
 
-            // cornerSpeedMultiplier may exceed 1.0 for Hard/Expert: how much of the
-            // tyre's real available grip a confident driver carries through the apex is
-            // a driving-skill judgment call, not a hard physics ceiling like top speed.
-            // Tight-corner fix round 2: never applied to a genuine Hairpin - the floor
-            // above is already deliberately untouched by skill tier (a hairpin is still
-            // a hairpin regardless of difficulty), but this multiplier used to reinflate
-            // it right back up afterwards (up to 1.44x on Expert), quietly undoing that
-            // floor and leaving Hard/Expert still taking hairpins far too fast.
-            float cornerSpeedMultiplierForType = upcomingCornerType == CornerType.Hairpin ? 1f : profile.cornerSpeedMultiplier;
-            float apexTargetSpeed = Mathf.Lerp(trueApexSpeed * 0.5f, trueApexSpeed, apexConfidence) * cornerSpeedMultiplierForType;
+            // Cornering buff round 8: profile.cornerSpeedMultiplier is no longer
+            // applied here at all, for any corner type. It used to stack on top of
+            // EstimateApexSpeedForCornerType's own skillTier-scaled floor/ceiling -
+            // two independently difficulty-scaled multipliers compounding on the
+            // same number, which is exactly what pushed apexTargetSpeed past the
+            // car's own straight-line top speed and sent the AI straight into the
+            // wall trying to carry an unachievable speed through a corner with real
+            // curvature (see the HighSpeed/Medium cap in EstimateApexSpeedForCornerType).
+            // skillTier alone now drives corner-speed difficulty scaling, in one
+            // place, with a hard ceiling that can never exceed straightTargetSpeed.
+            float apexTargetSpeed = Mathf.Lerp(trueApexSpeed * 0.5f, trueApexSpeed, apexConfidence);
 
             // Driver-quality variance is the per-driver pace differentiator, independent
             // of difficulty; profile.paceMultiplier is the difficulty-tier pace scaler
