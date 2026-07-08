@@ -779,7 +779,7 @@ namespace LocalFormulaRacing
         // be visible together, newest closest to the top.
         const float RadioCardMinHeight = 54f;
         const float RadioCardMaxHeight = 140f;
-        const float RadioCardSpacing = 6f;
+        const int RadioCardSpacing = 6;
 
         // Deliberately not built on CreateHudCard - that always reserves a
         // ~24px header strip for a repeated title label, which would mean
