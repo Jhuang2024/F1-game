@@ -141,6 +141,17 @@ namespace LocalFormulaRacing
                 drsLatched = false;
             }
 
+            // DRS deployment fix: braking auto-closes the wing (see
+            // VehicleController.ApplyForces) and real DRS never silently
+            // reopens on its own once closed mid-zone - the driver must press
+            // the button again. Without this the latch stayed true through a
+            // brake application and the wing would pop back open the instant
+            // the brake was released, with no second press.
+            if (command.brake > 0.05f)
+            {
+                drsLatched = false;
+            }
+
             command.ers = Key(KeyCode.LeftShift) || Key(KeyCode.RightShift);
             command.drs = drsLatched;
             command.pitRequest = Input.GetKeyDown(KeyCode.P);

@@ -513,7 +513,13 @@ namespace LocalFormulaRacing
                 ActiveSlowdownReason = "RECOVERY REVERSE";
             }
 
-            DrsActive = activeCommand.drs && absoluteSpeedKph > 90f;
+            // DRS deployment fix: the wing must auto-close the instant the driver
+            // brakes (real F1 behaviour - a brake-pressure sensor kills the actuator),
+            // not stay open bleeding drag/downforce reduction into the braking zone.
+            // This is the single place DrsActive is decided, so it governs the drag
+            // coefficient and top-speed bonus below for both the player and every AI
+            // car identically - no separate logic to keep in sync.
+            DrsActive = activeCommand.drs && absoluteSpeedKph > 90f && activeCommand.brake < 0.05f;
             TargetTopSpeedKph = CalculateTargetTopSpeedKph(activeCommand);
             if (PitLimiterActive)
             {
@@ -739,6 +745,15 @@ namespace LocalFormulaRacing
             float highSpeedLimit = Mathf.Lerp(1f, 0.54f, Mathf.InverseLerp(90f, 320f, speedKph));
             float tyreGrip = Tyres.GripMultiplier(Weather);
             float turnRate = Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit * tyreGrip * Damage.HandlingMultiplier;
+            // Tight-corner authority: a genuine hairpin's real turn radius needs more
+            // rotational authority than cruising-speed turnRate provides even at
+            // speedFactor's max (1.0 is reached by ~62kph already, well above a real
+            // hairpin's actual radius requirement) - without this, cars physically
+            // could not tighten their arc enough and ran wide through the tightest
+            // corners no matter how low a speed the driver braked to. Fades out by
+            // 120kph so medium/fast corner handling is untouched.
+            float tightCorneringBoost = Mathf.Lerp(1.4f, 1f, Mathf.Clamp01((speedKph - 35f) / 85f));
+            turnRate *= tightCorneringBoost;
             turnRate *= Mathf.Lerp(1.04f, 0.72f, UndersteerAmount);
             float steerAmount = activeCommand.steer * turnRate * dt;
             if (Mathf.Abs(steerAmount) > 0.0001f)

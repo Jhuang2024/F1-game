@@ -506,9 +506,15 @@ namespace LocalFormulaRacing
             // Car-relative hairpin floor instead of one flat number for every car: a
             // stronger braking/cornering car has a genuinely higher minimum apex speed
             // even at a true hairpin.
+            // Tight-corner fix: this floor used to bottom out at 76-108kph, faster
+            // than the physical turn radius available at a real hairpin (even with
+            // the ApplySteering tight-cornering boost) - the AI was committing to a
+            // speed it could not actually turn tightly enough for and ran wide.
+            // Lowered to something the shared turning physics can genuinely carry
+            // through a true hairpin.
             float carBrakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
             float carCorneringStat = vehicle.CarData == null ? 78f : vehicle.CarData.cornering;
-            float hairpinSpeedKph = Mathf.Lerp(76f, 108f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
+            float hairpinSpeedKph = Mathf.Lerp(58f, 82f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a

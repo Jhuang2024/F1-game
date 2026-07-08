@@ -4919,7 +4919,10 @@ namespace LocalFormulaRacing
                     throttleDelay = 0.55f,
                     exitThrottleConfidence = 0.62f,
                     lineOffsetNoise = 1.4f,
-                    reactionTimeSeconds = 0.85f,
+                    // Reaction-time nerf: raised across every tier (was 0.85/0.55/
+                    // 0.32/0.11) - AI was reacting noticeably faster than a real
+                    // driver at every difficulty, most obviously at the start.
+                    reactionTimeSeconds = 1.05f,
                     overtakeCommitment = 0.35f,
                     defendCommitment = 0.30f,
                     ersDeploymentQuality = 0.40f,
@@ -4952,7 +4955,7 @@ namespace LocalFormulaRacing
                     // the Hard/Expert jump below.
                     exitThrottleConfidence = 0.86f,
                     lineOffsetNoise = 0.75f,
-                    reactionTimeSeconds = 0.55f,
+                    reactionTimeSeconds = 0.68f,
                     overtakeCommitment = 0.55f,
                     defendCommitment = 0.55f,
                     ersDeploymentQuality = 0.65f,
@@ -4997,7 +5000,7 @@ namespace LocalFormulaRacing
                     throttleDelay = 0.07f,
                     exitThrottleConfidence = 0.97f,
                     lineOffsetNoise = 0.36f,
-                    reactionTimeSeconds = 0.32f,
+                    reactionTimeSeconds = 0.41f,
                     overtakeCommitment = 0.77f,
                     defendCommitment = 0.79f,
                     ersDeploymentQuality = 0.87f,
@@ -5037,7 +5040,7 @@ namespace LocalFormulaRacing
                 throttleDelay = 0.03f,
                 exitThrottleConfidence = 0.995f,
                 lineOffsetNoise = 0.12f,
-                reactionTimeSeconds = 0.11f,
+                reactionTimeSeconds = 0.16f,
                 overtakeCommitment = 0.93f,
                 defendCommitment = 0.93f,
                 ersDeploymentQuality = 0.96f,
