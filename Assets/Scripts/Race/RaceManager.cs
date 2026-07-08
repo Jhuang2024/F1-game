@@ -108,6 +108,40 @@ namespace LocalFormulaRacing
         float lastIncidentTime = -999f;
         float lastIncidentDistance = -99999f;
 
+        // Restart handoff (bug fix): race control keeps convoy autopilot through
+        // the Restart hold AND a short green-flag ramp afterward, instead of
+        // dropping every car back to normal driving the instant Restart -> Green
+        // fires. raceControlReferenceDistance/Speed is a single shared "virtual
+        // convoy" point that tracks the real safety car while it's physically on
+        // track and then keeps advancing on its own (ramping toward full pace)
+        // once the car has peeled into the pits, so the queue never stalls
+        // waiting on an object that's already gone and BuildRaceControlAutopilotCommand
+        // never has to fall back to a blind brake-and-go-straight command.
+        float raceControlReferenceDistance;
+        float raceControlReferenceSpeedKph;
+        float restartRampTimer;
+        bool restartHandbackMessageSent;
+        const float RestartRampDurationSeconds = 2.5f;
+        const float RestartFormationTargetSpeedKph = 215f;
+        const float RaceControlQueueLeadMeters = 28f;
+
+        // True for the full physical safety car period, through the Restart
+        // hold, and for a short ramp afterward once Green begins - autopilot
+        // only lets go of a car once this goes false, which is also the single
+        // signal AiVehicleController uses to resync its own track-progress
+        // reference (see HandleRaceControlAutopilotReleased) instead of
+        // resuming normal driving off a lastProgressDistance that can be stale
+        // by a lap or more.
+        public bool IsRaceControlAutopilotHoldPeriod
+        {
+            get
+            {
+                return IsFullSafetyCarPeriod ||
+                       CurrentRaceControlState == RaceControlState.Restart ||
+                       (CurrentRaceControlState == RaceControlState.Green && restartRampTimer > 0f);
+            }
+        }
+
         // Part 1: the real, visible AI safety car - built lazily the first time
         // it's needed each session and reused for every deployment within that
         // session rather than instantiated fresh each time.
@@ -911,6 +945,10 @@ namespace LocalFormulaRacing
             safetyCarQueueLeader = null;
             lastIncidentTime = -999f;
             lastIncidentDistance = -99999f;
+            raceControlReferenceDistance = 0f;
+            raceControlReferenceSpeedKph = 0f;
+            restartRampTimer = 0f;
+            restartHandbackMessageSent = false;
             // The previous session's safety car object (if any) lived under the
             // old raceWorld root and is already gone by the time a new session
             // resets this state - null the references so EnsureSafetyCarBuilt
@@ -1711,12 +1749,19 @@ namespace LocalFormulaRacing
         // without a visible, active safety car object.
         void UpdateSafetyCar()
         {
+            // Keeps the shared virtual convoy reference (position + speed every
+            // queued car steers/paces against) honest every frame, whether the
+            // real safety car object is still physically on track or has already
+            // peeled into the pits during the Restart/green-flag ramp hold.
+            UpdateRaceControlReference();
+
             // Convoy autopilot upkeep: every non-retired/non-finished car is under
-            // race-control autopilot for exactly as long as the field is in a
-            // full safety car period, and not a tick longer - IsFullSafetyCarPeriod
-            // already excludes RaceControlState.Restart, so control hands back to
-            // the player/AI's own driving the instant the state machine advances
-            // past SafetyCarInThisLap, with no extra bookkeeping needed here.
+            // race-control autopilot for as long as IsRaceControlAutopilotHoldPeriod
+            // holds true - the full physical safety car period, PLUS the Restart
+            // hold, PLUS a short ramp once Green begins. Handing control back only
+            // once this goes false (rather than the instant Restart begins) is what
+            // gives AiVehicleController a stable, non-stale progress reference and a
+            // controlled ramp to resync from instead of an instant snap.
             for (int i = 0; i < Participants.Count; i++)
             {
                 RaceParticipant p = Participants[i];
@@ -1725,7 +1770,7 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                if (IsFullSafetyCarPeriod && !p.retired && !p.finished)
+                if (IsRaceControlAutopilotHoldPeriod && !p.retired && !p.finished)
                 {
                     p.isRaceControlAutopilot = true;
                 }
@@ -1828,6 +1873,55 @@ namespace LocalFormulaRacing
         }
 
         bool playerScQueueWarningSent;
+
+        // Single per-frame update of the shared "virtual convoy" reference that
+        // BuildRaceControlAutopilotCommand steers/paces every queued car against.
+        // While the real safety car is physically active it just mirrors the real
+        // car (unchanged behaviour from before); once the car has peeled off
+        // toward the pits but the field is still held (Restart, or the short
+        // green-flag ramp after), the reference keeps advancing on its own,
+        // ramping from the last real convoy speed up toward a brisk restart pace
+        // - so the queue never stalls waiting on an object that isn't there
+        // anymore, and BuildRaceControlAutopilotCommand never has to fall back to
+        // a blind "brake and go straight" command during that window.
+        void UpdateRaceControlReference()
+        {
+            bool scPhysicallyActive = safetyCarController != null && safetyCarController.IsActive;
+            if (scPhysicallyActive)
+            {
+                raceControlReferenceDistance = Track != null
+                    ? Track.WrapDistance(safetyCarController.ProgressDistance - RaceControlQueueLeadMeters)
+                    : safetyCarController.ProgressDistance - RaceControlQueueLeadMeters;
+                raceControlReferenceSpeedKph = safetyCarController.CurrentSpeedKph;
+                return;
+            }
+
+            if (!IsRaceControlAutopilotHoldPeriod || Track == null)
+            {
+                return;
+            }
+
+            // Only actually ramp the pace up once race control has called the
+            // restart (Restart state) or is in the short Green ramp tail right
+            // after it. The SafetyCarInThisLap tail - where the physical car has
+            // already peeled off but race control hasn't called "go" yet - holds
+            // the last known convoy pace flat instead of creeping toward restart
+            // speed early.
+            float targetSpeedKph = raceControlReferenceSpeedKph;
+            if (CurrentRaceControlState == RaceControlState.Restart)
+            {
+                float rampProgress = 1f - Mathf.Clamp01(restartControlTimer / 4f);
+                targetSpeedKph = Mathf.Lerp(raceControlReferenceSpeedKph, RestartFormationTargetSpeedKph, rampProgress);
+            }
+            else if (CurrentRaceControlState == RaceControlState.Green && restartRampTimer > 0f)
+            {
+                float rampProgress = 1f - Mathf.Clamp01(restartRampTimer / RestartRampDurationSeconds);
+                targetSpeedKph = Mathf.Lerp(raceControlReferenceSpeedKph, RestartFormationTargetSpeedKph, rampProgress);
+            }
+
+            raceControlReferenceSpeedKph = Mathf.MoveTowards(raceControlReferenceSpeedKph, targetSpeedKph, Time.deltaTime * 30f);
+            raceControlReferenceDistance = Track.WrapDistance(raceControlReferenceDistance + raceControlReferenceSpeedKph / 3.6f * Time.deltaTime);
+        }
 
         void RespawnMissingSafetyCar(string reason)
         {
@@ -1978,8 +2072,8 @@ namespace LocalFormulaRacing
 
         // Convoy autopilot driving command (Part 2): builds a full throttle/
         // brake/steer command that drives `participant` toward its assigned
-        // slot in the safety-car queue - the leader targets a fixed distance
-        // behind the real safety car object, everyone else targets a further
+        // slot in the queue - the leader targets a fixed distance behind the
+        // shared race-control reference point, everyone else targets a further
         // fixed distance behind the leader's own slot, scaled by their frozen
         // queue index. Steering mirrors the same lookahead-point pattern
         // AiVehicleController's own normal driving uses (SampleAtDistance ahead
@@ -1987,7 +2081,13 @@ namespace LocalFormulaRacing
         // convoy still tracks the racing line through corners instead of
         // cutting straight lines between distance samples; only the speed
         // target comes from the queue-slot error, not from the normal apex/
-        // braking-point model.
+        // braking-point model. The reference point itself (raceControlReferenceDistance/
+        // Speed, kept current every frame by UpdateRaceControlReference) mirrors
+        // the real safety car while it's physically on track and keeps advancing
+        // smoothly on its own through the Restart hold and green-flag ramp once
+        // the car has already peeled into the pits - so this command always has
+        // a real target to steer/pace toward and never falls back to a blind
+        // brake-and-go-straight command while a car is still under autopilot.
         public VehicleCommand BuildRaceControlAutopilotCommand(RaceParticipant participant)
         {
             VehicleCommand command = new VehicleCommand();
@@ -1997,23 +2097,21 @@ namespace LocalFormulaRacing
                 return command;
             }
 
-            if (safetyCarController == null || !safetyCarController.IsActive)
+            if (!IsRaceControlAutopilotHoldPeriod)
             {
-                // No physical safety car to queue behind (shouldn't normally
-                // happen while this is being called) - hold speed down gently
-                // rather than doing anything erratic.
+                // Shouldn't normally be called outside a hold period - hold
+                // speed down gently rather than doing anything erratic.
                 command.throttle = 0f;
                 command.brake = 0.15f;
                 return command;
             }
 
-            float scSpeedKph = safetyCarController.CurrentSpeedKph;
+            float scSpeedKph = raceControlReferenceSpeedKph;
             // Gap scales slightly with pace: a faster-moving queue needs a
             // little more following distance per car than a crawling one.
             float gapPerCar = Mathf.Lerp(14f, 22f, Mathf.Clamp01(scSpeedKph / 160f));
             int queueIndex = Mathf.Max(0, participant.safetyCarQueueIndex);
-            float leaderTargetDistance = Track.WrapDistance(safetyCarController.ProgressDistance - 28f);
-            float targetDistance = Track.WrapDistance(leaderTargetDistance - queueIndex * gapPerCar);
+            float targetDistance = Track.WrapDistance(raceControlReferenceDistance - queueIndex * gapPerCar);
             participant.safetyCarTargetDistance = targetDistance;
 
             float ownDistance = State.GetProgressDistance(participant);
@@ -2069,6 +2167,23 @@ namespace LocalFormulaRacing
                 case RaceControlState.YellowSector:
                     IsOvertakingAllowed = true;
                     IsPitLaneOpen = true;
+                    // Green-flag ramp tail: for a short window after a safety-car
+                    // restart, cars are still held under race-control autopilot
+                    // (see IsRaceControlAutopilotHoldPeriod) even though the state
+                    // has already flipped to Green, so the handback to normal
+                    // driving is a controlled ramp rather than an instant snap.
+                    if (restartRampTimer > 0f)
+                    {
+                        restartRampTimer -= Time.deltaTime;
+                        if (restartRampTimer <= 0f && !restartHandbackMessageSent)
+                        {
+                            restartHandbackMessageSent = true;
+                            if (Settings != null && Settings.Current.raceControlMessages)
+                            {
+                                PostEngineerMessage("Full control's back with you - send it.", false);
+                            }
+                        }
+                    }
                     break;
 
                 case RaceControlState.VirtualSafetyCar:
@@ -2169,11 +2284,18 @@ namespace LocalFormulaRacing
                         postEscalationCooldownTimer = PostEscalationCooldownSeconds;
                         playerScPitPromptSent = false;
                         safetyCarQueueLeader = null;
+                        // Autopilot doesn't let go the instant Green fires - it
+                        // keeps holding/pacing the field for a short ramp so every
+                        // car accelerates away together instead of the whole
+                        // grid snapping to full racing behaviour on the same frame.
+                        // restartHandbackMessageSent fires the honest "control's
+                        // yours now" message once that ramp actually finishes.
+                        restartRampTimer = RestartRampDurationSeconds;
+                        restartHandbackMessageSent = false;
                         GameLog.Info("[RaceControl] Restart complete, green flag.");
                         if (Settings != null && Settings.Current.raceControlMessages)
                         {
-                            PostEngineerMessage("Green flag, go go go!", true);
-                            PostEngineerMessage("Green flag, control returned.", false);
+                            PostEngineerMessage("Green flag - power builds back progressively, hold your line.", true);
                         }
                     }
                     break;

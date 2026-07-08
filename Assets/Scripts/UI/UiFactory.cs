@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
 using UnityEngine.EventSystems;
@@ -17,6 +18,12 @@ namespace LocalFormulaRacing
         float elapsed;
         const float Duration = 0.22f;
         const float SlideDistance = 18f;
+
+        // Optional stagger before this element starts fading in - set right
+        // after AddComponent<UiFadeIn>() to build a cascading reveal (e.g. a
+        // qualifying/race results table appearing row by row) out of the same
+        // single-element fade instead of a bespoke coroutine per screen.
+        public float startDelay;
 
         void Awake()
         {
@@ -38,6 +45,12 @@ namespace LocalFormulaRacing
 
         void Update()
         {
+            if (startDelay > 0f)
+            {
+                startDelay -= Time.unscaledDeltaTime;
+                return;
+            }
+
             elapsed += Time.unscaledDeltaTime;
             float t = Mathf.Clamp01(elapsed / Duration);
             float eased = 1f - (1f - t) * (1f - t);
@@ -1165,6 +1178,79 @@ namespace LocalFormulaRacing
             textRect.offsetMin = Vector2.zero;
             textRect.offsetMax = Vector2.zero;
             return text;
+        }
+
+        // Reusable wrapping chip row (card overflow fix): lays out short pill
+        // labels left-to-right inside `maxWidth`, wrapping onto additional rows
+        // instead of ever spilling past it - the plain CreatePillLabel above has
+        // no width ceiling at all, which is exactly how long driver/team tags
+        // used to stretch outside their card and clip against the neighboring
+        // one in the ratings grid. A single chip that still can't fit `maxWidth`
+        // on its own gets truncated with an ellipsis rather than overflowing,
+        // and every chip's text uses best-fit sizing as a second safety net
+        // against width-estimation error. Returns the total height consumed
+        // (top of first row to bottom of last row) so callers can position
+        // whatever comes next per-card instead of reserving one fixed worst-case
+        // gap for every card regardless of how many rows it actually needed.
+        public static float CreateWrappingChipRow(Transform parent, string name, IList<string> values, Color color, float originX, float originYFromTop, float maxWidth)
+        {
+            if (values == null || values.Count == 0)
+            {
+                return 0f;
+            }
+
+            const float chipHeight = 24f;
+            const float rowSpacing = 6f;
+            const float chipSpacing = 6f;
+            const float charWidth = 7.6f;
+            const float chipPadding = 22f;
+            const float maxChipWidth = 190f;
+
+            float cursorX = 0f;
+            float cursorY = 0f;
+            for (int i = 0; i < values.Count; i++)
+            {
+                string label = (values[i] ?? "").ToUpperInvariant();
+                float naturalWidth = Mathf.Max(56f, label.Length * charWidth + chipPadding);
+                if (naturalWidth > maxWidth)
+                {
+                    int maxChars = Mathf.Max(3, Mathf.FloorToInt((maxWidth - chipPadding) / charWidth) - 1);
+                    if (label.Length > maxChars)
+                    {
+                        label = label.Substring(0, maxChars) + "...";
+                    }
+                    naturalWidth = maxWidth;
+                }
+
+                float chipWidth = Mathf.Min(naturalWidth, Mathf.Min(maxChipWidth, maxWidth));
+                if (cursorX > 0f && cursorX + chipWidth > maxWidth)
+                {
+                    cursorX = 0f;
+                    cursorY += chipHeight + rowSpacing;
+                }
+
+                RectTransform pill = CreateRect(parent, name + " chip " + i, new Vector2(0f, 1f), new Vector2(0f, 1f), Vector2.zero, Vector2.zero);
+                pill.pivot = new Vector2(0f, 1f);
+                pill.sizeDelta = new Vector2(chipWidth, chipHeight);
+                pill.anchoredPosition = new Vector2(originX + cursorX, -(originYFromTop + cursorY));
+                Image background = pill.gameObject.AddComponent<Image>();
+                StyleRoundedSmall(background, new Color(color.r, color.g, color.b, 0.2f));
+                Text text = CreateText(pill, "chip text", label, 12, color, TextAnchor.MiddleCenter);
+                RectTransform textRect = text.GetComponent<RectTransform>();
+                textRect.anchorMin = Vector2.zero;
+                textRect.anchorMax = Vector2.one;
+                textRect.offsetMin = new Vector2(5f, 0f);
+                textRect.offsetMax = new Vector2(-5f, 0f);
+                text.resizeTextForBestFit = true;
+                text.resizeTextMinSize = 8;
+                text.resizeTextMaxSize = 12;
+                text.horizontalOverflow = HorizontalWrapMode.Wrap;
+                text.verticalOverflow = VerticalWrapMode.Truncate;
+
+                cursorX += chipWidth + chipSpacing;
+            }
+
+            return cursorY + chipHeight;
         }
 
         // Small breathing status dot for live/attention states.

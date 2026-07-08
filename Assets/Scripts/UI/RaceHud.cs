@@ -114,6 +114,15 @@ namespace LocalFormulaRacing
         bool raceControlBannerWasVisible;
         RaceManager.RaceControlState previousRaceControlState;
         bool previousRaceControlStateCaptured;
+        // Safety car restart fix: race control now holds autopilot a little
+        // past the Green flip itself (a short ramp so the field accelerates
+        // away together instead of snapping to full control on the same
+        // frame - see RaceManager.IsRaceControlAutopilotHoldPeriod). The
+        // banner and "control returned" flash both key off this instead of
+        // the raw state so they never tell the player they have the car back
+        // before they actually do.
+        bool previousPlayerAutopilot;
+        bool previousPlayerAutopilotCaptured;
         // Brief white pulse on the banner's accent bar whenever its headline
         // actually changes (e.g. yellow flag escalating to a full safety car)
         // while it stays on screen - UiFadeIn already covers the first
@@ -916,6 +925,7 @@ namespace LocalFormulaRacing
             seenTrackLimitWarnings = 0;
             watchedPlayerFinished = false;
             previousRaceControlStateCaptured = false;
+            previousPlayerAutopilotCaptured = false;
             raceControlBannerWasVisible = false;
             previousBannerTitle = "";
             bannerChangeFlashTimer = 0f;
@@ -1103,20 +1113,37 @@ namespace LocalFormulaRacing
                 previousRaceControlStateCaptured = true;
             }
 
-            // A satisfying "control returned" moment: any transition back to
-            // Green from a caution/SC/restart period - not just the scripted SC
-            // restart chain - so a VSC that clears straight to Green gets the
-            // same flourish as a full safety car restart.
-            if (state == RaceManager.RaceControlState.Green && previousRaceControlState != RaceManager.RaceControlState.Green && race.CanDrive)
+            bool playerAutopilotNow = race.PlayerParticipant != null && race.PlayerParticipant.isRaceControlAutopilot;
+            if (!previousPlayerAutopilotCaptured)
+            {
+                previousPlayerAutopilot = playerAutopilotNow;
+                previousPlayerAutopilotCaptured = true;
+            }
+
+            // A satisfying "control returned" moment fires the instant the
+            // player's own car actually stops being driven by race control -
+            // NOT just when the state flips to Green, since a safety car
+            // restart now keeps autopilot engaged a little longer than that
+            // (see RaceManager.IsRaceControlAutopilotHoldPeriod) for a
+            // controlled ramp rather than an instant snap. A VSC or yellow
+            // clearing (which never sets isRaceControlAutopilot at all) still
+            // gets the same flourish off the Green transition itself.
+            bool controlJustReturned = previousPlayerAutopilot && !playerAutopilotNow;
+            bool cautionJustCleared = state == RaceManager.RaceControlState.Green && previousRaceControlState != RaceManager.RaceControlState.Green && !playerAutopilotNow;
+            if ((controlJustReturned || cautionJustCleared) && race.CanDrive)
             {
                 bigFlash.Show("GREEN FLAG - CONTROL RETURNED", UiFactory.AccentGreen, 1f);
                 SimpleAudioManager.PlayDrsAvailable();
             }
 
             previousRaceControlState = state;
+            previousPlayerAutopilot = playerAutopilotNow;
 
             bool nearLocalYellow = state == RaceManager.RaceControlState.YellowSector && race.PlayerParticipant != null && race.IsNearLocalYellowIncident(race.PlayerParticipant);
-            bool visible = state != RaceManager.RaceControlState.Green;
+            // Stays visible through the green-flag ramp tail too (state is
+            // already Green but the player doesn't have the car back yet) -
+            // hiding it there would read as "you have control" a beat early.
+            bool visible = state != RaceManager.RaceControlState.Green || playerAutopilotNow;
             if (raceControlBanner.gameObject.activeSelf != visible)
             {
                 raceControlBanner.gameObject.SetActive(visible);
@@ -1141,9 +1168,16 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            bool playerAutopilot = race.PlayerParticipant != null && race.PlayerParticipant.isRaceControlAutopilot;
             switch (state)
             {
+                case RaceManager.RaceControlState.Green:
+                    // Only reached while visible is true, i.e. the ramp tail
+                    // after a safety-car restart: state already flipped to
+                    // Green but the player's car is still race-control driven
+                    // for a couple more seconds.
+                    UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                        "GREEN FLAG - POWER BUILDING", "Race control still has the car - full control in a moment", UiFactory.AccentCyan);
+                    break;
                 case RaceManager.RaceControlState.YellowSector:
                     // Only reads "slow" for the car actually near the incident -
                     // everyone else still sees the sector is flagged, but without
@@ -1169,7 +1203,7 @@ namespace LocalFormulaRacing
                         "SAFETY CAR DEPLOYED", "Forming up - hold position, no overtaking", UiFactory.AccentAmber);
                     break;
                 case RaceManager.RaceControlState.SafetyCarActive:
-                    if (playerAutopilot)
+                    if (playerAutopilotNow)
                     {
                         // Deliberately calm, not a warning: race control is
                         // driving the car for the player right now.

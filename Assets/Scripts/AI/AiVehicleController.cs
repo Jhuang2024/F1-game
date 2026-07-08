@@ -85,6 +85,21 @@ namespace LocalFormulaRacing
         float postRestartCommitmentBoostTimer;
         bool wasRestartLastFrame;
 
+        // Race-control autopilot handback (safety car restart bug fix). While
+        // participant.isRaceControlAutopilot is true, Update() returns early
+        // every frame (see the autopilot branch below) and never touches
+        // lastProgressDistance/hasProgressReference - so by the time control
+        // comes back, hasProgressReference could be seeded from a lap or more
+        // ago. wasRaceControlAutopilotLastFrame catches the exact frame that
+        // flag drops back to false (RaceManager now holds it true through the
+        // whole Restart + green-flag ramp, not just the physical SC period) so
+        // this controller can resync from its real current position and clear
+        // every piece of transient attack/defend/avoidance state before normal
+        // driving resumes, instead of steering off a stale reference.
+        bool wasRaceControlAutopilotLastFrame;
+        float handbackRampTimer;
+        const float HandbackRampDuration = 2f;
+
         // Driver-pressure model (Part 8): 0-1, set by UpdateOvertakeState each frame
         // based on whether this car is actively attacking/defending under close
         // pressure. Consumed once in Update() to feed a slightly more aggressive
@@ -230,14 +245,29 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Race-control autopilot handback resync: fires on the exact frame
+            // participant.isRaceControlAutopilot drops from true to false (now
+            // only after RaceManager's Restart + green-flag ramp hold, not the
+            // instant the physical safety car period ends) - resets progress
+            // tracking and every piece of transient driving state before normal
+            // driving resumes below.
+            bool isAutopilotNow = participant != null && participant.isRaceControlAutopilot;
+            if (wasRaceControlAutopilotLastFrame && !isAutopilotNow)
+            {
+                HandleRaceControlAutopilotReleased();
+            }
+            wasRaceControlAutopilotLastFrame = isAutopilotNow;
+
             // Full safety car convoy autopilot: race control drives the car
-            // directly for the duration of the full SC period, skipping the
+            // directly for the duration of the full SC period (now extended
+            // through the Restart hold and green-flag ramp - see
+            // RaceManager.IsRaceControlAutopilotHoldPeriod), skipping the
             // entire overtake/defend/attack state machine and ERS/DRS usage
             // below entirely - a pitting car (isPitting/pitPhase != None, or
             // still limited on pit exit) falls out of this and keeps its normal
             // driving/pit-guided handling instead, then rejoins the convoy on
             // its own once it's back out and clear of the pit limiter.
-            if (participant != null && participant.isRaceControlAutopilot && !participant.isPitting &&
+            if (isAutopilotNow && !participant.isPitting &&
                 participant.pitPhase == PitPhase.None && !participant.pitLimiterUntilExit)
             {
                 vehicle.SetCommand(raceManager.BuildRaceControlAutopilotCommand(participant));
@@ -246,6 +276,10 @@ namespace LocalFormulaRacing
 
             // Continuity-aware progress lookup so the AI never snaps to the wrong part of
             // the track near the start/finish wrap or where sections run close together.
+            // hasProgressReference is deliberately false for at least one frame right
+            // after a race-control autopilot handback (see above), which forces a full
+            // GetProgress position search instead of trusting a lastProgressDistance
+            // that could be a lap or more stale.
             TrackProgress progress = hasProgressReference
                 ? track.GetProgressNear(transform.position, lastProgressDistance)
                 : track.GetProgress(transform.position);
@@ -661,7 +695,51 @@ namespace LocalFormulaRacing
 
             ApplySafetyCarFollowing(ref command);
 
+            // Green-flag handback ramp: for a couple of seconds right after
+            // race-control autopilot lets go (see HandleRaceControlAutopilotReleased),
+            // cap throttle and steering authority so the car eases back into full
+            // racing behaviour instead of instantly snapping to whatever the
+            // overtake/defend/traffic logic above just decided - even with a
+            // freshly-resynced progress reference, a hard instant commit right at
+            // a restart is exactly the kind of snap that reads as unnatural.
+            if (handbackRampTimer > 0f)
+            {
+                handbackRampTimer -= Time.deltaTime;
+                float rampBlend = 1f - Mathf.Clamp01(handbackRampTimer / HandbackRampDuration);
+                command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(0.55f, 1f, rampBlend));
+                float steerCap = Mathf.Lerp(0.7f, 1f, rampBlend);
+                command.steer = Mathf.Clamp(command.steer, -steerCap, steerCap);
+            }
+
             vehicle.SetCommand(command);
+        }
+
+        // Race-control autopilot has just handed control back - see the call site
+        // in Update() for why this specific transition (isRaceControlAutopilot
+        // true -> false) is the one moment this controller can't trust its own
+        // cached driving state. Resyncs the track-progress reference from the
+        // car's real current position and clears every piece of transient
+        // attack/defend/avoidance state so the car resumes normal driving
+        // cleanly on the racing line instead of lunging off stale data.
+        void HandleRaceControlAutopilotReleased()
+        {
+            hasProgressReference = false;
+            overtakeState = OvertakeState.Following;
+            overtakeStateTimer = 0f;
+            attackSide = preferredSide;
+            aggressionOffset = 0f;
+            mistakeSteer = 0f;
+            mistakeTimer = Random.Range(3f, 8f);
+            hasCoveredThisApex = false;
+            pressureFactor = 0f;
+            followingTimer = 0f;
+            dodgeMemoryTimer = 0f;
+            dodgeMemorySide = 0f;
+            drsCommittedThisZone = false;
+            wasDrsLegalLastFrame = false;
+            currentThrottle = 0f;
+            previousSeverityHere = 0f;
+            handbackRampTimer = HandbackRampDuration;
         }
 
         // Part 1: the real safety car isn't a RaceParticipant, so it never shows

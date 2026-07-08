@@ -1548,7 +1548,7 @@ namespace LocalFormulaRacing
             string teammateDriverId;
             ResolvePlayerDriverIds(data, career, out playerDriverId, out teammateDriverId);
 
-            RectTransform grid = UiFactory.CreateScrollGridPanel(background, "Driver card grid", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.79f), new Vector2(330f, 340f), new Vector2(16f, 16f), new RectOffset(10, 10, 10, 10));
+            RectTransform grid = UiFactory.CreateScrollGridPanel(background, "Driver card grid", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.79f), new Vector2(DriverCardWidth, DriverCardHeight), new Vector2(16f, 16f), new RectOffset(10, 10, 10, 10));
             for (int i = 0; i < drivers.Count; i++)
             {
                 DriverData driver = drivers[i];
@@ -1690,11 +1690,20 @@ namespace LocalFormulaRacing
         // Premium driver card: procedural helmet avatar, name/team/number badge,
         // overall rating chip, role tags, and an 8-stat bar block. Built entirely
         // from UiFactory primitives - no external art.
+        // Card height budgets for the worst realistic case (three long tags, all
+        // forced onto their own row) so every card in the uniform ratings grid
+        // shares one fixed size regardless of how many rows any single card's
+        // chips actually need - see BuildDriverCard/BuildTeamCard.
+        const float DriverCardWidth = 330f;
+        const float DriverCardHeight = 372f;
+        const float TeamCardWidth = 350f;
+        const float TeamCardHeight = 486f;
+
         void BuildDriverCard(RectTransform parent, DriverData driver, TeamData team, bool isPlayer, bool isTeammate)
         {
             Color teamColor = team != null ? team.PrimaryUnityColor : new Color(0.5f, 0.55f, 0.6f);
             Color borderColor = isPlayer ? UiFactory.AccentGreen : (isTeammate ? UiFactory.AccentCyan : teamColor);
-            RectTransform card = UiFactory.CreateBorderedCard(parent, "Driver card " + driver.id, 330f, 340f, borderColor, isPlayer || isTeammate);
+            RectTransform card = UiFactory.CreateBorderedCard(parent, "Driver card " + driver.id, DriverCardWidth, DriverCardHeight, borderColor, isPlayer || isTeammate);
 
             RectTransform avatar = UiFactory.CreateProceduralHelmetIcon(card, driver.abbreviation.ToUpperInvariant(), teamColor, 60f);
             SetTopLeft(avatar, 16f, 30f);
@@ -1732,20 +1741,22 @@ namespace LocalFormulaRacing
             overallText.fontStyle = FontStyle.Bold;
             StretchFull(overallText.GetComponent<RectTransform>());
 
+            // Wrapping chip row (card overflow fix): tags now wrap onto extra
+            // rows inside the card's own width instead of the old fixed-width
+            // HorizontalLayoutGroup, which let long tags like "Qualifying
+            // Monster" stretch straight past the card edge and clip into the
+            // next card in the grid. The stat bar block below is positioned
+            // dynamically off the actual height the tags used, so a
+            // single-tag driver isn't left with a dead gap.
             List<string> tags = ComputeDriverTags(driver);
-            RectTransform tagRow = UiFactory.CreateRect(card, "Driver card tags", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            SetTopLeft(tagRow, 16f, 96f);
-            tagRow.sizeDelta = new Vector2(298f, 26f);
-            UiFactory.AddHorizontalLayout(tagRow, 6, new RectOffset(0, 0, 0, 0));
-            for (int i = 0; i < tags.Count; i++)
-            {
-                UiFactory.CreatePillLabel(tagRow, tags[i], UiFactory.AccentAmber);
-            }
+            const float tagRowY = 96f;
+            const float tagRowWidth = DriverCardWidth - 32f;
+            float tagRowHeight = UiFactory.CreateWrappingChipRow(card, "Driver card tags", tags, UiFactory.AccentAmber, 16f, tagRowY, tagRowWidth);
 
             string[] labels = { "Pace", "Qualifying", "Racecraft", "Overtaking", "Defending", "Consistency", "Tyre Mgmt", "Wet Skill" };
             int[] values = { driver.pace, driver.qualifying, driver.racecraft, driver.overtaking, driver.defending, driver.consistency, driver.tyreManagement, driver.wetSkill };
             const float columnWidth = 128f;
-            const float startY = 132f;
+            float startY = tagRowY + tagRowHeight + 12f;
             const float rowHeight = 38f;
             for (int i = 0; i < labels.Length; i++)
             {
@@ -1795,6 +1806,23 @@ namespace LocalFormulaRacing
                 new KeyValuePair<string, float>("Chassis Balance", car.chassisBalance),
                 new KeyValuePair<string, float>("Engine Power", car.enginePower)
             };
+        }
+
+        // Compact stat names for the team card's strengths/weaknesses chips
+        // (card overflow fix) - "Aero Efficiency" and "Chassis Balance" side by
+        // side used to be long enough on their own to stretch a chip past the
+        // card edge; the short forms below comfortably fit two to a row.
+        static string ShortStatLabel(string statLabel)
+        {
+            switch (statLabel)
+            {
+                case "Acceleration": return "Accel";
+                case "ERS Efficiency": return "ERS";
+                case "Aero Efficiency": return "Aero";
+                case "Chassis Balance": return "Chassis";
+                case "Engine Power": return "Engine";
+                default: return statLabel;
+            }
         }
 
         // Simple threshold logic, not perfection: a stat only counts as the
@@ -1879,7 +1907,7 @@ namespace LocalFormulaRacing
                 return overallB.CompareTo(overallA);
             });
 
-            RectTransform grid = UiFactory.CreateScrollGridPanel(background, "Team card grid", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.79f), new Vector2(350f, 460f), new Vector2(16f, 16f), new RectOffset(10, 10, 10, 10));
+            RectTransform grid = UiFactory.CreateScrollGridPanel(background, "Team card grid", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.79f), new Vector2(TeamCardWidth, TeamCardHeight), new Vector2(16f, 16f), new RectOffset(10, 10, 10, 10));
             for (int i = 0; i < teams.Count; i++)
             {
                 TeamData team = teams[i];
@@ -1907,7 +1935,7 @@ namespace LocalFormulaRacing
         {
             Color primary = team.PrimaryUnityColor;
             Color borderColor = isPlayerTeam ? UiFactory.AccentGreen : primary;
-            RectTransform card = UiFactory.CreateBorderedCard(parent, "Team card " + team.id, 350f, 460f, borderColor, isPlayerTeam);
+            RectTransform card = UiFactory.CreateBorderedCard(parent, "Team card " + team.id, TeamCardWidth, TeamCardHeight, borderColor, isPlayerTeam);
 
             RectTransform stripe = UiFactory.CreateBand(card, "Team card stripe", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -6f), Vector2.zero, primary);
             stripe.GetComponent<Image>().raycastTarget = false;
@@ -1953,28 +1981,42 @@ namespace LocalFormulaRacing
             SetTopLeft(repText.rectTransform, 16f, 78f);
             UiFactory.SetSize(repText, 310f, 18f);
 
+            // Wrapping chip rows (card overflow fix): the old strengths/
+            // weaknesses pills concatenated two full stat names into one
+            // string ("+ Aero Efficiency / Chassis Balance") with no width
+            // ceiling, which regularly stretched past the card edge and
+            // clipped into the neighboring card in the grid. Short per-stat
+            // labels plus the wrapping chip row keep every chip inside the
+            // card no matter how the two longest/shortest stats land, and the
+            // stat bar block below is positioned dynamically off however much
+            // vertical space the archetype/strengths/weaknesses rows actually
+            // used.
+            const float sectionWidth = TeamCardWidth - 32f;
+            float cursorY = 100f;
+
             string archetype = ComputeCarArchetype(car, overall);
-            RectTransform archetypeRow = UiFactory.CreateRect(card, "Team card archetype", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            SetTopLeft(archetypeRow, 16f, 100f);
-            archetypeRow.sizeDelta = new Vector2(318f, 26f);
-            UiFactory.AddHorizontalLayout(archetypeRow, 6, new RectOffset(0, 0, 0, 0));
-            UiFactory.CreatePillLabel(archetypeRow, archetype, UiFactory.AccentPurple);
+            cursorY += UiFactory.CreateWrappingChipRow(card, "Team card archetype", new List<string> { archetype }, UiFactory.AccentPurple, 16f, cursorY, sectionWidth) + 14f;
 
             List<KeyValuePair<string, float>> stats = BuildCarStatList(car);
             List<KeyValuePair<string, float>> ranked = new List<KeyValuePair<string, float>>(stats);
             ranked.Sort((a, b) => b.Value.CompareTo(a.Value));
-            string strengths = ranked[0].Key + " / " + ranked[1].Key;
-            string weaknesses = ranked[ranked.Count - 1].Key + " / " + ranked[ranked.Count - 2].Key;
 
-            RectTransform strengthRow = UiFactory.CreateRect(card, "Team card strengths", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
-            SetTopLeft(strengthRow, 16f, 132f);
-            strengthRow.sizeDelta = new Vector2(318f, 26f);
-            UiFactory.AddHorizontalLayout(strengthRow, 6, new RectOffset(0, 0, 0, 0));
-            UiFactory.CreatePillLabel(strengthRow, "+ " + strengths, UiFactory.AccentGreen);
-            UiFactory.CreatePillLabel(strengthRow, "- " + weaknesses, UiFactory.Accent);
+            Text strengthsLabel = UiFactory.CreateText(card, "Team card strengths label", "STRENGTHS", 11, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(strengthsLabel.rectTransform, 16f, cursorY);
+            UiFactory.SetSize(strengthsLabel, sectionWidth, 14f);
+            cursorY += 16f;
+            List<string> strengthChips = new List<string> { ShortStatLabel(ranked[0].Key), ShortStatLabel(ranked[1].Key) };
+            cursorY += UiFactory.CreateWrappingChipRow(card, "Team card strengths", strengthChips, UiFactory.AccentGreen, 16f, cursorY, sectionWidth) + 10f;
+
+            Text weaknessesLabel = UiFactory.CreateText(card, "Team card weaknesses label", "WEAKNESSES", 11, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            SetTopLeft(weaknessesLabel.rectTransform, 16f, cursorY);
+            UiFactory.SetSize(weaknessesLabel, sectionWidth, 14f);
+            cursorY += 16f;
+            List<string> weaknessChips = new List<string> { ShortStatLabel(ranked[ranked.Count - 1].Key), ShortStatLabel(ranked[ranked.Count - 2].Key) };
+            cursorY += UiFactory.CreateWrappingChipRow(card, "Team card weaknesses", weaknessChips, UiFactory.Accent, 16f, cursorY, sectionWidth) + 14f;
 
             const float columnWidth = 145f;
-            const float startY = 166f;
+            float startY = cursorY;
             const float rowHeight = 40f;
             for (int i = 0; i < stats.Count; i++)
             {
@@ -2094,14 +2136,21 @@ namespace LocalFormulaRacing
             UiFactory.CreateInfoCard(background, "Weekend conditions", new Vector2(0.05f, 0.14f), new Vector2(0.34f, 0.76f), "Track Conditions", conditionsBody,
                 hasQualifying ? UiFactory.AccentGreen : UiFactory.AccentAmber);
 
-            // Middle: the current grid / qualifying result as real rows -
-            // position badge, driver, team, best lap - instead of a padded
-            // monospace text block.
+            // Middle: the current grid, or a locked state if qualifying hasn't
+            // happened yet. Grid information must never be visible before
+            // qualifying is actually driven or simulated - there is no
+            // "provisional"/default grid fallback here, by design.
             RectTransform gridContentArea;
-            UiFactory.CreateModernCard(background, hasQualifying ? "Starting Grid" : "Provisional Grid", UiFactory.AccentCyan, new Vector2(0.36f, 0.14f), new Vector2(0.64f, 0.76f), out gridContentArea);
-            List<QualifyingResultEntry> currentGrid = hasQualifying ? career.Save.lastQualifyingResults : null;
-            RectTransform gridRows = UiFactory.CreateScrollPanel(gridContentArea, "Grid rows", Vector2.zero, Vector2.one, 4, new RectOffset(6, 6, 6, 10));
-            BuildQualifyingGridRows(data, gridRows, currentGrid, hasQualifying, 500f);
+            UiFactory.CreateModernCard(background, hasQualifying ? "Starting Grid" : "Qualifying Not Run", hasQualifying ? UiFactory.AccentCyan : UiFactory.TextMuted, new Vector2(0.36f, 0.14f), new Vector2(0.64f, 0.76f), out gridContentArea);
+            if (hasQualifying)
+            {
+                RectTransform gridRows = UiFactory.CreateScrollPanel(gridContentArea, "Grid rows", Vector2.zero, Vector2.one, 4, new RectOffset(6, 6, 6, 10));
+                BuildQualifyingGridRows(data, gridRows, career.Save.lastQualifyingResults, 500f);
+            }
+            else
+            {
+                BuildLockedQualifyingState(gridContentArea);
+            }
 
             // Right: session actions grouped by what they actually are, instead of
             // one long vertical stack of eight identical-looking buttons.
@@ -3172,6 +3221,12 @@ namespace LocalFormulaRacing
                     UiFactory.AddRowCell(row, "Best", UiFactory.FormatTime(entry.bestLapTime), 0.69f, 0.79f, 14, UiFactory.TextMuted, TextAnchor.MiddleLeft);
                     UiFactory.AddRowCell(row, "Pen", penColumnText, 0.79f, 0.9f, dnf ? 12 : 14, penColumnColor, TextAnchor.MiddleLeft);
                     UiFactory.AddRowCell(row, "Pts", entry.points.ToString(), 0.9f, 0.97f, 15, entry.points > 0 ? UiFactory.AccentGreen : UiFactory.TextMuted, TextAnchor.MiddleRight);
+
+                    if (UiFactory.AnimationsEnabled)
+                    {
+                        UiFadeIn reveal = row.gameObject.AddComponent<UiFadeIn>();
+                        reveal.startDelay = Mathf.Min(i, 14) * 0.03f;
+                    }
                 }
             }
             else
@@ -3551,6 +3606,15 @@ namespace LocalFormulaRacing
                     {
                         UiFactory.AddRowCell(row, "Invalid", "INV", 0.92f, 1f, 13, UiFactory.Accent, TextAnchor.MiddleCenter);
                     }
+
+                    // Grid reveal: rows cascade in top-to-bottom (pole first)
+                    // instead of the whole classification just appearing, so
+                    // the moment the grid is finally known reads as an event.
+                    if (UiFactory.AnimationsEnabled)
+                    {
+                        UiFadeIn reveal = row.gameObject.AddComponent<UiFadeIn>();
+                        reveal.startDelay = Mathf.Min(i, 14) * 0.035f;
+                    }
                 }
             }
 
@@ -3650,11 +3714,13 @@ namespace LocalFormulaRacing
 
         // Real per-row grid list for the Race Weekend screen - position badge,
         // driver, team, best lap - replaces the old padded monospace text block.
-        void BuildQualifyingGridRows(GameDataRepository data, RectTransform content, List<QualifyingResultEntry> results, bool hasQualifying, float rowWidth)
+        // Only ever called once qualifying has actually produced a result; the
+        // pre-qualifying state is BuildLockedQualifyingState below, not this.
+        void BuildQualifyingGridRows(GameDataRepository data, RectTransform content, List<QualifyingResultEntry> results, float rowWidth)
         {
             if (results == null || results.Count == 0)
             {
-                Text empty = UiFactory.CreateText(content, "No grid", hasQualifying ? "No qualifying data." : "No qualifying run yet.\nRace will use the default grid.", 15, UiFactory.TextMuted, TextAnchor.UpperLeft);
+                Text empty = UiFactory.CreateText(content, "No grid", "No qualifying data.", 15, UiFactory.TextMuted, TextAnchor.UpperLeft);
                 UiFactory.SetSize(empty, rowWidth, 50f);
                 empty.verticalOverflow = VerticalWrapMode.Overflow;
                 return;
@@ -3674,6 +3740,40 @@ namespace LocalFormulaRacing
                 UiFactory.AddRowCell(row, "Team", teamCode, 0.55f, 0.76f, 12, UiFactory.TextMuted, TextAnchor.MiddleLeft);
                 UiFactory.AddRowCell(row, "Best", lapLabel, 0.76f, 1f, 13, entry.bestLapTime >= 9998f ? UiFactory.Accent : UiFactory.TextMuted, TextAnchor.MiddleRight);
             }
+        }
+
+        // Grid-hiding fix: the locked state shown on the Race Weekend screen
+        // before qualifying has been driven or simulated. Deliberately shows no
+        // order, positions, or driver list of any kind - a real grid must never
+        // be visible (even as a "provisional"/default placeholder) until
+        // qualifying has actually produced one.
+        void BuildLockedQualifyingState(RectTransform content)
+        {
+            RectTransform wrap = UiFactory.CreateRect(content, "Qualifying locked state", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            VerticalLayoutGroup layout = UiFactory.AddVerticalLayout(wrap, 14, new RectOffset(36, 36, 0, 0));
+            layout.childAlignment = TextAnchor.MiddleCenter;
+            layout.childForceExpandHeight = false;
+            layout.childForceExpandWidth = false;
+
+            RectTransform badgeRow = UiFactory.CreateRect(wrap, "Locked badge row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            HorizontalLayoutGroup badgeLayout = UiFactory.AddHorizontalLayout(badgeRow, 8, new RectOffset(0, 0, 0, 0));
+            badgeLayout.childAlignment = TextAnchor.MiddleCenter;
+            badgeLayout.childForceExpandWidth = false;
+            UiFactory.SetSize(badgeRow, 260f, 26f);
+            UiFactory.CreatePulsingDot(badgeRow, "Locked dot", 10f, UiFactory.AccentAmber);
+            Text badgeText = UiFactory.CreateText(badgeRow, "Locked badge", "GRID LOCKED", 13, UiFactory.AccentAmber, TextAnchor.MiddleCenter);
+            badgeText.fontStyle = FontStyle.Bold;
+            UiFactory.SetSize(badgeText, 220f, 22f);
+
+            Text title = UiFactory.CreateText(wrap, "Locked title", "QUALIFYING NOT RUN", 22, UiFactory.TextPrimary, TextAnchor.MiddleCenter);
+            title.fontStyle = FontStyle.Bold;
+            UiFactory.SetSize(title, 420f, 30f);
+
+            Text body = UiFactory.CreateText(wrap, "Locked body",
+                "Starting positions are unknown until qualifying is complete.\nDrive qualifying yourself or simulate it to reveal the grid.",
+                14, new Color(0.62f, 0.7f, 0.76f), TextAnchor.MiddleCenter);
+            body.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(body, 420f, 56f);
         }
 
         // Turns the sim qualifying explanation string (built in RaceManager as
