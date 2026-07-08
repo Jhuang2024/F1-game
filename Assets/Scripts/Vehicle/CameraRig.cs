@@ -23,6 +23,12 @@ namespace LocalFormulaRacing
         // own faster, lighter-decaying pool instead of the sharp impact one.
         const float ClatterImpulseThreshold = 0.03f;
 
+        // A sustained yaw rate above this (rad/s, smoothed - see
+        // smoothedYawRate) reads as a genuine spin/slide rather than normal
+        // cornering, which never gets anywhere near this fast even in a tight
+        // hairpin - see spinRecoveryAmount below.
+        const float SpinYawRateThreshold = 2.3f;
+
         Camera followCamera;
         Rigidbody targetBody;
         VehicleController targetVehicle;
@@ -45,6 +51,22 @@ namespace LocalFormulaRacing
         int previousGear = -1;
         float modeBlend = 1f;
         float smoothedDrsBoost;
+
+        // A quick, decaying FOV kick on the instant a gear change lands -
+        // distinct from smoothedDrsBoost's slow continuous widen above, this
+        // is a discrete punch tied to the shift moment itself (echoing the
+        // brief power interruption/surge of a real shift) that fades out over
+        // a couple of tenths of a second. Reuses the same gear-change
+        // detection that already feeds AddImpulseShake(0.012f) below.
+        float gearShiftPulse;
+
+        // How much a genuine spin/off-track slide is currently easing the
+        // camera off its normal tight tracking - see SpinYawRateThreshold and
+        // the recovery logic in LateUpdate. Real broadcast operators lag and
+        // resettle after a car spins rather than instantly re-locking onto
+        // it, so this briefly loosens rotational follow and pulls the FOV in
+        // a touch, then eases back out well after the spin itself ends.
+        float spinRecoveryAmount;
 
         // Chase, cockpit/halo, high TV, rear chase, low nose cam, side cinematic.
         readonly Vector3[] offsets =
@@ -209,10 +231,18 @@ namespace LocalFormulaRacing
                 if (previousGear >= 0 && gear != previousGear && rawSpeedKph > 40f)
                 {
                     AddImpulseShake(0.012f);
+                    gearShiftPulse = 1f;
                 }
 
                 previousGear = gear;
             }
+
+            // Both decay every frame regardless of mode/shake settings, same
+            // as impulseShake/clatterShake in ComputeShakeOffset below, so
+            // they're always in a sane state by the time they're read further
+            // down even on a frame where the shake pass itself early-outs.
+            gearShiftPulse = Mathf.MoveTowards(gearShiftPulse, 0f, dt * 5f);
+            spinRecoveryAmount = Mathf.MoveTowards(spinRecoveryAmount, 0f, dt * 0.6f);
 
             modeBlend = Mathf.Min(1f, modeBlend + dt / ModeBlendDuration);
             float blendEase = Mathf.SmoothStep(0f, 1f, modeBlend);
@@ -247,6 +277,16 @@ namespace LocalFormulaRacing
                 float rawYawRate = targetBody != null ? target.InverseTransformDirection(targetBody.angularVelocity).y : 0f;
                 smoothedSteer = Mathf.Lerp(smoothedSteer, rawSteer, 1f - Mathf.Exp(-dt * 5f));
                 smoothedYawRate = Mathf.Lerp(smoothedYawRate, rawYawRate, 1f - Mathf.Exp(-dt * 6f));
+
+                // A real spin/slide, not just a hard corner - re-arms the
+                // recovery easing below every frame it's still spinning fast,
+                // so a long spin keeps the camera settled-back throughout
+                // rather than the effect firing once and releasing early.
+                if (Mathf.Abs(smoothedYawRate) > SpinYawRateThreshold)
+                {
+                    spinRecoveryAmount = 1f;
+                }
+
                 float rawCornerSignal = smoothedSteer * 0.7f + Mathf.Clamp(smoothedYawRate * 0.45f, -1f, 1f) * 0.3f;
 
                 // A touch quicker than the two input stages feeding it (5/6)
@@ -340,6 +380,20 @@ namespace LocalFormulaRacing
             float followRate = Mathf.Lerp(baseFollowRate * 0.35f, baseFollowRate, blendEase);
             float rotRate = Mathf.Lerp(baseRotRate * 0.35f, baseRotRate, blendEase);
 
+            // Mid-spin/just-recovering, loosen the rotational follow so the
+            // camera lags a beat behind a fast-spinning car rather than
+            // whip-panning in lockstep with it - the TV crane (mode 2) is
+            // excluded, same as the FOV kicks below, since it's meant to stay
+            // detached from the chassis regardless. This only ever loosens
+            // rotRate, never the position followRate, so the camera still
+            // tracks the car's location precisely through a spin - it just
+            // stops snapping its facing to match every instant of rotation.
+            float spinRecoveryEase = mode == 2 ? 0f : spinRecoveryAmount;
+            if (spinRecoveryEase > 0f)
+            {
+                rotRate = Mathf.Lerp(rotRate, rotRate * 0.4f, spinRecoveryEase);
+            }
+
             transform.position = Vector3.Lerp(transform.position, desired, 1f - Mathf.Exp(-followRate * dt));
             transform.rotation = Quaternion.Slerp(transform.rotation, desiredRotation, 1f - Mathf.Exp(-rotRate * dt));
 
@@ -366,6 +420,15 @@ namespace LocalFormulaRacing
                 float lockupSeverity = targetVehicle != null && targetVehicle.Tyres != null ? targetVehicle.Tyres.LockupSeverity : 0f;
                 float brakeFocus = targetVehicle != null ? Mathf.InverseLerp(0.5f, 1f, targetVehicle.EffectiveBrake) : 0f;
                 fovTarget += smoothedDrsBoost * 2.6f - ImpactPunchCurve(impulseShake) * 26f - lockupSeverity * 3.2f - brakeFocus * speed01 * 2f;
+
+                // A gear shift gets its own small, quickly-fading widen on top
+                // of the above - eased with its own square rather than linear
+                // so it reads as a quick punch rather than a linear ramp - and
+                // a spin/off-track slide pulls the lens in a touch as part of
+                // the same settle-and-recover feel as the loosened rotRate
+                // above, distinct from (and much smaller than) the sharp
+                // impact punch already handled a couple lines up.
+                fovTarget += gearShiftPulse * gearShiftPulse * 1.4f - spinRecoveryEase * 3.5f;
             }
 
             float fovBlendRate = Mathf.Lerp(1.4f, 3f, blendEase);

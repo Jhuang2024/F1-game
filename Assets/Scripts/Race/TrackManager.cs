@@ -257,9 +257,14 @@ namespace LocalFormulaRacing
             return IsInPitEntryZone(normalizedProgress);
         }
 
+        // Shared with TrackManager's speed-limit line/sign placement so the painted
+        // marking on the tarmac lines up exactly with where SetPitLimiter actually
+        // starts enforcing the limiter for a car that has requested a stop.
+        public const float PitApproachStartNormalized = 0.78f;
+
         public bool IsInPitApproach(float normalizedProgress)
         {
-            return normalizedProgress > 0.78f && normalizedProgress < 0.955f;
+            return normalizedProgress > PitApproachStartNormalized && normalizedProgress < 0.955f;
         }
 
         public bool IsInPitEntryZone(float normalizedProgress)
@@ -3902,6 +3907,7 @@ namespace LocalFormulaRacing
         // one).
         const float BarrierGapToleranceMeters = 0.3f;
         const float BarrierGapToleranceCornerMeters = 0.2f;
+        const float BarrierAutoFillOverlap = 2f;
 
         void ValidateBarrierColliderCoverage()
         {
@@ -3912,6 +3918,7 @@ namespace LocalFormulaRacing
 
             List<CornerInfo> validationCorners = DetectCorners(TightCornerFenceAngle);
             int gaps = 0;
+            int autoFilled = 0;
             int checkedPoints = 0;
             float worstGap = 0f;
             for (float d = 0f; d < Runtime.length; d += BarrierColliderCheckStep)
@@ -3923,9 +3930,22 @@ namespace LocalFormulaRacing
                 float localHalfWidth = Runtime.HalfWidthAt(d);
                 bool nearCorner = IsNearCorner(d, validationCorners, TightCornerFenceRadius);
                 float tolerance = nearCorner ? BarrierGapToleranceCornerMeters : BarrierGapToleranceMeters;
+                float normalized = d / Mathf.Max(1f, Runtime.length);
 
                 for (int side = -1; side <= 1; side += 2)
                 {
+                    // The pit entry/exit merge lanes are the ONE deliberate opening in
+                    // an otherwise fully closed perimeter - the outer wall is
+                    // intentionally set back from the true track edge through these
+                    // ramps (see PitZoneBlend) so a car has somewhere to physically
+                    // cross from the racing surface into the pit lane and back. Never
+                    // flag or auto-fill inside that ramp, on either the entry or the
+                    // exit end, or the "fix" would wall the pit lane shut.
+                    if (IsIntentionalPitOpening(normalized, side))
+                    {
+                        continue;
+                    }
+
                     // The TRUE track edge, not an assumed barrier position -
                     // this is what "flush" is actually measured against.
                     Vector3 edgePoint = point + right * side * localHalfWidth + Vector3.up * 0.55f;
@@ -3938,6 +3958,16 @@ namespace LocalFormulaRacing
                         string gapText = gap >= BarrierColliderSearchRadius ? "no barrier-like collider found within " + BarrierColliderSearchRadius.ToString("0") + "m" : gap.ToString("0.00") + "m gap";
                         GameLog.Warn("[TrackValidation] Barrier flush check FAILED at " + d.ToString("0") + "m " + (side < 0 ? "left" : "right") +
                                      " side" + (nearCorner ? " (corner)" : "") + ": " + gapText + " (tolerance " + tolerance.ToString("0.00") + "m) on " + Runtime.displayName);
+
+                        // Full-perimeter requirement: don't just log the gap, close it.
+                        // Drops a short corrective barrier segment (style-matched to
+                        // elevated/street/standard) right at the true edge of this exact
+                        // sample point, reusing the same flush-distance math and
+                        // clearance-checked placement every other barrier segment uses.
+                        if (AutoFillBarrierGap(d, side))
+                        {
+                            autoFilled++;
+                        }
                     }
                 }
             }
@@ -3949,8 +3979,99 @@ namespace LocalFormulaRacing
             else
             {
                 GameLog.Warn("[TrackValidation] Barrier flush sweep found " + gaps + "/" + checkedPoints + " point(s) with a gap wider than tolerance (worst " +
-                             worstGap.ToString("0.00") + "m) on " + Runtime.displayName);
+                             worstGap.ToString("0.00") + "m), auto-filled " + autoFilled + "/" + gaps + " on " + Runtime.displayName);
             }
+        }
+
+        // True only within the entry/exit ramps where the outer wall is deliberately
+        // eased away from the true track edge (see PitZoneBlend) - the pit lane only
+        // ever runs down the right side, so the left side never has an intentional
+        // opening. A small epsilon on both ends keeps the very start/end of the ramp
+        // (where the wall has barely moved off the flush line) held to the normal
+        // tolerance instead of being waved through as "intentional".
+        bool IsIntentionalPitOpening(float normalized, int side)
+        {
+            if (side <= 0)
+            {
+                return false;
+            }
+
+            float blend = PitZoneBlend(normalized);
+            return blend > 0.03f && blend < 0.97f;
+        }
+
+        // Last-resort corrective segment for a real, unintentional gap found by the
+        // flush sweep above - style-matched (concrete on elevated sections, painted
+        // wall on street circuits, Armco rail otherwise) and placed through the same
+        // clearance-checked TryPlaceSolidObstacle path every other barrier segment
+        // uses, so it can never end up floating or double-stacked with whatever
+        // partial coverage already exists there.
+        bool AutoFillBarrierGap(float distance, int side)
+        {
+            Vector3 a;
+            Vector3 b;
+            Vector3 mid;
+            Vector3 forward;
+            Vector3 right;
+            Vector3 discard;
+            float halfStep = BarrierColliderCheckStep * 0.5f;
+            Runtime.SampleAtDistance(distance - halfStep, out a, out discard, out right);
+            Runtime.SampleAtDistance(distance + halfStep, out b, out discard, out right);
+            Runtime.SampleAtDistance(distance, out mid, out forward, out right);
+
+            Vector3 chord = b - a;
+            Vector3 chordForward = chord.sqrMagnitude > 0.01f ? chord.normalized : forward;
+            float segmentLength = BarrierColliderCheckStep + BarrierAutoFillOverlap;
+            bool elevated = IsElevatedAtDistance(distance);
+
+            float lateral;
+            Vector3 scale;
+            float halfHeight;
+            string obstacleType;
+            Material material;
+
+            if (elevated)
+            {
+                lateral = FlushBarrierLateral(distance, ConcreteWallHalfWidth);
+                scale = new Vector3(ConcreteWallHalfWidth * 2f, 1.25f, segmentLength);
+                halfHeight = 0.62f;
+                obstacleType = "auto-fill-wall";
+                material = concreteMaterial;
+            }
+            else if (streetTrack)
+            {
+                lateral = FlushBarrierLateral(distance, StreetWallHalfWidth);
+                scale = new Vector3(StreetWallHalfWidth * 2f, EdgeBarrierMinHeight, segmentLength);
+                halfHeight = EdgeBarrierMinHeight * 0.5f;
+                obstacleType = "auto-fill-wall";
+                material = barrierMaterial;
+            }
+            else
+            {
+                lateral = FlushBarrierLateral(distance, ArmcoHalfWidth);
+                scale = new Vector3(ArmcoHalfWidth * 2f, EdgeBarrierMinHeight, segmentLength);
+                halfHeight = EdgeBarrierMinHeight * 0.5f;
+                obstacleType = "auto-fill-rail";
+                material = armcoMaterial;
+            }
+
+            GameObject fillObject = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            fillObject.name = "Auto-filled barrier gap";
+            fillObject.transform.SetParent(transform);
+            fillObject.transform.localScale = scale;
+            fillObject.GetComponent<Renderer>().sharedMaterial = material;
+
+            Vector3 basePosition = mid + right * side * lateral;
+            if (!TryPlaceSolidObstacle(fillObject, obstacleType, basePosition, chordForward, scale, halfHeight, EdgeBarrierClearance))
+            {
+                return false;
+            }
+
+            Vector3 placed = fillObject.transform.position;
+            Quaternion rotation = Quaternion.LookRotation(fillObject.transform.forward, Vector3.up);
+            CreateVisualBox("Auto-filled barrier gap rail", placed + Vector3.up * (halfHeight * 0.6f), rotation, new Vector3(scale.x + 0.05f, 0.1f, segmentLength - 0.2f), metalMaterial);
+            GameLog.Info("[TrackValidation] Auto-filled barrier gap at " + distance.ToString("0") + "m " + (side < 0 ? "left" : "right") + " side on " + Runtime.displayName);
+            return true;
         }
 
         // Real measured distance (metres) from a point on the true track edge
@@ -4544,6 +4665,7 @@ namespace LocalFormulaRacing
             CreatePitEntryExitSurfaces(pitMaterial);
             CreatePitEntryExitPaint(pitMaterial);
             CreatePitLaneCones();
+            CreatePitEntryMarkers();
 
             // Pit wall between track and lane, sampled so it never cuts the corner.
             for (float d = corridorStart + 10f; d < corridorEnd - 8f; d += 12.5f)
@@ -4599,22 +4721,70 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Merge-lane taper step. Short enough that the lateral/width lerp below
+        // reads as a smooth diagonal wedge rather than a handful of visibly
+        // kinked flat panels, matching the curve-following segmentation the
+        // corridor's own service road and the barrier fan-out already use.
+        const float PitRampSurfaceStep = 8f;
+        const float PitRampSurfaceOverlap = 2f;
+        // Where a car first commits off the racing line toward the pits / first
+        // rejoins the racing line after the pits - just past the true track edge,
+        // not the track edge itself, so the merge surface always overlaps the
+        // main track surface rather than butting a seam exactly on it.
+        const float PitRampNearTrackLateral = 1.6f;
+        const float PitRampNarrowWidth = 6f;
+        const float PitRampFullWidth = 13.5f;
+
+        // Continuous, curve-following, laterally-tapering paved surface covering the
+        // whole entry and exit merge lanes - from the exact point on the true track
+        // edge where a car first leaves the racing line, smoothly widening/sliding out
+        // to precisely PitLaneLateral (the corridor's own drivable width) by the time
+        // it reaches the corridor's own service road, and the mirror image on exit.
+        //
+        // Continuity-fix root cause: this used to be three independent single fixed
+        // boxes (fixed lateral offset, fixed short length) dropped at three isolated
+        // normalized points that did not line up with where the corridor's own
+        // service road, the barrier fan-out (PitZoneBlend) or the divider fence
+        // actually begin/end - on anything but a very specific track length, that left
+        // a real gap of paved surface (and a lateral jump) between the ramp and the
+        // corridor proper. Sharing the exact same PitZoneEntryRampStart/End and
+        // PitZoneExitRampStart/End boundaries the wall and divider fence already use,
+        // and tapering every step's own lateral offset and width along the way,
+        // removes both the longitudinal gap and the lateral seam at once.
         void CreatePitEntryExitSurfaces(Material pitMaterial)
         {
-            Vector3 entry;
-            Vector3 entryForward;
-            Vector3 entryRight;
-            Runtime.SampleAtDistance(Runtime.length * 0.865f, out entry, out entryForward, out entryRight);
-            CreateCollidablePitSurface("Pit entry asphalt", entry + entryRight * (Runtime.roadHalfWidth + 5.1f) + Vector3.up * 0.012f, Quaternion.LookRotation(entryForward, Vector3.up), new Vector3(7.6f, 0.16f, 42f), pitMaterial);
+            BuildPitRampSurface(PitZoneEntryRampStart, PitZoneEntryRampEnd, true, pitMaterial, "Pit entry asphalt");
+            BuildPitRampSurface(PitZoneExitRampStart, PitZoneExitRampEnd, false, pitMaterial, "Pit exit asphalt");
+        }
 
-            Vector3 exit;
-            Vector3 exitForward;
-            Vector3 exitRight;
-            Runtime.SampleAtDistance(Runtime.length * 0.992f, out exit, out exitForward, out exitRight);
-            CreateCollidablePitSurface("Pit release asphalt", exit + exitRight * (Runtime.roadHalfWidth + 4.5f) + Vector3.up * 0.012f, Quaternion.LookRotation(exitForward, Vector3.up), new Vector3(7.4f, 0.16f, 42f), pitMaterial);
+        void BuildPitRampSurface(float startNormalized, float endNormalized, bool inbound, Material pitMaterial, string label)
+        {
+            float length = Runtime.length;
+            float startDistance = length * startNormalized;
+            float endDistance = length * endNormalized;
+            float span = endDistance - startDistance;
+            if (span <= 0f)
+            {
+                span += length;
+            }
 
-            Runtime.SampleAtDistance(Runtime.length * 0.035f, out exit, out exitForward, out exitRight);
-            CreateCollidablePitSurface("Pit exit asphalt", exit + exitRight * (Runtime.roadHalfWidth + 4.7f) + Vector3.up * 0.012f, Quaternion.LookRotation(exitForward, Vector3.up), new Vector3(7.4f, 0.16f, 48f), pitMaterial);
+            for (float d = 0f; d < span; d += PitRampSurfaceStep)
+            {
+                float segStep = Mathf.Min(PitRampSurfaceStep, span - d);
+                float distance = Runtime.WrapDistance(startDistance + d);
+                float t = span <= 0.01f ? (inbound ? 1f : 0f) : Mathf.Clamp01((d + segStep * 0.5f) / span);
+
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(distance + segStep * 0.5f, out point, out forward, out right);
+
+                float trackEdgeLateral = Runtime.roadHalfWidth + PitRampNearTrackLateral;
+                float lateral = inbound ? Mathf.Lerp(trackEdgeLateral, Runtime.PitLaneLateral, t) : Mathf.Lerp(Runtime.PitLaneLateral, trackEdgeLateral, t);
+                float width = inbound ? Mathf.Lerp(PitRampNarrowWidth, PitRampFullWidth, t) : Mathf.Lerp(PitRampFullWidth, PitRampNarrowWidth, t);
+
+                CreateCollidablePitSurface(label, point + right * lateral + Vector3.up * 0.012f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(width, 0.16f, segStep + PitRampSurfaceOverlap), pitMaterial);
+            }
         }
 
         void CreateCollidablePitSurface(string objectName, Vector3 position, Quaternion rotation, Vector3 localScale, Material material)
@@ -4716,6 +4886,92 @@ namespace LocalFormulaRacing
                 Vector3 conePos = PushSceneryClearOfTrack(point + right * lateral, 1f);
                 CreateTrafficCone(conePos, Quaternion.LookRotation(forward, Vector3.up));
             }
+        }
+
+        // Physical pit-entry marking fix: the merge lane previously only ever had a
+        // painted blend line and a row of cones - nothing announced the entry itself
+        // far enough ahead to react to, and nothing marked exactly where the pit
+        // speed limit begins. Adds an unmissable "PIT" board with a down-arrow at the
+        // very start of the entry ramp (see PitZoneEntryRampStart, the same seam the
+        // barrier fan-out and paved ramp already key off) and a painted speed-limit
+        // line plus roundel sign right where SetPitLimiter actually starts enforcing
+        // the limiter for a car that has requested a stop (see
+        // TrackRuntime.PitApproachStartNormalized) - so what's on the ground now
+        // matches both where the game visually starts the ramp and where it actually
+        // starts limiting speed.
+        void CreatePitEntryMarkers()
+        {
+            CreatePitSignBoard(Runtime.length * PitZoneEntryRampStart);
+            CreateSpeedLimitLine(Runtime.length * TrackRuntime.PitApproachStartNormalized);
+        }
+
+        void CreatePitSignBoard(float distance)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            Vector3 basePosition = point + right * (Runtime.roadHalfWidth + 3.4f);
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+
+            CreateVisualBox("Pit entry board post", basePosition + Vector3.up * 1.4f, rotation, new Vector3(0.22f, 2.8f, 0.22f), metalMaterial);
+            Vector3 boardCenter = basePosition + Vector3.up * 3.5f;
+            CreateVisualBox("Pit entry board frame", boardCenter, rotation, new Vector3(0.2f, 2.3f, 3.4f), metalMaterial);
+            CreateVisualBox("Pit entry board panel", boardCenter - forward.normalized * 0.11f, rotation, new Vector3(0.08f, 2.05f, 3.1f), flagYellowMaterial);
+
+            // Downward chevron made of two angled slats pointing at the pit side,
+            // echoing a real "exit here" arrow rather than just bare text.
+            Vector3 arrowCenter = boardCenter - forward.normalized * 0.16f - Vector3.up * 0.35f;
+            CreateVisualBox("Pit entry board arrow left", arrowCenter, rotation * Quaternion.Euler(0f, 0f, 35f), new Vector3(0.04f, 0.85f, 0.22f), lineMaterial);
+            CreateVisualBox("Pit entry board arrow right", arrowCenter, rotation * Quaternion.Euler(0f, 0f, -35f), new Vector3(0.04f, 0.85f, 0.22f), lineMaterial);
+
+            GameObject text = new GameObject("Pit entry board text");
+            text.transform.SetParent(transform);
+            text.transform.position = boardCenter + Vector3.up * 0.62f - forward.normalized * 0.2f;
+            text.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+            TextMesh textMesh = text.AddComponent<TextMesh>();
+            textMesh.text = "PIT";
+            textMesh.fontSize = 54;
+            textMesh.characterSize = 0.2f;
+            textMesh.anchor = TextAnchor.MiddleCenter;
+            textMesh.alignment = TextAlignment.Center;
+            textMesh.color = Color.black;
+
+            if (nightTrack || twilightTrack)
+            {
+                CreateVisualBox("Pit entry board light strip", boardCenter + Vector3.up * 1.25f, rotation, new Vector3(0.1f, 0.08f, 3f), lightGlowMaterial);
+            }
+        }
+
+        void CreateSpeedLimitLine(float distance)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+
+            // Painted line straight across the merge lane, plus a roundel-style
+            // sign beside it, marking exactly where the pit-lane speed limit begins.
+            float lateral = Runtime.roadHalfWidth + 3f;
+            CreateVisualBox("Pit speed limit line", point + right * lateral + Vector3.up * 0.06f, rotation, new Vector3(6.5f, 0.05f, 0.4f), lineMaterial);
+
+            Vector3 signBase = point + right * (Runtime.roadHalfWidth + 6.6f);
+            CreateVisualBox("Pit speed limit sign post", signBase + Vector3.up * 0.9f, rotation, new Vector3(0.14f, 1.8f, 0.14f), metalMaterial);
+            CreateVisualBox("Pit speed limit sign frame", signBase + Vector3.up * 1.85f, rotation, new Vector3(0.06f, 0.85f, 0.85f), lineMaterial);
+            CreateVisualBox("Pit speed limit sign face", signBase + Vector3.up * 1.85f - forward.normalized * 0.05f, rotation, new Vector3(0.03f, 0.72f, 0.72f), flagYellowMaterial);
+
+            GameObject text = new GameObject("Pit speed limit sign text");
+            text.transform.SetParent(transform);
+            text.transform.position = signBase + Vector3.up * 1.85f - forward.normalized * 0.09f;
+            text.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+            TextMesh textMesh = text.AddComponent<TextMesh>();
+            textMesh.text = "80";
+            textMesh.fontSize = 46;
+            textMesh.characterSize = 0.28f;
+            textMesh.anchor = TextAnchor.MiddleCenter;
+            textMesh.alignment = TextAlignment.Center;
+            textMesh.color = Color.black;
         }
 
         void BuildStartGantry()

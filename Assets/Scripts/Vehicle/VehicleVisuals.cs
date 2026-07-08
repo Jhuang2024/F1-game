@@ -79,6 +79,11 @@ namespace LocalFormulaRacing
         bool tyreMaterialSearched;
         bool tyreLookApplied;
         TyreCompound appliedTyreCompound;
+        // The compound's own "clean" colour, cached whenever GetTyreLook is
+        // reapplied - UpdateSurfaceGrime below blends away from THIS rather
+        // than a hardcoded constant, so the dirt overlay always fades back to
+        // the correct compound tint instead of some fixed reference colour.
+        Color appliedTyreColor;
 
         // Bodywork picks up a wet sheen in the rain rather than staying one
         // fixed dry finish all race; primaryMaterial is shared across most of
@@ -86,6 +91,16 @@ namespace LocalFormulaRacing
         Material bodyMaterial;
         bool bodyMaterialSearched;
         float baseBodySmoothness = -1f;
+
+        // Off-track/marbles grime: builds while the car is running off the
+        // racing line (the same IsOffTrackSlowdown signal CameraRig's
+        // off-track shake and VehicleEffects' dust emitter already key off),
+        // and slowly shakes back off once back on clean tarmac rather than
+        // wiping instantly - a brief excursion still shows for a while. Reset
+        // to zero on a pit stop (fresh tyres, car wiped down) in
+        // BeginPitStopVisual below.
+        float offTrackGrime;
+        static readonly Color TyreGrimeColor = new Color(0.16f, 0.13f, 0.07f);
 
         // Front wing droop under accumulated front-end damage: found lazily by
         // name the same way the rain light/rim/tyre materials above are, and
@@ -112,6 +127,22 @@ namespace LocalFormulaRacing
         bool rearDiffuserSearched;
         Quaternion rearDiffuserRestRotation;
         Vector3 rearDiffuserRestPosition;
+
+        // Above the front-wing-droop/rear-diffuser-sag tiers, a heavily beaten
+        // car (high accumulated Damage.OverallPercent, not tied to any single
+        // part) also picks up a scuffed/scraped bodywork look - a soft dark
+        // smudge decal on the nose and each sidepod flank that scales in from
+        // hidden as the damage total climbs and eases back out again after a
+        // repair, the same rest-pose/ease idiom as the wing/floor damage
+        // above, just driven by the overall percentage instead of one part.
+        bool damageScuffBuilt;
+        Transform noseScuffDecal;
+        Transform sidepodScuffDecalLeft;
+        Transform sidepodScuffDecalRight;
+        Vector3 noseScuffFullScale;
+        Vector3 sidepodScuffFullScale;
+        float scuffVisibility;
+        static Material sharedScuffMaterial;
 
         // Suspension arms sink a hair under load - nose dives under braking,
         // rear squats under power - a cheap position-only cue rather than
@@ -277,6 +308,12 @@ namespace LocalFormulaRacing
             pitStopAnimTimer = 0f;
             pitStopAudioPhase = 0;
             SpawnPitStopGunProps();
+
+            // The crew wipes the car down and fits a clean set of tyres during
+            // every stop, so any off-track dirt/marbles accumulated so far is
+            // gone - the grime overlay should ease back in from zero afterward
+            // exactly like a real washed car, not carry the old build-up over.
+            offTrackGrime = 0f;
         }
 
         void EnsurePitStopWheelTyresFound()
@@ -457,9 +494,11 @@ namespace LocalFormulaRacing
             UpdateAeroFlex();
             UpdateSkidTrails();
             UpdateTyreCompoundLook();
+            UpdateSurfaceGrime();
             UpdateWetBodySheen();
             UpdateFrontWingDamage();
             UpdateFloorDamage();
+            UpdateDamageScuffs();
             UpdateSuspensionFlex();
             UpdateContactShadow();
             ApplyMaterialContrastPass();
@@ -758,7 +797,39 @@ namespace LocalFormulaRacing
                 intensity = Mathf.Max(intensity, 0.32f);
             }
 
-            brakeLightMaterial.SetColor("_EmissionColor", GlowColor * Mathf.Clamp01(intensity) * 1.6f);
+            // Night/twilight rounds (Singapore/Vegas/Qatar-style night races,
+            // Abu-Dhabi-style twilight) light the whole scene much dimmer -
+            // see RaceManager.CreateLighting, which pushes RenderSettings'
+            // ambient/fog noticeably darker for those than for a normal dry
+            // or even wet daytime session. There's no per-car day/night field
+            // to read directly, so this keys off the same global RenderSettings
+            // signal CameraRig's own speed-vignette already reads (fogColor) -
+            // a dim ambient floor keeps the light visibly lit at a floor level
+            // even off the brake/harvest/wet triggers, and a brightness boost
+            // on top makes sure the glow actually reads against a much darker
+            // background instead of getting lost in it.
+            bool dimAtmosphere = IsDimAtmosphere();
+            if (dimAtmosphere)
+            {
+                intensity = Mathf.Max(intensity, 0.24f);
+            }
+
+            float visibilityBoost = dimAtmosphere ? 1.35f : 1f;
+            brakeLightMaterial.SetColor("_EmissionColor", GlowColor * Mathf.Clamp01(intensity) * 1.6f * visibilityBoost);
+        }
+
+        // Cheap night/twilight heuristic: RaceManager.CreateLighting sets the
+        // ambient sky colour noticeably darker for night (~0.14 average) and
+        // twilight (~0.28 average) tracks than it does for a normal dry
+        // (~0.58) or even wet (~0.35) daytime session - see that method's
+        // "night"/"twilight" branches. Reading RenderSettings directly here
+        // rather than adding a new field means this works for any track
+        // without touching RaceManager/TrackManager at all.
+        static bool IsDimAtmosphere()
+        {
+            Color sky = RenderSettings.ambientSkyColor;
+            float brightness = (sky.r + sky.g + sky.b) / 3f;
+            return brightness < 0.32f;
         }
 
         void UpdateSkidTrails()
@@ -937,9 +1008,35 @@ namespace LocalFormulaRacing
             float metallic;
             float smoothness;
             GetTyreLook(compound, out color, out metallic, out smoothness);
-            tyreMaterial.color = color;
+            appliedTyreColor = color;
+            tyreMaterial.color = Color.Lerp(color, TyreGrimeColor, offTrackGrime * 0.65f);
             tyreMaterial.SetFloat("_Metallic", metallic);
             tyreMaterial.SetFloat("_Glossiness", smoothness);
+        }
+
+        // Off-track running (marbles, gravel, dust) leaves the tyres and
+        // bodywork visibly duller/dirtier rather than always looking showroom
+        // clean - offTrackGrime tracks accumulated exposure (0-1) and this
+        // method re-tints the tyre compound colour toward TyreGrimeColor
+        // every frame so the dirt reads immediately even between the rarer
+        // compound-change repaints UpdateTyreCompoundLook itself does above.
+        // UpdateWetBodySheen folds the same grime value into its own
+        // smoothness target for the bodywork side of this effect.
+        void UpdateSurfaceGrime()
+        {
+            if (vehicle.IsOffTrackSlowdown)
+            {
+                offTrackGrime = Mathf.Min(1f, offTrackGrime + Time.deltaTime * 0.12f);
+            }
+            else
+            {
+                offTrackGrime = Mathf.Max(0f, offTrackGrime - Time.deltaTime * 0.025f);
+            }
+
+            if (tyreMaterial != null && tyreLookApplied)
+            {
+                tyreMaterial.color = Color.Lerp(appliedTyreColor, TyreGrimeColor, offTrackGrime * 0.65f);
+            }
         }
 
         // Deliberately subtle undertones and sheen differences rather than the
@@ -1024,6 +1121,23 @@ namespace LocalFormulaRacing
                     if (cellRenderer != null)
                     {
                         bodyMaterial = cellRenderer.sharedMaterial;
+                        if (bodyMaterial != null)
+                        {
+                            // Race paint reads flat/plasticky at RaceManager's
+                            // default mid-metallic/mid-gloss (same band
+                            // ApplyMaterialContrastPass already calls out for
+                            // carbon/technical parts below) - a touch of
+                            // metallic flake and a higher base clearcoat sells
+                            // a real sprayed-and-lacquered panel under the
+                            // directional sun/floodlights, applied once here
+                            // (on top of whatever RaceManager set) rather than
+                            // every frame, and kept modest so the wet-sheen
+                            // boost below still has headroom to read on top.
+                            float currentMetallic = bodyMaterial.GetFloat("_Metallic");
+                            bodyMaterial.SetFloat("_Metallic", Mathf.Min(0.22f, currentMetallic + 0.09f));
+                            float currentGloss = bodyMaterial.GetFloat("_Glossiness");
+                            bodyMaterial.SetFloat("_Glossiness", Mathf.Min(0.75f, currentGloss + 0.08f));
+                        }
                     }
                 }
             }
@@ -1040,6 +1154,14 @@ namespace LocalFormulaRacing
 
             bool wet = vehicle.Weather == WeatherState.LightRain || vehicle.Weather == WeatherState.HeavyRain;
             float targetSmoothness = wet ? Mathf.Min(0.97f, baseBodySmoothness + 0.14f) : baseBodySmoothness;
+
+            // Off-track grime dulls the paint's clearcoat instead of only
+            // affecting the tyres - a dust/marbles-caked panel scatters light
+            // rather than reflecting cleanly. Floored well above zero so a
+            // fully grimy car still has SOME clearcoat left rather than
+            // reading as a totally matte respray.
+            targetSmoothness = Mathf.Max(baseBodySmoothness - 0.18f, targetSmoothness - offTrackGrime * 0.16f);
+
             float currentSmoothness = bodyMaterial.GetFloat("_Glossiness");
             bodyMaterial.SetFloat("_Glossiness", Mathf.MoveTowards(currentSmoothness, targetSmoothness, Time.deltaTime * 0.6f));
         }
@@ -1108,6 +1230,133 @@ namespace LocalFormulaRacing
             rearDiffuser.localPosition = Vector3.MoveTowards(rearDiffuser.localPosition, targetPosition, Time.deltaTime * 0.3f);
         }
 
+        // A third damage tier above the front-wing droop/floor sag: once
+        // Damage.OverallPercent gets genuinely high, soft dark scuff decals
+        // scale in on the nose and both sidepod flanks, reading as scraped/
+        // scuffed bodywork rather than a pristine shell no matter how beaten
+        // up the car mechanically is. Built once (lazy-find, same idiom as
+        // every other one-shot detail pass in this file), then eased in/out
+        // by scaling from a captured "hidden" (zero) scale up to each decal's
+        // own authored full scale - explicitly stored per decal rather than
+        // assuming Vector3.one, the same lesson the pit-stop tyre-scale fix
+        // above exists to teach.
+        void EnsureDamageScuffDecals()
+        {
+            if (damageScuffBuilt)
+            {
+                return;
+            }
+
+            if (transform.Find("survival cell") == null)
+            {
+                return;
+            }
+
+            damageScuffBuilt = true;
+            Material scuffMaterial = GetScuffMaterial();
+            noseScuffFullScale = new Vector3(0.32f, 0.22f, 1f);
+            sidepodScuffFullScale = new Vector3(0.26f, 0.18f, 1f);
+
+            noseScuffDecal = CreateScuffQuad(transform, "damage scuff nose", new Vector3(0f, 0.4f, 2.05f), Quaternion.Euler(84f, 0f, 0f));
+            sidepodScuffDecalLeft = CreateScuffQuad(transform, "damage scuff sidepod left", new Vector3(-0.865f, 0.32f, -0.5f), Quaternion.Euler(0f, 90f, 0f));
+            sidepodScuffDecalRight = CreateScuffQuad(transform, "damage scuff sidepod right", new Vector3(0.865f, 0.32f, -0.5f), Quaternion.Euler(0f, -90f, 0f));
+
+            ApplyScuffMaterial(noseScuffDecal, scuffMaterial);
+            ApplyScuffMaterial(sidepodScuffDecalLeft, scuffMaterial);
+            ApplyScuffMaterial(sidepodScuffDecalRight, scuffMaterial);
+        }
+
+        void UpdateDamageScuffs()
+        {
+            EnsureDamageScuffDecals();
+            if (!damageScuffBuilt || vehicle.Damage == null)
+            {
+                return;
+            }
+
+            // Only the last, worst stretch of the damage range earns a scuff -
+            // the wing/floor sag tiers already cover moderate damage, this is
+            // reserved for a genuinely beaten-up car.
+            float targetVisibility = Mathf.InverseLerp(55f, 92f, vehicle.Damage.OverallPercent);
+            scuffVisibility = Mathf.MoveTowards(scuffVisibility, targetVisibility, Time.deltaTime * 0.5f);
+
+            ApplyScuffScale(noseScuffDecal, noseScuffFullScale, scuffVisibility);
+            ApplyScuffScale(sidepodScuffDecalLeft, sidepodScuffFullScale, scuffVisibility);
+            ApplyScuffScale(sidepodScuffDecalRight, sidepodScuffFullScale, scuffVisibility);
+        }
+
+        static void ApplyScuffScale(Transform decal, Vector3 fullScale, float amount)
+        {
+            if (decal == null)
+            {
+                return;
+            }
+
+            decal.localScale = fullScale * amount;
+        }
+
+        static void ApplyScuffMaterial(Transform decal, Material material)
+        {
+            if (decal == null)
+            {
+                return;
+            }
+
+            Renderer decalRenderer = decal.GetComponent<Renderer>();
+            if (decalRenderer != null)
+            {
+                decalRenderer.sharedMaterial = material;
+            }
+        }
+
+        // Plain quad primitive, parented directly to the car root at absolute
+        // local coordinates (same reasoning as EnsureBodyPanelLineDetail -
+        // nesting under the thin body panels themselves would inherit their
+        // squashed local scale). Starts at zero scale (hidden) - the caller
+        // stores the intended full scale separately and UpdateDamageScuffs
+        // eases the actual localScale between the two, rather than this
+        // helper assuming any particular "rest" size on its own.
+        static Transform CreateScuffQuad(Transform parent, string objectName, Vector3 localPosition, Quaternion localRotation)
+        {
+            GameObject quad = GameObject.CreatePrimitive(PrimitiveType.Quad);
+            quad.name = objectName;
+            quad.transform.SetParent(parent, false);
+            quad.transform.localPosition = localPosition;
+            quad.transform.localRotation = localRotation;
+            quad.transform.localScale = Vector3.zero;
+            Renderer quadRenderer = quad.GetComponent<Renderer>();
+            quadRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            quadRenderer.receiveShadows = false;
+            Collider quadCollider = quad.GetComponent<Collider>();
+            if (quadCollider != null)
+            {
+                Destroy(quadCollider);
+            }
+
+            return quad.transform;
+        }
+
+        // Reuses the contact shadow's cached soft radial falloff texture (see
+        // GetContactShadowTexture) rather than baking a dedicated scratch
+        // texture - at decal scale a soft dark smudge reads fine as scuffed/
+        // scraped bodywork, and the texture asset is already resident either
+        // way. A separate Material instance (own colour tint) so tinting this
+        // grey/dirty doesn't affect the actual ground contact shadow, which
+        // shares the same texture but needs to stay a neutral dark blob.
+        static Material GetScuffMaterial()
+        {
+            if (sharedScuffMaterial != null)
+            {
+                return sharedScuffMaterial;
+            }
+
+            Shader shader = Shader.Find("Sprites/Default");
+            sharedScuffMaterial = new Material(shader);
+            sharedScuffMaterial.mainTexture = GetContactShadowTexture();
+            sharedScuffMaterial.color = new Color(0.5f, 0.48f, 0.45f, 0.6f);
+            return sharedScuffMaterial;
+        }
+
         // Front arms dive under braking, rear arms squat under power - a small,
         // position-only offset from each arm's captured rest pose (no
         // re-derivation of the arm's endpoints/rotation/scale, which would need
@@ -1163,6 +1412,23 @@ namespace LocalFormulaRacing
 
             float dive = vehicle.EffectiveBrake * 0.03f;
             float squat = vehicle.EffectiveThrottle * 0.022f;
+
+            // Kerb strikes jolt the whole chassis on its springs rather than
+            // just costing lap time silently - IsOnKerb is the same signal
+            // CameraRig's own kerb rumble/shake already reads, reused here so
+            // the car's own suspension visibly reacts too. Scaled by speed
+            // (a crawl over a kerb barely registers, a fast strike thumps
+            // harder) and given per-arm noise offsets so all eight arms don't
+            // move in dead lockstep, which would read as one rigid bounce
+            // rather than a real kerb rattle.
+            float kerbJoltAmplitude = 0f;
+            if (vehicle.IsOnKerb)
+            {
+                float kerbSpeed01 = Mathf.InverseLerp(20f, 220f, Mathf.Abs(vehicle.CurrentSpeedKph));
+                kerbJoltAmplitude = Mathf.Lerp(0.006f, 0.022f, kerbSpeed01);
+            }
+
+            float t = Time.time;
             for (int i = 0; i < suspensionArms.Length; i++)
             {
                 Transform arm = suspensionArms[i];
@@ -1176,7 +1442,8 @@ namespace LocalFormulaRacing
                 // wheel pivots and front wing).
                 Vector3 rest = suspensionArmRestPositions[i];
                 float droop = rest.z > 0f ? -dive : -squat;
-                Vector3 target = rest + new Vector3(0f, droop, 0f);
+                float kerbJolt = kerbJoltAmplitude > 0f ? (Mathf.PerlinNoise(t * 34f, i * 7.1f) - 0.5f) * kerbJoltAmplitude : 0f;
+                Vector3 target = rest + new Vector3(0f, droop + kerbJolt, 0f);
                 arm.localPosition = Vector3.Lerp(arm.localPosition, target, Time.deltaTime * 8f);
             }
         }
@@ -1198,8 +1465,12 @@ namespace LocalFormulaRacing
             materialContrastSearched = true;
 
             // Carbon floor/diffuser: low metallic, pushed glossier for a
-            // wet-look clearcoat weave rather than a flat matte panel.
-            TuneMaterialContrast("carbon floor", 0.3f, 0.78f);
+            // wet-look clearcoat weave rather than a flat matte panel, plus a
+            // baked weave texture (see GetCarbonWeaveTexture) so it reads as
+            // moulded carbon-fibre up close instead of a flat painted plate -
+            // the same "procedural texture over an existing material" idiom
+            // GetTreadTexture/GetRimSpokeTexture already established.
+            TuneMaterialContrast("carbon floor", 0.3f, 0.78f, GetCarbonWeaveTexture(), new Vector2(5f, 5f));
 
             // Livery accent flash (shared with every other secondary-colour
             // panel - endplates, rear wing, halo rim, engine stripe): a
@@ -1215,6 +1486,11 @@ namespace LocalFormulaRacing
 
         void TuneMaterialContrast(string childName, float metallic, float smoothness)
         {
+            TuneMaterialContrast(childName, metallic, smoothness, null, Vector2.zero);
+        }
+
+        void TuneMaterialContrast(string childName, float metallic, float smoothness, Texture2D texture, Vector2 textureScale)
+        {
             Transform found = transform.Find(childName);
             if (found == null)
             {
@@ -1225,6 +1501,12 @@ namespace LocalFormulaRacing
             if (foundRenderer == null || foundRenderer.sharedMaterial == null)
             {
                 return;
+            }
+
+            if (texture != null)
+            {
+                foundRenderer.sharedMaterial.mainTexture = texture;
+                foundRenderer.sharedMaterial.mainTextureScale = textureScale;
             }
 
             foundRenderer.sharedMaterial.SetFloat("_Metallic", metallic);
@@ -1535,6 +1817,12 @@ namespace LocalFormulaRacing
 
             haloRingDetailBuilt = true;
             Material tubeMaterial = CreateMaterial("halo tube", new Color(0.07f, 0.08f, 0.09f), 0.7f, 0.4f);
+            // Modern halos are moulded carbon-fibre, not plain painted tube -
+            // the same weave texture the carbon floor uses (see
+            // ApplyMaterialContrastPass/GetCarbonWeaveTexture), tiled tighter
+            // to suit the halo's much smaller surface.
+            tubeMaterial.mainTexture = GetCarbonWeaveTexture();
+            tubeMaterial.mainTextureScale = new Vector2(2f, 1f);
 
             Vector3 frontNode = new Vector3(0f, 0.88f, 0.56f);
             CreateAccentBar(transform, "halo front pillar", new Vector3(0f, 0.5f, 0.94f), frontNode, 0.045f, tubeMaterial);
@@ -1779,6 +2067,39 @@ namespace LocalFormulaRacing
 
             sharedRimSpokeTexture.Apply();
             return sharedRimSpokeTexture;
+        }
+
+        // A small 2x2 basket-weave suggestion - alternating light/dark cells
+        // offset every couple of pixels - multiplied into a dark base colour
+        // the same way GetTreadTexture/GetRimSpokeTexture suggest tread
+        // blocks/spokes without any extra geometry. Tiled several times via
+        // mainTextureScale (see ApplyMaterialContrastPass/EnsureHaloRingDetail)
+        // rather than built at high resolution, so a genuine carbon-fibre
+        // panel reads as woven fabric up close instead of a flat matte plate.
+        static Texture2D sharedCarbonWeaveTexture;
+
+        static Texture2D GetCarbonWeaveTexture()
+        {
+            if (sharedCarbonWeaveTexture != null)
+            {
+                return sharedCarbonWeaveTexture;
+            }
+
+            const int size = 16;
+            sharedCarbonWeaveTexture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            sharedCarbonWeaveTexture.wrapMode = TextureWrapMode.Repeat;
+            for (int y = 0; y < size; y++)
+            {
+                for (int x = 0; x < size; x++)
+                {
+                    int cell = ((x / 2) + (y / 2)) % 2;
+                    float shade = cell == 0 ? 0.82f : 0.4f;
+                    sharedCarbonWeaveTexture.SetPixel(x, y, new Color(shade, shade, shade, 1f));
+                }
+            }
+
+            sharedCarbonWeaveTexture.Apply();
+            return sharedCarbonWeaveTexture;
         }
 
         // Cheap contact-shadow blob (see field comments above) built the first

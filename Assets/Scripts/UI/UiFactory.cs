@@ -2231,5 +2231,137 @@ namespace LocalFormulaRacing
             scroll.scrollSensitivity = 24f;
             return content;
         }
+
+        // ---------- line chart primitives ----------
+        // Minimal polyline chart built from thin rotated Image segments plus small
+        // circular point markers - not a general charting library, just enough to
+        // plot N series of (round, cumulative points) on a shared axis for the
+        // championship progression graph (RuntimeUi.ShowChampionshipGraphs).
+        // Callers convert data values to local pixel positions within the plot
+        // area's own rect (0,0 = the rect's bottom-left corner) and pass those in;
+        // these helpers only draw. Reading plotArea.rect.width/height synchronously
+        // right after it's built is safe here because it is purely anchor/offset
+        // positioned (no LayoutGroup driving its size) - the same pattern
+        // RaceHud.ApplyRaceControlBannerSize already relies on.
+
+        // Plain dark panel used as the backing/clip area for a chart's plotted
+        // lines - just a styled CreateRect, kept as its own named helper so chart
+        // call sites read as "build a plot area" rather than a bare CreateRect.
+        public static RectTransform CreateChartPlotArea(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax)
+        {
+            RectTransform plot = CreateRect(parent, name, anchorMin, anchorMax, offsetMin, offsetMax);
+            Image background = plot.gameObject.AddComponent<Image>();
+            StyleRounded(background, PanelDarker);
+            return plot;
+        }
+
+        // Generic color-cycling palette for chart series that aren't the
+        // player/player-team (which always get Accent) or the player's teammate
+        // (AccentCyan) - there was no existing UI-side palette to reuse (the only
+        // Color[] palette in the codebase, TrackManager.SponsorPalette, is for 3D
+        // trackside sponsor boards, not UI).
+        public static readonly Color[] ChartPalette =
+        {
+            new Color(0.36f, 0.62f, 1f),
+            new Color(1f, 0.55f, 0.25f),
+            new Color(0.55f, 0.85f, 0.35f),
+            new Color(0.85f, 0.4f, 0.85f),
+            new Color(0.95f, 0.85f, 0.3f),
+            new Color(0.4f, 0.85f, 0.85f),
+            new Color(0.75f, 0.55f, 0.35f),
+            new Color(0.6f, 0.6f, 0.95f),
+            new Color(0.9f, 0.5f, 0.5f),
+            new Color(0.5f, 0.9f, 0.65f),
+        };
+
+        // Faint full-width horizontal reference lines at evenly spaced fractions
+        // of the plot's height, each with a small value label on the left edge -
+        // a bare set of data lines with no reference grid is very hard to read.
+        public static void DrawChartGridlines(RectTransform plotArea, int lineCount, Func<float, string> labelForFraction)
+        {
+            for (int i = 0; i <= lineCount; i++)
+            {
+                float fraction = lineCount <= 0 ? 0f : i / (float)lineCount;
+                RectTransform line = CreateBand(plotArea, "Grid line " + i, new Vector2(0f, fraction), new Vector2(1f, fraction), new Vector2(52f, 0f), new Vector2(0f, 1f), new Color(1f, 1f, 1f, 0.06f));
+                line.GetComponent<Image>().raycastTarget = false;
+                if (labelForFraction != null)
+                {
+                    Text label = CreateText(plotArea, "Grid label " + i, labelForFraction(fraction), 12, TextMuted, TextAnchor.MiddleRight);
+                    RectTransform labelRect = label.GetComponent<RectTransform>();
+                    labelRect.anchorMin = new Vector2(0f, fraction);
+                    labelRect.anchorMax = new Vector2(0f, fraction);
+                    labelRect.pivot = new Vector2(0f, 0.5f);
+                    labelRect.anchoredPosition = new Vector2(2f, 0f);
+                    labelRect.sizeDelta = new Vector2(46f, 16f);
+                    label.raycastTarget = false;
+                }
+            }
+        }
+
+        // One thin rotated Image between two points in the plot area's local
+        // space (points measured from its bottom-left corner, +x right, +y up) -
+        // the basic segment primitive every polyline below is built from.
+        public static Image DrawChartLineSegment(RectTransform parent, string name, Vector2 pointA, Vector2 pointB, float thickness, Color color)
+        {
+            RectTransform segment = CreateRect(parent, name, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            segment.pivot = new Vector2(0f, 0.5f);
+            segment.anchoredPosition = pointA;
+            float distance = Vector2.Distance(pointA, pointB);
+            segment.sizeDelta = new Vector2(distance, thickness);
+            float angle = Mathf.Atan2(pointB.y - pointA.y, pointB.x - pointA.x) * Mathf.Rad2Deg;
+            segment.localRotation = Quaternion.Euler(0f, 0f, angle);
+            Image image = segment.gameObject.AddComponent<Image>();
+            image.color = color;
+            image.raycastTarget = false;
+            return image;
+        }
+
+        // Full polyline through an ordered list of local-space points.
+        public static List<Image> DrawChartPolyline(RectTransform parent, string namePrefix, List<Vector2> points, float thickness, Color color)
+        {
+            List<Image> segments = new List<Image>();
+            if (points == null)
+            {
+                return segments;
+            }
+
+            for (int i = 0; i < points.Count - 1; i++)
+            {
+                segments.Add(DrawChartLineSegment(parent, namePrefix + " seg " + i, points[i], points[i + 1], thickness, color));
+            }
+
+            return segments;
+        }
+
+        // Small tappable circular marker at a chart point - the "tap a point for
+        // detail" interaction (full pointer-hover tooltips would need extra
+        // IPointerEnter plumbing this simple widget set doesn't have).
+        public static Button CreateChartPoint(RectTransform parent, string name, Vector2 pointLocal, float size, Color color, UnityAction onTap)
+        {
+            RectTransform dot = CreateRect(parent, name, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            dot.sizeDelta = new Vector2(size, size);
+            dot.anchoredPosition = pointLocal;
+            Image image = dot.gameObject.AddComponent<Image>();
+            image.sprite = CircleSprite;
+            image.color = color;
+            Button button = dot.gameObject.AddComponent<Button>();
+            button.targetGraphic = image;
+            ColorBlock colors = button.colors;
+            colors.normalColor = Color.white;
+            colors.highlightedColor = new Color(1f, 1f, 1f, 0.85f);
+            colors.pressedColor = new Color(0.75f, 0.75f, 0.75f, 1f);
+            colors.fadeDuration = 0.06f;
+            button.colors = colors;
+            if (onTap != null)
+            {
+                button.onClick.AddListener(() =>
+                {
+                    SimpleAudioManager.PlayClick();
+                    onTap.Invoke();
+                });
+            }
+
+            return button;
+        }
     }
 }

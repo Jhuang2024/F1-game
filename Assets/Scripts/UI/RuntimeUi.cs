@@ -30,6 +30,17 @@ namespace LocalFormulaRacing
         CalendarEventData quickRaceSelectedEvent;
         public CalendarEventData QuickRaceSelectedEvent { get { return quickRaceSelectedEvent; } }
 
+        // Championship graph screen (ShowChampionshipGraphs) state - which tab
+        // (driver/constructor/combined) and whether the full field is expanded,
+        // plus the currently tapped point/legend entry - persisted across this
+        // screen's own rebuilds (every tap/tab click re-invokes
+        // ShowChampionshipGraphs) so the screen doesn't snap back to defaults
+        // on every interaction.
+        int championshipGraphTab; // 0 = WDC, 1 = WCC, 2 = Combined overview
+        bool championshipGraphShowFullField;
+        string championshipGraphSelectedSeriesId = "";
+        int championshipGraphSelectedRound = -1;
+
         public void Initialize(GameBootstrap owner)
         {
             bootstrap = owner;
@@ -274,6 +285,7 @@ namespace LocalFormulaRacing
             UiFactory.CreateSecondaryButton(secondaryGrid, "Career Stats", () => ShowCareerStats(data, career, settings));
             UiFactory.CreateSecondaryButton(secondaryGrid, "Driver & Team", () => ShowCareerSetup(data, career, settings));
             UiFactory.CreateSecondaryButton(secondaryGrid, "Rivalry", () => ShowRivalryHub(data, career, settings));
+            UiFactory.CreateSecondaryButton(secondaryGrid, "Championship Graphs", () => ShowChampionshipGraphs(data, career, settings));
 
             // Standings as real rows (position badge, team accent dot, name,
             // points) instead of a single concatenated Text block.
@@ -283,6 +295,11 @@ namespace LocalFormulaRacing
             UiFactory.CreateDivider(standingsPanel);
             UiFactory.CreateSubHeader(standingsPanel, "Constructors");
             BuildStandingsRows(data, standingsPanel, career.Save.constructorStandings, 380f);
+            // Direct entry point into the full progression-over-time view - the
+            // panel above only ever shows the current snapshot, not the round-by-
+            // round shape of the season.
+            Button openChampionshipGraphs = UiFactory.CreateSecondaryButton(standingsPanel, "Full Championship Graphs ->", () => ShowChampionshipGraphs(data, career, settings));
+            UiFactory.SetSize(openChampionshipGraphs, 380f, 44f);
 
             // R&D: overview card with pending report messages; the full command
             // center lives on its own screen behind the button below.
@@ -321,6 +338,493 @@ namespace LocalFormulaRacing
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
             UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
             UiFactory.CreateSecondaryButton(footerLeft, "Settings", () => ShowSettings(data, career, settings));
+        }
+
+        // ---------- championship progression graphs (WDC / WCC) ----------
+        // New screen built on top of CareerManager.GetDriverChampionshipProgression /
+        // GetConstructorChampionshipProgression - both derive from the existing
+        // race-results history, so this screen always reflects the season fresh
+        // as of whenever it's opened (both progressions are re-fetched at the top
+        // of every build, never cached across screens).
+
+        // CareerManager.FindStandingPosition is private, so this mirrors its
+        // simple linear scan rather than requiring a CareerManager signature
+        // change just for this screen.
+        static int FindStandingsRank(List<StandingEntry> standings, string id)
+        {
+            if (standings == null || string.IsNullOrEmpty(id))
+            {
+                return -1;
+            }
+
+            for (int i = 0; i < standings.Count; i++)
+            {
+                if (standings[i].id == id)
+                {
+                    return i + 1;
+                }
+            }
+
+            return -1;
+        }
+
+        static int ChampionshipLastPoints(CareerManager.ChampionshipSeries series)
+        {
+            if (series == null || series.cumulativePoints == null || series.cumulativePoints.Count == 0)
+            {
+                return 0;
+            }
+
+            return series.cumulativePoints[series.cumulativePoints.Count - 1];
+        }
+
+        static CareerManager.ChampionshipSeries FindChampionshipPlayerSeries(CareerManager.ChampionshipProgression progression, bool team)
+        {
+            if (progression == null || progression.series == null)
+            {
+                return null;
+            }
+
+            for (int i = 0; i < progression.series.Count; i++)
+            {
+                CareerManager.ChampionshipSeries series = progression.series[i];
+                if (team ? series.isPlayerTeam : series.isPlayer)
+                {
+                    return series;
+                }
+            }
+
+            return null;
+        }
+
+        static CareerManager.ChampionshipSeries FindChampionshipLeaderSeries(CareerManager.ChampionshipProgression progression)
+        {
+            if (progression == null || progression.series == null || progression.series.Count == 0)
+            {
+                return null;
+            }
+
+            CareerManager.ChampionshipSeries leader = progression.series[0];
+            int leaderPoints = ChampionshipLastPoints(leader);
+            for (int i = 1; i < progression.series.Count; i++)
+            {
+                int points = ChampionshipLastPoints(progression.series[i]);
+                if (points > leaderPoints)
+                {
+                    leaderPoints = points;
+                    leader = progression.series[i];
+                }
+            }
+
+            return leader;
+        }
+
+        // Biggest gainer/loser: compares each series' points over its last up to
+        // 3 rounds (or first-to-last if the season has fewer than 3 rounds so
+        // far) - simple momentum signal rather than a full form model.
+        static CareerManager.ChampionshipSeries FindChampionshipBiggestMover(CareerManager.ChampionshipProgression progression, bool gainer, out int delta)
+        {
+            delta = 0;
+            CareerManager.ChampionshipSeries best = null;
+            bool first = true;
+            if (progression != null && progression.series != null)
+            {
+                for (int i = 0; i < progression.series.Count; i++)
+                {
+                    CareerManager.ChampionshipSeries series = progression.series[i];
+                    List<int> points = series.cumulativePoints;
+                    if (points == null || points.Count == 0)
+                    {
+                        continue;
+                    }
+
+                    int windowStart = Mathf.Max(0, points.Count - 3);
+                    int seriesDelta = points[points.Count - 1] - points[windowStart];
+                    if (first || (gainer ? seriesDelta > delta : seriesDelta < delta))
+                    {
+                        delta = seriesDelta;
+                        best = series;
+                        first = false;
+                    }
+                }
+            }
+
+            return best;
+        }
+
+        static CareerManager.ChampionshipSeries FindChampionshipSeriesById(CareerManager.ChampionshipProgression progression, string id)
+        {
+            if (progression == null || progression.series == null || string.IsNullOrEmpty(id))
+            {
+                return null;
+            }
+
+            for (int i = 0; i < progression.series.Count; i++)
+            {
+                if (progression.series[i].id == id)
+                {
+                    return progression.series[i];
+                }
+            }
+
+            return null;
+        }
+
+        string BuildChampionshipDetailText(CareerManager.ChampionshipProgression a, CareerManager.ChampionshipProgression b, string seriesId, int roundIndex)
+        {
+            if (string.IsNullOrEmpty(seriesId) || roundIndex < 0)
+            {
+                return "Tap a point on a line, or a legend entry, to see round-by-round detail here.";
+            }
+
+            CareerManager.ChampionshipSeries series = FindChampionshipSeriesById(a, seriesId);
+            CareerManager.ChampionshipProgression owner = a;
+            if (series == null)
+            {
+                series = FindChampionshipSeriesById(b, seriesId);
+                owner = b;
+            }
+
+            if (series == null || owner == null || owner.roundLabels == null || roundIndex >= series.cumulativePoints.Count || roundIndex >= owner.roundLabels.Count)
+            {
+                return "Tap a point on a line, or a legend entry, to see round-by-round detail here.";
+            }
+
+            int points = series.cumulativePoints[roundIndex];
+            int previousPoints = roundIndex > 0 ? series.cumulativePoints[roundIndex - 1] : 0;
+            int gained = points - previousPoints;
+            return series.label + "  ·  " + owner.roundLabels[roundIndex] + "  ·  " + points + " pts total (+" + gained + " that round)";
+        }
+
+        void OnChampionshipPointTapped(GameDataRepository data, CareerManager career, GameSettingsStore settings, string seriesId, int roundIndex)
+        {
+            championshipGraphSelectedSeriesId = seriesId;
+            championshipGraphSelectedRound = roundIndex;
+            ShowChampionshipGraphs(data, career, settings);
+        }
+
+        // x-position of a round index and y-position of a points value within a
+        // plot area's local space (origin = plot area's own bottom-left corner,
+        // inset by `origin` to leave room for axis labels).
+        static float ChampionshipRoundX(int roundIndex, int roundCount, float plotWidth, float originX)
+        {
+            return roundCount <= 1 ? originX : originX + (roundIndex / (float)(roundCount - 1)) * plotWidth;
+        }
+
+        static float ChampionshipPointsY(int points, int maxPoints, float plotHeight, float originY)
+        {
+            return originY + Mathf.Clamp01(points / (float)Mathf.Max(1, maxPoints)) * plotHeight;
+        }
+
+        // Draws one progression (WDC or WCC) into plotArea, and its legend into
+        // legendArea (expected to be a CreateScrollPanel content rect, which
+        // already carries its own VerticalLayoutGroup - rows are just appended).
+        // Both rects are cleared of any previous children first so repeated
+        // taps/tab switches never accumulate stale geometry.
+        void BuildChampionshipChart(RectTransform plotArea, RectTransform legendArea, CareerManager.ChampionshipProgression progression, string teammateSeriesId, bool showFullField, string selectedSeriesId, int selectedRoundIndex, System.Action<string, int> onPointTapped)
+        {
+            for (int i = plotArea.childCount - 1; i >= 0; i--)
+            {
+                Destroy(plotArea.GetChild(i).gameObject);
+            }
+
+            for (int i = legendArea.childCount - 1; i >= 0; i--)
+            {
+                Destroy(legendArea.GetChild(i).gameObject);
+            }
+
+            if (progression == null || progression.series == null || progression.series.Count == 0 || progression.rounds == null || progression.rounds.Count == 0)
+            {
+                BuildEmptyState(plotArea, "Not enough championship history yet - complete at least one round to see a progression line.", Mathf.Max(200f, plotArea.rect.width - 40f));
+                return;
+            }
+
+            List<CareerManager.ChampionshipSeries> allSeries = progression.series;
+            List<CareerManager.ChampionshipSeries> shown = new List<CareerManager.ChampionshipSeries>();
+            if (showFullField)
+            {
+                shown.AddRange(allSeries);
+            }
+            else
+            {
+                List<CareerManager.ChampionshipSeries> sorted = new List<CareerManager.ChampionshipSeries>(allSeries);
+                sorted.Sort((a, b) => ChampionshipLastPoints(b).CompareTo(ChampionshipLastPoints(a)));
+                int topCount = Mathf.Min(8, sorted.Count);
+                for (int i = 0; i < topCount; i++)
+                {
+                    shown.Add(sorted[i]);
+                }
+
+                // Always keep the player, player's team and (for the driver graph)
+                // the player's teammate visible even if they fell outside the
+                // top-8 by points.
+                for (int i = 0; i < allSeries.Count; i++)
+                {
+                    CareerManager.ChampionshipSeries series = allSeries[i];
+                    bool mustInclude = series.isPlayer || series.isPlayerTeam || (!string.IsNullOrEmpty(teammateSeriesId) && series.id == teammateSeriesId);
+                    if (mustInclude && !shown.Contains(series))
+                    {
+                        shown.Add(series);
+                    }
+                }
+            }
+
+            int maxPoints = 10;
+            for (int i = 0; i < shown.Count; i++)
+            {
+                maxPoints = Mathf.Max(maxPoints, ChampionshipLastPoints(shown[i]));
+            }
+
+            int niceMax = Mathf.Max(10, Mathf.CeilToInt(maxPoints / 10f) * 10);
+
+            UiFactory.DrawChartGridlines(plotArea, 4, fraction => Mathf.RoundToInt(fraction * niceMax).ToString());
+
+            const float originX = 56f;
+            const float originY = 32f;
+            float plotWidth = Mathf.Max(1f, plotArea.rect.width - originX - 16f);
+            float plotHeight = Mathf.Max(1f, plotArea.rect.height - originY - 20f);
+
+            int roundCount = progression.rounds.Count;
+            int labelStride = Mathf.Max(1, Mathf.CeilToInt(roundCount / 9f));
+            for (int r = 0; r < roundCount; r += labelStride)
+            {
+                string roundLabel = progression.roundLabels != null && r < progression.roundLabels.Count ? progression.roundLabels[r] : ("R" + progression.rounds[r]);
+                Text label = UiFactory.CreateText(plotArea, "Round label " + r, roundLabel, 12, UiFactory.TextMuted, TextAnchor.UpperCenter);
+                RectTransform labelRect = label.GetComponent<RectTransform>();
+                labelRect.anchorMin = new Vector2(0f, 0f);
+                labelRect.anchorMax = new Vector2(0f, 0f);
+                labelRect.pivot = new Vector2(0.5f, 1f);
+                labelRect.anchoredPosition = new Vector2(ChampionshipRoundX(r, roundCount, plotWidth, originX), originY - 6f);
+                labelRect.sizeDelta = new Vector2(70f, 16f);
+                label.horizontalOverflow = HorizontalWrapMode.Overflow;
+            }
+
+            Color[] palette = UiFactory.ChartPalette;
+            int colorCursor = 0;
+            for (int s = 0; s < shown.Count; s++)
+            {
+                CareerManager.ChampionshipSeries series = shown[s];
+                bool highlight = series.isPlayer || series.isPlayerTeam;
+                bool isTeammate = !highlight && !string.IsNullOrEmpty(teammateSeriesId) && series.id == teammateSeriesId;
+                Color color = highlight ? UiFactory.Accent : (isTeammate ? UiFactory.AccentCyan : palette[colorCursor % palette.Length]);
+                if (!highlight && !isTeammate)
+                {
+                    colorCursor++;
+                }
+
+                bool selected = !string.IsNullOrEmpty(selectedSeriesId) && series.id == selectedSeriesId;
+                float thickness = (highlight ? 4f : (showFullField ? 1.6f : 2.6f)) + (selected ? 1.5f : 0f);
+                float lineAlpha = (!showFullField || highlight || isTeammate || selected) ? 1f : 0.5f;
+                Color lineColor = new Color(color.r, color.g, color.b, lineAlpha);
+
+                List<int> points = series.cumulativePoints;
+                int count = Mathf.Min(roundCount, points != null ? points.Count : 0);
+                List<Vector2> localPoints = new List<Vector2>();
+                for (int r = 0; r < count; r++)
+                {
+                    localPoints.Add(new Vector2(ChampionshipRoundX(r, roundCount, plotWidth, originX), ChampionshipPointsY(points[r], niceMax, plotHeight, originY)));
+                }
+
+                UiFactory.DrawChartPolyline(plotArea, "Series " + series.id, localPoints, thickness, lineColor);
+
+                if (count > 0)
+                {
+                    string seriesId = series.id;
+                    int lastRoundIndex = count - 1;
+                    UiFactory.CreateChartPoint(plotArea, "Series " + series.id + " point", localPoints[count - 1], highlight ? 13f : 9f, color, () =>
+                    {
+                        if (onPointTapped != null)
+                        {
+                            onPointTapped(seriesId, lastRoundIndex);
+                        }
+                    });
+                }
+
+                BuildChampionshipLegendEntry(legendArea, series.label, color, ChampionshipLastPoints(series), selected, () =>
+                {
+                    if (onPointTapped != null)
+                    {
+                        onPointTapped(series.id, count - 1);
+                    }
+                });
+            }
+        }
+
+        // One legend row: color swatch, series label, final points total - tappable
+        // to select the same series the corresponding line's end point selects.
+        void BuildChampionshipLegendEntry(RectTransform legendArea, string label, Color color, int points, bool selected, System.Action onTap)
+        {
+            RectTransform row = UiFactory.CreateRect(legendArea, "Legend " + label, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetSize(row, 232f, 28f);
+            Image background = row.gameObject.AddComponent<Image>();
+            UiFactory.StyleRoundedSmall(background, selected ? new Color(color.r, color.g, color.b, 0.28f) : new Color(1f, 1f, 1f, 0.02f));
+            Button button = row.gameObject.AddComponent<Button>();
+            button.targetGraphic = background;
+            button.onClick.AddListener(() =>
+            {
+                SimpleAudioManager.PlayClick();
+                if (onTap != null)
+                {
+                    onTap();
+                }
+            });
+
+            RectTransform swatch = UiFactory.CreateRect(row, "Legend swatch", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, Vector2.zero);
+            swatch.sizeDelta = new Vector2(10f, 10f);
+            swatch.pivot = new Vector2(0f, 0.5f);
+            swatch.anchoredPosition = new Vector2(8f, 0f);
+            Image swatchImage = swatch.gameObject.AddComponent<Image>();
+            swatchImage.sprite = UiFactory.CircleSprite;
+            swatchImage.color = color;
+            swatchImage.raycastTarget = false;
+
+            Text labelText = UiFactory.CreateText(row, "Legend label", label, 13, selected ? Color.white : UiFactory.TextPrimary, TextAnchor.MiddleLeft);
+            RectTransform labelRect = labelText.GetComponent<RectTransform>();
+            labelRect.anchorMin = new Vector2(0f, 0f);
+            labelRect.anchorMax = new Vector2(1f, 1f);
+            labelRect.offsetMin = new Vector2(24f, 0f);
+            labelRect.offsetMax = new Vector2(-46f, 0f);
+            labelText.resizeTextForBestFit = true;
+            labelText.resizeTextMinSize = 9;
+            labelText.resizeTextMaxSize = 13;
+            labelText.raycastTarget = false;
+
+            Text pointsText = UiFactory.CreateText(row, "Legend points", points.ToString(), 13, UiFactory.TextMuted, TextAnchor.MiddleRight);
+            RectTransform pointsRect = pointsText.GetComponent<RectTransform>();
+            pointsRect.anchorMin = new Vector2(1f, 0f);
+            pointsRect.anchorMax = new Vector2(1f, 1f);
+            pointsRect.pivot = new Vector2(1f, 0.5f);
+            pointsRect.offsetMin = new Vector2(-42f, 0f);
+            pointsRect.offsetMax = new Vector2(-6f, 0f);
+            pointsText.raycastTarget = false;
+        }
+
+        // Small label used to caption each mini-chart in the Combined overview -
+        // added after BuildChampionshipChart runs (which clears plotArea's
+        // children first) so it always survives the rebuild.
+        void AddChampionshipMiniChartCaption(RectTransform plotArea, string caption)
+        {
+            Text label = UiFactory.CreateText(plotArea, "Mini chart caption", caption, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            label.fontStyle = FontStyle.Bold;
+            RectTransform rect = label.GetComponent<RectTransform>();
+            rect.anchorMin = new Vector2(0f, 1f);
+            rect.anchorMax = new Vector2(1f, 1f);
+            rect.offsetMin = new Vector2(10f, -20f);
+            rect.offsetMax = new Vector2(-10f, -4f);
+            label.raycastTarget = false;
+        }
+
+        // WDC/WCC championship progression graphs - cumulative points per round,
+        // one line per driver/constructor. Both progressions are fetched fresh
+        // from CareerManager every time this screen is built, so it always
+        // reflects the latest completed race the moment it's opened.
+        public void ShowChampionshipGraphs(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Championship graphs background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateScreenHeader(background, "Championship Progression", "Cumulative points by round - drivers' and constructors' championships.");
+
+            CareerManager.ChampionshipProgression driverProgression = career.GetDriverChampionshipProgression();
+            CareerManager.ChampionshipProgression constructorProgression = career.GetConstructorChampionshipProgression();
+
+            string playerDriverId;
+            string teammateDriverId;
+            ResolvePlayerDriverIds(data, career, out playerDriverId, out teammateDriverId);
+
+            // Tabs (left) + full-field expand toggle (right).
+            RectTransform tabsRow = UiFactory.CreateRect(background, "Championship tabs row", new Vector2(0.05f, 0.855f), new Vector2(0.95f, 0.905f), Vector2.zero, Vector2.zero);
+            RectTransform tabsHolder = UiFactory.CreateRect(tabsRow, "Championship tabs holder", new Vector2(0f, 0f), new Vector2(0.55f, 1f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(tabsHolder, 10, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateFilterTab(tabsHolder, "WDC", championshipGraphTab == 0, () => { championshipGraphTab = 0; ShowChampionshipGraphs(data, career, settings); });
+            UiFactory.CreateFilterTab(tabsHolder, "WCC", championshipGraphTab == 1, () => { championshipGraphTab = 1; ShowChampionshipGraphs(data, career, settings); });
+            UiFactory.CreateFilterTab(tabsHolder, "Combined", championshipGraphTab == 2, () => { championshipGraphTab = 2; ShowChampionshipGraphs(data, career, settings); });
+
+            if (championshipGraphTab != 2)
+            {
+                RectTransform toggleHolder = UiFactory.CreateRect(tabsRow, "Championship field toggle holder", new Vector2(0.55f, 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
+                Button fieldToggle = UiFactory.CreateSecondaryButton(toggleHolder, championshipGraphShowFullField ? "Showing Full Field" : "Showing Top Drivers", () => { championshipGraphShowFullField = !championshipGraphShowFullField; ShowChampionshipGraphs(data, career, settings); });
+                RectTransform fieldToggleRect = fieldToggle.GetComponent<RectTransform>();
+                fieldToggleRect.anchorMin = new Vector2(1f, 0.5f);
+                fieldToggleRect.anchorMax = new Vector2(1f, 0.5f);
+                fieldToggleRect.pivot = new Vector2(1f, 0.5f);
+                fieldToggleRect.anchoredPosition = Vector2.zero;
+                UiFactory.SetSize(fieldToggle, 280f, 44f);
+            }
+
+            // Summary cards: leaders/gaps/momentum/position, always recomputed
+            // fresh from the two progressions above.
+            RectTransform summaryRow = UiFactory.CreateRect(background, "Championship summary row", new Vector2(0.05f, 0.745f), new Vector2(0.95f, 0.85f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(summaryRow, 10, new RectOffset(0, 0, 0, 0));
+
+            CareerManager.ChampionshipSeries driverPlayerSeries = FindChampionshipPlayerSeries(driverProgression, false);
+            CareerManager.ChampionshipSeries driverLeaderSeries = FindChampionshipLeaderSeries(driverProgression);
+            CareerManager.ChampionshipSeries teamPlayerSeries = FindChampionshipPlayerSeries(constructorProgression, true);
+            CareerManager.ChampionshipSeries teamLeaderSeries = FindChampionshipLeaderSeries(constructorProgression);
+
+            int driverGap = driverPlayerSeries != null && driverLeaderSeries != null ? ChampionshipLastPoints(driverLeaderSeries) - ChampionshipLastPoints(driverPlayerSeries) : 0;
+            int teamGap = teamPlayerSeries != null && teamLeaderSeries != null ? ChampionshipLastPoints(teamLeaderSeries) - ChampionshipLastPoints(teamPlayerSeries) : 0;
+            int driverPosition = driverPlayerSeries != null ? FindStandingsRank(career.Save.driverStandings, driverPlayerSeries.id) : -1;
+            int teamPosition = teamPlayerSeries != null ? FindStandingsRank(career.Save.constructorStandings, teamPlayerSeries.id) : -1;
+
+            CareerManager.ChampionshipProgression moverSource = championshipGraphTab == 1 ? constructorProgression : driverProgression;
+            int gainDelta;
+            CareerManager.ChampionshipSeries gainerSeries = FindChampionshipBiggestMover(moverSource, true, out gainDelta);
+            int lossDelta;
+            CareerManager.ChampionshipSeries loserSeries = FindChampionshipBiggestMover(moverSource, false, out lossDelta);
+
+            UiFactory.CreateStatCard(summaryRow, "WDC Leader", driverLeaderSeries != null ? driverLeaderSeries.label + "  (" + ChampionshipLastPoints(driverLeaderSeries) + ")" : "--", 240f);
+            UiFactory.CreateStatCard(summaryRow, "Gap To You", driverPlayerSeries != null ? (driverGap <= 0 ? "Leading" : "-" + driverGap + " pts") : "--", 170f);
+            UiFactory.CreateStatCard(summaryRow, "WCC Leader", teamLeaderSeries != null ? teamLeaderSeries.label + "  (" + ChampionshipLastPoints(teamLeaderSeries) + ")" : "--", 240f);
+            UiFactory.CreateStatCard(summaryRow, "Gap To Your Team", teamPlayerSeries != null ? (teamGap <= 0 ? "Leading" : "-" + teamGap + " pts") : "--", 190f);
+            UiFactory.CreateStatCard(summaryRow, "Biggest Gainer", gainerSeries != null ? gainerSeries.label + "  +" + gainDelta : "--", 220f);
+            UiFactory.CreateStatCard(summaryRow, "Biggest Loser", loserSeries != null ? loserSeries.label + "  " + lossDelta : "--", 220f);
+            UiFactory.CreateStatCard(summaryRow, "Your Position", (driverPosition > 0 ? "P" + driverPosition : "--") + " drv / " + (teamPosition > 0 ? "P" + teamPosition : "--") + " ctor", 220f);
+
+            // Chart(s) + legend(s).
+            if (championshipGraphTab == 2)
+            {
+                const float top = 0.735f;
+                const float bottom = 0.17f;
+                const float gap = 0.015f;
+                float mid = (top + bottom) * 0.5f;
+
+                RectTransform plotTop = UiFactory.CreateChartPlotArea(background, "WDC mini plot", new Vector2(0.05f, mid + gap), new Vector2(0.72f, top), Vector2.zero, Vector2.zero);
+                RectTransform legendTop = UiFactory.CreateScrollPanel(background, "WDC mini legend", new Vector2(0.73f, mid + gap), new Vector2(0.95f, top), 6, new RectOffset(8, 8, 8, 8));
+                BuildChampionshipChart(plotTop, legendTop, driverProgression, teammateDriverId, false, championshipGraphSelectedSeriesId, championshipGraphSelectedRound,
+                    (seriesId, roundIndex) => OnChampionshipPointTapped(data, career, settings, seriesId, roundIndex));
+                AddChampionshipMiniChartCaption(plotTop, "WDC - DRIVERS");
+
+                RectTransform plotBottom = UiFactory.CreateChartPlotArea(background, "WCC mini plot", new Vector2(0.05f, bottom), new Vector2(0.72f, mid - gap), Vector2.zero, Vector2.zero);
+                RectTransform legendBottom = UiFactory.CreateScrollPanel(background, "WCC mini legend", new Vector2(0.73f, bottom), new Vector2(0.95f, mid - gap), 6, new RectOffset(8, 8, 8, 8));
+                BuildChampionshipChart(plotBottom, legendBottom, constructorProgression, "", false, championshipGraphSelectedSeriesId, championshipGraphSelectedRound,
+                    (seriesId, roundIndex) => OnChampionshipPointTapped(data, career, settings, seriesId, roundIndex));
+                AddChampionshipMiniChartCaption(plotBottom, "WCC - CONSTRUCTORS");
+            }
+            else
+            {
+                CareerManager.ChampionshipProgression activeProgression = championshipGraphTab == 0 ? driverProgression : constructorProgression;
+                string activeTeammateId = championshipGraphTab == 0 ? teammateDriverId : "";
+                RectTransform plotArea = UiFactory.CreateChartPlotArea(background, "Championship plot area", new Vector2(0.05f, 0.17f), new Vector2(0.72f, 0.735f), Vector2.zero, Vector2.zero);
+                RectTransform legendArea = UiFactory.CreateScrollPanel(background, "Championship legend", new Vector2(0.73f, 0.17f), new Vector2(0.95f, 0.735f), 8, new RectOffset(10, 10, 10, 10));
+                BuildChampionshipChart(plotArea, legendArea, activeProgression, activeTeammateId, championshipGraphShowFullField, championshipGraphSelectedSeriesId, championshipGraphSelectedRound,
+                    (seriesId, roundIndex) => OnChampionshipPointTapped(data, career, settings, seriesId, roundIndex));
+            }
+
+            // Detail card for the tapped point/legend entry.
+            RectTransform detailBar = UiFactory.CreateGlassPanel(background, "Championship detail bar", new Vector2(0.05f, 0.10f), new Vector2(0.95f, 0.16f), Vector2.zero, Vector2.zero, UiFactory.PanelDarker);
+            string detailText = BuildChampionshipDetailText(driverProgression, constructorProgression, championshipGraphSelectedSeriesId, championshipGraphSelectedRound);
+            Text detailLabel = UiFactory.CreateText(detailBar, "Championship detail text", detailText, 15, UiFactory.TextPrimary, TextAnchor.MiddleLeft);
+            RectTransform detailLabelRect = detailLabel.GetComponent<RectTransform>();
+            detailLabelRect.anchorMin = Vector2.zero;
+            detailLabelRect.anchorMax = Vector2.one;
+            detailLabelRect.offsetMin = new Vector2(20f, 6f);
+            detailLabelRect.offsetMax = new Vector2(-20f, -6f);
+            detailLabel.horizontalOverflow = HorizontalWrapMode.Wrap;
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Career", () => ShowCareerHub(data, career, settings));
         }
 
         // Nominal content width used inside the two Rivalry/Form glass cards -
@@ -3922,6 +4426,7 @@ namespace LocalFormulaRacing
 
             BuildReportBadgeRow(content, race, results, player);
             BuildReportCardRow(content, race, results, player);
+            BuildCorneringTelemetryCard(content, race);
             BuildRaceControlTimeline(content, race);
 
             UiFactory.CreateDivider(content);
@@ -4208,6 +4713,69 @@ namespace LocalFormulaRacing
                 : "Constructors: --";
 
             BuildReportCard(row, "Championship Impact", new[] { driverLine, driverMoveLine, pointsLine, constructorLine }, 280f, UiFactory.AccentPurple, null);
+        }
+
+        // "Where you gained/lost time" cornering breakdown - average actual vs
+        // reference speed per corner-risk tier, fed by RaceManager.SampleCorneringTelemetry
+        // into RaceParticipant.cornerSpeedSumByRisk / cornerReferenceSumByRisk /
+        // cornerSampleCountByRisk (both sums are in km/h, matching the HUD speed
+        // readout). Plain-language tier names since "Low/Medium/High risk" from
+        // TrackRuntime.CornerRisk would mean nothing to a player without context.
+        // Skips itself entirely if the player has no cornering samples at all
+        // (e.g. a session that ended before turn 1), and skips a tier
+        // individually if that tier alone has no samples this race.
+        static readonly string[] CorneringTierLabels = { "Flowing Corners", "Medium Corners", "Tight Corners" };
+        static readonly string[] CorneringTierHints = { "low-risk, high-speed corners", "medium-risk corners", "high-risk, low-speed corners" };
+
+        void BuildCorneringTelemetryCard(RectTransform content, RaceManager race)
+        {
+            if (race == null || race.PlayerParticipant == null)
+            {
+                return;
+            }
+
+            RaceParticipant player = race.PlayerParticipant;
+            bool anyData = false;
+            for (int i = 0; i < 3; i++)
+            {
+                if (player.cornerSampleCountByRisk[i] > 0)
+                {
+                    anyData = true;
+                    break;
+                }
+            }
+
+            if (!anyData)
+            {
+                return;
+            }
+
+            UiFactory.CreateSubHeader(content, "Cornering Analysis");
+            RectTransform card = UiFactory.CreateRect(content, "Cornering telemetry card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            UiFactory.SetSize(card, ReportContentWidth, 3 * 32f + 24f);
+            Image cardBackground = card.gameObject.AddComponent<Image>();
+            UiFactory.StyleRounded(cardBackground, UiFactory.PanelDarker);
+            RectTransform list = UiFactory.CreateRect(card, "Cornering telemetry list", Vector2.zero, Vector2.one, new Vector2(20f, 10f), new Vector2(-20f, -10f));
+            UiFactory.AddVerticalLayout(list, 4, new RectOffset(0, 0, 0, 0));
+            UiFactory.StretchListChildrenWidth(list);
+
+            for (int i = 0; i < 3; i++)
+            {
+                int samples = player.cornerSampleCountByRisk[i];
+                string label = CorneringTierLabels[i] + " (" + CorneringTierHints[i] + ")";
+                if (samples <= 0)
+                {
+                    UiFactory.CreateBreakdownRow(list, label, "Not enough data this race", UiFactory.TextMuted, ReportContentWidth - 40f);
+                    continue;
+                }
+
+                float avgActual = player.cornerSpeedSumByRisk[i] / samples;
+                float avgReference = player.cornerReferenceSumByRisk[i] / samples;
+                float gapPercent = avgReference > 0.01f ? (avgActual - avgReference) / avgReference * 100f : 0f;
+                string valueText = avgActual.ToString("0.0") + " km/h vs " + avgReference.ToString("0.0") + " km/h ref  (" + (gapPercent >= 0f ? "+" : "") + gapPercent.ToString("0.0") + "%)";
+                Color valueColor = gapPercent >= -1f ? UiFactory.AccentGreen : (gapPercent >= -4f ? UiFactory.AccentAmber : UiFactory.Accent);
+                UiFactory.CreateBreakdownRow(list, label, valueText, valueColor, ReportContentWidth - 40f);
+            }
         }
 
         // Anchors a widget generated with the point-anchor / default-pivot
