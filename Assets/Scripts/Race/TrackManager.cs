@@ -683,6 +683,16 @@ namespace LocalFormulaRacing
         public int invalidObstaclesFlagged;
         public bool gridSpawnValid = true;
         public bool pitPosesValid = true;
+        // Track validation/self-healing summary fields: each pairs with an
+        // existing detect-and-auto-fix pass that already runs during Build
+        // (ValidateBarrierColliderCoverage, ValidateWidthContinuity,
+        // ValidatePitLaneSurfaceCoverage) - these just surface the counts that
+        // pass already computes locally, instead of only logging them.
+        public int barrierGapCount;
+        public int barrierGapAutoFilledCount;
+        public int sharpEdgeCount;
+        public int pitSurfaceGapCount;
+        public int obstacleIntrusionCount;
         public readonly List<string> warnings = new List<string>();
 
         public void Warn(string message)
@@ -699,6 +709,10 @@ namespace LocalFormulaRacing
                    " | roadCollider=" + (roadColliderValid ? "OK" : "INVALID") +
                    " | repaired(split=" + longSegmentsSplit + " merged=" + shortSegmentsMerged + " smoothed=" + violentAnglesSmoothed + ")" +
                    " | obstaclesFlagged=" + invalidObstaclesFlagged +
+                   " | barrierGaps=" + barrierGapCount + "(filled " + barrierGapAutoFilledCount + ")" +
+                   " | sharpEdges=" + sharpEdgeCount +
+                   " | pitSurfaceGaps=" + pitSurfaceGapCount +
+                   " | obstacleIntrusions=" + obstacleIntrusionCount +
                    " | grid=" + (gridSpawnValid ? "OK" : "INVALID") +
                    " | pit=" + (pitPosesValid ? "OK" : "INVALID") +
                    " | warnings=" + warnings.Count;
@@ -4519,6 +4533,12 @@ namespace LocalFormulaRacing
                 }
             }
 
+            if (LastReport != null)
+            {
+                LastReport.barrierGapCount = gaps;
+                LastReport.barrierGapAutoFilledCount = autoFilled;
+            }
+
             if (gaps == 0)
             {
                 GameLog.Info("[TrackValidation] Barrier flush sweep clean: " + checkedPoints + " points checked, every barrier within tolerance on " + Runtime.displayName);
@@ -4899,6 +4919,11 @@ namespace LocalFormulaRacing
             CheckPitSurfaceRange(Runtime.length * PitZoneEntryRampStart, Runtime.length * PitZoneEntryRampEnd, true, ref checkedPoints, ref gaps);
             CheckPitSurfaceRange(Runtime.length * TrackRuntime.PitCorridorStartNormalized, Runtime.length * PitZoneExitRampStart, false, ref checkedPoints, ref gaps);
             CheckPitSurfaceRange(Runtime.length * PitZoneExitRampStart, Runtime.length * PitZoneExitRampEnd, true, ref checkedPoints, ref gaps);
+
+            if (LastReport != null)
+            {
+                LastReport.pitSurfaceGapCount = gaps;
+            }
 
             if (gaps == 0)
             {
@@ -8501,6 +8526,48 @@ namespace LocalFormulaRacing
             return true;
         }
 
+        // Track validation depth: detects a road half-width that jumps abruptly
+        // between adjacent samples - a real generation defect (a badly-fed
+        // widening bonus, a bad interpolation) reads as a visible kink/step in
+        // the pavement edge, distinct from the intentional, already-smoothed
+        // hairpin widening ramp (which changes gradually over many metres, not
+        // within one 10m step). Diagnostic-only: logs and counts rather than
+        // auto-correcting, since "fix" here would mean altering the road mesh
+        // itself post-build, a much larger and riskier change than surfacing
+        // the count for the debug overlay/report.
+        int DetectSharpWidthChanges(TrackValidationReport report)
+        {
+            if (Runtime == null || Runtime.length <= 1f)
+            {
+                return 0;
+            }
+
+            const float step = 10f;
+            const float maxDeltaPerStep = 2.2f;
+            int sharpEdges = 0;
+            float previousHalfWidth = Runtime.HalfWidthAt(0f);
+            for (float d = step; d < Runtime.length; d += step)
+            {
+                float halfWidth = Runtime.HalfWidthAt(d);
+                float delta = Mathf.Abs(halfWidth - previousHalfWidth);
+                if (delta > maxDeltaPerStep)
+                {
+                    sharpEdges++;
+                    GameLog.Warn("[TrackValidation] Sharp pavement width change at " + d.ToString("0") + "m: " +
+                                 previousHalfWidth.ToString("0.00") + "m -> " + halfWidth.ToString("0.00") + "m over " + step.ToString("0") + "m on " + Runtime.displayName);
+                }
+
+                previousHalfWidth = halfWidth;
+            }
+
+            if (sharpEdges > 0)
+            {
+                report.Warn(sharpEdges + " sharp pavement width change(s) detected (see log for exact distances).");
+            }
+
+            return sharpEdges;
+        }
+
         void ValidateGeneratedTrack()
         {
             TrackValidationReport report = LastReport ?? new TrackValidationReport { trackName = Runtime.displayName };
@@ -8526,6 +8593,8 @@ namespace LocalFormulaRacing
                 report.Warn("track length " + Runtime.length.ToString("0") + "m exceeds the expected normalization ceiling.");
             }
 
+            report.sharpEdgeCount = DetectSharpWidthChanges(report);
+
             // Barrier-continuity fix: this used to destroy any already-placed
             // barrier/fence/wall segment that failed the same approximate
             // clearance geometry check TryPlaceSolidObstacle no longer uses -
@@ -8547,6 +8616,7 @@ namespace LocalFormulaRacing
                 if (!IsObstacleClearOfRacingSurface(obstacle.transform.position, obstacle.transform.forward, obstacle.localScaleAtValidation, obstacle.minimumClearance))
                 {
                     report.invalidObstaclesFlagged++;
+                    report.obstacleIntrusionCount++;
                     GameLog.Warn("[TrackValidation] " + obstacle.obstacleType + " at " + obstacle.transform.position +
                                  " sits close to the racing surface by the approximate check - left in place (barriers are never auto-removed).");
                 }

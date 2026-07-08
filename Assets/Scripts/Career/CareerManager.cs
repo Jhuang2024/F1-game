@@ -399,6 +399,15 @@ namespace LocalFormulaRacing
                 Save.seasonArchives.Add(completedSeason);
                 Save.lastCompletedSeasonNumber = Save.currentSeason;
 
+                // Trophy Cabinet: season-level trophies, recorded once per
+                // completed season using the same archive snapshot above -
+                // "player" is the standings id EnsurePlayerReplacesDriverSeat
+                // always assigns the player's own entry (see driverChampionId/
+                // constructorChampionId comparisons elsewhere in this file).
+                PlayerRecordsStore.RecordSeasonCompleted(
+                    completedSeason.driverChampionId == "player",
+                    completedSeason.constructorChampionId == Save.playerTeamId);
+
                 Save.currentRound = 1;
                 Save.currentSeason++;
                 BeginNewSeason(completedSeason);

@@ -8276,7 +8276,10 @@ namespace LocalFormulaRacing
                              PlayerParticipant != null &&
                              PlayerParticipant.vehicle != null &&
                              PlayerParticipant.vehicle.Damage.OverallPercent < 20f;
-            PlayerRecordsStore.RecordRaceFinish(playerResult.finishingPosition, playerResult.points, fastestLap, cleanRace, trackLimitWarnings);
+            bool wetRace = Track != null && (Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain);
+            string trackIdForRecords = EventData != null ? EventData.trackId : null;
+            PlayerRecordsStore.RecordRaceFinish(playerResult.finishingPosition, playerResult.points, fastestLap, cleanRace, trackLimitWarnings,
+                trackIdForRecords, playerResult.gridPosition, playerResult.overtakesMade, wetRace);
         }
 
         void CompleteQualifyingRun()
@@ -8378,7 +8381,7 @@ namespace LocalFormulaRacing
             QualifyingResultEntry playerQualifying = results.Find(entry => entry.isPlayer);
             if (playerQualifying != null)
             {
-                PlayerRecordsStore.RecordQualifyingResult(playerQualifying.position);
+                PlayerRecordsStore.RecordQualifyingResult(playerQualifying.position, EventData != null ? EventData.trackId : null);
             }
 
             LogAiQualifyingDiagnostics(results, playerQualifying);

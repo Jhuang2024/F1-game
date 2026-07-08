@@ -828,6 +828,21 @@ namespace LocalFormulaRacing
         public int cleanRaces;
         public int trackLimitWarningsTotal;
         public int bestQualifyingPosition;
+
+        // Trophy Cabinet additions. Per-track wins/podiums/poles live in
+        // trackAchievements (fastest lap by track already exists via
+        // trackRecords + its context field, filtered to "race" context - no
+        // need to duplicate that here). Field defaults keep old record files
+        // loading cleanly.
+        public List<TrackAchievementEntry> trackAchievements = new List<TrackAchievementEntry>();
+        public int mostOvertakesInRace;
+        public int currentCleanRaceStreak;
+        public int bestCleanRaceStreak;
+        public int bestWetFinishPosition;
+        public int biggestComebackPositions;
+        public int championshipsWon;
+        public int constructorsChampionshipsWon;
+        public int completedSeasons;
     }
 
     [Serializable]
@@ -836,6 +851,15 @@ namespace LocalFormulaRacing
         public string trackId;
         public float bestLapTime;
         public string context;
+    }
+
+    [Serializable]
+    public class TrackAchievementEntry
+    {
+        public string trackId;
+        public int wins;
+        public int podiums;
+        public int poles;
     }
 
     public enum RaceDifficulty

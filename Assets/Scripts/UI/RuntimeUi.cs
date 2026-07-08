@@ -4035,6 +4035,73 @@ namespace LocalFormulaRacing
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
             UiFactory.CreateSecondaryButton(footerLeft, "Career", () => ShowCareerHub(data, career, settings));
             UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
+            UiFactory.CreatePrimaryButton(footerRight, "Trophy Cabinet", () => ShowTrophyCabinet(data, career, settings));
+        }
+
+        // Trophy Cabinet: the deeper, more ceremonial counterpart to Career
+        // Stats above - season/championship-level trophies and per-track
+        // achievements (wins/podiums/poles) that a single flat stat row can't
+        // hold, all sourced from the same PlayerRecordsData this session
+        // already extended RecordRaceFinish/RecordSeasonCompleted to fill in.
+        public void ShowTrophyCabinet(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Trophy cabinet background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateTopNav(background, "Trophy Cabinet");
+            PlayerRecordsData records = PlayerRecordsStore.Data;
+
+            RectTransform rowOne = UiFactory.CreateRect(background, "Trophy row one", new Vector2(0.06f, 0.76f), new Vector2(0.94f, 0.84f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(rowOne, 12, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(rowOne, "Championships", records.championshipsWon.ToString(), 210f);
+            UiFactory.CreateStatCard(rowOne, "Constructors' Titles", records.constructorsChampionshipsWon.ToString(), 240f);
+            UiFactory.CreateStatCard(rowOne, "Seasons Completed", records.completedSeasons.ToString(), 240f);
+            UiFactory.CreateStatCard(rowOne, "Clean Race Streak", records.bestCleanRaceStreak.ToString(), 220f);
+
+            RectTransform rowTwo = UiFactory.CreateRect(background, "Trophy row two", new Vector2(0.06f, 0.66f), new Vector2(0.94f, 0.74f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(rowTwo, 12, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(rowTwo, "Biggest Comeback", records.biggestComebackPositions > 0 ? "+" + records.biggestComebackPositions + " places" : "--", 240f);
+            UiFactory.CreateStatCard(rowTwo, "Most Overtakes (1 race)", records.mostOvertakesInRace.ToString(), 260f);
+            UiFactory.CreateStatCard(rowTwo, "Best Wet Result", records.bestWetFinishPosition > 0 ? "P" + records.bestWetFinishPosition : "--", 220f);
+
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Track achievement list", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.64f), 4, new RectOffset(18, 18, 12, 12));
+            UiFactory.CreateSubHeader(content, "Track Achievements");
+            if (records.trackAchievements == null || records.trackAchievements.Count == 0)
+            {
+                Text none = UiFactory.CreateText(content, "No achievements", "No wins, podiums, or poles recorded yet - they'll show up here after your first race weekend.", 17, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                UiFactory.SetSize(none, 900f, 28f);
+            }
+
+            const float achievementRowWidth = 1100f;
+            for (int i = 0; i < (records.trackAchievements != null ? records.trackAchievements.Count : 0); i++)
+            {
+                TrackAchievementEntry entry = records.trackAchievements[i];
+                if (entry.wins == 0 && entry.podiums == 0 && entry.poles == 0)
+                {
+                    continue;
+                }
+
+                string trackName = entry.trackId;
+                for (int e = 0; e < data.Calendar.events.Count; e++)
+                {
+                    if (data.Calendar.events[e].trackId == entry.trackId)
+                    {
+                        trackName = data.Calendar.events[e].displayName;
+                        break;
+                    }
+                }
+
+                RectTransform row = UiFactory.CreateTableRow(content, "Achievement row " + i, achievementRowWidth, 30f, false, i);
+                UiFactory.AddRowCell(row, "Track", trackName, 0.02f, 0.5f, 15, new Color(0.9f, 0.95f, 0.98f), TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Wins", entry.wins + " wins", 0.5f, 0.68f, 13, UiFactory.AccentGreen, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Podiums", entry.podiums + " podiums", 0.68f, 0.86f, 13, UiFactory.AccentCyan, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Poles", entry.poles + " poles", 0.86f, 1f, 13, UiFactory.Accent, TextAnchor.MiddleRight);
+            }
+
+            RectTransform footerLeft2;
+            RectTransform footerRight2;
+            UiFactory.CreateFooterBar(background, out footerLeft2, out footerRight2);
+            UiFactory.CreateSecondaryButton(footerLeft2, "Career Stats", () => ShowCareerStats(data, career, settings));
+            UiFactory.CreateSecondaryButton(footerLeft2, "Main Menu", () => ShowMainMenu(data, career, settings));
         }
 
         // Practice programs: once-per-round simulated running that pays out resource
