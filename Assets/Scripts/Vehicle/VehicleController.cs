@@ -718,7 +718,17 @@ namespace LocalFormulaRacing
             // above) as long as there is meaningful charge and throttle - a driver
             // holding Shift should never find ERS refusing to fire just because the
             // dial is set to Harvest, nor find it stuck on with no way to cut it.
-            bool manualDeployRequested = raw.ers && ErsBattery > 0.03f && assisted.throttle > 0.05f;
+            //
+            // Battery-never-reaches-0% fix: this used to cut manual deploy off
+            // at 3% charge remaining, well above true empty - since this is the
+            // ONE place that decides whether a manual Shift-hold deploy is even
+            // requested at all, the battery could never be driven down past that
+            // floor no matter how long the button was held. Lowered to a true
+            // "still has charge" floor instead of an arbitrary reserve, so
+            // holding the deploy key can genuinely empty the battery to 0%
+            // (ApplyForces's own ErsDeploying/boost gates below are the same
+            // true-empty floor, so nothing downstream re-imposes a hidden one).
+            bool manualDeployRequested = raw.ers && ErsBattery > 0f && assisted.throttle > 0.05f;
             assisted.ers = autoDeployRequested || manualDeployRequested;
 
             return assisted;
@@ -850,7 +860,13 @@ namespace LocalFormulaRacing
             }
 
             float ersBoost = 0f;
-            ErsDeploying = activeCommand.ers && ErsBattery > 0.01f;
+            // Battery-never-reaches-0% fix: lowered from 0.01f (a 1% reserve
+            // that quietly stopped every deploy path here a shade above true
+            // empty, on top of GetAssistedCommand's own separate 3% reserve
+            // above) to a true "still has any charge" floor, so a battery that
+            // is genuinely being drained can reach 0% rather than asymptotically
+            // stalling just above it.
+            ErsDeploying = activeCommand.ers && ErsBattery > 0f;
             ErsHarvesting = false;
             if (ErsDeploying)
             {
@@ -931,9 +947,11 @@ namespace LocalFormulaRacing
             // ersEmptyCooldownActive - once the battery has hit empty it no
             // longer recharges outside a braking zone at all for the next 5
             // seconds (see ersEmptyCooldownTimer above).
+            // Round 9: cut a further 10% on top of round 8 (was 0.0612-0.1357
+            // * 0.8) - braking-zone recharge above is unaffected.
             else if (!ersEmptyCooldownActive && activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.8f * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.72f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ersEmptyCooldownActive && !ErsDeploying)
@@ -958,7 +976,10 @@ namespace LocalFormulaRacing
                 // Round 8: cut a further 20% (was 0.0192-0.0407) and gated behind
                 // ersEmptyCooldownActive, same empty-battery delay as the coasting
                 // rate above.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.8f * harvestModeMultiplier);
+                // Round 9: cut a further 10% on top of round 8 (was 0.0192-0.0407
+                // * 0.8), same non-braking-only regen cut as the coasting rate
+                // above.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.72f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
@@ -1316,7 +1337,11 @@ namespace LocalFormulaRacing
                 ceiling = Mathf.Max(ceiling, target);
             }
 
-            if (activeCommand.ers && ErsBattery > 0.01f)
+            // Battery-never-reaches-0% fix: matches ErsDeploying's own floor in
+            // ApplyForces (was 0.01f here too) so this ceiling bonus and the
+            // actual deploy force it's meant to describe never disagree about
+            // whether there's still charge left.
+            if (activeCommand.ers && ErsBattery > 0f)
             {
                 target += ErsTopSpeedBonusKph;
                 ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + ErsTopSpeedBonusKph);
