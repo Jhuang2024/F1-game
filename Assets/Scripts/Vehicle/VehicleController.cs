@@ -137,11 +137,12 @@ namespace LocalFormulaRacing
         const int GearCount = 8;
         const float RaceSpeedCeilingKph = 350f;
         const float DrsTopSpeedBonusKph = 32f;
-        // ERS buff: raised from 20 - with the stronger deploy force below the
-        // car can now actually accelerate up to a ceiling this much higher
-        // within a normal straight, instead of the old ceiling being mostly
-        // aspirational because the underlying push was too weak to reach it.
-        const float ErsTopSpeedBonusKph = 26f;
+        // ERS buff: raised from 20, then 26 - with the stronger deploy force
+        // below the car can now actually accelerate up to a ceiling this much
+        // higher within a normal straight, instead of the old ceiling being
+        // mostly aspirational because the underlying push was too weak to
+        // reach it.
+        const float ErsTopSpeedBonusKph = 30f;
         static readonly float[] AutoShiftUpKph = { 0f, 62f, 102f, 142f, 186f, 232f, 282f, 322f };
         static readonly float[] GearTorqueMultipliers = { 1.72f, 1.52f, 1.34f, 1.18f, 1.05f, 0.94f, 0.84f, 0.76f };
 

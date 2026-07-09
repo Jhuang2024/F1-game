@@ -2022,20 +2022,40 @@ namespace LocalFormulaRacing
             // exists on the approach into them, some portion of that lookahead
             // window can still pick it up.
             //
-            // Round 3 - final fix: anchors 12 through 16 are now ALL flat (0f).
-            // The Fagnes low point (previously anchor 12, -8f) is removed rather
-            // than just eased, so there is categorically zero elevation data
-            // anywhere within reach of the final corner's own severity
-            // measurement, no matter how far the lookahead extends. The last
-            // remaining elevation change on the lap is the gentle run down into
-            // this flat run (anchor 11, -6f, at ~63% distance) to anchor 12
-            // (0f) - anchor 11's own corner is far enough away (well outside any
-            // 82m lookahead) from the final corner complex that the two can never
+            // Round 3: anchors 12 through 16 are ALL flat (0f). The Fagnes low
+            // point (previously anchor 12, -8f) is removed rather than just
+            // eased, so there is categorically zero elevation data anywhere
+            // within reach of the final corner's own severity measurement, no
+            // matter how far the lookahead extends. The last remaining
+            // elevation change on the lap is the gentle run down into this
+            // flat run (anchor 11, -6f, at ~63% distance) to anchor 12 (0f) -
+            // anchor 11's own corner is far enough away (well outside any 82m
+            // lookahead) from the final corner complex that the two can never
             // interact. Eau Rouge's climb and the Pouhon/Fagnes descent through
             // anchors 3-11 are otherwise untouched.
+            //
+            // Round 4 - the actual remaining source: AddSmoothedAnchors builds
+            // each segment as a Catmull-Rom curve between anchors[i] and
+            // anchors[i+1], but the curve's SHAPE also depends on the anchors
+            // immediately before and after that pair (the tangent at each
+            // endpoint is (nextAnchor - previousAnchor)/2, standard Catmull-Rom).
+            // Every anchor from 12 through 16 was already flat, but the anchor
+            // AFTER the closing wraparound point - anchor 1, still at 0.5f -
+            // gave anchor 0's own tangent a nonzero vertical component
+            // ((anchor1.y - anchor16.y)/2 = 0.25), which put a small but real
+            // elevation ripple into the back half of the 16->0 segment - i.e.
+            // exactly the run through the final corner and up to the
+            // start/finish line - even though every anchor on both sides of it
+            // read as flat. Anchor 1 is now 0f too, so every tangent feeding
+            // into that stretch (anchors 12 through 1, inclusive) is
+            // computed from all-zero neighbours and the curve itself is
+            // genuinely flat, not just flat at the sampled anchor points.
+            // Anchor 1 sits right at the very start of the pit straight,
+            // before Eau Rouge's real climb begins at anchor 2, so this has no
+            // visible effect on the climb itself.
             AddSmoothedAnchors(runtime, new[]
             {
-                new Vector3(0f, 0f, 0f), new Vector3(124f, 0.5f, 0f), new Vector3(170f, 4.5f, 34f),
+                new Vector3(0f, 0f, 0f), new Vector3(124f, 0f, 0f), new Vector3(170f, 4.5f, 34f),
                 new Vector3(196f, 13f, 94f), new Vector3(260f, 19f, 142f), new Vector3(352f, 17f, 158f),
                 new Vector3(414f, 10f, 122f), new Vector3(388f, 5f, 72f), new Vector3(302f, 2f, 72f),
                 new Vector3(242f, -1f, 112f), new Vector3(164f, -4f, 126f), new Vector3(80f, -6f, 106f),
