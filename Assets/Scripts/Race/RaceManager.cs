@@ -8238,6 +8238,13 @@ namespace LocalFormulaRacing
                 // full-track resync rather than a near-search seeded from
                 // wherever it was before pitting.
                 releasedAi.ResyncAfterForcedReposition();
+                // Pit-exit early-turn fix round 2: arms the AI's own steering-line
+                // hold through the real pit-exit ramp geometry - see
+                // AiVehicleController.NotifyPitExitReleased. Deliberately separate
+                // from pitLimiterUntilExit above, which clears on a shorter
+                // speed-limiter-only window that ends before the ramp itself
+                // actually finishes narrowing back to the track edge.
+                releasedAi.NotifyPitExitReleased();
             }
 
             if (participant.isPlayer)

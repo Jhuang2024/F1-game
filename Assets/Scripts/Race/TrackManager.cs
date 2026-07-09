@@ -305,9 +305,15 @@ namespace LocalFormulaRacing
         }
 
         // Shared with PitExitMergeBlend below so the steering-line hold and the
-        // speed limiter agree on exactly where the pit-exit merge window is.
+        // speed limiter agree on exactly where the pit-exit merge window starts.
         const float PitExitLimiterStartNormalized = 0.985f;
         const float PitExitLimiterEndNormalized = 0.018f;
+
+        // Shared with TrackManager's PitZoneExitRampEnd so the steering-line hold
+        // (PitExitMergeBlend below) and the actual physical pit-exit ramp/guide-
+        // fence geometry agree on exactly where the ramp finishes narrowing back
+        // to the track edge.
+        public const float PitExitRampEndNormalized = 0.045f;
 
         public bool IsInPitExitLimiterZone(float normalizedProgress)
         {
@@ -332,17 +338,31 @@ namespace LocalFormulaRacing
         // immediately on release - reading as "turns onto the track way too
         // early" even though the physical pit-exit ramp geometry hasn't finished
         // narrowing back to the track edge yet. Returns 1 right at release,
-        // fading to 0 by the end of the same merge window IsInPitExitLimiterZone
-        // covers, so callers can blend their desired line toward holding the
-        // pit-exit lane instead of snapping straight to the racing line.
+        // fading to 0 by the end of the actual physical ramp (PitExitRampEndNormalized,
+        // shared with TrackManager's ramp/guide-fence geometry), so callers can
+        // blend their desired line toward holding the pit-exit lane instead of
+        // snapping straight to the racing line.
+        //
+        // Round 2 fix: this originally reused IsInPitExitLimiterZone's own window,
+        // which ends at PitExitLimiterEndNormalized (0.018) - a speed-cap window
+        // deliberately kept short ("the tail past the merge only needs to cover
+        // actually rejoining traffic, not a long extra caution stretch"). The
+        // physical ramp itself doesn't finish narrowing back to the track edge
+        // until PitExitRampEndNormalized (0.045), well past that. Reusing the
+        // shorter window meant the blend dropped to 0 - handing the car back to
+        // completely normal racing-line targeting - while the ramp geometry was
+        // still narrowing, which is exactly the "turns onto the track too early"
+        // still being reported after round 1. Uses its own, wider window matching
+        // the real ramp instead.
         public float PitExitMergeBlend(float normalizedProgress)
         {
-            if (!IsInPitExitLimiterZone(normalizedProgress))
+            bool inZone = normalizedProgress > PitExitLimiterStartNormalized || normalizedProgress < PitExitRampEndNormalized;
+            if (!inZone)
             {
                 return 0f;
             }
 
-            float zoneLength = (1f - PitExitLimiterStartNormalized) + PitExitLimiterEndNormalized;
+            float zoneLength = (1f - PitExitLimiterStartNormalized) + PitExitRampEndNormalized;
             if (zoneLength <= 0.0001f)
             {
                 return 0f;
@@ -3688,7 +3708,7 @@ namespace LocalFormulaRacing
         const float PitZoneEntryRampStart = 0.85f;
         const float PitZoneEntryRampEnd = TrackRuntime.PitCorridorStartNormalized;
         const float PitZoneExitRampStart = 0.995f;
-        const float PitZoneExitRampEnd = 0.045f;
+        const float PitZoneExitRampEnd = TrackRuntime.PitExitRampEndNormalized;
 
         float PitZoneBlend(float normalized)
         {
