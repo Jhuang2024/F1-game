@@ -137,8 +137,9 @@ namespace LocalFormulaRacing
         const int GearCount = 8;
         const float RaceSpeedCeilingKph = 350f;
         // Player-only straightline speed buff - never applies to AI (see
-        // CalculateTargetTopSpeedKph, gated on IsPlayerControlled).
-        const float PlayerTopSpeedBonusKph = 4f;
+        // CalculateTargetTopSpeedKph, gated on IsPlayerControlled). Raised
+        // from 4 to 9 (an additional +5).
+        const float PlayerTopSpeedBonusKph = 9f;
         const float DrsTopSpeedBonusKph = 32f;
         // ERS buff: raised from 20, then 26 - with the stronger deploy force
         // below the car can now actually accelerate up to a ceiling this much
