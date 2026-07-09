@@ -325,7 +325,8 @@ namespace LocalFormulaRacing
                     // Round 6: eased back down 5kph (+85kph total).
                     // Round 7: another +7.5kph on top of that (+92.5kph total).
                     // Round 8: another +5kph on top of that (+97.5kph total).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 97.5f);
+                    // Round 9: another +15kph on top of that (+112.5kph total).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 112.5f);
                     easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
@@ -351,7 +352,8 @@ namespace LocalFormulaRacing
                     // Round 10: raised another flat 7.5kph (395-405kph -> 402.5-412.5kph).
                     // Round 11: raised another flat 10kph (402.5-412.5kph -> 412.5-422.5kph).
                     // Round 12: raised another flat 10kph (412.5-422.5kph -> 422.5-432.5kph).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(422.5f, Mathf.Lerp(427.5f, 432.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 13: raised another flat 15kph (422.5-432.5kph -> 437.5-447.5kph).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(437.5f, Mathf.Lerp(442.5f, 447.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -372,7 +374,8 @@ namespace LocalFormulaRacing
                     // Round 7: raised another flat 7.5kph (250-285kph -> 257.5-292.5kph).
                     // Round 8: raised another flat 10kph (257.5-292.5kph -> 267.5-302.5kph).
                     // Round 9: raised another flat 10kph (267.5-302.5kph -> 277.5-312.5kph).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(277.5f, Mathf.Lerp(297.5f, 312.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 10: raised another flat 5kph (277.5-312.5kph -> 282.5-317.5kph).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(282.5f, Mathf.Lerp(302.5f, 317.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
