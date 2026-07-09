@@ -10631,7 +10631,16 @@ namespace LocalFormulaRacing
             float carRating = car == null ? 84f : car.cornering * 0.34f + car.enginePower * 0.24f + car.aeroEfficiency * 0.24f + car.braking * 0.18f;
             // Coefficients widened ~20% over the original so skill/car gaps stay meaningful
             // now that baseLap is a realistic (much larger) reference time.
-            breakdown.driverEffect = (qualifying - 88f) * -0.058f + (pace - 88f) * -0.019f + (confidence - 80f) * -0.006f;
+            //
+            // Qualifying-gap fix: baseLap has since gotten FASTER (TrackAverageSpeedFactor
+            // was pushed up several rounds to stop race pace beating qualifying - see
+            // EstimateReferenceLapTime), which made these same flat-second driver/car
+            // effects a much bigger fraction of a shorter lap - grid spreads that used to
+            // read as "meaningful" started reading as "massive" (multi-second gaps far
+            // beyond a realistic F1 quali spread). Coefficients cut back down (~40% off
+            // the widened values, below even the original pre-widening numbers) so the
+            // full-field spread lands in a realistic couple-of-seconds range again.
+            breakdown.driverEffect = (qualifying - 88f) * -0.034f + (pace - 88f) * -0.011f + (confidence - 80f) * -0.0035f;
             // Balance fix: car upgrade stats can reach up to 125 (see
             // CareerManager.ApplyCareerUpgrades' clamps) against an 86
             // baseline - uncapped, a fully maxed car alone was worth roughly
@@ -10641,7 +10650,8 @@ namespace LocalFormulaRacing
             // worth just over a second) without letting them single-handedly
             // dominate a probability-based session.
             float carRatingForQualifying = Mathf.Min(carRating, 104f);
-            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.062f;
+            // Qualifying-gap fix: same reasoning as driverEffect above.
+            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.036f;
             // Percentage of baseLap rather than a flat constant, so difficulty stays
             // meaningful regardless of track length: Easy is clearly the slowest,
             // Expert clearly the fastest/most aggressive, Medium close to neutral.
@@ -10781,7 +10791,9 @@ namespace LocalFormulaRacing
             {
                 // Tail trimmed from the old 2.0-4.5s range so a single unlucky AI lap
                 // doesn't produce a comically slow outlier.
-                penalty += Random.Range(1.2f, 3.0f);
+                // Qualifying-gap fix: trimmed again (was 1.2-3.0) - even a rare outlier
+                // lap was still large enough to read as a "massive" gap in the results.
+                penalty += Random.Range(0.6f, 1.6f);
             }
 
             return penalty;
