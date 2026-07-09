@@ -25,6 +25,14 @@ namespace LocalFormulaRacing
         public float kerbStart = 8.2f;
         public Vector2 drsZoneOne = new Vector2(0.13f, 0.29f);
         public Vector2 drsZoneTwo = new Vector2(0.64f, 0.82f);
+        // DRS fix: detection points, a short distance before each zone's own start
+        // (see TrackManager.ValidateLayout, right after the zones themselves are
+        // validated). A real DRS system decides eligibility once, at the detection
+        // point, then holds that decision for the whole following activation zone -
+        // continuously re-checking the live gap throughout the zone (the old
+        // behavior) is why DRS used to deploy for way too short a time.
+        public float drsDetectionOne;
+        public float drsDetectionTwo;
         public WeatherState weather = WeatherState.Clear;
         public MeshCollider roadCollider;
 
@@ -309,6 +317,62 @@ namespace LocalFormulaRacing
             return IsInZone(normalizedProgress, drsZoneOne) || IsInZone(normalizedProgress, drsZoneTwo);
         }
 
+        // DRS fix: 1-indexed zone the car is currently inside (1 or 2), or 0 if in
+        // neither - lets callers key per-zone eligibility state without re-deriving
+        // which zone from scratch every time.
+        public int GetDrsZoneIndex(float normalizedProgress)
+        {
+            if (IsInZone(normalizedProgress, drsZoneOne))
+            {
+                return 1;
+            }
+
+            if (IsInZone(normalizedProgress, drsZoneTwo))
+            {
+                return 2;
+            }
+
+            return 0;
+        }
+
+        public bool IsInDrsZone(int zoneIndex, float normalizedProgress)
+        {
+            if (zoneIndex == 1)
+            {
+                return IsInZone(normalizedProgress, drsZoneOne);
+            }
+
+            if (zoneIndex == 2)
+            {
+                return IsInZone(normalizedProgress, drsZoneTwo);
+            }
+
+            return false;
+        }
+
+        public float GetDrsDetectionPoint(int zoneIndex)
+        {
+            return zoneIndex == 2 ? drsDetectionTwo : drsDetectionOne;
+        }
+
+        // DRS fix: true the frame progress crosses this zone's detection point going
+        // forward - a single-sample "am I past the point" check would also fire on
+        // every frame after crossing, so this needs the previous frame's normalized
+        // progress too, wrap-aware (the point can sit just before the start/finish
+        // line, e.g. 0.95 -> 0.08 zone puts the detection point around 0.945).
+        public bool CrossedDrsDetectionPoint(float previousNormalized, float currentNormalized, int zoneIndex)
+        {
+            float point = GetDrsDetectionPoint(zoneIndex);
+            float previousDelta = Mathf.Repeat(previousNormalized - point, 1f);
+            float currentDelta = Mathf.Repeat(currentNormalized - point, 1f);
+            // previousDelta close to 1 (just behind the point) and currentDelta close
+            // to 0 (just past it) means forward motion crossed the point this frame.
+            // A small window (rather than previousDelta > currentDelta everywhere)
+            // avoids false-triggering from a car that's simply sitting stationary
+            // near the point across two frames with tiny floating-point jitter.
+            return previousDelta > 0.5f && currentDelta <= 0.5f && (1f - previousDelta) + currentDelta < 0.02f;
+        }
+
         bool IsInZone(float normalizedProgress, Vector2 zone)
         {
             if (zone.x <= zone.y)
@@ -422,9 +486,18 @@ namespace LocalFormulaRacing
         public const float PitReleaseNormalized = 0.992f;
         public const float PitExitMergeEndNormalized = PitExitRampEndNormalized;
 
+        // Bugfix: this used to delegate to IsInPitExitLimiterZone, which ends at
+        // PitExitLimiterEndNormalized (0.018) - the short SPEED-cap window. The
+        // physical ramp/path merge doesn't finish until PitExitRampEndNormalized
+        // (0.045), the same boundary PitExitMergeBlend above already uses. Reusing
+        // the limiter's shorter window here silently reintroduced the exact
+        // "hands the car back before the ramp is done narrowing" bug this zone
+        // exists to prevent - the comments described using 0.045, but the actual
+        // boolean still checked 0.018. Mirrors PitExitMergeBlend's own inZone test
+        // directly instead of delegating to a differently-scoped zone.
         public bool IsInPitExitMergeZone(float normalizedProgress)
         {
-            return IsInPitExitLimiterZone(normalizedProgress);
+            return normalizedProgress > PitExitLimiterStartNormalized || normalizedProgress < PitExitRampEndNormalized;
         }
 
         public bool PastPitExitMergeEnd(float normalizedProgress)
@@ -1072,6 +1145,7 @@ namespace LocalFormulaRacing
             ValidateBarrierColliderCoverage();
             ResolveOverlappingBarrierColliders();
             ValidateBarrierPocketFree();
+            ValidateNoSolidObstaclesInsideDrivingCorridors();
             ValidateSceneryGrounding();
             ValidateBarrierSmoothness();
             ValidatePitLaneSurfaceCoverage();
@@ -2068,6 +2142,21 @@ namespace LocalFormulaRacing
 
             ValidateDrsZone(runtime, ref runtime.drsZoneOne, "DRS zone 1");
             ValidateDrsZone(runtime, ref runtime.drsZoneTwo, "DRS zone 2");
+
+            // DRS fix: detection points sit a short distance before each zone's own
+            // start, wrapping correctly for a zone that starts near/after the
+            // start/finish line the same way the zone itself already does. Very
+            // short straights get a tighter detection offset so the point doesn't
+            // fall outside the previous zone/corner.
+            float detectionOneOffset = DrsZoneSpan(runtime.drsZoneOne) < 0.06f ? 0.02f : 0.035f;
+            float detectionTwoOffset = DrsZoneSpan(runtime.drsZoneTwo) < 0.06f ? 0.02f : 0.035f;
+            runtime.drsDetectionOne = Mathf.Repeat(runtime.drsZoneOne.x - detectionOneOffset, 1f);
+            runtime.drsDetectionTwo = Mathf.Repeat(runtime.drsZoneTwo.x - detectionTwoOffset, 1f);
+        }
+
+        float DrsZoneSpan(Vector2 zone)
+        {
+            return zone.x <= zone.y ? zone.y - zone.x : (1f - zone.x) + zone.y;
         }
 
         void ValidateDrsZone(TrackRuntime runtime, ref Vector2 zone, string label)
@@ -4833,8 +4922,19 @@ namespace LocalFormulaRacing
         // PitZoneExitRampEnd and TrackRuntime.PitExitRampEndNormalized are the exact
         // same constant. So the pit entry ramp, pit lane corridor, pit release, and
         // the pit-exit merge path are all already covered by this one check; nothing
-        // here (gap auto-fill or the pocket sweep above) can ever wall the pit lane or
-        // the exit-merge path shut.
+        // here (gap auto-fill) can ever wall the pit lane or the exit-merge path shut.
+        //
+        // Collision/placement fix: this is a GAP-FILL-only concept - "don't plant a
+        // corrective wall here, this opening is intentional." It must never be used
+        // to decide whether to CHECK for an illegal intrusion (a wall standing where
+        // it shouldn't). Those are different questions: skipping intrusion checks
+        // inside the pit opening would exempt exactly the zone where a bad wall does
+        // the most damage - a real pileup was traced to a divider/guide wall
+        // standing inside a drivable corridor that this kind of skip would have
+        // hidden. IsSolidObstaclePlacementValid/ValidateNoSolidObstaclesInsideDrivingCorridors
+        // never call this - only ValidateBarrierColliderCoverage's auto-fill
+        // decision does. Renamed at the call site's intent, not the signature, to
+        // keep the diff mechanical; treat this as IsIntentionalPitOpeningForGapFill.
         bool IsIntentionalPitOpening(float normalized, int side, bool nearCorner)
         {
             if (side <= 0)
@@ -5180,12 +5280,12 @@ namespace LocalFormulaRacing
 
         int ClearPocketAt(float distance, int side)
         {
-            float normalized = distance / Mathf.Max(1f, Runtime.length);
-            if (IsIntentionalPitOpening(normalized, side, true))
-            {
-                return 0;
-            }
-
+            // Collision/placement fix: this used to skip the intentional pit-opening
+            // stretch entirely (IsIntentionalPitOpening is a gap-fill-only concept -
+            // "don't plant a wall here"). Intrusion clearing must NOT skip it - a
+            // wall standing where it shouldn't inside the pit-opening/merge zone is
+            // exactly the scenario that caused a live AI pileup, so this sweep now
+            // checks every tight-corner sample regardless of pit-zone overlap.
             Vector3 point;
             Vector3 forward;
             Vector3 right;
@@ -5229,6 +5329,62 @@ namespace LocalFormulaRacing
             }
 
             return cleared;
+        }
+
+        // Collision/placement fix (item 7): the final, whole-registry safety net.
+        // Runs once, after every geometry-placing pass (continuous edge barriers,
+        // pit lane divider, pit ramp guide fences, bridge walls, auto-fill,
+        // overlap deconflict) has finished, so it catches anything a later pass
+        // introduced that TryPlaceSolidObstacle's own placement-time gate couldn't
+        // have seen yet. Any obstacle whose footprint intrudes into the main road
+        // OR any pit drivable surface gets demoted to visual-only and disabled -
+        // never merely logged and left in place.
+        void ValidateNoSolidObstaclesInsideDrivingCorridors()
+        {
+            if (Runtime == null || Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            int removed = 0;
+            for (int i = solidObstacles.Count - 1; i >= 0; i--)
+            {
+                TrackSolidObstacle obstacle = solidObstacles[i];
+                if (obstacle == null)
+                {
+                    solidObstacles.RemoveAt(i);
+                    continue;
+                }
+
+                if (!obstacle.enabled)
+                {
+                    continue;
+                }
+
+                bool clear = IsSolidObstaclePlacementValid(obstacle.gameObject, obstacle.obstacleType, obstacle.transform.position,
+                                                             obstacle.transform.forward, obstacle.localScaleAtValidation, obstacle.minimumClearance);
+                if (clear)
+                {
+                    continue;
+                }
+
+                if (LastReport != null)
+                {
+                    LastReport.invalidObstaclesFlagged++;
+                    LastReport.obstacleIntrusionCount++;
+                }
+
+                TrackProgress intrusionProgress = Runtime.GetProgress(obstacle.transform.position);
+                GameLog.Warn("[TrackValidation] Removed intrusive solid obstacle " + obstacle.obstacleType + " on " + Runtime.displayName +
+                             " at " + intrusionProgress.distance.ToString("0") + "m: collider footprint intersected a drivable corridor.");
+                DemoteBarrierColliderToVisual(obstacle);
+                removed++;
+            }
+
+            if (removed > 0)
+            {
+                GameLog.Warn("[TrackValidation] Removed " + removed + " intrusive solid obstacle(s) on " + Runtime.displayName + " in the post-build corridor sweep.");
+            }
         }
 
         // Real measured distance (metres) from a point on the true track edge
@@ -9049,25 +9205,64 @@ namespace LocalFormulaRacing
             CreateVisualBox("Traffic cone base plate", basePosition + Vector3.up * 0.02f, rotation, new Vector3(0.5f, 0.04f, 0.5f), lineMaterial);
         }
 
-        // Barrier-continuity fix: this used to run every barrier/fence/wall segment
-        // through a "clear of the racing surface" geometry check and, on a failure,
-        // either nudge it outward or destroy it outright. Every caller of this
-        // function is a barrier-family object whose position is already computed
-        // by exact flush-to-edge math (FlushBarrierLateral) - it can never
-        // legitimately overlap the road. The "too close" check was tripped instead
-        // by the check's own straight-chord/box-corner approximation disagreeing
-        // with that math at curvature, and its fix was worse than the disease: a
-        // repositioned segment sits at a different offset than its neighbours
-        // (the reported "jagged" look), and a segment that failed the repair loop
-        // was silently deleted with nothing placed in its spot (the reported
-        // "missing" barriers). This function now only ever places geometry exactly
-        // where it was asked to and registers it - never moves or removes it.
+        // Collision/placement fix: this used to place every barrier/fence/wall
+        // segment exactly where it was asked and register it as solid unconditionally
+        // - on the theory that every caller's position was already computed by exact
+        // flush-to-edge math and could never legitimately overlap the road. In
+        // practice, upstream math (pit-ramp taper, corner-priority pull-in, staggered
+        // release geometry, auto-fill's own approximation) can still disagree with
+        // reality often enough to place a wall/divider/guide fence physically inside
+        // the drivable surface - confirmed by an AI pileup where a pit-divider/guide
+        // wall was standing in the live corridor. A missing or visual-only barrier is
+        // always better than a solid collider inside a corridor a car is meant to
+        // drive through, so every placement is now validated (IsSolidObstaclePlacementValid,
+        // main-road AND pit-surface aware) before it's ever allowed to keep a live
+        // collider. Essential outer-edge barriers get a chance to be nudged outward
+        // away from the centerline first, since losing one of those opens a real hole
+        // in the perimeter; anything else fails straight to visual-only.
+        const int SolidObstaclePushAttempts = 10;
+        const float SolidObstaclePushStepMeters = 0.4f;
+
         bool TryPlaceSolidObstacle(GameObject obstacle, string obstacleType, Vector3 desiredBasePosition, Vector3 forward, Vector3 localScale, float verticalOffset, float minimumClearance)
         {
             Vector3 candidate = desiredBasePosition + Vector3.up * verticalOffset;
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
             obstacle.transform.rotation = rotation;
             obstacle.transform.position = candidate;
+
+            bool clear = IsSolidObstaclePlacementValid(obstacle, obstacleType, candidate, forward, localScale, minimumClearance);
+
+            if (!clear && IsEssentialOuterEdgeBarrier(obstacleType))
+            {
+                Vector3 flatForward = new Vector3(forward.x, 0f, forward.z).normalized;
+                if (flatForward.sqrMagnitude < 0.1f)
+                {
+                    flatForward = Vector3.forward;
+                }
+
+                Vector3 right = Vector3.Cross(Vector3.up, flatForward).normalized;
+                TrackProgress startProgress = Runtime.GetProgress(candidate);
+                float sign = startProgress.lateralDistance < 0f ? -1f : 1f;
+
+                for (int attempt = 1; attempt <= SolidObstaclePushAttempts && !clear; attempt++)
+                {
+                    Vector3 pushed = candidate + right * sign * (SolidObstaclePushStepMeters * attempt);
+                    if (IsSolidObstaclePlacementValid(obstacle, obstacleType, pushed, forward, localScale, minimumClearance))
+                    {
+                        candidate = pushed;
+                        obstacle.transform.position = candidate;
+                        clear = true;
+                    }
+                }
+            }
+
+            if (!clear)
+            {
+                GameLog.Warn("[TrackValidation] Rejected solid obstacle placement (" + obstacleType + ") at " + candidate +
+                             " on " + Runtime.displayName + " - footprint intruded into a drivable corridor. Kept visual-only, no collider.");
+                MakeVisualOnly(obstacle);
+                return false;
+            }
 
             TrackSolidObstacle solid = obstacle.AddComponent<TrackSolidObstacle>();
             solid.obstacleType = obstacleType;
@@ -9077,7 +9272,14 @@ namespace LocalFormulaRacing
             return true;
         }
 
-        bool IsObstacleClearOfRacingSurface(Vector3 position, Vector3 forward, Vector3 localScale, float minimumClearance)
+        // Shared oriented-footprint sampler for both the main-road clearance check
+        // and the pit-surface intrusion check below, so the two never disagree about
+        // which points on a barrier's box actually get tested. The original 9-point
+        // set (center/front/rear/left/right/4 corners) can straddle a curve on a
+        // long slab and miss a bulge in the middle of the long edges - long walls
+        // (auto-fill segments, continuous edge-barrier runs) get extra interior
+        // samples along their length so that can't slip through.
+        Vector3[] GetObstacleFootprintSamples(Vector3 position, Vector3 forward, Vector3 localScale)
         {
             Vector3 flatForward = new Vector3(forward.x, 0f, forward.z).normalized;
             if (flatForward.sqrMagnitude < 0.1f)
@@ -9088,7 +9290,8 @@ namespace LocalFormulaRacing
             Vector3 right = Vector3.Cross(Vector3.up, flatForward).normalized;
             float halfWidth = Mathf.Max(0.05f, localScale.x * 0.5f);
             float halfLength = Mathf.Max(0.05f, localScale.z * 0.5f);
-            Vector3[] samples =
+
+            List<Vector3> samples = new List<Vector3>
             {
                 position,
                 position + flatForward * halfLength,
@@ -9101,6 +9304,25 @@ namespace LocalFormulaRacing
                 position - flatForward * halfLength - right * halfWidth
             };
 
+            if (localScale.z > 8f)
+            {
+                int extra = Mathf.Clamp(Mathf.FloorToInt(localScale.z / 4f), 1, 12);
+                for (int i = 1; i < extra; i++)
+                {
+                    float t = (i / (float)extra) * 2f - 1f;
+                    Vector3 alongPoint = position + flatForward * (t * halfLength);
+                    samples.Add(alongPoint);
+                    samples.Add(alongPoint + right * halfWidth);
+                    samples.Add(alongPoint - right * halfWidth);
+                }
+            }
+
+            return samples.ToArray();
+        }
+
+        bool IsObstacleClearOfRacingSurface(Vector3 position, Vector3 forward, Vector3 localScale, float minimumClearance)
+        {
+            Vector3[] samples = GetObstacleFootprintSamples(position, forward, localScale);
             for (int i = 0; i < samples.Length; i++)
             {
                 TrackProgress progress = Runtime.GetProgress(samples[i]);
@@ -9115,6 +9337,116 @@ namespace LocalFormulaRacing
             }
 
             return true;
+        }
+
+        // Collision/placement fix: is this world point somewhere inside a surface a
+        // car is actually meant to drive on - the flat pit lane corridor, either
+        // ramp's own taper, or the pit-exit merge path? A small boundaryMargin is
+        // used for the flat corridor/ramp checks so a wall sitting legitimately AT
+        // the boundary between the live track and the pit lane (e.g. BuildPitLane's
+        // own separator wall, obstacleType "pit-wall") is not flagged just for
+        // marking the edge - only a wall sitting meaningfully INSIDE the drivable
+        // width counts as an intrusion. The pit-exit merge path gets a much smaller
+        // margin: nothing solid should ever legitimately sit in that span at all.
+        bool IsInsidePitDrivableSurface(Vector3 worldPoint)
+        {
+            TrackProgress progress = Runtime.GetProgress(worldPoint);
+            float normalized = progress.normalized;
+            float lateral = progress.lateralDistance;
+
+            // The pit lane only ever exists on the right (positive lateral) side.
+            if (lateral <= 0f)
+            {
+                return false;
+            }
+
+            const float boundaryMargin = 0.6f;
+            const float pitLaneHalfWidth = 6.75f;
+
+            if (normalized >= TrackRuntime.PitCorridorStartNormalized && normalized <= PitZoneExitRampStart)
+            {
+                float inner = Runtime.PitLaneLateral - pitLaneHalfWidth + boundaryMargin;
+                float outer = Runtime.PitLaneLateral + pitLaneHalfWidth - boundaryMargin;
+                if (lateral > inner && lateral < outer)
+                {
+                    return true;
+                }
+            }
+
+            bool inEntryRamp = normalized >= PitZoneEntryRampStart && normalized < PitZoneEntryRampEnd;
+            bool inExitRamp = normalized > PitZoneExitRampStart || normalized <= PitZoneExitRampEnd;
+            if (inEntryRamp || inExitRamp)
+            {
+                float rampLateral;
+                float rampHalfWidth;
+                PitRampEnvelopeAt(normalized, progress.distance, out rampLateral, out rampHalfWidth);
+                float trackEdge = Runtime.HalfWidthAt(progress.distance);
+                float inner = Mathf.Min(trackEdge, rampLateral - rampHalfWidth) + boundaryMargin;
+                float outer = rampLateral + rampHalfWidth - boundaryMargin;
+                if (lateral > inner && lateral < outer)
+                {
+                    return true;
+                }
+            }
+
+            // Pit-exit merge path: the whole span between the live track edge and
+            // the pit lane's own outer edge is the corridor a merging car actually
+            // uses (see RaceManager.UpdatePitExitMerge) - nothing solid belongs
+            // anywhere in it, so only a thin margin is given.
+            if (Runtime.IsInPitExitMergeZone(normalized))
+            {
+                float trackEdge = Runtime.HalfWidthAt(progress.distance);
+                float inner = trackEdge + 0.3f;
+                float outer = Runtime.PitLaneLateral + pitLaneHalfWidth - 0.3f;
+                if (lateral > inner && lateral < outer)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Full placement-validity gate (collision, not just visual): an obstacle is
+        // only a legal solid barrier if its whole oriented footprint clears both the
+        // live racing surface AND every pit drivable surface (corridor/ramps/merge
+        // path). Either intrusion makes it invalid.
+        bool IsSolidObstaclePlacementValid(GameObject obstacle, string obstacleType, Vector3 position, Vector3 forward, Vector3 localScale, float minimumClearance)
+        {
+            Vector3[] samples = GetObstacleFootprintSamples(position, forward, localScale);
+            for (int i = 0; i < samples.Length; i++)
+            {
+                TrackProgress progress = Runtime.GetProgress(samples[i]);
+                if (Mathf.Abs(progress.lateralDistance) < Runtime.HalfWidthAt(progress.distance) + minimumClearance)
+                {
+                    return false;
+                }
+
+                if (IsInsidePitDrivableSurface(samples[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        // Barriers that form the primary perimeter/containment wall - losing one of
+        // these leaves a genuine hole in the track boundary, so a failed placement
+        // gets a chance to be pushed outward (away from the centerline) until it
+        // clears, rather than being demoted outright. Everything else (pit dividers,
+        // ramp guide walls, auto-fill, the pit's own separator wall) is decorative/
+        // supplementary relative to that primary line and gets demoted straight to
+        // visual-only on failure instead.
+        bool IsEssentialOuterEdgeBarrier(string obstacleType)
+        {
+            if (string.IsNullOrEmpty(obstacleType))
+            {
+                return false;
+            }
+
+            return obstacleType == "street-wall" || obstacleType == "armco-rail" ||
+                   obstacleType == "tyre-barrier" || obstacleType == "bridge-wall";
         }
 
         // Track validation depth: detects a road half-width that jumps abruptly
@@ -9186,32 +9518,13 @@ namespace LocalFormulaRacing
 
             report.sharpEdgeCount = DetectSharpWidthChanges(report);
 
-            // Barrier-continuity fix: this used to destroy any already-placed
-            // barrier/fence/wall segment that failed the same approximate
-            // clearance geometry check TryPlaceSolidObstacle no longer uses -
-            // silently punching holes in an otherwise correctly generated
-            // boundary. Every one of these objects is a barrier-family piece
-            // placed by exact flush-to-edge math, so it is never actually
-            // wrong to keep it; this pass now only counts/logs a suspicious
-            // one for visibility (see the boundary debug overlay) instead of
-            // removing real, correctly-placed geometry.
-            for (int i = solidObstacles.Count - 1; i >= 0; i--)
-            {
-                TrackSolidObstacle obstacle = solidObstacles[i];
-                if (obstacle == null)
-                {
-                    solidObstacles.RemoveAt(i);
-                    continue;
-                }
-
-                if (!IsObstacleClearOfRacingSurface(obstacle.transform.position, obstacle.transform.forward, obstacle.localScaleAtValidation, obstacle.minimumClearance))
-                {
-                    report.invalidObstaclesFlagged++;
-                    report.obstacleIntrusionCount++;
-                    GameLog.Warn("[TrackValidation] " + obstacle.obstacleType + " at " + obstacle.transform.position +
-                                 " sits close to the racing surface by the approximate check - left in place (barriers are never auto-removed).");
-                }
-            }
+            // Collision/placement fix: the real, final sweep over the whole
+            // solidObstacles registry (ValidateNoSolidObstaclesInsideDrivingCorridors)
+            // runs later in Build(), after every geometry-placing pass (including
+            // auto-fill and the overlap deconflict pass) has had its turn - doing it
+            // here, this early, would miss obstacles created by those later passes.
+            // report.invalidObstaclesFlagged/obstacleIntrusionCount are populated
+            // there instead.
 
             report.gridSpawnValid = ValidateGridSlots(report);
             report.pitPosesValid = ValidatePitPoses(report);

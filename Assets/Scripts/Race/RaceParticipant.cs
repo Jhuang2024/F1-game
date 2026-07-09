@@ -113,6 +113,17 @@ namespace LocalFormulaRacing
         // Lightweight per-race ERS/DRS usage counters for post-session diagnostics.
         public int ersDeployFrameCount;
         public int drsActiveFrameCount;
+        // DRS fix: eligibility is decided once, at each zone's own detection point
+        // (RaceManager.UpdateDrsEligibility/TrackRuntime.CrossedDrsDetectionPoint),
+        // and then held for that whole activation zone rather than re-checked every
+        // frame - see RaceManager.IsDrsAvailable. lapZone* records which lap the
+        // decision was made on purely so a stale eligibility flag from a previous
+        // lap's pass through the same zone can never leak into this lap's pass.
+        public bool drsEligibleZoneOne;
+        public bool drsEligibleZoneTwo;
+        public int drsEligibilityLapZoneOne = -1;
+        public int drsEligibilityLapZoneTwo = -1;
+        public float previousDrsProgressNormalized = -1f;
         // Denominator for the two counters above (post-race telemetry report -
         // see RuntimeUi.BuildDrivingTelemetryCard) - only counts frames this
         // participant was actually ticked (on track, not mid-pit-guide/finished),
@@ -121,6 +132,23 @@ namespace LocalFormulaRacing
         public float pitTimer;
         public float pitServiceDuration;
         public bool pitLimiterUntilExit;
+        // Pit-exit merge fix (round 2): the normalized-zone check alone can't tell
+        // how far a STAGGERED release (TrackRuntime.GetPitReleasePose can land
+        // meaningfully before the fixed PitExitLimiterStartNormalized boundary,
+        // depending on track length/stagger slot) actually is from the real merge
+        // end - a car released early could already read as "past" a fixed
+        // normalized window despite having barely started the merge. Recorded once
+        // at the ExitMerge transition and measured with wrapped forward distance
+        // (RaceManager.WrappedForwardDistance) instead, so completion tracks the
+        // car's own actual travel down the exit lane, not just a shared fixed zone.
+        public float pitExitMergeStartDistance;
+        public float pitExitMergeEndDistance;
+        // Short post-merge AI-side lane hold (see AiVehicleController) so normal
+        // racing-line/overtake/defend logic doesn't immediately dive for the apex
+        // the instant guided ExitMerge control hands back, even though the guided
+        // merge itself already delivered the car to a safe outer line.
+        public float pitExitLaneHoldTimer;
+        public float pitExitLaneHoldDistanceRemaining;
         public bool hasLastSafePosition;
         public Vector3 lastSafePosition;
         public Quaternion lastSafeRotation;

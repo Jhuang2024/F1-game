@@ -847,8 +847,15 @@ namespace LocalFormulaRacing
             // actually reach it) - gives DRS its own genuine additive force term,
             // scaled by the car's aero rating, same as ERS gets its own additive
             // ersBoost term below rather than only a softened drag figure.
-            float drsBoost = DrsActive ? Mathf.Lerp(22f, 34f, CarData.aeroEfficiency / 100f) : 0f;
-            float drsSpeedRamp = Mathf.Lerp(0.5f, 1f, Mathf.InverseLerp(90f, 170f, forwardSpeedKph));
+            // DRS calibration fix: the old ramp (0.5-1 over 90-170kph) meant DRS was
+            // already half-strength well below normal cruising speed and barely grew
+            // from there - DRS is a top-speed tool, not a low-speed one, so it should
+            // do almost nothing below ~120kph and build hardest in the 140-260kph
+            // band where it's actually used. The old 22-34 additive term also wasn't
+            // enough to overcome drag at those speeds within a typical zone's length
+            // to produce a real, felt top-speed gain - raised well above that.
+            float drsBoost = DrsActive ? Mathf.Lerp(38f, 55f, CarData.aeroEfficiency / 100f) : 0f;
+            float drsSpeedRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(140f, 260f, forwardSpeedKph));
 
             float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
             float speedLimiter = Mathf.Clamp01((topSpeed + limiterWindow - forwardSpeed) / limiterWindow);
@@ -933,7 +940,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            float dragCoefficient = DrsActive ? 0.0003f : 0.00054f;
+            float dragCoefficient = DrsActive ? 0.00025f : 0.00054f;
             dragCoefficient *= Mathf.Lerp(1.1f, 0.84f, CarData.aeroEfficiency / 100f);
             dragCoefficient *= Mathf.Lerp(1.02f, 0.88f, Mathf.InverseLerp(1, GearCount, CurrentGear));
             dragCoefficient /= Mathf.Max(0.55f, Damage.AeroMultiplier);

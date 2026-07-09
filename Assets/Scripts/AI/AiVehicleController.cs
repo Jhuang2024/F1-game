@@ -761,14 +761,25 @@ namespace LocalFormulaRacing
                 requestedOffset = Mathf.Lerp(requestedOffset, pitApproachTargetLateral, approachBlend * approachBlend);
             }
 
-            // Pit-exit early-turn fix: superseded by RaceManager's guided
-            // PitPhase.ExitMerge (see RaceManager.UpdatePitRelease/UpdatePitExitMerge).
-            // The car now stays under kinematic pit guidance - the same mechanism
-            // used for Entry/Service/Release - all the way through the real
-            // pit-exit merge geometry, so this controller no longer needs a
-            // steering-blend heuristic to hold the line after release; letting
-            // both systems fight over requestedOffset post-release was the source
-            // of the earlier round-2/3/4 divergence bugs.
+            // Pit-exit early-turn fix: the guided PitPhase.ExitMerge itself
+            // (RaceManager.UpdatePitRelease/UpdatePitExitMerge) carries the car all
+            // the way through the real pit-exit merge geometry under kinematic
+            // guidance. But normal racing-line/overtake/defend logic resuming the
+            // instant guided control hands back can still dive for the next apex
+            // more aggressively than is safe right after a merge - this short
+            // post-merge hold (armed by RaceManager once ExitMerge completes) keeps
+            // the car on the outer lane a little longer and decays smoothly, rather
+            // than snapping straight back to full racing-line targeting.
+            if (participant.pitExitLaneHoldTimer > 0f || participant.pitExitLaneHoldDistanceRemaining > 0f)
+            {
+                participant.pitExitLaneHoldTimer = Mathf.Max(0f, participant.pitExitLaneHoldTimer - Time.deltaTime);
+                float distanceThisFrame = Mathf.Max(0f, vehicle.CurrentSpeedKph) / 3.6f * Time.deltaTime;
+                participant.pitExitLaneHoldDistanceRemaining = Mathf.Max(0f, participant.pitExitLaneHoldDistanceRemaining - distanceThisFrame);
+
+                float postMergeHalfWidth = track.HalfWidthAt(progress.distance);
+                float safeExitOffset = postMergeHalfWidth - 1.4f;
+                requestedOffset = Mathf.Lerp(requestedOffset, safeExitOffset, 0.85f);
+            }
 
             // Opening seconds: hold the assigned fan-out lane, blending back to the
             // racing line as the field strings out.
@@ -1598,7 +1609,8 @@ namespace LocalFormulaRacing
             // position, and attacking one is a free, riskless pass rather than a
             // real overtake). Mirrors the yellow-flag abort immediately above -
             // any live attempt is aborted cleanly back to a single lane.
-            bool pitZoneNearby = track.IsInPitApproach(progress.normalized) || track.IsInPitExitLimiterZone(progress.normalized);
+            bool pitZoneNearby = track.IsInPitApproach(progress.normalized) || track.IsInPitExitLimiterZone(progress.normalized) ||
+                                  participant.pitExitLaneHoldTimer > 0f || participant.pitExitLaneHoldDistanceRemaining > 0f;
             bool eitherUnderPitLimiter = vehicle.PitLimiterActive || (ahead != null && ahead.vehicle != null && ahead.vehicle.PitLimiterActive);
             bool suppressAttackManeuvers = pitZoneNearby || eitherUnderPitLimiter;
             if (suppressAttackManeuvers && overtakeState != OvertakeState.Following && overtakeState != OvertakeState.BackingOut && overtakeState != OvertakeState.CompletingPass)

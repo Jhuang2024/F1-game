@@ -14,6 +14,11 @@ namespace LocalFormulaRacing
         float throttleValue;
         float brakeValue;
         bool drsLatched;
+        // DRS queue fix: a Space press a frame or two before DRS actually becomes
+        // legal (zone/gap) used to be silently dropped. Queue it for a short window
+        // so it activates the instant DRS becomes available instead of requiring a
+        // second, perfectly-timed press.
+        float drsQueueTimer;
         float resetHoldTime;
         bool resetTriggered;
         float lastDamagePercent = -1f;
@@ -133,7 +138,24 @@ namespace LocalFormulaRacing
             command.steer = Mathf.Clamp(steerValue, -1f, 1f);
             if (Input.GetKeyDown(KeyCode.Space))
             {
-                drsLatched = raceManager.IsDrsAvailable(participant) && !drsLatched;
+                if (raceManager.IsDrsAvailable(participant))
+                {
+                    drsLatched = !drsLatched;
+                }
+                else
+                {
+                    drsQueueTimer = 0.4f;
+                }
+            }
+
+            if (drsQueueTimer > 0f)
+            {
+                drsQueueTimer = Mathf.Max(0f, drsQueueTimer - Time.deltaTime);
+                if (raceManager.IsDrsAvailable(participant))
+                {
+                    drsLatched = true;
+                    drsQueueTimer = 0f;
+                }
             }
 
             if (!raceManager.IsDrsAvailable(participant))

@@ -965,6 +965,7 @@ namespace LocalFormulaRacing
                 HandlePitService(participant);
                 HandleFinish(participant);
                 UpdateFuelState(participant);
+                UpdateDrsEligibility(participant);
 
                 if (participant.vehicle != null)
                 {
@@ -5401,6 +5402,90 @@ namespace LocalFormulaRacing
             return command;
         }
 
+        // DRS fix: the 1-second gap requirement is evaluated ONCE, at each zone's own
+        // detection point (a short distance before the zone starts - see
+        // TrackRuntime.drsDetectionOne/Two), not continuously through the whole
+        // activation zone. Real DRS works the same way: the gap is checked as you
+        // cross the detection line, and if you're within a second you get DRS for
+        // the ENTIRE following zone even if the gap opens back up past a second
+        // halfway down the straight. The old code called GetIntervalToAheadSeconds
+        // every frame inside the zone, so DRS would flicker off the instant the live
+        // gap crept past 1.0s - which is exactly why it "did not stay open long
+        // enough". Runs unconditionally every frame per participant (not just while
+        // DRS-eligible) so a car approaching a zone always gets evaluated the moment
+        // it crosses the detection point, regardless of what it was doing before.
+        void UpdateDrsEligibility(RaceParticipant participant)
+        {
+            if (participant == null || participant.lapTracker == null || Track == null || participant.vehicle == null)
+            {
+                return;
+            }
+
+            TrackProgress progress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
+            float currentNormalized = progress.normalized;
+
+            if (participant.retired || participant.finished || participant.isPitting || participant.pitPhase != PitPhase.None)
+            {
+                participant.drsEligibleZoneOne = false;
+                participant.drsEligibleZoneTwo = false;
+                participant.previousDrsProgressNormalized = currentNormalized;
+                return;
+            }
+
+            if (participant.previousDrsProgressNormalized < 0f)
+            {
+                participant.previousDrsProgressNormalized = currentNormalized;
+                return;
+            }
+
+            float previousNormalized = participant.previousDrsProgressNormalized;
+
+            if (Track.CrossedDrsDetectionPoint(previousNormalized, currentNormalized, 1))
+            {
+                participant.drsEligibleZoneOne = EvaluateDrsDetectionGap(participant);
+                participant.drsEligibilityLapZoneOne = participant.lapTracker.CompletedLaps;
+            }
+
+            if (Track.CrossedDrsDetectionPoint(previousNormalized, currentNormalized, 2))
+            {
+                participant.drsEligibleZoneTwo = EvaluateDrsDetectionGap(participant);
+                participant.drsEligibilityLapZoneTwo = participant.lapTracker.CompletedLaps;
+            }
+
+            // Clear a zone's own eligibility once the car has actually left it, so a
+            // stale "eligible" flag can never linger into some later, unrelated pass
+            // through the same normalized band (e.g. after a forced reposition).
+            if (Track.IsInDrsZone(1, previousNormalized) && !Track.IsInDrsZone(1, currentNormalized))
+            {
+                participant.drsEligibleZoneOne = false;
+            }
+
+            if (Track.IsInDrsZone(2, previousNormalized) && !Track.IsInDrsZone(2, currentNormalized))
+            {
+                participant.drsEligibleZoneTwo = false;
+            }
+
+            participant.previousDrsProgressNormalized = currentNormalized;
+        }
+
+        // The actual 1-second-gap decision, made once at the detection point.
+        // Qualifying/time trial never require a gap at all - every zone is always
+        // available with no car-ahead requirement.
+        bool EvaluateDrsDetectionGap(RaceParticipant participant)
+        {
+            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
+            {
+                return true;
+            }
+
+            if (participant.lapTracker.CompletedLaps < 2)
+            {
+                return false;
+            }
+
+            return GetIntervalToAheadSeconds(participant) <= 1f;
+        }
+
         public bool IsDrsAvailable(RaceParticipant participant)
         {
             if (participant == null || participant.lapTracker == null || Track == null)
@@ -5428,14 +5513,18 @@ namespace LocalFormulaRacing
 
             // A local yellow disables DRS for any car in the flagged sector (the
             // same scope as the overtaking ban - DRS exists purely to overtake),
-            // plus the tighter near-incident window used by the speed cap.
+            // plus the tighter near-incident window used by the speed cap. Checked
+            // continuously (every frame, not just at the detection point) so a
+            // yellow that comes out AFTER a car already earned zone eligibility
+            // still shuts DRS off immediately, matching the real rule.
             if (IsNearLocalYellowIncident(participant) || IsOvertakingRestrictedForParticipant(participant))
             {
                 return false;
             }
 
             TrackProgress progress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
-            if (!Track.IsInDrsZone(progress.normalized))
+            int zoneIndex = Track.GetDrsZoneIndex(progress.normalized);
+            if (zoneIndex == 0)
             {
                 return false;
             }
@@ -5450,7 +5539,11 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            return GetIntervalToAheadSeconds(participant) <= 1f;
+            // The gap requirement itself was already decided at this zone's
+            // detection point (UpdateDrsEligibility) and is NOT re-checked here -
+            // that is the whole point of the fix. A car that qualified within 1s at
+            // the line keeps DRS for the entire zone even if the gap opens back up.
+            return zoneIndex == 1 ? participant.drsEligibleZoneOne : participant.drsEligibleZoneTwo;
         }
 
         public string DrsStateText(RaceParticipant participant)
@@ -8465,6 +8558,13 @@ namespace LocalFormulaRacing
             participant.vehicle.SnapToPitPose(releasePosition, releaseRotation);
             participant.hasPitGuideState = false;
             participant.pitPhase = PitPhase.ExitMerge;
+            // Distance-based merge tracking (round 2 fix): a staggered release can
+            // land meaningfully before the fixed normalized merge-zone boundary, so
+            // record this car's own actual release distance and the real ramp end
+            // distance here - UpdatePitExitMerge measures completion against these,
+            // not just the shared fixed zone.
+            participant.pitExitMergeStartDistance = releaseTargetProgress.distance;
+            participant.pitExitMergeEndDistance = Track.length * TrackRuntime.PitExitRampEndNormalized;
             participant.vehicle.SetPitServiceHold(false);
             participant.vehicle.SetPitLimiter(true);
             // Pit-exit speed fix: from this point on the car is driving down an
@@ -8498,23 +8598,63 @@ namespace LocalFormulaRacing
         // visibly follows the lane instead of cutting a diagonal to the apex.
         const float PitExitMergePaceKph = 100f;
         const float PitExitMergeLookaheadMeters = 12f;
+        const float PitExitMergeCompletionBufferMeters = 10f;
+        const float PitExitLaneHoldSeconds = 1.5f;
+        const float PitExitLaneHoldDistanceMeters = 40f;
+
+        // Wrapped forward-only distance from one track distance to another,
+        // always >= 0 and always measured going the direction of travel (never the
+        // shorter of the two wrap directions) - used to measure a car's own actual
+        // progress through the pit-exit merge regardless of where its staggered
+        // release distance happened to land relative to the fixed merge-zone
+        // boundary.
+        float WrappedForwardDistance(float fromDistance, float toDistance)
+        {
+            float delta = toDistance - fromDistance;
+            if (delta < 0f)
+            {
+                delta += Track.length;
+            }
+
+            return delta;
+        }
 
         void UpdatePitExitMerge(RaceParticipant participant)
         {
             TrackProgress currentProgress = GetPitAwareProgress(participant);
             float targetDistance = Track.WrapDistance(currentProgress.distance + PitExitMergeLookaheadMeters);
-            float targetNormalized = targetDistance / Mathf.Max(1f, Track.length);
-            float blend = Track.PitExitMergeBlend(targetNormalized);
+
+            // Distance-based merge fix: completion and the lateral blend both key
+            // off this car's own measured travel from its recorded release point
+            // toward the real ramp end, not a shared fixed normalized zone -
+            // a staggered release can start meaningfully closer to (or past) that
+            // fixed zone depending on track length/stagger slot, which used to let
+            // the normalized-only check think the merge was already over.
+            float traveled = WrappedForwardDistance(participant.pitExitMergeStartDistance, currentProgress.distance);
+            float required = WrappedForwardDistance(participant.pitExitMergeStartDistance, participant.pitExitMergeEndDistance);
+            float t = Mathf.Clamp01(traveled / Mathf.Max(1f, required));
+
+            // Hold the pit-exit lane through the first 55% of the merge and only
+            // blend toward the outer track edge in the final stretch - blending
+            // inward starting immediately at release is exactly what let cars cut
+            // across the merge early.
+            float blendOut = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, 1f, t));
+            float localHalfWidth = Track.HalfWidthAt(targetDistance);
             float releaseLateral = Track.roadHalfWidth + 4.8f;
-            float mergedLateral = Track.HalfWidthAt(targetDistance) * 0.45f;
-            float targetLateral = Mathf.Lerp(mergedLateral, releaseLateral, blend);
+            // The merge should settle onto the OUTER edge of the live track, not
+            // anywhere near the centerline/racing line - HalfWidth * 0.45 (the old
+            // target) dragged the car most of the way across the road well before
+            // the merge was actually finished.
+            float mergeEdgeLateral = Mathf.Max(localHalfWidth - 1.5f, localHalfWidth * 0.78f);
+            float targetLateral = Mathf.Lerp(releaseLateral, mergeEdgeLateral, blendOut);
 
             Vector3 waypoint;
             Quaternion waypointRotation;
             AdvancePitGuideTarget(participant, targetDistance, targetLateral, PitExitMergePaceKph, out waypoint, out waypointRotation);
             participant.vehicle.GuideToPitPose(waypoint, waypointRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed);
 
-            if (!Track.PastPitExitMergeEnd(currentProgress.normalized))
+            bool distanceComplete = traveled >= required + PitExitMergeCompletionBufferMeters;
+            if (!distanceComplete)
             {
                 return;
             }
@@ -8523,6 +8663,13 @@ namespace LocalFormulaRacing
             participant.pitPhase = PitPhase.None;
             participant.isPitting = false;
             participant.hasPitGuideState = false;
+            // Post-merge AI-side hold (AiVehicleController): even though the
+            // guided merge just delivered the car to a safe outer line, normal
+            // racing-line/overtake/defend logic resuming instantly can still dive
+            // for the next apex too aggressively - hold the outer lane a little
+            // longer and suppress overtaking/defending while it eases back in.
+            participant.pitExitLaneHoldTimer = PitExitLaneHoldSeconds;
+            participant.pitExitLaneHoldDistanceRemaining = PitExitLaneHoldDistanceMeters;
 
             AiVehicleController releasedAi = participant.GetComponent<AiVehicleController>();
             if (releasedAi != null)
@@ -8532,11 +8679,7 @@ namespace LocalFormulaRacing
                 // kinematic guidance the whole time it was pit-guided, so its
                 // cached track-progress reference is stale and needs a fresh
                 // full-track resync rather than a near-search seeded from
-                // wherever it was before pitting. Unlike the old fix, no
-                // additional AI-side steering hold needs arming here - the
-                // guided merge above already delivered the car to a sensible,
-                // legal line, so normal racing-line targeting can resume
-                // immediately and cleanly.
+                // wherever it was before pitting.
                 releasedAi.ResyncAfterForcedReposition();
             }
 
