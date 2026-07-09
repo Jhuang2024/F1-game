@@ -722,6 +722,15 @@ namespace LocalFormulaRacing
         // rather than failing.
         public List<string> trackLimitEvents = new List<string>();
         public string strategySummary;
+
+        // Fuel strategy pass: report-facing fuel figures, captured once at
+        // finish/retirement. Field initializers keep an older saved race report
+        // (written before these existed) deserializing safely at 0/Target/false.
+        public float startFuelKg;
+        public float finishFuelKg;
+        public int fuelLoadChoice = (int)FuelLoadChoice.Target;
+        public float liftAndCoastSavedKg;
+        public bool fuelStarvedRetirement;
     }
 
     [Serializable]
@@ -856,6 +865,13 @@ namespace LocalFormulaRacing
         // RaceManager.UpdateTrackEvolution. On by default; players who want fully
         // static per-lap grip can turn it off.
         public bool trackEvolutionEnabled = true;
+
+        // Fuel strategy: pre-race fuel-load choice, same "plain int field on
+        // settings + companion enum for readability" pattern as ersMode above.
+        // Defaults to FuelLoadChoice.Target (2) so an old save with no key present
+        // starts a race exactly the way a deliberate "target fuel" choice would -
+        // enough to finish on normal driving, no free speed and no starvation risk.
+        public int fuelLoadChoice = (int)FuelLoadChoice.Target;
     }
 
     [Serializable]
@@ -979,5 +995,23 @@ namespace LocalFormulaRacing
         Balanced,
         Attack,
         Harvest
+    }
+
+    // Fuel strategy pass: pre-race fuel-load choice, expressed as a lap-count
+    // delta around the calculated "Target" load (RaceManager.ComputeRaceStartFuelKg).
+    // Target = 0 is deliberately the enum's default value (int 2, but every consumer
+    // should still read the stored int through this enum rather than assume the
+    // ordinal) so an old save with fuelLoadChoice left at its zero-value default
+    // would actually resolve to AggressiveUnderfuel if this were ordered
+    // differently - GameSettingsData.fuelLoadChoice's own field initializer
+    // ((int)FuelLoadChoice.Target) is what actually guarantees the safe default,
+    // not enum ordinal position.
+    public enum FuelLoadChoice
+    {
+        AggressiveUnderfuel,
+        LightUnderfuel,
+        Target,
+        Safe,
+        Heavy
     }
 }

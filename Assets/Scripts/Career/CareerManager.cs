@@ -375,6 +375,7 @@ namespace LocalFormulaRacing
                 Save.resourcePoints += Mathf.RoundToInt(Mathf.Max(0, targetDelta) * 12 * Save.currentSeasonResourceMultiplier);
                 UpdateRaceRivalryAndForm(results, player, raceEvent);
                 UpdateSeasonObjectivesProgress(results, player, raceEvent);
+                ApplyFuelStrategyReward(player);
             }
 
             AdvanceUpgradeProjects();
@@ -1653,6 +1654,32 @@ namespace LocalFormulaRacing
             tuned.chassisBalance = Mathf.Clamp(tuned.chassisBalance, 45, 125);
             tuned.enginePower = Mathf.Clamp(tuned.enginePower, 45, 125);
             return tuned;
+        }
+
+        // Fuel system pass: small reward for genuinely successful underfuelling
+        // (chose to run light AND actually made it to the finish with a sensible
+        // small margin, not stranded or carrying it needlessly), small penalty for
+        // a fuel-starvation DNF. Deliberately modest either way - fuel strategy is
+        // a nice-to-reward skill element, not a headline career mechanic.
+        void ApplyFuelStrategyReward(RaceResultEntry player)
+        {
+            if (player == null)
+            {
+                return;
+            }
+
+            if (player.fuelStarvedRetirement)
+            {
+                Save.reputation -= 2;
+                return;
+            }
+
+            bool chosenLight = player.fuelLoadChoice == (int)FuelLoadChoice.AggressiveUnderfuel || player.fuelLoadChoice == (int)FuelLoadChoice.LightUnderfuel;
+            if (chosenLight && player.finishFuelKg >= 0.15f && player.finishFuelKg <= 2.5f)
+            {
+                Save.reputation += 1;
+                Save.resourcePoints += Mathf.RoundToInt(20f * Save.currentSeasonResourceMultiplier);
+            }
         }
 
         void ApplyDriverPoints(RaceResultEntry result, int points)

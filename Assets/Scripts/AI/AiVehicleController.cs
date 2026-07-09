@@ -962,6 +962,21 @@ namespace LocalFormulaRacing
                 {
                     throttleTarget = Mathf.Min(throttleTarget, Mathf.Lerp(0.55f, 1f, vehicle.LastTyreGripMultiplier / 0.6f));
                 }
+
+                // Fuel system pass: AI lift-and-coast - once the projected fuel
+                // delta goes negative, back off the throttle target somewhat right
+                // where it actually matters (nearCorner, the same braking-zone-
+                // approach gate the brake-demand model above uses), mirroring the
+                // player's own ApproachingBrakingZone-gated saving in
+                // VehicleController.UpdateFuel. Severity scales with how far
+                // negative the delta is, so a car only barely short barely lifts,
+                // while a genuinely negative delta (e.g. an aggressive underfuel
+                // plan that isn't paying off) lifts meaningfully harder.
+                if (nearCorner && vehicle.ProjectedFuelDeltaLaps < -0.25f)
+                {
+                    float fuelSaveSeverity = Mathf.Clamp01((-vehicle.ProjectedFuelDeltaLaps - 0.25f) / 1f);
+                    throttleTarget = Mathf.Min(throttleTarget, Mathf.Lerp(1f, 0.55f, fuelSaveSeverity));
+                }
             }
 
             // Smooth the ramp instead of snapping frame to frame - lift off quickly

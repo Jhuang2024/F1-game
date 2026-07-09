@@ -169,6 +169,15 @@ namespace LocalFormulaRacing
         // the compound the car happened to finish on.
         public List<string> compoundStints = new List<string>();
         public TyreCompound startingCompound = TyreCompound.Medium;
+        // Fuel system pass: the fuel-load plan this car actually raced with (player's
+        // own pre-race choice, or the AI's per-driver roll - see
+        // RaceManager.ResolveAiFuelChoice). Defaults to Target so a participant that
+        // somehow skips fuel setup (should never happen) still reports sensibly.
+        public FuelLoadChoice chosenFuelLoad = FuelLoadChoice.Target;
+        // Fuel starvation DNF grace period (VehicleController.FuelStarved is the
+        // live per-frame flag; this timer is RaceManager's own tracking for when to
+        // actually retire the car - see UpdateFuelStarvation).
+        public bool fuelStarvationRetirementApplied;
         public TyreCompound nextPitCompound = TyreCompound.Medium;
         public TyreCompound requestedPitCompound = TyreCompound.Medium;
         public bool requestedPitCompoundSet;
@@ -250,7 +259,12 @@ namespace LocalFormulaRacing
                 flatSpotPercent = vehicle == null || vehicle.Tyres == null ? 0f : vehicle.Tyres.FlatSpotLevel * 100f,
                 trackLimitWarnings = trackLimitWarnings,
                 trackLimitEvents = new List<string>(trackLimitEventLog),
-                strategySummary = strategySummary
+                strategySummary = strategySummary,
+                startFuelKg = vehicle == null ? 0f : vehicle.StartFuelKg,
+                finishFuelKg = vehicle == null ? 0f : vehicle.FuelKg,
+                fuelLoadChoice = (int)chosenFuelLoad,
+                liftAndCoastSavedKg = vehicle == null ? 0f : vehicle.LiftAndCoastSavedKg,
+                fuelStarvedRetirement = retired && !string.IsNullOrEmpty(retirementReason) && retirementReason.Contains("Fuel starvation")
             };
         }
 

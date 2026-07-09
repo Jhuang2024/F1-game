@@ -41,6 +41,20 @@ namespace LocalFormulaRacing
         // before while exit gets a genuinely higher, still-limited pace.
         public bool PitExitFastLimiter { get; private set; }
         public float FuelKg { get { return fuelKg; } }
+        // Fuel system pass: distance-scaled fuel replacing the old flat 35kg-for-
+        // every-session load. startFuelKg/fuelPerLapEstimateKg are set once by
+        // RaceManager right after Initialize (see SetStartFuel) from
+        // RaceManager.ComputeRaceStartFuelKg/ComputeQualifyingFuelKg/
+        // ComputeTimeTrialFuelKg/ComputePracticeFuelKg - VehicleController itself
+        // stays session-agnostic and just burns/reports against whatever it's told.
+        public float StartFuelKg { get { return startFuelKg; } }
+        public float FuelPerLapEstimateKg { get { return fuelPerLapEstimateKg; } }
+        public float ProjectedFuelDeltaKg { get; private set; }
+        public float ProjectedFuelDeltaLaps { get; private set; }
+        public float LiftAndCoastSavedKg { get; private set; }
+        public int LiftAndCoastEvents { get; private set; }
+        public bool FuelStarved { get { return fuelStarved; } }
+        public float FuelStarvedTimer { get { return fuelStarvedTimer; } }
         public float UndersteerAmount { get; private set; }
         public float OversteerAmount { get; private set; }
         public float EffectiveThrottle { get; private set; }
@@ -67,7 +81,15 @@ namespace LocalFormulaRacing
         bool initialized;
         bool manualGears;
         GameSettingsData settings;
+        // Fuel system pass: 35f is only the pre-SetStartFuel fallback (editor
+        // preview, or a car that somehow never gets spawned through RaceManager) -
+        // every real session sets startFuelKg/fuelKg explicitly via SetStartFuel.
         float fuelKg = 35f;
+        float startFuelKg = 35f;
+        float fuelPerLapEstimateKg;
+        bool fuelStarved;
+        float fuelStarvedTimer;
+        bool liftAndCoastActive;
         float pitCooldown;
         Vector3 gridHoldPosition;
         Quaternion gridHoldRotation;
@@ -124,6 +146,59 @@ namespace LocalFormulaRacing
             LastGearTorqueMultiplier = GearTorqueMultipliers[0];
             initialized = true;
             GameLog.Info("[Damage] " + name + " starting damage " + Damage.OverallPercent.ToString("0.0") + "%");
+        }
+
+        // Fuel system pass: called once by RaceManager right after Initialize, with
+        // a session-appropriate load already computed (race: distance-scaled from
+        // lap count + the player's/AI's fuel-load choice; qualifying/time
+        // trial/practice: their own low/fixed loads - see RaceManager's
+        // ComputeXFuelKg helpers). Re-applies body.mass immediately since
+        // Initialize above already set it from the old flat 35kg field default.
+        public void SetStartFuel(float startingFuelKg, float perLapEstimateKg)
+        {
+            startFuelKg = Mathf.Max(0f, startingFuelKg);
+            fuelKg = startFuelKg;
+            fuelPerLapEstimateKg = Mathf.Max(0f, perLapEstimateKg);
+            fuelStarved = false;
+            fuelStarvedTimer = 0f;
+            LiftAndCoastSavedKg = 0f;
+            LiftAndCoastEvents = 0;
+            if (body != null)
+            {
+                body.mass = 760f + fuelKg;
+            }
+        }
+
+        // Fuel system pass: Time Trial is a pure lap-time comparison tool - a
+        // depleting/varying fuel load across repeated laps would distort record
+        // comparisons for no gameplay benefit, so RaceManager sets this true right
+        // after SetStartFuel for a Time Trial session (never for Race/Qualifying/
+        // Practice). Mass/power stay fixed at the Time Trial fuel load the whole
+        // session; fuel simply never burns down.
+        bool fuelBurnDisabled;
+
+        public void SetFuelBurnDisabled(bool disabled)
+        {
+            fuelBurnDisabled = disabled;
+        }
+
+        // Fuel system pass: RaceManager calls this once per tick (player and every
+        // AI car) with how much of the race is actually left, so the HUD/AI can
+        // reason about "will the current fuel load actually make it" rather than
+        // just a raw kg number. remainingLaps includes the fractional part of the
+        // lap in progress (e.g. 2.35 laps left), not just whole completed laps.
+        public void UpdateFuelProjection(float remainingLaps)
+        {
+            if (fuelPerLapEstimateKg <= 0.001f)
+            {
+                ProjectedFuelDeltaKg = 0f;
+                ProjectedFuelDeltaLaps = 0f;
+                return;
+            }
+
+            float projectedNeededKg = Mathf.Max(0f, remainingLaps) * fuelPerLapEstimateKg;
+            ProjectedFuelDeltaKg = fuelKg - projectedNeededKg;
+            ProjectedFuelDeltaLaps = ProjectedFuelDeltaKg / fuelPerLapEstimateKg;
         }
 
         // Translate the saved garage setup into small, readable physics trade-offs.
@@ -384,11 +459,91 @@ namespace LocalFormulaRacing
             ApplySteering(assisted, absoluteSpeedKph, dt);
             StabilizeChassis(dt);
 
-            float burn = Mathf.Lerp(0.012f, 0.03f, Mathf.Clamp01(assisted.throttle));
-            fuelKg = Mathf.Max(4f, fuelKg - dt * burn);
-            body.mass = 760f + fuelKg;
+            UpdateFuel(assisted, absoluteSpeedKph, progress, dt);
             pitCooldown = Mathf.Max(0f, pitCooldown - dt);
             LogSuspiciousPowerLoss(absoluteSpeedKph, dt);
+        }
+
+        // Fuel system pass: burn is DISTANCE-based (fuel per metre of track,
+        // derived from fuelPerLapEstimateKg / track length) rather than a flat
+        // kg-per-second constant - a flat per-second rate has no idea how long a
+        // lap actually takes, so the same burn rate would over- or under-shoot the
+        // intended per-lap consumption on a short vs. long circuit. Distance-based
+        // burn is self-calibrating: drive one full lap at the "reference" throttle
+        // multiplier below and total consumption lands almost exactly on
+        // fuelPerLapEstimateKg, on any track, with no per-circuit tuning needed.
+        // throttleBurnMultiplier spans 0.5x (fully lifted) to 1.6x (full throttle)
+        // around that 1x reference, so a typical mixed-throttle lap (lots of full
+        // throttle, some lift/braking) averages out close to the estimate while
+        // still rewarding a genuinely light right foot.
+        //
+        // Old behaviour used to floor fuel at 4kg (Mathf.Max(4f, ...)) - cars could
+        // never actually run out. Fuel can now reach true zero; see fuelStarved
+        // below and ApplyForces' starvation power cut.
+        void UpdateFuel(VehicleCommand assisted, float absoluteSpeedKph, TrackProgress progress, float dt)
+        {
+            if (fuelBurnDisabled)
+            {
+                return;
+            }
+
+            float distanceThisFrame = body.velocity.magnitude * dt;
+            float trackLength = Track != null && Track.length > 1f ? Track.length : 4650f;
+            float fuelPerMeter = fuelPerLapEstimateKg > 0f ? fuelPerLapEstimateKg / trackLength : 1.5f / 4650f;
+            // Neutral point (1.0x, i.e. "matches fuelPerLapEstimateKg exactly") sits
+            // at throttle=0.75 rather than the middle of the range - this game's own
+            // AI cornering model already keeps cars near full throttle through most
+            // corner types (HighSpeed/Medium/Slow buckets all target close to
+            // straight-line pace), so a realistic full-lap throttle average here
+            // runs meaningfully higher than a flat 50/50 duty cycle would suggest.
+            float throttleBurnMultiplier = Mathf.Lerp(0.5f, 1.17f, Mathf.Clamp01(assisted.throttle));
+            float burnKg = fuelPerMeter * distanceThisFrame * throttleBurnMultiplier;
+            fuelKg = Mathf.Max(0f, fuelKg - burnKg);
+            body.mass = 760f + fuelKg;
+
+            fuelStarved = fuelKg <= 0f;
+            fuelStarvedTimer = fuelStarved ? fuelStarvedTimer + dt : 0f;
+
+            // Lift-and-coast: only counts as genuine fuel-saving when it happens
+            // heading into a real braking/corner-approach zone (ApproachingBrakingZone
+            // below) - lifting randomly on a straight for no reason isn't a driving
+            // technique worth crediting, it's just slower. liftAndCoastActive is an
+            // edge-detect flag so one sustained lift counts as one event, not one
+            // event per physics tick.
+            bool liftingHigh = absoluteSpeedKph > 90f && assisted.throttle < 0.15f && assisted.brake < 0.05f;
+            bool approachingCorner = liftingHigh && ApproachingBrakingZone(progress);
+            if (approachingCorner && !IsOffTrackSlowdown && !PitLimiterActive && !IsHeldInPit)
+            {
+                const float fullThrottleMultiplier = 1.17f;
+                float savedThisFrame = fuelPerMeter * distanceThisFrame * Mathf.Max(0f, fullThrottleMultiplier - throttleBurnMultiplier);
+                LiftAndCoastSavedKg += savedThisFrame;
+                if (!liftAndCoastActive)
+                {
+                    LiftAndCoastEvents++;
+                    liftAndCoastActive = true;
+                }
+            }
+            else
+            {
+                liftAndCoastActive = false;
+            }
+        }
+
+        // Cheap curvature lookahead (two chords, ~50m spread) just to answer "is
+        // there a real corner coming up" for lift-and-coast crediting - deliberately
+        // simpler than AiVehicleController's own corner-severity model since this
+        // only needs a yes/no, not a speed target.
+        bool ApproachingBrakingZone(TrackProgress progress)
+        {
+            if (Track == null)
+            {
+                return false;
+            }
+
+            Vector3 pointNear, forwardNear, rightNear, pointFar, forwardFar, rightFar;
+            Track.SampleAtDistance(progress.distance + 20f, out pointNear, out forwardNear, out rightNear);
+            Track.SampleAtDistance(progress.distance + 75f, out pointFar, out forwardFar, out rightFar);
+            return Vector3.Angle(forwardNear, forwardFar) > 12f;
         }
 
         void LogSuspiciousPowerLoss(float absoluteSpeedKph, float dt)
@@ -579,7 +734,16 @@ namespace LocalFormulaRacing
 
             float accelerationStat = Mathf.Lerp(11.4f, 20.4f, CarData.acceleration / 100f);
             float engineStat = Mathf.Lerp(0.96f, 1.24f, CarData.enginePower / 100f);
-            float fuelPenalty = Mathf.Lerp(0.9f, 1f, Mathf.InverseLerp(42f, 5f, fuelKg));
+            // Fuel system pass: rebalanced to scale with THIS race's own start load
+            // instead of a fixed 42kg-5kg window - that window assumed the old flat
+            // 35kg start and was meaningless once a 5-lap race starts at ~9kg (the
+            // car would sit permanently at the lightest end of the old range,
+            // never actually feeling a fuel effect). fuelLoad01 is 1.0 on a full
+            // tank FOR THIS RACE and 0 on empty, so the same relative penalty
+            // (heavier = slightly slower) applies whether the race starts at 6kg or
+            // 40kg.
+            float fuelLoad01 = Mathf.Clamp01(fuelKg / Mathf.Max(1f, startFuelKg));
+            float fuelPenalty = Mathf.Lerp(1f, 0.94f, fuelLoad01);
             // Harvest mode banks charge faster at the cost of a weaker deploy punch;
             // Attack mode hits harder on deploy but recovers charge more slowly. Only
             // the human player's own strategy dial drives this - AI cars run their
@@ -704,7 +868,19 @@ namespace LocalFormulaRacing
                 // widened/moved earlier (was 40-140) so the boost is already near full
                 // strength for most of a straight rather than only right at the end.
                 float ersSpeedRamp = Mathf.Lerp(0.5f, 1f, Mathf.InverseLerp(25f, 105f, forwardSpeedKph));
-                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoost * drsSpeedRamp), ForceMode.Acceleration);
+                // Fuel starvation: an empty tank doesn't just weaken power, it
+                // starves the engine almost entirely - the car should crawl/coast,
+                // not just accelerate a bit slower. ERS/DRS boosts are cut too (no
+                // fuel to run the hybrid system either). RaceManager reads
+                // FuelStarved/FuelStarvedTimer to retire the car after a short
+                // grace period rather than DNFing the instant the tank hits zero.
+                float starvationPower = fuelStarved ? 0.1f : 1f;
+                if (fuelStarved)
+                {
+                    ActiveSlowdownReason = "FUEL STARVATION";
+                }
+
+                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoost * drsSpeedRamp) * starvationPower, ForceMode.Acceleration);
                 if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
                 {
                     float pullThrough = Mathf.Lerp(5.6f, 2.0f, speedRatio) * activeCommand.throttle * speedLimiter;

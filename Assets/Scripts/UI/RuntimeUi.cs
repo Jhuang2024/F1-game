@@ -3435,6 +3435,20 @@ namespace LocalFormulaRacing
                 ShowRaceTyreSelect(data, career, settings, careerRace);
             });
 
+            // Fuel system pass: fuel-load choice lives right alongside pit/tyre
+            // strategy, same CreateSettingRow/CreateCycleControl pattern the other
+            // rows in this card already use, and stores straight into
+            // settings.Current.fuelLoadChoice (GameSettingsData, default Target).
+            FuelLoadChoice fuelChoice = (FuelLoadChoice)settings.Current.fuelLoadChoice;
+            RectTransform fuelControl;
+            UiFactory.CreateSettingRow(pitList, "Fuel Load", FuelLoadChoiceDescription(fuelChoice), out fuelControl);
+            UiFactory.CreateCycleControl(fuelControl, FuelLoadChoiceLabel(fuelChoice), () =>
+            {
+                settings.Current.fuelLoadChoice = (int)NextFuelLoadChoice(fuelChoice);
+                settings.Save();
+                ShowRaceTyreSelect(data, career, settings, careerRace);
+            });
+
             RectTransform stop1TyreControl;
             UiFactory.CreateSettingRow(pitList, "Stop 1 Tyre", "Tyre fitted at the first stop.", out stop1TyreControl);
             UiFactory.CreateCycleControl(stop1TyreControl, settings.Current.plannedStopOneCompound, () =>
@@ -5590,6 +5604,33 @@ namespace LocalFormulaRacing
                 }
             }
 
+            // Fuel system pass: narrative summary of how the chosen fuel-load plan
+            // played out - deliberately approximate (no per-lap fuel history is
+            // tracked, just start/finish kg and the lift-and-coast total) rather
+            // than claiming precision this data doesn't actually have.
+            if (player.fuelStarvedRetirement)
+            {
+                sentences.Add("The car retired with fuel starvation after an aggressive fuel strategy.");
+            }
+            else if (!dnf)
+            {
+                FuelLoadChoice fuelChoice = (FuelLoadChoice)player.fuelLoadChoice;
+                bool chosenLight = fuelChoice == FuelLoadChoice.AggressiveUnderfuel || fuelChoice == FuelLoadChoice.LightUnderfuel;
+                bool chosenHeavy = fuelChoice == FuelLoadChoice.Heavy || fuelChoice == FuelLoadChoice.Safe;
+                if (player.finishFuelKg < 0.3f && player.liftAndCoastSavedKg > 0.3f)
+                {
+                    sentences.Add("Fuel ran tight late in the race, but lift-and-coast saving through the braking zones recovered enough margin to reach the finish.");
+                }
+                else if (chosenLight && player.finishFuelKg >= 0.3f && player.finishFuelKg <= 2.5f)
+                {
+                    sentences.Add("Started light on fuel and managed the margin well, saving enough to reach the finish. Strong fuel management.");
+                }
+                else if (chosenHeavy && player.finishFuelKg > 3f)
+                {
+                    sentences.Add("Carried about " + player.finishFuelKg.ToString("0.0") + "kg of unused fuel - a touch too conservative, costing acceleration early in the race.");
+                }
+            }
+
             return string.Join(" ", sentences);
         }
 
@@ -6944,6 +6985,44 @@ namespace LocalFormulaRacing
             }
 
             return "Soft";
+        }
+
+        // Fuel system pass: cycle order matches the enum's own light-to-heavy
+        // ordering (AggressiveUnderfuel -> ... -> Heavy -> wraps back).
+        FuelLoadChoice NextFuelLoadChoice(FuelLoadChoice current)
+        {
+            switch (current)
+            {
+                case FuelLoadChoice.AggressiveUnderfuel: return FuelLoadChoice.LightUnderfuel;
+                case FuelLoadChoice.LightUnderfuel: return FuelLoadChoice.Target;
+                case FuelLoadChoice.Target: return FuelLoadChoice.Safe;
+                case FuelLoadChoice.Safe: return FuelLoadChoice.Heavy;
+                default: return FuelLoadChoice.AggressiveUnderfuel;
+            }
+        }
+
+        string FuelLoadChoiceLabel(FuelLoadChoice choice)
+        {
+            switch (choice)
+            {
+                case FuelLoadChoice.AggressiveUnderfuel: return "Aggressive Underfuel";
+                case FuelLoadChoice.LightUnderfuel: return "Light Underfuel";
+                case FuelLoadChoice.Safe: return "Safe Fuel";
+                case FuelLoadChoice.Heavy: return "Heavy Fuel";
+                default: return "Target Fuel";
+            }
+        }
+
+        string FuelLoadChoiceDescription(FuelLoadChoice choice)
+        {
+            switch (choice)
+            {
+                case FuelLoadChoice.AggressiveUnderfuel: return "Lighter, fastest - requires major lift-and-coast to make the finish.";
+                case FuelLoadChoice.LightUnderfuel: return "Small pace gain - requires some fuel saving through the race.";
+                case FuelLoadChoice.Safe: return "Small margin over target - slightly heavier, safer.";
+                case FuelLoadChoice.Heavy: return "Safest load - slower at the start, no fuel-saving needed.";
+                default: return "Enough to finish with normal driving, no saving required.";
+            }
         }
     }
 }

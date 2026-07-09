@@ -428,6 +428,14 @@ namespace LocalFormulaRacing
         bool engineerBatteryWarningSent;
         bool engineerFinalLapSent;
         bool engineerFuelWarningSent;
+        // Fuel system pass: tracks whether the fuel delta has EVER gone negative
+        // this race, so the recovery/safe-to-push messages only ever fire after a
+        // genuine negative-to-positive transition, not on a car that was always
+        // comfortably on plan.
+        bool engineerFuelEverNegative;
+        bool engineerFuelRecoverySent;
+        bool engineerFuelSafeToPushSent;
+        bool engineerFuelStarvationSent;
         bool engineerDamageWarningSent;
         bool engineerRivalSent;
         bool engineerTrackLimitsSent;
@@ -956,6 +964,7 @@ namespace LocalFormulaRacing
                 HandleTrackLimits(participant);
                 HandlePitService(participant);
                 HandleFinish(participant);
+                UpdateFuelState(participant);
 
                 if (participant.vehicle != null)
                 {
@@ -1216,6 +1225,120 @@ namespace LocalFormulaRacing
             // score the session from telemetry once the player manually ends it
             // rather than from a lap-count finish.
             get { return (IsTimeTrial || CurrentSession == RaceWeekendSession.Practice) ? 999 : Mathf.Max(3, Settings.Current.laps); }
+        }
+
+        // ---------- fuel system ----------
+        // Distance-scaled fuel replacing the old flat 35kg-every-session load - a
+        // 5-lap race used to start with as much fuel as a genuine 60-lap race would
+        // need. Each session type gets its own, deliberately simple start-fuel
+        // calculation below; VehicleController itself stays session-agnostic (see
+        // VehicleController.SetStartFuel) and just burns/reports against whatever
+        // it's told here.
+        const float MinimumRaceFuelKg = 4.5f;
+        const float MaximumRaceFuelKg = 220f;
+        const float RaceFuelReserveKg = 1.2f;
+
+        public static float FuelLoadChoiceLapDelta(FuelLoadChoice choice)
+        {
+            switch (choice)
+            {
+                case FuelLoadChoice.AggressiveUnderfuel: return -1.5f;
+                case FuelLoadChoice.LightUnderfuel: return -0.7f;
+                case FuelLoadChoice.Safe: return 0.7f;
+                case FuelLoadChoice.Heavy: return 1.5f;
+                default: return 0f;
+            }
+        }
+
+        // Reference track length (this game's own long-standing fallback default
+        // elsewhere - TrackManager/EstimateReferenceLapTime) lands right in the
+        // middle of the range, at ~1.5kg/lap; genuinely long/short circuits scale
+        // a little either side of that. Difficulty nudges it slightly too - a
+        // sharper AI field pushes harder and burns a touch more per lap.
+        public float EstimateFuelPerLapKg(TrackRuntime track, RaceDifficulty difficulty)
+        {
+            float trackLength = track != null && track.length > 1f ? track.length : 4650f;
+            float perLap = Mathf.Lerp(1.35f, 1.65f, Mathf.Clamp01(Mathf.InverseLerp(3200f, 6200f, trackLength)));
+            float difficultyFactor = difficulty == RaceDifficulty.Easy ? 0f : difficulty == RaceDifficulty.Medium ? 0.33f : difficulty == RaceDifficulty.Hard ? 0.66f : 1f;
+            perLap *= Mathf.Lerp(0.97f, 1.06f, difficultyFactor);
+            return perLap;
+        }
+
+        // requiredFuelKg = estimatedFuelPerLapKg * raceLaps + reserveFuelKg, then the
+        // chosen fuel-load plan shifts that target by its own lap-count delta
+        // (FuelLoadChoiceLapDelta) before the floor/ceiling clamp. raceLaps here
+        // should be the real configured lap count (Mathf.Max(3, Settings.Current.laps)),
+        // never the RaceLaps property's own 999 stand-in for Practice/Time Trial.
+        public float ComputeRaceStartFuelKg(int raceLaps, FuelLoadChoice choice, TrackRuntime track, GameSettingsData settings)
+        {
+            // GameSettingsData only stores the raw difficultyIndex (0-3) - Difficulty
+            // itself is a GameSettingsStore property, not reachable from the plain
+            // data object this helper takes - so the same clamp that property
+            // applies is repeated here.
+            int difficultyIndex = settings == null ? 1 : Mathf.Clamp(settings.difficultyIndex, 0, 3);
+            RaceDifficulty difficulty = (RaceDifficulty)difficultyIndex;
+            float perLap = EstimateFuelPerLapKg(track, difficulty);
+            float targetFuelKg = perLap * Mathf.Max(1, raceLaps) + RaceFuelReserveKg;
+            float choiceFuelKg = targetFuelKg + FuelLoadChoiceLapDelta(choice) * perLap;
+            return Mathf.Clamp(choiceFuelKg, MinimumRaceFuelKg, MaximumRaceFuelKg);
+        }
+
+        // Enough for an out lap plus a genuine push lap (this game's live qualifying
+        // session is a short single/handful-of-attempt format - see
+        // QualifyingSessionLapCap - not a long multi-run practice block), with a
+        // small margin so a second push attempt after an aborted lap doesn't strand
+        // the car mid-lap.
+        public float ComputeQualifyingFuelKg(TrackRuntime track)
+        {
+            float perLap = EstimateFuelPerLapKg(track, RaceDifficulty.Medium);
+            return perLap * 2.5f + 1f;
+        }
+
+        // Fixed and deliberately low - Time Trial is a pure lap-time comparison
+        // tool, not a race, so it should never be distorted by a fuel strategy
+        // choice or by fuel burning down over repeated laps.
+        public float ComputeTimeTrialFuelKg()
+        {
+            return 5f;
+        }
+
+        // A practice program is a handful of laps at most (see
+        // GameBootstrap.StartCareerPractice/EvaluatePracticeSession) - enough fuel
+        // for several laps of real running, never a full race load.
+        public float ComputePracticeFuelKg(TrackRuntime track)
+        {
+            float perLap = EstimateFuelPerLapKg(track, RaceDifficulty.Medium);
+            return perLap * 6f + 2f;
+        }
+
+        // AI fuel-strategy pass: most of the field runs the same Target plan a
+        // sensible player would; a genuinely aggressive driver occasionally takes
+        // the pace gain of underfuelling, a cautious one occasionally plays it
+        // safe. Deliberately conservative odds - "do not make AI fuel-out common"
+        // is explicit in the design ask, so AggressiveUnderfuel (the only choice
+        // that can plausibly starve a car) is rare and never stacks with an
+        // already-aggressive roll.
+        public FuelLoadChoice ResolveAiFuelChoice(DriverData driver)
+        {
+            int aggression = driver == null ? 75 : driver.aggression;
+            int consistency = driver == null ? 80 : driver.consistency;
+            float roll = Random.value;
+            if (aggression >= 90 && roll < 0.10f)
+            {
+                return FuelLoadChoice.AggressiveUnderfuel;
+            }
+
+            if (aggression >= 78 && roll < 0.30f)
+            {
+                return FuelLoadChoice.LightUnderfuel;
+            }
+
+            if (consistency <= 55 && roll < 0.22f)
+            {
+                return FuelLoadChoice.Safe;
+            }
+
+            return FuelLoadChoice.Target;
         }
 
         public int RecommendedPitLap(RaceParticipant participant)
@@ -3810,6 +3933,10 @@ namespace LocalFormulaRacing
             engineerBatteryWarningSent = false;
             engineerFinalLapSent = false;
             engineerFuelWarningSent = false;
+            engineerFuelEverNegative = false;
+            engineerFuelRecoverySent = false;
+            engineerFuelSafeToPushSent = false;
+            engineerFuelStarvationSent = false;
             engineerDamageWarningSent = false;
             engineerRivalSent = false;
             engineerTrackLimitsSent = false;
@@ -4371,10 +4498,38 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            if (car.FuelKg < 7f && !engineerFuelWarningSent)
+            if (car.FuelStarved && !engineerFuelStarvationSent)
             {
-                engineerFuelWarningSent = true;
-                PostEngineerMessage("Fuel is getting low. Lift and coast into the heavy braking zones.", false);
+                engineerFuelStarvationSent = true;
+                PostEngineerMessage("We are out of fuel. The engine is starving.", true, RaceAudioCue.Damage);
+                return;
+            }
+
+            // Fuel system pass: delta-based instead of the old flat "<7kg" check -
+            // that threshold was tuned for a 35kg flat start and would fire almost
+            // immediately on a legitimate 8kg target-fuel short race. Reads the
+            // same projected-delta figure the HUD fuel pill shows.
+            float fuelDeltaLaps = car.ProjectedFuelDeltaLaps;
+            if (fuelDeltaLaps < -0.25f)
+            {
+                engineerFuelEverNegative = true;
+                if (!engineerFuelWarningSent)
+                {
+                    engineerFuelWarningSent = true;
+                    PostEngineerMessage("Fuel target is negative. Lift and coast into heavy braking zones.", false);
+                    return;
+                }
+            }
+            else if (engineerFuelEverNegative && fuelDeltaLaps >= -0.05f && fuelDeltaLaps < 0.4f && !engineerFuelRecoverySent)
+            {
+                engineerFuelRecoverySent = true;
+                PostEngineerMessage("Good fuel saving. You're back on target.", false);
+                return;
+            }
+            else if (engineerFuelEverNegative && fuelDeltaLaps >= 0.4f && !engineerFuelSafeToPushSent)
+            {
+                engineerFuelSafeToPushSent = true;
+                PostEngineerMessage("Fuel is safe now. You can push.", false);
                 return;
             }
 
@@ -5744,6 +5899,37 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Fuel system pass: keeps VehicleController's fuel projection current
+        // (remaining laps, including the fractional lap in progress, so the HUD/AI
+        // read a live "will this fuel actually make it" figure) and handles the
+        // running-out-of-fuel DNF. Deliberately does NOT retire the instant fuel
+        // hits zero - VehicleController.FuelStarved gives a short grace period
+        // (FuelStarvedGraceSeconds) of crawling on starvation power first, so the
+        // player feels the consequence before the car actually parks.
+        const float FuelStarvedGraceSeconds = 11f;
+
+        void UpdateFuelState(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null || participant.lapTracker == null)
+            {
+                return;
+            }
+
+            float remainingLaps = Mathf.Max(0f, RaceLaps - (participant.lapTracker.CompletedLaps + participant.lapTracker.CurrentProgress.normalized));
+            participant.vehicle.UpdateFuelProjection(remainingLaps);
+
+            if (!participant.vehicle.FuelStarved || participant.retired || participant.finished || participant.fuelStarvationRetirementApplied)
+            {
+                return;
+            }
+
+            if (participant.vehicle.FuelStarvedTimer >= FuelStarvedGraceSeconds)
+            {
+                participant.fuelStarvationRetirementApplied = true;
+                RetireParticipant(participant, "Fuel starvation");
+            }
+        }
+
         public string GapToLeaderText(RaceParticipant participant)
         {
             SortRunningOrder();
@@ -6651,6 +6837,35 @@ namespace LocalFormulaRacing
             TyreCompound startCompound = StartingTyreForParticipant(player);
             participant.startingCompound = startCompound;
             controller.Initialize(car, Track, startCompound, Settings.Current.manualGears && player, Settings.Current, player);
+
+            // Fuel system pass: session-specific start fuel instead of the old flat
+            // 35kg for every session (see VehicleController.SetStartFuel). Player
+            // reads their own pre-race choice off settings; AI gets its own
+            // per-driver roll (ResolveAiFuelChoice) - most AI runs Target, same as
+            // a sensible player default.
+            float startFuelKg;
+            float fuelPerLapKg = EstimateFuelPerLapKg(Track, Settings.Difficulty);
+            if (IsTimeTrial)
+            {
+                startFuelKg = ComputeTimeTrialFuelKg();
+            }
+            else if (CurrentSession == RaceWeekendSession.Qualifying)
+            {
+                startFuelKg = ComputeQualifyingFuelKg(Track);
+            }
+            else if (CurrentSession == RaceWeekendSession.Practice)
+            {
+                startFuelKg = ComputePracticeFuelKg(Track);
+            }
+            else
+            {
+                FuelLoadChoice fuelChoice = player ? (FuelLoadChoice)Settings.Current.fuelLoadChoice : ResolveAiFuelChoice(driver);
+                participant.chosenFuelLoad = fuelChoice;
+                startFuelKg = ComputeRaceStartFuelKg(Mathf.Max(3, Settings.Current.laps), fuelChoice, Track, Settings.Current);
+            }
+
+            controller.SetStartFuel(startFuelKg, fuelPerLapKg);
+            controller.SetFuelBurnDisabled(IsTimeTrial);
             controller.SetGridHold(StartCountdown > 0f);
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {

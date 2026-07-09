@@ -1484,15 +1484,50 @@ namespace LocalFormulaRacing
 
             UpdateErsPill(car);
 
-            bool lowFuel = car.FuelKg < 7f;
-            if (lowFuel)
+            UpdateFuelPill(car);
+        }
+
+        // Fuel system pass: delta-based display replacing the old flat "FUEL 35KG"
+        // text - a raw kg number means nothing without knowing how many laps are
+        // left, while "will this fuel actually finish the race" is exactly what a
+        // driver needs at a glance. Thresholds match the design spec: >+0.25 laps
+        // positive, -0.25..+0.25 target, -0.75..-0.25 warning, <-0.75 critical.
+        // Two absolute-state overrides sit above the delta bands: an empty tank
+        // (FuelStarved) always wins as the most urgent state, and a very low
+        // absolute kg figure (regardless of delta - e.g. plenty of margin on a
+        // short remaining stint but still only a splash left) still flags FUEL LOW
+        // so the player never gets caught out right at the very end.
+        void UpdateFuelPill(VehicleController car)
+        {
+            bool lit = Mathf.PingPong(Time.time * 2.4f, 1f) > 0.5f;
+            if (car.FuelStarved)
             {
-                bool lit = Mathf.PingPong(Time.time * 2.4f, 1f) > 0.5f;
+                fuelPill.SetState("FUEL STARVATION", UiFactory.Accent, lit);
+                return;
+            }
+
+            if (car.FuelKg < 1.5f)
+            {
                 fuelPill.SetState("FUEL LOW", UiFactory.AccentAmber, lit);
+                return;
+            }
+
+            float deltaLaps = car.ProjectedFuelDeltaLaps;
+            if (deltaLaps > 0.25f)
+            {
+                fuelPill.SetState("FUEL +" + deltaLaps.ToString("0.0"), UiFactory.AccentGreen, false);
+            }
+            else if (deltaLaps >= -0.25f)
+            {
+                fuelPill.SetState("FUEL TARGET", UiFactory.TextMuted, false);
+            }
+            else if (deltaLaps >= -0.75f)
+            {
+                fuelPill.SetState("FUEL " + deltaLaps.ToString("0.0"), UiFactory.AccentAmber, false);
             }
             else
             {
-                fuelPill.SetState("FUEL " + car.FuelKg.ToString("0") + "KG", UiFactory.TextMuted, false);
+                fuelPill.SetState("FUEL CRITICAL", UiFactory.Accent, lit);
             }
         }
 
@@ -1936,16 +1971,19 @@ namespace LocalFormulaRacing
             UiFactory.SetMeterValueAnimated(ersFill, car.ErsBattery);
             ersValue.text = Mathf.RoundToInt(car.ErsBattery * 100f) + "%";
 
-            float fuel01 = Mathf.Clamp01(car.FuelKg / 42f);
+            // Fuel system pass: the meter fill and its low/critical thresholds now
+            // scale to THIS race's own start fuel (car.StartFuelKg) and projected
+            // fuel delta instead of a fixed 42kg/7kg/12kg reference tuned for the
+            // old flat 35kg start - those numbers were meaningless once a race can
+            // legitimately start at 6-10kg. fuelValue's text keeps kg visible
+            // (spec: "keep kg available") but adds the delta-in-laps figure right
+            // next to it, since that's the number that actually tells the player
+            // whether the load will make it.
+            float fuel01 = car.StartFuelKg > 0.1f ? Mathf.Clamp01(car.FuelKg / car.StartFuelKg) : 0f;
             UiFactory.SetMeterValueAnimated(fuelFill, fuel01);
-            fuelValue.text = car.FuelKg.ToString("0.0") + "kg";
-            // Clarity fix: added a steady amber "getting low" tier distinct
-            // from the flashing "FUEL LOW" critical state below 7kg - before
-            // this the meter only ever had two states (normal, critical-flash)
-            // with nothing warning the player fuel was trending down until it
-            // was already in the danger zone.
-            bool fuelCritical = car.FuelKg < 7f;
-            bool fuelGettingLow = car.FuelKg < 12f;
+            fuelValue.text = car.FuelKg.ToString("0.0") + "kg (" + (car.ProjectedFuelDeltaLaps >= 0f ? "+" : "") + car.ProjectedFuelDeltaLaps.ToString("0.0") + "L)";
+            bool fuelCritical = car.FuelStarved || car.ProjectedFuelDeltaLaps < -0.75f;
+            bool fuelGettingLow = car.ProjectedFuelDeltaLaps < -0.25f;
             if (fuelCritical)
             {
                 bool lit = Mathf.PingPong(Time.time * 2.4f, 1f) > 0.5f;
