@@ -459,6 +459,21 @@ namespace LocalFormulaRacing
         float reactionDisplayTimer;
         bool waitingForPlayerReaction;
         int lastEngineerPitLapPrompt = -1;
+        // Single-source-of-truth fix: GetPlannedPitLapForStop's Auto branch used
+        // to call RecommendedPitLap fresh on every single call, and
+        // RecommendedPitLap reads Track.weather - which UpdateWeatherTransition
+        // can flip mid-race. That meant an "Auto" planned stop's resolved lap
+        // could silently drift partway through the race: an early engineer
+        // message could name one lap, and the actual auto-trigger evaluate a
+        // different one later after a weather transition, or the HUD could show
+        // a third value depending on exactly when it last redrew. Resolving once
+        // per race and caching here (reset alongside the rest of the
+        // per-session engineer state in ResetEngineerState) makes every
+        // consumer - engineer messages, HUD, and the actual auto-trigger - read
+        // the exact same resolved target for the whole race, the same way an
+        // explicit player-chosen lap already always has.
+        int cachedPlannedPitLapStopOne = -1;
+        int cachedPlannedPitLapStopTwo = -1;
         bool engineerWeatherSent;
         bool engineerPitRequestConfirmed;
         bool engineerTyreWarningSent;
@@ -4290,6 +4305,8 @@ namespace LocalFormulaRacing
             previousComparisonDriverId = "";
             previousPlayerWasLeader = false;
             previousPlayerGapRadioPosition = -1;
+            cachedPlannedPitLapStopOne = -1;
+            cachedPlannedPitLapStopTwo = -1;
         }
 
         // Number of stops the player planned on the strategy screen, defensively
@@ -4314,7 +4331,15 @@ namespace LocalFormulaRacing
                     return Mathf.Clamp(plannedLapOne, 1, maxPitLap);
                 }
 
-                return Mathf.Clamp(RecommendedPitLap(PlayerParticipant), 1, maxPitLap);
+                // Auto: resolve once and cache for the rest of the race - see the
+                // cachedPlannedPitLapStopOne field comment for why this must not
+                // be recomputed on every call.
+                if (cachedPlannedPitLapStopOne < 0)
+                {
+                    cachedPlannedPitLapStopOne = Mathf.Clamp(RecommendedPitLap(PlayerParticipant), 1, maxPitLap);
+                }
+
+                return cachedPlannedPitLapStopOne;
             }
 
             int stopOneLap = GetPlannedPitLapForStop(1);
@@ -4325,9 +4350,14 @@ namespace LocalFormulaRacing
                 return Mathf.Clamp(plannedLapTwo, minStopTwoLap, maxPitLap);
             }
 
-            int remaining = Mathf.Max(1, RaceLaps - stopOneLap);
-            int recommended = stopOneLap + Mathf.RoundToInt(remaining * 0.66f);
-            return Mathf.Clamp(recommended, minStopTwoLap, maxPitLap);
+            if (cachedPlannedPitLapStopTwo < 0)
+            {
+                int remaining = Mathf.Max(1, RaceLaps - stopOneLap);
+                int recommended = stopOneLap + Mathf.RoundToInt(remaining * 0.66f);
+                cachedPlannedPitLapStopTwo = Mathf.Clamp(recommended, minStopTwoLap, maxPitLap);
+            }
+
+            return cachedPlannedPitLapStopTwo;
         }
 
         // stopIndex is 1 or 2; returns the planned compound name for that stop.
@@ -6211,6 +6241,94 @@ namespace LocalFormulaRacing
                 IsPlayerRaceControlWarningActive = false;
             }
 
+            return command;
+        }
+
+        // Pre-race pit lap fix: a scheduled PreRacePlan stop only ever latched
+        // vehicle.PitRequested and otherwise left the player fully in manual
+        // control - if the player missed the physical ramp (drove straight on,
+        // got the line wrong, was mid-battle), missedPitEntryThisLap cleared the
+        // request and it retried next lap, silently turning a "stop on lap 4"
+        // plan into a real lap-5 stop. This is a narrow, opt-in-by-plan assist:
+        // it only ever engages for a PreRacePlan request, only inside the pit
+        // approach window, and only until BeginPitEntry takes over (at which
+        // point pitPhase != None and ShouldAssistPlayerPitEntry stops matching,
+        // handing off to the existing kinematic pit-guidance system). A manual
+        // (P key) or accepted race-control offer request never matches
+        // PitRequestSource.PreRacePlan, so manual entry stays exactly as
+        // manual as it always was.
+        public bool ShouldAssistPlayerPitEntry(RaceParticipant participant)
+        {
+            if (participant == null || !participant.isPlayer || participant.vehicle == null ||
+                Track == null || State == null || participant.lapTracker == null)
+            {
+                return false;
+            }
+
+            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial || IsRaceFinished || StartCountdown > 0f)
+            {
+                return false;
+            }
+
+            if (participant.pitPhase != PitPhase.None || participant.isPitting || participant.retired || participant.finished)
+            {
+                return false;
+            }
+
+            if (!participant.vehicle.PitRequested || participant.activePitRequestSource != PitRequestSource.PreRacePlan ||
+                participant.missedPitEntryThisLap)
+            {
+                return false;
+            }
+
+            TrackProgress progress = State.GetCurrentProgress(participant);
+            return progress.normalized > TrackRuntime.PitApproachStartNormalized && progress.normalized <= TrackRuntime.PitCorridorStartNormalized;
+        }
+
+        const float PitEntryAssistTargetSpeedKph = 90f;
+
+        // Builds the actual steer/throttle/brake command for the assist window
+        // identified by ShouldAssistPlayerPitEntry - guides the player off the
+        // racing line toward Track.PitEntryApproachLateral first, then blends
+        // onto the real ramp centerline (Track.PitEntryPathLateral) as the car
+        // gets deeper into the entry zone, the same two-target approach
+        // AiVehicleController's own pit-entry steering already uses, and shapes
+        // speed down toward a safe entry pace. Callers must have already
+        // confirmed ShouldAssistPlayerPitEntry(participant) is true.
+        public VehicleCommand BuildPitEntryAssistCommand(RaceParticipant participant, VehicleCommand fallback)
+        {
+            VehicleCommand command = fallback;
+            TrackProgress progress = State.GetCurrentProgress(participant);
+            float speedKph = Mathf.Abs(participant.vehicle.CurrentSpeedKph);
+
+            float approachLateral = Track.PitEntryApproachLateral(progress.distance);
+            float rampLateral = Track.PitEntryPathLateral(progress.distance);
+            float rampBlend = Mathf.InverseLerp(TrackRuntime.PitApproachStartNormalized, TrackRuntime.PitEntryRampStartNormalized, progress.normalized);
+            float targetLateral = Mathf.Lerp(approachLateral, rampLateral, rampBlend);
+
+            float lookAhead = Mathf.Lerp(10f, 30f, Mathf.Clamp01(speedKph / 150f));
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Track.SampleAtDistance(Track.WrapDistance(progress.distance + lookAhead), out point, out forward, out right);
+            Vector3 aimPoint = point + right * targetLateral;
+            Vector3 toTarget = aimPoint - participant.transform.position;
+            command.steer = Mathf.Clamp(Vector3.Dot(toTarget.normalized, participant.transform.right) * 2.2f, -1f, 1f);
+
+            float speedGapKph = PitEntryAssistTargetSpeedKph - speedKph;
+            if (speedGapKph < -3f)
+            {
+                command.brake = Mathf.Clamp01(-speedGapKph / 35f);
+                command.throttle = 0f;
+            }
+            else
+            {
+                command.brake = 0f;
+                command.throttle = Mathf.Clamp01(0.2f + speedGapKph / 35f);
+            }
+
+            command.ers = false;
+            command.drs = false;
             return command;
         }
 
@@ -9143,6 +9261,20 @@ namespace LocalFormulaRacing
 
         void BeginPitEntry(RaceParticipant participant)
         {
+            // Pre-race pit lap fix: capture the actual entry lap right here,
+            // before the car has any chance to cross the start/finish line while
+            // still inside the pit lane (which would otherwise bump DisplayLap
+            // and make a perfectly on-plan stop look like it happened a lap
+            // late). This is the one and only place pitEntryLap is written, and
+            // it is what strategy-compliance/"stop taken on lap" text must read
+            // from now on - never the lap number shown later during exit.
+            int plannedTargetLap = participant.isPlayer ? NextPlannedPitLapFor(participant) : -1;
+            participant.pitEntryLap = participant.lapTracker != null ? participant.lapTracker.DisplayLap : -1;
+            if (participant.isPlayer)
+            {
+                GameLog.Info("[Pit] Planned stop target lap=" + plannedTargetLap + ", actual pit-entry lap=" + participant.pitEntryLap + ".");
+            }
+
             participant.pitPhase = PitPhase.Entry;
             participant.pitEntryAligned = false;
             participant.pitEntryCommitted = true;

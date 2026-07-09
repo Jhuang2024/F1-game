@@ -3500,20 +3500,23 @@ namespace LocalFormulaRacing
             }
 
             // Resolved-plan preview, e.g. "Start Medium -> Lap 5 Hard" or, for a
-            // 2-stop, "Start Soft -> Lap 4 Medium -> Lap 8 Hard". Auto laps are
-            // estimated the same way the old single-stop row did (55% of race
-            // distance for stop 1), and a 2-stop's auto stop-2 lap mirrors
-            // RaceManager.GetPlannedPitLapForStop(2)'s "two-thirds of what's left
-            // after stop 1" reasoning so this preview roughly matches the race.
-            int stop1LapEstimate = stop1Lap > 0 ? stop1Lap : Mathf.Max(1, Mathf.RoundToInt(raceLaps * 0.55f));
-            string summaryLine = "Start " + settings.Current.tyreCompound + " → Lap " + stop1LapEstimate + " " + settings.Current.plannedStopOneCompound;
+            // 2-stop, "Start Soft -> Lap 4 Medium -> Lap 8 Hard". This screen has
+            // no RaceManager instance yet (the race hasn't started), so an Auto
+            // stop cannot be resolved through the same RecommendedPitLap/
+            // GetPlannedPitLapForStop path the race itself uses - that resolver
+            // reads live race-only state (weather, the assigned driver's tyre
+            // management stat, per-driver jitter). A rough local re-estimate
+            // here previously could show a different lap than the one the
+            // engineer actually calls during the race. Rather than risk that
+            // disagreement, an Auto stop is simply labelled "Auto" - the exact
+            // lap is decided, once, by the real resolver when the race starts.
+            string stop1LapText = stop1Lap > 0 ? ("Lap " + stop1Lap) : "Auto";
+            string summaryLine = "Start " + settings.Current.tyreCompound + " → " + stop1LapText + " " + settings.Current.plannedStopOneCompound;
             if (stopCount == 2)
             {
                 int stop2LapValue = settings.Current.plannedPitLapTwo;
-                int stop2LapEstimate = stop2LapValue > 0
-                    ? stop2LapValue
-                    : Mathf.Clamp(stop1LapEstimate + Mathf.RoundToInt(Mathf.Max(1, raceLaps - stop1LapEstimate) * 0.66f), stop1LapEstimate + 1, raceLaps - 1);
-                summaryLine += " → Lap " + stop2LapEstimate + " " + settings.Current.plannedStopTwoCompound;
+                string stop2LapText = stop2LapValue > 0 ? ("Lap " + stop2LapValue) : "Auto";
+                summaryLine += " → " + stop2LapText + " " + settings.Current.plannedStopTwoCompound;
             }
 
             Text summary = UiFactory.CreateText(pitList, "Strategy summary", summaryLine, 15, UiFactory.TextPrimary, TextAnchor.UpperLeft);

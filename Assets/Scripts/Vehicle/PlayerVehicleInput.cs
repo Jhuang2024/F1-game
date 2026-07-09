@@ -259,6 +259,21 @@ namespace LocalFormulaRacing
                 command.pitRequest = pitRequest;
                 drsLatched = false;
             }
+            else if (raceManager.ShouldAssistPlayerPitEntry(participant))
+            {
+                // Pre-race pit lap fix: a scheduled strategy-plan stop takes over
+                // steering/throttle/brake for the short pit-approach window so it
+                // physically enters on the lap it was planned for, instead of
+                // relying on the player to spot and react to the "Box this lap"
+                // call in time. Only ever engages for a PreRacePlan request (see
+                // RaceManager.ShouldAssistPlayerPitEntry) - a manual P-key request
+                // never takes this branch and stays fully manual. The pit-request
+                // input above still passes through unchanged.
+                bool pitRequest = command.pitRequest;
+                command = raceManager.BuildPitEntryAssistCommand(participant, command);
+                command.pitRequest = pitRequest;
+                drsLatched = false;
+            }
             else
             {
                 // Race control pace parity (Task 2/3): AI has been VSC/SC pace-clamped

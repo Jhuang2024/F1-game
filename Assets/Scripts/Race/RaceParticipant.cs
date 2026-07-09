@@ -118,6 +118,17 @@ namespace LocalFormulaRacing
         // RaceManager.UpdateMissedPitEntryReset.
         public int missedPitEntryCompletedLap = -1;
         public int pitRequestLapNumber = -1;
+        // Pre-race pit lap fix: the displayed CURRENT lap during pit exit is not
+        // reliable evidence of which lap the car actually entered the pits on -
+        // a car that enters pits late on lap 4 can cross the start/finish line
+        // while still physically in the pit lane, at which point DisplayLap
+        // reads 5 for the rest of the stop even though entry itself happened on
+        // lap 4. pitEntryLap is captured once, in RaceManager.BeginPitEntry,
+        // from DisplayLap at the exact moment of entry (before any such
+        // line-crossing ambiguity can occur), and is the only field
+        // strategy-compliance checks or "stop taken on lap" text should ever
+        // read - never the lap number shown later during exit.
+        public int pitEntryLap = -1;
         // Unique pit box slot assigned at spawn; cars are guided to their own box
         // instead of one shared service pose.
         public int pitBoxIndex;
