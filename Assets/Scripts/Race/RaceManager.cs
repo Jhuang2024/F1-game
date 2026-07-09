@@ -10655,41 +10655,6 @@ namespace LocalFormulaRacing
         const float CarEffectCoefficientPerPoint = 0.08f;
         const float CarEffectCapSeconds = 2.0f;
 
-        // Best-of-two qualifying attempt: both AI and player now share this one
-        // helper - the second-run gain is a small, explicit, reasoned term (see
-        // below) instead of raw per-path randomness, so AI and player results are
-        // internally consistent with each other.
-        QualifyingLapBreakdown SimulateBestOfTwoQualifyingAttempt(QualifyingSimEntry entry, int phase, TyreCompound? tyreChoice)
-        {
-            QualifyingLapBreakdown first = SimulateQualifyingRunDetailed(entry, phase, false);
-            QualifyingLapBreakdown second = SimulateQualifyingRunDetailed(entry, phase, true);
-
-            // Second-run improvement: a small baseline gain from track evolution,
-            // better tyre prep and driver adaptation on a repeated lap - NOT a
-            // random half-second lottery. A second run only gains meaningfully more
-            // than that when the first lap was genuinely compromised by a mistake
-            // (see QualifyingMistakePenalty) - recovering from a bad lap, not luck.
-            float secondRunGain = Random.Range(0.03f, 0.10f);
-            if (first.mistakePenalty > 0.05f)
-            {
-                secondRunGain += Mathf.Min(first.mistakePenalty * 0.5f, 0.5f);
-            }
-
-            second.variance -= secondRunGain;
-            second.finalTime -= secondRunGain;
-
-            if (tyreChoice.HasValue)
-            {
-                float tyrePenalty = PlayerQualifyingTyreWeatherPenalty(tyreChoice.Value);
-                first.tyreChoicePenalty = tyrePenalty;
-                first.finalTime += tyrePenalty;
-                second.tyreChoicePenalty = tyrePenalty;
-                second.finalTime += tyrePenalty;
-            }
-
-            return first.finalTime <= second.finalTime ? first : second;
-        }
-
         QualifyingLapBreakdown SimulateQualifyingRunDetailed(QualifyingSimEntry entry, int phase, bool secondRun)
         {
             QualifyingLapBreakdown breakdown = new QualifyingLapBreakdown { phase = phase };
