@@ -10644,7 +10644,8 @@ namespace LocalFormulaRacing
             // Car stats alone can span the full 45-125 clamp range (CareerManager), and
             // at the round-1 coefficient that spread by itself was worth over 2 seconds
             // before a single driver-skill or variance term was even added.
-            breakdown.driverEffect = (qualifying - 88f) * -0.020f + (pace - 88f) * -0.007f + (confidence - 80f) * -0.002f;
+            // Round 3: still ~1.6s P1-P8 - cut roughly in half again.
+            breakdown.driverEffect = (qualifying - 88f) * -0.010f + (pace - 88f) * -0.0035f + (confidence - 80f) * -0.001f;
             // Balance fix: car upgrade stats can reach up to 125 (see
             // CareerManager.ApplyCareerUpgrades' clamps) against an 86
             // baseline - uncapped, a fully maxed car alone was worth roughly
@@ -10657,7 +10658,8 @@ namespace LocalFormulaRacing
             // Qualifying-gap fix round 2: same reasoning as driverEffect above - the
             // full 45(floor)-104(capped) car-rating range was still worth over 2s on
             // its own at the round-1 coefficient.
-            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.020f;
+            // Round 3: same reasoning as driverEffect above.
+            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.010f;
             // Percentage of baseLap rather than a flat constant, so difficulty stays
             // meaningful regardless of track length: Easy is clearly the slowest,
             // Expert clearly the fastest/most aggressive, Medium close to neutral.
@@ -10670,7 +10672,8 @@ namespace LocalFormulaRacing
             // Qualifying-gap fix round 2: trimmed alongside driverEffect/carEffect
             // above (was 0.24-0.035) - random per-lap noise was another source of
             // gap that had nothing to do with genuine skill/car differences.
-            float variance = Mathf.Lerp(0.15f, 0.02f, consistency / 100f);
+            // Round 3: trimmed again, same reasoning.
+            float variance = Mathf.Lerp(0.08f, 0.01f, consistency / 100f);
             breakdown.variance = Random.Range(-variance, variance) + (secondRun ? Random.Range(-0.08f, 0.05f) : 0f);
             breakdown.finalTime = breakdown.baseLap + breakdown.driverEffect + breakdown.carEffect +
                                   breakdown.difficultyEffect + breakdown.phaseEffect + breakdown.tyrePrep +
