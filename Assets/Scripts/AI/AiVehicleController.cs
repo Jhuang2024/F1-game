@@ -1022,6 +1022,13 @@ namespace LocalFormulaRacing
                 command.pitRequest = true;
             }
 
+            // Smarter AI strategy: jump a closely-followed rival that hasn't
+            // stopped yet by taking this car's own pit window a lap or two early.
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.ShouldAiPitForUndercut(participant))
+            {
+                command.pitRequest = true;
+            }
+
             ApplyDamageStrategy(ref command, damagePercent);
 
             command.ers = raceManager.ShouldAiUseErs(participant, severityHere);
@@ -1555,6 +1562,32 @@ namespace LocalFormulaRacing
                 overtakeStateTimer = 0.6f;
             }
 
+            // Pit entry/exit + pit-limiter fix: no attack attempt should ever be
+            // initiated or continued while either car is on the physical pit
+            // entry/exit stretch (the road splits/narrows there) or under a pit
+            // limiter speed cap (a limiter car has no business defending its
+            // position, and attacking one is a free, riskless pass rather than a
+            // real overtake). Mirrors the yellow-flag abort immediately above -
+            // any live attempt is aborted cleanly back to a single lane.
+            bool pitZoneNearby = track.IsInPitApproach(progress.normalized) || track.IsInPitExitLimiterZone(progress.normalized);
+            bool eitherUnderPitLimiter = vehicle.PitLimiterActive || (ahead != null && ahead.vehicle != null && ahead.vehicle.PitLimiterActive);
+            bool suppressAttackManeuvers = pitZoneNearby || eitherUnderPitLimiter;
+            if (suppressAttackManeuvers && overtakeState != OvertakeState.Following && overtakeState != OvertakeState.BackingOut && overtakeState != OvertakeState.CompletingPass)
+            {
+                overtakeState = OvertakeState.BackingOut;
+                overtakeStateTimer = 0.6f;
+            }
+
+            // Commitment zones: once genuinely close to an upcoming corner's
+            // braking point, no NEW attack or defensive cover maneuver may be
+            // initiated - the line is locked for the corner rather than the AI
+            // swerving to start (or abandon-and-restart) a pass while it should
+            // be focused on the braking/turn-in itself. Attempts already under
+            // way before the zone was entered are left alone (their own timers/
+            // MoveTowards easing already hold a stable line); this only gates
+            // the decision points that pick a brand new line.
+            bool inCornerCommitmentZone = apexDistanceAhead < 35f && apexSeverity > 0.18f;
+
             overtakeStateTimer -= Time.deltaTime;
             pressureFactor = 0f;
 
@@ -1610,7 +1643,7 @@ namespace LocalFormulaRacing
 
                         // Part A.2: Expert is fully deterministic once attackTrigger is
                         // true - no dice roll for permission to attack.
-                        if (attackTrigger && (isExpert || Random.value < commitment * Time.deltaTime * (3f + patienceBonus) * drsBonus))
+                        if (attackTrigger && !suppressAttackManeuvers && !inCornerCommitmentZone && (isExpert || Random.value < commitment * Time.deltaTime * (3f + patienceBonus) * drsBonus))
                         {
                             overtakeState = OvertakeState.PreparingAttack;
                             overtakeStateTimer = preparingAttackTimer;
@@ -1769,7 +1802,7 @@ namespace LocalFormulaRacing
             {
                 hasCoveredThisApex = false;
             }
-            else if (overtakeState == OvertakeState.Following && !hasCoveredThisApex && behind != null && behind.vehicle != null)
+            else if (overtakeState == OvertakeState.Following && !hasCoveredThisApex && !suppressAttackManeuvers && !inCornerCommitmentZone && behind != null && behind.vehicle != null)
             {
                 float behindGap = raceManager.GetIntervalToAheadSeconds(behind);
                 bool behindHasDrs = raceManager.IsDrsAvailable(behind);

@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -19,6 +20,11 @@ namespace LocalFormulaRacing
         public bool IsRaceFinished { get; private set; }
         public bool IsCareerRace { get; private set; }
         public bool IsTimeTrial { get; private set; }
+        // Which practice program (see RuntimeUi.ShowPracticePrograms) this
+        // Practice session is being driven for, set by GameBootstrap.StartCareerPractice
+        // right after StartSession returns and read by EvaluatePracticeSession
+        // when the player ends the session from the pause menu.
+        public string ActivePracticeProgramId;
         public RaceWeekendSession CurrentSession { get; private set; }
         public float StartCountdown { get; private set; }
         public bool CanDrive { get { return StartCountdown <= 0f && !IsPaused && !IsRaceFinished && !qualifyingTransitionPending; } }
@@ -431,6 +437,7 @@ namespace LocalFormulaRacing
         int lastGapReportLap = -1;
         bool weatherTransitionDone;
         bool weatherSecondTransitionDone;
+        bool trackEvolutionHalfwayMessageSent;
 
         // Part 1: extra atmosphere/feedback state - overtake notifications,
         // session-fastest-lap tracking, teammate gap callouts, flat spot/lockup
@@ -490,6 +497,22 @@ namespace LocalFormulaRacing
         }
         float lastRecordedPlayerBestLap;
         bool pendingTimeTrial;
+
+        // Time-trial ghost recording/playback state (see GhostCarController,
+        // TimeTrialGhostStore). ghostRecordingBuffer only ever holds the
+        // CURRENT lap's samples - cleared the instant CompletedLaps advances,
+        // promoted to storage only when that lap turns out to be a new best
+        // (see TrackPlayerBestLapRecord).
+        readonly List<GhostSample> ghostRecordingBuffer = new List<GhostSample>();
+        float ghostRecordTimer;
+        int ghostRecordedLapNumber = -1;
+        const float GhostSampleInterval = 0.12f;
+        GameObject ghostCarObject;
+        GhostCarController ghostController;
+        // Held so the cinematic podium presentation (see PodiumPresentationSequence)
+        // can temporarily take manual control of the same camera the player was
+        // just driving with, instead of creating a second competing camera.
+        CameraRig playerCameraRig;
         float playerResetCooldown;
         // Pit lane release control: one car released at a time with a safe gap.
         float nextPitReleaseAllowedTime;
@@ -593,7 +616,9 @@ namespace LocalFormulaRacing
             StartCountdown = raceStartSequenceDuration;
             lastStartLightCountPlayed = -1;
             lastRestartLightCountPlayed = -1;
-            SessionMessage = session == RaceWeekendSession.Qualifying ? "Q" + qualifyingPhase + " out lap ready" : (IsTimeTrial ? "Time trial: set a lap" : "Race start");
+            SessionMessage = session == RaceWeekendSession.Qualifying ? "Q" + qualifyingPhase + " out lap ready"
+                : (IsTimeTrial ? "Time trial: set a lap"
+                : (session == RaceWeekendSession.Practice ? "Practice: drive your program laps" : "Race start"));
             Time.timeScale = 1f;
 
             if (raceWorld != null)
@@ -631,6 +656,7 @@ namespace LocalFormulaRacing
                       " roadIsTrigger=" + (Track.roadCollider != null && Track.roadCollider.isTrigger) +
                       " roadCollidesWithDefaultCars=" + (Track.roadCollider != null && !Physics.GetIgnoreLayerCollision(Track.roadCollider.gameObject.layer, 0)));
             SpawnRaceGrid(playerName, playerTeamId, careerRace);
+            SpawnGhostIfAvailable();
             PostEngineerMessage(OpeningEngineerMessage(), true);
             engineerWeatherSent = true;
             raceStartTime = Time.time + StartCountdown;
@@ -919,9 +945,16 @@ namespace LocalFormulaRacing
 
                 if (participant.vehicle != null)
                 {
+                    participant.trackedTickFrameCount++;
                     if (participant.vehicle.ErsDeploying) participant.ersDeployFrameCount++;
                     if (participant.vehicle.DrsActive) participant.drsActiveFrameCount++;
                 }
+            }
+
+            if (IsTimeTrial)
+            {
+                RecordGhostSample();
+                UpdateGhostPlayback();
             }
 
             if (PlayerParticipant != null)
@@ -936,6 +969,7 @@ namespace LocalFormulaRacing
             UpdatePlayerAutoPitStrategy();
             UpdateRaceEngineer();
             UpdateWeatherTransition();
+            UpdateTrackEvolution();
             UpdateRaceControl();
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
@@ -1023,8 +1057,108 @@ namespace LocalFormulaRacing
                 raceWorld = null;
             }
 
+            // Ghost car is parented under raceWorld so Destroy above already
+            // removes it from the scene - just drop the now-stale references.
+            ghostCarObject = null;
+            ghostController = null;
+            ghostRecordingBuffer.Clear();
+            ghostRecordedLapNumber = -1;
+            playerCameraRig = null;
+            ActivePracticeProgramId = null;
+
             SimpleAudioManager.SetRain(false);
             SimpleAudioManager.SetRaceAmbience(false);
+        }
+
+        // Playable practice programs: scores the just-driven Practice session
+        // against the criteria for whichever program (ActivePracticeProgramId)
+        // the player picked in RuntimeUi.ShowPracticePrograms, from real telemetry
+        // captured during the session rather than an unconditional click reward.
+        // Call this BEFORE CleanupRaceWorld() while PlayerParticipant is still live.
+        public PracticeSessionResult EvaluatePracticeSession()
+        {
+            PracticeSessionResult result = new PracticeSessionResult { programId = ActivePracticeProgramId };
+            if (PlayerParticipant == null || PlayerParticipant.lapTracker == null || PlayerParticipant.vehicle == null)
+            {
+                result.title = "Practice Session";
+                result.passed = false;
+                result.metricSummary = "No valid lap data was recorded.";
+                return result;
+            }
+
+            int completedLaps = PlayerParticipant.lapTracker.CompletedLaps;
+            float bestLap = PlayerParticipant.lapTracker.BestLapTime;
+            float tyreWear = PlayerParticipant.vehicle.Tyres == null ? 1f : PlayerParticipant.vehicle.Tyres.Wear;
+            float ersBattery = PlayerParticipant.vehicle.ErsBattery;
+            int pitStops = PlayerParticipant.pitStops;
+
+            switch (ActivePracticeProgramId)
+            {
+                case "acclimatisation":
+                    result.title = "Track Acclimatisation";
+                    result.passed = completedLaps >= 3;
+                    result.metricSummary = completedLaps + " lap(s) completed (need 3).";
+                    break;
+
+                case "tyreManagement":
+                    result.title = "Tyre Management";
+                    result.passed = completedLaps >= 5 && tyreWear > 0.4f;
+                    result.metricSummary = completedLaps + " lap(s) completed, tyres at " + Mathf.RoundToInt(tyreWear * 100f) + "% life (need 5 laps and above 40% life).";
+                    break;
+
+                case "ersManagement":
+                    result.title = "ERS Management";
+                    result.passed = completedLaps >= 3 && ersBattery > 0.5f;
+                    result.metricSummary = completedLaps + " lap(s) completed, battery at " + Mathf.RoundToInt(ersBattery * 100f) + "% (need 3 laps and above 50%).";
+                    break;
+
+                case "qualifyingPace":
+                {
+                    result.title = "Qualifying Pace";
+                    float bestAiLap = BestAiLapTimeThisSession();
+                    bool haveBenchmark = bestAiLap > 0f;
+                    result.passed = bestLap > 0f && haveBenchmark && bestLap <= bestAiLap * 1.03f;
+                    result.metricSummary = bestLap > 0f
+                        ? ("Best lap " + UiFactory.FormatTime(bestLap) + (haveBenchmark ? " vs field best " + UiFactory.FormatTime(bestAiLap) + " (need within 3%)." : "."))
+                        : "No valid lap was set.";
+                    break;
+                }
+
+                case "racePace":
+                    result.title = "Race Pace";
+                    result.passed = completedLaps >= 8 && pitStops >= 1;
+                    result.metricSummary = completedLaps + " lap(s) completed, " + pitStops + " pit stop(s) (need 8 laps and 1 stop).";
+                    break;
+
+                default:
+                    result.title = "Practice Session";
+                    result.passed = completedLaps >= 1;
+                    result.metricSummary = completedLaps + " lap(s) completed.";
+                    break;
+            }
+
+            return result;
+        }
+
+        float BestAiLapTimeThisSession()
+        {
+            float best = -1f;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant participant = Participants[i];
+                if (participant == null || participant.isPlayer || participant.lapTracker == null)
+                {
+                    continue;
+                }
+
+                float lap = participant.lapTracker.BestLapTime;
+                if (lap > 0f && (best < 0f || lap < best))
+                {
+                    best = lap;
+                }
+            }
+
+            return best;
         }
 
         public void PrepareNewQualifyingWeekend()
@@ -1050,7 +1184,11 @@ namespace LocalFormulaRacing
 
         public int RaceLaps
         {
-            get { return IsTimeTrial ? 999 : Mathf.Max(3, Settings.Current.laps); }
+            // Practice free-runs the same way Time Trial does - see
+            // GameBootstrap.StartCareerPractice / EvaluatePracticeSession, which
+            // score the session from telemetry once the player manually ends it
+            // rather than from a lap-count finish.
+            get { return (IsTimeTrial || CurrentSession == RaceWeekendSession.Practice) ? 999 : Mathf.Max(3, Settings.Current.laps); }
         }
 
         public int RecommendedPitLap(RaceParticipant participant)
@@ -1157,6 +1295,48 @@ namespace LocalFormulaRacing
             PostEngineerMessage(raining
                 ? "Rain is arriving. Grip is dropping, intermediates will come alive."
                 : "The rain has stopped and the track is drying. Slicks will come to you.", true);
+        }
+
+        // Dynamic track evolution: session-wide grip gradually rises as rubber goes
+        // down over green-flag running (the real "the track is coming in" effect),
+        // instead of every lap of a race or qualifying session running on
+        // identical grip regardless of how many laps have already been driven.
+        // Heavy rain washes the rubber back off, since a soaked track keeps none
+        // of the built-up line. A single TrackRuntime.RubberLevel (0-1) feeds a
+        // small multiplicative bonus applied identically to every car via
+        // VehicleController.SetTrackGripMultiplier (read inside
+        // TyreState.GripMultiplier), plus a subtle darkening tween on the shared
+        // road material for visual feedback.
+        const float TrackEvolutionMaxGripBonus = 0.05f;
+
+        void UpdateTrackEvolution()
+        {
+            if (Track == null || Settings == null || !Settings.Current.trackEvolutionEnabled || IsTimeTrial)
+            {
+                return;
+            }
+
+            bool washedByRain = Track.weather == WeatherState.HeavyRain;
+            float target = washedByRain ? 0f : 1f;
+            float rampSpeed = washedByRain ? 0.3f : 0.012f;
+            Track.RubberLevel = Mathf.MoveTowards(Track.RubberLevel, target, Time.deltaTime * rampSpeed);
+
+            float gripMultiplier = 1f + Track.RubberLevel * TrackEvolutionMaxGripBonus;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                if (Participants[i] != null && Participants[i].vehicle != null)
+                {
+                    Participants[i].vehicle.SetTrackGripMultiplier(gripMultiplier);
+                }
+            }
+
+            Track.ApplyRubberEvolutionVisual(Track.RubberLevel);
+
+            if (!trackEvolutionHalfwayMessageSent && !washedByRain && Track.RubberLevel > 0.5f && CurrentSession != RaceWeekendSession.Qualifying)
+            {
+                trackEvolutionHalfwayMessageSent = true;
+                PostEngineerMessage("Track's rubbering in nicely, you should find a bit more grip now.", false);
+            }
         }
 
         void ResetRaceControlState()
@@ -3536,6 +3716,55 @@ namespace LocalFormulaRacing
             return false;
         }
 
+        // Smarter AI strategy: undercut awareness. NextPitCompound/RecommendedPitLap
+        // already give every AI a stable target window, but until now nothing ever
+        // reacted to who was actually around it on track - every car pitted right at
+        // its own jittered lap regardless of a car directly ahead offering a live
+        // undercut. This lets an AI still on its first stint pit up to 2 laps EARLY
+        // (inside its own recommended window, never before it opens) specifically to
+        // undercut a car it's closely following that hasn't stopped yet - the same
+        // real-world tactic RaceHud already narrates to the player via the "undercut
+        // is live" engineer line.
+        public bool ShouldAiPitForUndercut(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null || participant.vehicle.Tyres == null || participant.lapTracker == null ||
+                CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
+            {
+                return false;
+            }
+
+            if (participant.pitStops != 0 || participant.isPitting || participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit)
+            {
+                return false;
+            }
+
+            int completedLaps = participant.lapTracker.CompletedLaps;
+            int recommendedLap = RecommendedPitLap(participant);
+            // Only inside the last 2 laps of this car's OWN window, never before it
+            // opens - this is a tactical nudge to jump a rival, not a way to skip the
+            // tyre-life planning RecommendedPitLap already does.
+            if (completedLaps < recommendedLap - 2 || completedLaps >= recommendedLap)
+            {
+                return false;
+            }
+
+            // Only worth undercutting off tyres that are already carrying real wear -
+            // a car on a very fresh set has nothing to gain from stopping early.
+            if (participant.vehicle.Tyres.Wear > 0.68f)
+            {
+                return false;
+            }
+
+            RaceParticipant ahead = FindCarAhead(participant, 40f);
+            if (ahead == null || ahead.pitStops != 0 || ahead.retired || ahead.finished)
+            {
+                return false;
+            }
+
+            float gapSeconds = GetIntervalToAheadSeconds(participant);
+            return gapSeconds > 0f && gapSeconds < 2.2f;
+        }
+
         // Player-facing counterpart for a parallel HUD pass: identical logic, named
         // for what it means from the player's seat rather than the AI's.
         public bool RecommendedPitUnderSafetyCar(RaceParticipant participant)
@@ -3562,6 +3791,7 @@ namespace LocalFormulaRacing
             lastGapReportLap = -1;
             weatherTransitionDone = false;
             weatherSecondTransitionDone = false;
+            trackEvolutionHalfwayMessageSent = false;
             playerLastPosition = -1;
             overtakeCheckTimer = 0f;
             sessionFastestLap = -1f;
@@ -4136,6 +4366,25 @@ namespace LocalFormulaRacing
                 // reminder and the actual auto-triggered stop on the same lap.
                 int currentLapNumber = completedLaps + 1;
                 bool mandatoryStopStillOwed = PlayerParticipant.pitStops == 0;
+
+                // Smarter strategy planner: proactive undercut alert, a couple of
+                // laps before the planned stop rather than only the "Box this lap"
+                // call right when the window arrives - the AI now pits early to
+                // undercut a car it's following (see RaceManager.ShouldAiPitForUndercut),
+                // so the player needs the same early notice to react before a rival
+                // jumps them, not just a report of what already happened.
+                if (mandatoryStopStillOwed && targetLap > 0 && currentLapNumber == Mathf.Max(0, targetLap - 2) && lastEngineerPitLapPrompt != completedLaps)
+                {
+                    RaceParticipant rivalAheadForUndercut = FindCarAhead(PlayerParticipant, 40f);
+                    float rivalGap = GetIntervalToAheadSeconds(PlayerParticipant);
+                    if (rivalAheadForUndercut != null && rivalAheadForUndercut.pitStops == 0 && rivalGap > 0f && rivalGap < 2.2f)
+                    {
+                        lastEngineerPitLapPrompt = completedLaps;
+                        PostEngineerMessage("The car ahead hasn't stopped yet. Box early and you could undercut them.", false);
+                        return;
+                    }
+                }
+
                 if (currentLapNumber >= targetLap && lastEngineerPitLapPrompt != completedLaps)
                 {
                     lastEngineerPitLapPrompt = completedLaps;
@@ -4296,6 +4545,194 @@ namespace LocalFormulaRacing
             {
                 PostEngineerMessage("Personal best this session: " + UiFactory.FormatTime(best) + ".", false);
             }
+
+            PromoteGhostRecordingIfBest(best);
+        }
+
+        // Time-trial ghost: the buffer accumulated by RecordGhostSample IS the
+        // lap that just produced this new best time (same-frame ordering -
+        // both run from Update() after the same lapTracker.Tick() pass), so
+        // it's promoted here rather than re-detecting the lap boundary a
+        // second time. Session mode swaps the live ghost immediately so the
+        // player is always chasing their own latest best; All-time mode only
+        // ever touches the persistent store (loaded once at spawn) so the
+        // on-track ghost stays a stable target for the whole session.
+        void PromoteGhostRecordingIfBest(float lapTime)
+        {
+            if (!IsTimeTrial || EventData == null || ghostRecordingBuffer.Count < 2)
+            {
+                return;
+            }
+
+            GhostLapData candidate = new GhostLapData
+            {
+                trackId = EventData.trackId,
+                lapTime = lapTime,
+                samples = new List<GhostSample>(ghostRecordingBuffer)
+            };
+
+            int ghostMode = Settings != null ? Settings.Current.ghostMode : 0;
+            if (ghostMode == 2)
+            {
+                TimeTrialGhostStore.TrySaveIfBest(EventData.trackId, candidate);
+            }
+            else if (ghostMode == 1 && ghostController != null)
+            {
+                ghostController.Initialize(candidate);
+            }
+        }
+
+        // Called once per frame (not per participant - only the player is
+        // recorded/played back) from Update(), gated on IsTimeTrial by both
+        // callers below.
+        void RecordGhostSample()
+        {
+            if (PlayerParticipant == null || PlayerParticipant.lapTracker == null || PlayerParticipant.vehicle == null)
+            {
+                return;
+            }
+
+            int currentLap = PlayerParticipant.lapTracker.CompletedLaps;
+            if (currentLap != ghostRecordedLapNumber)
+            {
+                ghostRecordedLapNumber = currentLap;
+                ghostRecordingBuffer.Clear();
+                ghostRecordTimer = 0f;
+            }
+
+            ghostRecordTimer -= Time.deltaTime;
+            if (ghostRecordTimer > 0f || ghostRecordingBuffer.Count >= TimeTrialGhostStore.MaxSamplesPerGhost)
+            {
+                return;
+            }
+
+            ghostRecordTimer = GhostSampleInterval;
+            ghostRecordingBuffer.Add(new GhostSample
+            {
+                elapsedSeconds = PlayerParticipant.lapTracker.CurrentLapTime,
+                distanceAlongLap = PlayerParticipant.lapTracker.CurrentProgress.normalized,
+                position = PlayerParticipant.transform.position,
+                headingDegrees = PlayerParticipant.transform.eulerAngles.y,
+                speedKph = PlayerParticipant.vehicle.CurrentSpeedKph
+            });
+        }
+
+        void UpdateGhostPlayback()
+        {
+            if (ghostController == null || PlayerParticipant == null || PlayerParticipant.lapTracker == null)
+            {
+                return;
+            }
+
+            ghostController.UpdatePlayback(PlayerParticipant.lapTracker.CurrentLapTime);
+        }
+
+        // Spawned once, right after the player's own car, at Time Trial
+        // session start - reuses CreateOpenWheelCar (the exact same geometry
+        // every real car uses) so the ghost silhouette is instantly
+        // recognisable, then strips it down to a purely visual, non-colliding
+        // shell (kinematic Rigidbody, disabled Collider) and re-tints every
+        // renderer through a single shared translucent material so it always
+        // reads as a ghost regardless of team livery colours.
+        void SpawnGhostIfAvailable()
+        {
+            if (!IsTimeTrial || Settings == null || Settings.Current.ghostMode == 0 || EventData == null)
+            {
+                return;
+            }
+
+            GhostLapData stored = Settings.Current.ghostMode == 2 ? TimeTrialGhostStore.GetBestGhost(EventData.trackId) : null;
+            if (Settings.Current.ghostMode == 2 && stored == null)
+            {
+                return;
+            }
+
+            ghostCarObject = CreateOpenWheelCar("Ghost", new Color(0.3f, 0.62f, 1f), new Color(0.55f, 0.8f, 1f));
+            ghostCarObject.name = "Ghost car";
+            ghostCarObject.transform.SetParent(raceWorld.transform);
+            Rigidbody body = ghostCarObject.GetComponent<Rigidbody>();
+            if (body != null)
+            {
+                body.isKinematic = true;
+                body.detectCollisions = false;
+            }
+
+            Collider[] colliders = ghostCarObject.GetComponentsInChildren<Collider>(true);
+            for (int i = 0; i < colliders.Length; i++)
+            {
+                colliders[i].enabled = false;
+            }
+
+            Material ghostMaterial = CreateTranslucentMaterial("Ghost car shell", new Color(0.3f, 0.62f, 1f), 0.4f);
+            Renderer[] renderers = ghostCarObject.GetComponentsInChildren<Renderer>(true);
+            for (int i = 0; i < renderers.Length; i++)
+            {
+                renderers[i].sharedMaterial = ghostMaterial;
+                renderers[i].shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            }
+
+            ghostController = ghostCarObject.AddComponent<GhostCarController>();
+            if (stored != null)
+            {
+                ghostController.Initialize(stored);
+            }
+
+            if (Track != null)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Track.SampleAtDistance(0f, out point, out forward, out right);
+                ghostCarObject.transform.position = point + Vector3.up * 0.3f;
+                ghostCarObject.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
+            }
+        }
+
+        // Standard shader in alpha-blended Fade mode - same recipe
+        // TrackManager.CreateTranslucentMaterial already uses for the wet-
+        // track sheen/mist banks, duplicated here rather than shared across
+        // files since TrackManager and RaceManager don't otherwise share a
+        // material-helper base class.
+        Material CreateTranslucentMaterial(string materialName, Color color, float alpha)
+        {
+            Material material = new Material(Shader.Find("Standard"));
+            material.name = materialName;
+            material.color = new Color(color.r, color.g, color.b, alpha);
+            material.SetFloat("_Mode", 3f);
+            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            material.SetInt("_ZWrite", 0);
+            material.DisableKeyword("_ALPHATEST_ON");
+            material.EnableKeyword("_ALPHABLEND_ON");
+            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
+            material.renderQueue = 3000;
+            return material;
+        }
+
+        // HUD delta readout for Time Trial, parallel to QualifyingDeltaText -
+        // RaceHud's qualifying-card slot shows whichever of the two applies
+        // (see RaceHud.UpdateTimingCard).
+        public string GhostDeltaText(RaceParticipant participant)
+        {
+            if (!IsTimeTrial || ghostController == null || !ghostController.HasLap || participant == null || participant.lapTracker == null)
+            {
+                return "--";
+            }
+
+            if (participant.lapTracker.OutLapActive)
+            {
+                return "--";
+            }
+
+            float ghostTime = ghostController.GhostTimeAtDistance(participant.lapTracker.CurrentProgress.normalized);
+            if (ghostTime < 0f)
+            {
+                return "--";
+            }
+
+            float delta = participant.lapTracker.CurrentLapTime - ghostTime;
+            string color = delta <= 0f ? "#6CFF8D" : "#FF6C6C";
+            return "<color=" + color + ">" + (delta >= 0f ? "+" : "") + delta.ToString("0.000") + "</color>";
         }
 
         // Stuck recovery: snap the player back to the last safe on-track pose.
@@ -5958,7 +6395,7 @@ namespace LocalFormulaRacing
 
         string ReplacedDriverIdForPlayerTeam(string playerTeamId)
         {
-            List<DriverData> teamDrivers = Data.GetDriversForTeam(playerTeamId);
+            List<DriverData> teamDrivers = Data.GetDriversForTeam(playerTeamId, Career != null && Career.Save != null ? Career.Save.driverTransferRecords : null);
 
             // Teammate-duplicate fix: this used to trust Career.Save.selectedDriverId
             // completely whenever it was non-empty, with no validation - a save
@@ -6009,8 +6446,9 @@ namespace LocalFormulaRacing
         // roster that still contains the player's own seat id.
         List<DriverData> GetDefensiveAiRoster(string playerTeamId, string playerDisplayName)
         {
+            List<DriverTransferRecord> transfers = Career != null && Career.Save != null ? Career.Save.driverTransferRecords : null;
             string replacedId = ReplacedDriverIdForPlayerTeam(playerTeamId);
-            List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, replacedId);
+            List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, replacedId, transfers);
 
             for (int i = aiDrivers.Count - 1; i >= 0; i--)
             {
@@ -6021,7 +6459,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            DriverData teammate = Data.FindTeammateDriver(playerTeamId, replacedId);
+            DriverData teammate = Data.FindTeammateDriver(playerTeamId, replacedId, transfers);
             if (teammate != null)
             {
                 bool teammateIncluded = false;
@@ -6043,6 +6481,20 @@ namespace LocalFormulaRacing
                     }
 
                     aiDrivers.Insert(0, teammate);
+                }
+            }
+
+            // Driver market + progression: this is the single chokepoint all
+            // three roster builders (race grid, live qualifying, sim qualifying)
+            // funnel through (see the comment above this method), so resolving
+            // each driver to its effective (post-transfer, post-progression)
+            // form here - never mutating the shared drivers.json objects -
+            // covers all of them at once.
+            if (Career != null)
+            {
+                for (int i = 0; i < aiDrivers.Count; i++)
+                {
+                    aiDrivers[i] = Career.GetEffectiveDriver(aiDrivers[i]);
                 }
             }
 
@@ -6198,6 +6650,7 @@ namespace LocalFormulaRacing
             if (player)
             {
                 CameraRig rig = new GameObject("Player camera rig").AddComponent<CameraRig>();
+                playerCameraRig = rig;
                 rig.transform.SetParent(raceWorld.transform);
                 rig.transform.position = carObject.transform.position - carObject.transform.forward * 10f + Vector3.up * 4f;
                 rig.Initialize(
@@ -8004,6 +8457,19 @@ namespace LocalFormulaRacing
                 return TyreCompound.Medium;
             }
 
+            // Smarter AI strategy: a short remaining stint (late in the race) should
+            // reach for a faster compound regardless of the usual Soft->Medium->Hard
+            // ladder below - there's no tyre-life reason to save rubber that will
+            // never be needed again. Aggressive drivers push this a little further
+            // than cautious ones.
+            int lapsRemainingAfterStop = participant.lapTracker == null ? RaceLaps : Mathf.Max(0, RaceLaps - participant.lapTracker.CompletedLaps);
+            if (lapsRemainingAfterStop > 0 && lapsRemainingAfterStop <= 8)
+            {
+                int aggression = participant.driverData == null ? 50 : participant.driverData.aggression;
+                bool pushToSoft = aggression >= 65 || lapsRemainingAfterStop <= 4;
+                return pushToSoft ? TyreCompound.Soft : TyreCompound.Medium;
+            }
+
             if (participant.vehicle.Tyres.Compound == TyreCompound.Soft)
             {
                 return TyreCompound.Medium;
@@ -8178,6 +8644,187 @@ namespace LocalFormulaRacing
             LogAiDiagnostics(results);
             SimpleAudioManager.SetRaceAmbience(false);
             SimpleAudioManager.PlayResultsFlourish();
+
+            // Podium/parc fermé presentation (#25): only at the Cinematic
+            // presentation tier, and only when there's an actual camera/field
+            // to stage - everything else (Minimal/Standard, or a degenerate
+            // 0-1 car field) goes straight to the existing 2D results screen
+            // exactly as before, unchanged.
+            bool cinematic = Settings != null && Settings.Current.racePresentation >= 2;
+            if (cinematic && playerCameraRig != null && results.Count >= 1)
+            {
+                StartCoroutine(PodiumPresentationSequence(results));
+            }
+            else
+            {
+                ui.ShowResults(this, results, IsCareerRace);
+            }
+        }
+
+        // Generated runtime podium: repositions the top-3 finishers' own
+        // already-alive car GameObjects (the race world isn't torn down until
+        // the player navigates away from results - see CleanupRaceWorld's
+        // call sites) onto three stepped blocks, hijacks the player's own
+        // camera rig for a brief pan, then hands off to the normal 2D results
+        // screen. Every step is defensively guarded so any missing piece
+        // (no top-3 car found, no track reference) just skips that piece
+        // rather than aborting the whole sequence - it always ends by calling
+        // ShowResults no matter what happened above it.
+        IEnumerator PodiumPresentationSequence(List<RaceResultEntry> results)
+        {
+            List<Transform> podiumCars = new List<Transform>();
+            int topCount = Mathf.Min(3, results.Count);
+            for (int i = 0; i < topCount; i++)
+            {
+                RaceParticipant found = null;
+                for (int p = 0; p < Participants.Count; p++)
+                {
+                    if (Participants[p] != null && Participants[p].driverId == results[i].driverId)
+                    {
+                        found = Participants[p];
+                        break;
+                    }
+                }
+
+                podiumCars.Add(found != null ? found.transform : null);
+            }
+
+            GameObject podiumRoot = new GameObject("Podium presentation");
+            if (raceWorld != null)
+            {
+                podiumRoot.transform.SetParent(raceWorld.transform);
+            }
+
+            Vector3 podiumCenter = Vector3.zero;
+            Vector3 podiumForward = Vector3.forward;
+            if (Track != null)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Track.SampleAtDistance(0f, out point, out forward, out right);
+                // Well clear of the track/pit lane on either side - this is a
+                // purely cosmetic stage, not something a car ever drives past,
+                // so it only needs to be visually clear, not lane-accurate.
+                podiumCenter = point + right * (Track.roadHalfWidth + 40f);
+                podiumForward = -forward;
+            }
+
+            // Three stepped blocks: P1 centre and tallest, P2/P3 lower to either
+            // side - the same silhouette every real podium reads as.
+            Vector3 podiumRight = Vector3.Cross(Vector3.up, podiumForward).normalized;
+            float[] blockHeights = { 1.1f, 0.75f, 0.5f };
+            Vector3[] blockOffsets = { Vector3.zero, podiumRight * -3.2f, podiumRight * 3.2f };
+            Color[] blockColors =
+            {
+                new Color(0.85f, 0.68f, 0.15f),
+                new Color(0.75f, 0.76f, 0.78f),
+                new Color(0.62f, 0.42f, 0.22f)
+            };
+
+            for (int i = 0; i < topCount; i++)
+            {
+                GameObject block = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                block.name = "Podium block P" + (i + 1);
+                block.transform.SetParent(podiumRoot.transform);
+                Vector3 blockCenter = podiumCenter + blockOffsets[i] + Vector3.up * (blockHeights[i] * 0.5f);
+                block.transform.position = blockCenter;
+                block.transform.rotation = Quaternion.LookRotation(podiumForward, Vector3.up);
+                block.transform.localScale = new Vector3(2.6f, blockHeights[i], 2.6f);
+                Renderer blockRenderer = block.GetComponent<Renderer>();
+                if (blockRenderer != null)
+                {
+                    blockRenderer.sharedMaterial = CreateMaterial("Podium block P" + (i + 1), blockColors[i], 0.2f, 0.55f);
+                }
+
+                if (podiumCars[i] != null)
+                {
+                    // Freeze the car exactly where it's placed - a still-alive
+                    // AiVehicleController/VehicleController would otherwise keep
+                    // trying to drive it the instant it's teleported.
+                    VehicleController vc = podiumCars[i].GetComponent<VehicleController>();
+                    if (vc != null)
+                    {
+                        vc.enabled = false;
+                    }
+
+                    AiVehicleController ai = podiumCars[i].GetComponent<AiVehicleController>();
+                    if (ai != null)
+                    {
+                        ai.enabled = false;
+                    }
+
+                    PlayerVehicleInput playerInput = podiumCars[i].GetComponent<PlayerVehicleInput>();
+                    if (playerInput != null)
+                    {
+                        playerInput.enabled = false;
+                    }
+
+                    Rigidbody carBody = podiumCars[i].GetComponent<Rigidbody>();
+                    if (carBody != null)
+                    {
+                        carBody.isKinematic = true;
+                        carBody.velocity = Vector3.zero;
+                        carBody.angularVelocity = Vector3.zero;
+                    }
+
+                    podiumCars[i].position = blockCenter + Vector3.up * (blockHeights[i] * 0.5f + 0.3f);
+                    podiumCars[i].rotation = Quaternion.LookRotation(-podiumForward, Vector3.up);
+                }
+            }
+
+            // Simple confetti: short burst of coloured particles above the
+            // podium, gated the same way every other optional effect in this
+            // codebase is (Settings.Current.particlesEnabled).
+            if (Settings != null && Settings.Current.particlesEnabled && topCount > 0)
+            {
+                GameObject confettiObject = new GameObject("Podium confetti");
+                confettiObject.transform.SetParent(podiumRoot.transform);
+                confettiObject.transform.position = podiumCenter + Vector3.up * 4f;
+                ParticleSystem confetti = confettiObject.AddComponent<ParticleSystem>();
+                ParticleSystem.MainModule main = confetti.main;
+                main.startLifetime = 2.2f;
+                main.startSpeed = 3.5f;
+                main.startSize = 0.12f;
+                main.maxParticles = 200;
+                main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.8f, 0.2f), new Color(0.3f, 0.6f, 1f));
+                ParticleSystem.EmissionModule emission = confetti.emission;
+                emission.rateOverTime = 0f;
+                emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 120) });
+                ParticleSystem.ShapeModule shape = confetti.shape;
+                shape.shapeType = ParticleSystemShapeType.Cone;
+                shape.angle = 25f;
+                shape.radius = 1.5f;
+                ParticleSystemRenderer confettiRenderer = confettiObject.GetComponent<ParticleSystemRenderer>();
+                if (confettiRenderer != null)
+                {
+                    confettiRenderer.material = CreateMaterial("Confetti particle", Color.white, 0f, 0.2f);
+                }
+
+                confetti.Play();
+            }
+
+            // Camera: hand-drive the player's own rig instead of leaving
+            // CameraRig's own per-frame follow logic fighting this - it gets
+            // re-enabled implicitly by never being needed again (the race
+            // world, camera included, is destroyed the moment the player
+            // navigates away from the results screen that follows this).
+            playerCameraRig.enabled = false;
+            Vector3 camStart = podiumCenter + podiumForward * 14f + podiumRight * 6f + Vector3.up * 3.2f;
+            Vector3 camEnd = podiumCenter + podiumForward * 12f - podiumRight * 6f + Vector3.up * 4.4f;
+            Transform camTransform = playerCameraRig.transform;
+
+            float duration = 4f;
+            float elapsed = 0f;
+            while (elapsed < duration && !Input.anyKeyDown)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / duration));
+                camTransform.position = Vector3.Lerp(camStart, camEnd, t);
+                camTransform.rotation = Quaternion.LookRotation((podiumCenter + Vector3.up * 1.5f) - camTransform.position, Vector3.up);
+                yield return null;
+            }
+
             ui.ShowResults(this, results, IsCareerRace);
         }
 
@@ -8276,7 +8923,10 @@ namespace LocalFormulaRacing
                              PlayerParticipant != null &&
                              PlayerParticipant.vehicle != null &&
                              PlayerParticipant.vehicle.Damage.OverallPercent < 20f;
-            PlayerRecordsStore.RecordRaceFinish(playerResult.finishingPosition, playerResult.points, fastestLap, cleanRace, trackLimitWarnings);
+            bool wetRace = Track != null && (Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain);
+            string trackIdForRecords = EventData != null ? EventData.trackId : null;
+            PlayerRecordsStore.RecordRaceFinish(playerResult.finishingPosition, playerResult.points, fastestLap, cleanRace, trackLimitWarnings,
+                trackIdForRecords, playerResult.gridPosition, playerResult.overtakesMade, wetRace);
         }
 
         void CompleteQualifyingRun()
@@ -8378,7 +9028,7 @@ namespace LocalFormulaRacing
             QualifyingResultEntry playerQualifying = results.Find(entry => entry.isPlayer);
             if (playerQualifying != null)
             {
-                PlayerRecordsStore.RecordQualifyingResult(playerQualifying.position);
+                PlayerRecordsStore.RecordQualifyingResult(playerQualifying.position, EventData != null ? EventData.trackId : null);
             }
 
             LogAiQualifyingDiagnostics(results, playerQualifying);
@@ -8981,6 +9631,14 @@ namespace LocalFormulaRacing
             public float s1;
             public float s2;
             public float s3;
+        }
+
+        public class PracticeSessionResult
+        {
+            public string programId;
+            public string title;
+            public bool passed;
+            public string metricSummary;
         }
     }
 }

@@ -104,6 +104,11 @@ namespace LocalFormulaRacing
         // Lightweight per-race ERS/DRS usage counters for post-session diagnostics.
         public int ersDeployFrameCount;
         public int drsActiveFrameCount;
+        // Denominator for the two counters above (post-race telemetry report -
+        // see RuntimeUi.BuildDrivingTelemetryCard) - only counts frames this
+        // participant was actually ticked (on track, not mid-pit-guide/finished),
+        // the same set ersDeployFrameCount/drsActiveFrameCount already sample.
+        public int trackedTickFrameCount;
         public float pitTimer;
         public float pitServiceDuration;
         public bool pitLimiterUntilExit;

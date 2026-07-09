@@ -20,6 +20,11 @@ namespace LocalFormulaRacing
                     {
                         cached.trackRecords = new System.Collections.Generic.List<TrackRecordEntry>();
                     }
+
+                    if (cached.trackAchievements == null)
+                    {
+                        cached.trackAchievements = new System.Collections.Generic.List<TrackAchievementEntry>();
+                    }
                 }
 
                 return cached;
@@ -79,8 +84,13 @@ namespace LocalFormulaRacing
             return true;
         }
 
-        // Career-wide stat tracking; called once when a race classification is final.
-        public static void RecordRaceFinish(int position, int points, bool fastestLap, bool cleanRace, int trackLimitWarnings)
+        // Career-wide stat tracking; called once when a race classification is
+        // final. Trophy Cabinet additions (trackId/gridPosition/overtakes/wet)
+        // are all optional with safe defaults so QuickRace/other callers that
+        // don't have every piece of context can still call this without
+        // breaking - only the fields they pass real data for get updated.
+        public static void RecordRaceFinish(int position, int points, bool fastestLap, bool cleanRace, int trackLimitWarnings,
+            string trackId = null, int gridPosition = 0, int overtakesMade = 0, bool wetRace = false)
         {
             PlayerRecordsData data = Data;
             data.racesFinished++;
@@ -101,11 +111,82 @@ namespace LocalFormulaRacing
 
             if (cleanRace)
             {
+                data.currentCleanRaceStreak++;
                 data.cleanRaces++;
+                if (data.currentCleanRaceStreak > data.bestCleanRaceStreak)
+                {
+                    data.bestCleanRaceStreak = data.currentCleanRaceStreak;
+                }
+            }
+            else
+            {
+                data.currentCleanRaceStreak = 0;
             }
 
             data.totalPoints += Mathf.Max(0, points);
             data.trackLimitWarningsTotal += Mathf.Max(0, trackLimitWarnings);
+            data.mostOvertakesInRace = Mathf.Max(data.mostOvertakesInRace, overtakesMade);
+
+            if (position > 0 && gridPosition > position)
+            {
+                int comeback = gridPosition - position;
+                data.biggestComebackPositions = Mathf.Max(data.biggestComebackPositions, comeback);
+            }
+
+            if (wetRace && position > 0 && (data.bestWetFinishPosition <= 0 || position < data.bestWetFinishPosition))
+            {
+                data.bestWetFinishPosition = position;
+            }
+
+            if (!string.IsNullOrEmpty(trackId))
+            {
+                TrackAchievementEntry achievement = FindOrCreateAchievement(data, trackId);
+                if (position == 1)
+                {
+                    achievement.wins++;
+                }
+
+                if (position >= 1 && position <= 3)
+                {
+                    achievement.podiums++;
+                }
+            }
+
+            LocalJsonStore.Save(RecordsFile, data);
+        }
+
+        static TrackAchievementEntry FindOrCreateAchievement(PlayerRecordsData data, string trackId)
+        {
+            for (int i = 0; i < data.trackAchievements.Count; i++)
+            {
+                if (data.trackAchievements[i].trackId == trackId)
+                {
+                    return data.trackAchievements[i];
+                }
+            }
+
+            TrackAchievementEntry created = new TrackAchievementEntry { trackId = trackId };
+            data.trackAchievements.Add(created);
+            return created;
+        }
+
+        // Season-level trophies: called from CareerManager at season-end
+        // (completedSeasons always increments; championship counts only when
+        // the player's own driver/team standing is actually first).
+        public static void RecordSeasonCompleted(bool wonDriverChampionship, bool wonConstructorsChampionship)
+        {
+            PlayerRecordsData data = Data;
+            data.completedSeasons++;
+            if (wonDriverChampionship)
+            {
+                data.championshipsWon++;
+            }
+
+            if (wonConstructorsChampionship)
+            {
+                data.constructorsChampionshipsWon++;
+            }
+
             LocalJsonStore.Save(RecordsFile, data);
         }
 
@@ -119,7 +200,7 @@ namespace LocalFormulaRacing
             LocalJsonStore.Save(RecordsFile, Data);
         }
 
-        public static void RecordQualifyingResult(int position)
+        public static void RecordQualifyingResult(int position, string trackId = null)
         {
             if (position <= 0)
             {
@@ -130,6 +211,10 @@ namespace LocalFormulaRacing
             if (position == 1)
             {
                 data.polePositions++;
+                if (!string.IsNullOrEmpty(trackId))
+                {
+                    FindOrCreateAchievement(data, trackId).poles++;
+                }
             }
 
             if (data.bestQualifyingPosition <= 0 || position < data.bestQualifyingPosition)

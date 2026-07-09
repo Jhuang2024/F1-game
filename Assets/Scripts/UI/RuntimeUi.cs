@@ -2007,6 +2007,15 @@ namespace LocalFormulaRacing
                 ShowSettings(data, career, settings);
             });
 
+            RectTransform ghostControl;
+            UiFactory.CreateSettingRow(list, "Time Trial Ghost", "A translucent car tracing a recorded lap alongside you.", out ghostControl);
+            UiFactory.CreateCycleControl(ghostControl, GhostModeLabel(settings.Current.ghostMode), () =>
+            {
+                settings.Current.ghostMode = (settings.Current.ghostMode + 1) % 3;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
             RectTransform gridControl;
             UiFactory.CreateSettingRow(list, "Grid Size", "Fixed at a full field for now.", out gridControl);
             UiFactory.CreateText(gridControl, "Grid size value", "22 drivers", 16, UiFactory.TextMuted, TextAnchor.MiddleRight).GetComponent<RectTransform>().anchorMin = new Vector2(0f, 0f);
@@ -2138,6 +2147,15 @@ namespace LocalFormulaRacing
                 ShowSettings(data, career, settings);
             });
 
+            RectTransform trackEvolutionControl;
+            UiFactory.CreateSettingRow(raceControlList, "Track Evolution", "Grip rises slightly as the session goes on and rubber goes down, washed away again by heavy rain.", out trackEvolutionControl);
+            UiFactory.CreateToggleControl(trackEvolutionControl, settings.Current.trackEvolutionEnabled, () =>
+            {
+                settings.Current.trackEvolutionEnabled = !settings.Current.trackEvolutionEnabled;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
             RectTransform practiceProgramsControl;
             UiFactory.CreateSettingRow(raceControlList, "Practice Programs", "Optional pre-qualifying programs for R&D points and setup confidence.", out practiceProgramsControl);
             UiFactory.CreateToggleControl(practiceProgramsControl, settings.Current.practiceProgramsEnabled, () =>
@@ -2195,6 +2213,16 @@ namespace LocalFormulaRacing
                 case 1: return "Low";
                 case 3: return "High";
                 default: return "Standard";
+            }
+        }
+
+        string GhostModeLabel(int value)
+        {
+            switch (value)
+            {
+                case 1: return "Session Best";
+                case 2: return "All-Time Best";
+                default: return "Off";
             }
         }
 
@@ -2482,6 +2510,19 @@ namespace LocalFormulaRacing
             AddDriverFilterTab(filterRow, "Potential", "potential", sortKey, data, career, settings);
 
             List<DriverData> drivers = new List<DriverData>(data.Drivers.drivers);
+            // Driver market + progression: show this season's effective team
+            // and rating swing (see CareerManager.GetEffectiveDriver) rather
+            // than the static drivers.json baseline, so a transfer or a rising/
+            // declining driver is actually visible on the one screen built for
+            // browsing driver stats and teams.
+            if (career != null && career.Save != null)
+            {
+                for (int i = 0; i < drivers.Count; i++)
+                {
+                    drivers[i] = career.GetEffectiveDriver(drivers[i]);
+                }
+            }
+
             SortDriversByKey(drivers, sortKey);
 
             string playerDriverId;
@@ -2557,7 +2598,7 @@ namespace LocalFormulaRacing
                 playerId = career.Save.selectedDriverId;
             }
 
-            List<DriverData> teamDrivers = data.GetDriversForTeam(career.Save.playerTeamId);
+            List<DriverData> teamDrivers = data.GetDriversForTeam(career.Save.playerTeamId, career.Save.driverTransferRecords);
             string excludedId = string.IsNullOrEmpty(playerId) && teamDrivers.Count > 0 ? teamDrivers[0].id : playerId;
             for (int i = 0; i < teamDrivers.Count; i++)
             {
@@ -4035,6 +4076,73 @@ namespace LocalFormulaRacing
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
             UiFactory.CreateSecondaryButton(footerLeft, "Career", () => ShowCareerHub(data, career, settings));
             UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
+            UiFactory.CreatePrimaryButton(footerRight, "Trophy Cabinet", () => ShowTrophyCabinet(data, career, settings));
+        }
+
+        // Trophy Cabinet: the deeper, more ceremonial counterpart to Career
+        // Stats above - season/championship-level trophies and per-track
+        // achievements (wins/podiums/poles) that a single flat stat row can't
+        // hold, all sourced from the same PlayerRecordsData this session
+        // already extended RecordRaceFinish/RecordSeasonCompleted to fill in.
+        public void ShowTrophyCabinet(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Trophy cabinet background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateTopNav(background, "Trophy Cabinet");
+            PlayerRecordsData records = PlayerRecordsStore.Data;
+
+            RectTransform rowOne = UiFactory.CreateRect(background, "Trophy row one", new Vector2(0.06f, 0.76f), new Vector2(0.94f, 0.84f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(rowOne, 12, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(rowOne, "Championships", records.championshipsWon.ToString(), 210f);
+            UiFactory.CreateStatCard(rowOne, "Constructors' Titles", records.constructorsChampionshipsWon.ToString(), 240f);
+            UiFactory.CreateStatCard(rowOne, "Seasons Completed", records.completedSeasons.ToString(), 240f);
+            UiFactory.CreateStatCard(rowOne, "Clean Race Streak", records.bestCleanRaceStreak.ToString(), 220f);
+
+            RectTransform rowTwo = UiFactory.CreateRect(background, "Trophy row two", new Vector2(0.06f, 0.66f), new Vector2(0.94f, 0.74f), Vector2.zero, Vector2.zero);
+            UiFactory.AddHorizontalLayout(rowTwo, 12, new RectOffset(0, 0, 0, 0));
+            UiFactory.CreateStatCard(rowTwo, "Biggest Comeback", records.biggestComebackPositions > 0 ? "+" + records.biggestComebackPositions + " places" : "--", 240f);
+            UiFactory.CreateStatCard(rowTwo, "Most Overtakes (1 race)", records.mostOvertakesInRace.ToString(), 260f);
+            UiFactory.CreateStatCard(rowTwo, "Best Wet Result", records.bestWetFinishPosition > 0 ? "P" + records.bestWetFinishPosition : "--", 220f);
+
+            RectTransform content = UiFactory.CreateScrollPanel(background, "Track achievement list", new Vector2(0.06f, 0.12f), new Vector2(0.94f, 0.64f), 4, new RectOffset(18, 18, 12, 12));
+            UiFactory.CreateSubHeader(content, "Track Achievements");
+            if (records.trackAchievements == null || records.trackAchievements.Count == 0)
+            {
+                Text none = UiFactory.CreateText(content, "No achievements", "No wins, podiums, or poles recorded yet - they'll show up here after your first race weekend.", 17, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+                UiFactory.SetSize(none, 900f, 28f);
+            }
+
+            const float achievementRowWidth = 1100f;
+            for (int i = 0; i < (records.trackAchievements != null ? records.trackAchievements.Count : 0); i++)
+            {
+                TrackAchievementEntry entry = records.trackAchievements[i];
+                if (entry.wins == 0 && entry.podiums == 0 && entry.poles == 0)
+                {
+                    continue;
+                }
+
+                string trackName = entry.trackId;
+                for (int e = 0; e < data.Calendar.events.Count; e++)
+                {
+                    if (data.Calendar.events[e].trackId == entry.trackId)
+                    {
+                        trackName = data.Calendar.events[e].displayName;
+                        break;
+                    }
+                }
+
+                RectTransform row = UiFactory.CreateTableRow(content, "Achievement row " + i, achievementRowWidth, 30f, false, i);
+                UiFactory.AddRowCell(row, "Track", trackName, 0.02f, 0.5f, 15, new Color(0.9f, 0.95f, 0.98f), TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Wins", entry.wins + " wins", 0.5f, 0.68f, 13, UiFactory.AccentGreen, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Podiums", entry.podiums + " podiums", 0.68f, 0.86f, 13, UiFactory.AccentCyan, TextAnchor.MiddleLeft);
+                UiFactory.AddRowCell(row, "Poles", entry.poles + " poles", 0.86f, 1f, 13, UiFactory.Accent, TextAnchor.MiddleRight);
+            }
+
+            RectTransform footerLeft2;
+            RectTransform footerRight2;
+            UiFactory.CreateFooterBar(background, out footerLeft2, out footerRight2);
+            UiFactory.CreateSecondaryButton(footerLeft2, "Career Stats", () => ShowCareerStats(data, career, settings));
+            UiFactory.CreateSecondaryButton(footerLeft2, "Main Menu", () => ShowMainMenu(data, career, settings));
         }
 
         // Practice programs: once-per-round simulated running that pays out resource
@@ -4095,16 +4203,13 @@ namespace LocalFormulaRacing
 
             if (!done)
             {
-                UnityEngine.UI.Button run = UiFactory.CreateButton(card, "Run", () =>
+                // Playable practice programs: drives an actual session instead of
+                // an instant reward - see GameBootstrap.StartCareerPractice and
+                // RaceManager.EvaluatePracticeSession, which scores real telemetry
+                // once the player ends the session from the pause menu.
+                UnityEngine.UI.Button run = UiFactory.CreateButton(card, "Drive", () =>
                 {
-                    career.Save.completedPracticePrograms.Add(key);
-                    career.Save.resourcePoints += resourceReward;
-                    career.Save.reputation += reputationReward;
-                    // Practice running feeds correlation data to the factory:
-                    // projects finishing this round get a small success bonus.
-                    career.Save.practiceQualityThisRound++;
-                    career.Write();
-                    ShowPracticePrograms(data, career, settings);
+                    bootstrap.StartCareerPractice(programId);
                 });
                 RectTransform runRect = run.GetComponent<RectTransform>();
                 runRect.anchorMin = new Vector2(0.88f, 0.5f);
@@ -4112,6 +4217,75 @@ namespace LocalFormulaRacing
                 runRect.sizeDelta = new Vector2(110f, 44f);
                 runRect.anchoredPosition = new Vector2(55f, 0f);
             }
+        }
+
+        // Single source of truth for each practice program's reward, kept in sync
+        // with the resourceReward/reputationReward literals passed into
+        // CreatePracticeProgramRow above - used again by ShowPracticeSessionResult
+        // once the player actually finishes driving the program.
+        void PracticeProgramReward(string programId, out int resourceReward, out int reputationReward)
+        {
+            switch (programId)
+            {
+                case "acclimatisation": resourceReward = 22; reputationReward = 1; break;
+                case "tyreManagement": resourceReward = 20; reputationReward = 0; break;
+                case "ersManagement": resourceReward = 18; reputationReward = 0; break;
+                case "qualifyingPace": resourceReward = 24; reputationReward = 1; break;
+                case "racePace": resourceReward = 26; reputationReward = 1; break;
+                default: resourceReward = 0; reputationReward = 0; break;
+            }
+        }
+
+        // Playable practice programs: shown after the player ends a Practice
+        // session from the pause menu (GameBootstrap.EndPracticeSession). Grants
+        // the program's reward only if RaceManager.EvaluatePracticeSession judged
+        // the session a pass, and only once per round per program.
+        public void ShowPracticeSessionResult(GameDataRepository data, CareerManager career, GameSettingsStore settings, RaceManager.PracticeSessionResult result)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Practice result background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateScreenHeader(background, result.title, result.passed ? "Program complete" : "Program not yet complete");
+
+            RectTransform card = UiFactory.CreateCard(background, "Practice result card", new Vector2(0.28f, 0.28f), new Vector2(0.72f, 0.72f));
+            RectTransform content = UiFactory.CreateRect(card, "Practice result content", Vector2.zero, Vector2.one, new Vector2(28f, 22f), new Vector2(-28f, -22f));
+            UiFactory.AddVerticalLayout(content, 14, new RectOffset(0, 0, 0, 0));
+
+            UiFactory.CreateText(content, "Practice result verdict", result.passed ? "PASSED" : "NOT ACHIEVED", 30, result.passed ? UiFactory.AccentGreen : UiFactory.AccentAmber, TextAnchor.MiddleLeft);
+            Text metric = UiFactory.CreateText(content, "Practice result metric", result.metricSummary, 17, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            metric.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(metric, 480f, 60f);
+
+            int resourceReward;
+            int reputationReward;
+            PracticeProgramReward(result.programId, out resourceReward, out reputationReward);
+
+            string key = result.programId == null || career.Save == null ? null : ("s" + career.Save.currentSeason + "_r" + career.Save.currentRound + "_" + result.programId);
+            bool alreadyRecorded = key != null && career.Save.completedPracticePrograms.Contains(key);
+            if (result.passed && key != null && !alreadyRecorded)
+            {
+                career.Save.completedPracticePrograms.Add(key);
+                career.Save.resourcePoints += resourceReward;
+                career.Save.reputation += reputationReward;
+                // Practice running feeds correlation data to the factory:
+                // projects finishing this round get a small success bonus.
+                career.Save.practiceQualityThisRound++;
+                career.Write();
+                UiFactory.CreateText(content, "Practice result reward", "+" + resourceReward + " RP" + (reputationReward > 0 ? "  +" + reputationReward + " REP" : ""), 18, UiFactory.AccentGreen, TextAnchor.MiddleLeft);
+            }
+            else if (!result.passed)
+            {
+                UiFactory.CreateText(content, "Practice result reward", "No reward yet - drive the session again to hit the target.", 15, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+            }
+            else
+            {
+                UiFactory.CreateText(content, "Practice result reward", "Already completed this round.", 15, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+            }
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Practice Programs", () => ShowPracticePrograms(data, career, settings));
+            UiFactory.CreateSecondaryButton(footerLeft, "Race Weekend", bootstrap.ShowRaceWeekend);
         }
 
         bool profileIsWet(CalendarEventData raceEvent)
@@ -4477,6 +4651,7 @@ namespace LocalFormulaRacing
             BuildPodiumSection(content, race, results);
             BuildPlayerSummarySection(content, race, results, player);
             BuildCorneringTelemetryCard(content, race);
+            BuildDrivingTelemetryCard(content, race);
             BuildTeammateSection(content, results, player);
             BuildStrategySection(content, race, player);
             BuildIncidentSection(content, race, results, player);
@@ -5931,6 +6106,69 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Telemetry report (#69): braking/ERS/tyre-heat signals the cornering
+        // card above doesn't cover, plus one synthesized, actionable
+        // recommendation picked from whichever signal reads worst - reuses
+        // fields already tracked on the live RaceParticipant/VehicleController/
+        // TyreState (lockups, flat spots, ERS/DRS frame counters) rather than
+        // adding a second sampling pipeline alongside SampleCorneringTelemetry.
+        void BuildDrivingTelemetryCard(RectTransform content, RaceManager race)
+        {
+            if (race == null || race.PlayerParticipant == null || race.PlayerParticipant.vehicle == null || race.PlayerParticipant.vehicle.Tyres == null)
+            {
+                return;
+            }
+
+            RaceParticipant player = race.PlayerParticipant;
+            int laps = player.lapTracker != null ? Mathf.Max(1, player.lapTracker.CompletedLaps) : 1;
+            int lockups = player.vehicle.Tyres.TotalLockups;
+            float flatSpotPercent = player.vehicle.Tyres.FlatSpotLevel * 100f;
+            float wearPercent = player.vehicle.Tyres.WearPercent;
+            float lockupsPerLap = lockups / (float)laps;
+
+            int frames = Mathf.Max(1, player.trackedTickFrameCount);
+            float ersUsagePercent = player.ersDeployFrameCount / (float)frames * 100f;
+            float drsUsagePercent = player.drsActiveFrameCount / (float)frames * 100f;
+
+            UiFactory.CreateSubHeader(content, "Driving Telemetry");
+            RectTransform contentArea;
+            UiFactory.CreateAutoCard(content, "Driving telemetry", "", UiFactory.AccentCyan, ReportContentWidth, out contentArea);
+            float innerWidth = ReportContentWidth - 34f;
+
+            Color lockupColor = lockupsPerLap <= 0.3f ? UiFactory.AccentGreen : (lockupsPerLap <= 1f ? UiFactory.AccentAmber : UiFactory.Accent);
+            UiFactory.CreateBreakdownRow(contentArea, "Braking (lockups)", lockups + " total, " + lockupsPerLap.ToString("0.00") + " per lap", lockupColor, innerWidth);
+
+            Color flatSpotColor = flatSpotPercent <= 8f ? UiFactory.AccentGreen : (flatSpotPercent <= 25f ? UiFactory.AccentAmber : UiFactory.Accent);
+            UiFactory.CreateBreakdownRow(contentArea, "Tyre Flat-Spotting", flatSpotPercent.ToString("0") + "% - " + (flatSpotPercent <= 8f ? "clean braking" : "heavy lockups scarring the tyre"), flatSpotColor, innerWidth);
+
+            UiFactory.CreateBreakdownRow(contentArea, "Tyre Wear At Finish", wearPercent.ToString("0") + "%", UiFactory.TextPrimary, innerWidth);
+            UiFactory.CreateBreakdownRow(contentArea, "ERS Deployment", ersUsagePercent.ToString("0") + "% of the race", UiFactory.TextPrimary, innerWidth);
+            UiFactory.CreateBreakdownRow(contentArea, "DRS Activation", drsUsagePercent.ToString("0") + "% of the race", UiFactory.TextPrimary, innerWidth);
+
+            // One concrete recommendation, picked from whichever signal above
+            // reads worst - a report full of numbers with nothing actionable
+            // was the actual complaint this card exists to fix.
+            string recommendation;
+            if (lockupsPerLap > 1f)
+            {
+                recommendation = "Brake earlier into your heaviest braking zones - " + lockups + " lockups this race is scarring your tyres and costing lap time.";
+            }
+            else if (flatSpotPercent > 25f)
+            {
+                recommendation = "Ease trail-braking pressure once the front tyres lock - flat-spotting is already past a quarter of the tyre's contact patch.";
+            }
+            else if (ersUsagePercent < 15f)
+            {
+                recommendation = "You're leaving ERS in the battery - deploy more on straights and defending, not just for overtakes.";
+            }
+            else
+            {
+                recommendation = "Clean session - braking and tyre management were both within a healthy range.";
+            }
+
+            UiFactory.CreateAutoText(contentArea, "Telemetry recommendation", recommendation, 14, UiFactory.AccentGreen, TextAnchor.UpperLeft, innerWidth);
+        }
+
         RaceResultEntry FindBiggestLoser(List<RaceResultEntry> results)
         {
             RaceResultEntry worst = null;
@@ -6166,7 +6404,7 @@ namespace LocalFormulaRacing
             RectTransform menu = UiFactory.CreateRect(card, "Pause menu", Vector2.zero, Vector2.one, new Vector2(28f, 22f), new Vector2(-28f, -22f));
             UiFactory.AddVerticalLayout(menu, 11, new RectOffset(0, 0, 0, 0));
             UiFactory.CreateText(menu, "Paused", "PAUSED", 34, Color.white, TextAnchor.MiddleLeft);
-            string sessionLabel = race.IsTimeTrial ? "Time Trial" : (race.CurrentSession == RaceWeekendSession.Qualifying ? "Qualifying" : "Race");
+            string sessionLabel = race.IsTimeTrial ? "Time Trial" : (race.CurrentSession == RaceWeekendSession.Qualifying ? "Qualifying" : (race.CurrentSession == RaceWeekendSession.Practice ? "Practice" : "Race"));
             string eventLabel = race.EventData == null ? "Prototype GP" : race.EventData.displayName;
             UiFactory.CreateText(menu, "Pause session", sessionLabel + "  ·  " + eventLabel, 18, UiFactory.TextMuted, TextAnchor.MiddleLeft);
             UiFactory.CreateDivider(menu);
@@ -6182,6 +6420,14 @@ namespace LocalFormulaRacing
             // and the other secondary - the two genuinely destructive choices
             // now look consistently different from "just navigating".
             UiFactory.CreatePrimaryButton(menu, "Resume", race.Resume);
+            if (race.CurrentSession == RaceWeekendSession.Practice)
+            {
+                // Practice has no lap-count finish (RaceManager.RaceLaps returns
+                // 999 for it) - this is the only way a session ends, scoring the
+                // real telemetry driven so far instead of discarding it.
+                UiFactory.CreatePrimaryButton(menu, "End Practice Session", bootstrap.EndPracticeSession);
+            }
+
             UiFactory.CreateSecondaryButton(menu, "Main Menu", () =>
             {
                 race.CleanupRaceWorld();

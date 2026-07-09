@@ -255,6 +255,8 @@ namespace LocalFormulaRacing
         public List<SeasonArchive> seasonArchives = new List<SeasonArchive>();
         public List<RegulationChange> regulationChanges = new List<RegulationChange>();
         public List<TeamPerformanceModifier> teamPerformanceModifiers = new List<TeamPerformanceModifier>();
+        public List<DriverTransferRecord> driverTransferRecords = new List<DriverTransferRecord>();
+        public List<DriverRatingModifier> driverRatingModifiers = new List<DriverRatingModifier>();
         public List<SeasonObjective> seasonObjectives = new List<SeasonObjective>();
         public bool preSeasonTestingSeen;
 
@@ -312,6 +314,36 @@ namespace LocalFormulaRacing
         // performance stats, e.g. 0.04 = a noticeable but modest step forward.
         public float performanceDelta;
         public int reputationDelta;
+        public string trendLabel;
+    }
+
+    // Driver market: a driver's team reassignment for a given season, layered
+    // on top of the static drivers.json teamId at read time (see
+    // GameDataRepository.EffectiveTeamId) - never mutates the shared DriverData
+    // reference, exactly like TeamPerformanceModifier above never mutates
+    // CarPerformanceData. Append-only across seasons; the most recent record
+    // for a given driverId (by season) is the one currently in effect.
+    [Serializable]
+    public class DriverTransferRecord
+    {
+        public string driverId;
+        public string newTeamId;
+        public int season;
+    }
+
+    // Driver progression: a driver's small season-to-season rating swing,
+    // layered on top of the static drivers.json stats at read time (see
+    // CareerManager.GetEffectiveDriver) - same never-mutate-the-source
+    // convention as TeamPerformanceModifier/DriverTransferRecord. Applied
+    // identically across every core skill stat rather than one delta per
+    // stat, matching TeamPerformanceModifier's single-scalar approach.
+    // Append-only across seasons, looked up by (driverId, season).
+    [Serializable]
+    public class DriverRatingModifier
+    {
+        public string driverId;
+        public int season;
+        public int ratingDelta;
         public string trendLabel;
     }
 
@@ -755,6 +787,14 @@ namespace LocalFormulaRacing
         public bool compactHud;
         public bool particlesEnabled = true;
 
+        // Time-trial ghost: 0=Off, 1=Session best (this session's own best
+        // lap, not carried from a prior session), 2=All-time best (the
+        // locally stored record, see TimeTrialGhostStore). Defaults to
+        // all-time best since that's the most useful default for a returning
+        // player and an existing save with no ghost data yet behaves exactly
+        // like "no ghost available" either way.
+        public int ghostMode = 2;
+
         // Per-module HUD visibility toggles. All default true so an existing
         // save's HUD looks identical to before these fields existed - only an
         // explicit opt-out in Display Settings hides a module.
@@ -811,6 +851,11 @@ namespace LocalFormulaRacing
         public int cameraShakeLevel = 2;
         public bool practiceProgramsEnabled = true;
         public bool careerNewsFeedEnabled = true;
+        // Dynamic track evolution: grip rises slightly over a session as rubber
+        // goes down (washed away again by heavy rain) - see
+        // RaceManager.UpdateTrackEvolution. On by default; players who want fully
+        // static per-lap grip can turn it off.
+        public bool trackEvolutionEnabled = true;
     }
 
     [Serializable]
@@ -828,6 +873,21 @@ namespace LocalFormulaRacing
         public int cleanRaces;
         public int trackLimitWarningsTotal;
         public int bestQualifyingPosition;
+
+        // Trophy Cabinet additions. Per-track wins/podiums/poles live in
+        // trackAchievements (fastest lap by track already exists via
+        // trackRecords + its context field, filtered to "race" context - no
+        // need to duplicate that here). Field defaults keep old record files
+        // loading cleanly.
+        public List<TrackAchievementEntry> trackAchievements = new List<TrackAchievementEntry>();
+        public int mostOvertakesInRace;
+        public int currentCleanRaceStreak;
+        public int bestCleanRaceStreak;
+        public int bestWetFinishPosition;
+        public int biggestComebackPositions;
+        public int championshipsWon;
+        public int constructorsChampionshipsWon;
+        public int completedSeasons;
     }
 
     [Serializable]
@@ -836,6 +896,44 @@ namespace LocalFormulaRacing
         public string trackId;
         public float bestLapTime;
         public string context;
+    }
+
+    [Serializable]
+    public class TrackAchievementEntry
+    {
+        public string trackId;
+        public int wins;
+        public int podiums;
+        public int poles;
+    }
+
+    // Time-trial ghost: a compact trace of one lap, sampled at a fixed time
+    // interval (see RaceManager's ghost recording) rather than every physics
+    // frame, so a multi-minute lap stays a few hundred samples instead of
+    // thousands. distanceAlongLap lets playback/delta lookups interpolate by
+    // track progress instead of only by elapsed time.
+    [Serializable]
+    public class GhostSample
+    {
+        public float elapsedSeconds;
+        public float distanceAlongLap;
+        public Vector3 position;
+        public float headingDegrees;
+        public float speedKph;
+    }
+
+    [Serializable]
+    public class GhostLapData
+    {
+        public string trackId;
+        public float lapTime;
+        public List<GhostSample> samples = new List<GhostSample>();
+    }
+
+    [Serializable]
+    public class GhostStoreData
+    {
+        public List<GhostLapData> bestGhosts = new List<GhostLapData>();
     }
 
     public enum RaceDifficulty
@@ -867,7 +965,13 @@ namespace LocalFormulaRacing
     {
         QuickRace,
         Qualifying,
-        Race
+        Race,
+        // Playable practice programs: a free-running session (see
+        // RaceManager.StartSession/RaceLaps, GameBootstrap.StartCareerPractice)
+        // that never auto-finishes on lap count - the player ends it manually
+        // from the pause menu once satisfied, and RaceManager.EvaluatePracticeSession
+        // scores the selected program from real session telemetry.
+        Practice
     }
 
     public enum ErsStrategyMode

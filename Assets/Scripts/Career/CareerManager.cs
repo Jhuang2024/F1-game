@@ -36,6 +36,7 @@ namespace LocalFormulaRacing
         public const string NewsCategoryRegulations = "Regulations";
         public const string NewsCategoryRumour = "Paddock Rumour";
         public const string NewsCategoryGeneral = "Career";
+        public const string NewsCategoryTransfers = "Driver Market";
 
         readonly GameDataRepository data;
 
@@ -398,6 +399,15 @@ namespace LocalFormulaRacing
                 SeasonArchive completedSeason = BuildSeasonArchive(raceEvent);
                 Save.seasonArchives.Add(completedSeason);
                 Save.lastCompletedSeasonNumber = Save.currentSeason;
+
+                // Trophy Cabinet: season-level trophies, recorded once per
+                // completed season using the same archive snapshot above -
+                // "player" is the standings id EnsurePlayerReplacesDriverSeat
+                // always assigns the player's own entry (see driverChampionId/
+                // constructorChampionId comparisons elsewhere in this file).
+                PlayerRecordsStore.RecordSeasonCompleted(
+                    completedSeason.driverChampionId == "player",
+                    completedSeason.constructorChampionId == Save.playerTeamId);
 
                 Save.currentRound = 1;
                 Save.currentSeason++;
@@ -1028,7 +1038,7 @@ namespace LocalFormulaRacing
             if (closest == null)
             {
                 // No other team on the grid - fall back to the teammate.
-                List<DriverData> teamDrivers = data.GetDriversForTeam(Save.playerTeamId);
+                List<DriverData> teamDrivers = data.GetDriversForTeam(Save.playerTeamId, Save.driverTransferRecords);
                 DriverData teammateDriver = teamDrivers.Find(driver => driver.id != Save.selectedDriverId);
                 if (teammateDriver != null)
                 {
@@ -1722,7 +1732,7 @@ namespace LocalFormulaRacing
         {
             if (Save.driverStandings == null || Save.driverStandings.Count == 0)
             {
-                Save.driverStandings = data.CreateInitialDriverStandings(Save.playerDriverName, Save.playerTeamId, Save.selectedDriverId);
+                Save.driverStandings = data.CreateInitialDriverStandings(Save.playerDriverName, Save.playerTeamId, Save.selectedDriverId, Save.driverTransferRecords);
             }
 
             if (Save.constructorStandings == null || Save.constructorStandings.Count == 0)
@@ -1856,6 +1866,16 @@ namespace LocalFormulaRacing
                 Save.teamPerformanceModifiers = new List<TeamPerformanceModifier>();
             }
 
+            if (Save.driverTransferRecords == null)
+            {
+                Save.driverTransferRecords = new List<DriverTransferRecord>();
+            }
+
+            if (Save.driverRatingModifiers == null)
+            {
+                Save.driverRatingModifiers = new List<DriverRatingModifier>();
+            }
+
             if (Save.seasonObjectives == null)
             {
                 Save.seasonObjectives = new List<SeasonObjective>();
@@ -1906,7 +1926,7 @@ namespace LocalFormulaRacing
             string replacedDriverId = Save.selectedDriverId;
             if (string.IsNullOrEmpty(replacedDriverId))
             {
-                List<DriverData> teamDrivers = data.GetDriversForTeam(Save.playerTeamId);
+                List<DriverData> teamDrivers = data.GetDriversForTeam(Save.playerTeamId, Save.driverTransferRecords);
                 if (teamDrivers.Count > 0)
                 {
                     replacedDriverId = teamDrivers[0].id;
@@ -1990,7 +2010,10 @@ namespace LocalFormulaRacing
         // it has to be skipped explicitly by id instead.
         string PickRivalId(string teamId, string selectedDriverId)
         {
-            List<DriverData> candidates = data.GetAiRaceDrivers(teamId, 8, selectedDriverId);
+            // PickRivalId is also called from career creation, inside the
+            // Save = new CareerSaveData { ... } object initializer itself - Save
+            // is still null at that point, so this must not assume it's set.
+            List<DriverData> candidates = data.GetAiRaceDrivers(teamId, 8, selectedDriverId, Save != null ? Save.driverTransferRecords : null);
             for (int i = 0; i < candidates.Count; i++)
             {
                 if (candidates[i].id != selectedDriverId && candidates[i].teamId != teamId)
@@ -2081,7 +2104,7 @@ namespace LocalFormulaRacing
             archive.playerTeamFinalPosition = FindStandingPosition(Save.constructorStandings, Save.playerTeamId);
             archive.playerTeamPoints = teamStanding != null ? teamStanding.points : 0;
 
-            DriverData teammateDriver = data.FindTeammateDriver(Save.playerTeamId, Save.selectedDriverId);
+            DriverData teammateDriver = data.FindTeammateDriver(Save.playerTeamId, Save.selectedDriverId, Save.driverTransferRecords);
             if (teammateDriver != null)
             {
                 StandingEntry teammateStanding = Save.driverStandings.Find(entry => entry.id == teammateDriver.id);
@@ -2429,7 +2452,13 @@ namespace LocalFormulaRacing
         // offseason news reacting to the season that just closed.
         void BeginNewSeason(SeasonArchive completedSeason)
         {
-            Save.driverStandings = data.CreateInitialDriverStandings(Save.playerDriverName, Save.playerTeamId, Save.selectedDriverId);
+            // Driver market + progression decided before the new season's
+            // standings are built from the roster, so the standings/AI grid
+            // already reflect this season's team moves and rating swings.
+            GenerateDriverTransfers(completedSeason);
+            GenerateDriverProgression(completedSeason);
+
+            Save.driverStandings = data.CreateInitialDriverStandings(Save.playerDriverName, Save.playerTeamId, Save.selectedDriverId, Save.driverTransferRecords);
             Save.constructorStandings = data.CreateInitialConstructorStandings();
             EnsurePlayerReplacesDriverSeat();
 
@@ -2566,6 +2595,136 @@ namespace LocalFormulaRacing
         // are affected this season, plus randomness. Never mutates the
         // shared TeamData/CarPerformanceData reference data - applied at
         // read time only (see GetEffectiveTeamCar).
+        // Driver market: a small number of AI-only seat swaps each season - the
+        // weakest-rated driver on one team trades places with the weakest-rated
+        // driver on another, so every team keeps exactly its original driver
+        // count. The player's own team is never a source or destination -
+        // EnsurePlayerReplacesDriverSeat (called right after this in
+        // BeginNewSeason) owns the player's own seat/teammate assignment, so a
+        // market move here can never contest or duplicate it.
+        void GenerateDriverTransfers(SeasonArchive completedSeason)
+        {
+            List<TeamData> eligibleTeams = data.Teams.teams.FindAll(t => t != null && t.id != Save.playerTeamId);
+            if (eligibleTeams.Count < 2)
+            {
+                return;
+            }
+
+            int transferCount = Random.Range(1, 4);
+            List<string> movedThisSeason = new List<string>();
+            for (int attempt = 0; attempt < transferCount; attempt++)
+            {
+                TeamData teamA = eligibleTeams[Random.Range(0, eligibleTeams.Count)];
+                TeamData teamB = eligibleTeams[Random.Range(0, eligibleTeams.Count)];
+                if (teamA == null || teamB == null || teamA.id == teamB.id)
+                {
+                    continue;
+                }
+
+                DriverData driverA = WeakestDriverOnTeam(teamA.id, movedThisSeason);
+                DriverData driverB = WeakestDriverOnTeam(teamB.id, movedThisSeason);
+                if (driverA == null || driverB == null)
+                {
+                    continue;
+                }
+
+                Save.driverTransferRecords.Add(new DriverTransferRecord { driverId = driverA.id, newTeamId = teamB.id, season = Save.currentSeason });
+                Save.driverTransferRecords.Add(new DriverTransferRecord { driverId = driverB.id, newTeamId = teamA.id, season = Save.currentSeason });
+                movedThisSeason.Add(driverA.id);
+                movedThisSeason.Add(driverB.id);
+
+                AddNewsArticle(
+                    driverA.displayName + " and " + driverB.displayName + " swap seats",
+                    driverA.displayName + " moves to " + teamB.name + " while " + driverB.displayName + " heads to " + teamA.name + " as the driver market shakes up ahead of Season " + Save.currentSeason + ".",
+                    NewsCategoryTransfers);
+            }
+        }
+
+        DriverData WeakestDriverOnTeam(string teamId, List<string> excludeIds)
+        {
+            List<DriverData> roster = data.GetDriversForTeam(teamId, Save.driverTransferRecords);
+            DriverData weakest = null;
+            for (int i = 0; i < roster.Count; i++)
+            {
+                DriverData candidate = roster[i];
+                if (candidate == null || excludeIds.Contains(candidate.id))
+                {
+                    continue;
+                }
+
+                if (weakest == null || candidate.OverallRating < weakest.OverallRating)
+                {
+                    weakest = candidate;
+                }
+            }
+
+            return weakest;
+        }
+
+        // Driver progression: a small season-to-season rating swing per driver,
+        // biased by developmentPotential vs experience (a young, high-potential
+        // driver trends up; an old, low-potential one trends down) and
+        // compounding season over season - GetEffectiveDriver clamps the
+        // resulting stats to a realistic 40-99 range at the point of use, so an
+        // unbounded stored ratingDelta can never surface as an unrealistic
+        // in-race stat even over a very long career.
+        void GenerateDriverProgression(SeasonArchive completedSeason)
+        {
+            List<DriverRatingModifier> thisSeason = new List<DriverRatingModifier>();
+            for (int i = 0; i < data.Drivers.drivers.Count; i++)
+            {
+                DriverData driver = data.Drivers.drivers[i];
+                if (driver == null)
+                {
+                    continue;
+                }
+
+                DriverRatingModifier previous = Save.driverRatingModifiers.Find(m => m.driverId == driver.id && m.season == Save.currentSeason - 1);
+                int previousDelta = previous == null ? 0 : previous.ratingDelta;
+
+                bool risingTalent = driver.developmentPotential >= 75 && driver.experience < 75;
+                bool decliningVeteran = driver.developmentPotential <= 55 && driver.experience >= 80;
+                int step = risingTalent ? Random.Range(1, 4) : (decliningVeteran ? -Random.Range(1, 4) : Random.Range(-1, 2));
+                int newDelta = previousDelta + step;
+
+                DriverRatingModifier modifier = new DriverRatingModifier
+                {
+                    driverId = driver.id,
+                    season = Save.currentSeason,
+                    ratingDelta = newDelta,
+                    trendLabel = step > 0 ? "Improving" : (step < 0 ? "Declining" : "Steady")
+                };
+                Save.driverRatingModifiers.Add(modifier);
+                thisSeason.Add(modifier);
+            }
+
+            if (thisSeason.Count == 0)
+            {
+                return;
+            }
+
+            thisSeason.Sort((a, b) => b.ratingDelta.CompareTo(a.ratingDelta));
+            DriverRatingModifier riser = thisSeason[0];
+            DriverData riserDriver = data.FindDriver(riser.driverId);
+            if (riser.ratingDelta >= 4 && riserDriver != null)
+            {
+                AddNewsArticle(
+                    riserDriver.displayName + " is the form driver of the paddock",
+                    riserDriver.displayName + " enters Season " + Save.currentSeason + " on a real upward curve, sharper than ever after a strong development cycle.",
+                    NewsCategoryRumour);
+            }
+
+            DriverRatingModifier faller = thisSeason[thisSeason.Count - 1];
+            DriverData fallerDriver = data.FindDriver(faller.driverId);
+            if (faller.ratingDelta <= -4 && fallerDriver != null)
+            {
+                AddNewsArticle(
+                    fallerDriver.displayName + " under pressure after a difficult stretch",
+                    fallerDriver.displayName + " heads into Season " + Save.currentSeason + " having lost a step, with question marks starting to follow the seat.",
+                    NewsCategoryRumour);
+            }
+        }
+
         void GenerateTeamPerformanceEvolution(SeasonArchive completedSeason)
         {
             List<StandingEntry> previousConstructorStandings = completedSeason != null ? completedSeason.finalConstructorStandings : null;
@@ -2684,6 +2843,57 @@ namespace LocalFormulaRacing
             tuned.chassisBalance = Mathf.Clamp(tuned.chassisBalance, 40, 128);
             tuned.enginePower = Mathf.Clamp(tuned.enginePower, 40, 128);
             return tuned;
+        }
+
+        // Driver market + progression: read-time-only lookup (see
+        // DriverTransferRecord/DriverRatingModifier) exactly like
+        // GetEffectiveTeamCar above - never mutates the shared DriverData
+        // reference from drivers.json. Corrects teamId to this season's
+        // effective team (a driver's own .teamId field on the shared object is
+        // never touched, so every downstream reader - car color, standings,
+        // race grid - must go through this, not read driver.teamId directly)
+        // and applies the season's rating swing to the core skill stats.
+        public DriverData GetEffectiveDriver(DriverData baseDriver)
+        {
+            if (baseDriver == null)
+            {
+                return baseDriver;
+            }
+
+            string effectiveTeamId = data.EffectiveTeamId(baseDriver, Save.driverTransferRecords);
+            DriverRatingModifier modifier = Save.driverRatingModifiers == null ? null : Save.driverRatingModifiers.Find(m => m.driverId == baseDriver.id && m.season == Save.currentSeason);
+            int delta = modifier == null ? 0 : modifier.ratingDelta;
+
+            if (effectiveTeamId == baseDriver.teamId && delta == 0)
+            {
+                return baseDriver;
+            }
+
+            return new DriverData
+            {
+                id = baseDriver.id,
+                displayName = baseDriver.displayName,
+                abbreviation = baseDriver.abbreviation,
+                number = baseDriver.number,
+                teamId = effectiveTeamId,
+                pace = ClampRating(baseDriver.pace + delta),
+                racecraft = ClampRating(baseDriver.racecraft + delta),
+                qualifying = ClampRating(baseDriver.qualifying + delta),
+                tyreManagement = ClampRating(baseDriver.tyreManagement + delta),
+                wetSkill = ClampRating(baseDriver.wetSkill + delta),
+                consistency = ClampRating(baseDriver.consistency + delta),
+                aggression = baseDriver.aggression,
+                defending = ClampRating(baseDriver.defending + delta),
+                overtaking = ClampRating(baseDriver.overtaking + delta),
+                awareness = ClampRating(baseDriver.awareness + delta),
+                experience = baseDriver.experience,
+                developmentPotential = baseDriver.developmentPotential
+            };
+        }
+
+        static int ClampRating(int value)
+        {
+            return Mathf.Clamp(value, 40, 99);
         }
 
         // Fresh player/team objectives for the new season, scaled off the
@@ -2977,7 +3187,7 @@ namespace LocalFormulaRacing
                   " ranked P" + playerRank + " on testing pace out of " + report.paceRanking.Count + " teams."
                 : "Testing pace data unavailable.";
 
-            DriverData teammate = data.FindTeammateDriver(Save.playerTeamId, Save.selectedDriverId);
+            DriverData teammate = data.FindTeammateDriver(Save.playerTeamId, Save.selectedDriverId, Save.driverTransferRecords);
             DriverData playerDriverData = string.IsNullOrEmpty(Save.selectedDriverId) ? null : data.FindDriver(Save.selectedDriverId);
             if (teammate != null)
             {
