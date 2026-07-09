@@ -214,6 +214,23 @@ namespace LocalFormulaRacing
         // time rather than a fixed constant (see RaceManager.UpdatePitExitMerge) -
         // reset to 0 whenever ExitMerge starts or finishes.
         public float pitExitMergeElapsedTime;
+        // Pit-exit liveness fix: monotonic countdown of the metres of guided
+        // path left in the current Release/ExitMerge leg. Seeded once at each
+        // phase transition from the known canonical distances and decremented
+        // by exactly the step the guide actually advanced - NEVER re-derived
+        // from a wrapped difference between two track distances, which is
+        // where the old "seed landed epsilon behind the box, wrapped
+        // difference read as a whole lap, car instantly (or never) finished
+        // the phase" failures came from.
+        public float pitPathRemainingMeters;
+        // Pit-exit liveness fix: how long this car has been continuously held
+        // at the merge point by unrelated live traffic. Unlike
+        // pitExitMergeElapsedTime (which intentionally resets during holds),
+        // this exists precisely to measure the hold itself - after
+        // PitExitLiveTrafficHoldEscapeSeconds the car starts attempting
+        // TryForcePitExitMergeCompletion, which still refuses any genuinely
+        // unsafe placement, so the pipeline head can never starve forever.
+        public float pitExitLiveHoldSeconds;
         // Short post-merge AI-side lane hold (see AiVehicleController) so normal
         // racing-line/overtake/defend logic doesn't immediately dive for the apex
         // the instant guided ExitMerge control hands back, even though the guided
