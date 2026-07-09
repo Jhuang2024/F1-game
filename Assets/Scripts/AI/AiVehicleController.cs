@@ -1434,16 +1434,15 @@ namespace LocalFormulaRacing
             vehicle.SetCommand(command);
         }
 
-        // Race-control autopilot has just handed control back - see the call site
-        // in Update() for why this specific transition (isRaceControlAutopilot
-        // true -> false) is the one moment this controller can't trust its own
-        // cached driving state. Resyncs the track-progress reference from the
-        // car's real current position and clears every piece of transient
-        // attack/defend/avoidance state so the car resumes normal driving
-        // cleanly on the racing line instead of lunging off stale data.
-        void HandleRaceControlAutopilotReleased()
+        // Shared by every "something moved this car's transform out from under
+        // its own cached driving state" path below - clears every piece of
+        // transient attack/defend/avoidance/mistake state so the car resumes
+        // normal driving cleanly instead of lunging off stale data. Does NOT
+        // touch the track-progress reference itself (hasProgressReference/
+        // lastProgressDistance) - callers decide separately whether they have
+        // a trustworthy known distance to resync to, or need a fresh search.
+        void ClearTransientDrivingState()
         {
-            hasProgressReference = false;
             overtakeState = OvertakeState.Following;
             overtakeStateTimer = 0f;
             attackSide = preferredSide;
@@ -1459,6 +1458,19 @@ namespace LocalFormulaRacing
             wasDrsLegalLastFrame = false;
             currentThrottle = 0f;
             previousSeverityHere = 0f;
+        }
+
+        // Race-control autopilot has just handed control back - see the call site
+        // in Update() for why this specific transition (isRaceControlAutopilot
+        // true -> false) is the one moment this controller can't trust its own
+        // cached driving state. No trustworthy known distance exists here (the
+        // car may have sat under autopilot for a lap or more), so this forces a
+        // fresh global search next frame instead of trusting a stale
+        // lastProgressDistance.
+        void HandleRaceControlAutopilotReleased()
+        {
+            hasProgressReference = false;
+            ClearTransientDrivingState();
             handbackRampTimer = HandbackRampDuration;
         }
 
@@ -1471,11 +1483,41 @@ namespace LocalFormulaRacing
         // the same reset plus a short handback-style ramp so the car eases
         // back into racing instead of instantly committing to whatever the
         // overtake/defend state machine last decided before it got stuck.
+        // Use this ONLY when no trustworthy distance is known for where the
+        // car actually landed - if RaceManager already knows the exact correct
+        // distance (e.g. a normal pit-exit handoff), call
+        // ResyncToKnownTrackDistance instead so the very next frame doesn't
+        // have to guess via an unrestricted global search.
         public void ResyncAfterForcedReposition()
         {
             HandleRaceControlAutopilotReleased();
             activeManeuver = RecoveryManeuver.None;
             stuckDetectTimer = 0f;
+        }
+
+        // Pit-exit handoff fix (root cause 4): RaceManager.CompletePitExitMerge
+        // already knows the exact correct track distance the car was just
+        // guided to (finalDistance) - calling ResyncAfterForcedReposition here
+        // instead threw that away by setting hasProgressReference = false,
+        // forcing the very next AI frame to run an UNRESTRICTED
+        // Track.GetProgress(transform.position) global nearest-centreline
+        // search. Right at a pit exit - where the exit lane can run close to
+        // another, unrelated part of the circuit - that search can resolve
+        // onto the wrong nearby segment, and the AI then steers sideways
+        // trying to reach a target on a completely different piece of track
+        // (matching cars turning sideways into traffic right after release).
+        // This preserves the known-correct segment across the handoff instead
+        // of ever performing that search.
+        public void ResyncToKnownTrackDistance(float distance)
+        {
+            lastProgressDistance = track.WrapDistance(distance);
+            hasProgressReference = true;
+            ClearTransientDrivingState();
+            activeManeuver = RecoveryManeuver.None;
+            stuckDetectTimer = 0f;
+            handbackRampTimer = HandbackRampDuration;
+            GameLog.Info("[PitExit] " + (participant != null ? participant.driverName : name) +
+                         " AI resynced to exact known distance=" + lastProgressDistance.ToString("0.0") + " after pit-exit handoff.");
         }
 
         // Part 1: the real safety car isn't a RaceParticipant, so it never shows
