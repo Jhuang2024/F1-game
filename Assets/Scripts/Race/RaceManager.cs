@@ -9382,38 +9382,50 @@ namespace LocalFormulaRacing
         // it. Named-circuit checks run before the generic street check since several
         // real high-speed circuits (Jeddah, Baku, Las Vegas) are technically street
         // layouts but should not be bucketed with tight street pace.
+        //
+        // Qualifying-vs-race calibration fix: these factors were tuned to
+        // realistic real-world average-speed fractions, but AiVehicleController's
+        // corner-speed model has since been buffed repeatedly (tight/Slow corners
+        // now target ~300-310kph, essentially straight-line pace, with only the
+        // narrow VeryTight/Hairpin bands still slowing cars meaningfully) without
+        // this separate statistical qualifying-sim formula ever being updated to
+        // match. The result was the reported bug: actual physics-driven race laps
+        // came out faster than the qualifying times this formula produced. Raised
+        // across every bucket (~1.2x) so the simulated qualifying baseline is back
+        // in line with (and, as a flying lap on low fuel should be, faster than)
+        // real race pace under the current corner-speed model.
         float TrackAverageSpeedFactor(TrackRuntime track)
         {
             if (track == null)
             {
-                return 0.60f;
+                return 0.72f;
             }
 
             string id = track.trackId ?? "";
             string style = (track.styleName ?? "").ToLowerInvariant();
             if (id.Contains("monaco"))
             {
-                return 0.44f;
+                return 0.53f;
             }
 
             if (id.Contains("spa") || id.Contains("monza") || id.Contains("silverstone") ||
                 id.Contains("baku") || id.Contains("jeddah") || id.Contains("las_vegas") ||
                 id.Contains("suzuka") || id.Contains("qatar"))
             {
-                return 0.76f;
+                return 0.90f;
             }
 
             if (id.Contains("hungary"))
             {
-                return 0.50f;
+                return 0.60f;
             }
 
             if (style.Contains("street") || track.roadHalfWidth < 12f)
             {
-                return 0.53f;
+                return 0.64f;
             }
 
-            return 0.66f;
+            return 0.79f;
         }
 
         float WeatherQualifyingPenalty(DriverData driver)
