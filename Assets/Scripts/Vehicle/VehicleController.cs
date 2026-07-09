@@ -821,14 +821,15 @@ namespace LocalFormulaRacing
                 ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.42f, 0.63f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
-            // Non-braking recharge fix round 2: both the off-throttle coasting rate
-            // and the passive trickle rate below are raised 200% (tripled) on top of
-            // their previous nudge-up - only recovery that happens outside a genuine
-            // braking zone (which keeps its own separately-tuned rate above), so the
-            // battery fills much faster through the rest of a lap.
+            // Non-braking recharge fix round 3: both the off-throttle coasting rate
+            // and the passive trickle rate below are raised a further 60% on top of
+            // their previous (already tripled) rate - only recovery that happens
+            // outside a genuine braking zone (which keeps its own separately-tuned
+            // rate above, untouched here), so the battery fills faster through the
+            // rest of a lap without changing how fast a braking zone itself charges.
             else if (activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.081f, 0.18f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.13f, 0.288f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ErsDeploying)
@@ -841,7 +842,7 @@ namespace LocalFormulaRacing
                 // than either the braking or coasting rate above (roughly 1/20th of
                 // the braking rate, well under half the coasting rate) so it reads as
                 // a slow background trickle, not a third harvesting mode.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0255f, 0.054f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0408f, 0.0864f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
@@ -1360,19 +1361,25 @@ namespace LocalFormulaRacing
             // Angular damping stays noticeably lighter than the car-to-car curve
             // (max ~0.5 vs ~0.82) so a genuine hard hit still spins the car
             // visibly - it just can't compound into an unrecoverable tumble.
-            float angularDampFactor = sustained ? Mathf.Lerp(0.22f, 0.4f, severity) : Mathf.Lerp(0.2f, 0.5f, severity);
+            // Round 2 wall-bounce fix: nudged up slightly on top of the
+            // original pinball-physics fix - cars were still visibly bouncing
+            // off barriers, so both the angular settle and (mainly) the
+            // rebound-velocity cut below are strengthened further.
+            float angularDampFactor = sustained ? Mathf.Lerp(0.3f, 0.48f, severity) : Mathf.Lerp(0.3f, 0.6f, severity);
             body.angularVelocity *= (1f - angularDampFactor);
 
             // Rebound cut: only the velocity component pointing back away from
             // the wall (along its own contact normal) is reduced, not the car's
             // along-the-wall/forward momentum - a graze keeps rolling speed, a
             // head-on hit loses the violent kickback that used to fire it back
-            // across the track.
+            // across the track. Round 2: cut range raised further so barrier
+            // hits lose most of their bounce-back speed instead of just most
+            // of it - the car should scrub off along the wall, not spring away.
             Vector3 normal = contactNormal.sqrMagnitude > 0.001f ? contactNormal.normalized : Vector3.up;
             float reboundSpeed = Vector3.Dot(body.velocity, normal);
             if (reboundSpeed > 0f)
             {
-                float reboundCut = sustained ? Mathf.Lerp(0.3f, 0.55f, severity) : Mathf.Lerp(0.45f, 0.78f, severity);
+                float reboundCut = sustained ? Mathf.Lerp(0.45f, 0.7f, severity) : Mathf.Lerp(0.62f, 0.9f, severity);
                 body.velocity -= normal * reboundSpeed * reboundCut;
             }
         }

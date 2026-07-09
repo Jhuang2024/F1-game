@@ -74,6 +74,11 @@ namespace LocalFormulaRacing
         public enum RaceControlState { Green, YellowSector, VirtualSafetyCar, SafetyCarDeploying, SafetyCarActive, SafetyCarInThisLap, Restart, RedFlagged }
         enum IncidentSeverity { Minor, Medium, Major }
 
+        // VSC/SC interactive pit-window offer: which race-control period the
+        // currently active offer (if any) was raised under, so the accept
+        // message/report can name it correctly instead of a generic "pitted".
+        public enum RaceControlPitOfferType { None, Vsc, SafetyCar }
+
         public RaceControlState CurrentRaceControlState { get; private set; } = RaceControlState.Green;
         // Absolute target speed for a full safety car period; only meaningful while
         // CurrentRaceControlState == SafetyCarActive.
@@ -234,6 +239,17 @@ namespace LocalFormulaRacing
         bool safetyCarInThisLapMessageSent;
         bool coldTyresRestartWarningSent;
         bool playerScPitPromptSent;
+
+        // VSC/SC interactive pit-window offer state (player only). Set alongside
+        // playerScPitPromptSent's own radio message; pressing P while active boxes
+        // the player immediately under the VSC/SC window and overrides the original
+        // pre-race planned pit lap for the current stop. Doing nothing lets it
+        // expire and leaves the original plan untouched - see
+        // AcceptRaceControlPitOffer/UpdatePlayerRaceControlPitOffer.
+        bool playerHasActiveRaceControlPitOffer;
+        float playerRaceControlPitOfferExpiresAt;
+        RaceControlPitOfferType playerRaceControlPitOfferType;
+        bool playerDeclinedRaceControlPitOfferMessageSent;
         float yellowSectorClearTimer;
         // Part 2: per-sector and global cooldowns so yellow flags read as
         // localized, occasional warnings instead of a constant banner spam -
@@ -1009,6 +1025,7 @@ namespace LocalFormulaRacing
             UpdateOvertakeAndFastestLapNotifications();
             UpdatePlayerLapGapRadio();
             UpdatePlayerAutoPitStrategy();
+            UpdatePlayerRaceControlPitOffer();
             UpdateRaceEngineer();
             UpdateWeatherTransition();
             UpdateTrackEvolution();
@@ -1281,8 +1298,10 @@ namespace LocalFormulaRacing
             // short/long InverseLerp band here need to move with it, or every
             // rebalanced track (now mostly 4.9-7km) would sit near/above the old
             // 6200f ceiling and lose the intended short-vs-long fuel variation.
-            float trackLength = track != null && track.length > 1f ? track.length : 5813f;
-            float perLap = Mathf.Lerp(1.35f, 1.65f, Mathf.Clamp01(Mathf.InverseLerp(4000f, 7750f, trackLength)));
+            // Round 2: TrackLengthRebalanceScale stacked another 25% (1.5625x
+            // total), so both the fallback and band move with it again.
+            float trackLength = track != null && track.length > 1f ? track.length : 7266f;
+            float perLap = Mathf.Lerp(1.35f, 1.65f, Mathf.Clamp01(Mathf.InverseLerp(5000f, 9688f, trackLength)));
             float difficultyFactor = difficulty == RaceDifficulty.Easy ? 0f : difficulty == RaceDifficulty.Medium ? 0.33f : difficulty == RaceDifficulty.Hard ? 0.66f : 1f;
             perLap *= Mathf.Lerp(0.97f, 1.06f, difficultyFactor);
             return perLap;
@@ -1575,6 +1594,8 @@ namespace LocalFormulaRacing
             safetyCarInThisLapMessageSent = false;
             coldTyresRestartWarningSent = false;
             playerScPitPromptSent = false;
+            playerHasActiveRaceControlPitOffer = false;
+            playerDeclinedRaceControlPitOfferMessageSent = false;
             yellowSectorClearTimer = 0f;
             yellowSectorCooldownUntil.Clear();
             globalMinorYellowCooldownUntil = 0f;
@@ -3555,9 +3576,102 @@ namespace LocalFormulaRacing
                 // relative to the reduced-pace field outside.
                 bool fullSc = CurrentRaceControlState == RaceControlState.SafetyCarActive || CurrentRaceControlState == RaceControlState.SafetyCarDeploying;
                 string message = fullSc
-                    ? "Safety car deployed. Box now - the field is bunched, this is close to a free stop."
-                    : "VSC deployed. Box now - the delta is much smaller than a green-flag stop.";
+                    ? "Safety car deployed. Box now - the field is bunched, this is close to a free stop. Press P to box now or stay out to keep Plan A."
+                    : "VSC deployed. Box now - the delta is much smaller than a green-flag stop. Press P to box now or stay out to keep Plan A.";
                 PostEngineerMessage(message, true);
+
+                // Interactive pit-window offer: this radio call is now something the
+                // player actually answers rather than a passive heads-up - pressing P
+                // in the next few seconds accepts the opportunistic stop and overrides
+                // the original planned lap; staying silent leaves the plan untouched
+                // (see AcceptRaceControlPitOffer/UpdatePlayerRaceControlPitOffer).
+                playerHasActiveRaceControlPitOffer = true;
+                playerRaceControlPitOfferExpiresAt = Time.time + 10f;
+                playerRaceControlPitOfferType = fullSc ? RaceControlPitOfferType.SafetyCar : RaceControlPitOfferType.Vsc;
+                playerDeclinedRaceControlPitOfferMessageSent = false;
+            }
+        }
+
+        // Cancels/expires the VSC/SC pit-window offer once it's no longer valid -
+        // race control period ended, offer timed out, the pit lane closed, or the
+        // player is already pitting/retired/finished/has an outstanding pit request
+        // of their own. Silent on expiry-with-no-input per spec (staying out is a
+        // valid, intentional choice, not an error state) beyond a single optional
+        // "staying out" acknowledgement.
+        void UpdatePlayerRaceControlPitOffer()
+        {
+            if (!playerHasActiveRaceControlPitOffer)
+            {
+                return;
+            }
+
+            if (PlayerParticipant == null || PlayerParticipant.vehicle == null || PlayerParticipant.lapTracker == null ||
+                PlayerParticipant.retired || PlayerParticipant.finished || PlayerParticipant.isPitting ||
+                PlayerParticipant.pitPhase != PitPhase.None || PlayerParticipant.vehicle.PitRequested)
+            {
+                playerHasActiveRaceControlPitOffer = false;
+                return;
+            }
+
+            bool stillUnderRaceControl = CurrentRaceControlState == RaceControlState.VirtualSafetyCar ||
+                                          CurrentRaceControlState == RaceControlState.SafetyCarActive ||
+                                          CurrentRaceControlState == RaceControlState.SafetyCarDeploying;
+            bool expired = Time.time >= playerRaceControlPitOfferExpiresAt;
+            if (!stillUnderRaceControl || expired || !IsPitLaneOpen)
+            {
+                playerHasActiveRaceControlPitOffer = false;
+                if (expired && stillUnderRaceControl && !playerDeclinedRaceControlPitOfferMessageSent &&
+                    Settings != null && Settings.Current.raceControlMessages)
+                {
+                    playerDeclinedRaceControlPitOfferMessageSent = true;
+                    PostEngineerMessage("Okay, staying out. Plan A remains.", false);
+                }
+            }
+        }
+
+        // Player-facing gate PlayerVehicleInput checks before routing a P press to
+        // AcceptRaceControlPitOffer instead of the normal pit-request toggle.
+        public bool HasActiveRaceControlPitOfferForPlayer { get { return playerHasActiveRaceControlPitOffer; } }
+
+        // Pressing P while a VSC/SC pit-window offer is active: box immediately
+        // under the current window, using actual existing fields (vehicle.RequestPit
+        // + requestedPitCompound/requestedPitCompoundSet, the same pair
+        // UpdatePlayerAutoPitStrategy already uses for an automatic planned stop).
+        // No separate "override" fields are needed to replace the original planned
+        // lap - NextPlannedPitLapFor already resolves off participant.pitStops, so
+        // once this stop completes and pitStops increments, the plan naturally moves
+        // on to the next still-pending stop (or stops prompting entirely on a
+        // one-stop plan) instead of firing again at the original lap.
+        public void AcceptRaceControlPitOffer()
+        {
+            if (!playerHasActiveRaceControlPitOffer)
+            {
+                return;
+            }
+
+            if (PlayerParticipant == null || PlayerParticipant.vehicle == null)
+            {
+                return;
+            }
+
+            RaceControlPitOfferType offerType = playerRaceControlPitOfferType;
+            playerHasActiveRaceControlPitOffer = false;
+
+            PlayerParticipant.vehicle.RequestPit();
+            PlayerParticipant.pitAutoTriggered = false;
+            if (!PlayerParticipant.requestedPitCompoundSet)
+            {
+                PlayerParticipant.requestedPitCompound = NextPlannedPitCompoundFor(PlayerParticipant);
+                PlayerParticipant.requestedPitCompoundSet = true;
+            }
+
+            string offerName = offerType == RaceControlPitOfferType.SafetyCar ? "the safety car" : "the VSC";
+            SessionMessage = "Pit request: box under " + offerName;
+            GameLog.Info("[Pit] Player accepted race-control pit offer (" + offerType + ") at lap " +
+                         (PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.CompletedLaps + 1 : 0) + ".");
+            if (Settings != null && Settings.Current.raceControlMessages)
+            {
+                PostEngineerMessage("Copy. Box this lap under " + offerName + ". Pit confirm.", true, RaceAudioCue.PitCall);
             }
         }
 
@@ -4436,7 +4550,9 @@ namespace LocalFormulaRacing
         // Speed-rebalance pass: straights are now ~25% longer, giving a following
         // car more real room to build/hold a tow before the braking zone - nudged
         // up from 85f rather than left to feel weak on the longer straights.
-        const float SlipstreamMaxDistance = 95f;
+        // Round 2: stacked another 25% (95f -> 119f) to match the further track
+        // length increase.
+        const float SlipstreamMaxDistance = 119f;
         const float SlipstreamFullLateralWidth = 3.5f;
         const float SlipstreamMaxLateralWidth = 7.5f;
         const float SlipstreamMinSpeedKph = 130f;
@@ -5550,6 +5666,15 @@ namespace LocalFormulaRacing
                 return participant.pitAutoTriggered
                     ? "AUTO-PIT QUEUED  " + participant.requestedPitCompound
                     : "PIT REQUEST QUEUED";
+            }
+
+            // VSC/SC interactive pit-window offer: makes the radio call's "press P"
+            // instruction visible on the HUD itself too, not just in the radio
+            // message text, while the offer is still open for this participant.
+            if (participant.isPlayer && playerHasActiveRaceControlPitOffer)
+            {
+                string offerLabel = playerRaceControlPitOfferType == RaceControlPitOfferType.SafetyCar ? "SC" : "VSC";
+                return offerLabel + " PIT WINDOW OPEN  PRESS P TO BOX";
             }
 
             if (participant.pitStops > 0 && NextPlannedPitLapFor(participant) <= 0)
@@ -10448,7 +10573,7 @@ namespace LocalFormulaRacing
             float carTopSpeedKph = car == null || car.topSpeed <= 0 ? 337f : car.topSpeed;
             float styleFactor = TrackAverageSpeedFactor(track);
             float referenceSpeedMps = (carTopSpeedKph / 3.6f) * styleFactor;
-            float trackLength = track == null ? 5813f : track.length;
+            float trackLength = track == null ? 7266f : track.length;
             return Mathf.Max(45f, trackLength / referenceSpeedMps);
         }
 

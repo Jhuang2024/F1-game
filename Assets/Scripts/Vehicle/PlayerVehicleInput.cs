@@ -179,7 +179,18 @@ namespace LocalFormulaRacing
             command.pitRequest = Input.GetKeyDown(KeyCode.P);
             if (command.pitRequest)
             {
-                raceManager.OpenPlayerPitTyreSelector(participant);
+                // VSC/SC interactive pit-window offer: while the radio's offer is
+                // active, P means "accept the opportunistic stop and box now",
+                // not the normal manual pit-request toggle - see
+                // RaceManager.AcceptRaceControlPitOffer.
+                if (raceManager.HasActiveRaceControlPitOfferForPlayer)
+                {
+                    raceManager.AcceptRaceControlPitOffer();
+                }
+                else
+                {
+                    raceManager.OpenPlayerPitTyreSelector(participant);
+                }
             }
 
             if (Input.GetKeyDown(KeyCode.Alpha1))
