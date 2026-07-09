@@ -10640,7 +10640,11 @@ namespace LocalFormulaRacing
             // beyond a realistic F1 quali spread). Coefficients cut back down (~40% off
             // the widened values, below even the original pre-widening numbers) so the
             // full-field spread lands in a realistic couple-of-seconds range again.
-            breakdown.driverEffect = (qualifying - 88f) * -0.034f + (pace - 88f) * -0.011f + (confidence - 80f) * -0.0035f;
+            // Round 2: still too big (P8 nearly 2s off pole) - cut roughly in half again.
+            // Car stats alone can span the full 45-125 clamp range (CareerManager), and
+            // at the round-1 coefficient that spread by itself was worth over 2 seconds
+            // before a single driver-skill or variance term was even added.
+            breakdown.driverEffect = (qualifying - 88f) * -0.020f + (pace - 88f) * -0.007f + (confidence - 80f) * -0.002f;
             // Balance fix: car upgrade stats can reach up to 125 (see
             // CareerManager.ApplyCareerUpgrades' clamps) against an 86
             // baseline - uncapped, a fully maxed car alone was worth roughly
@@ -10650,8 +10654,10 @@ namespace LocalFormulaRacing
             // worth just over a second) without letting them single-handedly
             // dominate a probability-based session.
             float carRatingForQualifying = Mathf.Min(carRating, 104f);
-            // Qualifying-gap fix: same reasoning as driverEffect above.
-            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.036f;
+            // Qualifying-gap fix round 2: same reasoning as driverEffect above - the
+            // full 45(floor)-104(capped) car-rating range was still worth over 2s on
+            // its own at the round-1 coefficient.
+            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.020f;
             // Percentage of baseLap rather than a flat constant, so difficulty stays
             // meaningful regardless of track length: Easy is clearly the slowest,
             // Expert clearly the fastest/most aggressive, Medium close to neutral.
@@ -10661,7 +10667,10 @@ namespace LocalFormulaRacing
             breakdown.tyrePrep = Mathf.Lerp(0.14f, 0.0f, tyreManagement / 100f) + Random.Range(0f, 0.04f);
             breakdown.weatherPenalty = WeatherQualifyingPenalty(driver);
             breakdown.mistakePenalty = QualifyingMistakePenalty(driver, phase);
-            float variance = Mathf.Lerp(0.24f, 0.035f, consistency / 100f);
+            // Qualifying-gap fix round 2: trimmed alongside driverEffect/carEffect
+            // above (was 0.24-0.035) - random per-lap noise was another source of
+            // gap that had nothing to do with genuine skill/car differences.
+            float variance = Mathf.Lerp(0.15f, 0.02f, consistency / 100f);
             breakdown.variance = Random.Range(-variance, variance) + (secondRun ? Random.Range(-0.08f, 0.05f) : 0f);
             breakdown.finalTime = breakdown.baseLap + breakdown.driverEffect + breakdown.carEffect +
                                   breakdown.difficultyEffect + breakdown.phaseEffect + breakdown.tyrePrep +
