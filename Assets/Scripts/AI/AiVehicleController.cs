@@ -688,19 +688,50 @@ namespace LocalFormulaRacing
             UpdateMistake(consistency, aggression, profile);
             UpdateOvertakeState(progress, severityHere, apexDistanceAhead, apexSeverity, turnSign, aggression, overtaking, defending, profile, isExpert, driver);
 
+            // AI pit-entry bugfix: pit-entry intent has to be known BEFORE the
+            // off-track recovery decision below, not after it (as it used to be,
+            // computed much further down at the old `committingToPit` site) -
+            // otherwise the moment a car actually starts crossing the track edge
+            // toward the pit ramp, the off-track check below fires first and wins,
+            // steering it straight back toward the centerline and defeating the
+            // whole pit-entry approach. The pit-entry ramp is intentionally outside
+            // the normal racing surface, so a car genuinely committing to it must
+            // never be classified as needing normal off-track recovery. Also covers
+            // the moment it's physically on the built ramp itself
+            // (Track.IsOnPitEntryRamp), which can briefly still read pitPhase ==
+            // None right before RaceManager's own tick promotes it to Entry.
+            bool committingToPit = participant.pitPhase == PitPhase.None && vehicle.PitRequested && track.IsInPitApproach(progress.normalized);
+            bool onPitEntryRamp = track.IsOnPitEntryRamp(progress);
+            bool suppressOffTrackRecovery = committingToPit || onPitEntryRamp;
+
             // Off-track recovery: drive straight back toward the centerline at reduced pace
             // instead of chasing the racing line offset from the grass.
             // Uses the actual (possibly hairpin-widened) drivable half-width at this
             // point on track, not the flat field - otherwise AI would treat the extra
             // tarmac at a widened hairpin as off-track and brake/recover exactly where
             // the widening was meant to give it more room to work with.
-            bool offTrack = Mathf.Abs(progress.lateralDistance) > track.HalfWidthAt(progress.distance) + 0.6f;
+            bool offTrack = !suppressOffTrackRecovery && Mathf.Abs(progress.lateralDistance) > track.HalfWidthAt(progress.distance) + 0.6f;
             if (offTrack)
             {
                 cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, 118f);
                 brakingApexSpeed = Mathf.Min(brakingApexSpeed, 118f);
                 aggressionOffset = 0f;
                 mistakeSteer = 0f;
+            }
+
+            // Pit-entry speed target: while genuinely committing to the box, aim for
+            // something close to the real pit-limiter speed (VehicleController's own
+            // 80kph hard cap applies once RaceManager's HandlePitService puts the
+            // limiter on) instead of whatever the corner/straight model alone would
+            // ask for - without this an AI approaching the ramp on a fast straight
+            // still targets full straight-line pace right up until the hard limiter
+            // physically clamps it, leaving no room to actually turn in before the
+            // ramp runs out.
+            const float PitApproachTargetSpeedKph = 95f;
+            if (committingToPit)
+            {
+                cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, PitApproachTargetSpeedKph);
+                brakingApexSpeed = Mathf.Min(brakingApexSpeed, PitApproachTargetSpeedKph);
             }
 
             // Corner-exit hesitation: once curvature unwinds, hold a beat of reduced
@@ -771,7 +802,8 @@ namespace LocalFormulaRacing
             // ON the racing surface and would otherwise fight this steering the
             // instant it crosses the true track edge, and (b) suppress
             // overtake/defend/mistake-steer commitment while committing to the box.
-            bool committingToPit = participant.pitPhase == PitPhase.None && vehicle.PitRequested && track.IsInPitApproach(progress.normalized);
+            // (committingToPit itself is now computed earlier, before the off-track
+            // recovery decision above - see the comment there for why.)
             if (committingToPit)
             {
                 float approachBlend = Mathf.Clamp01((progress.normalized - 0.78f) / (0.955f - 0.78f));
@@ -819,7 +851,16 @@ namespace LocalFormulaRacing
             // while committingToPit would clamp the new off-track pit-entry target
             // straight back inside the racing surface, silently undoing the steering
             // above and leaving the car never actually, visibly leaving the track.
-            float desiredOffset = offTrack ? 0f : (committingToPit ? requestedOffset : ConstrainLegalLineOffset(progress, requestedOffset, severityHere));
+            //
+            // AI pit-entry bugfix: committingToPit is now checked FIRST, not offTrack.
+            // The old order (offTrack ? 0f : (committingToPit ? ... )) meant the moment
+            // a committing car's own lateral position crossed the true track edge - the
+            // entire point of physically driving onto the ramp - it satisfied offTrack
+            // and desiredOffset collapsed to 0, steering it straight back to the
+            // centerline and away from the pit entry it was supposed to be entering.
+            // offTrack is also now already false whenever committingToPit/onPitEntryRamp
+            // is true (see suppressOffTrackRecovery above), so this is doubly safe.
+            float desiredOffset = committingToPit ? requestedOffset : (offTrack ? 0f : ConstrainLegalLineOffset(progress, requestedOffset, severityHere));
             targetPoint += right * desiredOffset;
             TrackProgress targetProgress = track.GetProgress(targetPoint);
             if (!committingToPit)
@@ -883,10 +924,11 @@ namespace LocalFormulaRacing
             // from the true track edge toward the racing surface - it must be off
             // while committingToPit, or it would fight the pit-entry steering above
             // the moment the car's actual position crosses the edge (which is the
-            // whole point of physically driving onto the entry ramp).
+            // whole point of physically driving onto the entry ramp). Also off while
+            // onPitEntryRamp (see suppressOffTrackRecovery above) for the same reason.
             float edgeMarginDistance = Mathf.Lerp(5.5f, 11f, Mathf.Clamp01(speedKph / 340f));
             float edgeMargin = track.HalfWidthAt(progress.distance) - edgeMarginDistance;
-            float edgeOvershoot = !committingToPit ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
+            float edgeOvershoot = !suppressOffTrackRecovery ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
             float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);
             float edgeRecovery = edgeOvershoot > 0f
                 ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.42f, 1.15f, edgeProximity)

@@ -633,6 +633,22 @@ namespace LocalFormulaRacing
             return lateral;
         }
 
+        // Pit-exit merge bugfix: GetPitExitRampEnvelope's own lateral never goes
+        // below HalfWidthAt + PitRampNearTrackLateral even at the very end of the
+        // ramp (exitT == 1 clamps to the live track edge PLUS the ramp's own
+        // near-track standoff) - that is still physically outside the racing
+        // surface. UpdatePitExitMerge used to guide straight to that ramp-envelope
+        // lateral forever, so the "back on track" completion check (which requires
+        // the car to be back inside roughly the track edge) could never actually
+        // pass - the car sat just outside the white line indefinitely. This is the
+        // genuinely legal, ON-track outer-lane target the merge should blend onto
+        // by the time the ramp finishes narrowing, comfortably inside HalfWidthAt
+        // rather than just outside it.
+        public float PitExitMergeLegalLateral(float distance)
+        {
+            return HalfWidthAt(distance) - 1.2f;
+        }
+
         // ---------- hairpin widening ----------
         // Single shared width source so hairpins are physically wider - AI cars were
         // clipping barriers/each other in tight corners because every consumer (road
