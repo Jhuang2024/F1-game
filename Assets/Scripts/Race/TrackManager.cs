@@ -1999,33 +1999,36 @@ namespace LocalFormulaRacing
             runtime.kerbStart = 9.28f;
             runtime.drsZoneOne = new Vector2(0.89f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.64f);
-            // Final-corner barrier fix: the old final corner was a single anchor
-            // (-148f, 0f, -8f) sitting between (82f, 0f, -22f) and the
-            // start/finish anchor (0f, 0f, 0f). That single vertex turned the
-            // centerline heading by ~173 degrees - almost a total reversal -
-            // while both flanking segments stayed inside a roughly 20m-tall
-            // band (z between -22 and 0). Every other corner on this (and
-            // every other) layout turns well under 100 degrees per anchor;
-            // asking one Catmull-Rom vertex to nearly double back on itself
-            // inside a squashed, nearly one-dimensional sliver is exactly the
-            // shape that made the old Suzuka anchors self-intersect (see the
-            // rebuild note on BuildSuzukaLayout above) - the smoothed curve
-            // through it overshoots and loops rather than tracing a clean
-            // corner, which is what made every barrier system downstream
-            // (BuildContinuousEdgeBarriers/ComputeBarrierPlan's tight-corner
-            // containment, ResolveOverlappingBarrierColliders,
-            // ValidateBarrierPocketFree/Smoothness) produce a visibly broken
-            // mess right at the final corner - those systems can only smooth
-            // over a legitimate corner shape, not a near-self-intersecting one.
-            // Replaced the single anchor with a genuine three-point hairpin
-            // bowl - real z-depth (down to -85) instead of a flat sliver, so
-            // the curve has actual 2D room to turn through rather than folding
-            // back on itself - splitting the same ~173 degree net direction
-            // change across three moderate turns (the tightest single vertex is
-            // now ~134 degrees, a normal hairpin apex, flanked by ~51 and ~48
-            // degree turns on either side) instead of one near-total reversal.
-            // Checked against every other anchor on this layout to stay well
-            // clear (45m+) of the infield loop (anchors 9-11) it passes near.
+            // Final-corner barrier fix, round 2: round 1 (see git history) broke
+            // the single old final-corner anchor (-148f, 0f, -8f) - a ~173
+            // degree single-vertex near-reversal squashed into a ~20m-tall
+            // sliver, the same self-intersection-prone shape noted on
+            // BuildSuzukaLayout above - into a wider three-point hairpin bowl.
+            // That gave the corner itself real depth, but its own final anchor
+            // sat only ~43m from the start/finish line with a ~21 degree turn
+            // right at the line - a genuinely NEW problem, and a real outlier:
+            // checking every other layout in this file (Bahrain, Monaco,
+            // Suzuka, Monza, Spa, Melbourne, Interlagos, Abu Dhabi, and the
+            // rest) shows every single one keeps the turn immediately AT the
+            // start/finish anchor under ~9 degrees, with 100m+ of genuinely
+            // straight track feeding into the line - the sharp cornering
+            // always happens a full segment earlier, never on the vertex that
+            // touches the line itself. That is exactly the geometry the
+            // pit-exit ramp (TrackRuntime.PitExitRampStartNormalized through
+            // PitExitRampEndNormalized, wrapping through the line) is built
+            // to blend onto - it assumes the live track it is rejoining is
+            // close to straight through that short window, and a real curve
+            // there is what turned the pit exit into a mess. Restored that
+            // same straight-into-the-line convention here: the hairpin bowl's
+            // apex (formerly the third anchor of the three, now the last one)
+            // sits closer to the pit-straight's own z=0 line, giving a clean
+            // ~149m straight run - in line with every other layout's 100-260m
+            // range - directly into the start/finish anchor (turn at the line
+            // now ~6 degrees, matching the calendar-wide 0-9 degree norm)
+            // while keeping the real 2D depth (z down to -85) that fixed the
+            // original self-intersecting sliver. Checked against every other
+            // anchor on this layout to stay well clear (45m+) of the infield
+            // loop (anchors 9-11) it passes near.
             AddSmoothedAnchors(runtime, new[]
             {
                 new Vector3(0f, 0f, 0f), new Vector3(162f, 0f, 0f), new Vector3(230f, 0f, 36f),
@@ -2033,8 +2036,7 @@ namespace LocalFormulaRacing
                 new Vector3(42f, 0f, 132f), new Vector3(-18f, 0f, 158f), new Vector3(-88f, 0f, 134f),
                 new Vector3(-116f, 0f, 82f), new Vector3(-76f, 0f, 42f), new Vector3(-14f, 0f, 52f),
                 new Vector3(48f, 0f, 88f), new Vector3(120f, 0f, 80f), new Vector3(158f, 0f, 28f),
-                new Vector3(82f, 0f, -22f), new Vector3(-20f, 0f, -85f), new Vector3(-148f, 0f, -40f),
-                new Vector3(-40f, 0f, 15f)
+                new Vector3(82f, 0f, -22f), new Vector3(-20f, 0f, -85f), new Vector3(-148f, 0f, -15f)
             }, 5);
         }
 

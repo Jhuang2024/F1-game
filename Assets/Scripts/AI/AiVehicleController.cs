@@ -798,19 +798,38 @@ namespace LocalFormulaRacing
             // directly to the absolute cap - exactly like the full-SC branch above -
             // means AI pace now agrees with the actual posted limit everywhere on
             // track, never drifting arbitrarily far under it.
-            if (raceManager.CurrentRaceControlState == RaceManager.RaceControlState.SafetyCarActive)
+            //
+            // Round 2 - still too slow under caution: a pure Mathf.Min only ever
+            // LOWERS the target if it happened to be above the cap - it never
+            // raises the car up to the cap when its own normal-pace target was
+            // already below it, which is the common case: straightTargetSpeed
+            // has a large flat historical reduction baked in a few lines above
+            // (calibrated for normal green-flag racing pace, nothing to do with
+            // the posted SC/VSC limit), and driverPaceVariance/paceMultiplier/
+            // damageMultiplier can each pull the number down further. The net
+            // result was AI routinely cruising well under the actual limit on
+            // a straight, not right up against it the way a real SC/VSC convoy
+            // does. On a straight (or any section not meaningfully cornering),
+            // pace now targets the cap directly instead of whatever the
+            // (possibly much lower) normal-racing number happened to be; a
+            // genuine corner's apex speed is still only ever capped DOWN to the
+            // limit, never forced up to it - taking a real corner at the SC/VSC
+            // delta would be unrealistic and unsafe. driverPaceVariance/
+            // paceMultiplier/damageMultiplier are still applied on top so the
+            // field doesn't all bunch at one identical number and a genuinely
+            // damaged car can still legitimately fall short of the cap.
+            if (raceManager.CurrentRaceControlState == RaceManager.RaceControlState.SafetyCarActive ||
+                raceManager.CurrentRaceControlState == RaceManager.RaceControlState.VirtualSafetyCar)
             {
-                float safetyCarCap = raceManager.SafetyCarTargetSpeedKph;
-                straightTargetSpeed = Mathf.Min(straightTargetSpeed, safetyCarCap);
-                cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, safetyCarCap);
-                brakingApexSpeed = Mathf.Min(brakingApexSpeed, safetyCarCap);
-            }
-            else if (raceManager.CurrentRaceControlState == RaceManager.RaceControlState.VirtualSafetyCar)
-            {
-                float vscCap = RaceManager.VirtualSafetyCarSpeedCapKph;
-                straightTargetSpeed = Mathf.Min(straightTargetSpeed, vscCap);
-                cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, vscCap);
-                brakingApexSpeed = Mathf.Min(brakingApexSpeed, vscCap);
+                float paceCap = raceManager.CurrentRaceControlState == RaceManager.RaceControlState.SafetyCarActive
+                    ? raceManager.SafetyCarTargetSpeedKph
+                    : RaceManager.VirtualSafetyCarSpeedCapKph;
+
+                straightTargetSpeed = paceCap;
+                float cappedApexTargetSpeed = Mathf.Min(apexTargetSpeed, paceCap);
+                float paceScale = driverPaceVariance * profile.paceMultiplier * damageMultiplier;
+                cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, cappedApexTargetSpeed, severityHere) * paceScale;
+                brakingApexSpeed = cappedApexTargetSpeed * paceScale;
             }
 
             UpdateMistake(consistency, aggression, profile);
