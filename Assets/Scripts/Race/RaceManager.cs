@@ -10495,13 +10495,11 @@ namespace LocalFormulaRacing
             float qualifying = entry.driverData == null ? 82f : entry.driverData.qualifying;
             float improveChance = Mathf.Lerp(0.46f, 0.78f, consistency / 100f);
             // Restored to its original range - the round-4 trim of this second-run
-            // swing was reverted per request.
-            // Residual-gap trim: upper end of the improve swing brought back down
-            // from 0.46 to 0.25 - a high-qualifying driver's best-case second-run
-            // gain was still a bigger residual gap source than intended.
+            // swing was reverted per request. The subsequent 0.46 -> 0.25 trim was
+            // also reverted per request.
             if (Random.value < improveChance)
             {
-                secondRun -= Random.Range(0.04f, Mathf.Lerp(0.18f, 0.25f, qualifying / 100f));
+                secondRun -= Random.Range(0.04f, Mathf.Lerp(0.18f, 0.46f, qualifying / 100f));
             }
             else
             {
@@ -10655,7 +10653,8 @@ namespace LocalFormulaRacing
             // the field genuinely tightens up instead of still spreading out over
             // several rounds of small nudges.
             // Round 5: halved again.
-            breakdown.driverEffect = (qualifying - 88f) * -0.0015f + (pace - 88f) * -0.0005f + (confidence - 80f) * -0.00015f;
+            // Round 6: halved again.
+            breakdown.driverEffect = (qualifying - 88f) * -0.00075f + (pace - 88f) * -0.00025f + (confidence - 80f) * -0.000075f;
             // Balance fix: car upgrade stats can reach up to 125 (see
             // CareerManager.ApplyCareerUpgrades' clamps) against an 86
             // baseline - uncapped, a fully maxed car alone was worth roughly
@@ -10671,7 +10670,8 @@ namespace LocalFormulaRacing
             // Round 3: same reasoning as driverEffect above.
             // Round 4: same hard cut as driverEffect above.
             // Round 5: halved again.
-            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.0015f;
+            // Round 6: halved again.
+            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.00075f;
             // Percentage of baseLap rather than a flat constant, so difficulty stays
             // meaningful regardless of track length: Easy is clearly the slowest,
             // Expert clearly the fastest/most aggressive, Medium close to neutral.
