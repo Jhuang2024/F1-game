@@ -926,14 +926,24 @@ namespace LocalFormulaRacing
             // the moment the car's actual position crosses the edge (which is the
             // whole point of physically driving onto the entry ramp). Also off while
             // onPitEntryRamp (see suppressOffTrackRecovery above) for the same reason.
-            float edgeMarginDistance = Mathf.Lerp(5.5f, 11f, Mathf.Clamp01(speedKph / 340f));
+            // Track-width fix: edgeMarginDistance is a flat metre value, not scaled
+            // to roadHalfWidth - after the earlier 45% track-width cut it could
+            // approach or exceed half the actual track width on the tighter/street
+            // circuits, so edgeMargin went to ~0 or negative and this correction
+            // fired almost everywhere on track (not just genuinely near the edge),
+            // reading as constant AI swerving/twitching rather than real barrier
+            // avoidance. Track width has since been raised back up 20%, giving real
+            // headroom back, so the margin ceiling and response strength are only
+            // trimmed slightly here (not redesigned) to stop it overcorrecting now
+            // that there's more room to work with.
+            float edgeMarginDistance = Mathf.Lerp(5.5f, 9.5f, Mathf.Clamp01(speedKph / 340f));
             float edgeMargin = track.HalfWidthAt(progress.distance) - edgeMarginDistance;
             float edgeOvershoot = !suppressOffTrackRecovery ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
             float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);
             float edgeRecovery = edgeOvershoot > 0f
-                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.42f, 1.15f, edgeProximity)
+                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.38f, 1.03f, edgeProximity)
                 : 0f;
-            float edgeEmergencyBrake = edgeOvershoot > 0f ? Mathf.Lerp(0.16f, 1f, edgeProximity * edgeProximity) : 0f;
+            float edgeEmergencyBrake = edgeOvershoot > 0f ? Mathf.Lerp(0.14f, 0.9f, edgeProximity * edgeProximity) : 0f;
             command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
 
             // Real braking point: a kinematic stopping distance from current speed down
