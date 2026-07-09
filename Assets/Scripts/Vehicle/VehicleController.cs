@@ -134,9 +134,6 @@ namespace LocalFormulaRacing
 
         const int GearCount = 8;
         const float RaceSpeedCeilingKph = 350f;
-        // DRS needs headroom above the normal ceiling or its top-speed bonus gets
-        // clamped away to nothing on cars whose base target is already near 350.
-        const float DrsSpeedCeilingKph = 392f;
         const float DrsTopSpeedBonusKph = 32f;
         // ERS buff: raised from 20 - with the stronger deploy force below the
         // car can now actually accelerate up to a ceiling this much higher
@@ -1163,11 +1160,21 @@ namespace LocalFormulaRacing
             // sits close to it. Real F1 DRS: better terminal speed on straights, not
             // an arcade boost, so the drag reduction (see ApplyForces) does most of
             // the work; this raises the ceiling that drag reduction is allowed to reach.
+            //
+            // DRS speed cap removed: this used to hard-set ceiling to a fixed
+            // DrsSpeedCeilingKph (392) the moment DRS was active, which silently
+            // clipped a genuinely fast car's own DRS-boosted target (carTopSpeed +
+            // 15 + DrsTopSpeedBonusKph can exceed 392 on a well-upgraded car) back
+            // down below what its own stats/bonus should have allowed. Ceiling now
+            // just tracks the target itself while DRS is active - DRS's own
+            // contribution is never clamped away - and the shared safety cap below
+            // (405, same one ERS/slipstream already answer to) is still the only
+            // real limit on how high everything can stack together.
             float ceiling = RaceSpeedCeilingKph;
             if (DrsActive)
             {
                 target += DrsTopSpeedBonusKph;
-                ceiling = DrsSpeedCeilingKph;
+                ceiling = Mathf.Max(ceiling, target);
             }
 
             if (activeCommand.ers && ErsBattery > 0.01f)
