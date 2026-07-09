@@ -625,7 +625,9 @@ namespace LocalFormulaRacing
             // same reasoning, applied uniformly across every difficulty.
             // Round 7: another flat -10kph on top of that (now -75kph total),
             // same reasoning, applied uniformly across every difficulty.
-            straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - 15f - 7.5f - 10f - 10f - 7.5f - 15f - 10f);
+            // Round 8: eased back up 5kph (now -70kph total), same reasoning,
+            // applied uniformly across every difficulty.
+            straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - 15f - 7.5f - 10f - 10f - 7.5f - 15f - 10f + 5f);
 
             bool wet = track.weather == WeatherState.LightRain || track.weather == WeatherState.HeavyRain;
             // Tyre-difference pass: uses the compound-neutral condition multiplier
