@@ -782,17 +782,23 @@ namespace LocalFormulaRacing
             // hold used to let go (blend reaching exactly 0) while the corner - and
             // its wall - was still very much in progress, and the sudden handoff to
             // normal apex-seeking right there is exactly what put cars into the
-            // barrier "as soon as the limiter turned off". Now also holds (at a
-            // strong, fixed blend, not fading through zero) for as long as
-            // severityHere itself says the car is still genuinely inside a tight
-            // corner, regardless of what the fixed pit-zone distance window says -
-            // release only once BOTH the zone blend has faded out AND the corner's
-            // own measured curvature has actually eased off, i.e. once the barrier
-            // has genuinely ended, not just once a fixed distance was covered.
+            // barrier "as soon as the limiter turned off".
+            //
+            // Round 4: round 3's extension used severityHere (EstimateCornerSeverity,
+            // a short-window heading-change heuristic built for braking/apex
+            // targeting) as a proxy for "is the barrier still there" - but that's a
+            // different algorithm, with different thresholds/radius, than what
+            // TrackManager's ComputeBarrierPlan actually uses to decide whether the
+            // main edge barrier is still in tight-corner containment mode. The two
+            // could (and did) disagree, so the hold could still release while a real
+            // wall was still tight. Now queries track.IsNearTightFenceCorner, which
+            // is baked directly from the exact same corner detection + radius/span
+            // math the barrier builder itself uses - "the barrier has ended" now
+            // means the literal same thing to both systems.
             if (pitExitMergeActive)
             {
                 float exitBlend = track.PitExitMergeBlend(progress.normalized);
-                bool stillInTightCorner = severityHere > 0.22f;
+                bool stillInTightCorner = track.IsNearTightFenceCorner(progress.distance);
                 if (exitBlend > 0f || stillInTightCorner)
                 {
                     float pitExitHoldLateral = track.HalfWidthAt(progress.distance) * 0.82f;

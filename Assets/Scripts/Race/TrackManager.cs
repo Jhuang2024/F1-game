@@ -28,6 +28,41 @@ namespace LocalFormulaRacing
         public WeatherState weather = WeatherState.Clear;
         public MeshCollider roadCollider;
 
+        // Pit-exit early-turn fix round 4: baked once at build time (see
+        // TrackManager.PopulateCornerContainmentZones) from the exact same corner
+        // detection (DetectCorners(HighRiskCornerAngle)/DetectCorners(TightCornerFenceAngle)
+        // + IsNearCorner's radius/span math) that ComputeBarrierPlan itself uses to
+        // decide whether the main edge barrier is in tight-corner containment mode
+        // at a given point. AiVehicleController previously had no way to ask "is a
+        // real wall still hugging the track here" and had to guess with its own,
+        // differently-tuned EstimateCornerSeverity heuristic - which could (and did)
+        // diverge from the barrier builder's own answer, releasing the pit-exit
+        // line hold while the actual barrier was still tight. IsNearTightFenceCorner
+        // below answers the exact same question the barrier geometry itself was
+        // built from.
+        public struct CornerContainmentZone
+        {
+            public float distance;
+            public float radius;
+        }
+
+        public List<CornerContainmentZone> tightFenceContainmentZones = new List<CornerContainmentZone>();
+
+        public bool IsNearTightFenceCorner(float distance)
+        {
+            for (int i = 0; i < tightFenceContainmentZones.Count; i++)
+            {
+                float delta = Mathf.Abs(WrapDistance(distance - tightFenceContainmentZones[i].distance));
+                float wrapped = Mathf.Min(delta, length - delta);
+                if (wrapped <= tightFenceContainmentZones[i].radius)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         // Race-control visual furniture (marshal flag boards, SC/VSC board, gantry
         // lights) built by TrackManager and wired up here so RaceManager can drive it
         // live without needing a cross-file dependency on TrackManager itself, or on
@@ -973,6 +1008,7 @@ namespace LocalFormulaRacing
             BuildRubberBuildup();
             BuildGridPaint();
             BuildKerbs();
+            PopulateCornerContainmentZones();
             BuildContinuousEdgeBarriers();
             BuildTrackMarkers();
             BuildDrsZoneBoards();
@@ -3139,6 +3175,37 @@ namespace LocalFormulaRacing
         // apex or exit just because the corner was 45 degrees instead of 60.
         const float TightCornerFenceAngle = 40f;
         const float TightCornerFenceRadius = 35f;
+
+        // Pit-exit early-turn fix round 4: bakes Runtime.tightFenceContainmentZones
+        // from the exact same corner detection + radius/span math ComputeBarrierPlan
+        // uses for nearTightFenceCorner, so runtime consumers (AiVehicleController)
+        // can ask "is a real wall still hugging the track here" using the barrier
+        // builder's own answer instead of an independently-tuned proxy. Radius here
+        // already folds in each corner's own span/2, matching IsNearCorner exactly -
+        // Runtime.IsNearTightFenceCorner only needs a plain wrapped-distance compare.
+        void PopulateCornerContainmentZones()
+        {
+            Runtime.tightFenceContainmentZones.Clear();
+            List<CornerInfo> highRiskCorners = DetectCorners(HighRiskCornerAngle);
+            for (int i = 0; i < highRiskCorners.Count; i++)
+            {
+                Runtime.tightFenceContainmentZones.Add(new TrackRuntime.CornerContainmentZone
+                {
+                    distance = highRiskCorners[i].distance,
+                    radius = 45f + highRiskCorners[i].span * 0.5f
+                });
+            }
+
+            List<CornerInfo> tightFenceCorners = DetectCorners(TightCornerFenceAngle);
+            for (int i = 0; i < tightFenceCorners.Count; i++)
+            {
+                Runtime.tightFenceContainmentZones.Add(new TrackRuntime.CornerContainmentZone
+                {
+                    distance = tightFenceCorners[i].distance,
+                    radius = TightCornerFenceRadius + tightFenceCorners[i].span * 0.5f
+                });
+            }
+        }
 
         enum EdgeBarrierStyle
         {
