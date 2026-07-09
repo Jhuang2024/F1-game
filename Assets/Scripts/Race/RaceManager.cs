@@ -589,13 +589,15 @@ namespace LocalFormulaRacing
         // just driving with, instead of creating a second competing camera.
         CameraRig playerCameraRig;
         float playerResetCooldown;
-        // FIFO pit-lane exit queue fix: spatial headway (FindPitExitQueueCarAhead) is
-        // now the primary release authority, not a global timer - this is only
-        // a small debounce so two service timers expiring in the exact same
-        // tick can't both be evaluated as "clear" before either has actually
-        // taken its own spatial check.
-        float nextPitReleaseAllowedTime;
-        const float PitReleaseMinDebounceSeconds = 0.4f;
+        // Throughput fix: the global nextPitReleaseAllowedTime/
+        // PitReleaseMinDebounceSeconds release-rate timer that used to sit
+        // here has been removed entirely - it hard-capped release throughput
+        // field-wide (2.5 cars/second even at its smallest 0.4s value)
+        // regardless of how clear the lane actually was. Spatial headway
+        // (FindPitExitQueueCarAhead) is the ONLY release gate now; see
+        // UpdatePitService for why no same-frame safeguard is needed on top
+        // of it (participants are already processed sequentially each tick).
+        //
         // Monotonically increasing, never-reused identity assigned to each car
         // the moment its service timer first expires - see
         // RaceParticipant.pitReleaseSequence/FindPitExitQueueCarAhead.
@@ -9386,7 +9388,7 @@ namespace LocalFormulaRacing
         // jump.
         // Pit-release throughput fix: raised again from 100 to 106 so a
         // released car clears the FIFO exit queue's own spatial headway
-        // (PitLaneHeadwayMeters) sooner, letting the next car in the box be
+        // (PitExitConvoyMovingGapMeters) sooner, letting the next car in the box be
         // released sooner too - this only speeds up how fast an already-clear
         // car moves once it IS released, it does not touch the headway
         // distance, the occupancy/queue-blocking checks, or any of the other
@@ -9719,28 +9721,20 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            // Small temporal debounce only (bugfix): this used to be a 1.6s
-            // GLOBAL timer that was, at the same time, both too slow (one car
-            // released every 1.6s regardless of how clear the lane actually
-            // was) and unsafe (it said nothing about whether the exit path was
-            // actually clear, so a stuck car downstream never stopped the timer
-            // granting the next release anyway). Spatial headway
-            // (FindPitExitQueueCarAhead, below) is now the primary release
-            // authority; this only guards against two service timers expiring
-            // in the exact same tick both being evaluated as "clear" before
-            // either has taken its own spatial check.
-            if (Time.time < nextPitReleaseAllowedTime)
-            {
-                participant.pitTimer = 0f;
-                participant.pitAwaitingRelease = true;
-                if (participant.isPlayer)
-                {
-                    SessionMessage = "Held in box: waiting for release gap";
-                }
-
-                return;
-            }
-
+            // Global release-rate bottleneck removed: this used to be a 1.6s
+            // GLOBAL timer (later cut to a 0.4s "debounce"), but even at 0.4s
+            // it hard-capped throughput to 2.5 cars/second field-wide,
+            // regardless of how clear the lane actually was - with 22 cars
+            // pitting together that alone forced 8+ seconds between the first
+            // and last car merely BEGINNING release, on top of the spatial
+            // queue below. Participants are already processed sequentially
+            // every tick, so by the time this car's own spatial check
+            // (immediately below) runs, every earlier-indexed car this same
+            // tick has already claimed its own lane position - two cars can
+            // never be released to the same physical spot in the same frame
+            // without a separate timer. Spatial headway
+            // (FindPitExitQueueCarAhead, below) is the ONLY release gate now.
+            //
             // FIFO identity fix: assigned exactly once, here, the moment this
             // car is first evaluated for release - never recomputed from a
             // live count (CountParticipantsInPitPhase used to hand out
@@ -9773,7 +9767,6 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            nextPitReleaseAllowedTime = Time.time + PitReleaseMinDebounceSeconds;
             participant.pitAwaitingRelease = false;
             participant.pitLaneHeldByOccupancy = false;
             participant.vehicle.CompletePitStop(participant.nextPitCompound);
@@ -9828,16 +9821,21 @@ namespace LocalFormulaRacing
 
             ResolvePitLaneOverlap(participant);
 
-            // Shared FIFO headway (item 1/2/9): the exact same queue this car
-            // used to gate its own release (FindPitExitQueueCarAhead) continues to
-            // apply while it's moving down the lane - a following car simply
-            // holds position (never reversing) while the car ahead of it in
-            // release sequence is still within the shared headway, instead of
-            // static positions placed closer together than the occupancy
-            // system allows.
-            RaceParticipant laneBlocker = FindPitExitQueueCarAhead(participant, participant.pitGuideDistance);
-            participant.pitLaneHeldByOccupancy = laneBlocker != null;
-            if (laneBlocker != null)
+            // Throughput fix: distance-clamped convoy movement
+            // (ComputeConvoyStep) replaces the old binary "full pace or
+            // completely frozen" model - a following car keeps closing on the
+            // car ahead right up until PitExitConvoyMovingGapMeters, then
+            // automatically matches its pace instead of stopping outright.
+            // pitLaneHeldByOccupancy (read by the stuck watchdog and the
+            // failsafe timer below) now means "genuinely at 0 km/h with no
+            // forward space available", not merely "some convoy car exists
+            // somewhere ahead" - a car still creeping forward at a clamped
+            // pace is flowing normally, not held.
+            RaceParticipant laneBlocker;
+            float step = ComputeConvoyStep(participant, participant.pitGuideDistance, PitReleasePaceKph, out laneBlocker);
+            bool genuinelyHeld = laneBlocker != null && step <= 0.0001f;
+            participant.pitLaneHeldByOccupancy = genuinelyHeld;
+            if (genuinelyHeld)
             {
                 float longitudinalGap = WrappedForwardDistance(participant.pitGuideDistance, PitExitQueueCarDistance(laneBlocker));
                 float worldSpaceGap = Vector3.Distance(participant.transform.position, laneBlocker.transform.position);
@@ -9848,7 +9846,6 @@ namespace LocalFormulaRacing
                 LogPitExitQueueTransition(participant, false, null, "", 0f, 0f);
             }
 
-            float step = laneBlocker != null ? 0f : Mathf.Max(0f, PitReleasePaceKph / 3.6f * Time.deltaTime);
             participant.pitGuideDistance = Track.WrapDistance(participant.pitGuideDistance + step);
             participant.pitGuideLateral = Mathf.MoveTowards(participant.pitGuideLateral, releaseLateral, PitGuideLateralRateMetersPerSecond * Time.deltaTime);
 
@@ -9860,7 +9857,7 @@ namespace LocalFormulaRacing
             participant.vehicle.GuideToPitPose(releaseWaypoint, releaseWaypointRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed, false);
             if (participant.isPlayer)
             {
-                SessionMessage = laneBlocker != null ? "Pit release: holding for the car ahead" : "Pit release: merging back onto the racing line";
+                SessionMessage = genuinelyHeld ? "Pit release: holding for the car ahead" : "Pit release: merging back onto the racing line";
             }
 
             // Wrap-safe "has this car's own guide travelled at least as far as
@@ -9994,9 +9991,20 @@ namespace LocalFormulaRacing
         // entirely) and the old, larger, contradictory 25m occupancy gap -
         // cars staged 7.5m apart were being told by the occupancy system they
         // could not move until 25m apart, a standing deadlock even when every
-        // stagger slot WAS unique. Cars now queue moving, single-file, at this
-        // one consistent gap everywhere on the exit path (item 2's 15-18m).
-        const float PitLaneHeadwayMeters = 17f;
+        // stagger slot WAS unique.
+        //
+        // Throughput fix: renamed from PitLaneHeadwayMeters and cut from 17m
+        // to 8.5m - the pit boxes themselves are only TrackRuntime.PitBoxSpacing
+        // (10.5m) apart, so a 17m headway meant every adjacent car started out
+        // already inside its own blocking threshold, and (combined with the
+        // old binary step=0-or-full-pace movement model) that produced a
+        // visible accordion/batch-release effect even once the release-rate
+        // global timer and count-based staggering were already fixed. This is
+        // now genuinely a MOVING target gap, not a stop/go trigger distance -
+        // see ComputeConvoyStep below, which closes any available gap down to
+        // exactly this distance instead of freezing at 0 km/h the instant
+        // another convoy car is merely somewhere within range.
+        const float PitExitConvoyMovingGapMeters = 8.5f;
 
         // How close two cars' forward gap has to be to count as "effectively
         // the same spot" - inside this, release sequence breaks the tie.
@@ -10026,7 +10034,7 @@ namespace LocalFormulaRacing
         // this method was written to fix). A car genuinely behind (a large
         // wrapped forward-distance, since WrappedForwardDistance always
         // measures the forward direction of travel) is excluded by the
-        // PitLaneHeadwayMeters cutoff below exactly as before.
+        // PitExitConvoyMovingGapMeters cutoff below exactly as before.
         //
         // Pit-exit convoy fix: how far (metres) a car remains recognized as
         // "still part of the pit-exit convoy" after CompletePitExitMerge
@@ -10039,12 +10047,15 @@ namespace LocalFormulaRacing
         const float PitExitConvoyTailMeters = 50f;
 
         // Convoy-aware world-space handoff gap: matches the FIFO queue's own
-        // headway (PitLaneHeadwayMeters, 17m) rather than the much larger
-        // PitExitHandoffWorldGapMeters used against genuinely unrelated
+        // moving gap (PitExitConvoyMovingGapMeters, 8.5m) rather than the much
+        // larger PitExitHandoffWorldGapMeters used against genuinely unrelated
         // traffic below - a same-convoy car's spacing is already governed by
-        // that queue headway, so re-demanding the larger unrelated-traffic
-        // gap against it was the direct contradiction that stalled the queue.
-        const float PitExitConvoyWorldGapMeters = 16f;
+        // that queue gap, so re-demanding a much larger unrelated-traffic gap
+        // against it was the direct contradiction that stalled the queue. This
+        // only ever needs to catch actual overlap between convoy cars, not
+        // re-impose a second, larger separation requirement on top of what
+        // ComputeConvoyStep already guarantees.
+        const float PitExitConvoyWorldGapMeters = 7.5f;
 
         // True for any car currently part of the shared pit-exit FIFO stream -
         // either still actively occupying it (a Service car already holding
@@ -10245,10 +10256,35 @@ namespace LocalFormulaRacing
                 }
             }
 
-            return closestGap <= PitLaneHeadwayMeters ? closest : null;
+            return closestGap <= PitExitConvoyMovingGapMeters ? closest : null;
         }
 
-        // Unbounded (not capped at PitLaneHeadwayMeters) forward distance to
+        // Throughput fix (core): replaces the old binary "full pace or
+        // completely frozen at 0 km/h" movement model with distance-clamped
+        // convoy movement. A following car keeps closing on the car ahead at
+        // full pace right up until the gap between them reaches
+        // PitExitConvoyMovingGapMeters, then automatically slows to match the
+        // leader's own advance instead of stopping outright - it only ever
+        // reaches a genuine step of 0 when there is truly no forward space
+        // left. Shared by UpdatePitRelease and UpdatePitExitMerge so there is
+        // exactly one gap definition and one clamping rule for the whole
+        // Release-through-ExitMerge convoy; callers still get the blocking
+        // participant back (even when the step wasn't clamped to zero) for
+        // hold-state/logging decisions.
+        float ComputeConvoyStep(RaceParticipant participant, float fromDistance, float paceKph, out RaceParticipant blocker)
+        {
+            float desiredStep = Mathf.Max(0f, paceKph / 3.6f * Time.deltaTime);
+            blocker = FindPitExitQueueCarAhead(participant, fromDistance);
+            if (blocker == null)
+            {
+                return desiredStep;
+            }
+
+            float gapToCarAhead = WrappedForwardDistance(fromDistance, PitExitQueueCarDistance(blocker));
+            return Mathf.Min(desiredStep, Mathf.Max(0f, gapToCarAhead - PitExitConvoyMovingGapMeters));
+        }
+
+        // Unbounded (not capped at PitExitConvoyMovingGapMeters) forward distance to
         // the nearest STRICTLY earlier-queued car ahead, or float.MaxValue if
         // none - used only by the recovery search below so it can never step
         // a later-release car physically ahead of an earlier one just to find
@@ -10293,7 +10329,7 @@ namespace LocalFormulaRacing
         // the pit lane runs close to another part of the circuit - two points
         // separated by a safe DISTANCE-ALONG-TRACK gap can still be only a
         // few metres apart in actual 3D space. Deliberately larger than the
-        // basic moving-guide headway (PitLaneHeadwayMeters) since this is the
+        // basic moving-guide headway (PitExitConvoyMovingGapMeters) since this is the
         // last check before collisions/full-speed physics are restored, not a
         // "keep queueing" gate - cars must not have normal collisions
         // restored only a few metres apart at ~100 km/h.
@@ -10303,7 +10339,7 @@ namespace LocalFormulaRacing
         // gap (PitExitHandoffWorldGapMeters, 22m) against every other car
         // without exception - including a car directly ahead in the SAME
         // pit-exit queue, whose spacing is already governed by the queue's
-        // own ~17m headway (PitLaneHeadwayMeters/PitExitConvoyWorldGapMeters).
+        // own ~17m headway (PitExitConvoyMovingGapMeters/PitExitConvoyWorldGapMeters).
         // That contradiction is exactly what stalled the queue in short
         // batches: a following car sitting at a perfectly correct ~17m queue
         // gap could never pass this 22m check. Returns the actual blocking
@@ -10366,7 +10402,7 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            participant.pitGuideDistance = Track.WrapDistance(blockerDistance - PitLaneHeadwayMeters);
+            participant.pitGuideDistance = Track.WrapDistance(blockerDistance - PitExitConvoyMovingGapMeters);
             GameLog.Warn("[PitLane] " + participant.driverName + " overlapped " + blocker.driverName + " in the exit queue; separated along the pit path.");
         }
 
@@ -10393,7 +10429,7 @@ namespace LocalFormulaRacing
         // PitExitConvoyTailMeters of its own merge point) is skipped here
         // entirely rather than being treated as generic live traffic - its
         // spacing is already governed by the FIFO queue headway
-        // (FindPitExitQueueCarAhead, PitLaneHeadwayMeters). Demanding this
+        // (FindPitExitQueueCarAhead, PitExitConvoyMovingGapMeters). Demanding this
         // much larger 18m/35m window against it too was the direct
         // contradiction that stalled the queue in short batches. Genuinely
         // unrelated live traffic (anyone not part of the current pit-exit
@@ -10525,8 +10561,11 @@ namespace LocalFormulaRacing
         // this attempt - bounded so a genuinely pathological case (the whole
         // exit path jammed for its entire length) can't spin forever, while
         // comfortably covering "several cars failsafed at once" (a handful of
-        // headway steps is many car-lengths of separation).
-        const int PitExitRecoverySearchSteps = 8;
+        // headway steps is many car-lengths of separation). Doubled from 8 to
+        // 16 alongside PitExitConvoyMovingGapMeters shrinking from 17m to
+        // 8.5m, so the total worst-case search range stays the same (~136m)
+        // rather than silently halving.
+        const int PitExitRecoverySearchSteps = 16;
 
         // Root cause 2 fix: the old ForcePitExitMergeCompletion searched a
         // bounded number of positions but ALWAYS called CompletePitExitMerge
@@ -10556,8 +10595,8 @@ namespace LocalFormulaRacing
 
             float searchLimit = NearestEarlierQueueCarDistanceAhead(participant, recoveryDistance);
             searchLimit = searchLimit < float.MaxValue
-                ? Mathf.Max(0f, searchLimit - PitLaneHeadwayMeters)
-                : PitLaneHeadwayMeters * PitExitRecoverySearchSteps;
+                ? Mathf.Max(0f, searchLimit - PitExitConvoyMovingGapMeters)
+                : PitExitConvoyMovingGapMeters * PitExitRecoverySearchSteps;
 
             bool foundClear = false;
             float traveledSearch = 0f;
@@ -10582,7 +10621,7 @@ namespace LocalFormulaRacing
                     break;
                 }
 
-                float step = Mathf.Min(PitLaneHeadwayMeters, searchLimit - traveledSearch);
+                float step = Mathf.Min(PitExitConvoyMovingGapMeters, searchLimit - traveledSearch);
                 recoveryDistance = Track.WrapDistance(recoveryDistance + step);
                 traveledSearch += step;
             }
@@ -10647,17 +10686,21 @@ namespace LocalFormulaRacing
             // the whole guided path onto the wrong stretch of track. The step is
             // always positive, so the guide can never move backward.
             //
-            // Explicit occupancy holds (bugfix): with static/traffic collisions
-            // removed below, blocking now has to be handled explicitly - the
-            // guide simply does not advance this tick (holding position, never
-            // reversing) while another pit-guided car is in the way
-            // (FindPitExitQueueCarAhead) or, in the final stretch before the real
-            // merge point, while live racing traffic occupies the merge space
-            // (IsPitExitMergeSpaceOccupied).
+            // Throughput fix: same distance-clamped convoy movement as
+            // UpdatePitRelease (ComputeConvoyStep) - a following car keeps
+            // closing on the car ahead of it right up until
+            // PitExitConvoyMovingGapMeters instead of freezing at 0 km/h the
+            // instant one exists anywhere within range. Unrelated live
+            // traffic (FindLiveTrafficBlocker, only checked in the final
+            // stretch before the real merge point) is a completely separate,
+            // still-binary safety gate - pulling out in front of fast-
+            // approaching traffic is not something to "clamp toward", so that
+            // one still forces a hard stop regardless of the convoy step.
             float traveledBeforeStep = WrappedForwardDistance(participant.pitExitMergeStartDistance, participant.pitGuideDistance);
             bool nearingLiveMerge = traveledBeforeStep >= required - PitExitMergeLiveTrafficCheckLeadMeters;
-            RaceParticipant exitTrafficBlocker = FindPitExitQueueCarAhead(participant, participant.pitGuideDistance);
-            bool blockedByExitTraffic = exitTrafficBlocker != null;
+            RaceParticipant exitTrafficBlocker;
+            float convoyStep = ComputeConvoyStep(participant, participant.pitGuideDistance, PitExitMergePaceKph, out exitTrafficBlocker);
+            bool blockedByExitTraffic = exitTrafficBlocker != null && convoyStep <= 0.0001f;
             RaceParticipant liveTrafficBlocker = nearingLiveMerge ? FindLiveTrafficBlocker(participant, participant.pitGuideDistance) : null;
             bool blockedByLiveTraffic = liveTrafficBlocker != null;
             participant.pitLaneHeldByOccupancy = blockedByExitTraffic || blockedByLiveTraffic;
@@ -10672,9 +10715,9 @@ namespace LocalFormulaRacing
                 // advance during a hold either - a queued car can wait
                 // indefinitely without being force-completed into traffic.
                 participant.pitExitMergeElapsedTime = 0f;
-                RaceParticipant activeBlocker = blockedByExitTraffic ? exitTrafficBlocker : liveTrafficBlocker;
-                string activeBlockerType = blockedByExitTraffic ? "same convoy" : "unrelated live traffic";
-                float otherDistance = blockedByExitTraffic ? PitExitQueueCarDistance(activeBlocker) : GetPitAwareProgress(activeBlocker).distance;
+                RaceParticipant activeBlocker = blockedByLiveTraffic ? liveTrafficBlocker : exitTrafficBlocker;
+                string activeBlockerType = blockedByLiveTraffic ? "unrelated live traffic" : "same convoy";
+                float otherDistance = blockedByLiveTraffic ? GetPitAwareProgress(activeBlocker).distance : PitExitQueueCarDistance(activeBlocker);
                 float longitudinalGap = WrappedForwardDistance(participant.pitGuideDistance, otherDistance);
                 float worldSpaceGap = Vector3.Distance(participant.transform.position, activeBlocker.transform.position);
                 LogPitExitQueueTransition(participant, true, activeBlocker, activeBlockerType, longitudinalGap, worldSpaceGap);
@@ -10684,7 +10727,7 @@ namespace LocalFormulaRacing
                 LogPitExitQueueTransition(participant, false, null, "", 0f, 0f);
             }
 
-            float step = participant.pitLaneHeldByOccupancy ? 0f : Mathf.Max(0f, PitExitMergePaceKph / 3.6f * Time.deltaTime);
+            float step = blockedByLiveTraffic ? 0f : convoyStep;
             participant.pitGuideDistance = Track.WrapDistance(participant.pitGuideDistance + step);
             float normalized = participant.pitGuideDistance / Mathf.Max(1f, Track.length);
 
