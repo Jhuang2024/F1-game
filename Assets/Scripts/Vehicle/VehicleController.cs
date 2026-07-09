@@ -665,6 +665,23 @@ namespace LocalFormulaRacing
                 highSpeedPower += 0.1f;
             }
 
+            // DRS force fix: DRS previously only raised TargetTopSpeedKph's ceiling
+            // (+32kph, see CalculateTargetTopSpeedKph) and halved the drag
+            // coefficient below - both real, but neither actually pushes the car
+            // toward that raised ceiling with any urgency. DRS is used exactly when
+            // a car is already near its normal top speed (that's the whole point -
+            // better terminal speed on a straight), which is precisely where net
+            // propulsive force is weakest (highSpeedPower already faded down toward
+            // its 0.82 floor, drag near its peak) - so the promised ~30kph gain was
+            // barely reached, if at all, within a typical zone's length before the
+            // car had to lift for the next corner. Matches the same diagnosis ERS
+            // got (a raised ceiling is aspirational without the underlying push to
+            // actually reach it) - gives DRS its own genuine additive force term,
+            // scaled by the car's aero rating, same as ERS gets its own additive
+            // ersBoost term below rather than only a softened drag figure.
+            float drsBoost = DrsActive ? Mathf.Lerp(22f, 34f, CarData.aeroEfficiency / 100f) : 0f;
+            float drsSpeedRamp = Mathf.Lerp(0.5f, 1f, Mathf.InverseLerp(90f, 170f, forwardSpeedKph));
+
             float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
             float speedLimiter = Mathf.Clamp01((topSpeed + limiterWindow - forwardSpeed) / limiterWindow);
             if (!IsHeldInPit && activeCommand.throttle > 0.01f && speedLimiter > 0.01f)
@@ -683,7 +700,7 @@ namespace LocalFormulaRacing
                 // widened/moved earlier (was 40-140) so the boost is already near full
                 // strength for most of a straight rather than only right at the end.
                 float ersSpeedRamp = Mathf.Lerp(0.5f, 1f, Mathf.InverseLerp(25f, 105f, forwardSpeedKph));
-                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp), ForceMode.Acceleration);
+                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoost * drsSpeedRamp), ForceMode.Acceleration);
                 if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
                 {
                     float pullThrough = Mathf.Lerp(5.6f, 2.0f, speedRatio) * activeCommand.throttle * speedLimiter;
