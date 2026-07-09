@@ -765,22 +765,39 @@ namespace LocalFormulaRacing
             // A just-released car's normal line-following logic doesn't know it
             // just merged out of the pit lane - it targets the racing line/next
             // apex immediately, which read as "turns onto the track way too early"
-            // even though the physical pit-exit ramp is still narrowing back to the
-            // track edge. Holds the line near the pit-exit side through the real
-            // ramp geometry (track.PitExitMergeBlend), fading out smoothly as the
-            // car actually clears the merge instead of snapping straight to the
-            // racing line. Gated on pitExitMergeActive (set at release, cleared
-            // once the blend itself reaches 0) rather than
-            // participant.pitLimiterUntilExit - that flag clears on the shorter
-            // speed-limiter window, well before the physical ramp actually finishes
-            // narrowing (see NotifyPitExitReleased for the round-2 fix history).
+            // even though the physical pit-exit ramp/barrier is still narrowing
+            // back to the track edge. Holds the line near the pit-exit side
+            // through the real ramp geometry (track.PitExitMergeBlend), fading out
+            // smoothly as the car actually clears the merge instead of snapping
+            // straight to the racing line. Gated on pitExitMergeActive (set at
+            // release) rather than participant.pitLimiterUntilExit - that flag
+            // clears on the shorter speed-limiter window, well before the physical
+            // ramp actually finishes narrowing (see NotifyPitExitReleased for the
+            // round-2 fix history).
+            //
+            // Round 3: PitExitMergeBlend's own window is a FIXED normalized
+            // distance - it has no idea where the final corner's own curvature
+            // actually ends, which varies per track/apex. On a corner whose real
+            // barrier-hugging footprint runs longer than that fixed window, the
+            // hold used to let go (blend reaching exactly 0) while the corner - and
+            // its wall - was still very much in progress, and the sudden handoff to
+            // normal apex-seeking right there is exactly what put cars into the
+            // barrier "as soon as the limiter turned off". Now also holds (at a
+            // strong, fixed blend, not fading through zero) for as long as
+            // severityHere itself says the car is still genuinely inside a tight
+            // corner, regardless of what the fixed pit-zone distance window says -
+            // release only once BOTH the zone blend has faded out AND the corner's
+            // own measured curvature has actually eased off, i.e. once the barrier
+            // has genuinely ended, not just once a fixed distance was covered.
             if (pitExitMergeActive)
             {
                 float exitBlend = track.PitExitMergeBlend(progress.normalized);
-                if (exitBlend > 0f)
+                bool stillInTightCorner = severityHere > 0.22f;
+                if (exitBlend > 0f || stillInTightCorner)
                 {
                     float pitExitHoldLateral = track.HalfWidthAt(progress.distance) * 0.82f;
-                    requestedOffset = Mathf.Lerp(requestedOffset, pitExitHoldLateral, exitBlend * exitBlend);
+                    float holdBlend = Mathf.Max(exitBlend, stillInTightCorner ? 0.75f : 0f);
+                    requestedOffset = Mathf.Lerp(requestedOffset, pitExitHoldLateral, holdBlend * holdBlend);
                 }
                 else
                 {

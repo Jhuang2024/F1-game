@@ -992,8 +992,21 @@ namespace LocalFormulaRacing
                     CompleteQualifyingRun();
                 }
             }
-            else if (PlayerParticipant != null && PlayerParticipant.finished)
+            else if (!IsRaceFinished && PlayerParticipant != null && PlayerParticipant.finished)
             {
+                // Re-entrancy fix: PlayerParticipant.finished is never cleared back to
+                // false once set, and this whole method runs every frame - without this
+                // guard, FinishRace() (which awards championship points via
+                // Career.ApplyRaceResults, increments Save.currentRound, records
+                // win/podium/pole career stats, etc.) fired again on every subsequent
+                // frame for as long as this Update loop kept ticking after the player
+                // crossed the line (e.g. while the results screen was coming up, before
+                // the race world actually tore down) - each extra call re-applied a full
+                // race's worth of points and round progress on top of the last. This is
+                // exactly what could put a driver standing at ~700 points a handful of
+                // rounds into a season instead of the real, much smaller total.
+                // FinishRace() itself sets IsRaceFinished = true as its very first line,
+                // so gating on it here makes the call strictly once-per-race.
                 FinishRace();
             }
         }

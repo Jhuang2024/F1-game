@@ -615,8 +615,12 @@ namespace LocalFormulaRacing
                 // deploy now costs noticeably less battery per second again, so a
                 // deploy lasts even longer before the car is forced back to
                 // harvesting.
+                // ERS drain-rate fix round 3: cut a further 25% (was 0.0595-0.084) -
+                // deploy now costs noticeably less battery per second again, so a
+                // deploy lasts even longer before the car is forced back to
+                // harvesting.
                 ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
-                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0595f, 0.084f, activeCommand.throttle));
+                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0446f, 0.063f, activeCommand.throttle));
             }
 
             // Braking-zone recharge fix: raised 50% (was 0.28-0.42) - a hard braking
