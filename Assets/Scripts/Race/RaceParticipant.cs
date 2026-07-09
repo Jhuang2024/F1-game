@@ -220,6 +220,30 @@ namespace LocalFormulaRacing
         // merge itself already delivered the car to a safe outer line.
         public float pitExitLaneHoldTimer;
         public float pitExitLaneHoldDistanceRemaining;
+        // Pit-exit convoy fix: CompletePitExitMerge used to immediately clear
+        // pitReleaseSequence (-1) and pitPhase (None) the instant a car
+        // finished ExitMerge, which made the pit-exit queue stop recognizing
+        // it as part of the same convoy at all - the very next tick,
+        // RaceManager.IsPitExitMergeSpaceOccupied treated it as ordinary live
+        // traffic instead, demanding an 18m/35m gap instead of the queue's
+        // own ~17m headway (PitLaneHeadwayMeters). That contradiction stalled
+        // the whole following queue in short batches. These three fields keep
+        // a car recognizable as "still part of the pit-exit convoy that just
+        // came out of the pits" for a short distance after the physical
+        // handoff (see RaceManager.IsPitExitConvoyMember/
+        // UpdatePitExitConvoyState), centrally maintained by RaceManager so
+        // the player and every AI car use the exact same logic - never left
+        // to AiVehicleController's own (AI-only) pitExitLaneHoldTimer/
+        // DistanceRemaining above, which only ever governed AI lane choice,
+        // not queue/traffic identity.
+        public bool pitExitConvoyActive;
+        public int pitExitConvoySequence = -1;
+        public float pitExitConvoyDistanceRemaining;
+        // Dedup keys for the focused pit-exit hold/handoff transition logging
+        // in RaceManager - only used to detect "this changed since last
+        // tick", never read for gameplay logic.
+        public string pitExitHoldDebugState = "";
+        public string pitExitHandoffDebugState = "";
         public bool hasLastSafePosition;
         public Vector3 lastSafePosition;
         public Quaternion lastSafeRotation;
