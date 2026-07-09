@@ -124,7 +124,15 @@ namespace LocalFormulaRacing
         // driving resumes, instead of steering off a stale reference.
         bool wasRaceControlAutopilotLastFrame;
         float handbackRampTimer;
-        const float HandbackRampDuration = 2f;
+        // VSC/SC restart acceleration fix: shortened from 2f - this ramp
+        // covers every handback (pit-exit merge, forced reposition, and the
+        // SC/VSC/yellow-flag restart alike), and the restart case in
+        // particular was reading as sluggish: race control's own convoy ramp
+        // (RaceManager.UpdateSafetyCarConvoy) has already brought the field
+        // up near green-flag pace by the time this handback fires, so a full
+        // 2 further seconds of capped throttle on top of that read as a slow,
+        // hesitant restart rather than a smooth one.
+        const float HandbackRampDuration = 1.1f;
 
         // Driver-pressure model (Part 8): 0-1, set by UpdateOvertakeState each frame
         // based on whether this car is actively attacking/defending under close
@@ -470,8 +478,17 @@ namespace LocalFormulaRacing
             bool isExpertStart = manager.IsExpertDifficulty;
             float launchSkillCeiling = isExpertStart ? 0.99f : 0.95f;
             float settleFloor = isExpertStart ? 0.05f : 0.3f;
-            launchConfidence = Mathf.Clamp01(Mathf.Lerp(0.55f, launchSkillCeiling, launchSkill) - startupProfile.reactionTimeSeconds * 0.12f);
-            launchSettleDuration = Mathf.Lerp(settleFloor, 1.3f, 1f - launchSkill) + startupProfile.reactionTimeSeconds * 0.35f;
+            // Launch acceleration fix: raised the base confidence floor (was
+            // 0.55) and softened how much reaction time drags it down (was
+            // *0.12) - even a low-skill/slow-reacting AI used to leave the
+            // line noticeably softer than it needed to, on top of the
+            // separate opening pileup-safety cap just below (which already
+            // does the actual first-corner fan-out job). Settle duration is
+            // also shortened (was 1.3f ceiling / *0.35f reaction weight) so
+            // whatever gap remains between initial confidence and full
+            // throttle closes faster.
+            launchConfidence = Mathf.Clamp01(Mathf.Lerp(0.68f, launchSkillCeiling, launchSkill) - startupProfile.reactionTimeSeconds * 0.08f);
+            launchSettleDuration = Mathf.Lerp(settleFloor, 0.9f, 1f - launchSkill) + startupProfile.reactionTimeSeconds * 0.22f;
         }
 
         void Update()
@@ -1259,8 +1276,15 @@ namespace LocalFormulaRacing
                 // Part A.7: Expert's pileup-safety cap shrunk further still (was
                 // 1.1s/0.92) - just enough margin to not cause a first-corner pileup
                 // by itself, no more.
-                float openingCapDuration = confidentTier ? (isExpert ? 0.6f : 1.8f) : 3.5f;
-                float openingCapFloor = confidentTier ? (isExpert ? 0.95f : 0.85f) : 0.72f;
+                // Launch acceleration fix: shortened every tier's duration and
+                // raised every tier's floor a further step - ApplyTrafficAvoidance
+                // (called right below, every difficulty, every frame) is still
+                // the actual thing preventing a real collision; this cap only
+                // ever existed to keep the pack from bunching too tightly into
+                // turn one, and was holding every difficulty back for longer
+                // than that job needs.
+                float openingCapDuration = confidentTier ? (isExpert ? 0.4f : 1.3f) : 2.4f;
+                float openingCapFloor = confidentTier ? (isExpert ? 0.97f : 0.9f) : 0.8f;
                 if (raceManager.RaceElapsed < openingCapDuration)
                 {
                     command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(openingCapFloor, 1f, raceManager.RaceElapsed / openingCapDuration));
@@ -1418,7 +1442,12 @@ namespace LocalFormulaRacing
             {
                 handbackRampTimer -= Time.deltaTime;
                 float rampBlend = 1f - Mathf.Clamp01(handbackRampTimer / HandbackRampDuration);
-                command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(0.55f, 1f, rampBlend));
+                // VSC/SC restart acceleration fix: raised the throttle floor
+                // (was 0.55) alongside the shorter HandbackRampDuration above -
+                // the steering cap is untouched, so this only changes how hard
+                // the car picks up speed on the restart, not how sharply it's
+                // still allowed to steer while doing it.
+                command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(0.75f, 1f, rampBlend));
                 float steerCap = Mathf.Lerp(0.7f, 1f, rampBlend);
                 command.steer = Mathf.Clamp(command.steer, -steerCap, steerCap);
             }
