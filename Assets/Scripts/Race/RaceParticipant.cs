@@ -93,7 +93,6 @@ namespace LocalFormulaRacing
         public bool jumpStartPenaltyApplied;
         public bool isPitting;
         public PitPhase pitPhase;
-        public bool pitEntryAligned;
         // Pit-lane architecture fix: separates "the team wants to box"
         // (vehicle.PitRequested) from "the car has physically moved onto the pit-
         // entry ramp and may enter the guided pit sequence" (pitEntryCommitted).
@@ -105,6 +104,31 @@ namespace LocalFormulaRacing
         // pitRequestLapNumber is the display-lap the request was raised on, kept
         // for diagnostics/future strategy logic.
         public bool pitEntryCommitted;
+
+        // ==== Unified pit rail (full pit-system rebuild) ====
+        // One monotonic parameter drives the ENTIRE guided pit sequence from
+        // commit to handoff: pitRailTraveled, metres actually travelled along
+        // the canonical pit path since BeginPitEntry seeded the rail at the
+        // car's own commit position. The landmark S-values below are computed
+        // ONCE at commit by chaining wrapped forward segments (commit -> box ->
+        // release -> ramp end), so no later tick ever performs wrapped
+        // distance arithmetic that could misread a wrap as a whole lap. The
+        // car's world pose is always sampled from the canonical pit-lane
+        // geometry at (railStart + traveled) - there is no separate per-phase
+        // seeding, no reprojection, and no chase target that can desync from
+        // the authority.
+        public float pitRailTraveled;
+        public float pitRailBoxS;
+        public float pitRailReleaseS;
+        public float pitRailRampEndS;
+        public float pitRailHardEndS;
+        // Set once when the car first arrives at its box (visuals/timer
+        // started), once when the tyres have actually been changed, and once
+        // when the car has been released from the bay into the lane.
+        public bool pitRailServiceStarted;
+        public bool pitRailStopServed;
+        public bool pitRailServiceDone;
+
         public bool missedPitEntryThisLap;
         // Deterministic-deadlock fix: missedPitEntryThisLap used to be a mostly
         // write-only field - nothing actually gated automatic pit-request sources
@@ -134,48 +158,18 @@ namespace LocalFormulaRacing
         public int pitBoxIndex;
         // Set while the car is waiting for a safe release gap after service.
         public bool pitAwaitingRelease;
-        // FIFO pit-lane exit queue fix: monotonically increasing sequence number
-        // assigned exactly once, the moment this car's service timer first
-        // expires (RaceManager.UpdatePitService) - never reused, never
-        // recomputed. Replaces the old count-based pitReleaseStagger
-        // (CountParticipantsInPitPhase), which handed out a "slot number" that
-        // stopped being unique the instant any car ahead of it left Release
-        // for ExitMerge (two cars could easily end up with the same count).
-        // -1 means "not currently queued for release" - see
-        // RaceManager.FindPitLaneCarAhead, which uses this to determine
-        // unambiguous leader/follower order along the shared exit path (a
-        // car can only ever be blocked by one with a strictly smaller,
-        // already-assigned sequence number, never a later or equal one).
-        public int pitReleaseSequence = -1;
         // Set true for the duration of any tick this car is intentionally held
-        // by the FIFO queue/occupancy checks (RaceManager.UpdatePitRelease/
-        // UpdatePitExitMerge) rather than genuinely stuck - read by
-        // UpdatePitDrivingStuckWatchdog so a long but legitimate queue hold
-        // (a full pit-lane wave) can never accumulate stuck-recovery attempts
-        // the way a real desync/failure does.
+        // behind the railed car ahead of it in the pit lane rather than
+        // genuinely stuck - read by incident/recovery classification so a
+        // legitimate queue hold never reads as a stranded car.
         public bool pitLaneHeldByOccupancy;
-        // Pit lane animation fix: while pit-guided, the car chases a
-        // continuously-advancing (distance-along-track, lateral-offset)
-        // waypoint (see RaceManager.AdvancePitGuideTarget /
-        // TrackRuntime.SamplePitLanePose) instead of beelining straight at a
-        // single far-away fixed pose - this is what makes the car actually
-        // follow the pit lane's own curvature and peel in/out gradually
-        // rather than cutting a straight diagonal line across the track or
-        // snapping sideways at each phase transition. Reset (hasPitGuideState
-        // = false) at the start of every phase that needs a fresh starting
-        // point.
+        // While pit-railed, the car's world pose is sampled every tick from
+        // the canonical pit-lane geometry at pitGuideDistance
+        // (TrackRuntime.SamplePitLanePose) with a rate-limited lateral, so it
+        // follows the lane's own curvature and peels in/out gradually.
         public bool hasPitGuideState;
         public float pitGuideDistance;
         public float pitGuideLateral;
-        // Pit-lane stuck watchdog (RaceManager.UpdatePitDrivingStuckWatchdog): last
-        // distance-along-track this car was confirmed making real forward progress
-        // while actively guided (Entry/Release), how long it's been stuck since,
-        // and how many times it's already been nudged back onto the path this stop -
-        // a car nudged repeatedly gets an actual (last-resort) reposition instead of
-        // being nudged forever.
-        public float pitStuckWatchdogTimer;
-        public float pitStuckLastDistance = -1f;
-        public int pitStuckRecoveryCount;
         // Lightweight per-race ERS/DRS usage counters for post-session diagnostics.
         public int ersDeployFrameCount;
         public int drsActiveFrameCount;
@@ -198,69 +192,12 @@ namespace LocalFormulaRacing
         public float pitTimer;
         public float pitServiceDuration;
         public bool pitLimiterUntilExit;
-        // Pit-exit merge fix (round 2): the normalized-zone check alone can't tell
-        // how far this car's own release distance (canonical - see
-        // TrackRuntime.PitReleaseNormalized/PitLaneLateral, RaceManager.UpdatePitRelease)
-        // actually is from the real merge end - a car queued behind others in
-        // the FIFO exit queue could already read as "past" a fixed normalized
-        // window despite having barely started the merge. Recorded once at the
-        // ExitMerge transition and measured with wrapped forward distance
-        // (RaceManager.WrappedForwardDistance) instead, so completion tracks the
-        // car's own actual travel down the exit lane, not just a shared fixed zone.
-        public float pitExitMergeStartDistance;
-        public float pitExitMergeEndDistance;
-        // Deterministic ExitMerge failsafe: how long (seconds) this car has been in
-        // PitPhase.ExitMerge, measured against pitGuideDistance's own known transit
-        // time rather than a fixed constant (see RaceManager.UpdatePitExitMerge) -
-        // reset to 0 whenever ExitMerge starts or finishes.
-        public float pitExitMergeElapsedTime;
-        // Pit-exit liveness fix: monotonic countdown of the metres of guided
-        // path left in the current Release/ExitMerge leg. Seeded once at each
-        // phase transition from the known canonical distances and decremented
-        // by exactly the step the guide actually advanced - NEVER re-derived
-        // from a wrapped difference between two track distances, which is
-        // where the old "seed landed epsilon behind the box, wrapped
-        // difference read as a whole lap, car instantly (or never) finished
-        // the phase" failures came from.
-        public float pitPathRemainingMeters;
-        // Pit-exit liveness fix: how long this car has been continuously held
-        // at the merge point by unrelated live traffic. Unlike
-        // pitExitMergeElapsedTime (which intentionally resets during holds),
-        // this exists precisely to measure the hold itself - after
-        // PitExitLiveTrafficHoldEscapeSeconds the car starts attempting
-        // TryForcePitExitMergeCompletion, which still refuses any genuinely
-        // unsafe placement, so the pipeline head can never starve forever.
-        public float pitExitLiveHoldSeconds;
-        // Short post-merge AI-side lane hold (see AiVehicleController) so normal
+        // Short post-handoff AI-side lane hold (see AiVehicleController) so normal
         // racing-line/overtake/defend logic doesn't immediately dive for the apex
-        // the instant guided ExitMerge control hands back, even though the guided
-        // merge itself already delivered the car to a safe outer line.
+        // the instant guided pit-rail control hands back, even though the rail
+        // itself already delivered the car to a safe outer line.
         public float pitExitLaneHoldTimer;
         public float pitExitLaneHoldDistanceRemaining;
-        // Pit-exit convoy fix: CompletePitExitMerge used to immediately clear
-        // pitReleaseSequence (-1) and pitPhase (None) the instant a car
-        // finished ExitMerge, which made the pit-exit queue stop recognizing
-        // it as part of the same convoy at all - the very next tick,
-        // RaceManager.IsPitExitMergeSpaceOccupied treated it as ordinary live
-        // traffic instead, demanding an 18m/35m gap instead of the queue's
-        // own ~17m headway (PitLaneHeadwayMeters). That contradiction stalled
-        // the whole following queue in short batches. These three fields keep
-        // a car recognizable as "still part of the pit-exit convoy that just
-        // came out of the pits" for a short distance after the physical
-        // handoff (see RaceManager.IsPitExitConvoyMember/
-        // UpdatePitExitConvoyState), centrally maintained by RaceManager so
-        // the player and every AI car use the exact same logic - never left
-        // to AiVehicleController's own (AI-only) pitExitLaneHoldTimer/
-        // DistanceRemaining above, which only ever governed AI lane choice,
-        // not queue/traffic identity.
-        public bool pitExitConvoyActive;
-        public int pitExitConvoySequence = -1;
-        public float pitExitConvoyDistanceRemaining;
-        // Dedup keys for the focused pit-exit hold/handoff transition logging
-        // in RaceManager - only used to detect "this changed since last
-        // tick", never read for gameplay logic.
-        public string pitExitHoldDebugState = "";
-        public string pitExitHandoffDebugState = "";
         public bool hasLastSafePosition;
         public Vector3 lastSafePosition;
         public Quaternion lastSafeRotation;

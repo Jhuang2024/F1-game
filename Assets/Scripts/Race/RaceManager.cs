@@ -597,11 +597,6 @@ namespace LocalFormulaRacing
         // (FindPitExitQueueCarAhead) is the ONLY release gate now; see
         // UpdatePitService for why no same-frame safeguard is needed on top
         // of it (participants are already processed sequentially each tick).
-        //
-        // Monotonically increasing, never-reused identity assigned to each car
-        // the moment its service timer first expires - see
-        // RaceParticipant.pitReleaseSequence/FindPitExitQueueCarAhead.
-        int nextPitReleaseSequence = 1;
         float stackResolveTimer;
         static PhysicMaterial carBodyPhysicsMaterial;
         const int FullWeekendDriverCount = 22;
@@ -1041,7 +1036,6 @@ namespace LocalFormulaRacing
                 HandleStuckEscalation(participant);
                 HandleTrackLimits(participant);
                 HandlePitService(participant);
-                UpdatePitExitConvoyState(participant);
                 HandleFinish(participant);
                 UpdateFuelState(participant);
                 UpdateDrsEligibility(participant);
@@ -3350,10 +3344,15 @@ namespace LocalFormulaRacing
             participant.isPitting = false;
             participant.hasPitGuideState = false;
             participant.pitLimiterUntilExit = false;
+            participant.pitAwaitingRelease = false;
+            participant.pitLaneHeldByOccupancy = false;
+            participant.pitEntryCommitted = false;
             if (participant.vehicle != null)
             {
                 participant.vehicle.SetPitGuidance(false);
+                participant.vehicle.SetPitServiceHold(false);
                 participant.vehicle.SetPitLimiter(false);
+                participant.vehicle.SetPitExitFastLimiter(false);
             }
         }
 
@@ -5819,11 +5818,7 @@ namespace LocalFormulaRacing
 
             if (participant.pitPhase == PitPhase.Entry)
             {
-                // Distinguish "still turning into the lane" from "aligned and now
-                // driving to the box" - both used to collapse into one vague string.
-                return participant.pitEntryAligned
-                    ? "PIT LANE  DRIVING TO BOX " + (participant.pitBoxIndex + 1) + "  LIMITER 80"
-                    : "PIT ENTRY  LIMITER 80";
+                return "PIT LANE  TO BOX " + (participant.pitBoxIndex + 1) + "  LIMITER 80";
             }
 
             if (participant.pitPhase == PitPhase.Service)
@@ -6988,17 +6983,13 @@ namespace LocalFormulaRacing
                 participant.vehicle.SetGridHold(true);
             }
 
-            // A retired car can never move again, so it must be dropped from
-            // the pit-exit FIFO immediately - otherwise IsPitExitConvoyMember
-            // would keep it a permanent, unmovable "car ahead" and every car
-            // behind it in the queue would hold forever (pitLaneHeldByOccupancy
-            // stays true, which also disarms the stuck watchdog by design).
+            // A retired car can never move again, so it must be dropped off
+            // the pit rail immediately - IsRailRolling/FindBayReleaseBlocker
+            // ignore phase-None cars, so nothing behind it can queue on it.
             participant.pitPhase = PitPhase.None;
-            participant.pitReleaseSequence = -1;
+            participant.hasPitGuideState = false;
             participant.pitAwaitingRelease = false;
             participant.pitLaneHeldByOccupancy = false;
-            participant.pitExitConvoyActive = false;
-            participant.pitExitConvoySequence = -1;
 
             participant.gameObject.SetActive(false);
             if (participant.isPlayer)
@@ -8977,169 +8968,12 @@ namespace LocalFormulaRacing
             }
         }
 
-        // Pit-lane stuck watchdog: pitting cars are deliberately excluded from the
-        // general off-track/stranded incident detection (CarRecoveryState.PitSequence,
-        // RaceManager.DetectIncidents) since that machinery assumes normal racing
-        // physics, not a kinematic guided rail - but that also meant NOTHING was ever
-        // watching for a pit-guided car that stops making real progress while actively
-        // driving (Entry: turning in / queueing to box, Release: leaving the box /
-        // merging out), whatever the underlying cause (a stale guide-distance
-        // reference, a queue target that never resolves, or anything else no fix here
-        // can fully rule out without live testing). Only watches the two DRIVING
-        // sub-phases - Service itself is deliberately excluded, since sitting
-        // stationary in the box for pitServiceDuration (or the release-gap hold) is
-        // completely normal, not stuck.
-        const float PitStuckProgressEpsilon = 1.5f;
-        const float PitStuckTimeoutSeconds = 4.5f;
-        const int PitStuckHardResetAfterAttempts = 3;
-
-        // One authoritative no-progress timer per phase (bugfix): this used to
-        // ALSO watch PitPhase.ExitMerge, with its own independent 4.5s x 3
-        // (13.5s) timeout that could call ForcePitExitMergeCompletion - a
-        // second, independently-timed recovery system running in parallel
-        // with UpdatePitExitMerge's own distance/time failsafe
-        // (PitExitMergeDesyncFailsafeSeconds, gated on genuine desync and
-        // occupancy). Two systems that could each decide, on their own
-        // schedule, that a car had "failed" and needed force-completing was
-        // exactly what let a car's failsafe fire while it was still
-        // legitimately queued - this watchdog no longer touches ExitMerge at
-        // all; UpdatePitExitMerge is now the ONE place that phase can ever be
-        // force-finished.
-        void UpdatePitDrivingStuckWatchdog(RaceParticipant participant, TrackProgress currentProgress)
-        {
-            if (participant.pitPhase != PitPhase.Entry && participant.pitPhase != PitPhase.Release)
-            {
-                participant.pitStuckWatchdogTimer = 0f;
-                participant.pitStuckLastDistance = -1f;
-                participant.pitStuckRecoveryCount = 0;
-                return;
-            }
-
-            // Authoritative progress source (bugfix): both Release's and Entry's
-            // own longitudinal authority is pitGuideDistance
-            // (UpdatePitRelease/UpdatePitEntry, both driven through
-            // AdvancePitGuideTarget) - the cached race-timing snapshot
-            // (currentProgress, from LapTracker/RaceStateManager) can lag
-            // behind or briefly disagree with it, which used to make a
-            // perfectly valid guided advance occasionally read as "no
-            // progress" here. Root cause 3 fix: Entry used to watch the cached
-            // progress instead, on the theory that it "chases a moving
-            // queue/box target" rather than having its own authority - but
-            // AdvancePitGuideTarget already seeds and owns pitGuideDistance for
-            // Entry exactly the same way it does for Release, so the cached
-            // snapshot was never actually more authoritative, only staler.
-            float distance = participant.hasPitGuideState ? participant.pitGuideDistance : currentProgress.distance;
-            if (participant.pitStuckLastDistance < 0f)
-            {
-                participant.pitStuckLastDistance = distance;
-                participant.pitStuckWatchdogTimer = 0f;
-                return;
-            }
-
-            // Occupancy-hold fix (item 6): an intentional, explained hold - blocked
-            // by the car ahead of it in the FIFO queue, or by live traffic near the
-            // merge point (RaceParticipant.pitLaneHeldByOccupancy, set every tick
-            // by UpdatePitRelease/UpdatePitExitMerge) - must never accumulate
-            // stuck-recovery attempts the way a genuine desync/failure does. The
-            // timer resets entirely (not merely pauses) so pressure built up
-            // during a long but legitimate queue hold can never carry over into a
-            // real stuck detection the instant the car ahead finally moves.
-            if (participant.pitLaneHeldByOccupancy)
-            {
-                participant.pitStuckLastDistance = distance;
-                participant.pitStuckWatchdogTimer = 0f;
-                participant.pitStuckRecoveryCount = 0;
-                return;
-            }
-
-            float advanced = Track.WrapDistance(distance - participant.pitStuckLastDistance);
-            if (advanced > Track.length * 0.5f)
-            {
-                advanced -= Track.length;
-            }
-
-            if (Mathf.Abs(advanced) >= PitStuckProgressEpsilon)
-            {
-                participant.pitStuckLastDistance = distance;
-                participant.pitStuckWatchdogTimer = 0f;
-                return;
-            }
-
-            participant.pitStuckWatchdogTimer += Time.deltaTime;
-            if (participant.pitStuckWatchdogTimer < PitStuckTimeoutSeconds)
-            {
-                return;
-            }
-
-            participant.pitStuckWatchdogTimer = 0f;
-            participant.pitStuckLastDistance = distance;
-            participant.pitStuckRecoveryCount++;
-
-            if (participant.pitStuckRecoveryCount >= PitStuckHardResetAfterAttempts)
-            {
-                // Nudging alone hasn't worked three times in a row - a genuine problem,
-                // not a transient one. Fall back to an actual reposition onto a known-
-                // good pose for whatever phase it's in, the true last resort, then
-                // resync the AI's own progress reference exactly like every other
-                // forced-reposition path in this file already does.
-                Vector3 fallbackPosition;
-                Quaternion fallbackRotation;
-                if (participant.pitPhase == PitPhase.Entry)
-                {
-                    Track.GetPitServicePose(participant.pitBoxIndex, out fallbackPosition, out fallbackRotation);
-                    // Liveness fix: the fallback pose IS the service bay - the
-                    // entry-alignment stage is behind the car now, so it must
-                    // be marked aligned or UpdatePitEntry would chase the entry
-                    // coordinate hundreds of metres BEHIND it forever (the
-                    // forward-only guide can never reach a backward target),
-                    // looping this same hard reset indefinitely. The guide is
-                    // reseeded canonically at the bay so next tick's
-                    // IsPitGuideNear check passes and service begins.
-                    participant.pitEntryAligned = true;
-                    participant.vehicle.SnapToPitPose(fallbackPosition, fallbackRotation);
-                    participant.pitGuideDistance = Track.PitBoxDistance(participant.pitBoxIndex);
-                    participant.pitGuideLateral = Track.PitServiceBayLateral;
-                    participant.hasPitGuideState = true;
-                }
-                else
-                {
-                    // Canonical release pose only (bugfix): the old staggered
-                    // overload offset this by 7.5m per queue slot, a static
-                    // spacing the FIFO queue no longer uses at all. Liveness
-                    // fix: seed the guide canonically AT the release point
-                    // (with zero release path left) rather than clearing
-                    // hasPitGuideState - the reseed's continuity search is
-                    // anchored to the box, hundreds of metres behind where
-                    // this teleport just put the car, and could resolve
-                    // nonsense.
-                    Track.GetPitReleasePose(out fallbackPosition, out fallbackRotation);
-                    participant.vehicle.SnapToPitPose(fallbackPosition, fallbackRotation);
-                    participant.pitGuideDistance = Track.WrapDistance(Track.length * Track.PitReleaseNormalized);
-                    participant.pitGuideLateral = Track.PitLaneLateral;
-                    participant.hasPitGuideState = true;
-                    participant.pitPathRemainingMeters = 0f;
-                }
-
-                participant.pitStuckRecoveryCount = 0;
-                AiVehicleController stuckAi = participant.GetComponent<AiVehicleController>();
-                if (stuckAi != null)
-                {
-                    stuckAi.ResyncAfterForcedReposition();
-                }
-
-                GameLog.Warn("[PitLane] " + participant.driverName + " repeatedly stuck in " + participant.pitPhase + ", force-repositioned to a known-good pit-lane pose.");
-                return;
-            }
-
-            // Gentle recovery: re-seed the guide waypoint fresh from wherever the car
-            // actually is right now (the same reset AdvancePitGuideTarget already uses
-            // at the start of every new phase), which drops whatever stale distance/
-            // lateral chase state was holding it in place and lets it resume closing
-            // the gap toward the current target - the "next valid pit-lane path point"
-            // - under its own normal guided pace next tick, without ever teleporting.
-            participant.hasPitGuideState = false;
-            GameLog.Warn("[PitLane] " + participant.driverName + " made no progress in " + participant.pitPhase + " for " + PitStuckTimeoutSeconds.ToString("0.0") + "s, nudged back onto the pit-lane path (attempt " + participant.pitStuckRecoveryCount + ").");
-        }
+        // Pit-system rebuild: the stuck watchdog is gone. The unified pit rail
+        // (UpdatePitRail) advances a single monotonic parameter and places the
+        // car AT the sampled pose every tick - there is no chase target that
+        // can lag, no reprojection that can resolve onto the wrong segment,
+        // and no phase handoff that can strand a car, so there is nothing
+        // left for a watchdog to watch.
 
         void HandlePitService(RaceParticipant participant)
         {
@@ -9177,28 +9011,14 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            UpdatePitDrivingStuckWatchdog(participant, currentProgress);
-
             if (participant.pitLimiterUntilExit)
             {
+                // Post-handoff limiter tail: the rail clears its own limiter
+                // flags at CompletePitRail, so this only covers a car whose
+                // handoff landed while still inside the limiter zone (short
+                // exit ramps) - cleared off the car's own live progress.
                 participant.vehicle.SetPitLimiter(true);
-                // Root cause 4 fix: this used to test the cached race-timing
-                // snapshot (currentProgress/normalized, from LapTracker/
-                // RaceStateManager) even while the car is still kinematically
-                // guided through ExitMerge - that snapshot can lag behind or
-                // briefly resolve onto the wrong nearby segment while guided
-                // (the pit exit runs close to another part of the circuit on
-                // Silverstone especially), so it could read as "past the
-                // limiter zone" - clearing the limiter and posting "resume
-                // racing speed" - while the car was still visibly stuck mid-
-                // merge. pitGuideDistance is ExitMerge's own authoritative
-                // position (see UpdatePitExitMerge) and is used here instead
-                // whenever it's actually seeded, so the limiter can never
-                // clear ahead of where the car genuinely, physically is.
-                float limiterCheckNormalized = (participant.pitPhase == PitPhase.ExitMerge && participant.hasPitGuideState)
-                    ? participant.pitGuideDistance / Mathf.Max(1f, Track.length)
-                    : normalized;
-                if (!Track.IsInPitExitLimiterZone(limiterCheckNormalized))
+                if (!Track.IsInPitExitLimiterZone(normalized))
                 {
                     participant.pitLimiterUntilExit = false;
                     participant.vehicle.SetPitLimiter(false);
@@ -9211,27 +9031,13 @@ namespace LocalFormulaRacing
                 }
             }
 
-            if (participant.pitPhase == PitPhase.Entry)
+            // Pit-system rebuild: one update drives the entire guided sequence
+            // (entry lane -> box -> exit lane -> handoff). pitPhase is still
+            // maintained for external readers (HUD, incident classification,
+            // AI avoidance) but no longer selects between separate updaters.
+            if (participant.pitPhase != PitPhase.None)
             {
-                UpdatePitEntry(participant);
-                return;
-            }
-
-            if (participant.pitPhase == PitPhase.Service)
-            {
-                UpdatePitService(participant);
-                return;
-            }
-
-            if (participant.pitPhase == PitPhase.Release)
-            {
-                UpdatePitRelease(participant);
-                return;
-            }
-
-            if (participant.pitPhase == PitPhase.ExitMerge)
-            {
-                UpdatePitExitMerge(participant);
+                UpdatePitRail(participant);
                 return;
             }
 
@@ -9302,7 +9108,7 @@ namespace LocalFormulaRacing
                         PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is 80 km/h.", true, RaceAudioCue.PitConfirm);
                     }
 
-                    BeginPitEntry(participant);
+                    BeginPitEntry(participant, actualProgress);
                 }
                 else if (participant.isPlayer)
                 {
@@ -9387,15 +9193,13 @@ namespace LocalFormulaRacing
             }
         }
 
-        void BeginPitEntry(RaceParticipant participant)
+        void BeginPitEntry(RaceParticipant participant, TrackProgress commitProgress)
         {
             // Pre-race pit lap fix: capture the actual entry lap right here,
             // before the car has any chance to cross the start/finish line while
             // still inside the pit lane (which would otherwise bump DisplayLap
             // and make a perfectly on-plan stop look like it happened a lap
-            // late). This is the one and only place pitEntryLap is written, and
-            // it is what strategy-compliance/"stop taken on lap" text must read
-            // from now on - never the lap number shown later during exit.
+            // late). This is the one and only place pitEntryLap is written.
             int plannedTargetLap = participant.isPlayer ? NextPlannedPitLapFor(participant) : -1;
             participant.pitEntryLap = participant.lapTracker != null ? participant.lapTracker.DisplayLap : -1;
             if (participant.isPlayer)
@@ -9404,15 +9208,11 @@ namespace LocalFormulaRacing
             }
 
             participant.pitPhase = PitPhase.Entry;
-            participant.pitEntryAligned = false;
             participant.pitEntryCommitted = true;
             // Cancellable-manual-pit-stop fix: this is the authoritative
-            // commitment boundary the whole pit state machine already uses
-            // (Track.HasCrossedPitEntryLimiterLine, checked just before this is
-            // called) - a manual/SC-offer request becomes permanently
-            // uncancellable the instant it's crossed, never merely on the next
-            // pitPhase read, so CanCancelManualPitRequest can never race a
-            // same-frame commit.
+            // commitment boundary (Track.HasCrossedPitEntryLimiterLine, checked
+            // just before this is called) - a manual/SC-offer request becomes
+            // permanently uncancellable the instant it's crossed.
             if (participant.activePitRequestSource == PitRequestSource.Manual ||
                 participant.activePitRequestSource == PitRequestSource.SafetyCarPrompt)
             {
@@ -9424,422 +9224,451 @@ namespace LocalFormulaRacing
             participant.isPitting = true;
             participant.pitLimiterUntilExit = false;
             participant.pitAwaitingRelease = false;
-            // Defensive reset: a fresh entry starts a brand new trip through the
-            // FIFO exit queue - CompletePitExitMerge already clears these at the
-            // end of every stop, but resetting here too guarantees no stale
-            // sequence/occupancy state from an earlier anomaly can leak into
-            // this stop's own queueing.
-            participant.pitReleaseSequence = -1;
             participant.pitLaneHeldByOccupancy = false;
-            // A brand new stop always supersedes any leftover convoy
-            // membership/debug-log state from the previous one outright -
-            // never let a stale "recently merged" identity leak into this
-            // stop's own queueing or misdirect the hold/handoff logging.
-            participant.pitExitConvoyActive = false;
-            participant.pitExitConvoySequence = -1;
-            participant.pitExitConvoyDistanceRemaining = 0f;
-            participant.pitExitHoldDebugState = "";
-            participant.pitExitHandoffDebugState = "";
-            participant.pitPathRemainingMeters = 0f;
-            participant.pitExitLiveHoldSeconds = 0f;
             participant.pitTimer = 0f;
             participant.pitServiceDuration = 0f;
             participant.nextPitCompound = participant.requestedPitCompoundSet ? participant.requestedPitCompound : NextPlannedPitCompoundFor(participant);
             participant.pitTyreSelectionActive = false;
+
+            // ==== Rail seed (pit-system rebuild) ====
+            // The rail's single authority starts exactly where the car
+            // physically committed. Every landmark S-value is computed ONCE,
+            // here, by chaining strictly-forward wrapped segments (commit ->
+            // box -> release -> ramp end) so no later tick ever interprets a
+            // wrap as a whole lap of travel in either direction.
+            participant.pitGuideDistance = commitProgress.distance;
+            participant.pitGuideLateral = commitProgress.lateralDistance;
+            participant.hasPitGuideState = true;
+            participant.pitRailTraveled = 0f;
+            participant.pitRailServiceStarted = false;
+            participant.pitRailStopServed = false;
+            participant.pitRailServiceDone = false;
+            float boxDistance = Track.PitBoxDistance(participant.pitBoxIndex);
+            float releaseDistance = Track.WrapDistance(Track.length * Track.PitReleaseNormalized);
+            float rampEndDistance = Track.WrapDistance(Track.length * Track.PitExitRampEndNormalized);
+            participant.pitRailBoxS = WrappedForwardDistance(commitProgress.distance, boxDistance);
+            participant.pitRailReleaseS = participant.pitRailBoxS + WrappedForwardDistance(boxDistance, releaseDistance);
+            participant.pitRailRampEndS = participant.pitRailReleaseS + WrappedForwardDistance(releaseDistance, rampEndDistance);
+            participant.pitRailHardEndS = participant.pitRailRampEndS + PitRailHardEscapeMeters;
+
             participant.vehicle.SetPitLimiter(true);
-            // Defensive reset: a fresh entry must always start at the cautious
-            // entry-grade cap, never carry over the previous stop's exit-grade
-            // one.
             participant.vehicle.SetPitExitFastLimiter(false);
             participant.vehicle.SetPitServiceHold(true);
             participant.vehicle.SetPitGuidance(true);
             participant.vehicle.ClearPitRequest();
-            // Pit lane animation fix: start the waypoint model fresh from
-            // wherever the car actually is right now, not leftover state from
-            // a previous stop earlier in the race.
-            participant.hasPitGuideState = false;
             if (participant.isPlayer)
             {
                 SessionMessage = "Pit entry: limiter active";
                 PostEngineerMessage("Pit entry. Hold steady, box " + (participant.pitBoxIndex + 1) + " is ready with " + participant.nextPitCompound + ".", true);
             }
+
+            GameLog.Info("[PitRail] " + participant.driverName + " committed at d=" + commitProgress.distance.ToString("0.0") +
+                         " boxS=" + participant.pitRailBoxS.ToString("0.0") +
+                         " releaseS=" + participant.pitRailReleaseS.ToString("0.0") +
+                         " rampEndS=" + participant.pitRailRampEndS.ToString("0.0"));
         }
 
-        // Pit lane animation fix (core): every pit-guided car chases a
-        // (distance-along-track, lateral-offset) waypoint that advances a
-        // bounded step toward the phase's true target each tick, instead of
-        // GuideToPitPose being aimed directly at a single far-away fixed pose.
-        // Sampling the advancing waypoint through Track.SamplePitLanePose (the
-        // same SampleAtDistance the whole track/pit lane surface is built
-        // from) means the path always follows the track/pit lane's own
-        // curvature; the bounded lateral rate is what turns a lane change
-        // into a gradual diagonal peel instead of an instant sideways snap.
+        // =====================================================================
+        // Pit-system rebuild: the unified pit rail.
+        //
+        // The old system ran four separate phase updaters (Entry, Service,
+        // Release, ExitMerge), each with its own seeding, its own completion
+        // predicates, its own queue negotiation (FIFO sequence numbers, convoy
+        // identity, live-traffic windows, world-space bubbles), plus a stuck
+        // watchdog patrolling the seams between them. Every one of those seams
+        // was a place cars could bunch up, fail to release, or get handed a
+        // pose on the wrong piece of track. All of it is gone.
+        //
+        // The replacement is one rail: at commit, the car records where it
+        // physically is (railStart) and computes, once, how many metres of
+        // canonical pit path lie between that point and its own box, the
+        // release point, and the exit-ramp end - by chaining strictly-forward
+        // wrapped segments, so track wrap can never be misread as a lap of
+        // travel. From then on a single monotonic parameter (pitRailTraveled)
+        // advances by exactly the metres stepped each tick, and the car is
+        // placed AT the canonical pose sampled for that parameter. Sections
+        // (entry lane, box stop, exit lane, handoff) are just comparisons of
+        // traveled against those landmark values.
+        //
+        // Traffic rules, in full:
+        //  1. A rolling railed car follows the rolling railed car ahead of it
+        //     at PitRailHeadwayMeters (distance-clamped, never binary stop/go).
+        //  2. A car parked in its service bay is laterally out of the lane and
+        //     never blocks anyone.
+        //  3. Leaving the bay waits for a gap in railed lane traffic - the one
+        //     and only queue wait in the system, and it is bounded because the
+        //     cars it waits for keep moving (rule 4).
+        //  4. The rail NEVER yields to live racing traffic. Live traffic
+        //     avoids the exiting car (AiVehicleController treats a car in the
+        //     exit section as real traffic to brake/steer around). The handoff
+        //     back to physics waits only for genuine physical overlap to
+        //     clear, and force-completes unconditionally a bounded distance
+        //     past the ramp end. There is no code path on which a railed car
+        //     can fail to eventually leave the pit lane.
+        // =====================================================================
         const float PitEntryPaceKph = 68f;
         const float PitLanePaceKph = 58f;
-        // Pit-exit speed fix: raised from 74 so the guided release phase hands
-        // off smoothly into VehicleController's own faster post-release cap
-        // (PitExitLimiterCapKph, 108) instead of the car appearing to
-        // accelerate abruptly the instant guidance ends - kept a few kph below
-        // that real cap so the free-driving handoff is a gentle pickup, not a
-        // jump.
-        // Pit-release throughput fix: raised again from 100 to 106 so a
-        // released car clears the FIFO exit queue's own spatial headway
-        // (PitExitConvoyMovingGapMeters) sooner, letting the next car in the box be
-        // released sooner too - this only speeds up how fast an already-clear
-        // car moves once it IS released, it does not touch the headway
-        // distance, the occupancy/queue-blocking checks, or any of the other
-        // pit-exit safety logic, so the exact same safe-release procedure
-        // still applies, just resolved faster. Still 2kph below the 108
-        // physical cap, so the handoff is still a gentle pickup, not a jump.
-        const float PitReleasePaceKph = 106f;
+        const float PitExitPaceKph = 106f;
         const float PitGuideLateralRateMetersPerSecond = 9f;
-        // Generous relative to the above paces so GuideToPitPose's own
-        // MoveTowards/RotateTowards - now chasing a waypoint only a fraction
-        // of a metre away each frame rather than one potentially 100+m away -
-        // closes that tiny gap immediately instead of visibly lagging behind
-        // the logical waypoint it's supposed to be tracking.
         const float PitGuideChaseSpeed = 45f;
         const float PitGuideChaseRotateSpeed = 260f;
+        const float PitRailHeadwayMeters = 9f;
+        const float PitRailBayBlendMeters = 14f;
+        const float PitRailHardEscapeMeters = 40f;
+        const float PitRailHeadingLookaheadMeters = 12f;
+        const float PitRailReleaseRearWindowMeters = 22f;
+        const float PitExitLaneHoldSeconds = 1.5f;
+        const float PitExitLaneHoldDistanceMeters = 40f;
+        const float PitExitOverlapRadiusMeters = 7f;
 
-        void AdvancePitGuideTarget(RaceParticipant participant, float targetDistance, float targetLateral, float paceKph, out Vector3 position, out Quaternion rotation)
+        // Wrapped forward-only distance from one track distance to another,
+        // always >= 0 and always measured in the direction of travel.
+        float WrappedForwardDistance(float fromDistance, float toDistance)
         {
-            if (!participant.hasPitGuideState)
+            float delta = toDistance - fromDistance;
+            if (delta < 0f)
             {
-                // Lap-counter/floating-pit-lane fix: this used to be a blind
-                // Track.GetProgress(transform.position) - a global nearest-
-                // centerline-point search with no continuity bias. A car deep
-                // in the pit corridor sits tens of metres off the centerline
-                // (see Runtime.PitLaneLateral/PitOuterLateral), and on a track
-                // where the pit lane runs close and parallel to another part
-                // of the circuit (Silverstone's long pit straight especially),
-                // that search can occasionally lock onto the wrong nearby
-                // segment - sending the guide waypoint the wrong way down the
-                // track (read by the driver as "floating to a random place")
-                // and, since the same ambiguity can also perturb the lap
-                // tracker's own progress for a frame right near the start/
-                // finish line the pit exit sits so close to, corrupting the
-                // checkpoint count. Seeding from the already continuity-
-                // tracked lap-tracker progress (the same source HandlePitService
-                // itself trusts) removes the ambiguity entirely.
-                TrackProgress current = State != null ? State.GetCurrentProgress(participant) : Track.GetProgress(participant.transform.position);
-                participant.pitGuideDistance = current.distance;
-                participant.pitGuideLateral = current.lateralDistance;
-                participant.hasPitGuideState = true;
+                delta += Track.length;
             }
 
-            float remaining = Track.WrapDistance(targetDistance - participant.pitGuideDistance);
-            if (remaining > Track.length * 0.5f)
-            {
-                remaining -= Track.length;
-            }
-
-            // Forward-only fix: a negative "remaining" used to be allowed to step
-            // the guide waypoint backward by the same clamp that let it step
-            // forward. Combined with a target that could itself land behind the
-            // car (see GetPitEntryHoldPose), that made the guided waypoint - and
-            // the car chasing it - visibly reverse down the pit lane/entry, one of
-            // the deadlock's contributing causes. Pit-guided cars never legitimately
-            // need to back up, so any backward remaining now just holds position
-            // instead of reversing toward it.
-            float maxStep = Mathf.Max(0.01f, paceKph / 3.6f * Time.deltaTime);
-            if (remaining < 0f)
-            {
-                GameLog.Warn("[PitGuide] " + participant.driverName + " target is behind current guide position (remaining=" +
-                             remaining.ToString("0.0") + "); holding instead of reversing.");
-                remaining = 0f;
-            }
-
-            float step = Mathf.Clamp(remaining, 0f, maxStep);
-            participant.pitGuideDistance = Track.WrapDistance(participant.pitGuideDistance + step);
-            participant.pitGuideLateral = Mathf.MoveTowards(participant.pitGuideLateral, targetLateral, PitGuideLateralRateMetersPerSecond * Time.deltaTime);
-            Track.SamplePitLanePose(participant.pitGuideDistance, participant.pitGuideLateral, out position, out rotation);
+            return delta;
         }
 
-        bool IsPitGuideNear(RaceParticipant participant, float targetDistance, float targetLateral, float distanceTolerance, float lateralTolerance)
+        // A car counts as rolling rail traffic while it is on the rail and not
+        // parked in its service bay (a bay car is laterally out of the lane).
+        bool IsRailRolling(RaceParticipant p)
         {
-            float delta = Mathf.Abs(Track.WrapDistance(targetDistance - participant.pitGuideDistance));
-            if (delta > Track.length * 0.5f)
+            if (p == null || p.retired || p.finished || p.vehicle == null || !p.hasPitGuideState)
             {
-                delta = Track.length - delta;
+                return false;
             }
 
-            return delta <= distanceTolerance && Mathf.Abs(participant.pitGuideLateral - targetLateral) <= lateralTolerance;
+            if (p.pitPhase == PitPhase.None || p.pitPhase == PitPhase.QualifyingReturn)
+            {
+                return false;
+            }
+
+            return !(p.pitRailServiceStarted && !p.pitRailServiceDone);
         }
 
-        // Root cause 3 fix: every target this function chases (the shared entry
-        // coordinate, the entry hold point, the service bay, the queue point
-        // short of it) is generated from a KNOWN track-relative distance and
-        // lateral - GetPitEntryHoldPose, Track.GetPitQueueDistance,
-        // Track.PitBoxDistance, and TrackRuntime.PitCorridorStartNormalized all
-        // already carry that authoritative value. This used to throw that
-        // knowledge away immediately by reprojecting the resulting WORLD
-        // position back through Track.GetProgress - an unrestricted, ambiguous
-        // nearest-centreline search that can resolve onto the wrong nearby
-        // segment wherever the pit lane runs close to another part of the
-        // circuit (Silverstone especially). When that happened, the
-        // reprojected distance could land behind the car, AdvancePitGuideTarget
-        // would see a negative remaining distance and clamp the step to zero,
-        // and the car would sit stationary - against the divider, in the
-        // player's case - until the stuck watchdog eventually intervened
-        // several seconds later. Every target below now drives
-        // AdvancePitGuideTarget/IsPitGuideNear directly from its own known
-        // distance/lateral; Track.GetProgress is never called on any of these
-        // poses.
-        void UpdatePitEntry(RaceParticipant participant)
+        // Nearest rolling railed car ahead of this one along the pit path,
+        // within the shared headway. Wrapped forward distance is naturally
+        // asymmetric (if B is behind A, A never sees B as ahead), so two cars
+        // can never mutually block each other.
+        RaceParticipant FindRailCarAhead(RaceParticipant participant)
         {
-            if (!participant.pitEntryAligned)
+            RaceParticipant closest = null;
+            float closestGap = float.MaxValue;
+            for (int i = 0; i < Participants.Count; i++)
             {
-                // Two cars entering the pit lane in the same few-second window must
-                // never both be guided onto, then snapped onto, the single shared
-                // entry coordinate Track.GetPitEntryPose returns. Hold the trailing
-                // car a short distance back along the approach until the leader has
-                // cleared the entry point, mirroring how GetPitQueuePose already
-                // holds cars back from a shared box target.
-                RaceParticipant entryBlocker = FindPitEntryCarAhead(participant);
-                Vector3 entryTargetPosition;
-                Quaternion entryTargetRotation;
-                float entryTargetDistance;
-                float entryTargetLateral;
-                if (entryBlocker != null)
+                RaceParticipant other = Participants[i];
+                if (other == null || other == participant || !IsRailRolling(other))
                 {
-                    GetPitEntryHoldPose(participant, out entryTargetPosition, out entryTargetRotation, out entryTargetDistance, out entryTargetLateral);
+                    continue;
+                }
+
+                float gap = WrappedForwardDistance(participant.pitGuideDistance, other.pitGuideDistance);
+                if (gap > 0.01f && gap < closestGap)
+                {
+                    closestGap = gap;
                 }
                 else
                 {
-                    entryTargetDistance = Track.length * TrackRuntime.PitCorridorStartNormalized;
-                    entryTargetLateral = Track.PitEntryPathLateral(entryTargetDistance);
-                    Track.SamplePitLanePose(entryTargetDistance, entryTargetLateral, out entryTargetPosition, out entryTargetRotation);
+                    continue;
                 }
 
-                participant.vehicle.SetPitLimiter(true);
+                closest = other;
+            }
+
+            return closestGap <= PitRailHeadwayMeters ? closest : null;
+        }
+
+        // Bay-release gate: pulling out of the box must not cut directly in
+        // front of a railed car rolling up the lane from behind, nor into the
+        // back of one just ahead. This is the only queue wait in the pit
+        // system, and it is bounded - the cars it waits for keep moving and
+        // never wait on this car in return.
+        RaceParticipant FindBayReleaseBlocker(RaceParticipant participant)
+        {
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant other = Participants[i];
+                if (other == null || other == participant || !IsRailRolling(other))
+                {
+                    continue;
+                }
+
+                float ahead = WrappedForwardDistance(participant.pitGuideDistance, other.pitGuideDistance);
+                float behind = WrappedForwardDistance(other.pitGuideDistance, participant.pitGuideDistance);
+                if (ahead <= PitRailHeadwayMeters || behind <= PitRailReleaseRearWindowMeters)
+                {
+                    return other;
+                }
+            }
+
+            return null;
+        }
+
+        // Genuine physical overlap only - the one remaining world-space
+        // clearance rule at handoff. Unlike proximity windows, overlap always
+        // self-resolves: both cars keep moving.
+        RaceParticipant FindOverlapBlocker(RaceParticipant participant, Vector3 candidatePosition)
+        {
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant other = Participants[i];
+                if (other == null || other == participant || other.vehicle == null || other.retired)
+                {
+                    continue;
+                }
+
+                if (Vector3.Distance(candidatePosition, other.transform.position) < PitExitOverlapRadiusMeters)
+                {
+                    return other;
+                }
+            }
+
+            return null;
+        }
+
+        // The canonical lateral for the car's current rail position: entry
+        // ramp/lane on the way in (peeling into the bay just before the box),
+        // pit lane on the way out, blending across the exit ramp onto a legal
+        // on-track lateral by the ramp end. The bounded MoveTowards rate in
+        // UpdatePitRail is what turns each transition into a gradual peel.
+        float RailLateralTarget(RaceParticipant participant)
+        {
+            float distance = participant.pitGuideDistance;
+            if (!participant.pitRailServiceStarted)
+            {
+                if (participant.pitRailBoxS - participant.pitRailTraveled <= PitRailBayBlendMeters)
+                {
+                    return Track.PitServiceBayLateral;
+                }
+
+                return Track.PitEntryPathLateral(distance);
+            }
+
+            float normalized = distance / Mathf.Max(1f, Track.length);
+            if (Track.IsInPitExitMergeZone(normalized) || participant.pitRailTraveled >= participant.pitRailRampEndS)
+            {
+                float rampLateral;
+                float rampHalfWidth;
+                Track.GetPitExitRampEnvelope(normalized, distance, out rampLateral, out rampHalfWidth);
+                float legalLateral = Track.PitExitMergeLegalLateral(distance);
+                float mergeBlend = Track.PitExitMergeBlend(normalized);
+                float lateral = Mathf.Lerp(legalLateral, rampLateral, mergeBlend);
+                bool insideRampEnvelope = Mathf.Abs(lateral - rampLateral) <= rampHalfWidth;
+                bool insideLegalLane = Mathf.Abs(lateral) <= Track.HalfWidthAt(distance);
+                return insideRampEnvelope || insideLegalLane ? lateral : legalLateral;
+            }
+
+            return Track.PitLaneLateral;
+        }
+
+        // The one guided-pit update: entry lane -> box -> exit lane -> handoff.
+        void UpdatePitRail(RaceParticipant participant)
+        {
+            if (participant.pitPhase == PitPhase.QualifyingReturn)
+            {
+                UpdateQualifyingPitReturn(participant);
+                return;
+            }
+
+            // --- arrival at the box: snap into the bay, start the stop.
+            if (!participant.pitRailServiceStarted && participant.pitRailTraveled >= participant.pitRailBoxS - 0.01f)
+            {
+                Vector3 servicePosition;
+                Quaternion serviceRotation;
+                Track.GetPitServicePose(participant.pitBoxIndex, out servicePosition, out serviceRotation);
+                participant.vehicle.SnapToPitPose(servicePosition, serviceRotation);
+                participant.pitGuideDistance = Track.PitBoxDistance(participant.pitBoxIndex);
+                participant.pitGuideLateral = Track.PitServiceBayLateral;
+                participant.pitRailServiceStarted = true;
+                participant.pitLaneHeldByOccupancy = false;
+                BeginPitStop(participant);
+                return;
+            }
+
+            // --- box hold: tyres, then wait for a lane gap to pull out into.
+            if (participant.pitRailServiceStarted && !participant.pitRailServiceDone)
+            {
+                participant.pitPhase = PitPhase.Service;
                 participant.vehicle.SetPitServiceHold(true);
-                // Watchdog liveness fix: a hold for the car ahead at the shared
-                // entry coordinate is a legitimate, explained wait - flag it so
-                // UpdatePitDrivingStuckWatchdog resets instead of nudging (and
-                // eventually hard-teleporting) a correctly queued entry car.
-                participant.pitLaneHeldByOccupancy = entryBlocker != null;
-                Vector3 entryWaypoint;
-                Quaternion entryWaypointRotation;
-                AdvancePitGuideTarget(participant, entryTargetDistance, entryTargetLateral, PitEntryPaceKph, out entryWaypoint, out entryWaypointRotation);
-                participant.vehicle.GuideToPitPose(entryWaypoint, entryWaypointRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed);
+                participant.vehicle.SetPitLimiter(true);
                 if (participant.isPlayer)
                 {
-                    SessionMessage = entryBlocker != null ? "Pit entry: holding for the car ahead" : "Pit entry: turning into lane";
+                    SessionMessage = PitStatusText(participant);
                 }
 
-                if (entryBlocker != null || !IsPitGuideNear(participant, entryTargetDistance, entryTargetLateral, 1.5f, 0.35f))
+                if (!participant.pitRailStopServed)
                 {
+                    participant.pitTimer -= Time.deltaTime;
+                    if (participant.pitTimer > 0f)
+                    {
+                        return;
+                    }
+
+                    participant.pitTimer = 0f;
+                    participant.pitRailStopServed = true;
+                    participant.vehicle.CompletePitStop(participant.nextPitCompound);
+                    participant.pitStops++;
+                    participant.compoundStints.Add(participant.nextPitCompound.ToString());
+                    participant.requestedPitCompoundSet = false;
+                    participant.pitTyreSelectionActive = false;
+                    participant.pitAutoTriggered = false;
+                    // The stop this request described is now actually complete.
+                    ClearManualPitRequestTracking(participant);
+                }
+
+                RaceParticipant bayBlocker = FindBayReleaseBlocker(participant);
+                if (bayBlocker != null)
+                {
+                    participant.pitAwaitingRelease = true;
+                    participant.pitLaneHeldByOccupancy = true;
                     return;
                 }
 
-                participant.vehicle.SnapToPitPose(entryTargetPosition, entryTargetRotation);
-                participant.pitEntryAligned = true;
+                participant.pitAwaitingRelease = false;
+                participant.pitLaneHeldByOccupancy = false;
+                participant.pitRailServiceDone = true;
+                participant.pitPhase = PitPhase.Release;
+                participant.pitLimiterUntilExit = true;
+                participant.vehicle.SetPitServiceHold(false);
+                participant.vehicle.SetPitExitFastLimiter(true);
+                SimpleAudioManager.PlayPitRelease(participant.transform.position);
+                if (participant.isPlayer)
+                {
+                    SessionMessage = "Pit release: limiter active";
+                    PostEngineerMessage("Stop complete. Release, limiter remains active until pit exit.", true, RaceAudioCue.PitConfirm);
+                }
+
+                return;
             }
 
-            // Queue behind any car still rolling to a deeper box: hold a lane gap
-            // so cars process through the pit lane like beads on a string.
-            RaceParticipant blocking = FindPitLaneCarAhead(participant);
-            Vector3 servicePosition;
-            Quaternion serviceRotation;
-            float serviceTargetDistance;
-            float serviceTargetLateral;
-            if (blocking != null)
+            // --- rolling: entry leg (commit -> box) or exit leg (box -> handoff).
+            bool beforeBox = !participant.pitRailServiceStarted;
+            float normalizedHere = participant.pitGuideDistance / Mathf.Max(1f, Track.length);
+            float paceKph = beforeBox
+                ? (Track.IsInPitEntryRampWindow(normalizedHere) ? PitEntryPaceKph : PitLanePaceKph)
+                : (participant.pitRailTraveled >= participant.pitRailReleaseS ? PitExitPaceKph : PitLanePaceKph);
+            participant.pitPhase = beforeBox
+                ? PitPhase.Entry
+                : (participant.pitRailTraveled >= participant.pitRailReleaseS ? PitPhase.ExitMerge : PitPhase.Release);
+
+            RaceParticipant blocker = FindRailCarAhead(participant);
+            float step = Mathf.Max(0f, paceKph / 3.6f * Time.deltaTime);
+            if (blocker != null)
             {
-                serviceTargetDistance = Track.GetPitQueueDistance(participant.pitBoxIndex, PitQueueHoldback(participant, blocking));
-                serviceTargetLateral = Track.PitLaneLateral;
-                Track.SamplePitLanePose(serviceTargetDistance, serviceTargetLateral, out servicePosition, out serviceRotation);
-            }
-            else
-            {
-                serviceTargetDistance = Track.PitBoxDistance(participant.pitBoxIndex);
-                serviceTargetLateral = Track.PitServiceBayLateral;
-                Track.SamplePitLanePose(serviceTargetDistance, serviceTargetLateral, out servicePosition, out serviceRotation);
+                float gap = WrappedForwardDistance(participant.pitGuideDistance, blocker.pitGuideDistance);
+                step = Mathf.Min(step, Mathf.Max(0f, gap - PitRailHeadwayMeters));
             }
 
+            if (beforeBox)
+            {
+                // Land exactly on the box, never past it.
+                step = Mathf.Min(step, Mathf.Max(0f, participant.pitRailBoxS - participant.pitRailTraveled));
+            }
+
+            participant.pitLaneHeldByOccupancy = blocker != null && step <= 0.0001f;
+            participant.pitRailTraveled += step;
+            participant.pitGuideDistance = Track.WrapDistance(participant.pitGuideDistance + step);
+            participant.pitGuideLateral = Mathf.MoveTowards(participant.pitGuideLateral, RailLateralTarget(participant), PitGuideLateralRateMetersPerSecond * Time.deltaTime);
+
+            Vector3 waypoint;
+            Quaternion waypointRotation;
+            Track.SamplePitLanePose(participant.pitGuideDistance, participant.pitGuideLateral, out waypoint, out waypointRotation);
+
+            // Heading-only lookahead so the car turns in smoothly; the position
+            // it is placed at is always exactly the rail pose above.
+            float headingDistance = Track.WrapDistance(participant.pitGuideDistance + PitRailHeadingLookaheadMeters);
+            Vector3 headingPoint;
+            Quaternion headingRotation;
+            Track.SamplePitLanePose(headingDistance, participant.pitGuideLateral, out headingPoint, out headingRotation);
+
+            participant.vehicle.SetPitServiceHold(beforeBox);
             participant.vehicle.SetPitLimiter(true);
-            participant.vehicle.SetPitServiceHold(true);
-            // Watchdog liveness fix: same as the entry-alignment stage above -
-            // queueing behind a genuine fast-lane blocker is a legitimate hold,
-            // never a stuck condition for the watchdog to "repair".
-            participant.pitLaneHeldByOccupancy = blocking != null;
-            Vector3 serviceWaypoint;
-            Quaternion serviceWaypointRotation;
-            AdvancePitGuideTarget(participant, serviceTargetDistance, serviceTargetLateral, PitLanePaceKph, out serviceWaypoint, out serviceWaypointRotation);
-            participant.vehicle.GuideToPitPose(serviceWaypoint, serviceWaypointRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed);
+            participant.vehicle.GuideToPitPose(waypoint, headingRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed, false);
+
             if (participant.isPlayer)
             {
-                SessionMessage = blocking != null ? "Pit lane: queueing for box " + (participant.pitBoxIndex + 1) : "Pit lane: rolling to box " + (participant.pitBoxIndex + 1);
+                SessionMessage = participant.pitLaneHeldByOccupancy
+                    ? (beforeBox ? "Pit lane: queueing for box " + (participant.pitBoxIndex + 1) : "Pit exit: holding for the car ahead")
+                    : (beforeBox ? "Pit lane: rolling to box " + (participant.pitBoxIndex + 1) : "Pit exit: merging onto the racing line");
             }
 
-            if (blocking == null && IsPitGuideNear(participant, serviceTargetDistance, serviceTargetLateral, 0.8f, 0.3f))
+            // --- handoff: unconditional except genuine physical overlap, and
+            // force-completed regardless a bounded distance past the ramp end.
+            if (!beforeBox && participant.pitRailTraveled >= participant.pitRailRampEndS)
             {
-                participant.vehicle.SnapToPitPose(servicePosition, serviceRotation);
-                BeginPitStop(participant);
+                bool hardEscape = participant.pitRailTraveled >= participant.pitRailHardEndS;
+                if (hardEscape || FindOverlapBlocker(participant, participant.transform.position) == null)
+                {
+                    CompletePitRail(participant, hardEscape);
+                }
             }
         }
 
-        // How close a car's own guided lateral has to be to the fast lane
-        // (Track.PitLaneLateral) to still count as genuinely occupying it -
-        // root cause 1's fast-lane/service-bay separation fix. A car that has
-        // drifted this far toward Track.PitServiceBayLateral is considered
-        // parked in (or peeling into/out of) its bay, not travelling the fast
-        // lane, and must never block another car's fast-lane travel.
-        const float PitFastLaneLateralToleranceMeters = 2f;
-
-        // Nearest other car occupying the pit lane directly ahead of this one
-        // (between this car and its box). Used for simple queue spacing.
-        //
-        // Fast-lane/service-bay separation fix (root cause 1): this used to
-        // treat ANY car in Entry/Service/Release-awaiting-release phase within
-        // range as a blocker regardless of lateral position - since every pit
-        // box sat directly on the same lateral line the fast lane itself uses
-        // (Track.PitLaneLateral) and boxes are only PitBoxSpacing (10.5m)
-        // apart, a stationary car simply parked in one box always blocked the
-        // very next box's approach, serializing the whole field through the
-        // pit lane one car at a time. Boxes now sit at the separate
-        // Track.PitServiceBayLateral (see GetPitServicePose) - a candidate
-        // only counts as a genuine fast-lane blocker if it's still actually
-        // near the fast lane's own lateral, not off in (or transitioning
-        // into/out of) its bay.
-        RaceParticipant FindPitLaneCarAhead(RaceParticipant participant)
+        // Physics handoff at the end of the rail - the ONE way any pit stop
+        // ends. Resyncs the lap tracker/timing/AI progress to the known rail
+        // distance before restoring physics at the real guided exit speed.
+        void CompletePitRail(RaceParticipant participant, bool forced)
         {
-            float ownTarget = Track.PitBoxDistance(participant.pitBoxIndex);
-            // Continuity-tracked progress (same fix as AdvancePitGuideTarget
-            // above) instead of a blind global nearest-point search, which can
-            // mis-project a car deep in the pit corridor onto the wrong nearby
-            // segment and scramble queue ordering.
-            TrackProgress own = GetPitAwareProgress(participant);
-            for (int i = 0; i < Participants.Count; i++)
+            float finalDistance = participant.pitGuideDistance;
+            if (participant.lapTracker != null)
             {
-                RaceParticipant other = Participants[i];
-                if (other == null || other == participant || other.vehicle == null)
-                {
-                    continue;
-                }
-
-                bool inLane = other.pitPhase == PitPhase.Entry || other.pitPhase == PitPhase.Service ||
-                              (other.pitPhase == PitPhase.Release && other.pitAwaitingRelease);
-                if (!inLane)
-                {
-                    continue;
-                }
-
-                if (other.hasPitGuideState && Mathf.Abs(other.pitGuideLateral - Track.PitLaneLateral) > PitFastLaneLateralToleranceMeters)
-                {
-                    continue;
-                }
-
-                float gap = Vector3.Distance(other.transform.position, participant.transform.position);
-                if (gap > 14f)
-                {
-                    continue;
-                }
-
-                TrackProgress otherProgress = GetPitAwareProgress(other);
-                float aheadBy = Track.WrapDistance(otherProgress.distance - own.distance);
-                if (aheadBy > 0.5f && aheadBy < 13f && otherProgress.distance <= ownTarget + 1f)
-                {
-                    return other;
-                }
+                participant.lapTracker.ResyncToDistance(finalDistance, participant.transform.position);
             }
 
-            return null;
-        }
-
-        // Shared "where is this car right now, along the track" lookup for
-        // every pit-lane function that needs a participant's OWN current
-        // progress - always the already continuity-tracked lap-tracker value
-        // (see AdvancePitGuideTarget) rather than a fresh ambiguous global
-        // nearest-point search, so pit-lane queueing/guidance and the lap
-        // counter can never disagree about where a car actually is.
-        TrackProgress GetPitAwareProgress(RaceParticipant participant)
-        {
-            if (participant == null)
+            if (State != null)
             {
-                return new TrackProgress();
+                State.RefreshTimingSnapshot(participant);
             }
 
-            return State != null ? State.GetCurrentProgress(participant) : Track.GetProgress(participant.transform.position);
-        }
-
-        // Queue-target fix: this used to derive the holdback purely from the
-        // participant's OWN current distance to its OWN box - never actually
-        // looking at where the blocking car in front of it really is. Two cars
-        // queueing for boxes at different distances down the lane would each
-        // compute a different, own-box-relative number, but neither number
-        // described "how far behind the car actually ahead of me should I
-        // wait" - so a trailing car could end up targeting a queue point that
-        // was already occupied, sitting right on top of (or past) the real
-        // blocker with nothing left to close, which reads as the car just
-        // stopping dead / going nowhere even though it's "queueing". Basing
-        // the holdback on the real live gap to the blocking car's own current
-        // position keeps every queued car a consistent distance behind
-        // whoever is actually ahead of it, regardless of box index.
-        float PitQueueHoldback(RaceParticipant participant, RaceParticipant blocking)
-        {
-            float blockingDistance = GetPitAwareProgress(blocking).distance;
-            float target = Track.PitBoxDistance(participant.pitBoxIndex);
-            return Mathf.Clamp(Track.WrapDistance(target - blockingDistance) + 8f, 8f, 60f);
-        }
-
-        // Any other car still occupying the shared pit-entry coordinate: either
-        // approaching it (Entry, not yet aligned) or having only just aligned onto it
-        // and not yet moved on toward its own box. Gated on real proximity to the
-        // entry point itself, not just phase, so the hold clears the moment the
-        // leader has actually moved away from that specific spot.
-        RaceParticipant FindPitEntryCarAhead(RaceParticipant participant)
-        {
-            float entryTarget = Track.length * TrackRuntime.PitCorridorStartNormalized;
-            TrackProgress own = GetPitAwareProgress(participant);
-            for (int i = 0; i < Participants.Count; i++)
+            AiVehicleController releasedAi = participant.GetComponent<AiVehicleController>();
+            if (releasedAi != null)
             {
-                RaceParticipant other = Participants[i];
-                if (other == null || other == participant || other.vehicle == null || other.pitPhase != PitPhase.Entry)
-                {
-                    continue;
-                }
-
-                TrackProgress otherProgress = GetPitAwareProgress(other);
-                float gap = Vector3.Distance(other.transform.position, participant.transform.position);
-                float aheadBy = Track.WrapDistance(otherProgress.distance - own.distance);
-                float otherDistanceFromEntry = Track.WrapDistance(entryTarget - otherProgress.distance);
-                if (gap < 16f && aheadBy > 0.3f && aheadBy < 16f && otherDistanceFromEntry < 16f)
-                {
-                    return other;
-                }
+                releasedAi.ResyncToKnownTrackDistance(finalDistance);
             }
 
-            return null;
-        }
+            participant.vehicle.SetPitGuidance(false, PitExitPaceKph / 3.6f);
+            participant.vehicle.SetPitServiceHold(false);
+            participant.pitPhase = PitPhase.None;
+            participant.isPitting = false;
+            participant.hasPitGuideState = false;
+            participant.pitEntryCommitted = false;
+            participant.pitLaneHeldByOccupancy = false;
+            participant.pitAwaitingRelease = false;
 
-        // A point a few car lengths before the shared entry coordinate, along the
-        // same approach direction - mirrors GetPitQueuePose's "distance minus
-        // holdback" pattern but anchored to the entry point rather than a pit box.
-        //
-        // Pit-lane architecture fix: this used to place the hold point at a flat
-        // Track.roadHalfWidth + 5.6 offset, an arbitrary lateral disconnected from
-        // the real built ramp/corridor surface. It now samples the same canonical
-        // envelope every other pit-entry pose uses (PitEntryPathLateral, which
-        // reads GetPitEntryRampEnvelope and gracefully covers both the approach
-        // and the ramp itself). It also used to be able to compute a hold distance
-        // BEHIND the car's own current position (entryTarget - holdback, with no
-        // floor at ownDistance) whenever the car was already close to the entry
-        // target - since AdvancePitGuideTarget only ever steps forward, that sent
-        // the car after a target it could never reach without going backward, one
-        // of the deadlock's contributing causes. The hold distance is now always
-        // clamped forward to at least the car's current position.
-        // Root cause 3 fix: now also outputs the canonical distance/lateral this
-        // pose is generated from, so UpdatePitEntry can drive AdvancePitGuideTarget
-        // straight from them instead of reprojecting the resulting world position
-        // back through an unrestricted Track.GetProgress search.
-        void GetPitEntryHoldPose(RaceParticipant participant, out Vector3 position, out Quaternion rotation, out float distance, out float lateral)
-        {
-            float entryTarget = Track.length * TrackRuntime.PitCorridorStartNormalized;
-            float ownDistance = GetPitAwareProgress(participant).distance;
-            float holdback = Mathf.Clamp(entryTarget - ownDistance + 8f, 8f, 45f);
-            distance = Mathf.Max(ownDistance, entryTarget - holdback);
-            lateral = Track.PitEntryPathLateral(distance);
-            Track.SamplePitLanePose(distance, lateral, out position, out rotation);
+            // The rail's own handoff point (ramp end + escape margin) is past
+            // the physical limiter zone on every track layout, so the limiter
+            // flags clear here; the dispatcher's zone check covers any layout
+            // where that assumption is ever wrong.
+            float handoffNormalized = finalDistance / Mathf.Max(1f, Track.length);
+            if (!Track.IsInPitExitLimiterZone(handoffNormalized))
+            {
+                participant.pitLimiterUntilExit = false;
+                participant.vehicle.SetPitLimiter(false);
+                participant.vehicle.SetPitExitFastLimiter(false);
+            }
+
+            // Short AI-side outer-lane hold so racing logic doesn't dive for
+            // the next apex the instant control hands back.
+            participant.pitExitLaneHoldTimer = PitExitLaneHoldSeconds;
+            participant.pitExitLaneHoldDistanceRemaining = PitExitLaneHoldDistanceMeters;
+
+            if (forced)
+            {
+                GameLog.Warn("[PitRail] " + participant.driverName + " handoff force-completed at hard-escape margin.");
+            }
+
+            GameLog.Info("[PitRail] " + participant.driverName + " handoff complete at d=" + finalDistance.ToString("0.0") +
+                         " traveled=" + participant.pitRailTraveled.ToString("0.0"));
+
+            if (participant.isPlayer)
+            {
+                SessionMessage = "Merged onto the racing line";
+            }
         }
 
         void BeginPitStop(RaceParticipant participant)
@@ -9866,1136 +9695,6 @@ namespace LocalFormulaRacing
             {
                 SessionMessage = "Pit box " + (participant.pitBoxIndex + 1) + ": changing to " + participant.nextPitCompound;
                 PostEngineerMessage("Pit stop in progress. Tyres ready: " + participant.nextPitCompound + ".", true);
-            }
-        }
-
-        void UpdatePitService(RaceParticipant participant)
-        {
-            participant.pitTimer -= Time.deltaTime;
-            participant.vehicle.SetPitServiceHold(true);
-            participant.vehicle.SetPitLimiter(true);
-            if (participant.isPlayer)
-            {
-                SessionMessage = PitStatusText(participant);
-            }
-
-            if (participant.pitTimer > 0f)
-            {
-                return;
-            }
-
-            // Global release-rate bottleneck removed: this used to be a 1.6s
-            // GLOBAL timer (later cut to a 0.4s "debounce"), but even at 0.4s
-            // it hard-capped throughput to 2.5 cars/second field-wide,
-            // regardless of how clear the lane actually was - with 22 cars
-            // pitting together that alone forced 8+ seconds between the first
-            // and last car merely BEGINNING release, on top of the spatial
-            // queue below. Participants are already processed sequentially
-            // every tick, so by the time this car's own spatial check
-            // (immediately below) runs, every earlier-indexed car this same
-            // tick has already claimed its own lane position - two cars can
-            // never be released to the same physical spot in the same frame
-            // without a separate timer. Spatial headway
-            // (FindPitExitQueueCarAhead, below) is the ONLY release gate now.
-            //
-            // FIFO identity fix: assigned exactly once, here, the moment this
-            // car is first evaluated for release - never recomputed from a
-            // live count (CountParticipantsInPitPhase used to hand out
-            // "number of cars currently in Release" as a slot number, which
-            // stopped being unique the instant any car ahead of it left
-            // Release for ExitMerge). Assigning it before the spatial check
-            // below means this car is always correctly treated as junior to
-            // every car already queued ahead of it (FindPitExitQueueCarAhead only
-            // ever yields to a STRICTLY earlier sequence number).
-            if (participant.pitReleaseSequence < 0)
-            {
-                participant.pitReleaseSequence = nextPitReleaseSequence++;
-            }
-
-            // Spatial exit-occupancy gate (bugfix): a car stuck or simply slow
-            // anywhere in the shared FIFO exit queue now genuinely holds every
-            // car behind it in sequence order - not just a fixed-time delay
-            // that let the next car release regardless.
-            RaceParticipant exitBlocker = FindPitExitQueueCarAhead(participant, Track.PitBoxDistance(participant.pitBoxIndex));
-            if (exitBlocker != null)
-            {
-                participant.pitTimer = 0f;
-                participant.pitAwaitingRelease = true;
-                participant.pitLaneHeldByOccupancy = true;
-                if (participant.isPlayer)
-                {
-                    SessionMessage = "Held in box: pit exit occupied";
-                }
-
-                return;
-            }
-
-            participant.pitAwaitingRelease = false;
-            participant.pitLaneHeldByOccupancy = false;
-            participant.vehicle.CompletePitStop(participant.nextPitCompound);
-            participant.pitStops++;
-            participant.compoundStints.Add(participant.nextPitCompound.ToString());
-            participant.requestedPitCompoundSet = false;
-            participant.pitTyreSelectionActive = false;
-            participant.pitAutoTriggered = false;
-            // The stop this request described is now actually complete - clear
-            // the source tag so a stale "committed manual stop" can never leak
-            // into how the next lap's pit-request state reads.
-            ClearManualPitRequestTracking(participant);
-            participant.pitTimer = 0f;
-            participant.pitPhase = PitPhase.Release;
-            participant.pitServiceDuration = 0f;
-            // Pit-exit liveness fix: seed the release guide DETERMINISTICALLY
-            // from the canonical values the car was literally snapped to before
-            // service (SnapToPitPose(servicePosition) in UpdatePitEntry) - its
-            // own box distance and the service-bay lateral - instead of
-            // clearing hasPitGuideState and letting UpdatePitRelease re-derive
-            // them from a State.GetCurrentProgress projection. That projection,
-            // for a car parked 18m+ off the centreline on a curved corridor,
-            // could resolve a few centimetres BEHIND the box - and the old
-            // wrapped-difference "traveled" test then read that epsilon as a
-            // whole lap, either instantly teleport-promoting the car to
-            // ExitMerge from inside its box or never completing Release at
-            // all. pitPathRemainingMeters is seeded here once and counted
-            // down by the actual step each tick - monotonic, wrap-proof.
-            participant.pitGuideDistance = Track.PitBoxDistance(participant.pitBoxIndex);
-            participant.pitGuideLateral = Track.PitServiceBayLateral;
-            participant.hasPitGuideState = true;
-            participant.pitPathRemainingMeters = WrappedForwardDistance(
-                participant.pitGuideDistance,
-                Track.WrapDistance(Track.length * Track.PitReleaseNormalized));
-            if (participant.isPlayer)
-            {
-                SessionMessage = "Pit release: limiter active";
-                PostEngineerMessage("Stop complete. Release, limiter remains active until pit exit.", true, RaceAudioCue.PitConfirm);
-            }
-        }
-
-        // Canonical distance/lateral fix (item 4/9): the release target is now
-        // read directly from the known constants (TrackRuntime.PitReleaseNormalized/
-        // PitLaneLateral) instead of sampling a world-space pose and re-deriving
-        // its track distance/lateral via Track.GetProgress - an unrestricted
-        // global nearest-centreline search that can resolve onto the wrong
-        // nearby segment wherever the pit lane runs close to another part of
-        // the circuit (Austria-style layouts especially). Release now shares
-        // the exact same continuous, forward-only, FIFO-queued guide model
-        // ExitMerge already uses (one shared queue/headway calculation, per
-        // item 9) instead of a separate AdvancePitGuideTarget chase-to-a-
-        // static-pose-then-snap model - the car flows seamlessly from Release
-        // into ExitMerge with no discrete snap at the boundary.
-        void UpdatePitRelease(RaceParticipant participant)
-        {
-            float releaseDistance = Track.WrapDistance(Track.length * Track.PitReleaseNormalized);
-            float releaseLateral = Track.PitLaneLateral;
-
-            // Fallback seed only (the normal path is seeded canonically by
-            // UpdatePitService the moment the phase begins): anchored to the
-            // car's own box so the continuity search can never resolve onto a
-            // wrong nearby segment, with the remaining-path countdown clamped
-            // non-negative so a reseed can never produce an instant or
-            // never-finishing release leg.
-            if (!participant.hasPitGuideState)
-            {
-                TrackProgress current = Track.GetProgressNear(participant.transform.position, Track.PitBoxDistance(participant.pitBoxIndex));
-                participant.pitGuideDistance = current.distance;
-                participant.pitGuideLateral = current.lateralDistance;
-                participant.hasPitGuideState = true;
-                float remaining = WrappedForwardDistance(participant.pitGuideDistance, releaseDistance);
-                participant.pitPathRemainingMeters = remaining > Track.length * 0.5f ? 0f : remaining;
-            }
-
-            ResolvePitLaneOverlap(participant);
-
-            // Throughput fix: distance-clamped convoy movement
-            // (ComputeConvoyStep) replaces the old binary "full pace or
-            // completely frozen" model - a following car keeps closing on the
-            // car ahead right up until PitExitConvoyMovingGapMeters, then
-            // automatically matches its pace instead of stopping outright.
-            // pitLaneHeldByOccupancy (read by the stuck watchdog and the
-            // failsafe timer below) now means "genuinely at 0 km/h with no
-            // forward space available", not merely "some convoy car exists
-            // somewhere ahead" - a car still creeping forward at a clamped
-            // pace is flowing normally, not held.
-            RaceParticipant laneBlocker;
-            float step = ComputeConvoyStep(participant, participant.pitGuideDistance, PitReleasePaceKph, out laneBlocker);
-            bool genuinelyHeld = laneBlocker != null && step <= 0.0001f;
-            participant.pitLaneHeldByOccupancy = genuinelyHeld;
-            if (genuinelyHeld)
-            {
-                float longitudinalGap = WrappedForwardDistance(participant.pitGuideDistance, PitExitQueueCarDistance(laneBlocker));
-                float worldSpaceGap = Vector3.Distance(participant.transform.position, laneBlocker.transform.position);
-                LogPitExitQueueTransition(participant, true, laneBlocker, "same convoy", longitudinalGap, worldSpaceGap);
-            }
-            else
-            {
-                LogPitExitQueueTransition(participant, false, null, "", 0f, 0f);
-            }
-
-            participant.pitGuideDistance = Track.WrapDistance(participant.pitGuideDistance + step);
-            // Pit-exit liveness fix: the completion test is a monotonic
-            // countdown of the metres actually stepped, seeded once at the
-            // phase transition - never a wrapped difference between two track
-            // distances, which could misread a seed landing epsilon behind the
-            // box as a whole lap of travel (instant bogus ExitMerge) or a seed
-            // epsilon past it as a whole lap still to go (never releasing).
-            participant.pitPathRemainingMeters -= step;
-            participant.pitGuideLateral = Mathf.MoveTowards(participant.pitGuideLateral, releaseLateral, PitGuideLateralRateMetersPerSecond * Time.deltaTime);
-
-            Vector3 releaseWaypoint;
-            Quaternion releaseWaypointRotation;
-            Track.SamplePitLanePose(participant.pitGuideDistance, participant.pitGuideLateral, out releaseWaypoint, out releaseWaypointRotation);
-            participant.vehicle.SetPitServiceHold(true);
-            participant.vehicle.SetPitLimiter(true);
-            participant.vehicle.GuideToPitPose(releaseWaypoint, releaseWaypointRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed, false);
-            if (participant.isPlayer)
-            {
-                SessionMessage = genuinelyHeld ? "Pit release: holding for the car ahead" : "Pit release: merging back onto the racing line";
-            }
-
-            if (participant.pitPathRemainingMeters > 0f)
-            {
-                return;
-            }
-
-            // Pit-exit path fix: this used to hand the car straight back to normal
-            // racing-line targeting right here (pitPhase = None, SetPitGuidance(false))
-            // the instant it reached the release pose - AiVehicleController had no
-            // idea it had just merged out of the pit lane and immediately steered
-            // for the racing line/next apex, cutting across the pit-exit lane ~20m
-            // before the real merge point. Hands off to PitPhase.ExitMerge instead,
-            // which keeps the car under the SAME kinematic guidance (SetPitGuidance
-            // is deliberately NOT turned off here - it stays true, continuing
-            // straight into UpdatePitExitMerge) along the pit-exit lane until it
-            // genuinely clears the merge zone. No discrete snap happens at this
-            // boundary any more - the car has already been continuously guided to
-            // (very near) this exact pose every tick, so the transition is seamless.
-            participant.pitPhase = PitPhase.ExitMerge;
-            // Distance-based merge tracking (round 2 fix): a FIFO-queued release
-            // can land meaningfully before the fixed normalized merge-zone
-            // boundary, so record this car's own actual release distance and the
-            // real ramp end distance here - UpdatePitExitMerge measures completion
-            // against these, not just the shared fixed zone.
-            participant.pitExitMergeStartDistance = participant.pitGuideDistance;
-            participant.pitExitMergeEndDistance = Track.length * Track.PitExitRampEndNormalized;
-            participant.pitExitMergeElapsedTime = 0f;
-            participant.pitExitLiveHoldSeconds = 0f;
-            // Same monotonic remaining-path countdown Release itself just used,
-            // re-seeded once for the merge leg (guide -> ramp-end).
-            participant.pitPathRemainingMeters = WrappedForwardDistance(participant.pitGuideDistance, participant.pitExitMergeEndDistance);
-            participant.vehicle.SetPitServiceHold(false);
-            participant.vehicle.SetPitLimiter(true);
-            // Pit-exit speed fix: from this point on the car is driving down an
-            // already-cleared stretch of pit lane with nothing left to be
-            // cautious of - switch to the higher exit cap instead of the
-            // entry-grade one so it doesn't crawl. Speed discipline
-            // (pitLimiterUntilExit) is intentionally independent of path
-            // discipline (pitPhase == ExitMerge) - it already clears itself once
-            // Track.IsInPitExitLimiterZone goes false, in HandlePitService above.
-            participant.vehicle.SetPitExitFastLimiter(true);
-            SimpleAudioManager.PlayPitRelease(releaseWaypoint);
-            participant.pitAwaitingRelease = false;
-            participant.pitLimiterUntilExit = true;
-            if (participant.isPlayer)
-            {
-                SessionMessage = "Pit release: merging onto the racing line";
-            }
-        }
-
-        // Pit-exit path fix: guides the car along the pit-exit lane from the
-        // release pose through the actual merge point, instead of handing it
-        // straight back to normal racing-line targeting at the release pose (see
-        // UpdatePitRelease above for why that read as "turns onto the track too
-        // early"). Chases a rolling waypoint a short distance ahead - the same
-        // "always target a point just ahead, not a single fixed destination"
-        // approach AdvancePitGuideTarget already uses elsewhere - whose lateral
-        // offset blends from the pit-exit-lane position down toward a safe legal
-        // track offset as Track.PitExitMergeBlend fades from 1 (at release) to 0
-        // (at the real merge end, the same boundary the physical pit-exit barrier
-        // geometry itself uses - see TrackManager.PitZoneExitRampEnd), so the car
-        // visibly follows the lane instead of cutting a diagonal to the apex.
-        // Pit-release throughput fix: raised from 100 to 106, matching
-        // PitReleasePaceKph - the merge phase is the tail end of the same
-        // release sequence, so it moves at the same pace rather than
-        // suddenly slowing back down right as the car clears the queue.
-        const float PitExitMergePaceKph = 106f;
-        const float PitExitMergeLookaheadMeters = 12f;
-        // Return-to-racing-line delay fix: this used to require the guide to
-        // travel 10m PAST the real ramp-end distance (required, tied to the
-        // exact same PitExitRampEndNormalized boundary the physical ramp mesh
-        // itself tapers out at) before physicallyMerged could ever be true -
-        // on top of every other already-strict condition (noLongerOnExitRamp,
-        // safeLateral, onRoad, longitudinalAgreement, facingForward,
-        // exitSpaceClearForHandoff all still have to independently agree the
-        // car is safely clear). That extra 10m was pure padding beyond what
-        // any of those checks actually need, adding real, felt seconds of
-        // guided-at-a-fixed-pace, throttle-unresponsive driving after the car
-        // was already safely past the ramp. Cut to a small anti-flicker
-        // margin only - just enough that pastRampEnd can't flicker true/false
-        // right on the tick it crosses the boundary - not a working safety
-        // distance in its own right, since every other physicallyMerged
-        // condition still has to hold regardless of this buffer's size.
-        const float PitExitMergeCompletionBufferMeters = 2f;
-        const float PitExitLaneHoldSeconds = 1.5f;
-        const float PitExitLaneHoldDistanceMeters = 40f;
-
-        // Wrapped forward-only distance from one track distance to another,
-        // always >= 0 and always measured going the direction of travel (never the
-        // shorter of the two wrap directions) - used to measure a car's own actual
-        // progress through the pit-exit merge regardless of where its staggered
-        // release distance happened to land relative to the fixed merge-zone
-        // boundary.
-        float WrappedForwardDistance(float fromDistance, float toDistance)
-        {
-            float delta = toDistance - fromDistance;
-            if (delta < 0f)
-            {
-                delta += Track.length;
-            }
-
-            return delta;
-        }
-
-        // Defensive escape (bugfix): ExitMerge must never be able to continue for a
-        // whole lap. If the car has traveled well beyond the ramp end and still
-        // hasn't cleared the completion checks (e.g. the guide chase lagged, or it
-        // got knocked/collided off the intended line), gently snap it onto a known-
-        // legal on-track pose and force the merge to finish rather than let it keep
-        // following the pit-exit path indefinitely.
-        const float PitExitMergeHardEscapeBufferMeters = 60f;
-
-
-        // Longitudinal agreement tolerance for the ExitMerge completion check
-        // below: how far the car's own continuity-constrained physical
-        // projection (Track.GetProgressNear, anchored to pitGuideDistance) is
-        // allowed to disagree with pitGuideDistance itself before the merge is
-        // refused. A collision, a stuck-watchdog nudge, or simple guide lag can
-        // all open a small gap; anything larger means the car's real position
-        // and the path state have genuinely diverged and the merge must wait.
-        const float PitExitMergeLongitudinalToleranceMeters = 6f;
-
-        // Single shared minimum spatial headway for the ENTIRE pit-lane exit
-        // path - Release AND ExitMerge alike (item 9: one shared queue/headway
-        // calculation). Replaces both the old static 7.5m stagger spacing
-        // (TrackRuntime.GetPitReleasePose's staggerSlot offset, removed
-        // entirely) and the old, larger, contradictory 25m occupancy gap -
-        // cars staged 7.5m apart were being told by the occupancy system they
-        // could not move until 25m apart, a standing deadlock even when every
-        // stagger slot WAS unique.
-        //
-        // Throughput fix: renamed from PitLaneHeadwayMeters and cut from 17m
-        // to 8.5m - the pit boxes themselves are only TrackRuntime.PitBoxSpacing
-        // (10.5m) apart, so a 17m headway meant every adjacent car started out
-        // already inside its own blocking threshold, and (combined with the
-        // old binary step=0-or-full-pace movement model) that produced a
-        // visible accordion/batch-release effect even once the release-rate
-        // global timer and count-based staggering were already fixed. This is
-        // now genuinely a MOVING target gap, not a stop/go trigger distance -
-        // see ComputeConvoyStep below, which closes any available gap down to
-        // exactly this distance instead of freezing at 0 km/h the instant
-        // another convoy car is merely somewhere within range.
-        const float PitExitConvoyMovingGapMeters = 8.5f;
-
-        // How close two cars' forward gap has to be to count as "effectively
-        // the same spot" - inside this, release sequence breaks the tie.
-        // Outside it, real spatial order is authoritative regardless of
-        // sequence (root cause 3).
-        const float PitLaneSamePositionEpsilonMeters = 1.5f;
-
-        // FIFO pit-lane exit queue (bugfix): identity comes from
-        // pitReleaseSequence (assigned once, in UpdatePitService, never
-        // reused) - replaces the old count-based "how many cars are in
-        // Release right now" stagger slot (CountParticipantsInPitPhase),
-        // which stopped being unique the instant any car ahead of it left
-        // Release for ExitMerge.
-        //
-        // Root cause 3 fix: this used to ignore every car whose sequence was
-        // LATER than the current car's, even when that car was physically
-        // ahead on the pit path - a later-released car that ended up
-        // physically ahead (e.g. after a recovery reposition) was invisible
-        // as a blocker, so a following car could guide straight through it.
-        // Real spatial (wrapped forward-distance) order is now authoritative:
-        // any car physically ahead within the shared headway blocks,
-        // regardless of sequence number. Sequence only breaks a tie when two
-        // cars are at effectively the same distance (PitLaneSamePositionEpsilonMeters) -
-        // there, only the later sequence yields, never the reverse, so two
-        // cars sitting on top of each other can't both see the other as
-        // "ahead" and both stop forever (the original same-position deadlock
-        // this method was written to fix). A car genuinely behind (a large
-        // wrapped forward-distance, since WrappedForwardDistance always
-        // measures the forward direction of travel) is excluded by the
-        // PitExitConvoyMovingGapMeters cutoff below exactly as before.
-        //
-        // Pit-exit convoy fix: how far (metres) a car remains recognized as
-        // "still part of the pit-exit convoy" after CompletePitExitMerge
-        // hands physics back - see pitExitConvoyActive/Sequence/
-        // DistanceRemaining on RaceParticipant and UpdatePitExitConvoyState
-        // below. Chosen well inside the 40-60m window: long enough to cover
-        // the following car's own guided approach through the same stretch,
-        // short enough that a car many car-lengths clear of the pit exit
-        // reverts to ordinary live traffic again.
-        const float PitExitConvoyTailMeters = 50f;
-
-        // True for any car currently part of the shared pit-exit FIFO stream -
-        // either still actively occupying it (a Service car already holding
-        // for its own release gap, Release, or ExitMerge) or a car that has
-        // already completed ExitMerge but is still within
-        // PitExitConvoyTailMeters of its own merge point (see
-        // UpdatePitExitConvoyState). The single shared definition every
-        // pit-exit queue/occupancy check below uses, so "is this car part of
-        // the convoy" can never drift out of sync between them again.
-        bool IsPitExitConvoyMember(RaceParticipant p)
-        {
-            if (p == null || p.retired || p.finished)
-            {
-                return false;
-            }
-
-            bool activeInQueue = p.pitReleaseSequence >= 0 &&
-                                  ((p.pitPhase == PitPhase.Service && p.pitAwaitingRelease) ||
-                                   p.pitPhase == PitPhase.Release || p.pitPhase == PitPhase.ExitMerge);
-            if (activeInQueue)
-            {
-                return true;
-            }
-
-            return p.pitPhase == PitPhase.None && p.pitExitConvoyActive && p.pitExitConvoySequence >= 0;
-        }
-
-        // FIFO ordering identity for any IsPitExitConvoyMember car: an
-        // actively-queued car still has its own live pitReleaseSequence; a
-        // recently-merged convoy car had that cleared to -1 by
-        // CompletePitExitMerge, so its ordering identity lives on in
-        // pitExitConvoySequence (a copy taken before the clear) instead.
-        int PitExitConvoySequenceOf(RaceParticipant p)
-        {
-            return p.pitPhase == PitPhase.None ? p.pitExitConvoySequence : p.pitReleaseSequence;
-        }
-
-        // Convoy-aware "where is this car right now" resolver, shared by
-        // every pit-exit queue check below. A car still actively guided
-        // reads its own advancing pitGuideDistance (or, before its first
-        // guided tick, its pit box); a car that has already completed
-        // ExitMerge no longer has a meaningful guide distance at all
-        // (guidance has ended - hasPitGuideState is false), so its real
-        // position must come from its own authoritative track progress
-        // (GetPitAwareProgress) instead. Using pitGuideDistance or the pit
-        // box for a merged convoy car would anchor it at a stale or
-        // completely wrong distance.
-        float PitExitQueueCarDistance(RaceParticipant p)
-        {
-            if (p.hasPitGuideState)
-            {
-                return p.pitGuideDistance;
-            }
-
-            if (p.pitPhase == PitPhase.None && p.pitExitConvoyActive && p.pitExitConvoySequence >= 0)
-            {
-                return GetPitAwareProgress(p).distance;
-            }
-
-            return Track.PitBoxDistance(p.pitBoxIndex);
-        }
-
-        // Central convoy-state ticker (item 2 of the pit-exit convoy fix):
-        // runs every tick for every participant from HandlePitService,
-        // identically for the player and every AI car - never left to
-        // AiVehicleController's own (AI-only) pitExitLaneHoldTimer/
-        // DistanceRemaining, which only ever governed AI lane choice, not
-        // queue/traffic identity. Counts down pitExitConvoyDistanceRemaining
-        // by actual distance travelled since the merge and clears convoy
-        // membership once it runs out, or immediately if a fresh pit entry
-        // (or any other phase change) supersedes it - stale convoy state
-        // must never leak into a brand new stop.
-        void UpdatePitExitConvoyState(RaceParticipant participant)
-        {
-            if (!participant.pitExitConvoyActive)
-            {
-                return;
-            }
-
-            if (participant.pitPhase != PitPhase.None || participant.vehicle == null)
-            {
-                participant.pitExitConvoyActive = false;
-                participant.pitExitConvoySequence = -1;
-                participant.pitExitConvoyDistanceRemaining = 0f;
-                return;
-            }
-
-            float distanceThisFrame = Mathf.Max(0f, participant.vehicle.CurrentSpeedKph) / 3.6f * Time.deltaTime;
-            participant.pitExitConvoyDistanceRemaining -= distanceThisFrame;
-            if (participant.pitExitConvoyDistanceRemaining <= 0f)
-            {
-                participant.pitExitConvoyActive = false;
-                participant.pitExitConvoySequence = -1;
-                participant.pitExitConvoyDistanceRemaining = 0f;
-            }
-        }
-
-        // Focused pit-exit queue hold/change/clear logging (item 9): fires
-        // only on a genuine transition - a hold starting, the blocking car or
-        // reason changing, or the hold clearing - deduplicated per participant
-        // via pitExitHoldDebugState, never logged every tick.
-        void LogPitExitQueueTransition(RaceParticipant participant, bool held, RaceParticipant blocker, string blockerType, float longitudinalGap, float worldSpaceGap)
-        {
-            string newState = !held ? "clear" : (blocker != null ? blocker.driverName : "?") + "|" + blockerType;
-            if (participant.pitExitHoldDebugState == newState)
-            {
-                return;
-            }
-
-            participant.pitExitHoldDebugState = newState;
-            if (!held)
-            {
-                GameLog.Info("[PitExitQueue] " + participant.driverName + " (seq=" + participant.pitReleaseSequence + ") hold cleared, resuming.");
-                return;
-            }
-
-            int blockerSequence = blocker != null ? PitExitConvoySequenceOf(blocker) : -1;
-            GameLog.Info("[PitExitQueue] " + participant.driverName + " (seq=" + participant.pitReleaseSequence + ") held by " +
-                         (blocker != null ? blocker.driverName : "unknown") + " [" + blockerType + ", seq=" + blockerSequence +
-                         "] longitudinalGap=" + longitudinalGap.ToString("0.0") + "m worldGap=" + worldSpaceGap.ToString("0.0") + "m");
-        }
-
-        // Same dedup-on-change pattern as LogPitExitQueueTransition above, for
-        // the separate world-space-only handoff stall (queue and live-traffic
-        // checks both clear, but the real 3D gap to some other car - possibly
-        // one the track-distance checks can't see, e.g. across a nearby
-        // parallel section - is not).
-        void LogPitExitHandoffTransition(RaceParticipant participant, bool held, RaceParticipant blocker, float worldSpaceGap)
-        {
-            string newState = !held ? "clear" : blocker.driverName;
-            if (participant.pitExitHandoffDebugState == newState)
-            {
-                return;
-            }
-
-            participant.pitExitHandoffDebugState = newState;
-            if (!held)
-            {
-                GameLog.Info("[PitExitQueue] " + participant.driverName + " world-space handoff gap cleared.");
-                return;
-            }
-
-            GameLog.Info("[PitExitQueue] " + participant.driverName + " (seq=" + participant.pitReleaseSequence +
-                         ") waiting on world-space handoff gap to " + blocker.driverName +
-                         " [world-space handoff] worldGap=" + worldSpaceGap.ToString("0.0") + "m");
-        }
-
-        // Only cars actively occupying the shared exit path count as
-        // candidates: a Service car already holding for its own release gap
-        // (pitAwaitingRelease), Release, or ExitMerge - matching the phases
-        // the queue itself spans.
-        //
-        // Pit-exit convoy fix: this used to stop recognizing a car as part of
-        // the exit queue the instant CompletePitExitMerge cleared its
-        // pitPhase/pitReleaseSequence, so the very next tick a following car
-        // in the FIFO queue saw nothing ahead of it here and instead got
-        // blocked by IsPitExitMergeSpaceOccupied's much larger unrelated-
-        // traffic gap (18m forward/35m rear) - a direct contradiction with
-        // this queue's own ~17m headway that stalled the whole line in short
-        // batches. Now uses the shared IsPitExitConvoyMember/
-        // PitExitConvoySequenceOf/PitExitQueueCarDistance helpers, which also
-        // recognize a recently-merged convoy car (using its own live track
-        // progress, never a stale guide distance or pit box), so the queue
-        // stays one continuous moving line from the boxes through Release,
-        // ExitMerge, and a short distance past the physical handoff.
-        RaceParticipant FindPitExitQueueCarAhead(RaceParticipant participant, float ownGuideDistance)
-        {
-            RaceParticipant closest = null;
-            float closestGap = float.MaxValue;
-            for (int i = 0; i < Participants.Count; i++)
-            {
-                RaceParticipant other = Participants[i];
-                if (other == null || other == participant || other.vehicle == null)
-                {
-                    continue;
-                }
-
-                if (!IsPitExitConvoyMember(other))
-                {
-                    continue;
-                }
-
-                float otherDistance = PitExitQueueCarDistance(other);
-                float aheadBy = WrappedForwardDistance(ownGuideDistance, otherDistance);
-
-                if (aheadBy <= PitLaneSamePositionEpsilonMeters && PitExitConvoySequenceOf(other) >= participant.pitReleaseSequence)
-                {
-                    // Effectively the same spot, and other is not strictly
-                    // earlier - it must yield to participant, not the other
-                    // way around, so it is never treated as a blocker here.
-                    continue;
-                }
-
-                if (aheadBy < closestGap)
-                {
-                    closestGap = aheadBy;
-                    closest = other;
-                }
-            }
-
-            return closestGap <= PitExitConvoyMovingGapMeters ? closest : null;
-        }
-
-        // Throughput fix (core): replaces the old binary "full pace or
-        // completely frozen at 0 km/h" movement model with distance-clamped
-        // convoy movement. A following car keeps closing on the car ahead at
-        // full pace right up until the gap between them reaches
-        // PitExitConvoyMovingGapMeters, then automatically slows to match the
-        // leader's own advance instead of stopping outright - it only ever
-        // reaches a genuine step of 0 when there is truly no forward space
-        // left. Shared by UpdatePitRelease and UpdatePitExitMerge so there is
-        // exactly one gap definition and one clamping rule for the whole
-        // Release-through-ExitMerge convoy; callers still get the blocking
-        // participant back (even when the step wasn't clamped to zero) for
-        // hold-state/logging decisions.
-        float ComputeConvoyStep(RaceParticipant participant, float fromDistance, float paceKph, out RaceParticipant blocker)
-        {
-            float desiredStep = Mathf.Max(0f, paceKph / 3.6f * Time.deltaTime);
-            blocker = FindPitExitQueueCarAhead(participant, fromDistance);
-            if (blocker == null)
-            {
-                return desiredStep;
-            }
-
-            float gapToCarAhead = WrappedForwardDistance(fromDistance, PitExitQueueCarDistance(blocker));
-            return Mathf.Min(desiredStep, Mathf.Max(0f, gapToCarAhead - PitExitConvoyMovingGapMeters));
-        }
-
-        // Unbounded (not capped at PitExitConvoyMovingGapMeters) forward distance to
-        // the nearest STRICTLY earlier-queued car ahead, or float.MaxValue if
-        // none - used only by the recovery search below so it can never step
-        // a later-release car physically ahead of an earlier one just to find
-        // clear space (root cause 2, item 8). Also convoy-aware now, for the
-        // same reason as FindPitExitQueueCarAhead above - a recently-merged
-        // earlier car must still count as "earlier" here too.
-        float NearestEarlierQueueCarDistanceAhead(RaceParticipant participant, float fromDistance)
-        {
-            float closestGap = float.MaxValue;
-            for (int i = 0; i < Participants.Count; i++)
-            {
-                RaceParticipant other = Participants[i];
-                if (other == null || other == participant || other.vehicle == null)
-                {
-                    continue;
-                }
-
-                if (!IsPitExitConvoyMember(other))
-                {
-                    continue;
-                }
-
-                int otherSequence = PitExitConvoySequenceOf(other);
-                if (otherSequence < 0 || otherSequence >= participant.pitReleaseSequence)
-                {
-                    continue;
-                }
-
-                float otherDistance = PitExitQueueCarDistance(other);
-                float aheadBy = WrappedForwardDistance(fromDistance, otherDistance);
-                if (aheadBy < closestGap)
-                {
-                    closestGap = aheadBy;
-                }
-            }
-
-            return closestGap;
-        }
-
-        // PIT EXIT REWORK - the ONE remaining world-space clearance rule:
-        // genuine physical overlap only. A car is roughly 5m long; two car
-        // centers 7m apart are close but NOT overlapping, and Unity's own
-        // collision response handles close-quarters racing everywhere else on
-        // the circuit already. The old 22m "courtesy bubble" (plus a separate
-        // 18m/35m live-traffic window) is what made handoff clearance
-        // impossible to satisfy in a busy race - cars pass the pit exit
-        // constantly, so some car was ALWAYS within 22m, and the merging car
-        // froze forever. Overlap, unlike proximity, always self-resolves:
-        // both cars keep moving.
-        const float PitExitOverlapRadiusMeters = 7f;
-
-        RaceParticipant FindOverlapBlocker(RaceParticipant participant, Vector3 candidatePosition)
-        {
-            for (int i = 0; i < Participants.Count; i++)
-            {
-                RaceParticipant other = Participants[i];
-                if (other == null || other == participant || other.vehicle == null || other.retired)
-                {
-                    continue;
-                }
-
-                if (Vector3.Distance(candidatePosition, other.transform.position) < PitExitOverlapRadiusMeters)
-                {
-                    return other;
-                }
-            }
-
-            return null;
-        }
-
-        // Defensive overlap repair (item 5): if two pit-guided cars have
-        // somehow ended up occupying (or nearly occupying) the same
-        // longitudinal point despite the FIFO queue above, separate them
-        // ALONG the canonical pit path - never sideways, never through a
-        // barrier. Only the later-sequence (junior) car is ever moved, and
-        // only backward relative to its own current position (guide movement
-        // stays forward-only on every subsequent tick after this one-time
-        // correction). Called defensively from the same places
-        // FindPitExitQueueCarAhead already runs.
-        void ResolvePitLaneOverlap(RaceParticipant participant)
-        {
-            if (!participant.hasPitGuideState || participant.pitReleaseSequence < 0)
-            {
-                return;
-            }
-
-            RaceParticipant blocker = FindPitExitQueueCarAhead(participant, participant.pitGuideDistance);
-            if (blocker == null)
-            {
-                return;
-            }
-
-            float blockerDistance = PitExitQueueCarDistance(blocker);
-            float gap = WrappedForwardDistance(participant.pitGuideDistance, blockerDistance);
-            if (gap > 0.5f)
-            {
-                return;
-            }
-
-            participant.pitGuideDistance = Track.WrapDistance(blockerDistance - PitExitConvoyMovingGapMeters);
-            GameLog.Warn("[PitLane] " + participant.driverName + " overlapped " + blocker.driverName + " in the exit queue; separated along the pit path.");
-        }
-
-        // PIT EXIT REWORK: the old FindLiveTrafficBlocker /
-        // IsPitExitMergeSpaceOccupied live-traffic window (18m ahead / 35m
-        // behind against every live car) is gone entirely. The merging car no
-        // longer yields to live traffic at all - live traffic yields to IT
-        // (see AiVehicleController.ApplyTrafficAvoidance, which now treats an
-        // ExitMerge car as real traffic to brake/steer around instead of an
-        // ignorable ghost). Only genuine physical overlap
-        // (FindOverlapBlocker above) still delays the physics handoff, and
-        // that always self-resolves because both cars keep moving.
-
-        // Single, shared ExitMerge completion path (bugfix): both the normal
-        // physically-merged check and the deterministic failsafe below now
-        // finish through exactly this one method - there is only ever one way
-        // this phase actually ends, never a partial reposition that leaves the
-        // car waiting on next tick's checks to agree, and never two
-        // independently timed recovery systems (this failsafe and the generic
-        // pit stuck watchdog) nudging the same car against each other.
-        void CompletePitExitMerge(RaceParticipant participant, Vector3 finalPosition, Quaternion finalRotation, float finalDistance)
-        {
-            participant.vehicle.SnapToPitPose(finalPosition, finalRotation);
-            participant.pitGuideDistance = finalDistance;
-
-            // State resynchronisation: the car has been moved kinematically for
-            // the entire pit sequence, so LapTracker and RaceStateManager must be
-            // forced back into agreement with the known-correct exit-merge
-            // distance BEFORE guidance is disabled - not left to drift back into
-            // agreement over the next few ticks off Tick()'s own
-            // continuity-biased search.
-            if (participant.lapTracker != null)
-            {
-                participant.lapTracker.ResyncToDistance(finalDistance, finalPosition);
-            }
-
-            if (State != null)
-            {
-                State.RefreshTimingSnapshot(participant);
-            }
-
-            AiVehicleController releasedAi = participant.GetComponent<AiVehicleController>();
-            if (releasedAi != null)
-            {
-                // Root cause 4 fix: this used to call ResyncAfterForcedReposition,
-                // which sets hasProgressReference = false - forcing the very next
-                // AI frame to run an UNRESTRICTED Track.GetProgress(transform.position)
-                // global nearest-centreline search. Right at a pit exit, where the
-                // exit lane can run close to another, unrelated part of the
-                // circuit, that search can resolve onto the wrong nearby segment,
-                // and the AI then steers sideways trying to reach a target on a
-                // completely different piece of track - exactly the cars seen
-                // turning sideways into traffic right after release. finalDistance
-                // is already the known-correct exit distance (the same one
-                // LapTracker was just resynced to above), so hand it to the AI
-                // directly instead of throwing that knowledge away.
-                releasedAi.ResyncToKnownTrackDistance(finalDistance);
-            }
-
-            // Real exit-speed handoff: this used to inject a fixed, arbitrary
-            // ~50 km/h (14 m/s) regardless of how fast the car was actually
-            // being guided (PitExitMergePaceKph, 100 km/h) - abruptly halving
-            // the car's speed right in front of following pit traffic. Physics
-            // now resumes at the real guided exit speed, aligned with the track
-            // forward direction.
-            participant.vehicle.SetPitGuidance(false, PitExitMergePaceKph / 3.6f);
-            participant.pitPhase = PitPhase.None;
-            participant.isPitting = false;
-            participant.hasPitGuideState = false;
-            participant.pitEntryCommitted = false;
-            participant.pitExitMergeElapsedTime = 0f;
-            participant.pitExitLiveHoldSeconds = 0f;
-            participant.pitPathRemainingMeters = 0f;
-            // Pit-exit convoy fix: preserve this stop's FIFO identity into the
-            // new convoy fields BEFORE clearing pitReleaseSequence below - the
-            // car is no longer actively guided, but it must still be
-            // recognizable as the same pit-exit stream's most recent arrival
-            // for a short distance (see IsPitExitConvoyMember/
-            // UpdatePitExitConvoyState), so the following queued car can keep
-            // treating it as a normal queue leader at the usual headway
-            // instead of suddenly needing a much larger live-traffic gap.
-            participant.pitExitConvoyActive = true;
-            participant.pitExitConvoySequence = participant.pitReleaseSequence;
-            participant.pitExitConvoyDistanceRemaining = PitExitConvoyTailMeters;
-            // FIFO queue fix: this stop is genuinely over - clear the queue
-            // identity so it can never be mistaken for a still-active occupant
-            // of the exit queue (FindPitExitQueueCarAhead only ever considers
-            // pitReleaseSequence >= 0), and so this car gets a fresh sequence
-            // number reflecting its real position in line the next time it pits.
-            participant.pitReleaseSequence = -1;
-            participant.pitLaneHeldByOccupancy = false;
-            // Post-merge AI-side hold (AiVehicleController): even though the
-            // guided merge just delivered the car to a safe outer line, normal
-            // racing-line/overtake/defend logic resuming instantly can still dive
-            // for the next apex too aggressively - hold the outer lane a little
-            // longer and suppress overtaking/defending while it eases back in.
-            participant.pitExitLaneHoldTimer = PitExitLaneHoldSeconds;
-            participant.pitExitLaneHoldDistanceRemaining = PitExitLaneHoldDistanceMeters;
-
-            if (participant.isPlayer)
-            {
-                SessionMessage = "Merged onto the racing line";
-            }
-        }
-
-        // Recovery search bound: how many headway-sized steps forward
-        // TryForcePitExitMergeCompletion will search before giving up for
-        // this attempt - bounded so a genuinely pathological case (the whole
-        // exit path jammed for its entire length) can't spin forever, while
-        // comfortably covering "several cars failsafed at once" (a handful of
-        // headway steps is many car-lengths of separation). Doubled from 8 to
-        // 16 alongside PitExitConvoyMovingGapMeters shrinking from 17m to
-        // 8.5m, so the total worst-case search range stays the same (~136m)
-        // rather than silently halving.
-        const int PitExitRecoverySearchSteps = 16;
-
-        // PIT EXIT REWORK: this now ALWAYS completes the merge - guaranteed
-        // termination. The old version returned false and left the car
-        // guided/frozen whenever every searched position failed its (much
-        // stricter, live-traffic-inclusive) clearance checks, which in a busy
-        // race meant it refused forever and the car never left the pit exit.
-        // The search now only looks for a spot without genuine physical
-        // overlap (FindOverlapBlocker, 7m) while still never stepping past an
-        // earlier-queued convoy car; if even that can't be found within the
-        // bounded range (essentially impossible - it would take a wall of
-        // stationary cars), the merge completes at the search end anyway and
-        // lets Unity's collision depenetration sort out the last few metres.
-        // A brief physics shove in a pathological pile-up beats a permanently
-        // frozen car in every case.
-        bool TryForcePitExitMergeCompletion(RaceParticipant participant, string reason)
-        {
-            float recoveryDistance = Track.WrapDistance(participant.pitExitMergeEndDistance + 2f);
-
-            float searchLimit = NearestEarlierQueueCarDistanceAhead(participant, recoveryDistance);
-            searchLimit = searchLimit < float.MaxValue
-                ? Mathf.Max(0f, searchLimit - PitExitConvoyMovingGapMeters)
-                : PitExitConvoyMovingGapMeters * PitExitRecoverySearchSteps;
-
-            float traveledSearch = 0f;
-            while (true)
-            {
-                float lateral = Track.PitExitMergeLegalLateral(recoveryDistance);
-                Vector3 candidatePosition;
-                Quaternion candidateRotation;
-                Track.SamplePitLanePose(recoveryDistance, lateral, out candidatePosition, out candidateRotation);
-
-                if (FindOverlapBlocker(participant, candidatePosition) == null || traveledSearch >= searchLimit)
-                {
-                    break;
-                }
-
-                float step = Mathf.Min(PitExitConvoyMovingGapMeters, searchLimit - traveledSearch);
-                recoveryDistance = Track.WrapDistance(recoveryDistance + step);
-                traveledSearch += step;
-            }
-
-            float recoveryLateral = Track.PitExitMergeLegalLateral(recoveryDistance);
-            Vector3 recoveryPosition;
-            Quaternion recoveryRotation;
-            Track.SamplePitLanePose(recoveryDistance, recoveryLateral, out recoveryPosition, out recoveryRotation);
-            GameLog.Warn("[PitLane] " + participant.driverName + " hit the ExitMerge failsafe (" + reason + "), force-completing the merge.");
-            CompletePitExitMerge(participant, recoveryPosition, recoveryRotation, recoveryDistance);
-            return true;
-        }
-
-        // Root cause 1 fix: pitExitMergeElapsedTime now tracks ONLY genuine
-        // physical desync duration (the car's transform failing to keep up
-        // with an advancing, unblocked guide) rather than total phase time,
-        // and it is reset to 0 on every tick that isn't an active desync -
-        // including every tick spent in an intentional occupancy hold. Real
-        // desync should resolve within a frame or two under normal operation
-        // (GuideToPitPose reaches its target almost every frame at this
-        // pace), so a flat, still-generous threshold catches a genuine
-        // failure quickly without ever mistaking a long legitimate queue wait
-        // for one.
-        const float PitExitMergeDesyncFailsafeSeconds = 6f;
-
-        void UpdatePitExitMerge(RaceParticipant participant)
-        {
-            bool wasHeldByOccupancy = participant.pitLaneHeldByOccupancy;
-            ResolvePitLaneOverlap(participant);
-
-            // Deterministic exit-path fix: pitGuideDistance is the SOLE
-            // longitudinal authority for the entire ExitMerge phase. It was set
-            // directly to the known release distance by UpdatePitRelease and is
-            // advanced forward here by exactly the exit pace every tick - it is
-            // never re-derived from LapTracker, RaceStateManager, or a fresh
-            // Track.GetProgress()/GetProgressNear() search. Either of those can
-            // resolve to a different nearby circuit segment (most dangerously
-            // right at the start/finish wrap, where the pit exit sits close to
-            // another part of the lap, or anywhere the pit lane runs parallel to
-            // a straight), and a bad projection there would silently redirect
-            // the whole guided path onto the wrong stretch of track. The step is
-            // always positive, so the guide can never move backward.
-            //
-            // PIT EXIT REWORK: the exiting car NEVER yields to live racing
-            // traffic. The old model held the convoy leader at the merge point
-            // until an 18m-ahead/35m-behind live-traffic window opened AND a
-            // 22m world-space bubble was clear - in any busy race cars stream
-            // past the pit exit continuously, so that window never opened, the
-            // leader froze at 0 km/h, and the entire pit lane starved behind
-            // it (every previous "escape" also refused to complete unless the
-            // same impossible clearance appeared, so it retried forever). The
-            // responsibility is now inverted to match how a real pit exit
-            // works: the merging car always keeps rolling down its own exit
-            // lane at exit pace, and LIVE TRAFFIC avoids the merging car
-            // (AiVehicleController.ApplyTrafficAvoidance no longer skips
-            // ExitMerge cars, so approaching live cars brake/steer around them
-            // exactly like any other slow car on the outer lane). The only
-            // thing that ever slows a merging car is the car ahead in its own
-            // pit-exit convoy (ComputeConvoyStep) - spacing within the lane.
-            RaceParticipant exitTrafficBlocker;
-            float step = ComputeConvoyStep(participant, participant.pitGuideDistance, PitExitMergePaceKph, out exitTrafficBlocker);
-            bool blockedByExitTraffic = exitTrafficBlocker != null && step <= 0.0001f;
-            participant.pitLaneHeldByOccupancy = blockedByExitTraffic;
-            if (blockedByExitTraffic)
-            {
-                // A convoy hold resets the desync failsafe timer (not merely
-                // pauses it) every tick it remains true, so a legitimate queue
-                // wait can never build toward the timeout.
-                participant.pitExitMergeElapsedTime = 0f;
-                float longitudinalGap = WrappedForwardDistance(participant.pitGuideDistance, PitExitQueueCarDistance(exitTrafficBlocker));
-                float worldSpaceGap = Vector3.Distance(participant.transform.position, exitTrafficBlocker.transform.position);
-                LogPitExitQueueTransition(participant, true, exitTrafficBlocker, "same convoy", longitudinalGap, worldSpaceGap);
-            }
-            else if (wasHeldByOccupancy)
-            {
-                LogPitExitQueueTransition(participant, false, null, "", 0f, 0f);
-            }
-
-            participant.pitGuideDistance = Track.WrapDistance(participant.pitGuideDistance + step);
-            participant.pitPathRemainingMeters -= step;
-            float normalized = participant.pitGuideDistance / Mathf.Max(1f, Track.length);
-
-            // Authoritative pose fix: the guided WAYPOINT POSITION is now
-            // sampled at pitGuideDistance itself, not a separate point tens of
-            // metres further ahead - a position lookahead was exactly what let
-            // the physical destination diverge from the authoritative guide
-            // distance. The lookahead is kept ONLY for the car's facing
-            // direction below, which never changes what point the car is
-            // actually being placed at.
-            float rampLateral;
-            float rampHalfWidth;
-            Track.GetPitExitRampEnvelope(normalized, participant.pitGuideDistance, out rampLateral, out rampHalfWidth);
-            float legalLateral = Track.PitExitMergeLegalLateral(participant.pitGuideDistance);
-            float mergeBlend = Track.PitExitMergeBlend(normalized);
-            float guidedLateral = Mathf.Lerp(legalLateral, rampLateral, mergeBlend);
-
-            // Waypoint validation (bugfix): never apply a lateral that sits
-            // outside BOTH the current exit-ramp envelope and the legal
-            // on-track merge lane. The blended value above should always land
-            // inside one or the other, but this is the explicit backstop the
-            // fix calls for rather than an unchecked assumption.
-            bool insideRampEnvelope = Mathf.Abs(guidedLateral - rampLateral) <= rampHalfWidth;
-            bool insideLegalLane = Mathf.Abs(guidedLateral) <= Track.HalfWidthAt(participant.pitGuideDistance);
-            if (!insideRampEnvelope && !insideLegalLane)
-            {
-                guidedLateral = legalLateral;
-            }
-
-            participant.pitGuideLateral = guidedLateral;
-            Vector3 waypoint;
-            Quaternion waypointRotation;
-            Track.SamplePitLanePose(participant.pitGuideDistance, guidedLateral, out waypoint, out waypointRotation);
-
-            // Heading-only lookahead: face toward a short distance further
-            // along the same lateral blend so the car turns in smoothly. This
-            // never creates a second physical destination - the position the
-            // car is actually placed at is always exactly pitGuideDistance
-            // above.
-            float headingDistance = Track.WrapDistance(participant.pitGuideDistance + PitExitMergeLookaheadMeters);
-            float headingNormalized = headingDistance / Mathf.Max(1f, Track.length);
-            float headingRampLateral;
-            float headingRampHalfWidth;
-            Track.GetPitExitRampEnvelope(headingNormalized, headingDistance, out headingRampLateral, out headingRampHalfWidth);
-            float headingLegalLateral = Track.PitExitMergeLegalLateral(headingDistance);
-            float headingMergeBlend = Track.PitExitMergeBlend(headingNormalized);
-            float headingLateral = Mathf.Lerp(headingLegalLateral, headingRampLateral, headingMergeBlend);
-            Vector3 headingPoint;
-            Quaternion headingRotation;
-            Track.SamplePitLanePose(headingDistance, headingLateral, out headingPoint, out headingRotation);
-
-            // Non-colliding kinematic movement (bugfix): ExitMerge used to
-            // re-enable detectCollisions on the still-kinematic body
-            // (collisionAware = true) so it would register contact with static
-            // pit-lane/barrier geometry - but a kinematic body isn't actually
-            // stopped by that contact, it just gets pinned/jittering against it
-            // while pitGuideDistance kept advancing underneath, producing a
-            // growing gap between the logical guide and the physical car
-            // (freeze), occasionally "resolved" by the pit stuck watchdog's
-            // periodic nudge/hard-reset (a brief move), then freezing again at
-            // the next piece of geometry. The entire guided pit sequence -
-            // including ExitMerge - now stays fully non-colliding, exactly like
-            // Entry/Service/Release; live traffic and other pit-guided cars are
-            // instead handled by the explicit occupancy holds above.
-            participant.vehicle.GuideToPitPose(waypoint, headingRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed, false);
-
-            // Continuity-constrained physical check (bugfix): Track.GetProgress()/
-            // Track.IsOnRoad() perform an UNRESTRICTED global nearest-centreline
-            // search. Near the pit exit - where the pit lane can run close and
-            // parallel to another part of the circuit - that search can project
-            // the car onto a completely different segment and still report
-            // onRoad/safeLateral/pastRampEnd as true, silently declaring the car
-            // merged while it is actually somewhere else entirely (including
-            // beyond a barrier or on the grass). Every physical check here is
-            // instead anchored to the known guide distance via Track.GetProgressNear,
-            // exactly as the fix requires.
-            TrackProgress physicalProgress = Track.GetProgressNear(participant.transform.position, participant.pitGuideDistance);
-            bool onRoad = Mathf.Abs(physicalProgress.lateralDistance) <= Track.HalfWidthAt(physicalProgress.distance);
-
-            // Longitudinal agreement (bugfix): if the car's own physical
-            // projection has drifted meaningfully from where the guide believes
-            // it is, something has gone wrong (a stale guide state, a botched
-            // hand-off) - the merge must not complete against a projection that
-            // disagrees with the path the car is actually being driven along.
-            float longitudinalDrift = Mathf.Abs(WrappedForwardDistance(participant.pitGuideDistance, physicalProgress.distance));
-            if (longitudinalDrift > Track.length * 0.5f)
-            {
-                longitudinalDrift = Track.length - longitudinalDrift;
-            }
-            bool longitudinalAgreement = longitudinalDrift <= PitExitMergeLongitudinalToleranceMeters;
-
-            // Root cause 1 fix: this is the ONE place pitExitMergeElapsedTime
-            // is ever incremented, and only when the car is NOT intentionally
-            // held (already handled above) AND its physical transform is
-            // genuinely failing to keep up with an advancing guide
-            // (longitudinalDrift beyond tolerance) - not simply because time
-            // is passing. Normal, unblocked guided movement resets it to 0
-            // every tick (GuideToPitPose reaches the target almost every
-            // frame at this pace), so only a real, persistent desync can ever
-            // build toward the timeout below.
-            if (!participant.pitLaneHeldByOccupancy && !longitudinalAgreement)
-            {
-                participant.pitExitMergeElapsedTime += Time.deltaTime;
-            }
-            else
-            {
-                participant.pitExitMergeElapsedTime = 0f;
-            }
-
-            // Heading agreement: the car must be pointed roughly the way the
-            // track (and the canonical merge pose) actually faces, not sideways
-            // or backward, before the merge is allowed to finish.
-            bool facingForward = Vector3.Dot(participant.transform.forward, physicalProgress.forward) > 0.5f;
-
-            // Pit-exit liveness fix: pastRampEnd reads the monotonic
-            // remaining-path countdown (seeded at the ExitMerge transition,
-            // decremented by the actual step above) instead of re-deriving
-            // travel from a wrapped difference of two track distances.
-            bool pastRampEnd = participant.pitPathRemainingMeters <= -PitExitMergeCompletionBufferMeters;
-            bool noLongerOnExitRamp = !Track.IsOnPitExitRamp(physicalProgress);
-            // Bugfix: this used to compare the raw signed lateralDistance with no
-            // Mathf.Abs() - a car sampled on the wrong side of the centerline (a
-            // negative lateralDistance, since the pit lane itself only ever runs on
-            // the positive/right side) trivially satisfied "<= HalfWidth - buffer"
-            // every time, letting the merge falsely report "safe" without the car
-            // ever actually being confirmed back on the correct side of the road.
-            bool safeLateral = Mathf.Abs(physicalProgress.lateralDistance) <= Track.HalfWidthAt(physicalProgress.distance) - 0.3f;
-            // PIT EXIT REWORK - handoff clearance: the ONLY traffic condition
-            // left on completion is genuine physical overlap (another car
-            // within PitExitOverlapRadiusMeters of this one). No live-traffic
-            // window, no 22m courtesy bubble, no queue-clear requirement -
-            // all three of those could stay false indefinitely in a busy race
-            // and are exactly what froze cars at the pit exit. An overlap, by
-            // contrast, always self-resolves within a tick or two because the
-            // guide above KEEPS ADVANCING while it waits (this car moves, the
-            // other car moves) - it can never become a standing hold.
-            RaceParticipant overlapBlocker = FindOverlapBlocker(participant, participant.transform.position);
-            bool overlapClearForHandoff = overlapBlocker == null;
-            bool physicallyMerged = pastRampEnd && noLongerOnExitRamp && safeLateral && onRoad &&
-                                     longitudinalAgreement && facingForward && overlapClearForHandoff;
-
-            if (!overlapClearForHandoff && pastRampEnd)
-            {
-                float worldSpaceGap = Vector3.Distance(participant.transform.position, overlapBlocker.transform.position);
-                LogPitExitHandoffTransition(participant, true, overlapBlocker, worldSpaceGap);
-            }
-            else
-            {
-                LogPitExitHandoffTransition(participant, false, null, 0f);
-            }
-
-            // Deterministic failsafe (bugfix): a single distance- or time-based
-            // trigger that attempts to FINISH the phase immediately via
-            // TryForcePitExitMergeCompletion, rather than repositioning and
-            // waiting for next tick's checks to agree (which could itself
-            // repeat indefinitely) or leaving the generic pit stuck watchdog to
-            // nudge the same broken phase every 4.5s without ever completing
-            // it (UpdatePitDrivingStuckWatchdog no longer watches ExitMerge at
-            // all - this is now the ONE authoritative place ExitMerge ever
-            // force-finishes, so the two can never independently force-
-            // complete the same car). distanceFailsafe can only ever grow
-            // while the guide is genuinely advancing (it's held, unchanged,
-            // during any occupancy hold - see above), and timeFailsafe only
-            // while a genuine desync is active (see the elapsedTime
-            // accumulation above) - so neither ever fires during a normal
-            // merge OR a legitimate queue wait, only on an actual, persistent
-            // stall.
-            bool distanceFailsafe = participant.pitPathRemainingMeters <= -PitExitMergeHardEscapeBufferMeters;
-            bool timeFailsafe = !participant.pitLaneHeldByOccupancy && participant.pitExitMergeElapsedTime >= PitExitMergeDesyncFailsafeSeconds;
-
-            // AI pit-exit debug logging (verbose-gated, matches the existing
-            // GameLog.Verbose convention - no cost/spam unless F3 is toggled on):
-            // makes a bad merge obvious instead of silently dumping AI cars outside
-            // the circuit.
-            if (!participant.isPlayer)
-            {
-                GameLog.Info("[PitExitMerge] " + participant.driverName +
-                             " phase=" + participant.pitPhase +
-                             " pos=" + participant.transform.position.ToString("F1") +
-                             " guideDistance=" + participant.pitGuideDistance.ToString("0.0") +
-                             " normalized=" + physicalProgress.normalized.ToString("0.000") +
-                             " lateral=" + physicalProgress.lateralDistance.ToString("0.00") +
-                             " halfWidth=" + Track.HalfWidthAt(physicalProgress.distance).ToString("0.00") +
-                             " onRoad=" + onRoad +
-                             " onExitRamp=" + !noLongerOnExitRamp +
-                             " longitudinalDrift=" + longitudinalDrift.ToString("0.0") +
-                             " facingForward=" + facingForward +
-                             " blockedByExitTraffic=" + blockedByExitTraffic +
-                             " overlapClearForHandoff=" + overlapClearForHandoff +
-                             " guided=" + participant.vehicle.IsPitGuided +
-                             " mergeAttempted=" + physicallyMerged);
-            }
-
-            if (physicallyMerged)
-            {
-                CompletePitExitMerge(participant, participant.transform.position, participant.transform.rotation, participant.pitGuideDistance);
-                return;
-            }
-
-            if (distanceFailsafe || timeFailsafe)
-            {
-                TryForcePitExitMergeCompletion(participant, distanceFailsafe ? "distance" : "time");
             }
         }
 

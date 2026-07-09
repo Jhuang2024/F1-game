@@ -2255,7 +2255,7 @@ namespace LocalFormulaRacing
                     // Distinguish "still turning into the lane" from "aligned
                     // and now rolling to the box" - same distinction
                     // RaceManager.PitStatusText already makes for its own line.
-                    phaseText = player.pitEntryAligned ? "IN PIT LANE" : "ENTERING PIT LANE";
+                    phaseText = "IN PIT LANE";
                     phaseColor = UiFactory.AccentAmber;
                     break;
                 case PitPhase.Service:
