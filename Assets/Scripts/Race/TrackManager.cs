@@ -5780,8 +5780,23 @@ namespace LocalFormulaRacing
             CreatePitEntryMarkers();
 
             // Pit wall between track and lane, sampled so it never cuts the corner.
+            // Barrier-mess fix: a fourth, independently-stepped (12.5m) pass through
+            // the exact same flat-corridor span BuildPitLaneDividerFence walls
+            // (PitCorridorStartNormalized..0.995), with no nearTightFenceCorner check
+            // of its own - wherever a tight corner sits inside that flat corridor,
+            // ComputeBarrierPlan's main edge barrier already goes into containment
+            // mode there, and this pass kept dropping its own "Pit wall" boxes right
+            // on top of it regardless. Skips itself the same way the divider/ramp
+            // guide fences do, using the corner data baked onto Runtime by
+            // PopulateCornerContainmentZones (already populated by this point in
+            // Build(), well before this call).
             for (float d = corridorStart + 10f; d < corridorEnd - 8f; d += 12.5f)
             {
+                if (Runtime.IsNearTightFenceCorner(d))
+                {
+                    continue;
+                }
+
                 Vector3 point;
                 Vector3 forward;
                 Vector3 right;
