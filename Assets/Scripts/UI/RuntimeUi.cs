@@ -4563,6 +4563,7 @@ namespace LocalFormulaRacing
             BuildPodiumSection(content, race, results);
             BuildPlayerSummarySection(content, race, results, player);
             BuildCorneringTelemetryCard(content, race);
+            BuildDrivingTelemetryCard(content, race);
             BuildTeammateSection(content, results, player);
             BuildStrategySection(content, race, player);
             BuildIncidentSection(content, race, results, player);
@@ -6015,6 +6016,69 @@ namespace LocalFormulaRacing
                 Color valueColor = gapPercent >= -1f ? UiFactory.AccentGreen : (gapPercent >= -4f ? UiFactory.AccentAmber : UiFactory.Accent);
                 UiFactory.CreateBreakdownRow(contentArea, label, valueText, valueColor, innerWidth);
             }
+        }
+
+        // Telemetry report (#69): braking/ERS/tyre-heat signals the cornering
+        // card above doesn't cover, plus one synthesized, actionable
+        // recommendation picked from whichever signal reads worst - reuses
+        // fields already tracked on the live RaceParticipant/VehicleController/
+        // TyreState (lockups, flat spots, ERS/DRS frame counters) rather than
+        // adding a second sampling pipeline alongside SampleCorneringTelemetry.
+        void BuildDrivingTelemetryCard(RectTransform content, RaceManager race)
+        {
+            if (race == null || race.PlayerParticipant == null || race.PlayerParticipant.vehicle == null || race.PlayerParticipant.vehicle.Tyres == null)
+            {
+                return;
+            }
+
+            RaceParticipant player = race.PlayerParticipant;
+            int laps = player.lapTracker != null ? Mathf.Max(1, player.lapTracker.CompletedLaps) : 1;
+            int lockups = player.vehicle.Tyres.TotalLockups;
+            float flatSpotPercent = player.vehicle.Tyres.FlatSpotLevel * 100f;
+            float wearPercent = player.vehicle.Tyres.WearPercent;
+            float lockupsPerLap = lockups / (float)laps;
+
+            int frames = Mathf.Max(1, player.trackedTickFrameCount);
+            float ersUsagePercent = player.ersDeployFrameCount / (float)frames * 100f;
+            float drsUsagePercent = player.drsActiveFrameCount / (float)frames * 100f;
+
+            UiFactory.CreateSubHeader(content, "Driving Telemetry");
+            RectTransform contentArea;
+            UiFactory.CreateAutoCard(content, "Driving telemetry", "", UiFactory.AccentCyan, ReportContentWidth, out contentArea);
+            float innerWidth = ReportContentWidth - 34f;
+
+            Color lockupColor = lockupsPerLap <= 0.3f ? UiFactory.AccentGreen : (lockupsPerLap <= 1f ? UiFactory.AccentAmber : UiFactory.Accent);
+            UiFactory.CreateBreakdownRow(contentArea, "Braking (lockups)", lockups + " total, " + lockupsPerLap.ToString("0.00") + " per lap", lockupColor, innerWidth);
+
+            Color flatSpotColor = flatSpotPercent <= 8f ? UiFactory.AccentGreen : (flatSpotPercent <= 25f ? UiFactory.AccentAmber : UiFactory.Accent);
+            UiFactory.CreateBreakdownRow(contentArea, "Tyre Flat-Spotting", flatSpotPercent.ToString("0") + "% - " + (flatSpotPercent <= 8f ? "clean braking" : "heavy lockups scarring the tyre"), flatSpotColor, innerWidth);
+
+            UiFactory.CreateBreakdownRow(contentArea, "Tyre Wear At Finish", wearPercent.ToString("0") + "%", UiFactory.TextPrimary, innerWidth);
+            UiFactory.CreateBreakdownRow(contentArea, "ERS Deployment", ersUsagePercent.ToString("0") + "% of the race", UiFactory.TextPrimary, innerWidth);
+            UiFactory.CreateBreakdownRow(contentArea, "DRS Activation", drsUsagePercent.ToString("0") + "% of the race", UiFactory.TextPrimary, innerWidth);
+
+            // One concrete recommendation, picked from whichever signal above
+            // reads worst - a report full of numbers with nothing actionable
+            // was the actual complaint this card exists to fix.
+            string recommendation;
+            if (lockupsPerLap > 1f)
+            {
+                recommendation = "Brake earlier into your heaviest braking zones - " + lockups + " lockups this race is scarring your tyres and costing lap time.";
+            }
+            else if (flatSpotPercent > 25f)
+            {
+                recommendation = "Ease trail-braking pressure once the front tyres lock - flat-spotting is already past a quarter of the tyre's contact patch.";
+            }
+            else if (ersUsagePercent < 15f)
+            {
+                recommendation = "You're leaving ERS in the battery - deploy more on straights and defending, not just for overtakes.";
+            }
+            else
+            {
+                recommendation = "Clean session - braking and tyre management were both within a healthy range.";
+            }
+
+            UiFactory.CreateAutoText(contentArea, "Telemetry recommendation", recommendation, 14, UiFactory.AccentGreen, TextAnchor.UpperLeft, innerWidth);
         }
 
         RaceResultEntry FindBiggestLoser(List<RaceResultEntry> results)

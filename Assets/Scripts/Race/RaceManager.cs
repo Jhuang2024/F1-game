@@ -937,6 +937,7 @@ namespace LocalFormulaRacing
 
                 if (participant.vehicle != null)
                 {
+                    participant.trackedTickFrameCount++;
                     if (participant.vehicle.ErsDeploying) participant.ersDeployFrameCount++;
                     if (participant.vehicle.DrsActive) participant.drsActiveFrameCount++;
                 }
