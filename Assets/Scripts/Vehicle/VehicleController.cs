@@ -125,6 +125,16 @@ namespace LocalFormulaRacing
         float smoothedThrottle;
         float smoothedBrake;
         bool lowBatteryForcedHarvest;
+        // ERS empty-recharge-delay: once the battery is fully drained, non-
+        // braking recharge (the off-throttle coast rate and the passive
+        // trickle) is suppressed for ErsEmptyRechargeDelaySeconds - braking-
+        // zone recharge is completely unaffected. ersWasEmpty only arms the
+        // timer on the frame the battery first reads empty, so the cooldown
+        // counts down normally afterward instead of being perpetually
+        // re-armed by its own lock keeping the battery at zero.
+        bool ersWasEmpty;
+        float ersEmptyCooldownTimer;
+        const float ErsEmptyRechargeDelaySeconds = 5f;
         static PhysicMaterial vehiclePhysicsMaterial;
 
         // Garage setup trade-offs (player car only); all neutral at 1.
@@ -871,6 +881,35 @@ namespace LocalFormulaRacing
                 ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0556f, 0.0787f, activeCommand.throttle));
             }
 
+            // Empty-battery recharge delay: arm a 5-second no-non-braking-
+            // recharge cooldown the instant the battery first reads fully
+            // empty (0), rather than re-arming it every frame the battery
+            // happens to still read 0 - the lock below is exactly what holds
+            // it at 0, so re-arming every frame would make the cooldown
+            // permanent instead of a real 5-second window. Braking-zone
+            // recharge is checked and applied first, below, completely
+            // unaffected by this cooldown either way.
+            if (ErsBattery <= 0f)
+            {
+                if (!ersWasEmpty)
+                {
+                    ersEmptyCooldownTimer = ErsEmptyRechargeDelaySeconds;
+                }
+
+                ersWasEmpty = true;
+            }
+            else
+            {
+                ersWasEmpty = false;
+            }
+
+            if (ersEmptyCooldownTimer > 0f)
+            {
+                ersEmptyCooldownTimer = Mathf.Max(0f, ersEmptyCooldownTimer - dt);
+            }
+
+            bool ersEmptyCooldownActive = ersEmptyCooldownTimer > 0f;
+
             // Braking-zone recharge fix: raised 50% (was 0.28-0.42) - a hard braking
             // zone now banks charge noticeably faster than before.
             if (activeCommand.brake > 0.1f)
@@ -888,12 +927,16 @@ namespace LocalFormulaRacing
             // Round 5: cut back down 20% (was 0.156-0.346).
             // Round 6: cut a further 30% (was 0.1248-0.2768).
             // Round 7: cut a further 30% (was 0.0874-0.1938).
-            else if (activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
+            // Round 8: cut a further 20% (was 0.0612-0.1357) and gated behind
+            // ersEmptyCooldownActive - once the battery has hit empty it no
+            // longer recharges outside a braking zone at all for the next 5
+            // seconds (see ersEmptyCooldownTimer above).
+            else if (!ersEmptyCooldownActive && activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.8f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
-            else if (!ErsDeploying)
+            else if (!ersEmptyCooldownActive && !ErsDeploying)
             {
                 // ERS passive trickle: real ERS also recovers some energy outside of
                 // hard braking or a full lift-off coast (residual MGU-H/engine-driven
@@ -912,7 +955,10 @@ namespace LocalFormulaRacing
                 // regen cut as the coasting rate above.
                 // Round 7: cut a further 30% (was 0.0274-0.0582), same non-braking-only
                 // regen cut as the coasting rate above.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                // Round 8: cut a further 20% (was 0.0192-0.0407) and gated behind
+                // ersEmptyCooldownActive, same empty-battery delay as the coasting
+                // rate above.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.8f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
