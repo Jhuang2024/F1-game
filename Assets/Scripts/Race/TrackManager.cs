@@ -622,6 +622,31 @@ namespace LocalFormulaRacing
             return Mathf.Abs(progress.lateralDistance - rampCenter) <= rampHalfWidth * 0.65f;
         }
 
+        // Single authoritative pit-entry limiter boundary (bugfix): the painted
+        // speed-limit line/sign (CreatePitEntryMarkers), the player's hard
+        // limiter and the AI's hard limiter used to describe three different
+        // boundaries - the sign was painted at PitApproachStartNormalized (0.78),
+        // while RaceManager.HandlePitService only ever actually engaged
+        // PitLimiterActive much later, at the real physical ramp commit
+        // (~0.850-0.885). That let the AI's own pre-limiter approach-speed
+        // shaping (which legitimately starts earlier, easing down toward a legal
+        // speed) look like an active limiter well before one existed, while the
+        // sign promised enforcement that hadn't actually started yet.
+        // HasCrossedPitEntryLimiterLine is now the ONE function every one of
+        // those consumers calls - it aliases IsOnPitEntryRamp so the boundary
+        // also respects lateral position (a car with a pit request simply
+        // passing the same longitudinal point on the racing surface, without
+        // actually steering onto the ramp, must never trip the limiter).
+        public bool HasCrossedPitEntryLimiterLine(TrackProgress progress)
+        {
+            return IsOnPitEntryRamp(progress);
+        }
+
+        // Placement anchor for the painted line/sign - the start of the window
+        // HasCrossedPitEntryLimiterLine actually tests, so what's on the ground
+        // matches where the limiter can first legally engage.
+        public const float PitEntryLimiterLineNormalized = PitEntryRampStartNormalized;
+
         public bool IsOnPitExitRamp(TrackProgress progress)
         {
             if (!IsInPitExitMergeZone(progress.normalized))
@@ -6840,15 +6865,22 @@ namespace LocalFormulaRacing
         // speed limit begins. Adds an unmissable "PIT" board with a down-arrow at the
         // very start of the entry ramp (see PitZoneEntryRampStart, the same seam the
         // barrier fan-out and paved ramp already key off) and a painted speed-limit
-        // line plus roundel sign right where SetPitLimiter actually starts enforcing
-        // the limiter for a car that has requested a stop (see
-        // TrackRuntime.PitApproachStartNormalized) - so what's on the ground now
-        // matches both where the game visually starts the ramp and where it actually
-        // starts limiting speed.
+        // line plus roundel sign at TrackRuntime.PitEntryLimiterLineNormalized - the
+        // single shared boundary HasCrossedPitEntryLimiterLine actually tests, so
+        // what's on the ground now matches both where the game visually starts the
+        // ramp and the one place the hard limiter can first legally engage for
+        // player and AI alike.
+        //
+        // Limiter-consistency bugfix: this used to anchor the painted line at
+        // TrackRuntime.PitApproachStartNormalized (0.78) - a much broader "HUD
+        // approach zone" boundary that RaceManager.HandlePitService never actually
+        // enforced the limiter at (it only ever engaged PitLimiterActive at the
+        // real physical ramp commit, ~0.850-0.885). The sign promised enforcement
+        // roughly 7% of a lap before it actually started.
         void CreatePitEntryMarkers()
         {
             CreatePitSignBoard(Runtime.length * PitZoneEntryRampStart);
-            CreateSpeedLimitLine(Runtime.length * TrackRuntime.PitApproachStartNormalized);
+            CreateSpeedLimitLine(Runtime.length * TrackRuntime.PitEntryLimiterLineNormalized);
         }
 
         void CreatePitSignBoard(float distance)

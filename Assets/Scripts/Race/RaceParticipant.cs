@@ -167,6 +167,11 @@ namespace LocalFormulaRacing
         // car's own actual travel down the exit lane, not just a shared fixed zone.
         public float pitExitMergeStartDistance;
         public float pitExitMergeEndDistance;
+        // Deterministic ExitMerge failsafe: how long (seconds) this car has been in
+        // PitPhase.ExitMerge, measured against pitGuideDistance's own known transit
+        // time rather than a fixed constant (see RaceManager.UpdatePitExitMerge) -
+        // reset to 0 whenever ExitMerge starts or finishes.
+        public float pitExitMergeElapsedTime;
         // Short post-merge AI-side lane hold (see AiVehicleController) so normal
         // racing-line/overtake/defend logic doesn't immediately dive for the apex
         // the instant guided ExitMerge control hands back, even though the guided

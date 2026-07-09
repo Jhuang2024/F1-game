@@ -883,6 +883,16 @@ namespace LocalFormulaRacing
             // still targets full straight-line pace right up until the hard limiter
             // physically clamps it, leaving no room to actually turn in before the
             // ramp runs out.
+            //
+            // Limiter-consistency note: this is intentionally NORMAL approach
+            // braking, not an active limiter - committingToPit (and this target)
+            // starts at TrackRuntime.PitApproachStartNormalized (0.78), well
+            // before the single shared hard-limiter boundary
+            // (Track.HasCrossedPitEntryLimiterLine / PitEntryLimiterLineNormalized,
+            // ~0.85, the same one RaceManager.HandlePitService uses for both the
+            // player and the AI). This never sets PitLimiterActive or shows "PIT
+            // LIMITER" itself - it just means a well-driven AI already arrives at
+            // that line under 95 km/h instead of getting hard-clamped into it.
             const float PitApproachTargetSpeedKph = 95f;
             if (committingToPit)
             {
