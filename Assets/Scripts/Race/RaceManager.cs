@@ -10657,7 +10657,10 @@ namespace LocalFormulaRacing
             // Round 7: the qualifying-stat term specifically raised 75% (-0.00075 ->
             // -0.0013125) so a driver's own qualifying rating matters more, separate
             // from carEffect below which is being cut the opposite direction.
-            breakdown.driverEffect = (qualifying - 88f) * -0.0013125f + (pace - 88f) * -0.00025f + (confidence - 80f) * -0.000075f;
+            // Round 8: driverEffect as a whole raised 30x (all three terms) so driver
+            // skill drives the qualifying gap far more than it did after several
+            // rounds of cutting it down.
+            breakdown.driverEffect = (qualifying - 88f) * -0.039375f + (pace - 88f) * -0.0075f + (confidence - 80f) * -0.00225f;
             // Balance fix: car upgrade stats can reach up to 125 (see
             // CareerManager.ApplyCareerUpgrades' clamps) against an 86
             // baseline - uncapped, a fully maxed car alone was worth roughly
