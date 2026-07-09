@@ -27,6 +27,59 @@ namespace LocalFormulaRacing
         float openingFanOffset;
         const float OpeningFanDuration = 7f;
 
+        // Pit-entry target look-ahead, kept short and dedicated - the normal
+        // racing-line lookahead (22-62m, speed/severity scaled) is tuned for
+        // reading corners far down the track, not for tracking a ~210m-long ramp
+        // whose lateral envelope changes meaningfully over a much shorter span.
+        const float PitEntryLookAheadMeters = 18f;
+        // Real collider half-width is roughly 0.875m; this leaves a genuine
+        // ~1.2-1.4m of clearance between the car's centre and the paved track
+        // edge while pre-positioning, instead of the old HalfWidthAt - 0.4f
+        // target (only ~0.4-0.55m of clearance - physically inside the divider
+        // wall's own footprint).
+        const float PitEntryCarBodyClearanceMeters = 1.3f;
+
+        // Pit-entry look-ahead fix: builds a dedicated world-space pit-entry
+        // target - position AND lateral sampled together at the SAME distance,
+        // using the canonical ramp/track geometry - instead of grafting a
+        // lateral computed at the car's current distance onto the ordinary
+        // racing-line lookahead point (sampled further down the track). Never
+        // looks past the real physical opening (PitCorridorStartNormalized)
+        // while the car is still in PitPhase.None - once it has genuinely
+        // entered PitPhase.Entry, RaceManager's own guided kinematic sequence
+        // (UpdatePitEntry) takes over movement entirely and this is no longer
+        // consulted.
+        Vector3 ComputePitEntryTargetPoint(TrackProgress fromProgress)
+        {
+            float corridorStartDistance = track.length * TrackRuntime.PitCorridorStartNormalized;
+            float distanceToCorridor = Mathf.Max(1f, track.WrapDistance(corridorStartDistance - fromProgress.distance));
+            float pitLookAhead = Mathf.Min(PitEntryLookAheadMeters, distanceToCorridor);
+            float pitTargetDistance = track.WrapDistance(fromProgress.distance + pitLookAhead);
+            float pitTargetNormalized = pitTargetDistance / Mathf.Max(1f, track.length);
+
+            Vector3 pitTargetPoint;
+            Quaternion pitTargetRotation;
+            if (pitTargetNormalized < TrackRuntime.PitEntryRampStartNormalized)
+            {
+                // Stage A (pre-position): still on the live racing surface, ahead
+                // of the real opening - line up on the outer-right edge, with
+                // genuine car-body clearance from the paved edge, so the car is
+                // already positioned to turn in the instant the ramp starts.
+                float preEntryLateral = track.HalfWidthAt(pitTargetDistance) - PitEntryCarBodyClearanceMeters;
+                track.SamplePitLanePose(pitTargetDistance, preEntryLateral, out pitTargetPoint, out pitTargetRotation);
+            }
+            else
+            {
+                // Stage B (on the ramp): physically inside the real 0.850-0.885
+                // opening - the canonical built ramp envelope/pose
+                // (GetPitEntryRampEnvelope via SamplePitEntryRampPose), the same
+                // surface BuildPitRampSurface paves.
+                track.SamplePitEntryRampPose(pitTargetDistance, out pitTargetPoint, out pitTargetRotation);
+            }
+
+            return pitTargetPoint;
+        }
+
         // Continuous small line wobble, difficulty-scaled; the seed keeps every
         // car's wobble and apex-miss noise out of phase with the others.
         float noiseSeed;
@@ -790,7 +843,20 @@ namespace LocalFormulaRacing
             // the moment it's physically on the built ramp itself
             // (Track.IsOnPitEntryRamp), which can briefly still read pitPhase ==
             // None right before RaceManager's own tick promotes it to Entry.
-            bool committingToPit = participant.pitPhase == PitPhase.None && vehicle.PitRequested && track.IsInPitApproach(progress.normalized);
+            //
+            // Deterministic-deadlock fix: this used to stay true across the whole
+            // broad IsInPitApproach range (0.78-0.955) and had no missedPitEntryThisLap
+            // gate at all - a car that ran out of the real 0.850-0.885 opening got
+            // its request re-armed by any of the automatic pit triggers below (still
+            // gated per-trigger further down), stayed inside this same broad window,
+            // and resumed steering toward a pit lane target through a divider wall
+            // that had already physically closed. committingToPit can now only be
+            // true up to the REAL physical opening (PitCorridorStartNormalized), and
+            // never at all while missedPitEntryThisLap is set for this lap.
+            bool committingToPit = participant.pitPhase == PitPhase.None && vehicle.PitRequested &&
+                                    !participant.missedPitEntryThisLap &&
+                                    progress.normalized > TrackRuntime.PitApproachStartNormalized &&
+                                    progress.normalized <= TrackRuntime.PitCorridorStartNormalized;
             bool onPitEntryRamp = track.IsOnPitEntryRamp(progress);
             bool suppressOffTrackRecovery = committingToPit || onPitEntryRamp;
 
@@ -899,46 +965,23 @@ namespace LocalFormulaRacing
             // toward the pit target using blends keyed off 0.955 (approachBlend) and
             // 0.865 (lateEntryBlend) - neither matched the real physical ramp, which
             // only spans PitEntryRampStartNormalized (0.85) to
-            // PitCorridorStartNormalized (0.885). At 0.885, where the ramp has
-            // already fully flattened into the corridor and the divider wall begins,
-            // lateEntryBlend was only ~0.22 (squared, ~0.05) - barely 5% committed to
-            // the ramp's own line by the time the physical opening had already
-            // closed, so the car reached the divider and continued down the main
-            // straight instead of turning in. Rewritten around the two real physical
-            // stages, with the pit target now a DIRECT assignment (not a weak lerp)
-            // so it wins outright over wobble/lineBias/aggressionOffset/mistakeSteer
-            // instead of merely blending against them.
-            bool preEntryRampStage = false;
-            bool onEntryRampStage = false;
-            float pitEntryTargetLateral = 0f;
-            if (committingToPit)
-            {
-                if (progress.normalized < TrackRuntime.PitEntryRampStartNormalized)
-                {
-                    // Stage A (pre-position): still on the live racing surface, ahead
-                    // of the real opening - line up on the outer-right edge so the
-                    // car is already positioned to turn in the instant the ramp
-                    // starts, rather than aiming metres outside the track before
-                    // there is anywhere to go.
-                    preEntryRampStage = true;
-                    pitEntryTargetLateral = track.HalfWidthAt(progress.distance) - 0.4f;
-                }
-                else
-                {
-                    // Stage B (on the ramp): physically inside the real
-                    // 0.850-0.885 opening - follow the actual built ramp
-                    // envelope/centerline directly (Track.PitEntryPathLateral, the
-                    // same GetPitEntryRampEnvelope taper BuildPitRampSurface paves)
-                    // instead of blending toward it.
-                    onEntryRampStage = true;
-                    pitEntryTargetLateral = track.PitEntryPathLateral(progress.distance);
-                }
-
-                // Direct assignment, not a lerp: the pit-entry target must win
-                // absolutely over ordinary racing-line offsets, not fight them for a
-                // share of requestedOffset.
-                requestedOffset = pitEntryTargetLateral;
-            }
+            // PitCorridorStartNormalized (0.885).
+            //
+            // Look-ahead fix: even after that rewrite, the LATERAL value was still
+            // computed at the car's CURRENT distance (progress.distance) while the
+            // POINT it was added to came from the normal racing-line lookahead
+            // sample further down the track (progress.distance + lookAhead). Over
+            // the real ramp's own short ~0.035-normalized span that mismatch could
+            // be tens of metres of disagreement between the target point and the
+            // lateral it was nudged by - exactly the kind of error that points a
+            // car at the divider instead of the true ramp line. ComputePitEntryTargetPoint
+            // now samples position AND lateral together, at the SAME distance,
+            // using the canonical ramp envelope/pose helpers, and this replaces
+            // targetPoint directly (a real world-space target, not an offset
+            // grafted onto the ordinary racing-line point) further below.
+            bool preEntryRampStage = committingToPit && progress.normalized < TrackRuntime.PitEntryRampStartNormalized;
+            bool onEntryRampStage = committingToPit && !preEntryRampStage;
+            Vector3 pitEntryTargetPoint = committingToPit ? ComputePitEntryTargetPoint(progress) : Vector3.zero;
 
             // Pit-exit early-turn fix: the guided PitPhase.ExitMerge itself
             // (RaceManager.UpdatePitRelease/UpdatePitExitMerge) carries the car all
@@ -978,19 +1021,22 @@ namespace LocalFormulaRacing
             // straight back inside the racing surface, silently undoing the steering
             // above and leaving the car never actually, visibly leaving the track.
             //
-            // AI pit-entry bugfix: committingToPit is now checked FIRST, not offTrack.
-            // The old order (offTrack ? 0f : (committingToPit ? ... )) meant the moment
-            // a committing car's own lateral position crossed the true track edge - the
-            // entire point of physically driving onto the ramp - it satisfied offTrack
-            // and desiredOffset collapsed to 0, steering it straight back to the
-            // centerline and away from the pit entry it was supposed to be entering.
-            // offTrack is also now already false whenever committingToPit/onPitEntryRamp
-            // is true (see suppressOffTrackRecovery above), so this is doubly safe.
-            float desiredOffset = committingToPit ? requestedOffset : (offTrack ? 0f : ConstrainLegalLineOffset(progress, requestedOffset, severityHere));
-            targetPoint += right * desiredOffset;
-            TrackProgress targetProgress = track.GetProgress(targetPoint);
-            if (!committingToPit)
+            // Look-ahead fix: committingToPit now uses the dedicated
+            // pitEntryTargetPoint (see ComputePitEntryTargetPoint above) directly as
+            // the steering target, replacing targetPoint outright rather than
+            // adding a lateral offset onto the ordinary racing-line lookahead point
+            // - see the comment above pitEntryTargetPoint for why the old
+            // offset-based approach could disagree with the real ramp geometry by
+            // tens of metres.
+            if (committingToPit)
             {
+                targetPoint = pitEntryTargetPoint;
+            }
+            else
+            {
+                float desiredOffset = offTrack ? 0f : ConstrainLegalLineOffset(progress, requestedOffset, severityHere);
+                targetPoint += right * desiredOffset;
+                TrackProgress targetProgress = track.GetProgress(targetPoint);
                 float legalTargetLimit = LegalOffsetLimit(severityHere, progress.distance);
                 if (Mathf.Abs(targetProgress.lateralDistance) > legalTargetLimit)
                 {
@@ -1225,8 +1271,7 @@ namespace LocalFormulaRacing
                              " preEntryStage=" + preEntryRampStage +
                              " onRampStage=" + onEntryRampStage +
                              " onPitEntryRamp=" + onPitEntryRamp +
-                             " pitTarget=" + pitEntryTargetLateral.ToString("0.00") +
-                             " requestedOffset=" + requestedOffset.ToString("0.00") +
+                             " pitTarget=" + pitEntryTargetPoint.ToString("F1") +
                              " trafficSteerAdjust=" + (command.steer - preTrafficSteer).ToString("0.00") +
                              " command.steer=" + command.steer.ToString("0.00"));
             }
@@ -1318,6 +1363,19 @@ namespace LocalFormulaRacing
             }
 
             ApplyDamageStrategy(ref command, damagePercent);
+
+            // Deterministic-deadlock fix: once a real physical pit-entry opening
+            // has been missed this lap, no automatic trigger above (tyre wear,
+            // grip collapse, strategy lap, damage, undercut, VSC/SC) is allowed
+            // to silently re-arm PitRequested while the car is still inside the
+            // broad approach zone - that re-armed request is what previously sent
+            // committingToPit steering back toward an opening that had already
+            // closed. The request stays suppressed until UpdateMissedPitEntryReset
+            // clears missedPitEntryThisLap on the next completed lap.
+            if (participant.missedPitEntryThisLap)
+            {
+                command.pitRequest = false;
+            }
 
             command.ers = raceManager.ShouldAiUseErs(participant, severityHere);
 

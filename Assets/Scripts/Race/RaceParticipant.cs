@@ -91,6 +91,17 @@ namespace LocalFormulaRacing
         // for diagnostics/future strategy logic.
         public bool pitEntryCommitted;
         public bool missedPitEntryThisLap;
+        // Deterministic-deadlock fix: missedPitEntryThisLap used to be a mostly
+        // write-only field - nothing actually gated automatic pit-request sources
+        // (strategy lap, tyre wear/grip collapse, damage, undercut, VSC/SC) against
+        // it, so PitRequested got silently re-armed the same lap, the car was still
+        // inside the broad approach zone, and pit-entry steering resumed toward an
+        // opening that had already physically closed. This records which
+        // CompletedLaps value the miss happened on; missedPitEntryThisLap only
+        // clears again once CompletedLaps has genuinely advanced past it (the car
+        // has crossed the line and started a new lap) - see
+        // RaceManager.UpdateMissedPitEntryReset.
+        public int missedPitEntryCompletedLap = -1;
         public int pitRequestLapNumber = -1;
         // Unique pit box slot assigned at spawn; cars are guided to their own box
         // instead of one shared service pose.

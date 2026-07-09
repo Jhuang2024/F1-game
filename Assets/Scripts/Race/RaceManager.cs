@@ -3655,6 +3655,14 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            if (PlayerParticipant.missedPitEntryThisLap)
+            {
+                // Deterministic-deadlock fix: the real physical opening is already
+                // closed for this lap - re-requesting now would just re-arm
+                // committingToPit while still inside the broad approach zone.
+                return;
+            }
+
             RaceControlPitOfferType offerType = playerRaceControlPitOfferType;
             playerHasActiveRaceControlPitOffer = false;
 
@@ -5012,7 +5020,8 @@ namespace LocalFormulaRacing
             }
 
             if (PlayerParticipant.isPitting || PlayerParticipant.pitPhase != PitPhase.None ||
-                PlayerParticipant.vehicle.PitRequested || PlayerParticipant.retired || PlayerParticipant.finished)
+                PlayerParticipant.vehicle.PitRequested || PlayerParticipant.retired || PlayerParticipant.finished ||
+                PlayerParticipant.missedPitEntryThisLap)
             {
                 return;
             }
@@ -8723,6 +8732,8 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            UpdateMissedPitEntryReset(participant);
+
             TrackProgress currentProgress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
             float normalized = currentProgress.normalized;
             if (CurrentSession == RaceWeekendSession.Qualifying)
@@ -8807,7 +8818,6 @@ namespace LocalFormulaRacing
             }
 
             bool pitApproach = Track.IsInPitApproach(normalized);
-            participant.vehicle.SetPitLimiter(pitApproach);
             if (pitApproach && participant.isPlayer && !engineerPitRequestConfirmed)
             {
                 engineerPitRequestConfirmed = true;
@@ -8834,6 +8844,13 @@ namespace LocalFormulaRacing
             {
                 TrackProgress actualProgress = Track.GetProgressNear(participant.transform.position, currentProgress.distance);
                 bool physicallyOnPitEntryRamp = Track.IsOnPitEntryRamp(actualProgress);
+                // Hard-limiter timing fix: this used to engage across the whole
+                // broad IsInPitApproach zone (0.78-0.955) the instant a pit request
+                // existed, forcing cars to crawl at 80 km/h through ordinary racing
+                // corners long before they had any physical path toward the ramp.
+                // BeginPitEntry (below) takes over limiter ownership for the rest
+                // of the stop, so this only needs to cover the moment of commit.
+                participant.vehicle.SetPitLimiter(physicallyOnPitEntryRamp);
                 if (physicallyOnPitEntryRamp)
                 {
                     BeginPitEntry(participant);
@@ -8861,9 +8878,16 @@ namespace LocalFormulaRacing
                 // instead of continuing to steer the car toward a wall until some
                 // much later, physically meaningless deadline (this used to wait
                 // until 0.952, ~7% of a lap after the real opening had already
-                // closed).
+                // closed). Recording the lap this happened on lets
+                // UpdateMissedPitEntryReset clear the flag only once the car has
+                // genuinely started a new lap, instead of an automatic trigger
+                // (tyre wear, strategy lap, damage, undercut, VSC/SC) re-arming
+                // PitRequested moments later while still inside the broad zone.
                 participant.missedPitEntryThisLap = true;
+                participant.missedPitEntryCompletedLap = participant.lapTracker.CompletedLaps;
                 participant.vehicle.ClearPitRequest();
+                participant.vehicle.SetPitLimiter(false);
+                participant.pitAutoTriggered = false;
                 if (participant.isPlayer)
                 {
                     SessionMessage = "Pit entry missed. We'll box next lap.";
@@ -8874,9 +8898,36 @@ namespace LocalFormulaRacing
                     GameLog.Warn("[PitLane] " + participant.driverName + " missed pit entry; retrying next lap.");
                 }
             }
-            else if (participant.isPlayer)
+            else
             {
-                SessionMessage = pitApproach ? "Pit entry approaching" : "Pit request queued";
+                participant.vehicle.SetPitLimiter(false);
+                if (participant.isPlayer)
+                {
+                    SessionMessage = pitApproach ? "Pit entry approaching" : "Pit request queued";
+                }
+            }
+        }
+
+        // Deterministic-deadlock fix: missedPitEntryThisLap now actually gates
+        // every automatic pit-request source (see AiVehicleController's
+        // command.pitRequest suppression, and the guards added to
+        // UpdatePlayerAutoPitStrategy/AcceptRaceControlPitOffer below), so it
+        // must be cleared reliably once the miss is genuinely behind the car -
+        // not merely once time or distance has passed, but once CompletedLaps
+        // has advanced past the lap the miss was recorded on, i.e. the car has
+        // crossed the line and physically started a fresh lap with a fresh
+        // shot at the real opening.
+        void UpdateMissedPitEntryReset(RaceParticipant participant)
+        {
+            if (!participant.missedPitEntryThisLap || participant.lapTracker == null)
+            {
+                return;
+            }
+
+            if (participant.lapTracker.CompletedLaps > participant.missedPitEntryCompletedLap)
+            {
+                participant.missedPitEntryThisLap = false;
+                participant.missedPitEntryCompletedLap = -1;
             }
         }
 
@@ -8971,8 +9022,23 @@ namespace LocalFormulaRacing
                 remaining -= Track.length;
             }
 
+            // Forward-only fix: a negative "remaining" used to be allowed to step
+            // the guide waypoint backward by the same clamp that let it step
+            // forward. Combined with a target that could itself land behind the
+            // car (see GetPitEntryHoldPose), that made the guided waypoint - and
+            // the car chasing it - visibly reverse down the pit lane/entry, one of
+            // the deadlock's contributing causes. Pit-guided cars never legitimately
+            // need to back up, so any backward remaining now just holds position
+            // instead of reversing toward it.
             float maxStep = Mathf.Max(0.01f, paceKph / 3.6f * Time.deltaTime);
-            float step = Mathf.Clamp(remaining, -maxStep, maxStep);
+            if (remaining < 0f)
+            {
+                GameLog.Warn("[PitGuide] " + participant.driverName + " target is behind current guide position (remaining=" +
+                             remaining.ToString("0.0") + "); holding instead of reversing.");
+                remaining = 0f;
+            }
+
+            float step = Mathf.Clamp(remaining, 0f, maxStep);
             participant.pitGuideDistance = Track.WrapDistance(participant.pitGuideDistance + step);
             participant.pitGuideLateral = Mathf.MoveTowards(participant.pitGuideLateral, targetLateral, PitGuideLateralRateMetersPerSecond * Time.deltaTime);
             Track.SamplePitLanePose(participant.pitGuideDistance, participant.pitGuideLateral, out position, out rotation);
@@ -9150,7 +9216,7 @@ namespace LocalFormulaRacing
         // leader has actually moved away from that specific spot.
         RaceParticipant FindPitEntryCarAhead(RaceParticipant participant)
         {
-            float entryTarget = Track.length * 0.885f;
+            float entryTarget = Track.length * TrackRuntime.PitCorridorStartNormalized;
             TrackProgress own = GetPitAwareProgress(participant);
             for (int i = 0; i < Participants.Count; i++)
             {
@@ -9176,17 +9242,26 @@ namespace LocalFormulaRacing
         // A point a few car lengths before the shared entry coordinate, along the
         // same approach direction - mirrors GetPitQueuePose's "distance minus
         // holdback" pattern but anchored to the entry point rather than a pit box.
+        //
+        // Pit-lane architecture fix: this used to place the hold point at a flat
+        // Track.roadHalfWidth + 5.6 offset, an arbitrary lateral disconnected from
+        // the real built ramp/corridor surface. It now samples the same canonical
+        // envelope every other pit-entry pose uses (PitEntryPathLateral, which
+        // reads GetPitEntryRampEnvelope and gracefully covers both the approach
+        // and the ramp itself). It also used to be able to compute a hold distance
+        // BEHIND the car's own current position (entryTarget - holdback, with no
+        // floor at ownDistance) whenever the car was already close to the entry
+        // target - since AdvancePitGuideTarget only ever steps forward, that sent
+        // the car after a target it could never reach without going backward, one
+        // of the deadlock's contributing causes. The hold distance is now always
+        // clamped forward to at least the car's current position.
         void GetPitEntryHoldPose(RaceParticipant participant, out Vector3 position, out Quaternion rotation)
         {
-            float entryTarget = Track.length * 0.885f;
+            float entryTarget = Track.length * TrackRuntime.PitCorridorStartNormalized;
             float ownDistance = GetPitAwareProgress(participant).distance;
             float holdback = Mathf.Clamp(entryTarget - ownDistance + 8f, 8f, 45f);
-            Vector3 point;
-            Vector3 forward;
-            Vector3 right;
-            Track.SampleAtDistance(entryTarget - holdback, out point, out forward, out right);
-            position = point + right * (Track.roadHalfWidth + 5.6f) + Vector3.up * 0.58f;
-            rotation = Quaternion.LookRotation(forward, Vector3.up);
+            float holdDistance = Mathf.Max(ownDistance, entryTarget - holdback);
+            Track.SamplePitLanePose(holdDistance, Track.PitEntryPathLateral(holdDistance), out position, out rotation);
         }
 
         void BeginPitStop(RaceParticipant participant)
