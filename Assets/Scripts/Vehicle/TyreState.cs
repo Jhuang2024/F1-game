@@ -34,7 +34,18 @@ namespace LocalFormulaRacing
         float baseGrip;
         float baseWear;
         float warmup;
-        float wetPerformance;
+        // Explicit, self-consistent per-compound grip in each rain state, replacing
+        // the old single wetPerformance value that got lerped against a shared
+        // floor/ceiling and then multiplied by baseGrip - that let a high-baseGrip
+        // slick (tuned for dry pace) claw back into the wet-grip ordering even
+        // though its wetPerformance was low, which is exactly why Intermediate used
+        // to out-pace Wet tyres in heavy rain and Soft used to out-pace Wet tyres in
+        // light rain. Each compound's wet-condition grip is now a single number with
+        // no dry-grip cross-contamination, so the intended ordering (heavy rain: Wet
+        // > Intermediate >> slicks; light rain: Intermediate > Wet >> slicks) always
+        // holds regardless of how baseGrip is tuned for the dry.
+        float heavyRainGrip;
+        float lightRainGrip;
         float lastGripMultiplier = 1f;
 
         public void Reset(TyreCompound compound)
@@ -46,6 +57,15 @@ namespace LocalFormulaRacing
             LastLockupSeverity = 0f;
             ResetFlatSpots();
 
+            // Tyre-difference pass: dry baseGrip left at its original spacing
+            // (1.11/1.00/0.93) deliberately - this multiplicative ratio is what
+            // differentiates the PLAYER's own physics-driven cornering by compound,
+            // and it already stacks with the new flat CompoundSpeedOffsetKph
+            // straight-line/AI-cornering penalty below. Widening both would have
+            // compounded into a much bigger gap than the requested "5-10kph slower"
+            // for AI cars specifically (which read both this ratio AND the flat
+            // kph penalty), so only the new, precisely-tunable flat-kph system
+            // was added rather than also widening this ratio.
             if (compound == TyreCompound.Soft)
             {
                 baseGrip = 1.11f;
@@ -53,7 +73,8 @@ namespace LocalFormulaRacing
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
-                wetPerformance = 0.42f;
+                heavyRainGrip = 0.30f;
+                lightRainGrip = 0.58f;
                 Temperature = 78f;
             }
             else if (compound == TyreCompound.Medium)
@@ -63,7 +84,8 @@ namespace LocalFormulaRacing
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
-                wetPerformance = 0.45f;
+                heavyRainGrip = 0.26f;
+                lightRainGrip = 0.52f;
                 Temperature = 74f;
             }
             else if (compound == TyreCompound.Hard)
@@ -73,7 +95,8 @@ namespace LocalFormulaRacing
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;
-                wetPerformance = 0.48f;
+                heavyRainGrip = 0.22f;
+                lightRainGrip = 0.46f;
                 Temperature = 68f;
             }
             else if (compound == TyreCompound.Intermediate)
@@ -83,7 +106,8 @@ namespace LocalFormulaRacing
                 targetMin = 58f;
                 targetMax = 82f;
                 warmup = 1.05f;
-                wetPerformance = 0.9f;
+                heavyRainGrip = 0.85f;
+                lightRainGrip = 1.02f;
                 Temperature = 58f;
             }
             else
@@ -93,9 +117,47 @@ namespace LocalFormulaRacing
                 targetMin = 45f;
                 targetMax = 70f;
                 warmup = 1.1f;
-                wetPerformance = 1f;
+                heavyRainGrip = 1.05f;
+                lightRainGrip = 0.80f;
                 Temperature = 48f;
             }
+        }
+
+        // Flat straight-line top-speed penalty (kph) for this compound under the
+        // given weather, relative to the fastest compound for those conditions (0).
+        // CalculateTargetTopSpeedKph (VehicleController, both player and AI) and
+        // EstimateApexSpeedForCornerType's final apex-speed figure (AiVehicleController,
+        // AI cornering targets) both subtract this, so a slower compound is
+        // consistently that many kph slower everywhere - on a straight or in a
+        // corner - rather than a multiplicative grip ratio whose felt kph gap would
+        // otherwise vary wildly with corner speed.
+        public float CompoundSpeedOffsetKph(WeatherState weather)
+        {
+            if (weather == WeatherState.HeavyRain)
+            {
+                if (Compound == TyreCompound.Wet) return 0f;
+                if (Compound == TyreCompound.Intermediate) return 15f;
+                if (Compound == TyreCompound.Soft) return 80f;
+                if (Compound == TyreCompound.Medium) return 87.5f;
+                return 95f; // Hard
+            }
+
+            if (weather == WeatherState.LightRain)
+            {
+                if (Compound == TyreCompound.Intermediate) return 0f;
+                if (Compound == TyreCompound.Wet) return 10f;
+                if (Compound == TyreCompound.Soft) return 40f;
+                if (Compound == TyreCompound.Medium) return 47.5f;
+                return 55f; // Hard
+            }
+
+            // Dry (Clear/Cloudy): only the three slick compounds get a flat offset -
+            // Intermediate/Wet in the dry are already handled by their much lower
+            // baseGrip alone, no additional flat penalty needed there.
+            if (Compound == TyreCompound.Soft) return 0f;
+            if (Compound == TyreCompound.Medium) return 7.5f;
+            if (Compound == TyreCompound.Hard) return 15f;
+            return 0f;
         }
 
         // A fresh tyre sheds any accumulated flat-spotting/lockup history from the
@@ -229,22 +291,54 @@ namespace LocalFormulaRacing
             float wearGrip = Wear > 0.65f ? Mathf.Lerp(0.82f, 1f, (Wear - 0.65f) / 0.35f) :
                              (Wear > 0.35f ? Mathf.Lerp(0.55f, 0.82f, (Wear - 0.35f) / 0.30f) :
                                              Mathf.Lerp(0.12f, 0.55f, Wear / 0.35f));
-            float rainGrip = 1f;
-            if (weather == WeatherState.LightRain)
+            // Wet-condition grip fix: heavyRainGrip/lightRainGrip are each compound's
+            // own complete, self-consistent grip figure for that rain state - they
+            // REPLACE baseGrip for this calculation entirely rather than multiplying
+            // on top of it. Multiplying a wet-condition multiplier against baseGrip
+            // (the old rainGrip approach) let a high-baseGrip dry-tuned slick claw
+            // back into the wet ordering ahead of a genuinely wet-weather compound,
+            // which is exactly why Intermediate used to beat Wet in heavy rain and
+            // Soft used to beat Wet in light rain.
+            float effectiveBaseGrip = baseGrip;
+            if (weather == WeatherState.HeavyRain)
             {
-                rainGrip = Mathf.Lerp(0.56f, 0.95f, wetPerformance);
+                effectiveBaseGrip = heavyRainGrip;
             }
-            else if (weather == WeatherState.HeavyRain)
+            else if (weather == WeatherState.LightRain)
             {
-                rainGrip = Mathf.Lerp(0.34f, 0.92f, wetPerformance);
+                effectiveBaseGrip = lightRainGrip;
             }
 
             float lockupGrip = LockupSeverity > 0f ? Mathf.Lerp(1f, 0.82f, LockupSeverity) : 1f;
             // A flat-spotted tyre vibrates and loses a little contact patch every
             // rotation - a small, persistent handicap, not a game-ruining one.
             float flatSpotGrip = Mathf.Lerp(1f, 0.9f, Mathf.Clamp01(FlatSpotLevel));
-            lastGripMultiplier = baseGrip * tempGrip * wearGrip * rainGrip * lockupGrip * flatSpotGrip * trackGripMultiplier;
+            lastGripMultiplier = effectiveBaseGrip * tempGrip * wearGrip * lockupGrip * flatSpotGrip * trackGripMultiplier;
             return lastGripMultiplier;
+        }
+
+        // Tyre-difference pass: same formula as GripMultiplier above, but with the
+        // compound's own baseline (effectiveBaseGrip - baseGrip in the dry,
+        // heavyRainGrip/lightRainGrip in the rain) fixed at a neutral 1x instead of
+        // its real compound-specific value. AiVehicleController's cornering-speed
+        // model uses this instead of the full GripMultiplier so a compound's speed
+        // difference is driven ONLY by TyreState.CompoundSpeedOffsetKph's flat kph
+        // figure there - multiplying by the full compound-specific ratio on top of
+        // that flat kph subtraction would double-count the same compound gap (and,
+        // at genuine 300kph+ corner speeds, the multiplicative ratio alone already
+        // works out to far more than the requested "5-10kph slower" by itself).
+        // The player's own cornering speed is pure physics (no target-speed model to
+        // double-count against), so PlayerVehicleInput/VehicleController still read
+        // the full GripMultiplier, compound ratio included, same as before.
+        public float GripConditionMultiplier(WeatherState weather, float trackGripMultiplier = 1f)
+        {
+            float tempGrip = TemperatureGripMultiplier;
+            float wearGrip = Wear > 0.65f ? Mathf.Lerp(0.82f, 1f, (Wear - 0.65f) / 0.35f) :
+                             (Wear > 0.35f ? Mathf.Lerp(0.55f, 0.82f, (Wear - 0.35f) / 0.30f) :
+                                             Mathf.Lerp(0.12f, 0.55f, Wear / 0.35f));
+            float lockupGrip = LockupSeverity > 0f ? Mathf.Lerp(1f, 0.82f, LockupSeverity) : 1f;
+            float flatSpotGrip = Mathf.Lerp(1f, 0.9f, Mathf.Clamp01(FlatSpotLevel));
+            return tempGrip * wearGrip * lockupGrip * flatSpotGrip * trackGripMultiplier;
         }
 
         public float TemperatureGripMultiplier

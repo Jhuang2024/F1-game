@@ -263,7 +263,7 @@ namespace LocalFormulaRacing
         // CorneringSkillTier) replaces the flat isExpert bool so Hard now gets a
         // genuine, partial share of the high-confidence ceiling/ease-power
         // instead of none at all, while Easy/Medium are untouched at skillTier=0.
-        float EstimateApexSpeedForCornerType(CornerType type, float apexSeverity, float straightTargetSpeed, float hairpinSpeedKph, float gripMultiplier, float apexConfidence, float skillTier)
+        float EstimateApexSpeedForCornerType(CornerType type, float apexSeverity, float straightTargetSpeed, float hairpinSpeedKph, float gripMultiplier, float apexConfidence, float skillTier, float compoundSpeedOffsetKph)
         {
             float floorSpeed;
             float easePower;
@@ -290,6 +290,12 @@ namespace LocalFormulaRacing
                     // skillTier staircase (see CorneringSkillTier) means Easy/Medium/
                     // Hard now step down from that in genuinely smaller increments
                     // instead of Easy and Medium sharing the same low ceiling.
+                    // Tyre-difference pass: HighSpeed/Medium floors are proportional to
+                    // straightTargetSpeed, which already carries TyreState's flat
+                    // compound penalty (see VehicleController.CalculateTargetTopSpeedKph,
+                    // which straightTargetSpeed is read from) - no separate subtraction
+                    // needed here, or a slower compound would be double-penalized in
+                    // these two bucket types relative to a genuine straight.
                     floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence);
                     easePower = Mathf.Lerp(6f, 10f, skillTier);
                     break;
@@ -308,7 +314,12 @@ namespace LocalFormulaRacing
                     // Mathf.Min against straightTargetSpeed keeps the same
                     // overspeed/wall-crash guard for the rare case a car's own
                     // straight-line pace is below this (e.g. under a safety car).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(300f, Mathf.Lerp(305f, 310f, skillTier), apexConfidence));
+                    // Tyre-difference pass: unlike HighSpeed/Medium above, this floor is
+                    // a fixed absolute kph target rather than a straightTargetSpeed
+                    // fraction, so it does NOT automatically inherit the compound
+                    // penalty from straightTargetSpeed - subtracted explicitly here
+                    // instead (and clamped so it can never go negative).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(300f, Mathf.Lerp(305f, 310f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -317,7 +328,9 @@ namespace LocalFormulaRacing
                     // an explicit ~150kph target (130 low-confidence base, 150-165
                     // skill-scaled ceiling) rather than a range, since this tier is
                     // meant to read as one consistent speed rather than a wide band.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(130f, Mathf.Lerp(150f, 165f, skillTier), apexConfidence));
+                    // Tyre-difference pass: explicit compound-penalty subtraction, same
+                    // reasoning as the Slow bucket above.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(130f, Mathf.Lerp(150f, 165f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
@@ -334,7 +347,12 @@ namespace LocalFormulaRacing
                     // land well above the floor regardless of how low the floor itself
                     // was set. A much smaller exponent pulls the whole Hairpin severity
                     // band toward floorSpeed instead of only its very top.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, hairpinSpeedKph);
+                    // Tyre-difference pass: explicit compound-penalty subtraction, same
+                    // reasoning as the Slow/VeryTight buckets above - in heavy rain this
+                    // can take a slick's hairpin floor down close to walking pace, which
+                    // is exactly the "incredibly slow" the tyre-difference request asked
+                    // for.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, hairpinSpeedKph - compoundSpeedOffsetKph));
                     easePower = 0.45f;
                     break;
             }
@@ -584,7 +602,12 @@ namespace LocalFormulaRacing
             float straightTargetSpeed = (vehicle.TargetTopSpeedKph > 5f ? vehicle.TargetTopSpeedKph : carTopSpeed) * Mathf.Min(1f, profile.straightSpeedMultiplier);
 
             bool wet = track.weather == WeatherState.LightRain || track.weather == WeatherState.HeavyRain;
-            float gripMultiplier = vehicle.Tyres.GripMultiplier(track.weather);
+            // Tyre-difference pass: uses the compound-neutral condition multiplier
+            // (temperature/wear/lockup only) instead of the full GripMultiplier - the
+            // compound's own speed difference is applied separately and precisely via
+            // CompoundSpeedOffsetKph below, so folding the compound-specific ratio in
+            // here too would double-count the same tyre gap.
+            float gripMultiplier = vehicle.Tyres.GripConditionMultiplier(track.weather);
             float minCornerConfidence = profile.minimumCornerSpeedConfidence;
             if (wet)
             {
@@ -614,7 +637,8 @@ namespace LocalFormulaRacing
             // genuine hairpin need very different confidence curves (Part 2).
             float hairpinTurnAngle = MeasureHairpinTurnAngle(progress.distance + apexDistanceAhead);
             CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity, skillTier, hairpinTurnAngle);
-            float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, straightTargetSpeed, hairpinSpeedKph, gripMultiplier, apexConfidence, skillTier);
+            float compoundSpeedOffsetKph = vehicle.Tyres.CompoundSpeedOffsetKph(track.weather);
+            float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, straightTargetSpeed, hairpinSpeedKph, gripMultiplier, apexConfidence, skillTier, compoundSpeedOffsetKph);
 
             // Cornering buff round 8: profile.cornerSpeedMultiplier is no longer
             // applied here at all, for any corner type. It used to stack on top of

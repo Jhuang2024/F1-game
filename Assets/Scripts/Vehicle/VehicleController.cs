@@ -927,7 +927,19 @@ namespace LocalFormulaRacing
                 ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + ErsTopSpeedBonusKph);
             }
 
-            return Mathf.Min(target, ceiling);
+            // Tyre-difference pass: straight-line top speed previously never varied
+            // by compound at all - only cornering/acceleration did, via tyre grip.
+            // Subtracts TyreState's flat, weather-aware compound penalty (see
+            // CompoundSpeedOffsetKph) directly from the top-speed target so a slower
+            // compound is genuinely, consistently that many kph down on the
+            // straights too, for both the player and every AI car (AiVehicleController's
+            // own straightTargetSpeed reads this same TargetTopSpeedKph).
+            if (Tyres != null)
+            {
+                target -= Tyres.CompoundSpeedOffsetKph(Weather);
+            }
+
+            return Mathf.Min(Mathf.Max(target, 60f), ceiling);
         }
 
         float BrakeResponse(float input)
