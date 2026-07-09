@@ -397,6 +397,11 @@ namespace LocalFormulaRacing
                 // season-review flow instead of straight back to the hub.
                 SortStandings(Save.driverStandings);
                 SortStandings(Save.constructorStandings);
+                // Standings-drift fix: make sure the season's FINAL standings are
+                // internally consistent before they're frozen into the archive -
+                // an archived mismatch would be permanent (SeasonArchive is never
+                // touched again after this point).
+                ValidateCurrentSeasonStandingsIntegrity();
                 SeasonArchive completedSeason = BuildSeasonArchive(raceEvent);
                 Save.seasonArchives.Add(completedSeason);
                 Save.lastCompletedSeasonNumber = Save.currentSeason;
@@ -422,6 +427,10 @@ namespace LocalFormulaRacing
 
             SortStandings(Save.driverStandings);
             SortStandings(Save.constructorStandings);
+            // Standings-drift fix: catch and repair any constructor/driver
+            // mismatch immediately after every race is applied, before the
+            // post-race report reads "after" standings positions below.
+            ValidateCurrentSeasonStandingsIntegrity();
 
             if (playerEntry != null)
             {
@@ -1695,6 +1704,18 @@ namespace LocalFormulaRacing
                 };
                 Save.driverStandings.Add(entry);
             }
+            else
+            {
+                // Standings-drift fix: teamId/displayName used to only ever be set
+                // when this entry was first CREATED - every following race for the
+                // rest of the season kept whatever team the driver was on the very
+                // first time they scored, even after a mid-season transfer. Refresh
+                // both every time so this driver's own standing always reflects
+                // who/where they most recently raced for, matching the constructor
+                // points ApplyConstructorPoints (below) awards for this exact result.
+                entry.teamId = result.teamId;
+                entry.displayName = result.driverName;
+            }
 
             entry.points += points;
             if (result.finishingPosition == 1)
@@ -1755,6 +1776,141 @@ namespace LocalFormulaRacing
             });
         }
 
+        // Standings-drift fix: the single canonical answer to "what team is this
+        // driver on RIGHT NOW". Every place that needs to attribute a driver's
+        // points to a constructor should go through here instead of reading a
+        // (possibly stale) StandingEntry.teamId or a driver's raw, un-transferred
+        // DriverData.teamId directly.
+        public string GetCurrentTeamForDriver(string driverId)
+        {
+            if (string.IsNullOrEmpty(driverId))
+            {
+                return null;
+            }
+
+            if (driverId == "player")
+            {
+                return Save.playerTeamId;
+            }
+
+            DriverData driver = data.FindDriver(driverId);
+            if (driver != null)
+            {
+                return data.EffectiveTeamId(driver, Save.driverTransferRecords);
+            }
+
+            // Old saves / a driver id that no longer resolves against the current
+            // roster JSON: fall back to whatever team this driver's own standing
+            // last recorded, rather than dropping them out of constructor
+            // standings entirely.
+            StandingEntry existing = Save.driverStandings != null ? Save.driverStandings.Find(item => item.id == driverId) : null;
+            return existing != null ? existing.teamId : null;
+        }
+
+        // Standings-drift fix: constructor standings are derived FROM driver
+        // standings here, rather than being an independently-incremented total
+        // that can drift away from them (ApplyDriverPoints/ApplyConstructorPoints
+        // still increment both directly during a live race for responsiveness,
+        // but this is the periodic correction pass that guarantees they can never
+        // stay out of sync for long - constructor points always end up exactly
+        // equal to the sum of that constructor's current drivers' points).
+        void RecalculateConstructorStandingsFromDrivers()
+        {
+            if (Save.driverStandings == null)
+            {
+                return;
+            }
+
+            if (Save.constructorStandings == null)
+            {
+                Save.constructorStandings = new List<StandingEntry>();
+            }
+
+            for (int i = 0; i < Save.constructorStandings.Count; i++)
+            {
+                StandingEntry c = Save.constructorStandings[i];
+                c.points = 0;
+                c.wins = 0;
+                c.podiums = 0;
+            }
+
+            for (int i = 0; i < Save.driverStandings.Count; i++)
+            {
+                StandingEntry d = Save.driverStandings[i];
+                string teamId = GetCurrentTeamForDriver(d.id);
+                if (string.IsNullOrEmpty(teamId))
+                {
+                    GameLog.Warn("[CareerValidation] Driver standing has no current team: " + d.id);
+                    continue;
+                }
+
+                // Keep the driver's own standing in sync with the resolved current
+                // team too, so nothing else reading StandingEntry.teamId directly
+                // (Career Hub driver list, rival/teammate lookups) can see a stale
+                // value either.
+                d.teamId = teamId;
+
+                StandingEntry c = Save.constructorStandings.Find(item => item.id == teamId);
+                if (c == null)
+                {
+                    TeamData team = data.FindTeam(teamId);
+                    c = new StandingEntry
+                    {
+                        id = teamId,
+                        displayName = team == null ? teamId : team.name,
+                        teamId = teamId
+                    };
+                    Save.constructorStandings.Add(c);
+                }
+
+                c.points += d.points;
+                c.wins += d.wins;
+                c.podiums += d.podiums;
+            }
+
+            SortStandings(Save.constructorStandings);
+        }
+
+        // Standings-drift fix: cheap integrity check run every time standings are
+        // touched/loaded (EnsureStandingLists) and after every race/season
+        // transition - if constructor totals ever disagree with the sum of their
+        // current drivers' points (stale team mappings, a missed increment, a
+        // corrupted/old save), rebuild constructors from driver standings rather
+        // than displaying or persisting the mismatch.
+        void ValidateCurrentSeasonStandingsIntegrity()
+        {
+            if (Save == null || Save.driverStandings == null || Save.constructorStandings == null)
+            {
+                return;
+            }
+
+            bool mismatch = false;
+            for (int i = 0; i < Save.constructorStandings.Count && !mismatch; i++)
+            {
+                StandingEntry c = Save.constructorStandings[i];
+                int driverPointsForTeam = 0;
+                for (int j = 0; j < Save.driverStandings.Count; j++)
+                {
+                    if (GetCurrentTeamForDriver(Save.driverStandings[j].id) == c.id)
+                    {
+                        driverPointsForTeam += Save.driverStandings[j].points;
+                    }
+                }
+
+                if (driverPointsForTeam != c.points)
+                {
+                    mismatch = true;
+                    GameLog.Warn("[CareerValidation] Constructor mismatch: " + c.displayName + " has " + c.points +
+                                 " but driver sum is " + driverPointsForTeam + ". Rebuilding constructors from driver standings.");
+                }
+            }
+
+            if (mismatch)
+            {
+                RecalculateConstructorStandingsFromDrivers();
+            }
+        }
+
         void EnsureStandingLists()
         {
             if (Save.driverStandings == null || Save.driverStandings.Count == 0)
@@ -1794,6 +1950,12 @@ namespace LocalFormulaRacing
 
             EnsureRndState();
             EnsurePlayerReplacesDriverSeat();
+
+            // Standings-drift fix: EnsureStandingLists is already called before
+            // essentially every career screen/race-setup path, so this is the one
+            // reliable choke point to catch and repair a mismatch regardless of
+            // which specific caller is about to read the standings.
+            ValidateCurrentSeasonStandingsIntegrity();
         }
 
         // Backwards-compatible defaults for the R&D fields: JsonUtility leaves
@@ -2488,6 +2650,12 @@ namespace LocalFormulaRacing
             Save.driverStandings = data.CreateInitialDriverStandings(Save.playerDriverName, Save.playerTeamId, Save.selectedDriverId, Save.driverTransferRecords);
             Save.constructorStandings = data.CreateInitialConstructorStandings();
             EnsurePlayerReplacesDriverSeat();
+            // Standings-drift fix: both lists are freshly built at zero above, so
+            // this is a no-op in the normal case - but it guarantees the new
+            // season starts from a provably-consistent state rather than trusting
+            // CreateInitialConstructorStandings/CreateInitialDriverStandings to
+            // agree by construction.
+            RecalculateConstructorStandingsFromDrivers();
 
             Save.recentFormPositions = new List<int>();
             Save.teammateRaceWins = 0;

@@ -3040,21 +3040,20 @@ namespace LocalFormulaRacing
             ersPill.SetState("ERS BAL", UiFactory.TextMuted, false);
         }
 
+        // Career identity fix: delegates to RaceManager.GetDisplayDriverCode, the
+        // one canonical driver-code resolver, instead of keeping a second
+        // hand-rolled fallback here that could drift out of sync with it (the old
+        // fallback stripped spaces and took the first three characters of the
+        // whole name - "Oscar Piastri" -> "OSC" - instead of the real
+        // last-name-token convention "PIA").
         string DriverCode(RaceParticipant participant)
         {
-            if (participant == null)
+            if (participant == null || race == null)
             {
                 return "---";
             }
 
-            if (participant.driverData != null && !string.IsNullOrEmpty(participant.driverData.abbreviation))
-            {
-                return participant.driverData.abbreviation.ToUpper();
-            }
-
-            string name = string.IsNullOrEmpty(participant.driverName) ? "PLY" : participant.driverName.ToUpper();
-            name = name.Replace(" ", "");
-            return name.Length > 3 ? name.Substring(0, 3) : name.PadRight(3, '-');
+            return race.GetDisplayDriverCode(participant.driverData, participant.driverName);
         }
     }
 }

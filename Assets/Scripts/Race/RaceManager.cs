@@ -6626,7 +6626,7 @@ namespace LocalFormulaRacing
                 rows.Add(new QualifyingTowerRow
                 {
                     position = i + 1,
-                    driverCode = DriverCode(entry.driverName),
+                    driverCode = GetDisplayDriverCode(entry.driverData, entry.driverName),
                     bestTimeText = best,
                     gapText = gap,
                     isPlayer = entry.isPlayer
@@ -6978,15 +6978,55 @@ namespace LocalFormulaRacing
             return Mathf.Max(1, active.Count);
         }
 
-        string DriverCode(string name)
+        // Centralized driver-code resolution (career identity fix): every
+        // consumer - race timing tower, qualifying tower, radio, standings,
+        // track map labels, post-race classification - should resolve a
+        // driver's displayed 3-letter code through this one function instead of
+        // separately guessing from a full name. A real driver (AI, or the
+        // player playing as a real driver) always uses their actual
+        // DriverData.abbreviation; only a genuinely custom driver with no
+        // matching DriverData falls back to parsing a name, and even then uses
+        // the LAST name token (the real F1 convention - "PIA" for Oscar
+        // Piastri), never the first three letters of the whole concatenated
+        // name (the old bug, which produced "OSC").
+        public string GetDisplayDriverCode(DriverData driver, string fallbackName)
         {
-            if (string.IsNullOrEmpty(name))
+            if (driver != null && !string.IsNullOrEmpty(driver.abbreviation) && driver.abbreviation.Length >= 3)
+            {
+                return driver.abbreviation.Substring(0, 3).ToUpperInvariant();
+            }
+
+            string nameToParse = driver != null && !string.IsNullOrEmpty(driver.displayName) ? driver.displayName : fallbackName;
+            if (!string.IsNullOrEmpty(nameToParse))
+            {
+                string[] parts = nameToParse.Trim().Split(new[] { ' ' }, System.StringSplitOptions.RemoveEmptyEntries);
+                if (parts.Length > 0)
+                {
+                    return CodeFromToken(parts[parts.Length - 1]);
+                }
+            }
+
+            return "---";
+        }
+
+        string CodeFromToken(string token)
+        {
+            if (string.IsNullOrEmpty(token))
             {
                 return "---";
             }
 
-            string compact = name.ToUpperInvariant().Replace(" ", "");
-            return compact.Length > 3 ? compact.Substring(0, 3) : compact.PadRight(3, '-');
+            string upper = token.ToUpperInvariant();
+            return upper.Length > 3 ? upper.Substring(0, 3) : upper.PadRight(3, '-');
+        }
+
+        // Legacy string-only entry point - now just delegates to
+        // GetDisplayDriverCode so every existing caller automatically gets the
+        // corrected last-name-token behavior above instead of the old
+        // strip-spaces-then-first-three-characters logic.
+        string DriverCode(string name)
+        {
+            return GetDisplayDriverCode(null, name);
         }
 
         // Part 21 team-performance-evolution hook: resolves whatever a team's
@@ -7007,6 +7047,27 @@ namespace LocalFormulaRacing
             return baseCar;
         }
 
+        // Career standings drift fix: this driver's CURRENT team, accounting for
+        // any mid-career transfer (Career.Save.driverTransferRecords), not the raw
+        // static DriverData.teamId from drivers.json. Every place that spawns a
+        // grid/qualifying entry for an AI driver must resolve team through here -
+        // using the raw teamId fed a transferred driver's race/qualifying result
+        // (and hence ApplyConstructorPoints) the wrong constructor for the rest of
+        // that season, which is exactly what let constructor standings drift away
+        // from the sum of their drivers' points.
+        TeamData ResolveDriverTeam(DriverData driver)
+        {
+            if (driver == null)
+            {
+                return null;
+            }
+
+            List<DriverTransferRecord> transfers = Career != null && Career.Save != null ? Career.Save.driverTransferRecords : null;
+            string effectiveTeamId = Data.EffectiveTeamId(driver, transfers);
+            TeamData team = Data.FindTeam(string.IsNullOrEmpty(effectiveTeamId) ? driver.teamId : effectiveTeamId);
+            return team != null ? team : Data.FindTeam(driver.teamId);
+        }
+
         void SpawnRaceGrid(string playerName, string playerTeamId, bool careerRace)
         {
             TeamData playerTeam = Data.FindTeam(playerTeamId);
@@ -7018,13 +7079,24 @@ namespace LocalFormulaRacing
             // then built around whichever slot the player lands in so the two streams
             // can never collide.
             int playerGridFallback = CurrentSession == RaceWeekendSession.Qualifying ? 0 : ResolvePlayerGridFallback();
+            // Career identity fix: this used to always pass null for the player's
+            // DriverData, even when playing as a real driver (e.g. Oscar Piastri) -
+            // RaceParticipant.driverData stayed null for the whole race, so the
+            // timing tower/HUD/radio code (which all prefer driverData.abbreviation)
+            // fell back to guessing a code from the display name instead of using
+            // the real "PIA"-style abbreviation. ResolvePlayerQualifyingDriverData
+            // already resolves the actual selected DriverData when one exists
+            // (falling back to a synthesized one with a correctly-parsed
+            // last-name-based abbreviation otherwise) - reused here for the real
+            // race grid, not just the qualifying-sim path it was originally written
+            // for.
             PlayerParticipant = SpawnParticipant(
                 "player",
                 playerName,
                 playerTeam.id,
                 playerTeam.shortName,
                 true,
-                null,
+                ResolvePlayerQualifyingDriverData(playerName, playerTeamId),
                 playerTeam,
                 playerCar,
                 ResolveGridIndex("player", playerGridFallback));
@@ -7051,7 +7123,7 @@ namespace LocalFormulaRacing
                 }
 
                 DriverData driver = aiDrivers[i];
-                TeamData team = Data.FindTeam(driver.teamId);
+                TeamData team = ResolveDriverTeam(driver);
                 CarPerformanceData car = ResolveTeamCarPerformance(team);
                 SpawnParticipant(
                     driver.id,
@@ -7119,7 +7191,7 @@ namespace LocalFormulaRacing
             for (int i = 0; i < aiDrivers.Count; i++)
             {
                 DriverData driver = aiDrivers[i];
-                TeamData team = Data.FindTeam(driver.teamId);
+                TeamData team = ResolveDriverTeam(driver);
                 CarPerformanceData car = ResolveTeamCarPerformance(team);
                 qualifyingEntries.Add(new QualifyingSimEntry
                 {
@@ -7157,7 +7229,7 @@ namespace LocalFormulaRacing
             for (int i = 0; i < aiDrivers.Count; i++)
             {
                 DriverData driver = aiDrivers[i];
-                TeamData team = Data.FindTeam(driver.teamId);
+                TeamData team = ResolveDriverTeam(driver);
                 CarPerformanceData car = ResolveTeamCarPerformance(team);
                 qualifyingEntries.Add(new QualifyingSimEntry
                 {
