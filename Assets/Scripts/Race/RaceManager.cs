@@ -83,9 +83,25 @@ namespace LocalFormulaRacing
         // Absolute target speed for a full safety car period; only meaningful while
         // CurrentRaceControlState == SafetyCarActive.
         public float SafetyCarTargetSpeedKph { get; private set; } = 150f;
-        // Percentage pace reduction under a Virtual Safety Car (no physical car, just
-        // a pace delta) - only meaningful while CurrentRaceControlState == VirtualSafetyCar.
-        public float VirtualSafetyCarPaceMultiplier { get; private set; } = 0.62f;
+        // VSC pace-cap fix: this used to be a flat percentage pace CUT
+        // (VirtualSafetyCarPaceMultiplier, 0.62) applied multiplicatively to
+        // the AI's already-scaled normal-racing target speeds
+        // (AiVehicleController's straightTargetSpeed/cruiseTargetSpeed/
+        // brakingApexSpeed) - a proportional reduction with no relationship at
+        // all to the actual legal VSC limit below. On a fast straight (normal
+        // pace 300+ kph) that put AI cars at ~185 kph or less even where the
+        // real limit allows right up to 190, and on a slow corner it barely
+        // reduced anything, since 62% of an already-slow apex speed is still
+        // close to that apex speed - the AI's pace read as "far too slow on
+        // straights, barely slowed at all in corners", not a consistent cap.
+        // AI now clamps directly to this ONE absolute value instead - the
+        // exact same constant RaceControlSpeedCapKphFor already uses for the
+        // player's (and every AI car's) shared physical hard limiter in
+        // VehicleController.ApplyForces, so both the AI's own throttle/brake
+        // targeting and the physical enforcement backstop agree on the same
+        // number, the same way the full Safety Car branch already clamps to
+        // SafetyCarTargetSpeedKph rather than scaling it.
+        public const float VirtualSafetyCarSpeedCapKph = 190f;
         public bool IsPitLaneOpen { get; private set; } = true;
         public bool IsOvertakingAllowed { get; private set; } = true;
         // -1 when no sector-local yellow is active; otherwise the 1-3 sector index
@@ -1581,7 +1597,6 @@ namespace LocalFormulaRacing
         {
             CurrentRaceControlState = RaceControlState.Green;
             SafetyCarTargetSpeedKph = 150f;
-            VirtualSafetyCarPaceMultiplier = 0.62f;
             IsPitLaneOpen = true;
             IsOvertakingAllowed = true;
             YellowFlagSector = -1;
@@ -6074,7 +6089,7 @@ namespace LocalFormulaRacing
             switch (CurrentRaceControlState)
             {
                 case RaceControlState.VirtualSafetyCar:
-                    return 190f;
+                    return VirtualSafetyCarSpeedCapKph;
                 case RaceControlState.SafetyCarDeploying:
                     return SafetyCarTargetSpeedKph + 30f;
                 case RaceControlState.SafetyCarActive:

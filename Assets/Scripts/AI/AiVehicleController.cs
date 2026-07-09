@@ -810,9 +810,21 @@ namespace LocalFormulaRacing
             brakingApexSpeed *= damageMultiplier;
 
             // Safety car / VSC pace clamp (Part 5): under a full safety car every car
-            // targets the same absolute delta speed; under VSC everyone takes a flat
-            // percentage off normal pace. straightTargetSpeed is clamped too so the
-            // braking-point math downstream (which reasons from it) stays consistent.
+            // targets the same absolute delta speed; under VSC every car is clamped to
+            // the same absolute legal limit too. straightTargetSpeed is clamped too so
+            // the braking-point math downstream (which reasons from it) stays
+            // consistent.
+            //
+            // VSC pace-cap fix: this used to multiply already-scaled normal-racing
+            // pace by a flat 0.62 - a proportional CUT with no relationship to the
+            // actual legal VSC limit (RaceManager.VirtualSafetyCarSpeedCapKph, the
+            // same 190 kph the player's and every AI car's shared physical hard
+            // limiter already enforces in VehicleController.ApplyForces). On a fast
+            // straight that put AI well below the real limit (far too slow); in a
+            // slow corner it barely reduced anything (barely slowed at all). Clamping
+            // directly to the absolute cap - exactly like the full-SC branch above -
+            // means AI pace now agrees with the actual posted limit everywhere on
+            // track, never drifting arbitrarily far under it.
             if (raceManager.CurrentRaceControlState == RaceManager.RaceControlState.SafetyCarActive)
             {
                 float safetyCarCap = raceManager.SafetyCarTargetSpeedKph;
@@ -822,10 +834,10 @@ namespace LocalFormulaRacing
             }
             else if (raceManager.CurrentRaceControlState == RaceManager.RaceControlState.VirtualSafetyCar)
             {
-                float vscMultiplier = raceManager.VirtualSafetyCarPaceMultiplier;
-                straightTargetSpeed *= vscMultiplier;
-                cruiseTargetSpeed *= vscMultiplier;
-                brakingApexSpeed *= vscMultiplier;
+                float vscCap = RaceManager.VirtualSafetyCarSpeedCapKph;
+                straightTargetSpeed = Mathf.Min(straightTargetSpeed, vscCap);
+                cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, vscCap);
+                brakingApexSpeed = Mathf.Min(brakingApexSpeed, vscCap);
             }
 
             UpdateMistake(consistency, aggression, profile);
