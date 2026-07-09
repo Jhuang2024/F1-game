@@ -22,6 +22,27 @@ namespace LocalFormulaRacing
         public bool ErsDeploying { get; private set; }
         public bool ErsHarvesting { get; private set; }
         public bool DrsActive { get; private set; }
+        // Slipstream: automatic, physics-based tow from running in another car's
+        // wake on a straight - distinct from DRS (button/AI-commanded, gated by
+        // race eligibility rules, much bigger effect). RaceManager.UpdateSlipstreamEffects
+        // computes strength for every participant every frame and calls
+        // SetSlipstream; smoothed here so a car drifting in/out of the wake band
+        // doesn't flicker the bonus on and off frame to frame.
+        public bool SlipstreamActive { get { return slipstreamStrength > 0.05f; } }
+        public float SlipstreamStrength { get { return slipstreamStrength; } }
+        public float SlipstreamBonusKph { get { return slipstreamStrength * SlipstreamTopSpeedBonusKph; } }
+        public string SlipstreamSourceCode { get { return slipstreamSourceCode; } }
+        float slipstreamStrength;
+        float targetSlipstreamStrength;
+        string slipstreamSourceCode = "";
+        const float SlipstreamTopSpeedBonusKph = 10f;
+
+        public void SetSlipstream(float strength01, string sourceCode)
+        {
+            targetSlipstreamStrength = Mathf.Clamp01(strength01);
+            slipstreamSourceCode = targetSlipstreamStrength > 0.05f ? sourceCode : "";
+        }
+
         public bool PitRequested { get; private set; }
         public bool IsOnRoad { get; private set; }
         public bool IsOnKerb { get; private set; }
@@ -668,6 +689,12 @@ namespace LocalFormulaRacing
             float speedMps = body.velocity.magnitude;
             float forwardSpeed = Vector3.Dot(body.velocity, transform.forward);
 
+            // Slipstream: smoothed toward whatever RaceManager.UpdateSlipstreamEffects
+            // last set this frame/last frame, so a car drifting in/out of the wake
+            // band (following distance/lateral offset shifting slightly lap to lap)
+            // doesn't flicker the bonus on and off.
+            slipstreamStrength = Mathf.MoveTowards(slipstreamStrength, targetSlipstreamStrength, dt * 4f);
+
             // AI stuck-recovery nudge (Part 2/3): a small, speed-capped rearward
             // push so a car pressed against a barrier can actually back away
             // instead of endlessly wheelspinning into it. Bounded to low speed so
@@ -857,6 +884,17 @@ namespace LocalFormulaRacing
             float drsBoost = DrsActive ? Mathf.Lerp(38f, 55f, CarData.aeroEfficiency / 100f) : 0f;
             float drsSpeedRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(140f, 260f, forwardSpeedKph));
 
+            // Slipstream force: same reasoning as DRS above - a raised top-speed
+            // ceiling alone may not be reachable before the straight ends, so this
+            // gives the tow a small genuine additive push too. Deliberately
+            // smaller/narrower than DRS (a real tow, not an open rear wing): does
+            // almost nothing below ~130kph, builds through 130-255kph, and the
+            // additive term itself is roughly a third of DRS's.
+            float slipstreamSpeedRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(130f, 255f, forwardSpeedKph));
+            float slipstreamBoost = slipstreamStrength > 0.05f
+                ? Mathf.Lerp(8f, 15f, CarData.aeroEfficiency / 100f) * slipstreamStrength * slipstreamSpeedRamp
+                : 0f;
+
             float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
             float speedLimiter = Mathf.Clamp01((topSpeed + limiterWindow - forwardSpeed) / limiterWindow);
             if (!IsHeldInPit && activeCommand.throttle > 0.01f && speedLimiter > 0.01f)
@@ -887,7 +925,7 @@ namespace LocalFormulaRacing
                     ActiveSlowdownReason = "FUEL STARVATION";
                 }
 
-                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoost * drsSpeedRamp) * starvationPower, ForceMode.Acceleration);
+                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoost * drsSpeedRamp + slipstreamBoost) * starvationPower, ForceMode.Acceleration);
                 if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
                 {
                     float pullThrough = Mathf.Lerp(5.6f, 2.0f, speedRatio) * activeCommand.throttle * speedLimiter;
@@ -944,6 +982,14 @@ namespace LocalFormulaRacing
             dragCoefficient *= Mathf.Lerp(1.1f, 0.84f, CarData.aeroEfficiency / 100f);
             dragCoefficient *= Mathf.Lerp(1.02f, 0.88f, Mathf.InverseLerp(1, GearCount, CurrentGear));
             dragCoefficient /= Mathf.Max(0.55f, Damage.AeroMultiplier);
+            // Slipstream drag reduction: a genuine tow effect, deliberately much
+            // smaller than DRS's own drag cut above - DRS is the big reduction from
+            // physically opening the rear wing, slipstream is only the smaller
+            // benefit of running in another car's dirty air.
+            if (slipstreamStrength > 0.05f)
+            {
+                dragCoefficient *= Mathf.Lerp(1f, 0.92f, slipstreamStrength);
+            }
             body.AddForce(-body.velocity.normalized * speedMps * speedMps * dragCoefficient, ForceMode.Acceleration);
 
             if (forwardSpeed > topSpeed)
@@ -1113,6 +1159,20 @@ namespace LocalFormulaRacing
                 target += ErsTopSpeedBonusKph;
                 ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + ErsTopSpeedBonusKph);
             }
+
+            // Slipstream: a genuine top-speed bonus (see SlipstreamBonusKph), same
+            // pattern as DRS/ERS above - stacks with both rather than being
+            // absorbed by them, since a tow and an open rear wing are physically
+            // independent effects. The safe overall cap right below (405) keeps
+            // DRS + ERS + slipstream all stacking at once from producing an
+            // unreasonable top speed.
+            if (slipstreamStrength > 0.05f)
+            {
+                target += SlipstreamTopSpeedBonusKph * slipstreamStrength;
+                ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + SlipstreamTopSpeedBonusKph);
+            }
+
+            ceiling = Mathf.Min(ceiling, 405f);
 
             // Tyre-difference pass: straight-line top speed previously never varied
             // by compound at all - only cornering/acceleration did, via tyre grip.

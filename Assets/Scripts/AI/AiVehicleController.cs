@@ -1407,10 +1407,13 @@ namespace LocalFormulaRacing
                     float proximity = Mathf.Clamp01((forwardWindow - local.z) / forwardWindow) * laneOverlap;
                     float proximityCutback = Mathf.Lerp(1f, 0.42f, proximity * Mathf.Clamp01(closingKph / 40f));
 
-                    // A legitimate DRS tow is not traffic to avoid - lower-caution
-                    // (higher-difficulty) followers commit to the draft instead of
-                    // backing out of a gap they are supposed to be exploiting.
-                    bool legitimateTow = legalDrsHere && absX < 2.4f && closingKph < 15f;
+                    // A legitimate DRS or slipstream tow is not traffic to avoid -
+                    // lower-caution (higher-difficulty) followers commit to the draft
+                    // instead of backing out of a gap they are supposed to be
+                    // exploiting. Slightly wider gates than DRS-only, since a real
+                    // slipstream tow tolerates a bit more lateral offset/closing
+                    // speed than sitting dead in someone's DRS zone.
+                    bool legitimateTow = (legalDrsHere || vehicle.SlipstreamActive) && absX < 4.5f && closingKph < 18f;
                     if (legitimateTow)
                     {
                         proximityCutback = Mathf.Lerp(proximityCutback, 1f, 1f - Mathf.Clamp01(cautionFactor));

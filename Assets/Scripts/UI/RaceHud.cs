@@ -75,6 +75,7 @@ namespace LocalFormulaRacing
         HudPill drsPill;
         HudPill ersPill;
         HudPill fuelPill;
+        HudPill slipstreamPill;
 
         // Bottom-left timing card.
         Text lapRowValue;
@@ -770,6 +771,16 @@ namespace LocalFormulaRacing
             fuelPill.root.anchorMax = new Vector2(1f, 1f);
             fuelPill.root.pivot = new Vector2(1f, 1f);
             fuelPill.root.anchoredPosition = new Vector2(-14f, -90f);
+
+            // Slipstream: hidden entirely below ~20% tow strength rather than
+            // showing an "OFF" state like the pills above - it's a minor, constantly
+            // fluctuating effect that would just be noise most of the race.
+            slipstreamPill = UiFactory.CreatePill(dash, "TOW", 132f, 26f);
+            slipstreamPill.root.anchorMin = new Vector2(1f, 1f);
+            slipstreamPill.root.anchorMax = new Vector2(1f, 1f);
+            slipstreamPill.root.pivot = new Vector2(1f, 1f);
+            slipstreamPill.root.anchoredPosition = new Vector2(-14f, -122f);
+            slipstreamPill.root.gameObject.SetActive(false);
         }
 
         void BuildTimingCard()
@@ -1485,6 +1496,31 @@ namespace LocalFormulaRacing
             UpdateErsPill(car);
 
             UpdateFuelPill(car);
+
+            UpdateSlipstreamPill(car);
+        }
+
+        // Slipstream HUD: only shown above a meaningful strength threshold so it
+        // doesn't clutter the dash with a constantly-flickering minor effect.
+        void UpdateSlipstreamPill(VehicleController car)
+        {
+            if (car == null || car.SlipstreamStrength < 0.2f)
+            {
+                if (slipstreamPill.root.gameObject.activeSelf)
+                {
+                    slipstreamPill.root.gameObject.SetActive(false);
+                }
+
+                return;
+            }
+
+            if (!slipstreamPill.root.gameObject.activeSelf)
+            {
+                slipstreamPill.root.gameObject.SetActive(true);
+            }
+
+            string sourceCode = string.IsNullOrEmpty(car.SlipstreamSourceCode) ? "" : " " + car.SlipstreamSourceCode.ToUpperInvariant();
+            slipstreamPill.SetState("TOW +" + Mathf.RoundToInt(car.SlipstreamBonusKph) + " KM/H" + sourceCode, UiFactory.AccentCyan, true);
         }
 
         // Fuel system pass: delta-based display replacing the old flat "FUEL 35KG"

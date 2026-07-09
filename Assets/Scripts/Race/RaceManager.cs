@@ -990,6 +990,8 @@ namespace LocalFormulaRacing
                 }
             }
 
+            UpdateSlipstreamEffects();
+
             if (IsTimeTrial)
             {
                 RecordGhostSample();
@@ -4419,6 +4421,163 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Slipstream: automatic, physics-based tow from running behind another car
+        // on a straight - distinct from DRS (button/AI-commanded, race-eligibility
+        // gated, much bigger effect). Computed for every participant every frame
+        // and pushed straight into VehicleController.SetSlipstream, which smooths
+        // and applies it identically for the player and every AI car - nothing
+        // here is player-only.
+        const float SlipstreamMinDistance = 8f;
+        const float SlipstreamMaxDistance = 85f;
+        const float SlipstreamFullLateralWidth = 3.5f;
+        const float SlipstreamMaxLateralWidth = 7.5f;
+        const float SlipstreamMinSpeedKph = 130f;
+
+        void UpdateSlipstreamEffects()
+        {
+            if (Track == null || Participants == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant participant = Participants[i];
+                if (!IsSlipstreamEligible(participant) || Mathf.Abs(participant.vehicle.CurrentSpeedKph) < SlipstreamMinSpeedKph)
+                {
+                    if (participant != null && participant.vehicle != null)
+                    {
+                        participant.vehicle.SetSlipstream(0f, "");
+                    }
+
+                    continue;
+                }
+
+                TrackProgress followerProgress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
+                float bestStrength = 0f;
+                string bestSource = "";
+
+                for (int j = 0; j < Participants.Count; j++)
+                {
+                    RaceParticipant other = Participants[j];
+                    if (other == participant || !IsSlipstreamEligible(other))
+                    {
+                        continue;
+                    }
+
+                    TrackProgress otherProgress = State == null ? other.lapTracker.CurrentProgress : State.GetCurrentProgress(other);
+                    float strength = ComputeSlipstreamStrength(followerProgress, otherProgress);
+                    if (strength > bestStrength)
+                    {
+                        bestStrength = strength;
+                        bestSource = DriverShortCode(other);
+                    }
+                }
+
+                participant.vehicle.SetSlipstream(bestStrength, bestSource);
+            }
+        }
+
+        // Shared eligibility for BOTH roles - a car being towed and a car creating
+        // the wake. No slipstream for anything not genuinely racing on the live
+        // track surface right now.
+        bool IsSlipstreamEligible(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null || participant.lapTracker == null)
+            {
+                return false;
+            }
+
+            if (participant.retired || participant.finished)
+            {
+                return false;
+            }
+
+            if (participant.isPitting || participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit)
+            {
+                return false;
+            }
+
+            if (participant.vehicle.PitLimiterActive || participant.vehicle.IsPitGuided || !participant.vehicle.IsOnRoad)
+            {
+                return false;
+            }
+
+            if (participant.isRaceControlAutopilot || participant.vehicle.RaceControlSpeedCapKph < 900f)
+            {
+                return false;
+            }
+
+            if (CurrentRaceControlState == RaceControlState.VirtualSafetyCar ||
+                CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
+                CurrentRaceControlState == RaceControlState.SafetyCarActive ||
+                CurrentRaceControlState == RaceControlState.SafetyCarInThisLap ||
+                CurrentRaceControlState == RaceControlState.RedFlagged ||
+                CurrentRaceControlState == RaceControlState.Restart)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
+        // Forward-only wrapped distance from one track distance to another, always
+        // >= 0, going the direction of travel around the lap.
+        float SlipstreamForwardDistance(float fromDistance, float toDistance)
+        {
+            float delta = toDistance - fromDistance;
+            if (delta < 0f)
+            {
+                delta += Track.length;
+            }
+
+            return delta;
+        }
+
+        // Best tow around 18-35m behind, weaker further back or more offset,
+        // scaled down off a straight and to zero in a proper corner. Deliberately
+        // generous laterally ("somewhat behind", not laser-aligned) - full strength
+        // inside SlipstreamFullLateralWidth, fading out to zero by
+        // SlipstreamMaxLateralWidth.
+        float ComputeSlipstreamStrength(TrackProgress followerProgress, TrackProgress leaderProgress)
+        {
+            float aheadDistance = SlipstreamForwardDistance(followerProgress.distance, leaderProgress.distance);
+            if (aheadDistance < SlipstreamMinDistance || aheadDistance > SlipstreamMaxDistance)
+            {
+                return 0f;
+            }
+
+            float lateralDiff = Mathf.Abs(followerProgress.lateralDistance - leaderProgress.lateralDistance);
+            if (lateralDiff > SlipstreamMaxLateralWidth)
+            {
+                return 0f;
+            }
+
+            float distanceStrength = Mathf.InverseLerp(SlipstreamMaxDistance, 18f, aheadDistance);
+            float lateralStrength = Mathf.InverseLerp(SlipstreamMaxLateralWidth, SlipstreamFullLateralWidth, lateralDiff);
+            float strength = Mathf.Clamp01(distanceStrength * lateralStrength);
+
+            return strength * SlipstreamStraightSectionStrength(followerProgress.distance);
+        }
+
+        // Mild bends still get a partial tow (full below 6 degrees of heading
+        // change over the sampled span, fading to none by 16) rather than a hard
+        // corner/straight cutoff - a slipstream doesn't vanish the instant a
+        // straight has the faintest kink in it.
+        float SlipstreamStraightSectionStrength(float distance)
+        {
+            Vector3 point1;
+            Vector3 forward1;
+            Vector3 right1;
+            Track.SampleAtDistance(distance + 10f, out point1, out forward1, out right1);
+            Vector3 point2;
+            Vector3 forward2;
+            Vector3 right2;
+            Track.SampleAtDistance(distance + 55f, out point2, out forward2, out right2);
+            float angle = Vector3.Angle(forward1, forward2);
+            return Mathf.Clamp01(Mathf.InverseLerp(16f, 6f, angle));
+        }
+
         // Lap-gap radio feature: at the end of each completed player lap, the
         // engineer reports how much time was gained or lost against the relevant
         // car - the car directly ahead if the player isn't leading, or P2 if they
@@ -4659,6 +4818,24 @@ namespace LocalFormulaRacing
         string FormatGapSeconds(float seconds)
         {
             return Mathf.Max(0f, seconds).ToString("0.0") + " seconds";
+        }
+
+        // Compact 3-letter driver code for HUD/debug display (slipstream source,
+        // etc.) - distinct from DriverRadioName below, which prefers a spoken last
+        // name for engineer radio text.
+        string DriverShortCode(RaceParticipant participant)
+        {
+            if (participant == null)
+            {
+                return "";
+            }
+
+            if (participant.driverData != null && !string.IsNullOrEmpty(participant.driverData.abbreviation))
+            {
+                return participant.driverData.abbreviation.ToUpperInvariant();
+            }
+
+            return DriverCode(participant.driverName);
         }
 
         // Radio name for a driver: last name if driverName resolves to one,
