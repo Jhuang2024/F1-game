@@ -4209,15 +4209,44 @@ namespace LocalFormulaRacing
         // fields (matching the old "apply the same delta everywhere" shape,
         // so the driver's effective stats don't visibly jump the moment this
         // update loads) and never touch it again afterwards.
-        static void MigrateLegacyRatingModifier(DriverRatingModifier modifier)
+        // Part 4/9 bugfix: on an existing-driver career, the OLD progression
+        // system generated a ratingDelta for EVERY driver in drivers.json -
+        // including whichever real driver the player is actually playing as -
+        // as a pure random walk (rising talent / declining veteran / random
+        // step), completely decoupled from the player's own results, because
+        // the old GetEffectiveDriver was never applied to the player's own
+        // seat (RaceManager read that driver's raw stats directly - one of
+        // the exact bypasses this refactor was asked to close). That legacy
+        // value was therefore never visible in the player's own gameplay -
+        // it could have drifted arbitrarily (including sharply negative)
+        // over many seasons with zero connection to how the player actually
+        // performed. Migrating it now would dump that invisible, unearned
+        // history onto the player's own driver in one shot the instant this
+        // save loads - exactly the "suddenly qualifying P22 despite regularly
+        // reaching Q3, with no season transition" regression this fixes.
+        // Discard it for the player's own seat; genuine progression starts
+        // fresh from here, driven by the player's actual results (see
+        // MapDriverIdForProgression). Every other (true AI) driver's legacy
+        // delta still migrates normally, preserving their visible history.
+        void MigrateLegacyRatingModifier(DriverRatingModifier modifier)
         {
-            if (modifier == null || modifier.legacyDeltaMigrated || modifier.ratingDelta == 0)
+            if (modifier == null)
             {
-                if (modifier != null)
-                {
-                    modifier.legacyDeltaMigrated = true;
-                }
+                return;
+            }
 
+            bool isPlayersOwnSeat = Save.useExistingDriver && !string.IsNullOrEmpty(Save.selectedDriverId) && modifier.driverId == Save.selectedDriverId;
+            if (isPlayersOwnSeat && !modifier.legacyDeltaMigrated)
+            {
+                modifier.ratingDelta = 0;
+                modifier.legacyDeltaMigrated = true;
+                GameLog.Info("[Progression] Discarded legacy rating history for the player's own driver (" + modifier.driverId + ", season " + modifier.season + ") - it never reflected actual player performance.");
+                return;
+            }
+
+            if (modifier.legacyDeltaMigrated || modifier.ratingDelta == 0)
+            {
+                modifier.legacyDeltaMigrated = true;
                 return;
             }
 
