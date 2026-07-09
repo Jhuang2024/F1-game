@@ -1383,6 +1383,37 @@ namespace LocalFormulaRacing
             return Mathf.Clamp(recommended, 1, maxPitLap);
         }
 
+        // Off-by-one fix: RecommendedPitLap returns a 1-based DISPLAY lap number
+        // ("pit on lap 3") - CompletedLaps only reaches that number once lap 3 has
+        // already been fully driven (i.e. the car is already on lap 4), so
+        // comparing raw CompletedLaps against it fires a whole lap late. The
+        // player's own auto-pit path already made this exact correction
+        // (UpdatePlayerAutoPitStrategy's currentLapNumber = completedLaps + 1);
+        // this is the single shared version AiVehicleController now calls instead
+        // of re-deriving (and previously getting wrong) the same comparison.
+        public bool ShouldAiPitByStrategyLap(RaceParticipant participant)
+        {
+            if (participant == null || participant.lapTracker == null)
+            {
+                return false;
+            }
+
+            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
+            {
+                return false;
+            }
+
+            if (participant.pitStops > 0 || participant.isPitting || participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit)
+            {
+                return false;
+            }
+
+            int targetLap = RecommendedPitLap(participant);
+            int currentLapNumber = participant.lapTracker.CompletedLaps + 1;
+
+            return currentLapNumber >= targetLap;
+        }
+
         // Deterministic, race-independent value in the 0-1 range derived from a
         // string - used to
         // give each driver a small, stable personality offset (pit-window jitter,
@@ -8252,6 +8283,18 @@ namespace LocalFormulaRacing
                 {
                     Track.GetPitServicePose(participant.pitBoxIndex, out fallbackPosition, out fallbackRotation);
                 }
+                else if (participant.pitPhase == PitPhase.ExitMerge)
+                {
+                    // Pit-lane architecture fix: this used to fall through to
+                    // GetPitReleasePose for every non-Entry phase, including
+                    // ExitMerge - resetting a car stuck partway down the exit ramp
+                    // BACKWARD to the release pose instead of forward along the
+                    // ramp it was already following, which could repeatedly undo
+                    // real progress and cause the exact chaos this watchdog exists
+                    // to prevent. Resets a short distance further along the real
+                    // exit-ramp surface instead, continuing the same phase.
+                    Track.SamplePitExitRampPose(Track.WrapDistance(distance + 12f), out fallbackPosition, out fallbackRotation);
+                }
                 else
                 {
                     Track.GetPitReleasePose(participant.pitReleaseStagger, out fallbackPosition, out fallbackRotation);
@@ -8380,23 +8423,37 @@ namespace LocalFormulaRacing
 
             if (Track.IsInPitEntryZone(normalized))
             {
-                // No-fake-animation fix: entry used to trigger purely off this
-                // distance band regardless of where the car actually was
-                // across the track, so the guided/kinematic pit sequence could
-                // kick in while the car was still out on the racing line and
-                // visibly snap it sideways. Now it only hands over once the
-                // car has genuinely steered toward the pit side under its own
-                // normal driving (AiVehicleController biases AI toward this
-                // during the approach window; a human player does it with the
-                // wheel) - except right at the tail of the zone, where entry
-                // is forced anyway so a car that never committed can't sail
-                // straight past its pit stop entirely.
-                float pitSideCommitment = currentProgress.lateralDistance / Mathf.Max(1f, Track.HalfWidthAt(currentProgress.distance));
-                bool committedToPitSide = pitSideCommitment > 0.35f;
-                bool mustCommitNow = normalized > 0.945f;
-                if (committedToPitSide || mustCommitNow)
+                // Pit-lane architecture fix: this used to commit to the guided pit
+                // sequence off a lateral-fraction heuristic (>0.35 of the way to
+                // the track edge) OR unconditionally once the car reached the tail
+                // of the zone (mustCommitNow) - the latter meant a car that never
+                // actually steered toward the pits still got yanked into
+                // BeginPitEntry from wherever it happened to be on the racing
+                // surface, reading exactly like "pitting out of nowhere". Entry now
+                // requires the car to be genuinely, physically on the built pit-
+                // entry ramp (Track.IsOnPitEntryRamp - the same envelope
+                // BuildPitRampSurface paves), for both AI and the player. A car
+                // that runs out of zone without ever getting onto the ramp misses
+                // the stop cleanly and retries at the next pit window - it is never
+                // teleported/snapped sideways.
+                bool physicallyOnPitEntryRamp = Track.IsOnPitEntryRamp(currentProgress);
+                if (physicallyOnPitEntryRamp)
                 {
                     BeginPitEntry(participant);
+                }
+                else if (normalized > 0.952f)
+                {
+                    participant.missedPitEntryThisLap = true;
+                    participant.vehicle.ClearPitRequest();
+                    if (participant.isPlayer)
+                    {
+                        SessionMessage = "Pit entry missed. We'll box next lap.";
+                        PostEngineerMessage("Pit entry missed. We'll box next lap.", true);
+                    }
+                    else
+                    {
+                        GameLog.Warn("[PitLane] " + participant.driverName + " missed pit entry; retrying next lap.");
+                    }
                 }
                 else if (participant.isPlayer)
                 {
@@ -8413,6 +8470,8 @@ namespace LocalFormulaRacing
         {
             participant.pitPhase = PitPhase.Entry;
             participant.pitEntryAligned = false;
+            participant.pitEntryCommitted = true;
+            participant.missedPitEntryThisLap = false;
             participant.isPitting = true;
             participant.pitLimiterUntilExit = false;
             participant.pitAwaitingRelease = false;
@@ -8917,38 +8976,42 @@ namespace LocalFormulaRacing
         {
             TrackProgress currentProgress = GetPitAwareProgress(participant);
             float targetDistance = Track.WrapDistance(currentProgress.distance + PitExitMergeLookaheadMeters);
+            float targetNormalized = targetDistance / Mathf.Max(1f, Track.length);
 
-            // Distance-based merge fix: completion and the lateral blend both key
-            // off this car's own measured travel from its recorded release point
-            // toward the real ramp end, not a shared fixed normalized zone -
-            // a staggered release can start meaningfully closer to (or past) that
-            // fixed zone depending on track length/stagger slot, which used to let
-            // the normalized-only check think the merge was already over.
-            float traveled = WrappedForwardDistance(participant.pitExitMergeStartDistance, currentProgress.distance);
-            float required = WrappedForwardDistance(participant.pitExitMergeStartDistance, participant.pitExitMergeEndDistance);
-            float t = Mathf.Clamp01(traveled / Mathf.Max(1f, required));
-
-            // Hold the pit-exit lane through the first 55% of the merge and only
-            // blend toward the outer track edge in the final stretch - blending
-            // inward starting immediately at release is exactly what let cars cut
-            // across the merge early.
-            float blendOut = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.55f, 1f, t));
-            float localHalfWidth = Track.HalfWidthAt(targetDistance);
-            float releaseLateral = Track.roadHalfWidth + 4.8f;
-            // The merge should settle onto the OUTER edge of the live track, not
-            // anywhere near the centerline/racing line - HalfWidth * 0.45 (the old
-            // target) dragged the car most of the way across the road well before
-            // the merge was actually finished.
-            float mergeEdgeLateral = Mathf.Max(localHalfWidth - 1.5f, localHalfWidth * 0.78f);
-            float targetLateral = Mathf.Lerp(releaseLateral, mergeEdgeLateral, blendOut);
+            // Pit-lane architecture fix: this used to guess its own lateral blend
+            // (releaseLateral/mergeEdgeLateral/blendOut) instead of reading the
+            // real, already-built exit-ramp surface (TrackManager.BuildPitRampSurface,
+            // via TrackRuntime.GetPitExitRampEnvelope) - guaranteed to disagree with
+            // the actual ramp/barrier geometry at the margins, which is exactly what
+            // put cars around/over/inside the pit barriers on exit. The ramp
+            // envelope already tapers gradually from the pit lane centerline to the
+            // live track edge as normalized progress advances through the zone, so
+            // simply sampling it at the rolling lookahead point reproduces that same
+            // taper with no second blend needed.
+            float rampLateral;
+            float rampHalfWidth;
+            Track.GetPitExitRampEnvelope(targetNormalized, targetDistance, out rampLateral, out rampHalfWidth);
 
             Vector3 waypoint;
             Quaternion waypointRotation;
-            AdvancePitGuideTarget(participant, targetDistance, targetLateral, PitExitMergePaceKph, out waypoint, out waypointRotation);
+            AdvancePitGuideTarget(participant, targetDistance, rampLateral, PitExitMergePaceKph, out waypoint, out waypointRotation);
             participant.vehicle.GuideToPitPose(waypoint, waypointRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed);
 
-            bool distanceComplete = traveled >= required + PitExitMergeCompletionBufferMeters;
-            if (!distanceComplete)
+            // Completion fix: distance-past-the-ramp-end alone used to be enough to
+            // finish the merge, even if the car was still laterally out on the ramp
+            // (e.g. a lagging guide chase) or the ramp envelope itself still
+            // considered it "on the ramp" at that exact point. Now requires all
+            // three: past the ramp end by the buffer, no longer physically on the
+            // exit ramp corridor, and laterally back within a sane distance of the
+            // live track edge - so the merge can never complete while the car is
+            // still visually/physically mid-ramp.
+            float traveled = WrappedForwardDistance(participant.pitExitMergeStartDistance, currentProgress.distance);
+            float required = WrappedForwardDistance(participant.pitExitMergeStartDistance, participant.pitExitMergeEndDistance);
+            bool pastRampEnd = traveled >= required + PitExitMergeCompletionBufferMeters;
+            bool noLongerOnExitRamp = !Track.IsOnPitExitRamp(currentProgress);
+            bool safeLateral = currentProgress.lateralDistance <= Track.HalfWidthAt(currentProgress.distance) + 1.5f;
+
+            if (!(pastRampEnd && noLongerOnExitRamp && safeLateral))
             {
                 return;
             }
@@ -8957,6 +9020,7 @@ namespace LocalFormulaRacing
             participant.pitPhase = PitPhase.None;
             participant.isPitting = false;
             participant.hasPitGuideState = false;
+            participant.pitEntryCommitted = false;
             // Post-merge AI-side hold (AiVehicleController): even though the
             // guided merge just delivered the car to a safe outer line, normal
             // racing-line/overtake/defend logic resuming instantly can still dive

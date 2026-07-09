@@ -79,6 +79,19 @@ namespace LocalFormulaRacing
         public bool isPitting;
         public PitPhase pitPhase;
         public bool pitEntryAligned;
+        // Pit-lane architecture fix: separates "the team wants to box"
+        // (vehicle.PitRequested) from "the car has physically moved onto the pit-
+        // entry ramp and may enter the guided pit sequence" (pitEntryCommitted).
+        // BeginPitEntry now only ever fires once the car is genuinely on the ramp
+        // (see Track.IsOnPitEntryRamp) - no more forced/fake commits from the
+        // racing surface. missedPitEntryThisLap records a car that ran out of
+        // entry-zone road without physically committing (never teleported into
+        // the pits - it just stays out and retries at the next pit window).
+        // pitRequestLapNumber is the display-lap the request was raised on, kept
+        // for diagnostics/future strategy logic.
+        public bool pitEntryCommitted;
+        public bool missedPitEntryThisLap;
+        public int pitRequestLapNumber = -1;
         // Unique pit box slot assigned at spawn; cars are guided to their own box
         // instead of one shared service pose.
         public int pitBoxIndex;

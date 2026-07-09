@@ -746,19 +746,44 @@ namespace LocalFormulaRacing
 
             // Pit-entry fix: steer visibly toward the pit side under completely
             // normal driving well before the guided/kinematic entry phase can
-            // ever trigger (RaceManager.BeginPitEntry, gated on track distance
-            // alone) - without this the car drove the ordinary racing line
-            // right up to that distance threshold and the guided system then
-            // had to silently snap it sideways, reading exactly like "the pit
-            // animation starts before the car is anywhere near pit entry".
-            // Blended in only across the approach window and only while a pit
-            // stop is actually requested and not yet underway, so a car simply
-            // passing the pit entry on a normal lap never gets pulled off-line.
-            if (participant.pitPhase == PitPhase.None && vehicle.PitRequested && track.IsInPitApproach(progress.normalized))
+            // ever trigger (RaceManager.BeginPitEntry now requires the car to be
+            // physically on the built pit-entry ramp - see Track.IsOnPitEntryRamp)
+            // - without this the car drove the ordinary racing line right up to
+            // that distance threshold and the guided system then had to silently
+            // snap it sideways, reading exactly like "the pit animation starts
+            // before the car is anywhere near pit entry". Blended in only across
+            // the approach window and only while a pit stop is actually requested
+            // and not yet underway, so a car simply passing the pit entry on a
+            // normal lap never gets pulled off-line.
+            //
+            // Pit-lane architecture fix: the target used to be HalfWidthAt * 0.82,
+            // which is still INSIDE the racing surface - the AI never actually,
+            // visibly left the track before the guided system took over. Now aims
+            // just past the true track edge (Track.PitEntryApproachLateral, the
+            // same envelope BuildPitRampSurface paves), and once deep enough into
+            // the entry zone to physically commit, blends further in toward the
+            // real ramp's own centerline (Track.PitEntryPathLateral) instead of a
+            // fixed approach target - so the car visibly drives onto the actual
+            // ramp, not just "somewhere off to the right".
+            // Item 11: single flag for "actively steering off the racing surface
+            // toward the pit entry right now" - reused below to (a) bypass the
+            // normal legal-line/edge-recovery logic, which exists to keep the car
+            // ON the racing surface and would otherwise fight this steering the
+            // instant it crosses the true track edge, and (b) suppress
+            // overtake/defend/mistake-steer commitment while committing to the box.
+            bool committingToPit = participant.pitPhase == PitPhase.None && vehicle.PitRequested && track.IsInPitApproach(progress.normalized);
+            if (committingToPit)
             {
                 float approachBlend = Mathf.Clamp01((progress.normalized - 0.78f) / (0.955f - 0.78f));
-                float pitApproachTargetLateral = track.HalfWidthAt(progress.distance) * 0.82f;
+                float pitApproachTargetLateral = track.PitEntryApproachLateral(progress.distance);
                 requestedOffset = Mathf.Lerp(requestedOffset, pitApproachTargetLateral, approachBlend * approachBlend);
+
+                if (track.IsInPitEntryZone(progress.normalized))
+                {
+                    float lateEntryBlend = Mathf.Clamp01((progress.normalized - 0.865f) / (0.955f - 0.865f));
+                    float finalEntryLateral = track.PitEntryPathLateral(progress.distance);
+                    requestedOffset = Mathf.Lerp(requestedOffset, finalEntryLateral, lateEntryBlend * lateEntryBlend);
+                }
             }
 
             // Pit-exit early-turn fix: the guided PitPhase.ExitMerge itself
@@ -789,14 +814,22 @@ namespace LocalFormulaRacing
                 requestedOffset = Mathf.Lerp(requestedOffset, openingFanOffset, fanBlend * 0.85f);
             }
 
-            float desiredOffset = offTrack ? 0f : ConstrainLegalLineOffset(progress, requestedOffset, severityHere);
+            // Pit-lane architecture fix: the legal-line clamp exists to keep normal
+            // racing-line targeting on the drivable track surface - applying it here
+            // while committingToPit would clamp the new off-track pit-entry target
+            // straight back inside the racing surface, silently undoing the steering
+            // above and leaving the car never actually, visibly leaving the track.
+            float desiredOffset = offTrack ? 0f : (committingToPit ? requestedOffset : ConstrainLegalLineOffset(progress, requestedOffset, severityHere));
             targetPoint += right * desiredOffset;
             TrackProgress targetProgress = track.GetProgress(targetPoint);
-            float legalTargetLimit = LegalOffsetLimit(severityHere, progress.distance);
-            if (Mathf.Abs(targetProgress.lateralDistance) > legalTargetLimit)
+            if (!committingToPit)
             {
-                track.SampleAtDistance(targetProgress.distance, out targetPoint, out forward, out right);
-                targetPoint += right * Mathf.Clamp(targetProgress.lateralDistance, -legalTargetLimit, legalTargetLimit);
+                float legalTargetLimit = LegalOffsetLimit(severityHere, progress.distance);
+                if (Mathf.Abs(targetProgress.lateralDistance) > legalTargetLimit)
+                {
+                    track.SampleAtDistance(targetProgress.distance, out targetPoint, out forward, out right);
+                    targetPoint += right * Mathf.Clamp(targetProgress.lateralDistance, -legalTargetLimit, legalTargetLimit);
+                }
             }
 
             Vector3 toTarget = targetPoint - transform.position;
@@ -846,9 +879,14 @@ namespace LocalFormulaRacing
             // barriers before the correction had built up enough authority to pull
             // them back, so both the distance this starts reacting at and how hard
             // it reacts once triggered are raised across the board.
+            // Pit-lane architecture fix: this correction exists to pull a car back
+            // from the true track edge toward the racing surface - it must be off
+            // while committingToPit, or it would fight the pit-entry steering above
+            // the moment the car's actual position crosses the edge (which is the
+            // whole point of physically driving onto the entry ramp).
             float edgeMarginDistance = Mathf.Lerp(5.5f, 11f, Mathf.Clamp01(speedKph / 340f));
             float edgeMargin = track.HalfWidthAt(progress.distance) - edgeMarginDistance;
-            float edgeOvershoot = Mathf.Abs(progress.lateralDistance) - edgeMargin;
+            float edgeOvershoot = !committingToPit ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
             float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);
             float edgeRecovery = edgeOvershoot > 0f
                 ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.42f, 1.15f, edgeProximity)
@@ -1051,11 +1089,16 @@ namespace LocalFormulaRacing
                 command.pitRequest = true;
             }
 
-            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
-                participant.pitStops == 0 &&
-                participant.lapTracker.CompletedLaps >= raceManager.RecommendedPitLap(participant))
+            // Off-by-one fix: used to compare raw CompletedLaps against
+            // RecommendedPitLap directly - CompletedLaps only reaches a given
+            // number once that lap is already fully finished, so a target of lap 3
+            // fired the request only after lap 3 was done (i.e. already on lap 4).
+            // ShouldAiPitByStrategyLap does the same display-lap (+1) comparison
+            // the player's own auto-pit path already used, in one shared place.
+            if (raceManager.ShouldAiPitByStrategyLap(participant))
             {
                 command.pitRequest = true;
+                participant.pitRequestLapNumber = participant.lapTracker.CompletedLaps + 1;
             }
 
             // Safety car pit window (Part 6): an additional OR-condition alongside the

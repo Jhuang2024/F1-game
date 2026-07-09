@@ -505,6 +505,129 @@ namespace LocalFormulaRacing
             return !IsInPitExitMergeZone(normalizedProgress);
         }
 
+        // ---------- pit ramp envelope (single source of truth) ----------
+        // Pit-lane architecture fix: TrackManager.BuildPitRampSurface builds the
+        // actual physical entry/exit ramp geometry, but RaceManager and
+        // AiVehicleController used to each guess their own separate lateral math
+        // for where the ramp "is" - guaranteed to disagree with the real surface
+        // and with each other at the margins, which is exactly what put cars
+        // around/over/inside pit barriers and made AI look like it was snapping
+        // sideways out of nowhere. These constants/methods are now the ONE place
+        // that math lives; TrackManager's own private PitZoneEntryRampStart/End,
+        // PitZoneExitRampStart/End and PitRampNearTrackLateral/PitRampNarrowWidth/
+        // PitRampFullWidth alias these exact values instead of inventing copies,
+        // and BuildPitRampSurface itself now calls GetPitEntryRampEnvelope/
+        // GetPitExitRampEnvelope rather than duplicating the taper math inline -
+        // so the built collision/visual surface and every path-following consumer
+        // (RaceManager's guided pit phases, AiVehicleController's approach
+        // steering) are reading from the exact same function.
+        public const float PitEntryRampStartNormalized = 0.85f;
+        public const float PitExitRampStartNormalized = 0.995f;
+        public const float PitRampNearTrackLateral = 1.6f;
+        public const float PitRampNarrowWidth = 6f;
+        public const float PitRampFullWidth = 13.5f;
+
+        // Entry ramp: tapers from the live track edge (HalfWidthAt + PitRampNearTrackLateral)
+        // at PitEntryRampStartNormalized to the pit lane's own centerline/width at
+        // PitCorridorStartNormalized. InverseLerp clamps, so a normalized value past
+        // PitCorridorStartNormalized (i.e. already in the flat corridor) correctly
+        // and gracefully flattens to exactly the pit lane's own centerline/width
+        // rather than needing a separate branch for "past the ramp".
+        public void GetPitEntryRampEnvelope(float normalized, float distance, out float lateral, out float halfWidth)
+        {
+            float trackEdgeLateral = HalfWidthAt(distance) + PitRampNearTrackLateral;
+            float t = Mathf.InverseLerp(PitEntryRampStartNormalized, PitCorridorStartNormalized, normalized);
+            lateral = Mathf.Lerp(trackEdgeLateral, PitLaneLateral, t);
+            halfWidth = Mathf.Lerp(PitRampNarrowWidth, PitRampFullWidth, t) * 0.5f;
+        }
+
+        // Exit ramp: tapers from the pit lane's own centerline/width at
+        // PitExitRampStartNormalized back out to the live track edge by
+        // PitExitRampEndNormalized, wrapping through the start/finish line.
+        public void GetPitExitRampEnvelope(float normalized, float distance, out float lateral, out float halfWidth)
+        {
+            float trackEdgeLateral = HalfWidthAt(distance) + PitRampNearTrackLateral;
+            float wrapTotal = (1f - PitExitRampStartNormalized) + PitExitRampEndNormalized;
+            float wrapped = normalized > PitExitRampStartNormalized ? normalized - PitExitRampStartNormalized : (1f - PitExitRampStartNormalized) + normalized;
+            float exitT = wrapTotal <= 0.0001f ? 0f : Mathf.Clamp01(wrapped / wrapTotal);
+            lateral = Mathf.Lerp(PitLaneLateral, trackEdgeLateral, exitT);
+            halfWidth = Mathf.Lerp(PitRampFullWidth, PitRampNarrowWidth, exitT) * 0.5f;
+        }
+
+        public void SamplePitEntryRampPose(float distance, out Vector3 position, out Quaternion rotation)
+        {
+            float wrapped = WrapDistance(distance);
+            float normalized = wrapped / Mathf.Max(1f, length);
+            float lateral;
+            float halfWidth;
+            GetPitEntryRampEnvelope(normalized, wrapped, out lateral, out halfWidth);
+            SamplePitLanePose(wrapped, lateral, out position, out rotation);
+        }
+
+        public void SamplePitExitRampPose(float distance, out Vector3 position, out Quaternion rotation)
+        {
+            float wrapped = WrapDistance(distance);
+            float normalized = wrapped / Mathf.Max(1f, length);
+            float lateral;
+            float halfWidth;
+            GetPitExitRampEnvelope(normalized, wrapped, out lateral, out halfWidth);
+            SamplePitLanePose(wrapped, lateral, out position, out rotation);
+        }
+
+        // Broader "is this car on the pit-entry side" test (gated on the wider
+        // IsInPitEntryZone commit window, not just the narrow physical taper) -
+        // used to decide whether a car has genuinely, physically committed to the
+        // pit lane before any guided pit sequence is allowed to begin. A car still
+        // out on the racing line reads as false even while inside the zone's
+        // normalized span.
+        public bool IsOnPitEntryRamp(TrackProgress progress)
+        {
+            if (!IsInPitEntryZone(progress.normalized))
+            {
+                return false;
+            }
+
+            float rampCenter;
+            float rampHalfWidth;
+            GetPitEntryRampEnvelope(progress.normalized, progress.distance, out rampCenter, out rampHalfWidth);
+            return Mathf.Abs(progress.lateralDistance - rampCenter) <= rampHalfWidth * 0.65f;
+        }
+
+        public bool IsOnPitExitRamp(TrackProgress progress)
+        {
+            if (!IsInPitExitMergeZone(progress.normalized))
+            {
+                return false;
+            }
+
+            float rampCenter;
+            float rampHalfWidth;
+            GetPitExitRampEnvelope(progress.normalized, progress.distance, out rampCenter, out rampHalfWidth);
+            return Mathf.Abs(progress.lateralDistance - rampCenter) <= rampHalfWidth * 0.65f;
+        }
+
+        // Where the AI/player should aim while still on the racing surface,
+        // approaching the pit entry - just outside the live track edge, not a
+        // fraction of the track's own half-width (which is still inside the
+        // racing surface and never actually visibly leaves the racing line).
+        public float PitEntryApproachLateral(float distance)
+        {
+            return HalfWidthAt(distance) + PitRampNearTrackLateral;
+        }
+
+        // Where the real entry ramp's centerline actually is right now, for the
+        // final steer-in blend once a car is deep enough into the entry zone to
+        // aim at the ramp itself rather than just "off to the pit side".
+        public float PitEntryPathLateral(float distance)
+        {
+            float wrapped = WrapDistance(distance);
+            float normalized = wrapped / Mathf.Max(1f, length);
+            float lateral;
+            float halfWidth;
+            GetPitEntryRampEnvelope(normalized, wrapped, out lateral, out halfWidth);
+            return lateral;
+        }
+
         // ---------- hairpin widening ----------
         // Single shared width source so hairpins are physically wider - AI cars were
         // clipping barriers/each other in tight corners because every consumer (road
@@ -841,23 +964,33 @@ namespace LocalFormulaRacing
             rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
 
+        // Pit-lane architecture fix: this used to place the entry pose at a flat
+        // roadHalfWidth + 5.6 offset, which drifts wrong on any track with a
+        // widened road at this exact distance (HalfWidthAt != roadHalfWidth) and
+        // could disagree with the actual built ramp surface entirely. At
+        // PitCorridorStartNormalized the real ramp envelope has already tapered
+        // fully to the pit lane's own centerline (GetPitEntryRampEnvelope returns
+        // exactly PitLaneLateral there), so this now just samples that real
+        // surface directly instead of guessing a separate lateral.
         public void GetPitEntryPose(out Vector3 position, out Quaternion rotation)
         {
-            Vector3 point;
-            Vector3 forward;
-            Vector3 right;
-            SampleAtDistance(length * PitCorridorStartNormalized, out point, out forward, out right);
-            position = point + right * (roadHalfWidth + 5.6f) + Vector3.up * 0.58f;
-            rotation = Quaternion.LookRotation(forward, Vector3.up);
+            SamplePitEntryRampPose(length * PitCorridorStartNormalized, out position, out rotation);
         }
 
         public void GetPitReleasePose(int staggerSlot, out Vector3 position, out Quaternion rotation)
         {
+            // Pit-lane architecture fix: release (PitReleaseNormalized, 0.992) is
+            // still inside the flat pit corridor - the exit ramp itself doesn't
+            // start narrowing until PitExitRampStartNormalized (0.995). The old
+            // roadHalfWidth + 4.8 offset placed release in an arbitrary strip that
+            // could sit inside or outside the real pit lane surface depending on
+            // road width at that point; PitLaneLateral is the corridor's own actual
+            // centerline, guaranteed to match the built surface everywhere.
             Vector3 point;
             Vector3 forward;
             Vector3 right;
-            SampleAtDistance(length * 0.992f - Mathf.Max(0, staggerSlot) * 7.5f, out point, out forward, out right);
-            position = point + right * (roadHalfWidth + 4.8f) + Vector3.up * 0.62f;
+            SampleAtDistance(length * PitReleaseNormalized - Mathf.Max(0, staggerSlot) * 7.5f, out point, out forward, out right);
+            position = point + right * PitLaneLateral + Vector3.up * 0.62f;
             rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
 
@@ -3910,9 +4043,14 @@ namespace LocalFormulaRacing
         // positive offset), so only the right side needs to fan the main barrier out
         // into a dedicated pit-complex wall. Smooth ramps at the entry and exit keep
         // that fan-out from ever opening a gap of its own at the transition.
-        const float PitZoneEntryRampStart = 0.85f;
+        // Pit-lane architecture fix: aliases over TrackRuntime's own public
+        // versions of these exact same boundaries (GetPitEntryRampEnvelope/
+        // GetPitExitRampEnvelope use the identical values) - a single canonical
+        // source shared with RaceManager and AiVehicleController instead of each
+        // class inventing its own copy that can drift out of sync.
+        const float PitZoneEntryRampStart = TrackRuntime.PitEntryRampStartNormalized;
         const float PitZoneEntryRampEnd = TrackRuntime.PitCorridorStartNormalized;
-        const float PitZoneExitRampStart = 0.995f;
+        const float PitZoneExitRampStart = TrackRuntime.PitExitRampStartNormalized;
         const float PitZoneExitRampEnd = TrackRuntime.PitExitRampEndNormalized;
 
         float PitZoneBlend(float normalized)
@@ -4204,26 +4342,22 @@ namespace LocalFormulaRacing
             }
         }
 
-        // Same widening/narrowing taper BuildPitRampSurface uses to pave the ramp
-        // itself, so the guide wall's outer face always tracks the ramp's own real
-        // near edge instead of a fixed corridor distance that would either float off
-        // the ramp (too far out) or cut into its drivable surface (too far in).
+        // Pit-lane architecture fix: delegates to TrackRuntime's own
+        // GetPitEntryRampEnvelope/GetPitExitRampEnvelope (the single canonical
+        // ramp-taper math, also used directly by RaceManager/AiVehicleController)
+        // instead of duplicating the same lerp/InverseLerp logic a second time in
+        // TrackManager. Every caller here (guide-wall placement, the pit-outer-
+        // barrier floor) now reads from exactly the same surface the AI/player
+        // physically drive on.
         void PitRampEnvelopeAt(float normalized, float distance, out float lateral, out float halfWidth)
         {
-            float trackEdgeLateral = Runtime.HalfWidthAt(distance) + PitRampNearTrackLateral;
             if (normalized >= PitZoneEntryRampStart && normalized < PitZoneEntryRampEnd)
             {
-                float t = Mathf.InverseLerp(PitZoneEntryRampStart, PitZoneEntryRampEnd, normalized);
-                lateral = Mathf.Lerp(trackEdgeLateral, Runtime.PitLaneLateral, t);
-                halfWidth = Mathf.Lerp(PitRampNarrowWidth, PitRampFullWidth, t) * 0.5f;
+                Runtime.GetPitEntryRampEnvelope(normalized, distance, out lateral, out halfWidth);
                 return;
             }
 
-            float wrapTotal = (1f - PitZoneExitRampStart) + PitZoneExitRampEnd;
-            float wrapped = normalized > PitZoneExitRampStart ? normalized - PitZoneExitRampStart : (1f - PitZoneExitRampStart) + normalized;
-            float exitT = wrapTotal <= 0.0001f ? 0f : Mathf.Clamp01(wrapped / wrapTotal);
-            lateral = Mathf.Lerp(Runtime.PitLaneLateral, trackEdgeLateral, exitT);
-            halfWidth = Mathf.Lerp(PitRampFullWidth, PitRampNarrowWidth, exitT) * 0.5f;
+            Runtime.GetPitExitRampEnvelope(normalized, distance, out lateral, out halfWidth);
         }
 
         void CreatePitRampGuideSegment(float distance, float step, float segmentLength)
@@ -6399,13 +6533,11 @@ namespace LocalFormulaRacing
         // costs nothing at runtime (it's still just a flat, unseen-underside slab)
         // and removes the seam entirely rather than merely shrinking it.
         const float PitRampSurfaceOverlap = 5f;
-        // Where a car first commits off the racing line toward the pits / first
-        // rejoins the racing line after the pits - just past the true track edge,
-        // not the track edge itself, so the merge surface always overlaps the
-        // main track surface rather than butting a seam exactly on it.
-        const float PitRampNearTrackLateral = 1.6f;
-        const float PitRampNarrowWidth = 6f;
-        const float PitRampFullWidth = 13.5f;
+        // Pit-lane architecture fix: aliases over TrackRuntime's own canonical
+        // versions (see PitZoneEntryRampStart/End above for the same reasoning).
+        const float PitRampNearTrackLateral = TrackRuntime.PitRampNearTrackLateral;
+        const float PitRampNarrowWidth = TrackRuntime.PitRampNarrowWidth;
+        const float PitRampFullWidth = TrackRuntime.PitRampFullWidth;
 
         // Continuous, curve-following, laterally-tapering paved surface covering the
         // whole entry and exit merge lanes - from the exact point on the true track
@@ -6444,24 +6576,37 @@ namespace LocalFormulaRacing
             {
                 float segStep = Mathf.Min(PitRampSurfaceStep, span - d);
                 float distance = Runtime.WrapDistance(startDistance + d);
-                float t = span <= 0.01f ? (inbound ? 1f : 0f) : Mathf.Clamp01((d + segStep * 0.5f) / span);
 
                 Vector3 point;
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(distance + segStep * 0.5f, out point, out forward, out right);
 
-                // Consistency/gap fix: the main road mesh (BuildRoadMesh) and this same
-                // ramp's own guide fence (PitRampEnvelopeAt, built this session) both key
-                // off Runtime.HalfWidthAt here, not the flat roadHalfWidth - matching that
-                // keeps this surface's overlap margin against the TRUE track edge constant
-                // even where a hairpin's widening bonus happens to reach into a pit entry/
-                // exit ramp, instead of that margin shrinking as the bonus grows (worst
-                // case with the old flat roadHalfWidth: as little as ~0.1m left on the
-                // outer edge of the taper at the maximum hairpin bonus).
-                float trackEdgeLateral = Runtime.HalfWidthAt(distance + segStep * 0.5f) + PitRampNearTrackLateral;
-                float lateral = inbound ? Mathf.Lerp(trackEdgeLateral, Runtime.PitLaneLateral, t) : Mathf.Lerp(Runtime.PitLaneLateral, trackEdgeLateral, t);
-                float width = inbound ? Mathf.Lerp(PitRampNarrowWidth, PitRampFullWidth, t) : Mathf.Lerp(PitRampFullWidth, PitRampNarrowWidth, t);
+                // Pit-lane architecture fix: this used to recompute the same
+                // trackEdgeLateral/lateral/width taper inline, a second
+                // implementation of the exact math GetPitEntryRampEnvelope/
+                // GetPitExitRampEnvelope already provide (mathematically the same
+                // ratio, just derived via distance-fraction-of-span here instead of
+                // InverseLerp over the normalized zone bounds there) - two
+                // implementations of "the same line" is exactly how the physical
+                // surface and the path-following consumers (RaceManager,
+                // AiVehicleController) could end up disagreeing. Now calls the one
+                // canonical method directly, so the surface actually built here and
+                // the path every guided/steering system targets are the same call.
+                float midDistance = Runtime.WrapDistance(distance + segStep * 0.5f);
+                float midNormalized = midDistance / Mathf.Max(1f, length);
+                float lateral;
+                float halfWidth;
+                if (inbound)
+                {
+                    Runtime.GetPitEntryRampEnvelope(midNormalized, midDistance, out lateral, out halfWidth);
+                }
+                else
+                {
+                    Runtime.GetPitExitRampEnvelope(midNormalized, midDistance, out lateral, out halfWidth);
+                }
+
+                float width = halfWidth * 2f;
 
                 CreateCollidablePitSurface(label, point + right * lateral + Vector3.up * 0.012f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(width, 0.16f, segStep + PitRampSurfaceOverlap), pitMaterial);
             }
