@@ -810,7 +810,11 @@ namespace LocalFormulaRacing
                 // deploy now costs noticeably less battery per second again, so a
                 // deploy lasts even longer before the car is forced back to
                 // harvesting.
-                ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
+                // Deployment-rate rebalance: the boost's own power output is cut 20%
+                // (was 19-30) to offset the faster non-braking regen below - ERS now
+                // charges quicker away from braking zones but pushes less power out
+                // per deploy, rather than both getting stronger at once.
+                ersBoost = Mathf.Lerp(15.2f, 24f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
                 ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0446f, 0.063f, activeCommand.throttle));
             }
 
@@ -827,9 +831,10 @@ namespace LocalFormulaRacing
             // outside a genuine braking zone (which keeps its own separately-tuned
             // rate above, untouched here), so the battery fills faster through the
             // rest of a lap without changing how fast a braking zone itself charges.
+            // Round 4: raised a further 20% on top of that (was 0.13-0.288).
             else if (activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.13f, 0.288f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.156f, 0.346f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ErsDeploying)
@@ -842,7 +847,10 @@ namespace LocalFormulaRacing
                 // than either the braking or coasting rate above (roughly 1/20th of
                 // the braking rate, well under half the coasting rate) so it reads as
                 // a slow background trickle, not a third harvesting mode.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0408f, 0.0864f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                // Round 4: raised a further 20% on top of the round-3 rate (was
+                // 0.0408-0.0864), same non-braking-only regen buff as the coasting
+                // rate above.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.049f, 0.104f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 

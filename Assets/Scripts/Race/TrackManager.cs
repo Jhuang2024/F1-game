@@ -21,8 +21,8 @@ namespace LocalFormulaRacing
         public List<Vector3> centerLine = new List<Vector3>();
         public List<float> cumulativeDistances = new List<float>();
         public float length;
-        public float roadHalfWidth = 11.25f;
-        public float kerbStart = 10.25f;
+        public float roadHalfWidth = 6.19f;
+        public float kerbStart = 5.64f;
         public Vector2 drsZoneOne = new Vector2(0.13f, 0.29f);
         public Vector2 drsZoneTwo = new Vector2(0.64f, 0.82f);
         // DRS fix: detection points, a short distance before each zone's own start
@@ -1503,8 +1503,8 @@ namespace LocalFormulaRacing
                 // Matches BuildBahrainLayout's own (rebalanced) values - this default
                 // is only ever a fallback, always immediately overwritten once the
                 // matching Build*Layout method runs.
-                roadHalfWidth = 20.94f,
-                kerbStart = 12.35f,
+                roadHalfWidth = 11.52f,
+                kerbStart = 6.79f,
                 weather = DetermineWeather(eventData == null ? "clear_hot" : eventData.weatherProfile)
             };
 
@@ -1817,8 +1817,8 @@ namespace LocalFormulaRacing
         void BuildBahrainLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Desert power braking";
-            runtime.roadHalfWidth = 20.94f;
-            runtime.kerbStart = 12.35f;
+            runtime.roadHalfWidth = 11.52f;
+            runtime.kerbStart = 6.79f;
             runtime.drsZoneOne = new Vector2(0.91f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.57f);
             AddSmoothedAnchors(runtime, new[]
@@ -1835,8 +1835,8 @@ namespace LocalFormulaRacing
         void BuildJeddahLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Fast coastal street";
-            runtime.roadHalfWidth = 20.0f;
-            runtime.kerbStart = 11.73f;
+            runtime.roadHalfWidth = 11.0f;
+            runtime.kerbStart = 6.45f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.56f, 0.73f);
             AddSmoothedAnchors(runtime, new[]
@@ -1852,8 +1852,8 @@ namespace LocalFormulaRacing
         void BuildMonacoLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Tight harbour street";
-            runtime.roadHalfWidth = 16.88f;
-            runtime.kerbStart = 9.85f;
+            runtime.roadHalfWidth = 9.28f;
+            runtime.kerbStart = 5.42f;
             runtime.drsZoneOne = new Vector2(0.87f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.46f, 0.58f);
             AddSmoothedAnchors(runtime, new[]
@@ -1873,8 +1873,8 @@ namespace LocalFormulaRacing
             // figure-eight anchors spanned ~3km, self-intersected at ground level, and broke
             // progress tracking, AI navigation, and object budgets.
             runtime.styleName = "Technical esses Park";
-            runtime.roadHalfWidth = 20.62f;
-            runtime.kerbStart = 12.02f;
+            runtime.roadHalfWidth = 11.34f;
+            runtime.kerbStart = 6.61f;
             runtime.drsZoneOne = new Vector2(0.9f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.5f, 0.63f);
             AddSmoothedAnchors(runtime, new[]
@@ -1897,8 +1897,8 @@ namespace LocalFormulaRacing
         void BuildSilverstoneLayout(TrackRuntime runtime)
         {
             runtime.styleName = "High-speed airfield";
-            runtime.roadHalfWidth = 24.06f;
-            runtime.kerbStart = 14.06f;
+            runtime.roadHalfWidth = 13.23f;
+            runtime.kerbStart = 7.73f;
             runtime.drsZoneOne = new Vector2(0.89f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.64f);
             AddSmoothedAnchors(runtime, new[]
@@ -1915,8 +1915,8 @@ namespace LocalFormulaRacing
         void BuildMonzaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Low-downforce park";
-            runtime.roadHalfWidth = 24.22f;
-            runtime.kerbStart = 14.23f;
+            runtime.roadHalfWidth = 13.32f;
+            runtime.kerbStart = 7.83f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.44f, 0.62f);
             AddSmoothedAnchors(runtime, new[]
@@ -1933,8 +1933,8 @@ namespace LocalFormulaRacing
         void BuildSpaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Long Ardennes elevation";
-            runtime.roadHalfWidth = 23.12f;
-            runtime.kerbStart = 13.6f;
+            runtime.roadHalfWidth = 12.72f;
+            runtime.kerbStart = 7.48f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.18f, 0.36f);
             AddSmoothedAnchors(runtime, new[]
@@ -1951,8 +1951,8 @@ namespace LocalFormulaRacing
         void BuildSingaporeLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Night street ninety";
-            runtime.roadHalfWidth = 17.5f;
-            runtime.kerbStart = 10.31f;
+            runtime.roadHalfWidth = 9.62f;
+            runtime.kerbStart = 5.67f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.55f, 0.69f);
             AddSmoothedAnchors(runtime, new[]
@@ -1968,8 +1968,8 @@ namespace LocalFormulaRacing
         void BuildMelbourneLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Park circuit";
-            runtime.roadHalfWidth = 23.44f;
-            runtime.kerbStart = 13.75f;
+            runtime.roadHalfWidth = 12.89f;
+            runtime.kerbStart = 7.56f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.52f, 0.69f);
             // Hairpin-pinch fix: anchor 14 used to sit at z=6, almost exactly level
@@ -2001,8 +2001,8 @@ namespace LocalFormulaRacing
         void BuildInterlagosLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Short flowing hillside";
-            runtime.roadHalfWidth = 20.31f;
-            runtime.kerbStart = 11.88f;
+            runtime.roadHalfWidth = 11.17f;
+            runtime.kerbStart = 6.53f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.62f, 0.79f);
             AddSmoothedAnchors(runtime, new[]
@@ -2018,8 +2018,8 @@ namespace LocalFormulaRacing
         void BuildAbuDhabiLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Twilight finale";
-            runtime.roadHalfWidth = 22.19f;
-            runtime.kerbStart = 12.98f;
+            runtime.roadHalfWidth = 12.2f;
+            runtime.kerbStart = 7.14f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.34f, 0.53f);
             AddSmoothedAnchors(runtime, new[]
@@ -2035,8 +2035,8 @@ namespace LocalFormulaRacing
         void BuildChinaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Technical snail and back straight";
-            runtime.roadHalfWidth = 22.81f;
-            runtime.kerbStart = 13.44f;
+            runtime.roadHalfWidth = 12.55f;
+            runtime.kerbStart = 7.39f;
             runtime.drsZoneOne = new Vector2(0.83f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.58f);
             AddSmoothedAnchors(runtime, new[]
@@ -2053,8 +2053,8 @@ namespace LocalFormulaRacing
         void BuildMiamiLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Stadium street rhythm";
-            runtime.roadHalfWidth = 19.69f;
-            runtime.kerbStart = 11.56f;
+            runtime.roadHalfWidth = 10.83f;
+            runtime.kerbStart = 6.36f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.64f);
             AddSmoothedAnchors(runtime, new[]
@@ -2071,8 +2071,8 @@ namespace LocalFormulaRacing
         void BuildCanadaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Stop-go island";
-            runtime.roadHalfWidth = 20.0f;
-            runtime.kerbStart = 11.73f;
+            runtime.roadHalfWidth = 11.0f;
+            runtime.kerbStart = 6.45f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.09f);
             runtime.drsZoneTwo = new Vector2(0.56f, 0.72f);
             AddSmoothedAnchors(runtime, new[]
@@ -2089,8 +2089,8 @@ namespace LocalFormulaRacing
         void BuildBarcelonaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Flowing test track";
-            runtime.roadHalfWidth = 22.5f;
-            runtime.kerbStart = 13.12f;
+            runtime.roadHalfWidth = 12.38f;
+            runtime.kerbStart = 7.22f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.5f, 0.65f);
             AddSmoothedAnchors(runtime, new[]
@@ -2107,8 +2107,8 @@ namespace LocalFormulaRacing
         void BuildAustriaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Short alpine power";
-            runtime.roadHalfWidth = 21.88f;
-            runtime.kerbStart = 12.81f;
+            runtime.roadHalfWidth = 12.03f;
+            runtime.kerbStart = 7.05f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.18f, 0.36f);
             AddSmoothedAnchors(runtime, new[]
@@ -2124,8 +2124,8 @@ namespace LocalFormulaRacing
         void BuildHungaryLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Twisty technical bowl";
-            runtime.roadHalfWidth = 19.69f;
-            runtime.kerbStart = 11.56f;
+            runtime.roadHalfWidth = 10.83f;
+            runtime.kerbStart = 6.36f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.34f, 0.45f);
             AddSmoothedAnchors(runtime, new[]
@@ -2142,8 +2142,8 @@ namespace LocalFormulaRacing
         void BuildZandvoortLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Coastal banked flow";
-            runtime.roadHalfWidth = 19.52f;
-            runtime.kerbStart = 11.4f;
+            runtime.roadHalfWidth = 10.74f;
+            runtime.kerbStart = 6.27f;
             runtime.drsZoneOne = new Vector2(0.87f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.54f, 0.68f);
             AddSmoothedAnchors(runtime, new[]
@@ -2159,8 +2159,8 @@ namespace LocalFormulaRacing
         void BuildMadridLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Hybrid street exhibition";
-            runtime.roadHalfWidth = 18.75f;
-            runtime.kerbStart = 10.94f;
+            runtime.roadHalfWidth = 10.31f;
+            runtime.kerbStart = 6.02f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.46f, 0.62f);
             AddSmoothedAnchors(runtime, new[]
@@ -2177,8 +2177,8 @@ namespace LocalFormulaRacing
         void BuildBakuLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Castle straight street";
-            runtime.roadHalfWidth = 19.38f;
-            runtime.kerbStart = 11.4f;
+            runtime.roadHalfWidth = 10.66f;
+            runtime.kerbStart = 6.27f;
             runtime.drsZoneOne = new Vector2(0.78f, 0.1f);
             runtime.drsZoneTwo = new Vector2(0.52f, 0.67f);
             AddSmoothedAnchors(runtime, new[]
@@ -2195,8 +2195,8 @@ namespace LocalFormulaRacing
         void BuildAustinLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Rollercoaster esses";
-            runtime.roadHalfWidth = 22.81f;
-            runtime.kerbStart = 13.44f;
+            runtime.roadHalfWidth = 12.55f;
+            runtime.kerbStart = 7.39f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.38f, 0.56f);
             AddSmoothedAnchors(runtime, new[]
@@ -2213,8 +2213,8 @@ namespace LocalFormulaRacing
         void BuildMexicoLayout(TrackRuntime runtime)
         {
             runtime.styleName = "High-altitude stadium";
-            runtime.roadHalfWidth = 22.19f;
-            runtime.kerbStart = 12.98f;
+            runtime.roadHalfWidth = 12.2f;
+            runtime.kerbStart = 7.14f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.09f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.63f);
             AddSmoothedAnchors(runtime, new[]
@@ -2231,8 +2231,8 @@ namespace LocalFormulaRacing
         void BuildLasVegasLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Neon strip street";
-            runtime.roadHalfWidth = 20.31f;
-            runtime.kerbStart = 11.88f;
+            runtime.roadHalfWidth = 11.17f;
+            runtime.kerbStart = 6.53f;
             runtime.drsZoneOne = new Vector2(0.74f, 0.13f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.58f);
             AddSmoothedAnchors(runtime, new[]
@@ -2249,8 +2249,8 @@ namespace LocalFormulaRacing
         void BuildQatarLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Desert high-speed flow";
-            runtime.roadHalfWidth = 23.44f;
-            runtime.kerbStart = 13.75f;
+            runtime.roadHalfWidth = 12.89f;
+            runtime.kerbStart = 7.56f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.55f, 0.72f);
             AddSmoothedAnchors(runtime, new[]
@@ -2310,14 +2310,18 @@ namespace LocalFormulaRacing
             // widen to match or the wider tracks get silently clamped straight back
             // down to the old ceiling, undoing the width increase. Round 2: widened
             // again to match the further 25% stack (widest circuits now ~24.2f).
-            if (runtime.roadHalfWidth < 11f || runtime.roadHalfWidth > 27f)
+            // Width-reduction pass: every per-track literal was then cut by 45%
+            // (down to ~9.3f-13.3f) - this clamp has to narrow back down to match, or
+            // the narrower tracks would get silently clamped back UP to the old
+            // ~11-27f range, undoing the width reduction entirely.
+            if (runtime.roadHalfWidth < 6f || runtime.roadHalfWidth > 15f)
             {
                 if (LastReport != null)
                 {
                     LastReport.Warn("road half width " + runtime.roadHalfWidth.ToString("0.0") + " out of range, clamping.");
                 }
 
-                runtime.roadHalfWidth = Mathf.Clamp(runtime.roadHalfWidth, 11f, 27f);
+                runtime.roadHalfWidth = Mathf.Clamp(runtime.roadHalfWidth, 6f, 15f);
             }
 
             if (runtime.kerbStart <= 0f || runtime.kerbStart >= runtime.roadHalfWidth)
