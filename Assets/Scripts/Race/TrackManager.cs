@@ -3833,6 +3833,17 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Final-corner barrier-mess fix: same reasoning as BuildPitRampGuideFences
+            // below - a tight/hairpin final corner can extend its IsNearCorner radius
+            // into this flat corridor too (PitCorridorStartNormalized sits only ~3.5%
+            // of a lap past the ramp start), and wherever it does,
+            // ComputeBarrierPlan's containment clamp already forces a real, catch-
+            // fenced main barrier through that stretch. Skip this separate divider
+            // wall there instead of stacking a second, independently-computed wall on
+            // top of it.
+            List<CornerInfo> highRiskCorners = DetectCorners(HighRiskCornerAngle);
+            List<CornerInfo> tightFenceCorners = DetectCorners(TightCornerFenceAngle);
+
             float startDistance = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
             float endDistance = Runtime.length * PitZoneExitRampStart;
             float span = endDistance - startDistance;
@@ -3844,6 +3855,14 @@ namespace LocalFormulaRacing
             for (float d = 0f; d < span; d += PitDividerStep)
             {
                 float distance = Runtime.WrapDistance(startDistance + d);
+                float sampleMidDistance = Runtime.WrapDistance(startDistance + d + PitDividerStep * 0.5f);
+                bool nearTightFenceCorner = IsNearCorner(sampleMidDistance, highRiskCorners, 45f) ||
+                    IsNearCorner(sampleMidDistance, tightFenceCorners, TightCornerFenceRadius);
+                if (nearTightFenceCorner)
+                {
+                    continue;
+                }
+
                 CreatePitDividerSegment(distance, PitDividerStep, PitDividerStep + PitDividerOverlap);
             }
         }
@@ -3918,11 +3937,33 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            BuildPitRampGuideFence(PitZoneEntryRampStart, PitZoneEntryRampEnd);
-            BuildPitRampGuideFence(PitZoneExitRampStart, PitZoneExitRampEnd);
+            // Final-corner barrier-mess fix: on every hand-authored circuit the pit
+            // zone's fixed normalized band always covers whatever corner sits right
+            // before the start/finish straight (see ComputeBarrierPlan's own
+            // "Corner-priority fix" comment) - so a genuinely tight/hairpin final
+            // corner almost always overlaps this ramp guide-fence pass too. When it
+            // does, ComputeBarrierPlan already forces the main outer edge barrier
+            // into containment mode there (Mathf.Max(baseLateral,
+            // PitMinimumOuterLateral(...)), with catchFence forced on) - a real,
+            // continuous wall already encloses that stretch. This second guide-fence
+            // pass is a separate, independently-stepped (10m box + 5m overlap, no
+            // SmoothBarrierLateralSequence pass) sequence that was never aware of
+            // that main barrier - right where the corner is tightest (curving
+            // fastest), its own fixed-length chorded boxes and the main barrier's
+            // much finer, corner-tightened chording (down to step*0.3 with 3x
+            // overlap) end up crowded on top of each other, exactly the "mess of
+            // overlapping barriers on the inside of the final corner" AI cars were
+            // getting physically wedged in. Skip the guide fence entirely wherever a
+            // tight-fence-grade corner already forces the main barrier into
+            // containment mode - it's redundant there, not just visually but
+            // physically.
+            List<CornerInfo> highRiskCorners = DetectCorners(HighRiskCornerAngle);
+            List<CornerInfo> tightFenceCorners = DetectCorners(TightCornerFenceAngle);
+            BuildPitRampGuideFence(PitZoneEntryRampStart, PitZoneEntryRampEnd, highRiskCorners, tightFenceCorners);
+            BuildPitRampGuideFence(PitZoneExitRampStart, PitZoneExitRampEnd, highRiskCorners, tightFenceCorners);
         }
 
-        void BuildPitRampGuideFence(float startNormalized, float endNormalized)
+        void BuildPitRampGuideFence(float startNormalized, float endNormalized, List<CornerInfo> highRiskCorners, List<CornerInfo> tightFenceCorners)
         {
             float length = Runtime.length;
             float startDistance = length * startNormalized;
@@ -3936,11 +3977,21 @@ namespace LocalFormulaRacing
             for (float d = 0f; d < span; d += PitDividerStep)
             {
                 float distance = Runtime.WrapDistance(startDistance + d);
-                float sampleNormalized = Runtime.WrapDistance(startDistance + d + PitDividerStep * 0.5f) / length;
+                float sampleMidDistance = Runtime.WrapDistance(startDistance + d + PitDividerStep * 0.5f);
+                float sampleNormalized = sampleMidDistance / length;
                 if (PitZoneBlend(sampleNormalized) < PitRampGuideFenceMinBlend)
                 {
                     // Still inside the genuine merge opening near the true entry/exit
                     // point - leave it open rather than forcing a wall into the gap.
+                    continue;
+                }
+
+                bool nearTightFenceCorner = IsNearCorner(sampleMidDistance, highRiskCorners, 45f) ||
+                    IsNearCorner(sampleMidDistance, tightFenceCorners, TightCornerFenceRadius);
+                if (nearTightFenceCorner)
+                {
+                    // The main edge barrier's own containment mode already walls this
+                    // stretch off - see the comment on BuildPitRampGuideFences above.
                     continue;
                 }
 
