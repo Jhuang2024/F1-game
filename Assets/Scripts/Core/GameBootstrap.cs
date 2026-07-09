@@ -193,6 +193,37 @@ namespace LocalFormulaRacing
                 RaceWeekendSession.Qualifying);
         }
 
+        // Playable practice programs: drives an actual free-running session
+        // instead of instantly awarding the reward - RaceManager.EvaluatePracticeSession
+        // scores it against programId's criteria once the player ends the
+        // session from the pause menu (see RuntimeUi.BuildPausePanel).
+        public void StartCareerPractice(string programId)
+        {
+            CalendarEventData raceEvent = career.CurrentEvent();
+            SimpleAudioManager.ApplySettings(settings.Current);
+            raceManager.StartSession(
+                data,
+                career,
+                settings,
+                ui,
+                raceEvent,
+                career.Save.playerDriverName,
+                career.Save.playerTeamId,
+                true,
+                RaceWeekendSession.Practice);
+            raceManager.ActivePracticeProgramId = programId;
+        }
+
+        // Called from the pause menu's "End Practice Session" button (only shown
+        // during a Practice session) - scores the session BEFORE tearing down the
+        // race world, since evaluation needs the still-live PlayerParticipant.
+        public void EndPracticeSession()
+        {
+            RaceManager.PracticeSessionResult result = raceManager.EvaluatePracticeSession();
+            raceManager.CleanupRaceWorld();
+            ui.ShowPracticeSessionResult(data, career, settings, result);
+        }
+
         public void SimulateCareerQualifying()
         {
             CalendarEventData raceEvent = career.CurrentEvent();

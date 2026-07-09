@@ -4190,16 +4190,13 @@ namespace LocalFormulaRacing
 
             if (!done)
             {
-                UnityEngine.UI.Button run = UiFactory.CreateButton(card, "Run", () =>
+                // Playable practice programs: drives an actual session instead of
+                // an instant reward - see GameBootstrap.StartCareerPractice and
+                // RaceManager.EvaluatePracticeSession, which scores real telemetry
+                // once the player ends the session from the pause menu.
+                UnityEngine.UI.Button run = UiFactory.CreateButton(card, "Drive", () =>
                 {
-                    career.Save.completedPracticePrograms.Add(key);
-                    career.Save.resourcePoints += resourceReward;
-                    career.Save.reputation += reputationReward;
-                    // Practice running feeds correlation data to the factory:
-                    // projects finishing this round get a small success bonus.
-                    career.Save.practiceQualityThisRound++;
-                    career.Write();
-                    ShowPracticePrograms(data, career, settings);
+                    bootstrap.StartCareerPractice(programId);
                 });
                 RectTransform runRect = run.GetComponent<RectTransform>();
                 runRect.anchorMin = new Vector2(0.88f, 0.5f);
@@ -4207,6 +4204,75 @@ namespace LocalFormulaRacing
                 runRect.sizeDelta = new Vector2(110f, 44f);
                 runRect.anchoredPosition = new Vector2(55f, 0f);
             }
+        }
+
+        // Single source of truth for each practice program's reward, kept in sync
+        // with the resourceReward/reputationReward literals passed into
+        // CreatePracticeProgramRow above - used again by ShowPracticeSessionResult
+        // once the player actually finishes driving the program.
+        void PracticeProgramReward(string programId, out int resourceReward, out int reputationReward)
+        {
+            switch (programId)
+            {
+                case "acclimatisation": resourceReward = 22; reputationReward = 1; break;
+                case "tyreManagement": resourceReward = 20; reputationReward = 0; break;
+                case "ersManagement": resourceReward = 18; reputationReward = 0; break;
+                case "qualifyingPace": resourceReward = 24; reputationReward = 1; break;
+                case "racePace": resourceReward = 26; reputationReward = 1; break;
+                default: resourceReward = 0; reputationReward = 0; break;
+            }
+        }
+
+        // Playable practice programs: shown after the player ends a Practice
+        // session from the pause menu (GameBootstrap.EndPracticeSession). Grants
+        // the program's reward only if RaceManager.EvaluatePracticeSession judged
+        // the session a pass, and only once per round per program.
+        public void ShowPracticeSessionResult(GameDataRepository data, CareerManager career, GameSettingsStore settings, RaceManager.PracticeSessionResult result)
+        {
+            Clear();
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Practice result background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateScreenHeader(background, result.title, result.passed ? "Program complete" : "Program not yet complete");
+
+            RectTransform card = UiFactory.CreateCard(background, "Practice result card", new Vector2(0.28f, 0.28f), new Vector2(0.72f, 0.72f));
+            RectTransform content = UiFactory.CreateRect(card, "Practice result content", Vector2.zero, Vector2.one, new Vector2(28f, 22f), new Vector2(-28f, -22f));
+            UiFactory.AddVerticalLayout(content, 14, new RectOffset(0, 0, 0, 0));
+
+            UiFactory.CreateText(content, "Practice result verdict", result.passed ? "PASSED" : "NOT ACHIEVED", 30, result.passed ? UiFactory.AccentGreen : UiFactory.AccentAmber, TextAnchor.MiddleLeft);
+            Text metric = UiFactory.CreateText(content, "Practice result metric", result.metricSummary, 17, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            metric.verticalOverflow = VerticalWrapMode.Overflow;
+            UiFactory.SetSize(metric, 480f, 60f);
+
+            int resourceReward;
+            int reputationReward;
+            PracticeProgramReward(result.programId, out resourceReward, out reputationReward);
+
+            string key = result.programId == null || career.Save == null ? null : ("s" + career.Save.currentSeason + "_r" + career.Save.currentRound + "_" + result.programId);
+            bool alreadyRecorded = key != null && career.Save.completedPracticePrograms.Contains(key);
+            if (result.passed && key != null && !alreadyRecorded)
+            {
+                career.Save.completedPracticePrograms.Add(key);
+                career.Save.resourcePoints += resourceReward;
+                career.Save.reputation += reputationReward;
+                // Practice running feeds correlation data to the factory:
+                // projects finishing this round get a small success bonus.
+                career.Save.practiceQualityThisRound++;
+                career.Write();
+                UiFactory.CreateText(content, "Practice result reward", "+" + resourceReward + " RP" + (reputationReward > 0 ? "  +" + reputationReward + " REP" : ""), 18, UiFactory.AccentGreen, TextAnchor.MiddleLeft);
+            }
+            else if (!result.passed)
+            {
+                UiFactory.CreateText(content, "Practice result reward", "No reward yet - drive the session again to hit the target.", 15, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+            }
+            else
+            {
+                UiFactory.CreateText(content, "Practice result reward", "Already completed this round.", 15, UiFactory.TextMuted, TextAnchor.MiddleLeft);
+            }
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Practice Programs", () => ShowPracticePrograms(data, career, settings));
+            UiFactory.CreateSecondaryButton(footerLeft, "Race Weekend", bootstrap.ShowRaceWeekend);
         }
 
         bool profileIsWet(CalendarEventData raceEvent)
@@ -6325,7 +6391,7 @@ namespace LocalFormulaRacing
             RectTransform menu = UiFactory.CreateRect(card, "Pause menu", Vector2.zero, Vector2.one, new Vector2(28f, 22f), new Vector2(-28f, -22f));
             UiFactory.AddVerticalLayout(menu, 11, new RectOffset(0, 0, 0, 0));
             UiFactory.CreateText(menu, "Paused", "PAUSED", 34, Color.white, TextAnchor.MiddleLeft);
-            string sessionLabel = race.IsTimeTrial ? "Time Trial" : (race.CurrentSession == RaceWeekendSession.Qualifying ? "Qualifying" : "Race");
+            string sessionLabel = race.IsTimeTrial ? "Time Trial" : (race.CurrentSession == RaceWeekendSession.Qualifying ? "Qualifying" : (race.CurrentSession == RaceWeekendSession.Practice ? "Practice" : "Race"));
             string eventLabel = race.EventData == null ? "Prototype GP" : race.EventData.displayName;
             UiFactory.CreateText(menu, "Pause session", sessionLabel + "  ·  " + eventLabel, 18, UiFactory.TextMuted, TextAnchor.MiddleLeft);
             UiFactory.CreateDivider(menu);
@@ -6341,6 +6407,14 @@ namespace LocalFormulaRacing
             // and the other secondary - the two genuinely destructive choices
             // now look consistently different from "just navigating".
             UiFactory.CreatePrimaryButton(menu, "Resume", race.Resume);
+            if (race.CurrentSession == RaceWeekendSession.Practice)
+            {
+                // Practice has no lap-count finish (RaceManager.RaceLaps returns
+                // 999 for it) - this is the only way a session ends, scoring the
+                // real telemetry driven so far instead of discarding it.
+                UiFactory.CreatePrimaryButton(menu, "End Practice Session", bootstrap.EndPracticeSession);
+            }
+
             UiFactory.CreateSecondaryButton(menu, "Main Menu", () =>
             {
                 race.CleanupRaceWorld();

@@ -933,7 +933,13 @@ namespace LocalFormulaRacing
     {
         QuickRace,
         Qualifying,
-        Race
+        Race,
+        // Playable practice programs: a free-running session (see
+        // RaceManager.StartSession/RaceLaps, GameBootstrap.StartCareerPractice)
+        // that never auto-finishes on lap count - the player ends it manually
+        // from the pause menu once satisfied, and RaceManager.EvaluatePracticeSession
+        // scores the selected program from real session telemetry.
+        Practice
     }
 
     public enum ErsStrategyMode

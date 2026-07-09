@@ -20,6 +20,11 @@ namespace LocalFormulaRacing
         public bool IsRaceFinished { get; private set; }
         public bool IsCareerRace { get; private set; }
         public bool IsTimeTrial { get; private set; }
+        // Which practice program (see RuntimeUi.ShowPracticePrograms) this
+        // Practice session is being driven for, set by GameBootstrap.StartCareerPractice
+        // right after StartSession returns and read by EvaluatePracticeSession
+        // when the player ends the session from the pause menu.
+        public string ActivePracticeProgramId;
         public RaceWeekendSession CurrentSession { get; private set; }
         public float StartCountdown { get; private set; }
         public bool CanDrive { get { return StartCountdown <= 0f && !IsPaused && !IsRaceFinished && !qualifyingTransitionPending; } }
@@ -611,7 +616,9 @@ namespace LocalFormulaRacing
             StartCountdown = raceStartSequenceDuration;
             lastStartLightCountPlayed = -1;
             lastRestartLightCountPlayed = -1;
-            SessionMessage = session == RaceWeekendSession.Qualifying ? "Q" + qualifyingPhase + " out lap ready" : (IsTimeTrial ? "Time trial: set a lap" : "Race start");
+            SessionMessage = session == RaceWeekendSession.Qualifying ? "Q" + qualifyingPhase + " out lap ready"
+                : (IsTimeTrial ? "Time trial: set a lap"
+                : (session == RaceWeekendSession.Practice ? "Practice: drive your program laps" : "Race start"));
             Time.timeScale = 1f;
 
             if (raceWorld != null)
@@ -1057,9 +1064,101 @@ namespace LocalFormulaRacing
             ghostRecordingBuffer.Clear();
             ghostRecordedLapNumber = -1;
             playerCameraRig = null;
+            ActivePracticeProgramId = null;
 
             SimpleAudioManager.SetRain(false);
             SimpleAudioManager.SetRaceAmbience(false);
+        }
+
+        // Playable practice programs: scores the just-driven Practice session
+        // against the criteria for whichever program (ActivePracticeProgramId)
+        // the player picked in RuntimeUi.ShowPracticePrograms, from real telemetry
+        // captured during the session rather than an unconditional click reward.
+        // Call this BEFORE CleanupRaceWorld() while PlayerParticipant is still live.
+        public PracticeSessionResult EvaluatePracticeSession()
+        {
+            PracticeSessionResult result = new PracticeSessionResult { programId = ActivePracticeProgramId };
+            if (PlayerParticipant == null || PlayerParticipant.lapTracker == null || PlayerParticipant.vehicle == null)
+            {
+                result.title = "Practice Session";
+                result.passed = false;
+                result.metricSummary = "No valid lap data was recorded.";
+                return result;
+            }
+
+            int completedLaps = PlayerParticipant.lapTracker.CompletedLaps;
+            float bestLap = PlayerParticipant.lapTracker.BestLapTime;
+            float tyreWear = PlayerParticipant.vehicle.Tyres == null ? 1f : PlayerParticipant.vehicle.Tyres.Wear;
+            float ersBattery = PlayerParticipant.vehicle.ErsBattery;
+            int pitStops = PlayerParticipant.pitStops;
+
+            switch (ActivePracticeProgramId)
+            {
+                case "acclimatisation":
+                    result.title = "Track Acclimatisation";
+                    result.passed = completedLaps >= 3;
+                    result.metricSummary = completedLaps + " lap(s) completed (need 3).";
+                    break;
+
+                case "tyreManagement":
+                    result.title = "Tyre Management";
+                    result.passed = completedLaps >= 5 && tyreWear > 0.4f;
+                    result.metricSummary = completedLaps + " lap(s) completed, tyres at " + Mathf.RoundToInt(tyreWear * 100f) + "% life (need 5 laps and above 40% life).";
+                    break;
+
+                case "ersManagement":
+                    result.title = "ERS Management";
+                    result.passed = completedLaps >= 3 && ersBattery > 0.5f;
+                    result.metricSummary = completedLaps + " lap(s) completed, battery at " + Mathf.RoundToInt(ersBattery * 100f) + "% (need 3 laps and above 50%).";
+                    break;
+
+                case "qualifyingPace":
+                {
+                    result.title = "Qualifying Pace";
+                    float bestAiLap = BestAiLapTimeThisSession();
+                    bool haveBenchmark = bestAiLap > 0f;
+                    result.passed = bestLap > 0f && haveBenchmark && bestLap <= bestAiLap * 1.03f;
+                    result.metricSummary = bestLap > 0f
+                        ? ("Best lap " + UiFactory.FormatTime(bestLap) + (haveBenchmark ? " vs field best " + UiFactory.FormatTime(bestAiLap) + " (need within 3%)." : "."))
+                        : "No valid lap was set.";
+                    break;
+                }
+
+                case "racePace":
+                    result.title = "Race Pace";
+                    result.passed = completedLaps >= 8 && pitStops >= 1;
+                    result.metricSummary = completedLaps + " lap(s) completed, " + pitStops + " pit stop(s) (need 8 laps and 1 stop).";
+                    break;
+
+                default:
+                    result.title = "Practice Session";
+                    result.passed = completedLaps >= 1;
+                    result.metricSummary = completedLaps + " lap(s) completed.";
+                    break;
+            }
+
+            return result;
+        }
+
+        float BestAiLapTimeThisSession()
+        {
+            float best = -1f;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant participant = Participants[i];
+                if (participant == null || participant.isPlayer || participant.lapTracker == null)
+                {
+                    continue;
+                }
+
+                float lap = participant.lapTracker.BestLapTime;
+                if (lap > 0f && (best < 0f || lap < best))
+                {
+                    best = lap;
+                }
+            }
+
+            return best;
         }
 
         public void PrepareNewQualifyingWeekend()
@@ -1085,7 +1184,11 @@ namespace LocalFormulaRacing
 
         public int RaceLaps
         {
-            get { return IsTimeTrial ? 999 : Mathf.Max(3, Settings.Current.laps); }
+            // Practice free-runs the same way Time Trial does - see
+            // GameBootstrap.StartCareerPractice / EvaluatePracticeSession, which
+            // score the session from telemetry once the player manually ends it
+            // rather than from a lap-count finish.
+            get { return (IsTimeTrial || CurrentSession == RaceWeekendSession.Practice) ? 999 : Mathf.Max(3, Settings.Current.laps); }
         }
 
         public int RecommendedPitLap(RaceParticipant participant)
@@ -9513,6 +9616,14 @@ namespace LocalFormulaRacing
             public float s1;
             public float s2;
             public float s3;
+        }
+
+        public class PracticeSessionResult
+        {
+            public string programId;
+            public string title;
+            public bool passed;
+            public string metricSummary;
         }
     }
 }
