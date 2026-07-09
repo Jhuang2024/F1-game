@@ -1972,13 +1972,29 @@ namespace LocalFormulaRacing
             // corner and the run into the pit straight are genuinely flat, while
             // the legitimate mid-lap elevation (Eau Rouge's climb, the Pouhon/
             // Fagnes descent down to anchor 12's -8f low point) is untouched.
+            //
+            // Round 2 - AI speed at the same corner: flattening 14/15 outright left
+            // anchor 13 at its original -7f, so the climb back up out of the
+            // Fagnes low point (anchor 12, -8f) got squeezed almost entirely into
+            // the single 13->14 segment (-7f to 0f, a 7m rise) right where anchors
+            // 12->13 themselves were nearly flat (-8f to -7f, only 1m). AI corner
+            // severity is measured from real 3D forward-vector angles
+            // (EstimateCornerSeverity/MeasureHairpinTurnAngle), which fold that
+            // vertical rate-of-change in with the horizontal turn - going from
+            // "almost no climb" to "a 7m climb in one segment" right at the final
+            // corner's own apex read as a sudden, spurious severity swing that had
+            // nothing to do with the corner's actual (unchanged) horizontal shape,
+            // so the AI's apex speed through it came out wrong. Anchor 13 is eased
+            // to -4f so the same total 8m climb (anchor 12's -8f up to anchor 14's
+            // 0f) is spread evenly across both segments instead of being
+            // front-loaded onto the one right at the corner.
             AddSmoothedAnchors(runtime, new[]
             {
                 new Vector3(0f, 0f, 0f), new Vector3(124f, 0.5f, 0f), new Vector3(170f, 4.5f, 34f),
                 new Vector3(196f, 13f, 94f), new Vector3(260f, 19f, 142f), new Vector3(352f, 17f, 158f),
                 new Vector3(414f, 10f, 122f), new Vector3(388f, 5f, 72f), new Vector3(302f, 2f, 72f),
                 new Vector3(242f, -1f, 112f), new Vector3(164f, -4f, 126f), new Vector3(80f, -6f, 106f),
-                new Vector3(26f, -8f, 146f), new Vector3(-54f, -7f, 126f), new Vector3(-104f, 0f, 70f),
+                new Vector3(26f, -8f, 146f), new Vector3(-54f, -4f, 126f), new Vector3(-104f, 0f, 70f),
                 new Vector3(-84f, 0f, 22f), new Vector3(-162f, 0f, 4f)
             }, 5);
         }
