@@ -6988,6 +6988,18 @@ namespace LocalFormulaRacing
                 participant.vehicle.SetGridHold(true);
             }
 
+            // A retired car can never move again, so it must be dropped from
+            // the pit-exit FIFO immediately - otherwise IsPitExitConvoyMember
+            // would keep it a permanent, unmovable "car ahead" and every car
+            // behind it in the queue would hold forever (pitLaneHeldByOccupancy
+            // stays true, which also disarms the stuck watchdog by design).
+            participant.pitPhase = PitPhase.None;
+            participant.pitReleaseSequence = -1;
+            participant.pitAwaitingRelease = false;
+            participant.pitLaneHeldByOccupancy = false;
+            participant.pitExitConvoyActive = false;
+            participant.pitExitConvoySequence = -1;
+
             participant.gameObject.SetActive(false);
             if (participant.isPlayer)
             {
@@ -10244,7 +10256,7 @@ namespace LocalFormulaRacing
         // the convoy" can never drift out of sync between them again.
         bool IsPitExitConvoyMember(RaceParticipant p)
         {
-            if (p == null)
+            if (p == null || p.retired || p.finished)
             {
                 return false;
             }
