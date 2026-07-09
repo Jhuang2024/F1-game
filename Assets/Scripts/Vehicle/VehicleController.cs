@@ -39,7 +39,9 @@ namespace LocalFormulaRacing
         // bonus here and the additive acceleration push below (slipstreamBoost)
         // are doubled together so the tow's felt speed gain doubles consistently,
         // not just the ceiling it's allowed to reach.
-        const float SlipstreamTopSpeedBonusKph = 20f;
+        // Max slipstream effect decreased to 15kph (was 20f) - slipstreamBoost
+        // below scaled down proportionally (0.75x) to keep the same relationship.
+        const float SlipstreamTopSpeedBonusKph = 15f;
 
         public void SetSlipstream(float strength01, string sourceCode)
         {
@@ -917,9 +919,11 @@ namespace LocalFormulaRacing
             // Slipstream effect speed doubled (was 8-15, matching the doubled
             // SlipstreamTopSpeedBonusKph above) - the tow's felt acceleration push
             // doubles alongside the higher ceiling it can now reach.
+            // Max slipstream effect decreased to 15kph - scaled down 0.75x (was
+            // 16-30) to match SlipstreamTopSpeedBonusKph's own reduction.
             float slipstreamSpeedRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(130f, 255f, forwardSpeedKph));
             float slipstreamBoost = slipstreamStrength > 0.05f
-                ? Mathf.Lerp(16f, 30f, CarData.aeroEfficiency / 100f) * slipstreamStrength * slipstreamSpeedRamp
+                ? Mathf.Lerp(12f, 22.5f, CarData.aeroEfficiency / 100f) * slipstreamStrength * slipstreamSpeedRamp
                 : 0f;
 
             float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
