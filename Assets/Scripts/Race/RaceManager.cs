@@ -9415,42 +9415,82 @@ namespace LocalFormulaRacing
             AdvancePitGuideTarget(participant, targetDistance, guidedLateral, PitExitMergePaceKph, out waypoint, out waypointRotation);
             participant.vehicle.GuideToPitPose(waypoint, waypointRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed);
 
-            // Completion fix: distance-past-the-ramp-end alone used to be enough to
-            // finish the merge, even if the car was still laterally out on the ramp
-            // (e.g. a lagging guide chase) or the ramp envelope itself still
-            // considered it "on the ramp" at that exact point. Now requires all
-            // three: past the ramp end by the buffer, no longer physically on the
-            // exit ramp corridor, and laterally back within a sane distance of the
-            // live track edge - so the merge can never complete while the car is
-            // still visually/physically mid-ramp. The lateral tolerance now matches
-            // the legal on-track target above (comfortably inside the edge) rather
-            // than a value the old, permanently-outside-track guided lateral could
-            // never actually satisfy.
-            float traveled = WrappedForwardDistance(participant.pitExitMergeStartDistance, currentProgress.distance);
+            // Physical completion fix: distance-past-the-ramp-end alone used to be
+            // enough to finish the merge, even if the car was still laterally out on
+            // the ramp (e.g. a lagging guide chase) or the ramp envelope itself still
+            // considered it "on the ramp" at that exact point. AI cars in particular
+            // were being released from ExitMerge while still physically outside the
+            // live barrier line, then handed straight to normal physics/AI driving
+            // right there - with the edge barrier now solid again (detectCollisions
+            // re-enabled on release) that stranded them running along the OUTSIDE of
+            // the barrier instead of on the track. Completion is now checked against
+            // the car's own ACTUAL transform position, re-sampled fresh THIS tick
+            // after guidance was applied above - not the cached/near-search progress
+            // (currentProgress) used for steering, which can lag behind or (right at
+            // the pit-lane/start-finish wrap) resolve to a stale segment. Requires
+            // ALL four: past the ramp end by the buffer, no longer physically on the
+            // exit ramp corridor, laterally back within a sane distance of the live
+            // track edge, AND Track.IsOnRoad true for the real position - so the merge
+            // can never complete while the car is still visually/physically mid-ramp
+            // or sitting just outside the barrier.
+            TrackProgress physicalProgress = Track.GetProgress(participant.transform.position);
+            bool onRoad = Track.IsOnRoad(participant.transform.position);
+
+            float traveled = WrappedForwardDistance(participant.pitExitMergeStartDistance, physicalProgress.distance);
             float required = WrappedForwardDistance(participant.pitExitMergeStartDistance, participant.pitExitMergeEndDistance);
             bool pastRampEnd = traveled >= required + PitExitMergeCompletionBufferMeters;
-            bool noLongerOnExitRamp = !Track.IsOnPitExitRamp(currentProgress);
-            bool safeLateral = currentProgress.lateralDistance <= Track.HalfWidthAt(currentProgress.distance) - 0.3f;
+            bool noLongerOnExitRamp = !Track.IsOnPitExitRamp(physicalProgress);
+            // Bugfix: this used to compare the raw signed lateralDistance with no
+            // Mathf.Abs() - a car sampled on the wrong side of the centerline (a
+            // negative lateralDistance, since the pit lane itself only ever runs on
+            // the positive/right side) trivially satisfied "<= HalfWidth - buffer"
+            // every time, letting the merge falsely report "safe" without the car
+            // ever actually being confirmed back on the correct side of the road.
+            bool safeLateral = Mathf.Abs(physicalProgress.lateralDistance) <= Track.HalfWidthAt(physicalProgress.distance) - 0.3f;
+            bool physicallyMerged = pastRampEnd && noLongerOnExitRamp && safeLateral && onRoad;
 
             bool hardEscape = traveled >= required + PitExitMergeHardEscapeBufferMeters;
-            if (!(pastRampEnd && noLongerOnExitRamp && safeLateral) && !hardEscape)
-            {
-                return;
-            }
+            bool recoverySnapped = false;
 
-            if (hardEscape && !(pastRampEnd && noLongerOnExitRamp && safeLateral))
+            if (hardEscape && !physicallyMerged)
             {
                 // Gentle recovery snap, not a racing-line teleport: still uses the
                 // track's own known-legal on-track pose right where the car
                 // currently is, just forced instead of chased, so it can never
-                // carry on around the rest of the lap stuck on the pit-exit path.
+                // carry on around the rest of the lap stuck outside the barrier.
                 Vector3 escapePosition;
                 Quaternion escapeRotation;
-                float escapeLateral = Track.PitExitMergeLegalLateral(currentProgress.distance);
-                Track.SamplePitLanePose(currentProgress.distance, escapeLateral, out escapePosition, out escapeRotation);
+                float escapeLateral = Track.PitExitMergeLegalLateral(physicalProgress.distance);
+                Track.SamplePitLanePose(physicalProgress.distance, escapeLateral, out escapePosition, out escapeRotation);
                 participant.vehicle.SnapToPitPose(escapePosition, escapeRotation);
+                recoverySnapped = true;
+                physicallyMerged = true;
                 GameLog.Warn("[PitLane] " + participant.driverName + " hard-escaped a stuck ExitMerge (" +
                              traveled.ToString("0") + "m past release, required " + required.ToString("0") + "m).");
+            }
+
+            // AI pit-exit debug logging (verbose-gated, matches the existing
+            // GameLog.Verbose convention - no cost/spam unless F3 is toggled on):
+            // makes a bad merge obvious instead of silently dumping AI cars outside
+            // the circuit.
+            if (!participant.isPlayer)
+            {
+                GameLog.Info("[PitExitMerge] " + participant.driverName +
+                             " phase=" + participant.pitPhase +
+                             " pos=" + participant.transform.position.ToString("F1") +
+                             " normalized=" + physicalProgress.normalized.ToString("0.000") +
+                             " lateral=" + physicalProgress.lateralDistance.ToString("0.00") +
+                             " halfWidth=" + Track.HalfWidthAt(physicalProgress.distance).ToString("0.00") +
+                             " onRoad=" + onRoad +
+                             " onExitRamp=" + !noLongerOnExitRamp +
+                             " guided=" + participant.vehicle.IsPitGuided +
+                             " mergeAttempted=" + physicallyMerged +
+                             " recoverySnapped=" + recoverySnapped);
+            }
+
+            if (!physicallyMerged)
+            {
+                return;
             }
 
             participant.vehicle.SetPitGuidance(false);
