@@ -1213,7 +1213,11 @@ namespace LocalFormulaRacing
             // Car-avoidance fix: Expert's floor/discount pulled back further (was
             // 0.18 floor / *0.8 discount) - "committing to a real gap" was still
             // reading as running into the player/other cars, not clean hard racing.
-            float cautionFloor = isExpert ? 0.26f : 0.5f;
+            // Car-avoidance fix round 2: floors raised again (was 0.26/0.5) across
+            // every difficulty - cars were still making contact more than clean
+            // racing should allow, so the baseline caution every tier starts from
+            // is genuinely higher, not just Expert's discount being smaller.
+            float cautionFloor = isExpert ? 0.34f : 0.6f;
             float cautionFactor = Mathf.Clamp(profile.trafficAvoidanceCaution, cautionFloor, 1.4f);
             if (isExpert)
             {
@@ -1226,7 +1230,10 @@ namespace LocalFormulaRacing
             // Car-avoidance fix: widened (was 18-52) so anticipation starts earlier
             // at every speed, giving more real time to react before a car ahead
             // becomes an actual collision instead of a late dodge/brake.
-            float forwardWindow = Mathf.Lerp(24f, 64f, Mathf.Clamp01(speedKph / 320f));
+            // Car-avoidance fix round 2: widened again (was 24-64) - the higher
+            // corner-exit and straight-line speeds cars now carry closed the
+            // reaction window this detection range gives before contact.
+            float forwardWindow = Mathf.Lerp(30f, 76f, Mathf.Clamp01(speedKph / 320f));
 
             for (int i = 0; i < raceManager.Participants.Count; i++)
             {
@@ -1260,12 +1267,16 @@ namespace LocalFormulaRacing
                     // the brake/throttle response curves strengthened (was 0.12-0.95 /
                     // 0.85-0.15) - closing cars were still reaching contact before this
                     // reacted hard enough.
+                    // Car-avoidance fix round 2: threshold/gate widened again (was
+                    // 3.0s / 3.8m) and the brake/throttle response curves strengthened
+                    // further (was 0.2-1 / 0.8-0.05) - reacts earlier and harder to a
+                    // genuinely closing gap.
                     float timeToContact = local.z / Mathf.Max(1.5f, closingKph / 3.6f);
-                    if (timeToContact < 3.0f && absX < 3.8f)
+                    if (timeToContact < 3.6f && absX < 4.2f)
                     {
-                        float urgency = Mathf.Clamp01(1f - timeToContact / 3.0f);
-                        brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.2f, 1f, urgency * urgency) * overlap);
-                        throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.8f, 0.05f, urgency));
+                        float urgency = Mathf.Clamp01(1f - timeToContact / 3.6f);
+                        brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.3f, 1f, urgency * urgency) * overlap);
+                        throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.72f, 0.05f, urgency));
                     }
 
                     // Tighter lane-only overlap for the soft cruising cap so a car with
@@ -1306,7 +1317,8 @@ namespace LocalFormulaRacing
                         dodgeMemoryTimer = isExpert ? 0.6f : 1.1f;
                         float dodgeStrength = Mathf.Clamp01(1f - local.z / (forwardWindow * 0.7f));
                         // Car-avoidance fix: dodge commitment strengthened (was 0.08-0.4).
-                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.12f, 0.5f, dodgeStrength);
+                        // Car-avoidance fix round 2: strengthened again (was 0.12-0.5).
+                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.18f, 0.66f, dodgeStrength);
                     }
                 }
 
@@ -1316,7 +1328,11 @@ namespace LocalFormulaRacing
                 // and the push-away response strengthened further (was 0.06-0.34 /
                 // 4.8 divisor / 1-0.6 cutback) - side-by-side pairs were still
                 // converging into contact before this resolved them.
-                if (Mathf.Abs(local.z) < 7.5f && absX < 5.4f)
+                // Car-avoidance fix round 2: detection window widened again (was
+                // 7.5/5.4) and the push-away response strengthened further (was
+                // 0.1-0.48 / 5.4 divisor) - catches a converging side-by-side pair
+                // earlier and pushes apart harder once detected.
+                if (Mathf.Abs(local.z) < 8.5f && absX < 6.2f)
                 {
                     if (local.x < 0f)
                     {
@@ -1327,8 +1343,8 @@ namespace LocalFormulaRacing
                         blockedRight = true;
                     }
 
-                    float sideOverlap = Mathf.Clamp01(1f - absX / 5.4f);
-                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.1f, 0.48f, sideOverlap);
+                    float sideOverlap = Mathf.Clamp01(1f - absX / 6.2f);
+                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.14f, 0.6f, sideOverlap);
                     float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.5f, sideOverlap)) * cautionFactor);
                     throttleLimit = Mathf.Min(throttleLimit, sideCutback);
                 }
