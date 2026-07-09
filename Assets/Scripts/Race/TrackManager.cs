@@ -2053,12 +2053,36 @@ namespace LocalFormulaRacing
             // Anchor 1 sits right at the very start of the pit straight,
             // before Eau Rouge's real climb begins at anchor 2, so this has no
             // visible effect on the climb itself.
+            //
+            // Round 5 - the mirror-image leak on the ENTRY side: round 4 fixed
+            // the tangent leak coming from AFTER the flat run (anchor 1 into
+            // anchor 0), but anchor 11 (still -6f) was left as the "last real
+            // elevation point" right BEFORE it - and AddSmoothedAnchors's
+            // Catmull-Rom tangent at each endpoint also depends on the anchor
+            // one step further away, not just the immediate neighbour. For
+            // the anchor12->anchor13 segment specifically (both flat, 0f),
+            // the tangent at anchor12 is (anchor13.y - anchor11.y)/2 - with
+            // anchor11 still at -6f that's a nonzero 3.0, which bows the
+            // MIDDLE of that segment up by a real, non-trivial amount (after
+            // NormalizeTrackLength's elevationScale, on the order of a metre)
+            // even though both of the segment's own endpoints are flat. That
+            // segment sits immediately before the final corner's own entry
+            // (anchor 13/14), squarely inside EstimateCornerSeverity/
+            // FindUpcomingApex's forward-looking sampling window, so it kept
+            // corrupting the exact same severity measurement the last four
+            // rounds were trying to clean up. Anchor 11 is now 0f too, so
+            // every tangent within reach of the final corner - anchors 11
+            // through 1, the entire approach/corner/exit run - is computed
+            // from all-zero neighbours on both sides. The Fagnes low point is
+            // now the shallower anchor 10 (-4f) rather than anchor 11 (-6f);
+            // Eau Rouge's climb and the descent through anchors 3-10 are
+            // otherwise untouched.
             AddSmoothedAnchors(runtime, new[]
             {
                 new Vector3(0f, 0f, 0f), new Vector3(124f, 0f, 0f), new Vector3(170f, 4.5f, 34f),
                 new Vector3(196f, 13f, 94f), new Vector3(260f, 19f, 142f), new Vector3(352f, 17f, 158f),
                 new Vector3(414f, 10f, 122f), new Vector3(388f, 5f, 72f), new Vector3(302f, 2f, 72f),
-                new Vector3(242f, -1f, 112f), new Vector3(164f, -4f, 126f), new Vector3(80f, -6f, 106f),
+                new Vector3(242f, -1f, 112f), new Vector3(164f, -4f, 126f), new Vector3(80f, 0f, 106f),
                 new Vector3(26f, 0f, 146f), new Vector3(-54f, 0f, 126f), new Vector3(-104f, 0f, 70f),
                 new Vector3(-84f, 0f, 22f), new Vector3(-162f, 0f, 4f)
             }, 5);
