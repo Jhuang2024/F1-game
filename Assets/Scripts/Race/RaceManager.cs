@@ -3569,6 +3569,55 @@ namespace LocalFormulaRacing
             return false;
         }
 
+        // Smarter AI strategy: undercut awareness. NextPitCompound/RecommendedPitLap
+        // already give every AI a stable target window, but until now nothing ever
+        // reacted to who was actually around it on track - every car pitted right at
+        // its own jittered lap regardless of a car directly ahead offering a live
+        // undercut. This lets an AI still on its first stint pit up to 2 laps EARLY
+        // (inside its own recommended window, never before it opens) specifically to
+        // undercut a car it's closely following that hasn't stopped yet - the same
+        // real-world tactic RaceHud already narrates to the player via the "undercut
+        // is live" engineer line.
+        public bool ShouldAiPitForUndercut(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null || participant.vehicle.Tyres == null || participant.lapTracker == null ||
+                CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
+            {
+                return false;
+            }
+
+            if (participant.pitStops != 0 || participant.isPitting || participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit)
+            {
+                return false;
+            }
+
+            int completedLaps = participant.lapTracker.CompletedLaps;
+            int recommendedLap = RecommendedPitLap(participant);
+            // Only inside the last 2 laps of this car's OWN window, never before it
+            // opens - this is a tactical nudge to jump a rival, not a way to skip the
+            // tyre-life planning RecommendedPitLap already does.
+            if (completedLaps < recommendedLap - 2 || completedLaps >= recommendedLap)
+            {
+                return false;
+            }
+
+            // Only worth undercutting off tyres that are already carrying real wear -
+            // a car on a very fresh set has nothing to gain from stopping early.
+            if (participant.vehicle.Tyres.Wear > 0.68f)
+            {
+                return false;
+            }
+
+            RaceParticipant ahead = FindCarAhead(participant, 40f);
+            if (ahead == null || ahead.pitStops != 0 || ahead.retired || ahead.finished)
+            {
+                return false;
+            }
+
+            float gapSeconds = GetIntervalToAheadSeconds(participant);
+            return gapSeconds > 0f && gapSeconds < 2.2f;
+        }
+
         // Player-facing counterpart for a parallel HUD pass: identical logic, named
         // for what it means from the player's seat rather than the AI's.
         public bool RecommendedPitUnderSafetyCar(RaceParticipant participant)
@@ -4169,6 +4218,25 @@ namespace LocalFormulaRacing
                 // reminder and the actual auto-triggered stop on the same lap.
                 int currentLapNumber = completedLaps + 1;
                 bool mandatoryStopStillOwed = PlayerParticipant.pitStops == 0;
+
+                // Smarter strategy planner: proactive undercut alert, a couple of
+                // laps before the planned stop rather than only the "Box this lap"
+                // call right when the window arrives - the AI now pits early to
+                // undercut a car it's following (see RaceManager.ShouldAiPitForUndercut),
+                // so the player needs the same early notice to react before a rival
+                // jumps them, not just a report of what already happened.
+                if (mandatoryStopStillOwed && targetLap > 0 && currentLapNumber == Mathf.Max(0, targetLap - 2) && lastEngineerPitLapPrompt != completedLaps)
+                {
+                    RaceParticipant rivalAheadForUndercut = FindCarAhead(PlayerParticipant, 40f);
+                    float rivalGap = GetIntervalToAheadSeconds(PlayerParticipant);
+                    if (rivalAheadForUndercut != null && rivalAheadForUndercut.pitStops == 0 && rivalGap > 0f && rivalGap < 2.2f)
+                    {
+                        lastEngineerPitLapPrompt = completedLaps;
+                        PostEngineerMessage("The car ahead hasn't stopped yet. Box early and you could undercut them.", false);
+                        return;
+                    }
+                }
+
                 if (currentLapNumber >= targetLap && lastEngineerPitLapPrompt != completedLaps)
                 {
                     lastEngineerPitLapPrompt = completedLaps;
@@ -8224,6 +8292,19 @@ namespace LocalFormulaRacing
             if (participant.vehicle == null || participant.vehicle.Tyres == null)
             {
                 return TyreCompound.Medium;
+            }
+
+            // Smarter AI strategy: a short remaining stint (late in the race) should
+            // reach for a faster compound regardless of the usual Soft->Medium->Hard
+            // ladder below - there's no tyre-life reason to save rubber that will
+            // never be needed again. Aggressive drivers push this a little further
+            // than cautious ones.
+            int lapsRemainingAfterStop = participant.lapTracker == null ? RaceLaps : Mathf.Max(0, RaceLaps - participant.lapTracker.CompletedLaps);
+            if (lapsRemainingAfterStop > 0 && lapsRemainingAfterStop <= 8)
+            {
+                int aggression = participant.driverData == null ? 50 : participant.driverData.aggression;
+                bool pushToSoft = aggression >= 65 || lapsRemainingAfterStop <= 4;
+                return pushToSoft ? TyreCompound.Soft : TyreCompound.Medium;
             }
 
             if (participant.vehicle.Tyres.Compound == TyreCompound.Soft)

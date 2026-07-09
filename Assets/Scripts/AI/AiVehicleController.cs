@@ -949,6 +949,13 @@ namespace LocalFormulaRacing
                 command.pitRequest = true;
             }
 
+            // Smarter AI strategy: jump a closely-followed rival that hasn't
+            // stopped yet by taking this car's own pit window a lap or two early.
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.ShouldAiPitForUndercut(participant))
+            {
+                command.pitRequest = true;
+            }
+
             ApplyDamageStrategy(ref command, damagePercent);
 
             command.ers = raceManager.ShouldAiUseErs(participant, severityHere);
