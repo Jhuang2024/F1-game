@@ -10693,38 +10693,46 @@ namespace LocalFormulaRacing
         // these factors assumed even after round 1. Pushed further here so the
         // simulated qualifying baseline is genuinely faster than what the
         // buffed race physics produce, matching a real low-fuel flying lap.
+        //
+        // Round 3: the race-fastest-lap-beats-qualifying bug came back after this
+        // session's slipstream buff (SlipstreamTopSpeedBonusKph/slipstreamBoost in
+        // VehicleController doubled) - a genuine tow gives race laps a real speed
+        // source this formula never modeled (no drafting in a simulated/solo
+        // flying lap), so real race pace on drafting-heavy circuits pulled back
+        // ahead of the quali baseline even with the earlier AI straight-line-speed
+        // nerfs. Every factor nudged up again to buy back that headroom.
         float TrackAverageSpeedFactor(TrackRuntime track)
         {
             if (track == null)
             {
-                return 0.80f;
+                return 0.83f;
             }
 
             string id = track.trackId ?? "";
             string style = (track.styleName ?? "").ToLowerInvariant();
             if (id.Contains("monaco"))
             {
-                return 0.62f;
+                return 0.65f;
             }
 
             if (id.Contains("spa") || id.Contains("monza") || id.Contains("silverstone") ||
                 id.Contains("baku") || id.Contains("jeddah") || id.Contains("las_vegas") ||
                 id.Contains("suzuka") || id.Contains("qatar"))
             {
-                return 0.97f;
+                return 1.02f;
             }
 
             if (id.Contains("hungary"))
             {
-                return 0.68f;
+                return 0.71f;
             }
 
             if (style.Contains("street") || track.roadHalfWidth < 12f)
             {
-                return 0.73f;
+                return 0.76f;
             }
 
-            return 0.88f;
+            return 0.92f;
         }
 
         float WeatherQualifyingPenalty(DriverData driver)
