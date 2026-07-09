@@ -296,7 +296,11 @@ namespace LocalFormulaRacing
                     // which straightTargetSpeed is read from) - no separate subtraction
                     // needed here, or a slower compound would be double-penalized in
                     // these two bucket types relative to a genuine straight.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence);
+                    // Corner-speed calibration: +25kph on top of the ceiling above,
+                    // still hard-clamped at straightTargetSpeed (Mathf.Min) so the
+                    // "a corner can at best approach straight-line speed, never exceed
+                    // it" invariant from round 8 above is never reopened.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence) + 25f);
                     easePower = Mathf.Lerp(6f, 10f, skillTier);
                     break;
                 case CornerType.Medium:
@@ -304,7 +308,9 @@ namespace LocalFormulaRacing
                     // alongside HighSpeed above - a "medium" corner still has real
                     // curvature so it keeps a hair more margin under 1.0x than
                     // HighSpeed, but Expert now gets essentially all of it.
-                    floorSpeed = Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence);
+                    // Corner-speed calibration: +25kph, same clamp reasoning as
+                    // HighSpeed above.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 25f);
                     easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
@@ -323,7 +329,8 @@ namespace LocalFormulaRacing
                     // (300-310kph -> 350-360kph) - Hairpin's own floor below is
                     // deliberately untouched.
                     // Round 5: brought back down 25kph (350-360kph -> 325-335kph).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(325f, Mathf.Lerp(330f, 335f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 6: raised another flat 25kph (325-335kph -> 350-360kph).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(350f, Mathf.Lerp(355f, 360f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -337,7 +344,8 @@ namespace LocalFormulaRacing
                     // Very-tight-corner speed calibration round 2: raised another flat
                     // 50kph (130-165kph -> 180-215kph) - Hairpin's own floor below is
                     // deliberately untouched.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(180f, Mathf.Lerp(200f, 215f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 3: raised another flat 25kph (180-215kph -> 205-240kph).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(205f, Mathf.Lerp(225f, 240f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
@@ -629,7 +637,9 @@ namespace LocalFormulaRacing
             // applied uniformly across every difficulty.
             // Round 9: another flat -20kph on top of that (now -90kph total),
             // same reasoning, applied uniformly across every difficulty.
-            straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - 15f - 7.5f - 10f - 10f - 7.5f - 15f - 10f + 5f - 20f);
+            // Round 10: another flat -5kph on top of that (now -95kph total),
+            // same reasoning, applied uniformly across every difficulty.
+            straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - 15f - 7.5f - 10f - 10f - 7.5f - 15f - 10f + 5f - 20f - 5f);
 
             bool wet = track.weather == WeatherState.LightRain || track.weather == WeatherState.HeavyRain;
             // Tyre-difference pass: uses the compound-neutral condition multiplier

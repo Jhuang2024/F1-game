@@ -815,8 +815,11 @@ namespace LocalFormulaRacing
                 // "decrease ERS deployment rate" meant drain the battery slower per
                 // second while deploying, not weaken the boost itself - boost power
                 // (ersBoost below) is unchanged.
+                // ERS drain-rate fix round 5: raised back up 20% (was 0.0357-0.0504) -
+                // battery now drains faster per second while deploying again; boost
+                // power (ersBoost below) is unchanged.
                 ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
-                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0357f, 0.0504f, activeCommand.throttle));
+                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0428f, 0.0605f, activeCommand.throttle));
             }
 
             // Braking-zone recharge fix: raised 50% (was 0.28-0.42) - a hard braking
