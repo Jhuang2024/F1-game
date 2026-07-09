@@ -319,7 +319,10 @@ namespace LocalFormulaRacing
                     // fraction, so it does NOT automatically inherit the compound
                     // penalty from straightTargetSpeed - subtracted explicitly here
                     // instead (and clamped so it can never go negative).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(300f, Mathf.Lerp(305f, 310f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Tight-corner speed calibration round 4: raised another flat 50kph
+                    // (300-310kph -> 350-360kph) - Hairpin's own floor below is
+                    // deliberately untouched.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(350f, Mathf.Lerp(355f, 360f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -330,7 +333,10 @@ namespace LocalFormulaRacing
                     // meant to read as one consistent speed rather than a wide band.
                     // Tyre-difference pass: explicit compound-penalty subtraction, same
                     // reasoning as the Slow bucket above.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(130f, Mathf.Lerp(150f, 165f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Very-tight-corner speed calibration round 2: raised another flat
+                    // 50kph (130-165kph -> 180-215kph) - Hairpin's own floor below is
+                    // deliberately untouched.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(180f, Mathf.Lerp(200f, 215f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
