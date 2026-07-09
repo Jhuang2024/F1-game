@@ -786,7 +786,12 @@ namespace LocalFormulaRacing
             // got. Speed is the one thing that always helps regardless of how tight
             // the turn radius needs to be, so this now genuinely brakes near the
             // edge too, not just steers.
-            float edgeMarginDistance = Mathf.Lerp(4.2f, 6.8f, Mathf.Clamp01(speedKph / 280f));
+            // Barrier-avoidance fix round 4: ceiling raised again and the scaling
+            // window extended out to 340kph (was 6.8m ceiling reached by 280kph) -
+            // the Slow corner-speed bucket now targets ~300-310kph, so the old curve
+            // was already maxed out well before cars reached their actual tight-corner
+            // speed, leaving no extra margin exactly when it was needed most.
+            float edgeMarginDistance = Mathf.Lerp(4.2f, 9f, Mathf.Clamp01(speedKph / 340f));
             float edgeMargin = track.HalfWidthAt(progress.distance) - edgeMarginDistance;
             float edgeOvershoot = Mathf.Abs(progress.lateralDistance) - edgeMargin;
             float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);
