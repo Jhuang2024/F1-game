@@ -836,9 +836,10 @@ namespace LocalFormulaRacing
             // rate above, untouched here), so the battery fills faster through the
             // rest of a lap without changing how fast a braking zone itself charges.
             // Round 4: raised a further 20% on top of that (was 0.13-0.288).
+            // Round 5: cut back down 20% (was 0.156-0.346).
             else if (activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.156f, 0.346f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.1248f, 0.2768f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ErsDeploying)
@@ -854,7 +855,9 @@ namespace LocalFormulaRacing
                 // Round 4: raised a further 20% on top of the round-3 rate (was
                 // 0.0408-0.0864), same non-braking-only regen buff as the coasting
                 // rate above.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.049f, 0.104f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                // Round 5: cut back down 20% (was 0.049-0.104), same non-braking-only
+                // regen cut as the coasting rate above.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0392f, 0.0832f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
