@@ -162,6 +162,16 @@ namespace LocalFormulaRacing
             Weather = weather;
         }
 
+        // Dynamic track evolution: ticked every frame by RaceManager.UpdateTrackEvolution
+        // from the session-wide TrackRuntime.RubberLevel, same live-update pattern as
+        // SetWeather above.
+        public float TrackGripMultiplier { get; private set; } = 1f;
+
+        public void SetTrackGripMultiplier(float value)
+        {
+            TrackGripMultiplier = value;
+        }
+
         public void SetCommand(VehicleCommand newCommand)
         {
             command = newCommand;
@@ -542,7 +552,7 @@ namespace LocalFormulaRacing
             bool speedCapEngaged = PitLimiterActive || raceControlCapActive;
 
             float topSpeed = TargetTopSpeedKph / 3.6f;
-            float tyreGrip = Tyres.GripMultiplier(Weather);
+            float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);
             LastTyreGripMultiplier = tyreGrip;
             LastPowerMultiplier = Damage.PowerMultiplier;
             LastGearTorqueMultiplier = GearTorqueMultiplier(absoluteSpeedKph);
@@ -768,7 +778,7 @@ namespace LocalFormulaRacing
             // still cut turning authority nearly in half by 320kph regardless of
             // that extension. More authority retained at genuine high speed too.
             float highSpeedLimit = Mathf.Lerp(1f, 0.66f, Mathf.InverseLerp(90f, 320f, speedKph));
-            float tyreGrip = Tyres.GripMultiplier(Weather);
+            float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);
             float turnRate = Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit * tyreGrip * Damage.HandlingMultiplier;
             // Tight-corner authority: a genuine hairpin's real turn radius needs more
             // rotational authority than cruising-speed turnRate provides even at

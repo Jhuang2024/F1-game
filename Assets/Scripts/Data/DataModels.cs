@@ -819,6 +819,11 @@ namespace LocalFormulaRacing
         public int cameraShakeLevel = 2;
         public bool practiceProgramsEnabled = true;
         public bool careerNewsFeedEnabled = true;
+        // Dynamic track evolution: grip rises slightly over a session as rubber
+        // goes down (washed away again by heavy rain) - see
+        // RaceManager.UpdateTrackEvolution. On by default; players who want fully
+        // static per-lap grip can turn it off.
+        public bool trackEvolutionEnabled = true;
     }
 
     [Serializable]

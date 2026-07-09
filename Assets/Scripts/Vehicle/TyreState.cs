@@ -218,7 +218,12 @@ namespace LocalFormulaRacing
             TotalLockups++;
         }
 
-        public float GripMultiplier(WeatherState weather)
+        // trackGripMultiplier is the session-wide "rubbering in" bonus from
+        // TrackManager/RaceManager's dynamic track evolution (1 = green track,
+        // rising slightly as the session goes on) - optional so every pre-existing
+        // caller that only ever cared about tyre-intrinsic grip keeps compiling and
+        // behaving exactly as before.
+        public float GripMultiplier(WeatherState weather, float trackGripMultiplier = 1f)
         {
             float tempGrip = TemperatureGripMultiplier;
             float wearGrip = Wear > 0.65f ? Mathf.Lerp(0.82f, 1f, (Wear - 0.65f) / 0.35f) :
@@ -238,7 +243,7 @@ namespace LocalFormulaRacing
             // A flat-spotted tyre vibrates and loses a little contact patch every
             // rotation - a small, persistent handicap, not a game-ruining one.
             float flatSpotGrip = Mathf.Lerp(1f, 0.9f, Mathf.Clamp01(FlatSpotLevel));
-            lastGripMultiplier = baseGrip * tempGrip * wearGrip * rainGrip * lockupGrip * flatSpotGrip;
+            lastGripMultiplier = baseGrip * tempGrip * wearGrip * rainGrip * lockupGrip * flatSpotGrip * trackGripMultiplier;
             return lastGripMultiplier;
         }
 

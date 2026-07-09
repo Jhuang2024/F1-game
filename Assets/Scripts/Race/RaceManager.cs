@@ -432,6 +432,7 @@ namespace LocalFormulaRacing
         int lastGapReportLap = -1;
         bool weatherTransitionDone;
         bool weatherSecondTransitionDone;
+        bool trackEvolutionHalfwayMessageSent;
 
         // Part 1: extra atmosphere/feedback state - overtake notifications,
         // session-fastest-lap tracking, teammate gap callouts, flat spot/lockup
@@ -961,6 +962,7 @@ namespace LocalFormulaRacing
             UpdatePlayerAutoPitStrategy();
             UpdateRaceEngineer();
             UpdateWeatherTransition();
+            UpdateTrackEvolution();
             UpdateRaceControl();
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
@@ -1190,6 +1192,48 @@ namespace LocalFormulaRacing
             PostEngineerMessage(raining
                 ? "Rain is arriving. Grip is dropping, intermediates will come alive."
                 : "The rain has stopped and the track is drying. Slicks will come to you.", true);
+        }
+
+        // Dynamic track evolution: session-wide grip gradually rises as rubber goes
+        // down over green-flag running (the real "the track is coming in" effect),
+        // instead of every lap of a race or qualifying session running on
+        // identical grip regardless of how many laps have already been driven.
+        // Heavy rain washes the rubber back off, since a soaked track keeps none
+        // of the built-up line. A single TrackRuntime.RubberLevel (0-1) feeds a
+        // small multiplicative bonus applied identically to every car via
+        // VehicleController.SetTrackGripMultiplier (read inside
+        // TyreState.GripMultiplier), plus a subtle darkening tween on the shared
+        // road material for visual feedback.
+        const float TrackEvolutionMaxGripBonus = 0.05f;
+
+        void UpdateTrackEvolution()
+        {
+            if (Track == null || Settings == null || !Settings.Current.trackEvolutionEnabled || IsTimeTrial)
+            {
+                return;
+            }
+
+            bool washedByRain = Track.weather == WeatherState.HeavyRain;
+            float target = washedByRain ? 0f : 1f;
+            float rampSpeed = washedByRain ? 0.3f : 0.012f;
+            Track.RubberLevel = Mathf.MoveTowards(Track.RubberLevel, target, Time.deltaTime * rampSpeed);
+
+            float gripMultiplier = 1f + Track.RubberLevel * TrackEvolutionMaxGripBonus;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                if (Participants[i] != null && Participants[i].vehicle != null)
+                {
+                    Participants[i].vehicle.SetTrackGripMultiplier(gripMultiplier);
+                }
+            }
+
+            Track.ApplyRubberEvolutionVisual(Track.RubberLevel);
+
+            if (!trackEvolutionHalfwayMessageSent && !washedByRain && Track.RubberLevel > 0.5f && CurrentSession != RaceWeekendSession.Qualifying)
+            {
+                trackEvolutionHalfwayMessageSent = true;
+                PostEngineerMessage("Track's rubbering in nicely, you should find a bit more grip now.", false);
+            }
         }
 
         void ResetRaceControlState()
@@ -3644,6 +3688,7 @@ namespace LocalFormulaRacing
             lastGapReportLap = -1;
             weatherTransitionDone = false;
             weatherSecondTransitionDone = false;
+            trackEvolutionHalfwayMessageSent = false;
             playerLastPosition = -1;
             overtakeCheckTimer = 0f;
             sessionFastestLap = -1f;

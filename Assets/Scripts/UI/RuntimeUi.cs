@@ -2147,6 +2147,15 @@ namespace LocalFormulaRacing
                 ShowSettings(data, career, settings);
             });
 
+            RectTransform trackEvolutionControl;
+            UiFactory.CreateSettingRow(raceControlList, "Track Evolution", "Grip rises slightly as the session goes on and rubber goes down, washed away again by heavy rain.", out trackEvolutionControl);
+            UiFactory.CreateToggleControl(trackEvolutionControl, settings.Current.trackEvolutionEnabled, () =>
+            {
+                settings.Current.trackEvolutionEnabled = !settings.Current.trackEvolutionEnabled;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
             RectTransform practiceProgramsControl;
             UiFactory.CreateSettingRow(raceControlList, "Practice Programs", "Optional pre-qualifying programs for R&D points and setup confidence.", out practiceProgramsControl);
             UiFactory.CreateToggleControl(practiceProgramsControl, settings.Current.practiceProgramsEnabled, () =>

@@ -73,6 +73,38 @@ namespace LocalFormulaRacing
             return next;
         }
 
+        // Dynamic track evolution: the shared road material reference + its
+        // original color, handed off once by TrackManager.CreateMaterials the
+        // same way AssignRaceControlVisualDriver hands off live control above -
+        // so RaceManager can drive a visual "rubbering in" effect every tick
+        // without a cross-file dependency on the track-builder MonoBehaviour,
+        // which only exists for the duration of Build(). RubberLevel itself
+        // (0-1, session-wide) is owned and ticked by RaceManager.
+        Material roadMaterial;
+        Color roadBaseColor;
+        public float RubberLevel;
+
+        public void AssignRoadMaterial(Material material)
+        {
+            roadMaterial = material;
+            if (roadMaterial != null)
+            {
+                roadBaseColor = roadMaterial.color;
+            }
+        }
+
+        public void ApplyRubberEvolutionVisual(float rubberLevel)
+        {
+            if (roadMaterial == null)
+            {
+                return;
+            }
+
+            float clamped = Mathf.Clamp01(rubberLevel);
+            Color darker = new Color(roadBaseColor.r * 0.7f, roadBaseColor.g * 0.7f, roadBaseColor.b * 0.7f, roadBaseColor.a);
+            roadMaterial.color = Color.Lerp(roadBaseColor, darker, clamped);
+        }
+
         // state ordinals match RaceManager.RaceControlState: 0=Green, 1=YellowSector,
         // 2=VirtualSafetyCar, 3=SafetyCarDeploying, 4=SafetyCarActive,
         // 5=SafetyCarInThisLap, 6=Restart. Safe to call every frame or only on change;
@@ -2000,6 +2032,7 @@ namespace LocalFormulaRacing
             // road color so the surface reads as tarmac instead of vinyl.
             roadMaterial.mainTexture = GetAsphaltNoiseTexture();
             roadMaterial.mainTextureScale = new Vector2(1.6f, 0.5f);
+            Runtime.AssignRoadMaterial(roadMaterial);
             kerbMaterial = CreateMaterial("Runtime Kerb", new Color(0.94f, 0.04f, 0.03f), 0.02f, 0.64f);
             kerbMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.92f, 0.92f, 0.92f), 0.08f);
             kerbMaterial.mainTextureScale = new Vector2(6f, 1.5f);
