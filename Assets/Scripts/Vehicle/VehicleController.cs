@@ -138,13 +138,13 @@ namespace LocalFormulaRacing
         const float RaceSpeedCeilingKph = 350f;
         // Player-only straightline speed buff - never applies to AI (see
         // CalculateTargetTopSpeedKph, gated on IsPlayerControlled). Raised
-        // from 4 to 9 (an additional +5). This constant alone only ever raised
-        // the governor's target/ceiling, not an actual push - see
-        // playerTopSpeedBoost in ApplyForces for the dedicated additive force
-        // that was missing, without which a car whose real drag-limited
-        // equilibrium speed already sat at or below the old ceiling never
-        // actually reached (or felt) this bonus at all.
-        const float PlayerTopSpeedBonusKph = 9f;
+        // from 4 to 9 (an additional +5), then lowered by 2 to 7. This
+        // constant alone only ever raises the governor's target/ceiling, not
+        // an actual push - see playerTopSpeedBoost in ApplyForces for the
+        // dedicated additive force that was missing, without which a car
+        // whose real drag-limited equilibrium speed already sat at or below
+        // the ceiling never actually reached (or felt) this bonus at all.
+        const float PlayerTopSpeedBonusKph = 7f;
         const float DrsTopSpeedBonusKph = 32f;
         // ERS buff: raised from 20, then 26 - with the stronger deploy force
         // below the car can now actually accelerate up to a ceiling this much
