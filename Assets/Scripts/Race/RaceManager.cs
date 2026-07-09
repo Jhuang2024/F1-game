@@ -9912,7 +9912,22 @@ namespace LocalFormulaRacing
         // suddenly slowing back down right as the car clears the queue.
         const float PitExitMergePaceKph = 106f;
         const float PitExitMergeLookaheadMeters = 12f;
-        const float PitExitMergeCompletionBufferMeters = 10f;
+        // Return-to-racing-line delay fix: this used to require the guide to
+        // travel 10m PAST the real ramp-end distance (required, tied to the
+        // exact same PitExitRampEndNormalized boundary the physical ramp mesh
+        // itself tapers out at) before physicallyMerged could ever be true -
+        // on top of every other already-strict condition (noLongerOnExitRamp,
+        // safeLateral, onRoad, longitudinalAgreement, facingForward,
+        // exitSpaceClearForHandoff all still have to independently agree the
+        // car is safely clear). That extra 10m was pure padding beyond what
+        // any of those checks actually need, adding real, felt seconds of
+        // guided-at-a-fixed-pace, throttle-unresponsive driving after the car
+        // was already safely past the ramp. Cut to a small anti-flicker
+        // margin only - just enough that pastRampEnd can't flicker true/false
+        // right on the tick it crosses the boundary - not a working safety
+        // distance in its own right, since every other physicallyMerged
+        // condition still has to hold regardless of this buffer's size.
+        const float PitExitMergeCompletionBufferMeters = 2f;
         const float PitExitLaneHoldSeconds = 1.5f;
         const float PitExitLaneHoldDistanceMeters = 40f;
 
