@@ -347,7 +347,8 @@ namespace LocalFormulaRacing
                     // Round 8: raised another flat 10kph (370-380kph -> 380-390kph).
                     // Round 9: raised another flat 15kph (380-390kph -> 395-405kph).
                     // Round 10: raised another flat 7.5kph (395-405kph -> 402.5-412.5kph).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(402.5f, Mathf.Lerp(407.5f, 412.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 11: raised another flat 10kph (402.5-412.5kph -> 412.5-422.5kph).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(412.5f, Mathf.Lerp(417.5f, 422.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -366,7 +367,8 @@ namespace LocalFormulaRacing
                     // Round 5: raised another flat 10kph (225-260kph -> 235-270kph).
                     // Round 6: raised another flat 15kph (235-270kph -> 250-285kph).
                     // Round 7: raised another flat 7.5kph (250-285kph -> 257.5-292.5kph).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(257.5f, Mathf.Lerp(277.5f, 292.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 8: raised another flat 10kph (257.5-292.5kph -> 267.5-302.5kph).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(267.5f, Mathf.Lerp(287.5f, 302.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
@@ -664,7 +666,9 @@ namespace LocalFormulaRacing
             // same reasoning, applied uniformly across every difficulty.
             // Round 12: eased back up 3kph (now -97kph total), same reasoning,
             // applied uniformly across every difficulty.
-            straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - 15f - 7.5f - 10f - 10f - 7.5f - 15f - 10f + 5f - 20f - 5f - 5f + 3f);
+            // Round 13: eased back up 2kph (now -95kph total), same reasoning,
+            // applied uniformly across every difficulty.
+            straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - 15f - 7.5f - 10f - 10f - 7.5f - 15f - 10f + 5f - 20f - 5f - 5f + 3f + 2f);
 
             bool wet = track.weather == WeatherState.LightRain || track.weather == WeatherState.HeavyRain;
             // Tyre-difference pass: uses the compound-neutral condition multiplier
