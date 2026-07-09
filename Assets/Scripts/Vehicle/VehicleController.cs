@@ -136,6 +136,9 @@ namespace LocalFormulaRacing
 
         const int GearCount = 8;
         const float RaceSpeedCeilingKph = 350f;
+        // Player-only straightline speed buff - never applies to AI (see
+        // CalculateTargetTopSpeedKph, gated on IsPlayerControlled).
+        const float PlayerTopSpeedBonusKph = 4f;
         const float DrsTopSpeedBonusKph = 32f;
         // ERS buff: raised from 20, then 26 - with the stronger deploy force
         // below the car can now actually accelerate up to a ceiling this much
@@ -1225,6 +1228,17 @@ namespace LocalFormulaRacing
             // (405, same one ERS/slipstream already answer to) is still the only
             // real limit on how high everything can stack together.
             float ceiling = RaceSpeedCeilingKph;
+
+            // Player-only straightline speed buff: AiVehicleController's own
+            // straightTargetSpeed reads this same TargetTopSpeedKph, so this
+            // must stay gated on IsPlayerControlled or every AI car would
+            // silently receive the identical bonus too.
+            if (IsPlayerControlled)
+            {
+                target += PlayerTopSpeedBonusKph;
+                ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + PlayerTopSpeedBonusKph);
+            }
+
             if (DrsActive)
             {
                 target += DrsTopSpeedBonusKph;
