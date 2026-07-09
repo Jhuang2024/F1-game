@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -502,6 +503,10 @@ namespace LocalFormulaRacing
         const float GhostSampleInterval = 0.12f;
         GameObject ghostCarObject;
         GhostCarController ghostController;
+        // Held so the cinematic podium presentation (see PodiumPresentationSequence)
+        // can temporarily take manual control of the same camera the player was
+        // just driving with, instead of creating a second competing camera.
+        CameraRig playerCameraRig;
         float playerResetCooldown;
         // Pit lane release control: one car released at a time with a safe gap.
         float nextPitReleaseAllowedTime;
@@ -1048,6 +1053,7 @@ namespace LocalFormulaRacing
             ghostController = null;
             ghostRecordingBuffer.Clear();
             ghostRecordedLapNumber = -1;
+            playerCameraRig = null;
 
             SimpleAudioManager.SetRain(false);
             SimpleAudioManager.SetRaceAmbience(false);
@@ -6412,6 +6418,7 @@ namespace LocalFormulaRacing
             if (player)
             {
                 CameraRig rig = new GameObject("Player camera rig").AddComponent<CameraRig>();
+                playerCameraRig = rig;
                 rig.transform.SetParent(raceWorld.transform);
                 rig.transform.position = carObject.transform.position - carObject.transform.forward * 10f + Vector3.up * 4f;
                 rig.Initialize(
@@ -8392,6 +8399,187 @@ namespace LocalFormulaRacing
             LogAiDiagnostics(results);
             SimpleAudioManager.SetRaceAmbience(false);
             SimpleAudioManager.PlayResultsFlourish();
+
+            // Podium/parc fermé presentation (#25): only at the Cinematic
+            // presentation tier, and only when there's an actual camera/field
+            // to stage - everything else (Minimal/Standard, or a degenerate
+            // 0-1 car field) goes straight to the existing 2D results screen
+            // exactly as before, unchanged.
+            bool cinematic = Settings != null && Settings.Current.racePresentation >= 2;
+            if (cinematic && playerCameraRig != null && results.Count >= 1)
+            {
+                StartCoroutine(PodiumPresentationSequence(results));
+            }
+            else
+            {
+                ui.ShowResults(this, results, IsCareerRace);
+            }
+        }
+
+        // Generated runtime podium: repositions the top-3 finishers' own
+        // already-alive car GameObjects (the race world isn't torn down until
+        // the player navigates away from results - see CleanupRaceWorld's
+        // call sites) onto three stepped blocks, hijacks the player's own
+        // camera rig for a brief pan, then hands off to the normal 2D results
+        // screen. Every step is defensively guarded so any missing piece
+        // (no top-3 car found, no track reference) just skips that piece
+        // rather than aborting the whole sequence - it always ends by calling
+        // ShowResults no matter what happened above it.
+        IEnumerator PodiumPresentationSequence(List<RaceResultEntry> results)
+        {
+            List<Transform> podiumCars = new List<Transform>();
+            int topCount = Mathf.Min(3, results.Count);
+            for (int i = 0; i < topCount; i++)
+            {
+                RaceParticipant found = null;
+                for (int p = 0; p < Participants.Count; p++)
+                {
+                    if (Participants[p] != null && Participants[p].driverId == results[i].driverId)
+                    {
+                        found = Participants[p];
+                        break;
+                    }
+                }
+
+                podiumCars.Add(found != null ? found.transform : null);
+            }
+
+            GameObject podiumRoot = new GameObject("Podium presentation");
+            if (raceWorld != null)
+            {
+                podiumRoot.transform.SetParent(raceWorld.transform);
+            }
+
+            Vector3 podiumCenter = Vector3.zero;
+            Vector3 podiumForward = Vector3.forward;
+            if (Track != null)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Track.SampleAtDistance(0f, out point, out forward, out right);
+                // Well clear of the track/pit lane on either side - this is a
+                // purely cosmetic stage, not something a car ever drives past,
+                // so it only needs to be visually clear, not lane-accurate.
+                podiumCenter = point + right * (Track.roadHalfWidth + 40f);
+                podiumForward = -forward;
+            }
+
+            // Three stepped blocks: P1 centre and tallest, P2/P3 lower to either
+            // side - the same silhouette every real podium reads as.
+            Vector3 podiumRight = Vector3.Cross(Vector3.up, podiumForward).normalized;
+            float[] blockHeights = { 1.1f, 0.75f, 0.5f };
+            Vector3[] blockOffsets = { Vector3.zero, podiumRight * -3.2f, podiumRight * 3.2f };
+            Color[] blockColors =
+            {
+                new Color(0.85f, 0.68f, 0.15f),
+                new Color(0.75f, 0.76f, 0.78f),
+                new Color(0.62f, 0.42f, 0.22f)
+            };
+
+            for (int i = 0; i < topCount; i++)
+            {
+                GameObject block = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                block.name = "Podium block P" + (i + 1);
+                block.transform.SetParent(podiumRoot.transform);
+                Vector3 blockCenter = podiumCenter + blockOffsets[i] + Vector3.up * (blockHeights[i] * 0.5f);
+                block.transform.position = blockCenter;
+                block.transform.rotation = Quaternion.LookRotation(podiumForward, Vector3.up);
+                block.transform.localScale = new Vector3(2.6f, blockHeights[i], 2.6f);
+                Renderer blockRenderer = block.GetComponent<Renderer>();
+                if (blockRenderer != null)
+                {
+                    blockRenderer.sharedMaterial = CreateMaterial("Podium block P" + (i + 1), blockColors[i], 0.2f, 0.55f);
+                }
+
+                if (podiumCars[i] != null)
+                {
+                    // Freeze the car exactly where it's placed - a still-alive
+                    // AiVehicleController/VehicleController would otherwise keep
+                    // trying to drive it the instant it's teleported.
+                    VehicleController vc = podiumCars[i].GetComponent<VehicleController>();
+                    if (vc != null)
+                    {
+                        vc.enabled = false;
+                    }
+
+                    AiVehicleController ai = podiumCars[i].GetComponent<AiVehicleController>();
+                    if (ai != null)
+                    {
+                        ai.enabled = false;
+                    }
+
+                    PlayerVehicleInput playerInput = podiumCars[i].GetComponent<PlayerVehicleInput>();
+                    if (playerInput != null)
+                    {
+                        playerInput.enabled = false;
+                    }
+
+                    Rigidbody carBody = podiumCars[i].GetComponent<Rigidbody>();
+                    if (carBody != null)
+                    {
+                        carBody.isKinematic = true;
+                        carBody.velocity = Vector3.zero;
+                        carBody.angularVelocity = Vector3.zero;
+                    }
+
+                    podiumCars[i].position = blockCenter + Vector3.up * (blockHeights[i] * 0.5f + 0.3f);
+                    podiumCars[i].rotation = Quaternion.LookRotation(-podiumForward, Vector3.up);
+                }
+            }
+
+            // Simple confetti: short burst of coloured particles above the
+            // podium, gated the same way every other optional effect in this
+            // codebase is (Settings.Current.particlesEnabled).
+            if (Settings != null && Settings.Current.particlesEnabled && topCount > 0)
+            {
+                GameObject confettiObject = new GameObject("Podium confetti");
+                confettiObject.transform.SetParent(podiumRoot.transform);
+                confettiObject.transform.position = podiumCenter + Vector3.up * 4f;
+                ParticleSystem confetti = confettiObject.AddComponent<ParticleSystem>();
+                ParticleSystem.MainModule main = confetti.main;
+                main.startLifetime = 2.2f;
+                main.startSpeed = 3.5f;
+                main.startSize = 0.12f;
+                main.maxParticles = 200;
+                main.startColor = new ParticleSystem.MinMaxGradient(new Color(1f, 0.8f, 0.2f), new Color(0.3f, 0.6f, 1f));
+                ParticleSystem.EmissionModule emission = confetti.emission;
+                emission.rateOverTime = 0f;
+                emission.SetBursts(new[] { new ParticleSystem.Burst(0f, 120) });
+                ParticleSystem.ShapeModule shape = confetti.shape;
+                shape.shapeType = ParticleSystemShapeType.Cone;
+                shape.angle = 25f;
+                shape.radius = 1.5f;
+                ParticleSystemRenderer confettiRenderer = confettiObject.GetComponent<ParticleSystemRenderer>();
+                if (confettiRenderer != null)
+                {
+                    confettiRenderer.material = CreateMaterial("Confetti particle", Color.white, 0f, 0.2f);
+                }
+
+                confetti.Play();
+            }
+
+            // Camera: hand-drive the player's own rig instead of leaving
+            // CameraRig's own per-frame follow logic fighting this - it gets
+            // re-enabled implicitly by never being needed again (the race
+            // world, camera included, is destroyed the moment the player
+            // navigates away from the results screen that follows this).
+            playerCameraRig.enabled = false;
+            Vector3 camStart = podiumCenter + podiumForward * 14f + podiumRight * 6f + Vector3.up * 3.2f;
+            Vector3 camEnd = podiumCenter + podiumForward * 12f - podiumRight * 6f + Vector3.up * 4.4f;
+            Transform camTransform = playerCameraRig.transform;
+
+            float duration = 4f;
+            float elapsed = 0f;
+            while (elapsed < duration && !Input.anyKeyDown)
+            {
+                elapsed += Time.deltaTime;
+                float t = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(elapsed / duration));
+                camTransform.position = Vector3.Lerp(camStart, camEnd, t);
+                camTransform.rotation = Quaternion.LookRotation((podiumCenter + Vector3.up * 1.5f) - camTransform.position, Vector3.up);
+                yield return null;
+            }
+
             ui.ShowResults(this, results, IsCareerRace);
         }
 
