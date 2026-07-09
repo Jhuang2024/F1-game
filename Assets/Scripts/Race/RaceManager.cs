@@ -10494,13 +10494,18 @@ namespace LocalFormulaRacing
             float consistency = entry.driverData == null ? 80f : entry.driverData.consistency;
             float qualifying = entry.driverData == null ? 82f : entry.driverData.qualifying;
             float improveChance = Mathf.Lerp(0.46f, 0.78f, consistency / 100f);
+            // Qualifying-gap fix round 4: this skill-scaled second-run swing was
+            // another residual gap source untouched by the driverEffect/carEffect/
+            // variance cuts above - a high-qualifying driver could gain up to 0.46s
+            // more than a low one could lose, worth most of a second on its own.
+            // Trimmed to match the same hard cut.
             if (Random.value < improveChance)
             {
-                secondRun -= Random.Range(0.04f, Mathf.Lerp(0.18f, 0.46f, qualifying / 100f));
+                secondRun -= Random.Range(0.02f, Mathf.Lerp(0.06f, 0.14f, qualifying / 100f));
             }
             else
             {
-                secondRun += Random.Range(0.02f, 0.28f);
+                secondRun += Random.Range(0.01f, 0.09f);
             }
 
             return Mathf.Min(firstRun, secondRun);
@@ -10645,7 +10650,11 @@ namespace LocalFormulaRacing
             // at the round-1 coefficient that spread by itself was worth over 2 seconds
             // before a single driver-skill or variance term was even added.
             // Round 3: still ~1.6s P1-P8 - cut roughly in half again.
-            breakdown.driverEffect = (qualifying - 88f) * -0.010f + (pace - 88f) * -0.0035f + (confidence - 80f) * -0.001f;
+            // Round 4: incremental halving wasn't reading as a real change - cut
+            // hard this time (~3x smaller than round 3, not another half-step) so
+            // the field genuinely tightens up instead of still spreading out over
+            // several rounds of small nudges.
+            breakdown.driverEffect = (qualifying - 88f) * -0.003f + (pace - 88f) * -0.001f + (confidence - 80f) * -0.0003f;
             // Balance fix: car upgrade stats can reach up to 125 (see
             // CareerManager.ApplyCareerUpgrades' clamps) against an 86
             // baseline - uncapped, a fully maxed car alone was worth roughly
@@ -10659,7 +10668,8 @@ namespace LocalFormulaRacing
             // full 45(floor)-104(capped) car-rating range was still worth over 2s on
             // its own at the round-1 coefficient.
             // Round 3: same reasoning as driverEffect above.
-            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.010f;
+            // Round 4: same hard cut as driverEffect above.
+            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.003f;
             // Percentage of baseLap rather than a flat constant, so difficulty stays
             // meaningful regardless of track length: Easy is clearly the slowest,
             // Expert clearly the fastest/most aggressive, Medium close to neutral.
@@ -10673,7 +10683,8 @@ namespace LocalFormulaRacing
             // above (was 0.24-0.035) - random per-lap noise was another source of
             // gap that had nothing to do with genuine skill/car differences.
             // Round 3: trimmed again, same reasoning.
-            float variance = Mathf.Lerp(0.08f, 0.01f, consistency / 100f);
+            // Round 4: cut hard alongside driverEffect/carEffect above.
+            float variance = Mathf.Lerp(0.03f, 0.005f, consistency / 100f);
             breakdown.variance = Random.Range(-variance, variance) + (secondRun ? Random.Range(-0.08f, 0.05f) : 0f);
             breakdown.finalTime = breakdown.baseLap + breakdown.driverEffect + breakdown.carEffect +
                                   breakdown.difficultyEffect + breakdown.phaseEffect + breakdown.tyrePrep +
