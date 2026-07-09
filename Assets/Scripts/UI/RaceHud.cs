@@ -117,6 +117,17 @@ namespace LocalFormulaRacing
         // same UiPunch used for the lap counter - see UpdatePitPhasePill.
         UiPunch pitPhasePillPunch;
         string previousPitPhaseText = "";
+        // Cancellable-manual-pit-stop feature: a real clickable button (not
+        // another passive HudPill) since this is the HUD's first interactive
+        // in-race control - only ever active while
+        // RaceManager.CanCancelManualPitRequest() is true (a manual/SC-offer
+        // request is queued and not yet committed), hidden the instant that
+        // stops being true. previousPitCancelVisible drives the same kind of
+        // edge-triggered feedback the phase pill's own UiPunch uses, without
+        // needing a second UiPunch component just for a button appearing.
+        Button pitCancelButton;
+        Text pitCancelButtonLabel;
+        bool previousPitCancelVisible;
         // Radio message stacking fix: up to MaxRadioCards independently
         // active, independently fading compact cards (newest at index 0)
         // instead of one shared card/text pair a single message occupied at
@@ -953,11 +964,13 @@ namespace LocalFormulaRacing
         // glance (see UpdatePitCard) instead of only living in the wording.
         void BuildPitCard()
         {
-            // Card grew (was 144 tall) to fit the new plain-language phase
-            // pill (Entering pit lane / In pit lane / Box stop / Pit exit)
-            // above the existing technical status/plan lines - see
-            // UpdatePitCard/PitPhasePillState.
-            RectTransform card = UiFactory.CreateHudCard(rightStack, "Pit", RightStackWidth, 184f, UiFactory.AccentAmber);
+            // Card grew (was 144 tall, then 184) to fit first the plain-
+            // language phase pill (Entering pit lane / In pit lane / Box stop
+            // / Pit exit) above the existing technical status/plan lines, and
+            // now the cancel-manual-pit-request button below the stop-progress
+            // meter - see UpdatePitCard/PitPhasePillState and the button
+            // built at the bottom of this method.
+            RectTransform card = UiFactory.CreateHudCard(rightStack, "Pit", RightStackWidth, 222f, UiFactory.AccentAmber);
 
             pitPhasePill = UiFactory.CreatePill(card, "Pit Phase", 210f, 26f);
             pitPhasePill.root.anchorMin = new Vector2(0f, 1f);
@@ -991,6 +1004,37 @@ namespace LocalFormulaRacing
             UiFactory.CreateBand(card, "Pit card divider", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(14f, -142f), new Vector2(-10f, -140f), new Color(1f, 1f, 1f, 0.08f));
 
             pitFill = UiFactory.CreateHudMeter(card, "Stop", 154f, UiFactory.AccentAmber, out pitFillValue);
+
+            // Cancellable-manual-pit-stop button: only ever active while
+            // race.CanCancelManualPitRequest() is true - a manually-queued
+            // (P key or accepted SC/VSC offer) stop that hasn't yet committed.
+            // Starts inactive/hidden like every other conditional card element
+            // here (SC window card, qualifying card) so it contributes nothing
+            // until it's actually relevant. Keyboard cancellation (the O key,
+            // see PlayerVehicleInput) calls the exact same
+            // RaceManager.CanCancelManualPitRequest/CancelManualPitRequest
+            // pair this button's own click handler does, so the two can never
+            // disagree about when cancelling is legal.
+            pitCancelButton = UiFactory.CreateDangerButton(card, "Cancel Pit Request", OnPitCancelButtonClicked);
+            RectTransform cancelRect = pitCancelButton.GetComponent<RectTransform>();
+            cancelRect.anchorMin = new Vector2(0f, 1f);
+            cancelRect.anchorMax = new Vector2(1f, 1f);
+            cancelRect.pivot = new Vector2(0.5f, 1f);
+            cancelRect.offsetMin = new Vector2(14f, -216f);
+            cancelRect.offsetMax = new Vector2(-10f, -186f);
+            pitCancelButtonLabel = pitCancelButton.GetComponentInChildren<Text>();
+            pitCancelButton.gameObject.SetActive(false);
+        }
+
+        void OnPitCancelButtonClicked()
+        {
+            // Same validation the O keyboard shortcut uses (PlayerVehicleInput)
+            // - CancelManualPitRequest re-checks CanCancelManualPitRequest
+            // internally regardless, so mouse and keyboard can never behave
+            // differently, and a click that races a same-frame commitment (the
+            // button was about to hide but the click event was already queued)
+            // can never sneak through.
+            race.CancelManualPitRequest();
         }
 
         // Non-intrusive box-now suggestion during a safety car / VSC period.
@@ -2145,6 +2189,45 @@ namespace LocalFormulaRacing
             UiFactory.SetMeterValueAnimated(pitFill, progress);
             pitFillValue.text = progress > 0.001f ? Mathf.RoundToInt(progress * 100f) + "%" : "";
             UpdatePitPhasePill();
+            UpdatePitCancelButton();
+
+            // Brief cancellation confirmation: overrides the status/plan lines
+            // for a few seconds right after CancelManualPitRequest runs (see
+            // RaceManager.playerManualPitCancelMessageTimer), then falls back to
+            // whatever the lines above already computed - never a separate,
+            // parallel message queue.
+            if (race.PlayerManualPitCancelMessageActive)
+            {
+                pitStatusValue.text = "MANUAL PIT STOP CANCELLED";
+                pitStatusValue.color = UiFactory.AccentAmber;
+                pitPlanValue.text = "Original strategy restored";
+            }
+        }
+
+        // Cancellable-manual-pit-stop button visibility/label: shown only while
+        // race.CanCancelManualPitRequest() is true, matching the exact same
+        // gate PlayerVehicleInput's O key and RaceManager.CancelManualPitRequest
+        // itself re-check - so the button can never be visible in a state where
+        // pressing it (or O) would silently no-op, and never linger visible a
+        // frame after the manual stop commits.
+        void UpdatePitCancelButton()
+        {
+            if (pitCancelButton == null)
+            {
+                return;
+            }
+
+            bool canCancel = race.CanCancelManualPitRequest();
+            if (canCancel != previousPitCancelVisible)
+            {
+                previousPitCancelVisible = canCancel;
+                pitCancelButton.gameObject.SetActive(canCancel);
+            }
+
+            if (canCancel && pitCancelButtonLabel != null)
+            {
+                pitCancelButtonLabel.text = "CANCEL PIT REQUEST [O]";
+            }
         }
 
         // Plain-language headline (Entering pit lane / In pit lane / Box stop /

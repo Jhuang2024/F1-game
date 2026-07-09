@@ -250,6 +250,11 @@ namespace LocalFormulaRacing
         float playerRaceControlPitOfferExpiresAt;
         RaceControlPitOfferType playerRaceControlPitOfferType;
         bool playerDeclinedRaceControlPitOfferMessageSent;
+        // Cancellable-manual-pit-stop fix: brief "MANUAL PIT STOP CANCELLED"
+        // HUD banner window - see CancelManualPitRequest/RaceHud.UpdatePitCard.
+        const float PlayerManualPitCancelMessageSeconds = 3f;
+        float playerManualPitCancelMessageTimer;
+        public bool PlayerManualPitCancelMessageActive { get { return playerManualPitCancelMessageTimer > 0f; } }
         float yellowSectorClearTimer;
         // Part 2: per-sector and global cooldowns so yellow flags read as
         // localized, occasional warnings instead of a constant banner spam -
@@ -3668,6 +3673,15 @@ namespace LocalFormulaRacing
 
             PlayerParticipant.vehicle.RequestPit();
             PlayerParticipant.pitAutoTriggered = false;
+            // Cancellable-manual-pit-stop fix: an accepted SC/VSC radio offer is
+            // still a manually-initiated stop, not the pre-race plan - tagged
+            // with its own source (rather than reusing Manual) so future
+            // messaging/analytics can tell the two apart, but it is cancellable
+            // through the exact same window (CanCancelManualPitRequest treats
+            // Manual and SafetyCarPrompt identically).
+            PlayerParticipant.activePitRequestSource = PitRequestSource.SafetyCarPrompt;
+            PlayerParticipant.manualPitRequested = true;
+            PlayerParticipant.manualPitCommitted = false;
             if (!PlayerParticipant.requestedPitCompoundSet)
             {
                 PlayerParticipant.requestedPitCompound = NextPlannedPitCompoundFor(PlayerParticipant);
@@ -3682,6 +3696,117 @@ namespace LocalFormulaRacing
             {
                 PostEngineerMessage("Copy. Box this lap under " + offerName + ". Pit confirm.", true, RaceAudioCue.PitCall);
             }
+        }
+
+        // ---------- Cancellable manual pit request ----------
+        // Single shared validation for cancelling a manually-queued (P key or
+        // accepted SC/VSC offer) pit stop. Every cancellation path - the HUD
+        // button and the keyboard shortcut alike - must go through this exact
+        // method, so there is never a difference between mouse and keyboard
+        // behaviour, and the pre-race planned stop (NextPlannedPitLapFor/
+        // GetPlannedPitLapForStop, driven purely by Settings.Current.plannedPitLapOne/
+        // Two and pitStops) is never read, mutated, or otherwise touched by any
+        // of this - it is a completely separate concept from the temporary
+        // manual override this cancels.
+        public bool CanCancelManualPitRequest()
+        {
+            RaceParticipant participant = PlayerParticipant;
+            if (participant == null || participant.vehicle == null || !participant.isPlayer)
+            {
+                return false;
+            }
+
+            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial || IsRaceFinished || participant.retired || participant.finished)
+            {
+                return false;
+            }
+
+            // Source/state gate: only a Manual or SafetyCarPrompt request that
+            // hasn't yet committed is cancellable - the pre-race plan's own
+            // auto-trigger (PitRequestSource.PreRacePlan) is never cancellable
+            // through this feature at all.
+            if (!participant.manualPitRequested || participant.manualPitCommitted)
+            {
+                return false;
+            }
+
+            if (participant.activePitRequestSource != PitRequestSource.Manual &&
+                participant.activePitRequestSource != PitRequestSource.SafetyCarPrompt)
+            {
+                return false;
+            }
+
+            if (!participant.vehicle.PitRequested)
+            {
+                return false;
+            }
+
+            // Phase/lockout gate: not already in the pit-entry sequence, pit
+            // lane, box, exit or exit-merge - the project's actual PitPhase
+            // values equivalent to Entry/PitLane/Service/Exit/ExitMerge.
+            if (participant.pitPhase != PitPhase.None || participant.isPitting || participant.pitEntryCommitted)
+            {
+                return false;
+            }
+
+            // Live commitment-boundary gate: re-check the SAME authoritative
+            // boundary HandlePitService itself uses
+            // (Track.HasCrossedPitEntryLimiterLine) directly against the car's
+            // actual current position, not the cached pitPhase/pitEntryCommitted
+            // flags alone - those only update once HandlePitService ticks this
+            // frame, so a player who has already physically crossed the line
+            // this same frame (before that tick runs) must not be able to
+            // cancel and suddenly regain normal racing control inside the
+            // pit-entry lane.
+            if (Track != null && participant.lapTracker != null)
+            {
+                TrackProgress liveProgress = Track.GetProgressNear(participant.transform.position, participant.lapTracker.CurrentProgress.distance);
+                if (Track.HasCrossedPitEntryLimiterLine(liveProgress))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public void CancelManualPitRequest()
+        {
+            if (!CanCancelManualPitRequest())
+            {
+                return;
+            }
+
+            RaceParticipant participant = PlayerParticipant;
+            participant.vehicle.ClearPitRequest();
+            participant.pitTyreSelectionActive = false;
+            participant.pitAutoTriggered = false;
+            ClearManualPitRequestTracking(participant);
+
+            // A cancelled manual request never touches the pre-race plan
+            // (NextPlannedPitLapFor keeps reading Settings.Current.plannedPitLapOne/
+            // Two + pitStops exactly as before) - UpdatePlayerAutoPitStrategy
+            // simply resumes normal evaluation next tick with vehicle.PitRequested
+            // false again. If the planned lap already passed while the manual
+            // request was queued, ShouldPromptPlannedStop/NextPlannedPitLapFor
+            // still report it due/overdue and UpdatePlayerAutoPitStrategy
+            // re-requests it at the next tick - it is never silently dropped.
+            SessionMessage = "Manual pit stop cancelled";
+            PostEngineerMessage("Copy, staying out. Original strategy restored.", true);
+            playerManualPitCancelMessageTimer = PlayerManualPitCancelMessageSeconds;
+
+            GameLog.Info("[Pit] Player cancelled manual pit request at lap " +
+                         (participant.lapTracker != null ? participant.lapTracker.CompletedLaps + 1 : 0) + ".");
+        }
+
+        // Shared reset for the three fields a cancelled/consumed manual request
+        // must always clear together - see the "State separation" contract on
+        // RaceParticipant (activePitRequestSource/manualPitRequested/manualPitCommitted).
+        static void ClearManualPitRequestTracking(RaceParticipant participant)
+        {
+            participant.manualPitRequested = false;
+            participant.manualPitCommitted = false;
+            participant.activePitRequestSource = PitRequestSource.None;
         }
 
         // ---------- Overtaking legality (shared by AI decisions, player
@@ -4302,6 +4427,7 @@ namespace LocalFormulaRacing
             reactionDisplayTimer = Mathf.Max(0f, reactionDisplayTimer - Time.deltaTime);
             playerResetCooldown = Mathf.Max(0f, playerResetCooldown - Time.deltaTime);
             engineerDrsWarningCooldown = Mathf.Max(0f, engineerDrsWarningCooldown - Time.deltaTime);
+            playerManualPitCancelMessageTimer = Mathf.Max(0f, playerManualPitCancelMessageTimer - Time.deltaTime);
 
             // Radio message stacking fix: every active entry ages/counts down
             // independently and is removed the instant it expires - there is
@@ -5053,6 +5179,12 @@ namespace LocalFormulaRacing
 
             PlayerParticipant.vehicle.RequestPit();
             PlayerParticipant.pitAutoTriggered = true;
+            // Source tracking: this is the pre-race plan firing itself, never a
+            // manual override, so it is never cancellable through
+            // CanCancelManualPitRequest/CancelManualPitRequest.
+            PlayerParticipant.activePitRequestSource = PitRequestSource.PreRacePlan;
+            PlayerParticipant.manualPitRequested = false;
+            PlayerParticipant.manualPitCommitted = false;
             if (!PlayerParticipant.requestedPitCompoundSet)
             {
                 PlayerParticipant.requestedPitCompound = NextPlannedPitCompoundFor(PlayerParticipant);
@@ -5851,6 +5983,14 @@ namespace LocalFormulaRacing
             // UpdatePlayerAutoPitStrategy, which never fires once
             // vehicle.PitRequested is already latched true from here.
             participant.pitAutoTriggered = false;
+            // Cancellable-manual-pit-stop fix: this is the one place the plain
+            // manual (P key) request is created. Tagging it here - and nowhere
+            // else - is what lets CanCancelManualPitRequest tell a manual
+            // override apart from the pre-race plan's own auto-trigger, without
+            // touching NextPlannedPitLapFor/GetPlannedPitLapForStop at all.
+            participant.activePitRequestSource = PitRequestSource.Manual;
+            participant.manualPitRequested = true;
+            participant.manualPitCommitted = false;
             SessionMessage = "Pit request: choose tyre 1-5";
             PostEngineerMessage("Pit request received. Select tyres: 1 Soft, 2 Medium, 3 Hard, 4 Intermediate, 5 Wet.", true, RaceAudioCue.PitCall);
         }
@@ -8922,6 +9062,13 @@ namespace LocalFormulaRacing
                 participant.vehicle.ClearPitRequest();
                 participant.vehicle.SetPitLimiter(false);
                 participant.pitAutoTriggered = false;
+                // The request never reached the commitment boundary, so it was
+                // never actually cancellable in the first place (missedPitEntryThisLap
+                // itself is what prevents it silently re-arming) - but the
+                // request itself is gone now, so the tracking that describes it
+                // must go with it rather than lingering as a stale "still
+                // queued" state.
+                ClearManualPitRequestTracking(participant);
                 if (participant.isPlayer)
                 {
                     SessionMessage = "Pit entry missed. We'll box next lap.";
@@ -8970,6 +9117,20 @@ namespace LocalFormulaRacing
             participant.pitPhase = PitPhase.Entry;
             participant.pitEntryAligned = false;
             participant.pitEntryCommitted = true;
+            // Cancellable-manual-pit-stop fix: this is the authoritative
+            // commitment boundary the whole pit state machine already uses
+            // (Track.HasCrossedPitEntryLimiterLine, checked just before this is
+            // called) - a manual/SC-offer request becomes permanently
+            // uncancellable the instant it's crossed, never merely on the next
+            // pitPhase read, so CanCancelManualPitRequest can never race a
+            // same-frame commit.
+            if (participant.activePitRequestSource == PitRequestSource.Manual ||
+                participant.activePitRequestSource == PitRequestSource.SafetyCarPrompt)
+            {
+                participant.manualPitCommitted = true;
+            }
+
+            participant.manualPitRequested = false;
             participant.missedPitEntryThisLap = false;
             participant.isPitting = true;
             participant.pitLimiterUntilExit = false;
@@ -9384,6 +9545,10 @@ namespace LocalFormulaRacing
             participant.requestedPitCompoundSet = false;
             participant.pitTyreSelectionActive = false;
             participant.pitAutoTriggered = false;
+            // The stop this request described is now actually complete - clear
+            // the source tag so a stale "committed manual stop" can never leak
+            // into how the next lap's pit-request state reads.
+            ClearManualPitRequestTracking(participant);
             participant.pitTimer = 0f;
             // The release gap only throttles how often a new car is admitted to
             // Release - a car already guided toward the (single) release point can

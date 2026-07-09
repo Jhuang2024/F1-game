@@ -21,6 +21,21 @@ namespace LocalFormulaRacing
         QualifyingReturn
     }
 
+    // Cancellable-manual-pit-stop fix: vehicle.PitRequested is a plain bool with
+    // no memory of WHY it was set - manual P key, an accepted safety-car/VSC
+    // radio offer, or the pre-race strategy's own auto-trigger all looked
+    // identical once latched. That made it impossible to build a "cancel my
+    // manual request" feature that could never accidentally cancel/interfere
+    // with the pre-race plan. This tags every RequestPit() call with its real
+    // source; see RaceManager.CanCancelManualPitRequest/CancelManualPitRequest.
+    public enum PitRequestSource
+    {
+        None,
+        PreRacePlan,
+        Manual,
+        SafetyCarPrompt
+    }
+
     // Race-control recovery classification (RaceManager.DetectIncidents). Only
     // ActuallyStranded may ever escalate into a yellow/VSC/SC incident - every
     // other state describes a car that is slow/stopped for a legitimate reason
@@ -255,6 +270,26 @@ namespace LocalFormulaRacing
         // which one just happened - see RaceManager.UpdatePlayerAutoPitStrategy
         // and RaceHud's pit card.
         public bool pitAutoTriggered;
+
+        // Cancellable-manual-pit-stop fields. activePitRequestSource is the
+        // authoritative tag for the CURRENTLY queued request (set alongside
+        // every vehicle.RequestPit() call site); manualPitRequested is true
+        // exactly while that source is Manual or SafetyCarPrompt and the car
+        // has not yet committed - the window RaceManager.CanCancelManualPitRequest
+        // allows cancellation in. manualPitCommitted flips on once the car
+        // crosses the same authoritative pit-entry commitment boundary the
+        // rest of the pit state machine uses (Track.HasCrossedPitEntryLimiterLine
+        // / BeginPitEntry) and never flips back for that stop - cancellation is
+        // permanently impossible from that point on. None of this ever reads
+        // from or writes to the pre-race planned stop itself (see
+        // RaceManager.NextPlannedPitLapFor/GetPlannedPitLapForStop, which stay
+        // driven purely by Settings.Current.plannedPitLapOne/Two and pitStops -
+        // this project's actual equivalent of a standalone "preRacePlannedPitLap"
+        // field), so creating, committing or cancelling a manual request can
+        // never delete, overwrite or postpone it.
+        public PitRequestSource activePitRequestSource = PitRequestSource.None;
+        public bool manualPitRequested;
+        public bool manualPitCommitted;
 
         // Full safety car convoy autopilot (RaceManager.BuildRaceControlAutopilotCommand):
         // this car's slot in the queue (0 = right behind the safety car), the

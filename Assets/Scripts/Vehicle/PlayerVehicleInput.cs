@@ -193,6 +193,19 @@ namespace LocalFormulaRacing
                 }
             }
 
+            // Cancellable-manual-pit-stop fix: dedicated, previously-unbound key
+            // (adjacent to P, never used elsewhere in this file) so cancelling a
+            // manual request is never confused with queuing/accepting one on the
+            // same key. Routed through the exact same validation
+            // (CanCancelManualPitRequest) the HUD cancel button itself calls, so
+            // keyboard and mouse behave identically - CancelManualPitRequest
+            // re-validates internally regardless, but checking here too avoids
+            // even attempting the call (and its GameLog line) on a no-op press.
+            if (Input.GetKeyDown(KeyCode.O) && raceManager.CanCancelManualPitRequest())
+            {
+                raceManager.CancelManualPitRequest();
+            }
+
             if (Input.GetKeyDown(KeyCode.Alpha1))
             {
                 raceManager.SelectPlayerPitTyre(participant, TyreCompound.Soft);
