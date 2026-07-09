@@ -1961,14 +1961,25 @@ namespace LocalFormulaRacing
             runtime.kerbStart = 8.98f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.18f, 0.36f);
+            // Final-corner elevation bugfix: anchors 14/15 used to carry residual
+            // -4f/-1f elevation this close to the pit straight (anchor 16 and the
+            // wrap back to anchor 0 are both already flat at 0f), so the smoothed
+            // spline through the final corner still showed a stray bump/dip right
+            // where the track visually reads as flat - and since curvature/speed
+            // sampling measures real 3D arc length along this centerline, that
+            // residual elevation change was quietly distorting the final corner's
+            // own severity/speed calculation too. Flattened to 0f so the final
+            // corner and the run into the pit straight are genuinely flat, while
+            // the legitimate mid-lap elevation (Eau Rouge's climb, the Pouhon/
+            // Fagnes descent down to anchor 12's -8f low point) is untouched.
             AddSmoothedAnchors(runtime, new[]
             {
                 new Vector3(0f, 0f, 0f), new Vector3(124f, 0.5f, 0f), new Vector3(170f, 4.5f, 34f),
                 new Vector3(196f, 13f, 94f), new Vector3(260f, 19f, 142f), new Vector3(352f, 17f, 158f),
                 new Vector3(414f, 10f, 122f), new Vector3(388f, 5f, 72f), new Vector3(302f, 2f, 72f),
                 new Vector3(242f, -1f, 112f), new Vector3(164f, -4f, 126f), new Vector3(80f, -6f, 106f),
-                new Vector3(26f, -8f, 146f), new Vector3(-54f, -7f, 126f), new Vector3(-104f, -4f, 70f),
-                new Vector3(-84f, -1f, 22f), new Vector3(-162f, 0f, 4f)
+                new Vector3(26f, -8f, 146f), new Vector3(-54f, -7f, 126f), new Vector3(-104f, 0f, 70f),
+                new Vector3(-84f, 0f, 22f), new Vector3(-162f, 0f, 4f)
             }, 5);
         }
 

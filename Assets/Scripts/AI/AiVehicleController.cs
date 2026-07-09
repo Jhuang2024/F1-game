@@ -362,7 +362,8 @@ namespace LocalFormulaRacing
                     // Round 13: raised another flat 15kph (422.5-432.5kph -> 437.5-447.5kph).
                     // Round 14: raised another flat 15kph (437.5-447.5kph -> 452.5-462.5kph).
                     // Round 15: raised another flat 20kph (452.5-462.5kph -> 472.5-482.5kph).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(472.5f, Mathf.Lerp(477.5f, 482.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 16: raised another flat 20kph (472.5-482.5kph -> 492.5-502.5kph).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(492.5f, Mathf.Lerp(497.5f, 502.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
