@@ -10235,17 +10235,6 @@ namespace LocalFormulaRacing
         // reverts to ordinary live traffic again.
         const float PitExitConvoyTailMeters = 50f;
 
-        // Convoy-aware world-space handoff gap: matches the FIFO queue's own
-        // moving gap (PitExitConvoyMovingGapMeters, 8.5m) rather than the much
-        // larger PitExitHandoffWorldGapMeters used against genuinely unrelated
-        // traffic below - a same-convoy car's spacing is already governed by
-        // that queue gap, so re-demanding a much larger unrelated-traffic gap
-        // against it was the direct contradiction that stalled the queue. This
-        // only ever needs to catch actual overlap between convoy cars, not
-        // re-impose a second, larger separation requirement on top of what
-        // ComputeConvoyStep already guarantees.
-        const float PitExitConvoyWorldGapMeters = 7.5f;
-
         // True for any car currently part of the shared pit-exit FIFO stream -
         // either still actively occupying it (a Service car already holding
         // for its own release gap, Release, or ExitMerge) or a car that has
@@ -10513,30 +10502,20 @@ namespace LocalFormulaRacing
             return closestGap;
         }
 
-        // Real world-space handoff gap (root cause 2, item 4/physics handoff
-        // safety): track-distance-based checks alone can be fooled wherever
-        // the pit lane runs close to another part of the circuit - two points
-        // separated by a safe DISTANCE-ALONG-TRACK gap can still be only a
-        // few metres apart in actual 3D space. Deliberately larger than the
-        // basic moving-guide headway (PitExitConvoyMovingGapMeters) since this is the
-        // last check before collisions/full-speed physics are restored, not a
-        // "keep queueing" gate - cars must not have normal collisions
-        // restored only a few metres apart at ~100 km/h.
-        const float PitExitHandoffWorldGapMeters = 22f;
+        // PIT EXIT REWORK - the ONE remaining world-space clearance rule:
+        // genuine physical overlap only. A car is roughly 5m long; two car
+        // centers 7m apart are close but NOT overlapping, and Unity's own
+        // collision response handles close-quarters racing everywhere else on
+        // the circuit already. The old 22m "courtesy bubble" (plus a separate
+        // 18m/35m live-traffic window) is what made handoff clearance
+        // impossible to satisfy in a busy race - cars pass the pit exit
+        // constantly, so some car was ALWAYS within 22m, and the merging car
+        // froze forever. Overlap, unlike proximity, always self-resolves:
+        // both cars keep moving.
+        const float PitExitOverlapRadiusMeters = 7f;
 
-        // Convoy-identity fix: this used to demand the full unrelated-traffic
-        // gap (PitExitHandoffWorldGapMeters, 22m) against every other car
-        // without exception - including a car directly ahead in the SAME
-        // pit-exit queue, whose spacing is already governed by the queue's
-        // own ~17m headway (PitExitConvoyMovingGapMeters/PitExitConvoyWorldGapMeters).
-        // That contradiction is exactly what stalled the queue in short
-        // batches: a following car sitting at a perfectly correct ~17m queue
-        // gap could never pass this 22m check. Returns the actual blocking
-        // participant (rather than just a bool) so callers can log which car
-        // and gap requirement caused a hold.
-        RaceParticipant FindWorldSpaceBlocker(RaceParticipant participant, Vector3 candidatePosition, out float requiredGap)
+        RaceParticipant FindOverlapBlocker(RaceParticipant participant, Vector3 candidatePosition)
         {
-            requiredGap = 0f;
             for (int i = 0; i < Participants.Count; i++)
             {
                 RaceParticipant other = Participants[i];
@@ -10545,21 +10524,13 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                float gap = IsPitExitConvoyMember(other) ? PitExitConvoyWorldGapMeters : PitExitHandoffWorldGapMeters;
-                if (Vector3.Distance(candidatePosition, other.transform.position) < gap)
+                if (Vector3.Distance(candidatePosition, other.transform.position) < PitExitOverlapRadiusMeters)
                 {
-                    requiredGap = gap;
                     return other;
                 }
             }
 
             return null;
-        }
-
-        bool IsWorldSpacePositionClear(RaceParticipant participant, Vector3 candidatePosition)
-        {
-            float requiredGap;
-            return FindWorldSpaceBlocker(participant, candidatePosition, out requiredGap) == null;
         }
 
         // Defensive overlap repair (item 5): if two pit-guided cars have
@@ -10595,65 +10566,15 @@ namespace LocalFormulaRacing
             GameLog.Warn("[PitLane] " + participant.driverName + " overlapped " + blocker.driverName + " in the exit queue; separated along the pit path.");
         }
 
-        // How far before the real merge point (pitExitMergeEndDistance) live
-        // racing traffic starts to matter. Before this window the exiting car is
-        // still on its own physically separate ramp/corridor, so no live car can
-        // actually be in the way yet.
-        const float PitExitMergeLiveTrafficCheckLeadMeters = 20f;
-        const float PitExitLiveTrafficForwardGapMeters = 18f;
-        const float PitExitLiveTrafficRearGapMeters = 35f;
-
-        // Explicit live-traffic occupancy check (bugfix): ExitMerge's kinematic
-        // guidance is now fully non-colliding again (see UpdatePitExitMerge), so
-        // it can no longer rely on physically bumping into ordinary racing
-        // traffic to avoid it. Only cars already out on the live racing surface
-        // (pitPhase == None) are considered here - other pit-guided cars ahead
-        // are already covered by FindPitExitQueueCarAhead's pitGuideDistance-based
-        // check. A gap is required both ahead of and behind the candidate merge
-        // distance, since pulling out directly in front of fast-approaching live
-        // traffic is just as dangerous as merging into a car directly ahead.
-        //
-        // Convoy-identity fix: a car that has just come out of the SAME
-        // pit-exit stream (IsPitExitConvoyMember - still within
-        // PitExitConvoyTailMeters of its own merge point) is skipped here
-        // entirely rather than being treated as generic live traffic - its
-        // spacing is already governed by the FIFO queue headway
-        // (FindPitExitQueueCarAhead, PitExitConvoyMovingGapMeters). Demanding this
-        // much larger 18m/35m window against it too was the direct
-        // contradiction that stalled the queue in short batches. Genuinely
-        // unrelated live traffic (anyone not part of the current pit-exit
-        // convoy) keeps the exact same protection as before.
-        RaceParticipant FindLiveTrafficBlocker(RaceParticipant participant, float candidateDistance)
-        {
-            for (int i = 0; i < Participants.Count; i++)
-            {
-                RaceParticipant other = Participants[i];
-                if (other == null || other == participant || other.vehicle == null || other.retired || other.pitPhase != PitPhase.None)
-                {
-                    continue;
-                }
-
-                if (IsPitExitConvoyMember(other))
-                {
-                    continue;
-                }
-
-                TrackProgress otherProgress = GetPitAwareProgress(other);
-                float ahead = WrappedForwardDistance(candidateDistance, otherProgress.distance);
-                float behind = WrappedForwardDistance(otherProgress.distance, candidateDistance);
-                if (ahead < PitExitLiveTrafficForwardGapMeters || behind < PitExitLiveTrafficRearGapMeters)
-                {
-                    return other;
-                }
-            }
-
-            return null;
-        }
-
-        bool IsPitExitMergeSpaceOccupied(RaceParticipant participant, float candidateDistance)
-        {
-            return FindLiveTrafficBlocker(participant, candidateDistance) != null;
-        }
+        // PIT EXIT REWORK: the old FindLiveTrafficBlocker /
+        // IsPitExitMergeSpaceOccupied live-traffic window (18m ahead / 35m
+        // behind against every live car) is gone entirely. The merging car no
+        // longer yields to live traffic at all - live traffic yields to IT
+        // (see AiVehicleController.ApplyTrafficAvoidance, which now treats an
+        // ExitMerge car as real traffic to brake/steer around instead of an
+        // ignorable ghost). Only genuine physical overlap
+        // (FindOverlapBlocker above) still delays the physics handoff, and
+        // that always self-resolves because both cars keep moving.
 
         // Single, shared ExitMerge completion path (bugfix): both the normal
         // physically-merged check and the deterministic failsafe below now
@@ -10758,28 +10679,19 @@ namespace LocalFormulaRacing
         // rather than silently halving.
         const int PitExitRecoverySearchSteps = 16;
 
-        // Root cause 2 fix: the old ForcePitExitMergeCompletion searched a
-        // bounded number of positions but ALWAYS called CompletePitExitMerge
-        // afterward regardless of whether a genuinely clear one was actually
-        // found - if every tested position was occupied, it still restored
-        // non-kinematic physics, collisions, and ~100 km/h velocity into
-        // occupied space. That is what flung cars sideways into each other
-        // when several queued cars' failsafes triggered close together.
-        //
-        // TryForcePitExitMergeCompletion returns false and leaves the car
-        // exactly as it was - still kinematic, non-colliding, guided - when
-        // no clear point is found, so the caller can simply retry on a later
-        // tick instead of ever completing into occupied space. The search:
-        // - is bounded by NearestEarlierQueueCarDistanceAhead so a
-        //   later-release car can never be stepped physically ahead of an
-        //   earlier-queued one just to find room (item 8);
-        // - validates track-distance separation (FindPitExitQueueCarAhead,
-        //   IsPitExitMergeSpaceOccupied) AND real world-space separation
-        //   (IsWorldSpacePositionClear) at every candidate, since the pit
-        //   exit can run close to another part of the circuit where a safe
-        //   distance-along-track gap is not a safe real-world gap;
-        // - only ever completes through CompletePitExitMerge when a fully
-        //   clear point was actually found.
+        // PIT EXIT REWORK: this now ALWAYS completes the merge - guaranteed
+        // termination. The old version returned false and left the car
+        // guided/frozen whenever every searched position failed its (much
+        // stricter, live-traffic-inclusive) clearance checks, which in a busy
+        // race meant it refused forever and the car never left the pit exit.
+        // The search now only looks for a spot without genuine physical
+        // overlap (FindOverlapBlocker, 7m) while still never stepping past an
+        // earlier-queued convoy car; if even that can't be found within the
+        // bounded range (essentially impossible - it would take a wall of
+        // stationary cars), the merge completes at the search end anyway and
+        // lets Unity's collision depenetration sort out the last few metres.
+        // A brief physics shove in a pathological pile-up beats a permanently
+        // frozen car in every case.
         bool TryForcePitExitMergeCompletion(RaceParticipant participant, string reason)
         {
             float recoveryDistance = Track.WrapDistance(participant.pitExitMergeEndDistance + 2f);
@@ -10789,7 +10701,6 @@ namespace LocalFormulaRacing
                 ? Mathf.Max(0f, searchLimit - PitExitConvoyMovingGapMeters)
                 : PitExitConvoyMovingGapMeters * PitExitRecoverySearchSteps;
 
-            bool foundClear = false;
             float traveledSearch = 0f;
             while (true)
             {
@@ -10798,16 +10709,7 @@ namespace LocalFormulaRacing
                 Quaternion candidateRotation;
                 Track.SamplePitLanePose(recoveryDistance, lateral, out candidatePosition, out candidateRotation);
 
-                bool blockedAhead = FindPitExitQueueCarAhead(participant, recoveryDistance) != null;
-                bool liveTrafficOccupied = IsPitExitMergeSpaceOccupied(participant, recoveryDistance);
-                bool worldSpaceClear = IsWorldSpacePositionClear(participant, candidatePosition);
-                if (!blockedAhead && !liveTrafficOccupied && worldSpaceClear)
-                {
-                    foundClear = true;
-                    break;
-                }
-
-                if (traveledSearch >= searchLimit)
+                if (FindOverlapBlocker(participant, candidatePosition) == null || traveledSearch >= searchLimit)
                 {
                     break;
                 }
@@ -10817,22 +10719,11 @@ namespace LocalFormulaRacing
                 traveledSearch += step;
             }
 
-            if (!foundClear)
-            {
-                // Safety-preserving refusal: it is better to keep holding
-                // (still guided, still non-colliding) than to launch several
-                // cars into one another. The next tick simply tries again -
-                // no teleport, no collision restore, no velocity injected.
-                GameLog.Warn("[PitLane] " + participant.driverName + " hit the ExitMerge failsafe (" + reason +
-                             ") but no clear recovery point was found; holding guided and retrying.");
-                return false;
-            }
-
             float recoveryLateral = Track.PitExitMergeLegalLateral(recoveryDistance);
             Vector3 recoveryPosition;
             Quaternion recoveryRotation;
             Track.SamplePitLanePose(recoveryDistance, recoveryLateral, out recoveryPosition, out recoveryRotation);
-            GameLog.Warn("[PitLane] " + participant.driverName + " hit the ExitMerge failsafe (" + reason + "), force-completing the merge at a known-clear pose.");
+            GameLog.Warn("[PitLane] " + participant.driverName + " hit the ExitMerge failsafe (" + reason + "), force-completing the merge.");
             CompletePitExitMerge(participant, recoveryPosition, recoveryRotation, recoveryDistance);
             return true;
         }
@@ -10849,25 +10740,8 @@ namespace LocalFormulaRacing
         // for one.
         const float PitExitMergeDesyncFailsafeSeconds = 6f;
 
-        // Pit-exit liveness fix: how long a continuous live-traffic hold at the
-        // merge point is allowed to last before the car starts attempting
-        // TryForcePitExitMergeCompletion (which still refuses any placement
-        // that isn't genuinely clear, so this can never force a car into
-        // traffic - it only stops a self-renewing stream of passing cars from
-        // starving the entire pit lane behind the pipeline head forever).
-        const float PitExitLiveTrafficHoldEscapeSeconds = 10f;
-
         void UpdatePitExitMerge(RaceParticipant participant)
         {
-            // Root cause 1 fix: the failsafe timer used to accumulate here,
-            // unconditionally, before the occupancy checks below even ran - so
-            // a car intentionally held because the exit was occupied still
-            // counted that time toward the timeout, and once it expired
-            // TryForcePitExitMergeCompletion overrode the occupancy system
-            // entirely. It is no longer touched here; see where
-            // blockedByExitTraffic/blockedByLiveTraffic and longitudinalDrift
-            // are computed below for the actual (occupancy-aware, desync-only)
-            // accumulation rule.
             bool wasHeldByOccupancy = participant.pitLaneHeldByOccupancy;
             ResolvePitLaneOverlap(participant);
 
@@ -10884,75 +10758,41 @@ namespace LocalFormulaRacing
             // the whole guided path onto the wrong stretch of track. The step is
             // always positive, so the guide can never move backward.
             //
-            // Throughput fix: same distance-clamped convoy movement as
-            // UpdatePitRelease (ComputeConvoyStep) - a following car keeps
-            // closing on the car ahead of it right up until
-            // PitExitConvoyMovingGapMeters instead of freezing at 0 km/h the
-            // instant one exists anywhere within range. Unrelated live
-            // traffic (FindLiveTrafficBlocker, only checked in the final
-            // stretch before the real merge point) is a completely separate,
-            // still-binary safety gate - pulling out in front of fast-
-            // approaching traffic is not something to "clamp toward", so that
-            // one still forces a hard stop regardless of the convoy step.
-            bool nearingLiveMerge = participant.pitPathRemainingMeters <= PitExitMergeLiveTrafficCheckLeadMeters;
+            // PIT EXIT REWORK: the exiting car NEVER yields to live racing
+            // traffic. The old model held the convoy leader at the merge point
+            // until an 18m-ahead/35m-behind live-traffic window opened AND a
+            // 22m world-space bubble was clear - in any busy race cars stream
+            // past the pit exit continuously, so that window never opened, the
+            // leader froze at 0 km/h, and the entire pit lane starved behind
+            // it (every previous "escape" also refused to complete unless the
+            // same impossible clearance appeared, so it retried forever). The
+            // responsibility is now inverted to match how a real pit exit
+            // works: the merging car always keeps rolling down its own exit
+            // lane at exit pace, and LIVE TRAFFIC avoids the merging car
+            // (AiVehicleController.ApplyTrafficAvoidance no longer skips
+            // ExitMerge cars, so approaching live cars brake/steer around them
+            // exactly like any other slow car on the outer lane). The only
+            // thing that ever slows a merging car is the car ahead in its own
+            // pit-exit convoy (ComputeConvoyStep) - spacing within the lane.
             RaceParticipant exitTrafficBlocker;
-            float convoyStep = ComputeConvoyStep(participant, participant.pitGuideDistance, PitExitMergePaceKph, out exitTrafficBlocker);
-            bool blockedByExitTraffic = exitTrafficBlocker != null && convoyStep <= 0.0001f;
-            // Single-negotiator convoy fix: only the car with nobody else of the
-            // convoy ahead of it (the current convoy LEADER) ever queries live
-            // traffic - a follower already has its spacing fully governed by
-            // ComputeConvoyStep above, so it has no need to independently
-            // negotiate the merge too, which used to let each follower produce
-            // its own, occasionally flickering stop/go decision even while
-            // correctly tucked in behind an already-clear leader. The instant
-            // the leader completes its own merge (CompletePitExitMerge), the
-            // next car's own exitTrafficBlocker naturally becomes null and it
-            // becomes the new leader.
-            bool isConvoyLeader = exitTrafficBlocker == null;
-            RaceParticipant liveTrafficBlocker = (nearingLiveMerge && isConvoyLeader) ? FindLiveTrafficBlocker(participant, participant.pitGuideDistance) : null;
-            bool blockedByLiveTraffic = liveTrafficBlocker != null;
-            participant.pitLaneHeldByOccupancy = blockedByExitTraffic || blockedByLiveTraffic;
-            if (participant.pitLaneHeldByOccupancy)
+            float step = ComputeConvoyStep(participant, participant.pitGuideDistance, PitExitMergePaceKph, out exitTrafficBlocker);
+            bool blockedByExitTraffic = exitTrafficBlocker != null && step <= 0.0001f;
+            participant.pitLaneHeldByOccupancy = blockedByExitTraffic;
+            if (blockedByExitTraffic)
             {
-                // Root cause 1 fix: an intentional occupancy hold resets the
-                // failsafe timer (not merely pauses it) every single tick it
-                // remains true, so a legitimate queue wait of any length -
-                // even a whole pit wave - can never build toward the timeout.
-                // pitGuideDistance itself is also held below (step = 0), so
-                // the distance-based failsafe (traveled vs required) cannot
-                // advance during a hold either - a queued car can wait
-                // indefinitely without being force-completed into traffic.
+                // A convoy hold resets the desync failsafe timer (not merely
+                // pauses it) every tick it remains true, so a legitimate queue
+                // wait can never build toward the timeout.
                 participant.pitExitMergeElapsedTime = 0f;
-                RaceParticipant activeBlocker = blockedByLiveTraffic ? liveTrafficBlocker : exitTrafficBlocker;
-                string activeBlockerType = blockedByLiveTraffic ? "unrelated live traffic" : "same convoy";
-                float otherDistance = blockedByLiveTraffic ? GetPitAwareProgress(activeBlocker).distance : PitExitQueueCarDistance(activeBlocker);
-                float longitudinalGap = WrappedForwardDistance(participant.pitGuideDistance, otherDistance);
-                float worldSpaceGap = Vector3.Distance(participant.transform.position, activeBlocker.transform.position);
-                LogPitExitQueueTransition(participant, true, activeBlocker, activeBlockerType, longitudinalGap, worldSpaceGap);
+                float longitudinalGap = WrappedForwardDistance(participant.pitGuideDistance, PitExitQueueCarDistance(exitTrafficBlocker));
+                float worldSpaceGap = Vector3.Distance(participant.transform.position, exitTrafficBlocker.transform.position);
+                LogPitExitQueueTransition(participant, true, exitTrafficBlocker, "same convoy", longitudinalGap, worldSpaceGap);
             }
             else if (wasHeldByOccupancy)
             {
                 LogPitExitQueueTransition(participant, false, null, "", 0f, 0f);
             }
 
-            // Pit-exit liveness fix: unlike every other hold in the pit system,
-            // a live-traffic hold at the merge point can in principle renew
-            // itself indefinitely (a steady stream of cars past the line keeps
-            // re-triggering it) - track its CONTINUOUS duration so the escape
-            // below can eventually hand the decision to
-            // TryForcePitExitMergeCompletion, which still refuses any genuinely
-            // unsafe placement. The pipeline head can therefore never starve
-            // the entire pit lane behind it forever.
-            if (blockedByLiveTraffic)
-            {
-                participant.pitExitLiveHoldSeconds += Time.deltaTime;
-            }
-            else
-            {
-                participant.pitExitLiveHoldSeconds = 0f;
-            }
-
-            float step = blockedByLiveTraffic ? 0f : convoyStep;
             participant.pitGuideDistance = Track.WrapDistance(participant.pitGuideDistance + step);
             participant.pitPathRemainingMeters -= step;
             float normalized = participant.pitGuideDistance / Mathf.Max(1f, Track.length);
@@ -11081,34 +10921,24 @@ namespace LocalFormulaRacing
             // every time, letting the merge falsely report "safe" without the car
             // ever actually being confirmed back on the correct side of the road.
             bool safeLateral = Mathf.Abs(physicalProgress.lateralDistance) <= Track.HalfWidthAt(physicalProgress.distance) - 0.3f;
-            // Safe physics handoff (bugfix): never restore collisions/velocity
-            // (CompletePitExitMerge -> SetPitGuidance(false, ...)) while another
-            // pit-guided car or live traffic still overlaps the merge space -
-            // re-check the exact same occupancy tests used to gate the guide's
-            // own forward movement, against the car's final post-step position.
-            // Also checks real WORLD-SPACE separation (not just track-distance
-            // separation) against every other car, since a safe distance-
-            // along-track gap is not necessarily a safe real-world gap
-            // wherever the pit exit runs close to another part of the
-            // circuit - the exact class of bug that let cars restore
-            // collisions/velocity while actually overlapping.
-            bool queueClearForHandoff = FindPitExitQueueCarAhead(participant, participant.pitGuideDistance) == null;
-            bool liveTrafficClearForHandoff = !IsPitExitMergeSpaceOccupied(participant, participant.pitGuideDistance);
-            float worldSpaceRequiredGap;
-            RaceParticipant worldSpaceBlocker = FindWorldSpaceBlocker(participant, participant.transform.position, out worldSpaceRequiredGap);
-            bool worldSpaceClearForHandoff = worldSpaceBlocker == null;
-            bool exitSpaceClearForHandoff = queueClearForHandoff && liveTrafficClearForHandoff && worldSpaceClearForHandoff;
+            // PIT EXIT REWORK - handoff clearance: the ONLY traffic condition
+            // left on completion is genuine physical overlap (another car
+            // within PitExitOverlapRadiusMeters of this one). No live-traffic
+            // window, no 22m courtesy bubble, no queue-clear requirement -
+            // all three of those could stay false indefinitely in a busy race
+            // and are exactly what froze cars at the pit exit. An overlap, by
+            // contrast, always self-resolves within a tick or two because the
+            // guide above KEEPS ADVANCING while it waits (this car moves, the
+            // other car moves) - it can never become a standing hold.
+            RaceParticipant overlapBlocker = FindOverlapBlocker(participant, participant.transform.position);
+            bool overlapClearForHandoff = overlapBlocker == null;
             bool physicallyMerged = pastRampEnd && noLongerOnExitRamp && safeLateral && onRoad &&
-                                     longitudinalAgreement && facingForward && exitSpaceClearForHandoff;
+                                     longitudinalAgreement && facingForward && overlapClearForHandoff;
 
-            // World-space-only handoff stall logging (item 9): the queue and
-            // live-traffic checks above are both clear, but the real 3D gap
-            // to some other car is not - a genuinely distinct hold reason
-            // from either of those, worth its own focused, dedup-on-change log.
-            if (queueClearForHandoff && liveTrafficClearForHandoff && !worldSpaceClearForHandoff)
+            if (!overlapClearForHandoff && pastRampEnd)
             {
-                float worldSpaceGap = Vector3.Distance(participant.transform.position, worldSpaceBlocker.transform.position);
-                LogPitExitHandoffTransition(participant, true, worldSpaceBlocker, worldSpaceGap);
+                float worldSpaceGap = Vector3.Distance(participant.transform.position, overlapBlocker.transform.position);
+                LogPitExitHandoffTransition(participant, true, overlapBlocker, worldSpaceGap);
             }
             else
             {
@@ -11133,10 +10963,6 @@ namespace LocalFormulaRacing
             // stall.
             bool distanceFailsafe = participant.pitPathRemainingMeters <= -PitExitMergeHardEscapeBufferMeters;
             bool timeFailsafe = !participant.pitLaneHeldByOccupancy && participant.pitExitMergeElapsedTime >= PitExitMergeDesyncFailsafeSeconds;
-            // Pit-exit liveness fix: a continuous live-traffic hold past
-            // PitExitLiveTrafficHoldEscapeSeconds also attempts the (still
-            // safety-preserving) force completion - see pitExitLiveHoldSeconds.
-            bool liveHoldEscape = participant.pitExitLiveHoldSeconds >= PitExitLiveTrafficHoldEscapeSeconds;
 
             // AI pit-exit debug logging (verbose-gated, matches the existing
             // GameLog.Verbose convention - no cost/spam unless F3 is toggled on):
@@ -11156,8 +10982,7 @@ namespace LocalFormulaRacing
                              " longitudinalDrift=" + longitudinalDrift.ToString("0.0") +
                              " facingForward=" + facingForward +
                              " blockedByExitTraffic=" + blockedByExitTraffic +
-                             " blockedByLiveTraffic=" + blockedByLiveTraffic +
-                             " exitSpaceClearForHandoff=" + exitSpaceClearForHandoff +
+                             " overlapClearForHandoff=" + overlapClearForHandoff +
                              " guided=" + participant.vehicle.IsPitGuided +
                              " mergeAttempted=" + physicallyMerged);
             }
@@ -11168,9 +10993,9 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            if (distanceFailsafe || timeFailsafe || liveHoldEscape)
+            if (distanceFailsafe || timeFailsafe)
             {
-                TryForcePitExitMergeCompletion(participant, distanceFailsafe ? "distance" : (timeFailsafe ? "time" : "live-traffic-hold"));
+                TryForcePitExitMergeCompletion(participant, distanceFailsafe ? "distance" : "time");
             }
         }
 

@@ -1731,8 +1731,16 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                // Cars on pit guidance rails are non-colliding ghosts; ignore them.
-                if (other.vehicle.IsPitGuided)
+                // Cars deep in the pit lane (Entry/Service/Release) are
+                // non-colliding ghosts on a physically separate corridor;
+                // ignore them. A car in ExitMerge is DIFFERENT: it is rolling
+                // down the exit lane about to join the live track, and the
+                // pit-exit rework makes live traffic responsible for avoiding
+                // it (the merging car never yields/stops for live traffic any
+                // more - that inverted responsibility is what used to freeze
+                // cars at the pit exit forever). Treat it exactly like any
+                // other slow car ahead so this car brakes/steers around it.
+                if (other.vehicle.IsPitGuided && other.pitPhase != PitPhase.ExitMerge)
                 {
                     continue;
                 }
