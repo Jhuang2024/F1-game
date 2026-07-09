@@ -737,6 +737,25 @@ namespace LocalFormulaRacing
                 requestedOffset = Mathf.Lerp(requestedOffset, pitApproachTargetLateral, approachBlend * approachBlend);
             }
 
+            // Pit-exit early-turn fix: the mirror image of the pit-entry fix above.
+            // A just-released car's normal line-following logic doesn't know it
+            // just merged out of the pit lane - it targets the racing line/next
+            // apex immediately, which read as "turns onto the track way too early"
+            // even though the physical pit-exit ramp is still narrowing back to the
+            // track edge. Holds the line near the pit-exit side through the same
+            // merge window the exit speed limiter already covers
+            // (track.PitExitMergeBlend), fading out smoothly as the car actually
+            // clears the merge instead of snapping straight to the racing line.
+            if (participant.pitLimiterUntilExit)
+            {
+                float exitBlend = track.PitExitMergeBlend(progress.normalized);
+                if (exitBlend > 0f)
+                {
+                    float pitExitHoldLateral = track.HalfWidthAt(progress.distance) * 0.82f;
+                    requestedOffset = Mathf.Lerp(requestedOffset, pitExitHoldLateral, exitBlend * exitBlend);
+                }
+            }
+
             // Opening seconds: hold the assigned fan-out lane, blending back to the
             // racing line as the field strings out.
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.RaceElapsed < OpeningFanDuration)

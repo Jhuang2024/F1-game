@@ -272,6 +272,11 @@ namespace LocalFormulaRacing
             return normalizedProgress > 0.865f && normalizedProgress < 0.955f;
         }
 
+        // Shared with PitExitMergeBlend below so the steering-line hold and the
+        // speed limiter agree on exactly where the pit-exit merge window is.
+        const float PitExitLimiterStartNormalized = 0.985f;
+        const float PitExitLimiterEndNormalized = 0.018f;
+
         public bool IsInPitExitLimiterZone(float normalizedProgress)
         {
             // Pit-exit slowness fix: this used to span 0.955-1.115 (wrapped) -
@@ -286,7 +291,35 @@ namespace LocalFormulaRacing
             // (VehicleController.PitExitLimiterCapKph) - the tail past the merge
             // only needs to cover actually rejoining traffic, not a long extra
             // caution stretch on top of that.
-            return normalizedProgress > 0.985f || normalizedProgress < 0.018f;
+            return normalizedProgress > PitExitLimiterStartNormalized || normalizedProgress < PitExitLimiterEndNormalized;
+        }
+
+        // Pit-exit early-turn fix: a released car's normal line-following logic
+        // (steer toward the racing line / next apex) doesn't know it just merged
+        // out of the pit lane, so it was turning in toward the racing line
+        // immediately on release - reading as "turns onto the track way too
+        // early" even though the physical pit-exit ramp geometry hasn't finished
+        // narrowing back to the track edge yet. Returns 1 right at release,
+        // fading to 0 by the end of the same merge window IsInPitExitLimiterZone
+        // covers, so callers can blend their desired line toward holding the
+        // pit-exit lane instead of snapping straight to the racing line.
+        public float PitExitMergeBlend(float normalizedProgress)
+        {
+            if (!IsInPitExitLimiterZone(normalizedProgress))
+            {
+                return 0f;
+            }
+
+            float zoneLength = (1f - PitExitLimiterStartNormalized) + PitExitLimiterEndNormalized;
+            if (zoneLength <= 0.0001f)
+            {
+                return 0f;
+            }
+
+            float wrapped = normalizedProgress >= PitExitLimiterStartNormalized
+                ? normalizedProgress - PitExitLimiterStartNormalized
+                : (1f - PitExitLimiterStartNormalized) + normalizedProgress;
+            return 1f - Mathf.Clamp01(wrapped / zoneLength);
         }
 
         // ---------- hairpin widening ----------
