@@ -6206,17 +6206,29 @@ namespace LocalFormulaRacing
 
             IsPlayerOverRaceControlPace = true;
 
-            // Soft shaping, not a pit-limiter-style hard wall: throttle bleeds off
-            // over the first 15kph of overspeed, and only meaningfully-over cars
-            // (>15kph) get proportional brake on top, capped well short of a full
-            // stomp so it never fights the player violently mid-corner.
-            float throttleCut = Mathf.Clamp01(overspeed / 15f);
-            command.throttle = Mathf.Min(command.throttle, 1f - throttleCut);
-            if (overspeed > 15f)
-            {
-                float brakeAmount = Mathf.Clamp01((overspeed - 15f) / 40f) * 0.55f;
-                command.brake = Mathf.Max(command.brake, brakeAmount);
-            }
+            // Match-AI-deceleration fix: this used to bleed throttle off over a
+            // 15kph grace window and only start braking past that same 15kph -
+            // AiVehicleController never has that grace at all. AI's own
+            // cruiseTargetSpeed (now set directly to the SC/VSC cap - see the
+            // AI pace-cap fix) drives its throttle target via
+            // speedGap = cruiseTargetSpeed - speedKph, which clamps to exactly
+            // ZERO the instant speedKph reaches the cap - AI simply never keeps
+            // accelerating past it. The player, driven by raw held-throttle
+            // input, could previously keep receiving partial throttle for a
+            // further 15kph past the cap before even reaching zero, and only a
+            // soft, slowly-ramping brake after that - a much slower, looser
+            // correction than AI's, which is exactly why the player visibly ran
+            // several kph over the limit while AI cars snapped back to it fast.
+            // Throttle now cuts to zero immediately at the cap (matching AI),
+            // and braking ramps in immediately too instead of waiting for a
+            // grace window - proportionally light for a small overspeed (a
+            // gentle correction, similar to AI's own natural drag-only coast
+            // right at the cap) and meaningfully firmer for a large one (e.g.
+            // right after VSC/SC has just deployed), same as a real driver
+            // reacting to a sudden new delta.
+            command.throttle = 0f;
+            float brakeAmount = Mathf.Clamp01(overspeed / 20f) * 0.6f;
+            command.brake = Mathf.Max(command.brake, brakeAmount);
 
             // Warn first, then penalize only if the player stays grossly over the
             // cap after the warning - never an instant penalty.
