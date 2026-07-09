@@ -2009,17 +2009,37 @@ namespace LocalFormulaRacing
             // "almost no climb" to "a 7m climb in one segment" right at the final
             // corner's own apex read as a sudden, spurious severity swing that had
             // nothing to do with the corner's actual (unchanged) horizontal shape,
-            // so the AI's apex speed through it came out wrong. Anchor 13 is eased
-            // to -4f so the same total 8m climb (anchor 12's -8f up to anchor 14's
-            // 0f) is spread evenly across both segments instead of being
-            // front-loaded onto the one right at the corner.
+            // so the AI's apex speed through it came out wrong. Round 2 eased
+            // anchor 13 to -4f to spread that climb more evenly - it reduced the
+            // problem but did not remove it: EstimateCornerSeverity/FindUpcomingApex
+            // sample a forward-looking window (up to +82m) from wherever the car
+            // currently is, and that window can still straddle the 12->13->14
+            // climb (however gently graded) at the same time it's trying to
+            // measure the sharp turns actually AT anchors 14/15/16 - turn analysis
+            // confirms anchor 16 (165.6 degrees, essentially the corner itself) and
+            // 15/14 (99.6/64.4 degrees) are the real final-corner geometry, sitting
+            // right at PitCorridorStartNormalized. As long as ANY elevation change
+            // exists on the approach into them, some portion of that lookahead
+            // window can still pick it up.
+            //
+            // Round 3 - final fix: anchors 12 through 16 are now ALL flat (0f).
+            // The Fagnes low point (previously anchor 12, -8f) is removed rather
+            // than just eased, so there is categorically zero elevation data
+            // anywhere within reach of the final corner's own severity
+            // measurement, no matter how far the lookahead extends. The last
+            // remaining elevation change on the lap is the gentle run down into
+            // this flat run (anchor 11, -6f, at ~63% distance) to anchor 12
+            // (0f) - anchor 11's own corner is far enough away (well outside any
+            // 82m lookahead) from the final corner complex that the two can never
+            // interact. Eau Rouge's climb and the Pouhon/Fagnes descent through
+            // anchors 3-11 are otherwise untouched.
             AddSmoothedAnchors(runtime, new[]
             {
                 new Vector3(0f, 0f, 0f), new Vector3(124f, 0.5f, 0f), new Vector3(170f, 4.5f, 34f),
                 new Vector3(196f, 13f, 94f), new Vector3(260f, 19f, 142f), new Vector3(352f, 17f, 158f),
                 new Vector3(414f, 10f, 122f), new Vector3(388f, 5f, 72f), new Vector3(302f, 2f, 72f),
                 new Vector3(242f, -1f, 112f), new Vector3(164f, -4f, 126f), new Vector3(80f, -6f, 106f),
-                new Vector3(26f, -8f, 146f), new Vector3(-54f, -4f, 126f), new Vector3(-104f, 0f, 70f),
+                new Vector3(26f, 0f, 146f), new Vector3(-54f, 0f, 126f), new Vector3(-104f, 0f, 70f),
                 new Vector3(-84f, 0f, 22f), new Vector3(-162f, 0f, 4f)
             }, 5);
         }

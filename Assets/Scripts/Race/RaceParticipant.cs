@@ -123,10 +123,26 @@ namespace LocalFormulaRacing
         public int pitBoxIndex;
         // Set while the car is waiting for a safe release gap after service.
         public bool pitAwaitingRelease;
-        // Which staggered release point (see TrackRuntime.GetPitReleasePose) this car
-        // was assigned when it entered Release, so simultaneous releases never target
-        // the identical shared coordinate.
-        public int pitReleaseStagger;
+        // FIFO pit-lane exit queue fix: monotonically increasing sequence number
+        // assigned exactly once, the moment this car's service timer first
+        // expires (RaceManager.UpdatePitService) - never reused, never
+        // recomputed. Replaces the old count-based pitReleaseStagger
+        // (CountParticipantsInPitPhase), which handed out a "slot number" that
+        // stopped being unique the instant any car ahead of it left Release
+        // for ExitMerge (two cars could easily end up with the same count).
+        // -1 means "not currently queued for release" - see
+        // RaceManager.FindPitLaneCarAhead, which uses this to determine
+        // unambiguous leader/follower order along the shared exit path (a
+        // car can only ever be blocked by one with a strictly smaller,
+        // already-assigned sequence number, never a later or equal one).
+        public int pitReleaseSequence = -1;
+        // Set true for the duration of any tick this car is intentionally held
+        // by the FIFO queue/occupancy checks (RaceManager.UpdatePitRelease/
+        // UpdatePitExitMerge) rather than genuinely stuck - read by
+        // UpdatePitDrivingStuckWatchdog so a long but legitimate queue hold
+        // (a full pit-lane wave) can never accumulate stuck-recovery attempts
+        // the way a real desync/failure does.
+        public bool pitLaneHeldByOccupancy;
         // Pit lane animation fix: while pit-guided, the car chases a
         // continuously-advancing (distance-along-track, lateral-offset)
         // waypoint (see RaceManager.AdvancePitGuideTarget /
@@ -172,12 +188,12 @@ namespace LocalFormulaRacing
         public float pitServiceDuration;
         public bool pitLimiterUntilExit;
         // Pit-exit merge fix (round 2): the normalized-zone check alone can't tell
-        // how far a STAGGERED release (TrackRuntime.GetPitReleasePose can land
-        // meaningfully before the fixed PitExitLimiterStartNormalized boundary,
-        // depending on track length/stagger slot) actually is from the real merge
-        // end - a car released early could already read as "past" a fixed
-        // normalized window despite having barely started the merge. Recorded once
-        // at the ExitMerge transition and measured with wrapped forward distance
+        // how far this car's own release distance (canonical - see
+        // TrackRuntime.PitReleaseNormalized/PitLaneLateral, RaceManager.UpdatePitRelease)
+        // actually is from the real merge end - a car queued behind others in
+        // the FIFO exit queue could already read as "past" a fixed normalized
+        // window despite having barely started the merge. Recorded once at the
+        // ExitMerge transition and measured with wrapped forward distance
         // (RaceManager.WrappedForwardDistance) instead, so completion tracks the
         // car's own actual travel down the exit lane, not just a shared fixed zone.
         public float pitExitMergeStartDistance;
