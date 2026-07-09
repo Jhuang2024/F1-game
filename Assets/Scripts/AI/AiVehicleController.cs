@@ -326,7 +326,8 @@ namespace LocalFormulaRacing
                     // Round 7: another +7.5kph on top of that (+92.5kph total).
                     // Round 8: another +5kph on top of that (+97.5kph total).
                     // Round 9: another +15kph on top of that (+112.5kph total).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 112.5f);
+                    // Round 10: another +15kph on top of that (+127.5kph total).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 127.5f);
                     easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
