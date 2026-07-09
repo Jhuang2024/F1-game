@@ -2510,6 +2510,19 @@ namespace LocalFormulaRacing
             AddDriverFilterTab(filterRow, "Potential", "potential", sortKey, data, career, settings);
 
             List<DriverData> drivers = new List<DriverData>(data.Drivers.drivers);
+            // Driver market + progression: show this season's effective team
+            // and rating swing (see CareerManager.GetEffectiveDriver) rather
+            // than the static drivers.json baseline, so a transfer or a rising/
+            // declining driver is actually visible on the one screen built for
+            // browsing driver stats and teams.
+            if (career != null && career.Save != null)
+            {
+                for (int i = 0; i < drivers.Count; i++)
+                {
+                    drivers[i] = career.GetEffectiveDriver(drivers[i]);
+                }
+            }
+
             SortDriversByKey(drivers, sortKey);
 
             string playerDriverId;
@@ -2585,7 +2598,7 @@ namespace LocalFormulaRacing
                 playerId = career.Save.selectedDriverId;
             }
 
-            List<DriverData> teamDrivers = data.GetDriversForTeam(career.Save.playerTeamId);
+            List<DriverData> teamDrivers = data.GetDriversForTeam(career.Save.playerTeamId, career.Save.driverTransferRecords);
             string excludedId = string.IsNullOrEmpty(playerId) && teamDrivers.Count > 0 ? teamDrivers[0].id : playerId;
             for (int i = 0; i < teamDrivers.Count; i++)
             {

@@ -255,6 +255,8 @@ namespace LocalFormulaRacing
         public List<SeasonArchive> seasonArchives = new List<SeasonArchive>();
         public List<RegulationChange> regulationChanges = new List<RegulationChange>();
         public List<TeamPerformanceModifier> teamPerformanceModifiers = new List<TeamPerformanceModifier>();
+        public List<DriverTransferRecord> driverTransferRecords = new List<DriverTransferRecord>();
+        public List<DriverRatingModifier> driverRatingModifiers = new List<DriverRatingModifier>();
         public List<SeasonObjective> seasonObjectives = new List<SeasonObjective>();
         public bool preSeasonTestingSeen;
 
@@ -312,6 +314,36 @@ namespace LocalFormulaRacing
         // performance stats, e.g. 0.04 = a noticeable but modest step forward.
         public float performanceDelta;
         public int reputationDelta;
+        public string trendLabel;
+    }
+
+    // Driver market: a driver's team reassignment for a given season, layered
+    // on top of the static drivers.json teamId at read time (see
+    // GameDataRepository.EffectiveTeamId) - never mutates the shared DriverData
+    // reference, exactly like TeamPerformanceModifier above never mutates
+    // CarPerformanceData. Append-only across seasons; the most recent record
+    // for a given driverId (by season) is the one currently in effect.
+    [Serializable]
+    public class DriverTransferRecord
+    {
+        public string driverId;
+        public string newTeamId;
+        public int season;
+    }
+
+    // Driver progression: a driver's small season-to-season rating swing,
+    // layered on top of the static drivers.json stats at read time (see
+    // CareerManager.GetEffectiveDriver) - same never-mutate-the-source
+    // convention as TeamPerformanceModifier/DriverTransferRecord. Applied
+    // identically across every core skill stat rather than one delta per
+    // stat, matching TeamPerformanceModifier's single-scalar approach.
+    // Append-only across seasons, looked up by (driverId, season).
+    [Serializable]
+    public class DriverRatingModifier
+    {
+        public string driverId;
+        public int season;
+        public int ratingDelta;
         public string trendLabel;
     }
 

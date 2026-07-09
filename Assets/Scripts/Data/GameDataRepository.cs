@@ -180,12 +180,53 @@ namespace LocalFormulaRacing
             return Calendar.events.Count > 0 ? Calendar.events[0] : null;
         }
 
+        // Driver market: the effective team a driver is racing for this season,
+        // read-time-layered from drivers.json's static teamId + the career's
+        // append-only transfer log - never mutates the shared DriverData
+        // reference. transfers is optional (defaults null) so every pre-existing
+        // caller (Quick Race, Time Trial, any screen with no CareerManager in
+        // scope) keeps reading the base roster completely unchanged; only
+        // career-aware call sites pass Save.driverTransferRecords. Looks up the
+        // MOST RECENT record for this driver (highest season), so a driver
+        // transferred twice always resolves to their latest team.
+        public string EffectiveTeamId(DriverData driver, List<DriverTransferRecord> transfers)
+        {
+            if (driver == null)
+            {
+                return null;
+            }
+
+            if (transfers == null || transfers.Count == 0)
+            {
+                return driver.teamId;
+            }
+
+            string latestTeamId = driver.teamId;
+            int latestSeason = int.MinValue;
+            for (int i = 0; i < transfers.Count; i++)
+            {
+                DriverTransferRecord record = transfers[i];
+                if (record != null && record.driverId == driver.id && record.season > latestSeason)
+                {
+                    latestSeason = record.season;
+                    latestTeamId = record.newTeamId;
+                }
+            }
+
+            return latestTeamId;
+        }
+
         public List<DriverData> GetDriversForTeam(string teamId)
+        {
+            return GetDriversForTeam(teamId, null);
+        }
+
+        public List<DriverData> GetDriversForTeam(string teamId, List<DriverTransferRecord> transfers)
         {
             List<DriverData> result = new List<DriverData>();
             for (int i = 0; i < Drivers.drivers.Count; i++)
             {
-                if (Drivers.drivers[i].teamId == teamId)
+                if (EffectiveTeamId(Drivers.drivers[i], transfers) == teamId)
                 {
                     result.Add(Drivers.drivers[i]);
                 }
@@ -196,7 +237,7 @@ namespace LocalFormulaRacing
 
         public List<DriverData> GetAiRaceDrivers(string playerTeamId, int count)
         {
-            return GetAiRaceDrivers(playerTeamId, count, "");
+            return GetAiRaceDrivers(playerTeamId, count, "", null);
         }
 
         // Root-cause rewrite: the previous two-pass version filled the roster
@@ -215,10 +256,15 @@ namespace LocalFormulaRacing
         // else is added. Every comparison is by driver id, never by name.
         public List<DriverData> GetAiRaceDrivers(string playerTeamId, int count, string replacedDriverId)
         {
-            List<DriverData> result = new List<DriverData>();
-            string replacedSeatId = ResolveReplacedDriverId(playerTeamId, replacedDriverId);
+            return GetAiRaceDrivers(playerTeamId, count, replacedDriverId, null);
+        }
 
-            DriverData teammate = FindTeammateDriver(playerTeamId, replacedSeatId);
+        public List<DriverData> GetAiRaceDrivers(string playerTeamId, int count, string replacedDriverId, List<DriverTransferRecord> transfers)
+        {
+            List<DriverData> result = new List<DriverData>();
+            string replacedSeatId = ResolveReplacedDriverId(playerTeamId, replacedDriverId, transfers);
+
+            DriverData teammate = FindTeammateDriver(playerTeamId, replacedSeatId, transfers);
             if (teammate != null && result.Count < count)
             {
                 result.Add(teammate);
@@ -238,17 +284,25 @@ namespace LocalFormulaRacing
             return result;
         }
 
+        public DriverData FindTeammateDriver(string playerTeamId, string playerSeatDriverId)
+        {
+            return FindTeammateDriver(playerTeamId, playerSeatDriverId, null);
+        }
+
         // The teammate is, by definition, the other driver registered to the
         // player's team whose id is not the seat the player occupies -
         // never a name-based lookup, so a custom driver name that happens to
         // collide with a real driver's display name can never misidentify
-        // who the teammate is.
-        public DriverData FindTeammateDriver(string playerTeamId, string playerSeatDriverId)
+        // who the teammate is. "Registered to the player's team" now checks
+        // EffectiveTeamId (driver market transfers), not just the static
+        // drivers.json teamId, so a mid-career transfer onto the player's team
+        // is reflected here too.
+        public DriverData FindTeammateDriver(string playerTeamId, string playerSeatDriverId, List<DriverTransferRecord> transfers)
         {
             for (int i = 0; i < Drivers.drivers.Count; i++)
             {
                 DriverData candidate = Drivers.drivers[i];
-                if (candidate.teamId == playerTeamId && candidate.id != playerSeatDriverId)
+                if (EffectiveTeamId(candidate, transfers) == playerTeamId && candidate.id != playerSeatDriverId)
                 {
                     return candidate;
                 }
@@ -257,7 +311,7 @@ namespace LocalFormulaRacing
             return null;
         }
 
-        string ResolveReplacedDriverId(string playerTeamId, string replacedDriverId)
+        string ResolveReplacedDriverId(string playerTeamId, string replacedDriverId, List<DriverTransferRecord> transfers)
         {
             if (!string.IsNullOrEmpty(replacedDriverId))
             {
@@ -266,7 +320,7 @@ namespace LocalFormulaRacing
 
             for (int i = 0; i < Drivers.drivers.Count; i++)
             {
-                if (Drivers.drivers[i].teamId == playerTeamId)
+                if (EffectiveTeamId(Drivers.drivers[i], transfers) == playerTeamId)
                 {
                     return Drivers.drivers[i].id;
                 }
@@ -277,13 +331,18 @@ namespace LocalFormulaRacing
 
         public List<StandingEntry> CreateInitialDriverStandings(string playerName, string playerTeamId)
         {
-            return CreateInitialDriverStandings(playerName, playerTeamId, "");
+            return CreateInitialDriverStandings(playerName, playerTeamId, "", null);
         }
 
         public List<StandingEntry> CreateInitialDriverStandings(string playerName, string playerTeamId, string replacedDriverId)
         {
+            return CreateInitialDriverStandings(playerName, playerTeamId, replacedDriverId, null);
+        }
+
+        public List<StandingEntry> CreateInitialDriverStandings(string playerName, string playerTeamId, string replacedDriverId, List<DriverTransferRecord> transfers)
+        {
             List<StandingEntry> standings = new List<StandingEntry>();
-            string replacedSeatId = ResolveReplacedDriverId(playerTeamId, replacedDriverId);
+            string replacedSeatId = ResolveReplacedDriverId(playerTeamId, replacedDriverId, transfers);
             standings.Add(new StandingEntry
             {
                 id = "player",
@@ -305,7 +364,7 @@ namespace LocalFormulaRacing
                 {
                     id = Drivers.drivers[i].id,
                     displayName = Drivers.drivers[i].displayName,
-                    teamId = Drivers.drivers[i].teamId,
+                    teamId = EffectiveTeamId(Drivers.drivers[i], transfers),
                     points = 0,
                     wins = 0,
                     podiums = 0

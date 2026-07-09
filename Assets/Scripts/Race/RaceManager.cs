@@ -6395,7 +6395,7 @@ namespace LocalFormulaRacing
 
         string ReplacedDriverIdForPlayerTeam(string playerTeamId)
         {
-            List<DriverData> teamDrivers = Data.GetDriversForTeam(playerTeamId);
+            List<DriverData> teamDrivers = Data.GetDriversForTeam(playerTeamId, Career != null && Career.Save != null ? Career.Save.driverTransferRecords : null);
 
             // Teammate-duplicate fix: this used to trust Career.Save.selectedDriverId
             // completely whenever it was non-empty, with no validation - a save
@@ -6446,8 +6446,9 @@ namespace LocalFormulaRacing
         // roster that still contains the player's own seat id.
         List<DriverData> GetDefensiveAiRoster(string playerTeamId, string playerDisplayName)
         {
+            List<DriverTransferRecord> transfers = Career != null && Career.Save != null ? Career.Save.driverTransferRecords : null;
             string replacedId = ReplacedDriverIdForPlayerTeam(playerTeamId);
-            List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, replacedId);
+            List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, replacedId, transfers);
 
             for (int i = aiDrivers.Count - 1; i >= 0; i--)
             {
@@ -6458,7 +6459,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            DriverData teammate = Data.FindTeammateDriver(playerTeamId, replacedId);
+            DriverData teammate = Data.FindTeammateDriver(playerTeamId, replacedId, transfers);
             if (teammate != null)
             {
                 bool teammateIncluded = false;
@@ -6480,6 +6481,20 @@ namespace LocalFormulaRacing
                     }
 
                     aiDrivers.Insert(0, teammate);
+                }
+            }
+
+            // Driver market + progression: this is the single chokepoint all
+            // three roster builders (race grid, live qualifying, sim qualifying)
+            // funnel through (see the comment above this method), so resolving
+            // each driver to its effective (post-transfer, post-progression)
+            // form here - never mutating the shared drivers.json objects -
+            // covers all of them at once.
+            if (Career != null)
+            {
+                for (int i = 0; i < aiDrivers.Count; i++)
+                {
+                    aiDrivers[i] = Career.GetEffectiveDriver(aiDrivers[i]);
                 }
             }
 
