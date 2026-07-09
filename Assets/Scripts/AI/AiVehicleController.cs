@@ -600,6 +600,12 @@ namespace LocalFormulaRacing
             // discount how much of the real ceiling this difficulty confidently uses,
             // never inflate a straight-line target past what the car can actually do.
             float straightTargetSpeed = (vehicle.TargetTopSpeedKph > 5f ? vehicle.TargetTopSpeedKph : carTopSpeed) * Mathf.Min(1f, profile.straightSpeedMultiplier);
+            // Straight-line speed pass: AI top speed was reading as insane - flat
+            // -15kph off the straight-line target, applied AFTER the per-difficulty
+            // multiplier above so every difficulty (Easy through Expert) loses the
+            // same absolute amount instead of the cut shrinking on an already-lower
+            // difficulty ceiling.
+            straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - 15f);
 
             bool wet = track.weather == WeatherState.LightRain || track.weather == WeatherState.HeavyRain;
             // Tyre-difference pass: uses the compound-neutral condition multiplier
