@@ -207,9 +207,15 @@ namespace LocalFormulaRacing
             // corner feels instead of Slow/Hairpin alone. Hairpin's band is narrowed
             // to sit right at the top of the severity range so it's reserved for
             // corners that are actually close to a 180-degree turn, not merely tight.
+            // Band rebalance: Slow expanded (0.88-0.90 -> 0.93-0.95 ceiling) and
+            // VeryTight tightened into the narrow remaining gap before Hairpin
+            // (was a 0.07-wide band, now ~0.02-0.04) - most corners that used to read
+            // as "very very tight" now read as an ordinary tight corner instead, and
+            // VeryTight is reserved for only the small severity range genuinely
+            // sharper than that.
             float highSpeedCeiling = Mathf.Lerp(0.42f, 0.60f, skillTier);
             float mediumCeiling = Mathf.Lerp(0.66f, 0.80f, skillTier);
-            float slowCeiling = Mathf.Lerp(0.88f, 0.90f, skillTier);
+            float slowCeiling = Mathf.Lerp(0.93f, 0.95f, skillTier);
             float veryTightCeiling = Mathf.Lerp(0.95f, 0.97f, skillTier);
 
             if (apexSeverity < highSpeedCeiling)
