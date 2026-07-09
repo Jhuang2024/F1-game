@@ -7733,12 +7733,19 @@ namespace LocalFormulaRacing
 
         DriverData ResolvePlayerQualifyingDriverData(string playerName, string playerTeamId)
         {
-            if (Career != null && Career.Save != null && Career.Save.useExistingDriver && !string.IsNullOrEmpty(Career.Save.selectedDriverId))
+            // Part 1/4/20: route through the career's own effective-driver
+            // pipeline (season rating progression + team transfers) instead of
+            // reading either a real driver's raw drivers.json stats or a
+            // custom driver's identity with no progression applied - this is
+            // the same GetEffectiveDriver every AI driver on the grid goes
+            // through, so the player's own seat is never a special case that
+            // silently skips career progression.
+            if (Career != null && Career.Save != null)
             {
-                DriverData selected = Data.FindDriver(Career.Save.selectedDriverId);
-                if (selected != null)
+                DriverData effective = Career.GetEffectivePlayerDriver();
+                if (effective != null)
                 {
-                    return selected;
+                    return effective;
                 }
             }
 

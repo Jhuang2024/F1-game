@@ -906,6 +906,10 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Part 1: resolve through GetEffectiveDriver so a mid-career
+            // transfer is reflected here too, instead of the rival's stale
+            // drivers.json teamId.
+            rivalDriver = career.GetEffectiveDriver(rivalDriver);
             TeamData rivalTeam = data.FindTeam(rivalDriver.teamId);
             Color rivalColor = rivalTeam != null ? rivalTeam.PrimaryUnityColor : UiFactory.Accent;
 
@@ -2494,7 +2498,7 @@ namespace LocalFormulaRacing
         {
             Clear();
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Driver ratings background", new Color(0.006f, 0.009f, 0.014f, 1f));
-            UiFactory.CreateScreenHeader(background, "Driver Ratings", "Overall is calculated from qualifying, defending, overtaking, and race pace.");
+            UiFactory.CreateScreenHeader(background, "Driver Ratings", "Overall is a weighted blend led by pace, racecraft and qualifying, updated each season from actual performance.");
 
             RectTransform modeTabs = UiFactory.CreateRect(background, "Ratings mode tabs", new Vector2(0.06f, 0.885f), new Vector2(0.34f, 0.935f), Vector2.zero, Vector2.zero);
             UiFactory.AddHorizontalLayout(modeTabs, 10, new RectOffset(0, 0, 0, 0));
@@ -2536,7 +2540,7 @@ namespace LocalFormulaRacing
                 TeamData team = data.FindTeam(driver.teamId);
                 bool isPlayer = !string.IsNullOrEmpty(playerDriverId) && driver.id == playerDriverId;
                 bool isTeammate = !isPlayer && !string.IsNullOrEmpty(teammateDriverId) && driver.id == teammateDriverId;
-                BuildDriverCard(grid, driver, team, isPlayer, isTeammate);
+                BuildDriverCard(grid, driver, team, isPlayer, isTeammate, career);
             }
 
             RectTransform footerLeft;
@@ -2684,7 +2688,7 @@ namespace LocalFormulaRacing
         // the taller STRENGTHS/WEAKNESSES section labels above it.
         const float TeamCardHeight = 505f;
 
-        void BuildDriverCard(RectTransform parent, DriverData driver, TeamData team, bool isPlayer, bool isTeammate)
+        void BuildDriverCard(RectTransform parent, DriverData driver, TeamData team, bool isPlayer, bool isTeammate, CareerManager career = null)
         {
             Color teamColor = team != null ? team.PrimaryUnityColor : new Color(0.5f, 0.55f, 0.6f);
             Color borderColor = isPlayer ? UiFactory.AccentGreen : (isTeammate ? UiFactory.AccentCyan : teamColor);
@@ -2746,6 +2750,23 @@ namespace LocalFormulaRacing
             overallText.fontStyle = FontStyle.Bold;
             StretchFull(overallText.GetComponent<RectTransform>());
 
+            // Part 8: last season's overall rating swing (from this driver's
+            // latest DriverRatingModifier), so a rising/declining driver is
+            // visible at a glance without opening the season review.
+            if (career != null && career.Save != null && career.Save.driverRatingModifiers != null)
+            {
+                DriverRatingModifier latest = career.Save.driverRatingModifiers.Find(m => m.driverId == driver.id && m.season == career.Save.currentSeason);
+                if (latest != null && latest.lastOverallChange != 0)
+                {
+                    Color changeColor = latest.lastOverallChange > 0 ? UiFactory.AccentGreen : UiFactory.Accent;
+                    string changeLabel = (latest.lastOverallChange > 0 ? "+" : "") + latest.lastOverallChange;
+                    Text changeText = UiFactory.CreateText(card, "Driver card overall change", changeLabel, 12, changeColor, TextAnchor.MiddleCenter);
+                    changeText.fontStyle = FontStyle.Bold;
+                    UiFactory.SetSize(changeText, 54f, 16f);
+                    SetTopRight(changeText.rectTransform, 16f, 78f);
+                }
+            }
+
             // Wrapping chip row (card overflow fix): tags now wrap onto extra
             // rows inside the card's own width instead of the old fixed-width
             // HorizontalLayoutGroup, which let long tags like "Qualifying
@@ -2784,15 +2805,13 @@ namespace LocalFormulaRacing
             return Mathf.Clamp((topSpeedKmh - 320f) / 35f * 100f, 0f, 100f);
         }
 
-        // Car overall: a weighted blend rather than a flat average - cornering
-        // and reliability matter more to race results than ERS or chassis trim,
-        // so they carry more weight. Weights sum to 1.
+        // Part 6: delegates to the single canonical car-rating formula
+        // (RatingCalculator.GetCarOverall) shared with GameDataRepository's
+        // team-profile summary and every career R&D/AI-balancing call site, so
+        // this screen can never disagree with any other about the same car.
         float ComputeCarOverall(CarPerformanceData car)
         {
-            float topSpeedScore = TopSpeedScore(car.topSpeed);
-            return topSpeedScore * 0.10f + car.acceleration * 0.12f + car.cornering * 0.14f + car.braking * 0.10f +
-                car.reliability * 0.14f + car.ersEfficiency * 0.08f + car.tyreManagement * 0.10f +
-                car.aeroEfficiency * 0.10f + car.chassisBalance * 0.08f + car.enginePower * 0.04f;
+            return RatingCalculator.GetCarOverall(car);
         }
 
         // The 10 car stats as (label, 0-100 score) pairs - shared by the stat
@@ -2904,11 +2923,21 @@ namespace LocalFormulaRacing
             UiFactory.CreateFilterTab(modeTabs, "Drivers", false, () => ShowDriverRatings(data, career, settings));
             UiFactory.CreateFilterTab(modeTabs, "Teams", true, () => { });
 
+            // Part 6/7: always show this team's EFFECTIVE car (base + this
+            // season's R&D, both player and AI) rather than the raw
+            // drivers.json/carPerformance.json baseline - otherwise completed
+            // AI development would never visibly change this screen.
+            System.Func<TeamData, CarPerformanceData> effectiveCarFor = team =>
+            {
+                CarPerformanceData baseCar = data.FindCar(team.carPerformanceId);
+                return career != null && career.Save != null ? career.GetEffectiveTeamCar(team, baseCar) : baseCar;
+            };
+
             List<TeamData> teams = new List<TeamData>(data.Teams.teams);
             teams.Sort((a, b) =>
             {
-                CarPerformanceData carA = data.FindCar(a.carPerformanceId);
-                CarPerformanceData carB = data.FindCar(b.carPerformanceId);
+                CarPerformanceData carA = effectiveCarFor(a);
+                CarPerformanceData carB = effectiveCarFor(b);
                 float overallA = carA == null ? 0f : ComputeCarOverall(carA);
                 float overallB = carB == null ? 0f : ComputeCarOverall(carB);
                 return overallB.CompareTo(overallA);
@@ -2918,14 +2947,14 @@ namespace LocalFormulaRacing
             for (int i = 0; i < teams.Count; i++)
             {
                 TeamData team = teams[i];
-                CarPerformanceData car = data.FindCar(team.carPerformanceId);
+                CarPerformanceData car = effectiveCarFor(team);
                 if (car == null)
                 {
                     continue;
                 }
 
                 bool isPlayerTeam = career != null && career.Save != null && team.id == career.Save.playerTeamId;
-                BuildTeamCard(grid, team, car, i + 1, isPlayerTeam);
+                BuildTeamCard(grid, team, car, i + 1, isPlayerTeam, career);
             }
 
             RectTransform footerLeft;
@@ -2938,7 +2967,7 @@ namespace LocalFormulaRacing
         // Premium team/car card: team-colored header, reputation/reliability,
         // an overall badge, rank, archetype + strengths/weaknesses chips, and a
         // 10-stat bar block (same CreateStatBar/StatTierColor as driver cards).
-        void BuildTeamCard(RectTransform parent, TeamData team, CarPerformanceData car, int rank, bool isPlayerTeam)
+        void BuildTeamCard(RectTransform parent, TeamData team, CarPerformanceData car, int rank, bool isPlayerTeam, CareerManager career = null)
         {
             Color primary = team.PrimaryUnityColor;
             Color borderColor = isPlayerTeam ? UiFactory.AccentGreen : primary;
@@ -2988,6 +3017,22 @@ namespace LocalFormulaRacing
             SetTopLeft(repText.rectTransform, 16f, 78f);
             UiFactory.SetSize(repText, 310f, 18f);
 
+            // Part 5/8: in-season R&D summary - season-start rating, the
+            // in-season swing from completed upgrades, and how many have
+            // completed so far, using the same TeamDevelopmentState every AI
+            // team's development runs through.
+            if (career != null && career.Save != null)
+            {
+                TeamDevelopmentState devState = career.GetOrCreateTeamDevelopmentState(team.id);
+                int ratingChange = devState.currentRating - devState.ratingAtSeasonStart;
+                string changeLabel = ratingChange > 0 ? "+" + ratingChange : ratingChange.ToString();
+                Color devColor = ratingChange > 0 ? UiFactory.AccentGreen : (ratingChange < 0 ? UiFactory.Accent : UiFactory.TextMuted);
+                Text devText = UiFactory.CreateText(card, "Team card development", "SEASON START " + devState.ratingAtSeasonStart + "   ·   " + changeLabel +
+                    "   ·   " + devState.completedUpgradeIds.Count + " UPGRADE" + (devState.completedUpgradeIds.Count == 1 ? "" : "S"), 12, devColor, TextAnchor.UpperLeft);
+                SetTopLeft(devText.rectTransform, 16f, 96f);
+                UiFactory.SetSize(devText, 320f, 16f);
+            }
+
             // Wrapping chip rows (card overflow fix): the old strengths/
             // weaknesses pills concatenated two full stat names into one
             // string ("+ Aero Efficiency / Chassis Balance") with no width
@@ -2999,7 +3044,7 @@ namespace LocalFormulaRacing
             // vertical space the archetype/strengths/weaknesses rows actually
             // used.
             const float sectionWidth = TeamCardWidth - 32f;
-            float cursorY = 100f;
+            float cursorY = career != null && career.Save != null ? 118f : 100f;
 
             string archetype = ComputeCarArchetype(car, overall);
             cursorY += UiFactory.CreateWrappingChipRow(card, "Team card archetype", new List<string> { archetype }, UiFactory.AccentPurple, 16f, cursorY, sectionWidth) + 14f;

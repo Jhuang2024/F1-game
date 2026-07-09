@@ -378,7 +378,10 @@ namespace LocalFormulaRacing
                 ApplyFuelStrategyReward(player);
             }
 
+            UpdateDriverSeasonPerformanceFromRace(raceEvent, results);
             AdvanceUpgradeProjects();
+            AdvanceAiTeamDevelopment();
+            SyncPlayerTeamDevelopmentState();
 
             Save.currentRound++;
             if (Save.currentRound > data.Calendar.events.Count)
@@ -827,6 +830,11 @@ namespace LocalFormulaRacing
                 eventName = raceEvent != null ? raceEvent.displayName : "Prototype GP",
                 results = results
             });
+
+            // Part 2/10: save qualifying performance for every driver into this
+            // season's accumulator - ratings are not touched yet, only at
+            // season end (GenerateDriverProgression).
+            UpdateDriverSeasonPerformanceFromQualifying(results);
 
             QualifyingResultEntry player = results.Find(entry => entry.isPlayer);
             if (player != null)
@@ -1490,8 +1498,12 @@ namespace LocalFormulaRacing
 
         public int ComputeProjectWeeks(UpgradeData upgrade, int riskMode)
         {
+            return ComputeProjectWeeksForLevel(upgrade, riskMode, GetDepartmentLevel(GetDepartmentIndex(upgrade.category)));
+        }
+
+        int ComputeProjectWeeksForLevel(UpgradeData upgrade, int riskMode, int level)
+        {
             int weeks = Mathf.Max(1, Mathf.CeilToInt(upgrade.developmentDays / 10f));
-            int level = GetDepartmentLevel(GetDepartmentIndex(upgrade.category));
             if (level > 1)
             {
                 weeks = Mathf.Max(1, Mathf.CeilToInt(weeks * (1f - 0.1f * (level - 1))));
@@ -1511,8 +1523,12 @@ namespace LocalFormulaRacing
 
         public float ComputeProjectSuccessChance(UpgradeData upgrade, int riskMode)
         {
+            return ComputeProjectSuccessChanceForLevel(upgrade, riskMode, GetDepartmentLevel(GetDepartmentIndex(upgrade.category)));
+        }
+
+        float ComputeProjectSuccessChanceForLevel(UpgradeData upgrade, int riskMode, int level)
+        {
             float chance = upgrade.successChance;
-            int level = GetDepartmentLevel(GetDepartmentIndex(upgrade.category));
             chance += 0.04f * (level - 1);
             if (riskMode == RiskConservative)
             {
@@ -1614,6 +1630,18 @@ namespace LocalFormulaRacing
 
         public CarPerformanceData ApplyCareerUpgrades(CarPerformanceData baseCar)
         {
+            return ApplyUpgradeSet(baseCar, Save.completedUpgradeIds, FindProject);
+        }
+
+        // Part 5/6/7: the one place upgrade stat deltas are actually applied to
+        // a car - shared by the player's own R&D (via ApplyCareerUpgrades,
+        // Save.completedUpgradeIds/FindProject) and every AI team's R&D (via
+        // GetEffectiveTeamCar, that team's TeamDevelopmentState.completedUpgradeIds
+        // and its own project list) so AI development uses exactly the same
+        // UpgradeData stat deltas and scaling the player's does - never a
+        // secret "+N overall" shortcut.
+        CarPerformanceData ApplyUpgradeSet(CarPerformanceData baseCar, List<string> completedIds, System.Func<string, ActiveUpgradeProject> projectLookup)
+        {
             CarPerformanceData tuned = new CarPerformanceData
             {
                 id = baseCar.id,
@@ -1629,15 +1657,20 @@ namespace LocalFormulaRacing
                 enginePower = baseCar.enginePower
             };
 
-            for (int i = 0; i < Save.completedUpgradeIds.Count; i++)
+            if (completedIds == null)
             {
-                UpgradeData upgrade = data.Upgrades.upgrades.Find(item => item.id == Save.completedUpgradeIds[i]);
+                return tuned;
+            }
+
+            for (int i = 0; i < completedIds.Count; i++)
+            {
+                UpgradeData upgrade = data.Upgrades.upgrades.Find(item => item.id == completedIds[i]);
                 if (upgrade == null)
                 {
                     continue;
                 }
 
-                ActiveUpgradeProject project = FindProject(upgrade.id);
+                ActiveUpgradeProject project = projectLookup != null ? projectLookup(upgrade.id) : null;
                 float bonus = project != null && project.bonusApplied ? ExperimentalBonusScale : 1f;
 
                 tuned.topSpeed += Mathf.RoundToInt(upgrade.topSpeedDelta * 1.7f * bonus);
@@ -2074,6 +2107,53 @@ namespace LocalFormulaRacing
             {
                 GenerateSeasonObjectives();
             }
+
+            // Part 9: full-grid R&D / performance-driven progression save
+            // migration - every list below defaults via its field initializer
+            // for a brand-new save, but an OLDER save (written before this
+            // system existed) can still deserialize with these null, so guard
+            // them the same way every field above already is.
+            if (Save.teamDevelopmentStates == null)
+            {
+                Save.teamDevelopmentStates = new List<TeamDevelopmentState>();
+            }
+
+            if (Save.driverSeasonPerformances == null)
+            {
+                Save.driverSeasonPerformances = new List<DriverSeasonPerformance>();
+            }
+
+            EnsureAllTeamDevelopmentStates();
+
+            // Bridge the player's existing completedUpgradeIds into their
+            // TeamDevelopmentState exactly once per load so the season archive/
+            // Team Ratings screen have something to show immediately on an old
+            // save - GetEffectiveTeamCar never reads the player's upgrades from
+            // this mirror (only from Save.completedUpgradeIds directly), so
+            // this can never cause the player's upgrades to be applied twice.
+            SyncPlayerTeamDevelopmentState();
+
+            if (!Save.useExistingDriver && Save.customPlayerDriverBase == null)
+            {
+                EnsureCustomPlayerDriverBase();
+            }
+
+            // Legacy DriverRatingModifier entries (written before the per-stat
+            // fields existed) only ever have ratingDelta set - fold each into
+            // the new per-stat fields exactly once so an old save's driver
+            // progression is preserved instead of silently reset to zero.
+            for (int i = 0; i < Save.driverRatingModifiers.Count; i++)
+            {
+                MigrateLegacyRatingModifier(Save.driverRatingModifiers[i]);
+            }
+
+            // Trim ancient per-season telemetry so a very long career's save
+            // file doesn't grow without bound - GenerateDriverProgression only
+            // ever needs the season that just completed.
+            if (Save.driverSeasonPerformances.Count > 400)
+            {
+                Save.driverSeasonPerformances.RemoveAll(p => p.season < Save.currentSeason - 3);
+            }
         }
 
         void PickRegulationTargets()
@@ -2146,9 +2226,14 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Part 7: applies the SAME rule to every team, not just the player's -
+        // a regulation-invalidated category scraps that category's completed
+        // upgrades (and any in-progress project for them) identically across
+        // the whole grid, with every removal logged.
         void ApplyRegulationReset()
         {
             EnsureRndState();
+            EnsureAllTeamDevelopmentStates();
             int removed = 0;
             for (int i = Save.completedUpgradeIds.Count - 1; i >= 0; i--)
             {
@@ -2164,6 +2249,41 @@ namespace LocalFormulaRacing
                 Save.activeUpgradeProjects.RemoveAll(item => item.upgradeId == upgradeId);
                 Save.completedUpgradeIds.RemoveAt(i);
                 removed++;
+            }
+
+            int aiRemoved = 0;
+            for (int t = 0; t < Save.teamDevelopmentStates.Count; t++)
+            {
+                TeamDevelopmentState state = Save.teamDevelopmentStates[t];
+                if (state == null || state.teamId == Save.playerTeamId)
+                {
+                    continue;
+                }
+
+                for (int i = state.completedUpgradeIds.Count - 1; i >= 0; i--)
+                {
+                    string upgradeId = state.completedUpgradeIds[i];
+                    UpgradeData upgrade = data.Upgrades.upgrades.Find(item => item.id == upgradeId);
+                    if (upgrade == null || !Save.regulationAffectedCategories.Contains(upgrade.category))
+                    {
+                        continue;
+                    }
+
+                    state.activeUpgradeProjects.RemoveAll(item => item.upgradeId == upgradeId);
+                    state.completedUpgradeIds.RemoveAt(i);
+                    aiRemoved++;
+                }
+
+                TeamData team = data.FindTeam(state.teamId);
+                if (team != null)
+                {
+                    RecalculateTeamRating(team, state);
+                }
+            }
+
+            if (aiRemoved > 0)
+            {
+                GameLog.Info("[R&D] Regulation reset scrapped " + aiRemoved + " completed AI upgrade(s) across the grid for Season " + Save.currentSeason + ".");
             }
 
             string affected = string.Join(", ", Save.regulationAffectedCategories.ToArray());
@@ -2641,11 +2761,15 @@ namespace LocalFormulaRacing
         // offseason news reacting to the season that just closed.
         void BeginNewSeason(SeasonArchive completedSeason)
         {
-            // Driver market + progression decided before the new season's
-            // standings are built from the roster, so the standings/AI grid
-            // already reflect this season's team moves and rating swings.
-            GenerateDriverTransfers(completedSeason);
+            // Part 10 ordering: progression MUST use the completed season's
+            // results and be available before transfers, teammate ratings, and
+            // the new season's standings are finalized - so it runs first,
+            // then the driver market reacts to the freshly-updated ratings.
+            EnsureAllTeamDevelopmentStates();
+            SyncPlayerTeamDevelopmentState();
+            PopulateTeamDevelopmentArchive(completedSeason);
             GenerateDriverProgression(completedSeason);
+            GenerateDriverTransfers(completedSeason);
 
             Save.driverStandings = data.CreateInitialDriverStandings(Save.playerDriverName, Save.playerTeamId, Save.selectedDriverId, Save.driverTransferRecords);
             Save.constructorStandings = data.CreateInitialConstructorStandings();
@@ -2683,9 +2807,85 @@ namespace LocalFormulaRacing
             ApplyRegulationReset();
             GenerateRegulationChanges();
             GenerateTeamPerformanceEvolution(completedSeason);
+
+            // Part 7/10: persistent R&D carries into the new season (regulation
+            // resets above already stripped any invalidated categories) - just
+            // re-snapshot each team's season-start rating for the new season's
+            // Team Ratings screen.
+            for (int i = 0; i < Save.teamDevelopmentStates.Count; i++)
+            {
+                TeamDevelopmentState state = Save.teamDevelopmentStates[i];
+                TeamData team = data.FindTeam(state.teamId);
+                if (team != null)
+                {
+                    RecalculateTeamRating(team, state);
+                }
+
+                state.ratingAtSeasonStart = state.currentRating;
+            }
+
             GenerateSeasonObjectives();
             GenerateOffseasonNews(completedSeason);
             Write();
+        }
+
+        // Part 8: freezes each team's development summary for the season that
+        // just ended into its archive - called right at the start of
+        // BeginNewSeason, before any TeamDevelopmentState is touched for the
+        // new season, so ratingAtSeasonStart/currentRating still reflect the
+        // completed season.
+        void PopulateTeamDevelopmentArchive(SeasonArchive completedSeason)
+        {
+            if (completedSeason == null)
+            {
+                return;
+            }
+
+            List<TeamDevelopmentRecord> records = new List<TeamDevelopmentRecord>();
+            for (int i = 0; i < data.Teams.teams.Count; i++)
+            {
+                TeamData team = data.Teams.teams[i];
+                if (team == null)
+                {
+                    continue;
+                }
+
+                TeamDevelopmentState state = GetOrCreateTeamDevelopmentState(team.id);
+                string strongestArea = "None";
+                int strongestCount = 0;
+                Dictionary<string, int> categoryCounts = new Dictionary<string, int>();
+                for (int u = 0; u < state.completedUpgradeIds.Count; u++)
+                {
+                    UpgradeData upgrade = data.Upgrades.upgrades.Find(item => item.id == state.completedUpgradeIds[u]);
+                    if (upgrade == null)
+                    {
+                        continue;
+                    }
+
+                    int count = categoryCounts.ContainsKey(upgrade.category) ? categoryCounts[upgrade.category] + 1 : 1;
+                    categoryCounts[upgrade.category] = count;
+                    if (count > strongestCount)
+                    {
+                        strongestCount = count;
+                        strongestArea = upgrade.category;
+                    }
+                }
+
+                records.Add(new TeamDevelopmentRecord
+                {
+                    teamId = team.id,
+                    teamName = team.name,
+                    ratingAtSeasonStart = state.ratingAtSeasonStart,
+                    ratingAtSeasonEnd = state.currentRating,
+                    ratingChange = state.currentRating - state.ratingAtSeasonStart,
+                    upgradesCompleted = state.completedUpgradeIds.Count,
+                    projectsFailed = state.failedUpgradeIds.Count,
+                    strongestDevelopmentArea = strongestArea,
+                    constructorFinish = FindStandingPosition(completedSeason.finalConstructorStandings, team.id)
+                });
+            }
+
+            completedSeason.teamDevelopment = records;
         }
 
         static readonly string[] RegulationFlavorCategories = { "Tyre Wear", "Cost Cap", "Reliability", "DRS & Race Control", "Pit Equipment" };
@@ -2856,41 +3056,481 @@ namespace LocalFormulaRacing
             return weakest;
         }
 
-        // Driver progression: a small season-to-season rating swing per driver,
-        // biased by developmentPotential vs experience (a young, high-potential
-        // driver trends up; an old, low-potential one trends down) and
-        // compounding season over season - GetEffectiveDriver clamps the
-        // resulting stats to a realistic 40-99 range at the point of use, so an
-        // unbounded stored ratingDelta can never surface as an unrealistic
-        // in-race stat even over a very long career.
+        // =====================================================================
+        // Part 2/3: measuring each driver's season and turning it into
+        // independent, per-subrating rating changes.
+        // =====================================================================
+
+        // "player" result/qualifying entries mean the player's OWN seat - when
+        // the player is racing as a real drivers.json driver, that performance
+        // belongs to Save.selectedDriverId for progression purposes (never a
+        // separate "player" identity alongside their real one); when the
+        // player made a custom driver, "player" IS the tracked identity.
+        string MapDriverIdForProgression(string rawId)
+        {
+            if (rawId == "player" && Save.useExistingDriver && !string.IsNullOrEmpty(Save.selectedDriverId))
+            {
+                return Save.selectedDriverId;
+            }
+
+            return rawId;
+        }
+
+        DriverSeasonPerformance GetOrCreateSeasonPerformance(string driverId)
+        {
+            if (Save.driverSeasonPerformances == null)
+            {
+                Save.driverSeasonPerformances = new List<DriverSeasonPerformance>();
+            }
+
+            DriverSeasonPerformance perf = Save.driverSeasonPerformances.Find(p => p.driverId == driverId && p.season == Save.currentSeason);
+            if (perf == null)
+            {
+                perf = new DriverSeasonPerformance { driverId = driverId, season = Save.currentSeason };
+                Save.driverSeasonPerformances.Add(perf);
+            }
+
+            return perf;
+        }
+
+        // Ranks every team by this round's effective car rating (same
+        // GetEffectiveTeamCar/RatingCalculator every other system uses), so
+        // "expected result" reflects genuine competitiveness, not just grid slot.
+        List<string> RankTeamsByCarStrength()
+        {
+            List<KeyValuePair<string, int>> ranked = new List<KeyValuePair<string, int>>();
+            for (int i = 0; i < data.Teams.teams.Count; i++)
+            {
+                TeamData team = data.Teams.teams[i];
+                if (team == null)
+                {
+                    continue;
+                }
+
+                CarPerformanceData effective = GetEffectiveTeamCar(team, data.FindCar(team.carPerformanceId));
+                ranked.Add(new KeyValuePair<string, int>(team.id, RatingCalculator.GetCarOverall(effective)));
+            }
+
+            ranked.Sort((a, b) => b.Value.CompareTo(a.Value));
+            List<string> order = new List<string>();
+            for (int i = 0; i < ranked.Count; i++)
+            {
+                order.Add(ranked[i].Key);
+            }
+
+            return order;
+        }
+
+        int TeamCarRank(List<string> order, string teamId)
+        {
+            int index = order.IndexOf(teamId);
+            return index < 0 ? Mathf.Max(1, order.Count / 2) : index + 1;
+        }
+
+        void UpdateDriverSeasonPerformanceFromQualifying(List<QualifyingResultEntry> results)
+        {
+            if (results == null || results.Count == 0)
+            {
+                return;
+            }
+
+            List<string> carRanking = RankTeamsByCarStrength();
+            for (int i = 0; i < results.Count; i++)
+            {
+                QualifyingResultEntry entry = results[i];
+                string driverId = MapDriverIdForProgression(entry.driverId);
+                DriverSeasonPerformance perf = GetOrCreateSeasonPerformance(driverId);
+                perf.qualifyingSessions++;
+
+                int expectedPosition = TeamCarRank(carRanking, entry.teamId);
+                perf.sumQualifyingVsExpected += expectedPosition - entry.position;
+
+                QualifyingResultEntry teammate = results.Find(r => r.teamId == entry.teamId && r.driverId != entry.driverId);
+                if (teammate != null)
+                {
+                    if (entry.position < teammate.position)
+                    {
+                        perf.teammateQualifyingWins++;
+                    }
+                    else if (entry.position > teammate.position)
+                    {
+                        perf.teammateQualifyingLosses++;
+                    }
+                }
+            }
+        }
+
+        void UpdateDriverSeasonPerformanceFromRace(CalendarEventData raceEvent, List<RaceResultEntry> results)
+        {
+            if (results == null || results.Count == 0)
+            {
+                return;
+            }
+
+            bool wetRace = raceEvent != null && !string.IsNullOrEmpty(raceEvent.weatherProfile) &&
+                           (raceEvent.weatherProfile.ToLowerInvariant().Contains("rain") || raceEvent.weatherProfile.ToLowerInvariant().Contains("wet"));
+
+            List<string> carRanking = RankTeamsByCarStrength();
+            for (int i = 0; i < results.Count; i++)
+            {
+                RaceResultEntry entry = results[i];
+                string driverId = MapDriverIdForProgression(entry.driverId);
+                DriverSeasonPerformance perf = GetOrCreateSeasonPerformance(driverId);
+                perf.racesCompleted++;
+
+                int carRank = TeamCarRank(carRanking, entry.teamId);
+                float expectedPosition = Mathf.Clamp(carRank * 0.65f + entry.gridPosition * 0.35f, 1f, results.Count);
+
+                bool isRetirement = !string.IsNullOrEmpty(entry.penaltyReason) && entry.penaltyReason.Contains("DNF");
+                bool driverCaused = isRetirement && ContainsAny(entry.penaltyReason, "Collision", "Contact", "Crash", "Spin");
+                bool mechanical = isRetirement && !driverCaused;
+
+                if (isRetirement)
+                {
+                    if (mechanical)
+                    {
+                        perf.mechanicalRetirements++;
+                    }
+                    else
+                    {
+                        perf.driverCausedRetirements++;
+                        perf.sumFinishVsExpected += -3f;
+                        perf.finishVsExpectedSamples.Add(-3f);
+                    }
+                }
+                else
+                {
+                    float finishVsExpected = expectedPosition - entry.finishingPosition;
+                    perf.sumFinishVsExpected += finishVsExpected;
+                    perf.finishVsExpectedSamples.Add(finishVsExpected);
+                }
+
+                perf.sumPositionsGained += entry.gridPosition - entry.finishingPosition;
+                perf.overtakesMade += entry.overtakesMade;
+                perf.lockups += entry.lockups;
+                perf.trackLimitWarnings += entry.trackLimitWarnings;
+                perf.sumFlatSpotPercent += entry.flatSpotPercent;
+                if (entry.penaltiesSeconds > 0f)
+                {
+                    perf.penalizedRaces++;
+                    perf.sumPenaltySeconds += entry.penaltiesSeconds;
+                }
+
+                if (wetRace && !isRetirement)
+                {
+                    perf.wetRacesCompleted++;
+                    perf.sumWetPositionsGained += entry.gridPosition - entry.finishingPosition;
+                }
+
+                RaceResultEntry teammate = results.Find(r => r.teamId == entry.teamId && r.driverId != entry.driverId);
+                if (teammate != null && !isRetirement)
+                {
+                    bool teammateRetired = !string.IsNullOrEmpty(teammate.penaltyReason) && teammate.penaltyReason.Contains("DNF");
+                    if (!teammateRetired)
+                    {
+                        if (entry.finishingPosition < teammate.finishingPosition)
+                        {
+                            perf.teammateRaceWins++;
+                        }
+                        else if (entry.finishingPosition > teammate.finishingPosition)
+                        {
+                            perf.teammateRaceLosses++;
+                        }
+                    }
+                }
+            }
+        }
+
+        static bool ContainsAny(string text, params string[] needles)
+        {
+            for (int i = 0; i < needles.Length; i++)
+            {
+                if (text.IndexOf(needles[i], System.StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        // Confidence scaling by sample size - a driver with only a handful of
+        // races this season (injury, late-season call-up) should barely move,
+        // while a driver who ran most/all of the season gets the full swing.
+        static float ConfidenceScale(int racesCompleted)
+        {
+            if (racesCompleted < 4)
+            {
+                return 0.35f;
+            }
+
+            if (racesCompleted <= 8)
+            {
+                return 0.7f;
+            }
+
+            return 1f;
+        }
+
+        // Converts a normalized [-1..1] performance score into a bounded,
+        // integer rating change for one subrating - developmentPotential makes
+        // good performance easier to convert into gains (and raises the
+        // effective ceiling before diminishing returns bite), experience makes
+        // poor form hit harder (a veteran in decline regresses faster than a
+        // young driver protected by their potential), and a driver already
+        // near the 40-99 ceiling gets diminishing returns on further gains.
+        static int ScoreToDelta(float score, int currentEffectiveRating, int developmentPotential, int experience, float confidenceScale, float maxMagnitude)
+        {
+            if (Mathf.Abs(score) < 0.02f)
+            {
+                return 0;
+            }
+
+            float potentialFactor = Mathf.Lerp(0.65f, 1.3f, Mathf.InverseLerp(40f, 95f, developmentPotential));
+            float raw = score * maxMagnitude * potentialFactor;
+
+            if (score < 0f)
+            {
+                // Veterans regress a little faster on poor form; young/high-
+                // potential drivers are cushioned somewhat.
+                raw *= Mathf.Lerp(0.85f, 1.25f, Mathf.InverseLerp(40f, 99f, experience));
+            }
+
+            if (score > 0f && currentEffectiveRating >= 94)
+            {
+                raw *= Mathf.Lerp(1f, 0.2f, Mathf.InverseLerp(94f, 99f, currentEffectiveRating));
+            }
+
+            raw *= confidenceScale;
+            return Mathf.Clamp(Mathf.RoundToInt(raw), -5, 5);
+        }
+
+        // Driver progression: for every driver (plus the custom player driver,
+        // if any), scores this completed season's actual performance per
+        // subrating (Part 2/3 subrating rules) and generates independent,
+        // bounded rating changes - never one shared delta applied to every
+        // stat. GetEffectiveDriver applies the resulting cumulative per-stat
+        // deltas at read time, clamped to a realistic 40-99 range, so this can
+        // never surface as an unrealistic in-race stat even over a long career.
         void GenerateDriverProgression(SeasonArchive completedSeason)
         {
-            List<DriverRatingModifier> thisSeason = new List<DriverRatingModifier>();
+            int completedSeasonNumber = Save.currentSeason - 1;
+            List<string> subjects = new List<string>();
             for (int i = 0; i < data.Drivers.drivers.Count; i++)
             {
-                DriverData driver = data.Drivers.drivers[i];
+                if (data.Drivers.drivers[i] != null)
+                {
+                    subjects.Add(data.Drivers.drivers[i].id);
+                }
+            }
+
+            if (!Save.useExistingDriver)
+            {
+                EnsureCustomPlayerDriverBase();
+                subjects.Add("player");
+            }
+
+            List<DriverRatingModifier> thisSeason = new List<DriverRatingModifier>();
+            List<DriverSeasonChangeRecord> changeRecords = new List<DriverSeasonChangeRecord>();
+
+            for (int s = 0; s < subjects.Count; s++)
+            {
+                string driverId = subjects[s];
+                DriverData driver = driverId == "player" ? Save.customPlayerDriverBase : data.FindDriver(driverId);
                 if (driver == null)
                 {
                     continue;
                 }
 
-                DriverRatingModifier previous = Save.driverRatingModifiers.Find(m => m.driverId == driver.id && m.season == Save.currentSeason - 1);
-                int previousDelta = previous == null ? 0 : previous.ratingDelta;
+                DriverRatingModifier previous = Save.driverRatingModifiers.Find(m => m.driverId == driverId && m.season == completedSeasonNumber);
+                MigrateLegacyRatingModifier(previous);
+                DriverSeasonPerformance perf = Save.driverSeasonPerformances.Find(p => p.driverId == driverId && p.season == completedSeasonNumber);
+                int races = perf != null ? perf.racesCompleted : 0;
+                float confidenceScale = ConfidenceScale(races);
 
-                bool risingTalent = driver.developmentPotential >= 75 && driver.experience < 75;
-                bool decliningVeteran = driver.developmentPotential <= 55 && driver.experience >= 80;
-                int step = risingTalent ? Random.Range(1, 4) : (decliningVeteran ? -Random.Range(1, 4) : Random.Range(-1, 2));
-                int newDelta = previousDelta + step;
+                DriverData previousEffective = ApplyRatingModifier(driver, driver.teamId, previous);
+                int previousOverall = RatingCalculator.GetDriverOverall(previousEffective);
+
+                float paceScore = 0f, racecraftScore = 0f, qualifyingScore = 0f, overtakingScore = 0f, defendingScore = 0f;
+                float tyreScore = 0f, wetScore = 0f, consistencyScore = 0f, awarenessScore = 0f, aggressionScore = 0f;
+
+                if (perf != null && races > 0)
+                {
+                    float avgFinishVsExpected = perf.sumFinishVsExpected / races;
+                    float avgPositionsGained = perf.sumPositionsGained / races;
+                    float avgOvertakes = perf.overtakesMade / (float)races;
+                    float avgFlatSpot = perf.sumFlatSpotPercent / races;
+
+                    int qTotal = perf.teammateQualifyingWins + perf.teammateQualifyingLosses;
+                    float qualH2H = qTotal > 0 ? (perf.teammateQualifyingWins - perf.teammateQualifyingLosses) / (float)qTotal : 0f;
+                    float avgQualVsExpected = perf.qualifyingSessions > 0 ? perf.sumQualifyingVsExpected / perf.qualifyingSessions : 0f;
+
+                    int rTotal = perf.teammateRaceWins + perf.teammateRaceLosses;
+                    float raceH2H = rTotal > 0 ? (perf.teammateRaceWins - perf.teammateRaceLosses) / (float)rTotal : 0f;
+
+                    paceScore = Mathf.Clamp(avgFinishVsExpected / 4f, -1f, 1f);
+                    racecraftScore = Mathf.Clamp((avgFinishVsExpected * 0.5f + avgPositionsGained * 0.3f + raceH2H * 0.4f) / 3f, -1f, 1f);
+                    qualifyingScore = Mathf.Clamp(qualH2H * 0.6f + Mathf.Clamp(avgQualVsExpected / 3f, -1f, 1f) * 0.4f, -1f, 1f);
+                    overtakingScore = Mathf.Clamp((avgOvertakes - 1.2f) / 2.5f, -1f, 1f);
+                    // Defending has no dedicated per-battle telemetry yet (see
+                    // DriverSeasonPerformance) - proxied from the same-car
+                    // head-to-head record, kept intentionally small.
+                    defendingScore = Mathf.Clamp(raceH2H * 0.5f, -0.6f, 0.6f);
+                    tyreScore = Mathf.Clamp(-(avgFlatSpot - 8f) / 10f, -1f, 1f);
+
+                    if (perf.wetRacesCompleted > 0)
+                    {
+                        float avgWetGain = perf.sumWetPositionsGained / perf.wetRacesCompleted;
+                        wetScore = Mathf.Clamp(avgWetGain / 3f, -1f, 1f);
+                    }
+
+                    if (perf.finishVsExpectedSamples.Count >= 2)
+                    {
+                        float mean = 0f;
+                        for (int i = 0; i < perf.finishVsExpectedSamples.Count; i++)
+                        {
+                            mean += perf.finishVsExpectedSamples[i];
+                        }
+
+                        mean /= perf.finishVsExpectedSamples.Count;
+                        float variance = 0f;
+                        for (int i = 0; i < perf.finishVsExpectedSamples.Count; i++)
+                        {
+                            float diff = perf.finishVsExpectedSamples[i] - mean;
+                            variance += diff * diff;
+                        }
+
+                        variance /= perf.finishVsExpectedSamples.Count;
+                        float stdDev = Mathf.Sqrt(variance);
+                        consistencyScore = Mathf.Clamp((4f - stdDev) / 4f, -1f, 1f);
+                    }
+
+                    consistencyScore = Mathf.Clamp(consistencyScore - perf.driverCausedRetirements * 0.25f - perf.penalizedRaces * 0.05f, -1f, 1f);
+
+                    float avgTrackLimits = perf.trackLimitWarnings / (float)races;
+                    awarenessScore = Mathf.Clamp(-(perf.driverCausedRetirements * 0.4f + perf.penalizedRaces * 0.12f + avgTrackLimits * 0.08f), -1f, 0.4f);
+                    if (perf.driverCausedRetirements == 0 && perf.penalizedRaces == 0 && races >= 6)
+                    {
+                        awarenessScore = Mathf.Max(awarenessScore, 0.3f);
+                    }
+
+                    aggressionScore = Mathf.Clamp((avgOvertakes * 0.4f + perf.penalizedRaces * 0.15f) / 3f, -1f, 1f);
+                }
+
+                int prevPaceDelta = previous != null ? previous.paceDelta : 0;
+                int prevRacecraftDelta = previous != null ? previous.racecraftDelta : 0;
+                int prevQualifyingDelta = previous != null ? previous.qualifyingDelta : 0;
+                int prevTyreDelta = previous != null ? previous.tyreManagementDelta : 0;
+                int prevWetDelta = previous != null ? previous.wetSkillDelta : 0;
+                int prevConsistencyDelta = previous != null ? previous.consistencyDelta : 0;
+                int prevAggressionDelta = previous != null ? previous.aggressionDelta : 0;
+                int prevDefendingDelta = previous != null ? previous.defendingDelta : 0;
+                int prevOvertakingDelta = previous != null ? previous.overtakingDelta : 0;
+                int prevAwarenessDelta = previous != null ? previous.awarenessDelta : 0;
+                int prevExperienceDelta = previous != null ? previous.experienceDelta : 0;
+
+                int paceChange = ScoreToDelta(paceScore, ClampRating(driver.pace + prevPaceDelta), driver.developmentPotential, driver.experience, confidenceScale, 5f);
+                int racecraftChange = ScoreToDelta(racecraftScore, ClampRating(driver.racecraft + prevRacecraftDelta), driver.developmentPotential, driver.experience, confidenceScale, 5f);
+                int qualifyingChange = ScoreToDelta(qualifyingScore, ClampRating(driver.qualifying + prevQualifyingDelta), driver.developmentPotential, driver.experience, confidenceScale, 5f);
+                int tyreChange = ScoreToDelta(tyreScore, ClampRating(driver.tyreManagement + prevTyreDelta), driver.developmentPotential, driver.experience, confidenceScale, 4f);
+                int wetChange = perf != null && perf.wetRacesCompleted > 0
+                    ? ScoreToDelta(wetScore, ClampRating(driver.wetSkill + prevWetDelta), driver.developmentPotential, driver.experience, confidenceScale, 4f)
+                    : 0;
+                int consistencyChange = ScoreToDelta(consistencyScore, ClampRating(driver.consistency + prevConsistencyDelta), driver.developmentPotential, driver.experience, confidenceScale, 5f);
+                int defendingChange = ScoreToDelta(defendingScore, ClampRating(driver.defending + prevDefendingDelta), driver.developmentPotential, driver.experience, confidenceScale, 4f);
+                int overtakingChange = ScoreToDelta(overtakingScore, ClampRating(driver.overtaking + prevOvertakingDelta), driver.developmentPotential, driver.experience, confidenceScale, 5f);
+                int awarenessChange = ScoreToDelta(awarenessScore, ClampRating(driver.awareness + prevAwarenessDelta), driver.developmentPotential, driver.experience, confidenceScale, 4f);
+                // Aggression is a style rating - limited to roughly -1..+1
+                // unless the data is extreme.
+                int aggressionChange = Mathf.Clamp(ScoreToDelta(aggressionScore, driver.aggression + prevAggressionDelta, driver.developmentPotential, driver.experience, confidenceScale, 1f), Mathf.Abs(aggressionScore) > 0.85f ? -2 : -1, Mathf.Abs(aggressionScore) > 0.85f ? 2 : 1);
+
+                int currentExperience = Mathf.Clamp(driver.experience + prevExperienceDelta, 1, 99);
+                float growth = currentExperience < 60 ? 3f : currentExperience < 80 ? 1.5f : currentExperience < 92 ? 0.8f : 0.3f;
+                if (races <= 0)
+                {
+                    growth *= 0.3f;
+                }
+
+                int experienceChange = Mathf.Clamp(Mathf.RoundToInt(growth), 0, 5);
 
                 DriverRatingModifier modifier = new DriverRatingModifier
                 {
-                    driverId = driver.id,
+                    driverId = driverId,
                     season = Save.currentSeason,
-                    ratingDelta = newDelta,
-                    trendLabel = step > 0 ? "Improving" : (step < 0 ? "Declining" : "Steady")
+                    legacyDeltaMigrated = true,
+                    paceDelta = Mathf.Clamp(prevPaceDelta + paceChange, -40, 40),
+                    racecraftDelta = Mathf.Clamp(prevRacecraftDelta + racecraftChange, -40, 40),
+                    qualifyingDelta = Mathf.Clamp(prevQualifyingDelta + qualifyingChange, -40, 40),
+                    tyreManagementDelta = Mathf.Clamp(prevTyreDelta + tyreChange, -40, 40),
+                    wetSkillDelta = Mathf.Clamp(prevWetDelta + wetChange, -40, 40),
+                    consistencyDelta = Mathf.Clamp(prevConsistencyDelta + consistencyChange, -40, 40),
+                    aggressionDelta = Mathf.Clamp(prevAggressionDelta + aggressionChange, -20, 20),
+                    defendingDelta = Mathf.Clamp(prevDefendingDelta + defendingChange, -40, 40),
+                    overtakingDelta = Mathf.Clamp(prevOvertakingDelta + overtakingChange, -40, 40),
+                    awarenessDelta = Mathf.Clamp(prevAwarenessDelta + awarenessChange, -40, 40),
+                    experienceDelta = Mathf.Clamp(prevExperienceDelta + experienceChange, 0, 60),
+                    lastPaceChange = paceChange,
+                    lastRacecraftChange = racecraftChange,
+                    lastQualifyingChange = qualifyingChange,
+                    lastTyreManagementChange = tyreChange,
+                    lastWetSkillChange = wetChange,
+                    lastConsistencyChange = consistencyChange,
+                    lastAggressionChange = aggressionChange,
+                    lastDefendingChange = defendingChange,
+                    lastOvertakingChange = overtakingChange,
+                    lastAwarenessChange = awarenessChange,
+                    lastExperienceChange = experienceChange
                 };
+
+                DriverData newEffective = ApplyRatingModifier(driver, driver.teamId, modifier);
+                int newOverall = RatingCalculator.GetDriverOverall(newEffective);
+                modifier.lastOverallChange = newOverall - previousOverall;
+                modifier.trendLabel = modifier.lastOverallChange > 0 ? "Improving" : (modifier.lastOverallChange < 0 ? "Declining" : "Steady");
+
                 Save.driverRatingModifiers.Add(modifier);
                 thisSeason.Add(modifier);
+
+                GameLog.Info("[Progression] " + driver.displayName + " (" + races + " races, confidence=" + confidenceScale.ToString("F2") + "): " +
+                             "Pace " + Sign(paceChange) + ", Racecraft " + Sign(racecraftChange) + ", Qualifying " + Sign(qualifyingChange) +
+                             ", Tyre " + Sign(tyreChange) + ", Wet " + Sign(wetChange) + ", Consistency " + Sign(consistencyChange) +
+                             ", Defending " + Sign(defendingChange) + ", Overtaking " + Sign(overtakingChange) + ", Awareness " + Sign(awarenessChange) +
+                             ", Aggression " + Sign(aggressionChange) + ", Experience " + Sign(experienceChange) + ", Overall " + Sign(modifier.lastOverallChange));
+
+                if (driverId == "player")
+                {
+                    Save.customPlayerDriverBase = driver;
+                }
+
+                DriverSeasonChangeRecord change = new DriverSeasonChangeRecord
+                {
+                    driverId = driverId,
+                    driverName = driver.displayName,
+                    previousOverall = previousOverall,
+                    newOverall = newOverall,
+                    paceChange = paceChange,
+                    racecraftChange = racecraftChange,
+                    qualifyingChange = qualifyingChange,
+                    tyreManagementChange = tyreChange,
+                    wetSkillChange = wetChange,
+                    consistencyChange = consistencyChange,
+                    aggressionChange = aggressionChange,
+                    defendingChange = defendingChange,
+                    overtakingChange = overtakingChange,
+                    awarenessChange = awarenessChange,
+                    experienceChange = experienceChange,
+                    teammateHeadToHeadWins = perf != null ? perf.teammateRaceWins : 0,
+                    teammateHeadToHeadLosses = perf != null ? perf.teammateRaceLosses : 0,
+                    actualChampionshipPosition = completedSeason != null ? FindStandingPosition(completedSeason.finalDriverStandings, driverId == "player" && !Save.useExistingDriver ? "player" : driverId) : -1,
+                    performanceSummary = races > 0
+                        ? "Completed " + races + " race" + (races == 1 ? "" : "s") + " this season."
+                        : "Did not complete a race this season - rating changes kept minimal."
+                };
+                changeRecords.Add(change);
+            }
+
+            if (completedSeason != null)
+            {
+                completedSeason.driverChanges = changeRecords;
             }
 
             if (thisSeason.Count == 0)
@@ -2898,10 +3538,10 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            thisSeason.Sort((a, b) => b.ratingDelta.CompareTo(a.ratingDelta));
+            thisSeason.Sort((a, b) => b.lastOverallChange.CompareTo(a.lastOverallChange));
             DriverRatingModifier riser = thisSeason[0];
-            DriverData riserDriver = data.FindDriver(riser.driverId);
-            if (riser.ratingDelta >= 4 && riserDriver != null)
+            DriverData riserDriver = riser.driverId == "player" ? Save.customPlayerDriverBase : data.FindDriver(riser.driverId);
+            if (riser.lastOverallChange >= 3 && riserDriver != null)
             {
                 AddNewsArticle(
                     riserDriver.displayName + " is the form driver of the paddock",
@@ -2910,14 +3550,52 @@ namespace LocalFormulaRacing
             }
 
             DriverRatingModifier faller = thisSeason[thisSeason.Count - 1];
-            DriverData fallerDriver = data.FindDriver(faller.driverId);
-            if (faller.ratingDelta <= -4 && fallerDriver != null)
+            DriverData fallerDriver = faller.driverId == "player" ? Save.customPlayerDriverBase : data.FindDriver(faller.driverId);
+            if (faller.lastOverallChange <= -3 && fallerDriver != null)
             {
                 AddNewsArticle(
                     fallerDriver.displayName + " under pressure after a difficult stretch",
                     fallerDriver.displayName + " heads into Season " + Save.currentSeason + " having lost a step, with question marks starting to follow the seat.",
                     NewsCategoryRumour);
             }
+        }
+
+        static string Sign(int value)
+        {
+            return value > 0 ? "+" + value : value.ToString();
+        }
+
+        // Part 4: a custom (non-existing-driver) player's persistent rating
+        // profile - created once, from a modest rookie-ish template, then
+        // never mutated directly; all subsequent movement happens through
+        // DriverRatingModifier entries keyed "player", exactly like a real
+        // driver's drivers.json entry.
+        void EnsureCustomPlayerDriverBase()
+        {
+            if (Save.customPlayerDriverBase != null)
+            {
+                return;
+            }
+
+            Save.customPlayerDriverBase = new DriverData
+            {
+                id = "player",
+                displayName = Save.playerDriverName,
+                abbreviation = "PLR",
+                teamId = Save.playerTeamId,
+                pace = 68,
+                racecraft = 66,
+                qualifying = 66,
+                tyreManagement = 65,
+                wetSkill = 64,
+                consistency = 64,
+                aggression = 70,
+                defending = 64,
+                overtaking = 65,
+                awareness = 65,
+                experience = 35,
+                developmentPotential = 85
+            };
         }
 
         void GenerateTeamPerformanceEvolution(SeasonArchive completedSeason)
@@ -2983,6 +3661,12 @@ namespace LocalFormulaRacing
         // Read-time-only team performance lookup (see TeamPerformanceModifier)
         // layered underneath the player's own upgrade tuning - every AI team
         // now gets a small season-to-season swing, not just the player.
+        // Part 7: the one authoritative effective-car pipeline - base car +
+        // this season's small performance swing + this team's persistent R&D
+        // upgrades. Every reader (race AI, simulated qualifying/races, team
+        // ratings, R&D screen, preseason testing, contracts) must come through
+        // here rather than composing TeamPerformanceModifier/upgrades itself,
+        // so no call site can ever apply a team's upgrades twice or skip them.
         public CarPerformanceData GetEffectiveTeamCar(TeamData team, CarPerformanceData baseCar)
         {
             if (team == null || baseCar == null)
@@ -2993,7 +3677,17 @@ namespace LocalFormulaRacing
             CarPerformanceData tuned = ApplyTeamPerformanceModifier(team.id, baseCar);
             if (team.id == Save.playerTeamId)
             {
+                // The player's completed upgrades live on Save.completedUpgradeIds/
+                // Save.activeUpgradeProjects directly (so the existing R&D screen
+                // keeps working unchanged) - bridged through here rather than a
+                // second, parallel TeamDevelopmentState copy that could drift out
+                // of sync and double-apply.
                 tuned = ApplyCareerUpgrades(tuned);
+            }
+            else
+            {
+                TeamDevelopmentState state = GetOrCreateTeamDevelopmentState(team.id);
+                tuned = ApplyUpgradeSet(tuned, state.completedUpgradeIds, id => state.activeUpgradeProjects.Find(p => p.upgradeId == id));
             }
 
             return tuned;
@@ -3040,6 +3734,372 @@ namespace LocalFormulaRacing
             return tuned;
         }
 
+        // =====================================================================
+        // Part 5/7: full-grid, persistent, in-season R&D.
+        // =====================================================================
+
+        public TeamDevelopmentState GetOrCreateTeamDevelopmentState(string teamId)
+        {
+            if (Save.teamDevelopmentStates == null)
+            {
+                Save.teamDevelopmentStates = new List<TeamDevelopmentState>();
+            }
+
+            TeamDevelopmentState state = Save.teamDevelopmentStates.Find(s => s.teamId == teamId);
+            if (state == null)
+            {
+                TeamData team = data.FindTeam(teamId);
+                CarPerformanceData baseCar = team != null ? data.FindCar(team.carPerformanceId) : null;
+                state = new TeamDevelopmentState
+                {
+                    teamId = teamId,
+                    resourcePoints = 260,
+                    archetype = AssignTeamDevelopmentArchetype(team, baseCar),
+                    ratingAtSeasonStart = RatingCalculator.GetCarOverall(baseCar),
+                    currentRating = RatingCalculator.GetCarOverall(baseCar)
+                };
+                while (state.departmentLevels.Count < DepartmentNames.Length)
+                {
+                    state.departmentLevels.Add(1);
+                }
+
+                Save.teamDevelopmentStates.Add(state);
+            }
+
+            return state;
+        }
+
+        void EnsureAllTeamDevelopmentStates()
+        {
+            for (int i = 0; i < data.Teams.teams.Count; i++)
+            {
+                TeamData team = data.Teams.teams[i];
+                if (team != null)
+                {
+                    GetOrCreateTeamDevelopmentState(team.id);
+                }
+            }
+        }
+
+        // Different teams get genuinely different development behaviour: a
+        // weak-aero car biases Aerodynamics/Chassis, an unreliable-but-fast car
+        // biases Durability, a power-deficient car biases Power Unit/ERS, a
+        // tyre-limited car biases Tyre Management - a well-rounded car falls
+        // back to a Conservative (title contender) or Aggressive (backmarker)
+        // style based on reputation, per the design brief's examples.
+        string AssignTeamDevelopmentArchetype(TeamData team, CarPerformanceData baseCar)
+        {
+            if (baseCar == null)
+            {
+                return "Balanced";
+            }
+
+            if (baseCar.reliability <= 62)
+            {
+                return "Durability-Focused";
+            }
+
+            if (baseCar.aeroEfficiency <= 65 || baseCar.cornering <= 65)
+            {
+                return "Aero-Focused";
+            }
+
+            if (baseCar.enginePower <= 65 || baseCar.ersEfficiency <= 65)
+            {
+                return "Power-Focused";
+            }
+
+            if (baseCar.tyreManagement <= 65)
+            {
+                return "Tyre-Focused";
+            }
+
+            return team != null && team.reputation >= 85 ? "Conservative" : "Aggressive";
+        }
+
+        string PreferredDepartmentForArchetype(string archetype)
+        {
+            switch (archetype)
+            {
+                case "Aero-Focused": return "Aerodynamics";
+                case "Durability-Focused": return "Durability";
+                case "Power-Focused": return "Power Unit";
+                case "Tyre-Focused": return "Tyre Management";
+                default: return null;
+            }
+        }
+
+        int ArchetypeRiskMode(string archetype)
+        {
+            if (archetype == "Conservative")
+            {
+                return RiskConservative;
+            }
+
+            if (archetype == "Aggressive")
+            {
+                return RiskRush;
+            }
+
+            return RiskStandard;
+        }
+
+        string WeakestCarDepartment(CarPerformanceData car)
+        {
+            if (car == null)
+            {
+                return DepartmentNames[Random.Range(0, DepartmentNames.Length)];
+            }
+
+            KeyValuePair<string, int>[] departmentStats =
+            {
+                new KeyValuePair<string, int>("Aerodynamics", car.aeroEfficiency),
+                new KeyValuePair<string, int>("Chassis", car.chassisBalance),
+                new KeyValuePair<string, int>("Power Unit", car.enginePower),
+                new KeyValuePair<string, int>("Durability", car.reliability),
+                new KeyValuePair<string, int>("Tyre Management", car.tyreManagement),
+                new KeyValuePair<string, int>("ERS", car.ersEfficiency)
+            };
+
+            string weakest = departmentStats[0].Key;
+            int weakestValue = departmentStats[0].Value;
+            for (int i = 1; i < departmentStats.Length; i++)
+            {
+                if (departmentStats[i].Value < weakestValue)
+                {
+                    weakestValue = departmentStats[i].Value;
+                    weakest = departmentStats[i].Key;
+                }
+            }
+
+            return weakest;
+        }
+
+        int GetAiDepartmentLevel(TeamDevelopmentState state, string category)
+        {
+            int index = GetDepartmentIndex(category);
+            if (index < 0 || state.departmentLevels == null || index >= state.departmentLevels.Count)
+            {
+                return 1;
+            }
+
+            return state.departmentLevels[index];
+        }
+
+        // Called once per race (see ApplyRaceResults) for every non-player
+        // team: earns resources, progresses/completes/fails active projects
+        // (applying completed stat deltas immediately, exactly like the
+        // player's AdvanceUpgradeProjects), then may start a new project.
+        void AdvanceAiTeamDevelopment()
+        {
+            for (int i = 0; i < data.Teams.teams.Count; i++)
+            {
+                TeamData team = data.Teams.teams[i];
+                if (team == null || team.id == Save.playerTeamId)
+                {
+                    continue;
+                }
+
+                TeamDevelopmentState state = GetOrCreateTeamDevelopmentState(team.id);
+                state.resourcePoints += Mathf.RoundToInt(65f * Save.currentSeasonResourceMultiplier);
+
+                for (int p = state.activeUpgradeProjects.Count - 1; p >= 0; p--)
+                {
+                    ActiveUpgradeProject project = state.activeUpgradeProjects[p];
+                    if (project.status != ProjectInDevelopment)
+                    {
+                        continue;
+                    }
+
+                    project.remainingRaceWeeks--;
+                    if (project.remainingRaceWeeks > 0)
+                    {
+                        continue;
+                    }
+
+                    project.remainingRaceWeeks = 0;
+                    UpgradeData upgrade = data.Upgrades.upgrades.Find(u => u.id == project.upgradeId);
+                    string projectName = upgrade != null ? upgrade.displayName : project.upgradeId;
+                    int ratingBefore = state.currentRating;
+
+                    if (Random.value <= project.successChance)
+                    {
+                        project.status = ProjectCompleted;
+                        if (!state.completedUpgradeIds.Contains(project.upgradeId))
+                        {
+                            state.completedUpgradeIds.Add(project.upgradeId);
+                        }
+
+                        // Every 3 completed upgrades in a category nudges that
+                        // department's own facility level up (capped), so top
+                        // teams' departments naturally get stronger over a
+                        // career while still respecting diminishing returns via
+                        // ComputeProjectWeeksForLevel/ComputeProjectSuccessChanceForLevel.
+                        int deptIndex = GetDepartmentIndex(project.category);
+                        if (deptIndex >= 0 && deptIndex < state.departmentLevels.Count)
+                        {
+                            int completedInCategory = 0;
+                            for (int c = 0; c < state.completedUpgradeIds.Count; c++)
+                            {
+                                UpgradeData completedUpgrade = data.Upgrades.upgrades.Find(u => u.id == state.completedUpgradeIds[c]);
+                                if (completedUpgrade != null && completedUpgrade.category == project.category)
+                                {
+                                    completedInCategory++;
+                                }
+                            }
+
+                            if (completedInCategory % 3 == 0)
+                            {
+                                state.departmentLevels[deptIndex] = Mathf.Min(MaxDepartmentLevel, state.departmentLevels[deptIndex] + 1);
+                            }
+                        }
+
+                        RecalculateTeamRating(team, state);
+                        GameLog.Info("[R&D] " + team.name + " (" + state.archetype + ") completed " + projectName +
+                                     " round " + Save.currentRound + " - car rating " + ratingBefore + " -> " + state.currentRating);
+
+                        if (state.currentRating - ratingBefore >= 2 || Random.value < 0.3f)
+                        {
+                            AddNewsArticle(
+                                team.name + " complete " + projectName,
+                                team.name + "'s " + (upgrade != null ? upgrade.category.ToLowerInvariant() : "engineering") +
+                                " department has finished work on " + projectName + ", fitted to the car from this round.",
+                                NewsCategoryRnd);
+                        }
+                    }
+                    else
+                    {
+                        project.status = ProjectFailed;
+                        if (!state.failedUpgradeIds.Contains(project.upgradeId))
+                        {
+                            state.failedUpgradeIds.Add(project.upgradeId);
+                        }
+
+                        GameLog.Info("[R&D] " + team.name + " failed " + projectName + " (round " + Save.currentRound + ")");
+                        if (Random.value < 0.2f)
+                        {
+                            AddNewsArticle(
+                                team.name + "'s " + projectName + " project stalls",
+                                team.name + " has hit a setback with " + projectName + " and the project has been shelved.",
+                                NewsCategoryRnd);
+                        }
+                    }
+                }
+
+                state.activeUpgradeProjects.RemoveAll(p => p.status == ProjectCompleted || p.status == ProjectFailed);
+                TryStartAiUpgradeProject(team, state);
+            }
+        }
+
+        // AI project selection: weighs the team's weakest department (or its
+        // archetype's preferred department), current regulation targets,
+        // prerequisites, department-level gating and affordability - then
+        // starts a project using the exact same cost/duration/success-chance
+        // formulas the player's own R&D uses. A random per-race start chance
+        // (rather than "always start something the moment a slot is free")
+        // gives every team controlled variation in project timing instead of
+        // every AI team developing in lockstep.
+        void TryStartAiUpgradeProject(TeamData team, TeamDevelopmentState state)
+        {
+            int activeCount = 0;
+            for (int i = 0; i < state.activeUpgradeProjects.Count; i++)
+            {
+                if (state.activeUpgradeProjects[i].status == ProjectInDevelopment)
+                {
+                    activeCount++;
+                }
+            }
+
+            if (activeCount >= 2 || Random.value > 0.4f)
+            {
+                return;
+            }
+
+            CarPerformanceData baseCar = data.FindCar(team.carPerformanceId);
+            CarPerformanceData currentCar = GetEffectiveTeamCar(team, baseCar);
+            string preferredDepartment = PreferredDepartmentForArchetype(state.archetype);
+            string targetDepartment = !string.IsNullOrEmpty(preferredDepartment) && Random.value < 0.7f
+                ? preferredDepartment
+                : WeakestCarDepartment(currentCar);
+
+            // Regulation-affected departments are a live risk this season - AI
+            // teams occasionally reprioritise onto them rather than only ever
+            // reacting to car weaknesses.
+            if (Save.regulationAffectedCategories != null && Save.regulationAffectedCategories.Count > 0 && Random.value < 0.25f)
+            {
+                targetDepartment = Save.regulationAffectedCategories[Random.Range(0, Save.regulationAffectedCategories.Count)];
+            }
+
+            int level = GetAiDepartmentLevel(state, targetDepartment);
+            List<UpgradeData> candidates = data.Upgrades.upgrades.FindAll(u =>
+                u != null && u.category == targetDepartment &&
+                !state.completedUpgradeIds.Contains(u.id) &&
+                !state.failedUpgradeIds.Contains(u.id) &&
+                state.activeUpgradeProjects.Find(p => p.upgradeId == u.id) == null &&
+                (string.IsNullOrEmpty(u.requiredUpgradeId) || state.completedUpgradeIds.Contains(u.requiredUpgradeId)) &&
+                u.tier <= level);
+
+            if (candidates.Count == 0)
+            {
+                return;
+            }
+
+            UpgradeData chosen = candidates[Random.Range(0, candidates.Count)];
+            int riskMode = ArchetypeRiskMode(state.archetype);
+            int weeks = ComputeProjectWeeksForLevel(chosen, riskMode, level);
+            float chance = ComputeProjectSuccessChanceForLevel(chosen, riskMode, level);
+            int cost = ComputeProjectCost(chosen, riskMode);
+            if (state.resourcePoints < cost)
+            {
+                return;
+            }
+
+            state.resourcePoints -= cost;
+            state.activeUpgradeProjects.Add(new ActiveUpgradeProject
+            {
+                teamId = team.id,
+                upgradeId = chosen.id,
+                category = chosen.category,
+                startRound = Save.currentRound,
+                remainingRaceWeeks = weeks,
+                totalRaceWeeks = weeks,
+                cost = cost,
+                successChance = chance,
+                riskMode = riskMode,
+                status = ProjectInDevelopment
+            });
+            state.lastProjectStartRound = Save.currentRound;
+            GameLog.Info("[R&D] " + team.name + " (" + state.archetype + ") starts " + chosen.displayName + " [" + targetDepartment +
+                         "] round " + Save.currentRound + ", weeks=" + weeks + ", chance=" + chance.ToString("F2"));
+        }
+
+        void RecalculateTeamRating(TeamData team, TeamDevelopmentState state)
+        {
+            CarPerformanceData baseCar = data.FindCar(team.carPerformanceId);
+            CarPerformanceData effective = GetEffectiveTeamCar(team, baseCar);
+            state.currentRating = RatingCalculator.GetCarOverall(effective);
+        }
+
+        // The player's team keeps its own Save.completedUpgradeIds as the
+        // source of truth (see GetEffectiveTeamCar) - this mirrors that list
+        // into the player's TeamDevelopmentState purely so the season archive
+        // and Team Ratings screen can report the player's upgrade count/rating
+        // through the exact same TeamDevelopmentState shape every AI team uses.
+        void SyncPlayerTeamDevelopmentState()
+        {
+            TeamData playerTeam = data.FindTeam(Save.playerTeamId);
+            if (playerTeam == null)
+            {
+                return;
+            }
+
+            TeamDevelopmentState state = GetOrCreateTeamDevelopmentState(Save.playerTeamId);
+            state.completedUpgradeIds = new List<string>(Save.completedUpgradeIds);
+            state.failedUpgradeIds = new List<string>(Save.failedUpgradeIds);
+            state.resourcePoints = Save.resourcePoints;
+            RecalculateTeamRating(playerTeam, state);
+        }
+
         // Driver market + progression: read-time-only lookup (see
         // DriverTransferRecord/DriverRatingModifier) exactly like
         // GetEffectiveTeamCar above - never mutates the shared DriverData
@@ -3057,38 +4117,122 @@ namespace LocalFormulaRacing
 
             string effectiveTeamId = data.EffectiveTeamId(baseDriver, Save.driverTransferRecords);
             DriverRatingModifier modifier = Save.driverRatingModifiers == null ? null : Save.driverRatingModifiers.Find(m => m.driverId == baseDriver.id && m.season == Save.currentSeason);
-            int delta = modifier == null ? 0 : modifier.ratingDelta;
+            MigrateLegacyRatingModifier(modifier);
 
-            if (effectiveTeamId == baseDriver.teamId && delta == 0)
+            if (modifier == null && effectiveTeamId == baseDriver.teamId)
             {
                 return baseDriver;
             }
 
+            return ApplyRatingModifier(baseDriver, effectiveTeamId, modifier);
+        }
+
+        // Builds the effective DriverData for any base driver + team id +
+        // modifier combination - shared by GetEffectiveDriver (real
+        // drivers.json drivers) and the custom-player-driver path so both go
+        // through identical per-stat delta application/clamping.
+        static DriverData ApplyRatingModifier(DriverData baseDriver, string effectiveTeamId, DriverRatingModifier modifier)
+        {
+            if (modifier == null)
+            {
+                DriverData copy = CloneDriver(baseDriver);
+                copy.teamId = effectiveTeamId;
+                return copy;
+            }
+
+            DriverData result = CloneDriver(baseDriver);
+            result.teamId = effectiveTeamId;
+            result.pace = ClampRating(baseDriver.pace + modifier.paceDelta);
+            result.racecraft = ClampRating(baseDriver.racecraft + modifier.racecraftDelta);
+            result.qualifying = ClampRating(baseDriver.qualifying + modifier.qualifyingDelta);
+            result.tyreManagement = ClampRating(baseDriver.tyreManagement + modifier.tyreManagementDelta);
+            result.wetSkill = ClampRating(baseDriver.wetSkill + modifier.wetSkillDelta);
+            result.consistency = ClampRating(baseDriver.consistency + modifier.consistencyDelta);
+            result.aggression = Mathf.Clamp(baseDriver.aggression + modifier.aggressionDelta, 30, 99);
+            result.defending = ClampRating(baseDriver.defending + modifier.defendingDelta);
+            result.overtaking = ClampRating(baseDriver.overtaking + modifier.overtakingDelta);
+            result.awareness = ClampRating(baseDriver.awareness + modifier.awarenessDelta);
+            result.experience = Mathf.Clamp(baseDriver.experience + modifier.experienceDelta, 1, 99);
+            result.developmentPotential = baseDriver.developmentPotential;
+            return result;
+        }
+
+        static DriverData CloneDriver(DriverData source)
+        {
             return new DriverData
             {
-                id = baseDriver.id,
-                displayName = baseDriver.displayName,
-                abbreviation = baseDriver.abbreviation,
-                number = baseDriver.number,
-                teamId = effectiveTeamId,
-                pace = ClampRating(baseDriver.pace + delta),
-                racecraft = ClampRating(baseDriver.racecraft + delta),
-                qualifying = ClampRating(baseDriver.qualifying + delta),
-                tyreManagement = ClampRating(baseDriver.tyreManagement + delta),
-                wetSkill = ClampRating(baseDriver.wetSkill + delta),
-                consistency = ClampRating(baseDriver.consistency + delta),
-                aggression = baseDriver.aggression,
-                defending = ClampRating(baseDriver.defending + delta),
-                overtaking = ClampRating(baseDriver.overtaking + delta),
-                awareness = ClampRating(baseDriver.awareness + delta),
-                experience = baseDriver.experience,
-                developmentPotential = baseDriver.developmentPotential
+                id = source.id,
+                displayName = source.displayName,
+                abbreviation = source.abbreviation,
+                number = source.number,
+                teamId = source.teamId,
+                pace = source.pace,
+                racecraft = source.racecraft,
+                qualifying = source.qualifying,
+                tyreManagement = source.tyreManagement,
+                wetSkill = source.wetSkill,
+                consistency = source.consistency,
+                aggression = source.aggression,
+                defending = source.defending,
+                overtaking = source.overtaking,
+                awareness = source.awareness,
+                experience = source.experience,
+                developmentPotential = source.developmentPotential
             };
+        }
+
+        // Part 1/9: an old save's DriverRatingModifier only ever has
+        // ratingDelta populated - fold it once into the relevant per-stat
+        // fields (matching the old "apply the same delta everywhere" shape,
+        // so the driver's effective stats don't visibly jump the moment this
+        // update loads) and never touch it again afterwards.
+        static void MigrateLegacyRatingModifier(DriverRatingModifier modifier)
+        {
+            if (modifier == null || modifier.legacyDeltaMigrated || modifier.ratingDelta == 0)
+            {
+                if (modifier != null)
+                {
+                    modifier.legacyDeltaMigrated = true;
+                }
+
+                return;
+            }
+
+            int delta = modifier.ratingDelta;
+            modifier.paceDelta += delta;
+            modifier.racecraftDelta += delta;
+            modifier.qualifyingDelta += delta;
+            modifier.tyreManagementDelta += delta;
+            modifier.wetSkillDelta += delta;
+            modifier.consistencyDelta += delta;
+            modifier.defendingDelta += delta;
+            modifier.overtakingDelta += delta;
+            modifier.awarenessDelta += delta;
+            modifier.legacyDeltaMigrated = true;
         }
 
         static int ClampRating(int value)
         {
             return Mathf.Clamp(value, 40, 99);
+        }
+
+        // Part 4: the player's own effective driver, regardless of whether they
+        // picked an existing real driver (delegates straight to
+        // GetEffectiveDriver on the selected driver) or made a custom one
+        // (layers this season's modifier onto the persistent
+        // customPlayerDriverBase) - callers that need "the player's current
+        // rated skill" should use this instead of re-deriving it themselves.
+        public DriverData GetEffectivePlayerDriver()
+        {
+            if (Save.useExistingDriver)
+            {
+                return GetEffectiveDriver(data.FindDriver(Save.selectedDriverId));
+            }
+
+            EnsureCustomPlayerDriverBase();
+            DriverRatingModifier modifier = Save.driverRatingModifiers == null ? null : Save.driverRatingModifiers.Find(m => m.driverId == "player" && m.season == Save.currentSeason);
+            MigrateLegacyRatingModifier(modifier);
+            return ApplyRatingModifier(Save.customPlayerDriverBase, Save.playerTeamId, modifier);
         }
 
         // Fresh player/team objectives for the new season, scaled off the

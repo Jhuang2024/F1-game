@@ -494,9 +494,11 @@ namespace LocalFormulaRacing
                 };
 
                 ClassifyStrengthsWeaknesses(stats, summary.strengths, summary.weaknesses);
-                int total = car.acceleration + car.cornering + car.braking + car.ersEfficiency + car.tyreManagement +
-                            car.aeroEfficiency + car.chassisBalance + car.enginePower;
-                summary.overallCarRating = Mathf.RoundToInt(total / 8f);
+                // Part 6: canonical shared formula - the same one RaceManager's
+                // AI balancing, RuntimeUi's team-rating screens, and career R&D
+                // all use, so no two screens can ever disagree on this team's
+                // overall car rating.
+                summary.overallCarRating = RatingCalculator.GetCarOverall(car);
             }
 
             summary.competitivenessTier = team.reputation >= 88 ? "Championship Contender" :

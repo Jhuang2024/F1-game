@@ -68,17 +68,73 @@ namespace LocalFormulaRacing
         public int experience;
         public int developmentPotential;
 
-        public float AverageRating
-        {
-            get
-            {
-                return (qualifying + defending + overtaking + pace) / 4f;
-            }
-        }
-
+        // Canonical weighted overall - see RatingCalculator.GetDriverOverall,
+        // the single formula every screen/AI/simulation must use. Kept as an
+        // instance property purely for convenience call sites already using
+        // driver.OverallRating; it delegates rather than duplicating weights.
         public int OverallRating
         {
-            get { return Mathf.RoundToInt(AverageRating); }
+            get { return RatingCalculator.GetDriverOverall(this); }
+        }
+    }
+
+    // Part 1/6: the single, canonical rating formula for a driver's overall
+    // skill and a car's overall performance - every driver card, transfer
+    // decision, AI balancer, teammate comparison, simulated qualifying/race,
+    // team-ratings screen, R&D screen, preseason report and season review
+    // must go through these two methods rather than computing their own
+    // weighted average, so "the same effective car/driver always shows the
+    // same overall number" everywhere.
+    public static class RatingCalculator
+    {
+        public static int GetDriverOverall(DriverData driver)
+        {
+            if (driver == null)
+            {
+                return 0;
+            }
+
+            float weighted =
+                driver.pace * 0.20f +
+                driver.racecraft * 0.16f +
+                driver.qualifying * 0.13f +
+                driver.tyreManagement * 0.10f +
+                driver.consistency * 0.10f +
+                driver.overtaking * 0.08f +
+                driver.defending * 0.08f +
+                driver.awareness * 0.07f +
+                driver.wetSkill * 0.05f +
+                driver.experience * 0.03f;
+            // aggression and developmentPotential deliberately excluded - a
+            // style rating and a long-term ceiling should never directly
+            // inflate the current overall rating.
+            return Mathf.RoundToInt(weighted);
+        }
+
+        public static int GetCarOverall(CarPerformanceData car)
+        {
+            if (car == null)
+            {
+                return 0;
+            }
+
+            // topSpeed lives on a different numeric scale (roughly 300-365)
+            // than every other stat (roughly 40-128) - normalize it onto the
+            // same ~40-99 band before weighting so it isn't silently over- or
+            // under-counted relative to the rest of the formula.
+            float normalizedTopSpeed = Mathf.Clamp(car.topSpeed / 3.55f, 30f, 105f);
+            float weighted =
+                normalizedTopSpeed * 0.10f +
+                car.acceleration * 0.12f +
+                car.cornering * 0.14f +
+                car.braking * 0.10f +
+                car.reliability * 0.14f +
+                car.ersEfficiency * 0.08f +
+                car.tyreManagement * 0.10f +
+                car.aeroEfficiency * 0.10f +
+                car.chassisBalance * 0.08f +
+                car.enginePower * 0.04f;
+            return Mathf.RoundToInt(weighted);
         }
     }
 
@@ -158,6 +214,12 @@ namespace LocalFormulaRacing
     [Serializable]
     public class ActiveUpgradeProject
     {
+        // Part 5/7: which team's R&D this project belongs to. Empty/null means
+        // "the player's own project" for old saves (the player's projects were
+        // the only ones that existed before per-team R&D) - AI projects always
+        // stamp their owning team's id so one global list can never mix up
+        // which team a project belongs to.
+        public string teamId;
         public string upgradeId;
         public string category;
         public int startRound;
@@ -172,6 +234,46 @@ namespace LocalFormulaRacing
         // 0 InDevelopment, 1 Completed, 2 Failed, 3 ReworkAvailable.
         public int status;
         public bool bonusApplied;
+    }
+
+    // Part 5/7: persistent, per-team development state - every team on the
+    // grid (not just the player's) accumulates resources, runs projects, and
+    // carries completed upgrades from one season into the next. The player's
+    // team still authoritatively tracks its own resourcePoints/departmentLevels/
+    // completedUpgradeIds/activeUpgradeProjects on CareerSaveData directly (so
+    // the existing R&D screen keeps working unchanged) - this state object is
+    // created for the player's team too, purely to track archetype/rating
+    // bookkeeping in parallel, kept in sync from the Save.* fields rather than
+    // being a second source of truth for the player.
+    [Serializable]
+    public class TeamDevelopmentState
+    {
+        public string teamId;
+        public int resourcePoints;
+        public List<int> departmentLevels = new List<int>();
+        public List<string> completedUpgradeIds = new List<string>();
+        public List<string> failedUpgradeIds = new List<string>();
+        public List<ActiveUpgradeProject> activeUpgradeProjects = new List<ActiveUpgradeProject>();
+
+        public int cumulativeTopSpeedDelta;
+        public int cumulativeAccelerationDelta;
+        public int cumulativeCorneringDelta;
+        public int cumulativeBrakingDelta;
+        public int cumulativeReliabilityDelta;
+        public int cumulativeErsDelta;
+        public int cumulativeTyreDelta;
+        public int cumulativeAeroDelta;
+        public int cumulativeChassisDelta;
+        public int cumulativeEngineDelta;
+
+        public int ratingAtSeasonStart;
+        public int currentRating;
+
+        // AI-only development behaviour archetype (see
+        // CareerManager.AssignTeamDevelopmentArchetype) - ignored for the
+        // player's team, whose development is player-directed.
+        public string archetype = "Balanced";
+        public int lastProjectStartRound;
     }
 
     [Serializable]
@@ -260,6 +362,24 @@ namespace LocalFormulaRacing
         public List<SeasonObjective> seasonObjectives = new List<SeasonObjective>();
         public bool preSeasonTestingSeen;
 
+        // Part 5/7: full-grid persistent R&D state, one entry per team
+        // (including the player's, for archetype/rating bookkeeping - see
+        // TeamDevelopmentState). Created lazily by
+        // CareerManager.GetOrCreateTeamDevelopmentState so old saves migrate
+        // without losing anything.
+        public List<TeamDevelopmentState> teamDevelopmentStates = new List<TeamDevelopmentState>();
+
+        // Part 2/3: in-season driver telemetry accumulators, one entry per
+        // (driverId, season). Consumed at season end by GenerateDriverProgression,
+        // then kept as a historical record (trimmed to a few recent seasons).
+        public List<DriverSeasonPerformance> driverSeasonPerformances = new List<DriverSeasonPerformance>();
+
+        // Part 4: persistent rating profile for a custom (non-existing-driver)
+        // player character - never mutated directly; DriverRatingModifier
+        // entries keyed by driverId "player" are layered on top of this at
+        // read time, exactly like every AI driver's drivers.json entry.
+        public DriverData customPlayerDriverBase;
+
         // Concrete numeric regulation hooks (see CareerManager.GenerateRegulation
         // Changes) - default 1 means "no active regulation effect", so an old
         // save or a season with no Tyre Wear/Cost Cap regulation this year
@@ -334,17 +454,150 @@ namespace LocalFormulaRacing
     // Driver progression: a driver's small season-to-season rating swing,
     // layered on top of the static drivers.json stats at read time (see
     // CareerManager.GetEffectiveDriver) - same never-mutate-the-source
-    // convention as TeamPerformanceModifier/DriverTransferRecord. Applied
-    // identically across every core skill stat rather than one delta per
-    // stat, matching TeamPerformanceModifier's single-scalar approach.
-    // Append-only across seasons, looked up by (driverId, season).
+    // convention as TeamPerformanceModifier/DriverTransferRecord. Append-only
+    // across seasons, looked up by (driverId, season); each season's entry
+    // stores the FULL cumulative delta to date (not just that season's step),
+    // exactly like the old ratingDelta field did.
     [Serializable]
     public class DriverRatingModifier
     {
         public string driverId;
         public int season;
+
+        // Legacy field: pre-refactor saves stored one flat delta applied
+        // identically to every subrating. CareerManager.MigrateLegacyRatingModifier
+        // folds this into the per-stat fields below exactly once (guarded by
+        // legacyDeltaMigrated) so an old save's progression is preserved
+        // rather than silently discarded, then the per-stat system takes over.
         public int ratingDelta;
+        public bool legacyDeltaMigrated;
+
+        // Independent cumulative deltas, one per meaningful subrating -
+        // GetEffectiveDriver applies each to its matching DriverData field
+        // (clamped 40-99), instead of one shared delta applied to everything.
+        public int paceDelta;
+        public int racecraftDelta;
+        public int qualifyingDelta;
+        public int tyreManagementDelta;
+        public int wetSkillDelta;
+        public int consistencyDelta;
+        public int aggressionDelta;
+        public int defendingDelta;
+        public int overtakingDelta;
+        public int awarenessDelta;
+        public int experienceDelta;
+
         public string trendLabel;
+
+        // The change made specifically AT this season's transition (not
+        // cumulative) - lets the UI show "Pace +2, Qualifying +1, Racecraft -1,
+        // Overall +1" for the season that just ended.
+        public int lastPaceChange;
+        public int lastRacecraftChange;
+        public int lastQualifyingChange;
+        public int lastTyreManagementChange;
+        public int lastWetSkillChange;
+        public int lastConsistencyChange;
+        public int lastAggressionChange;
+        public int lastDefendingChange;
+        public int lastOvertakingChange;
+        public int lastAwarenessChange;
+        public int lastExperienceChange;
+        public int lastOverallChange;
+    }
+
+    // Part 2/8: one driver's accumulated in-season telemetry, built up race by
+    // race (see CareerManager.UpdateDriverSeasonPerformanceFromQualifying/
+    // FromRace) and consumed once at season end by GenerateDriverProgression,
+    // then left in place as a historical record. Never judges a driver by
+    // championship position alone - every field here is either a direct
+    // measurement (overtakes, penalties) or a same-car teammate/expected-result
+    // comparison, the strongest signal available without full lap telemetry.
+    [Serializable]
+    public class DriverSeasonPerformance
+    {
+        public string driverId;
+        public int season;
+
+        public int racesCompleted;
+        public int qualifyingSessions;
+        public int wetRacesCompleted;
+
+        // Sum of (expected finish/qualifying position - actual position) across
+        // completed sessions - positive means "did better than the car/grid
+        // slot suggested they should".
+        public float sumFinishVsExpected;
+        public float sumQualifyingVsExpected;
+        public List<float> finishVsExpectedSamples = new List<float>();
+
+        // Same-car teammate comparison - the strongest single signal per the
+        // design brief, since it cancels out car performance entirely.
+        public int teammateRaceWins;
+        public int teammateRaceLosses;
+        public int teammateQualifyingWins;
+        public int teammateQualifyingLosses;
+
+        public float sumPositionsGained;
+        public int overtakesMade;
+        public int lockups;
+        public int trackLimitWarnings;
+        public float sumFlatSpotPercent;
+        public int penalizedRaces;
+        public float sumPenaltySeconds;
+
+        // Retirements the driver didn't cause (engine/hydraulics/etc.) never
+        // reduce a rating; retirements the driver did cause (collision/spin)
+        // do.
+        public int mechanicalRetirements;
+        public int driverCausedRetirements;
+
+        public float sumWetPositionsGained;
+    }
+
+    // Part 8: one driver's rating change at a single season transition,
+    // frozen into that season's SeasonArchive so the season-review/driver
+    // ratings screens can always show exactly what changed and why, even
+    // long after CareerSaveData.driverRatingModifiers has moved on to a
+    // newer season's entry.
+    [Serializable]
+    public class DriverSeasonChangeRecord
+    {
+        public string driverId;
+        public string driverName;
+        public int previousOverall;
+        public int newOverall;
+        public int paceChange;
+        public int racecraftChange;
+        public int qualifyingChange;
+        public int tyreManagementChange;
+        public int wetSkillChange;
+        public int consistencyChange;
+        public int aggressionChange;
+        public int defendingChange;
+        public int overtakingChange;
+        public int awarenessChange;
+        public int experienceChange;
+        public string performanceSummary;
+        public int teammateHeadToHeadWins;
+        public int teammateHeadToHeadLosses;
+        public int expectedChampionshipPosition;
+        public int actualChampionshipPosition;
+    }
+
+    // Part 5/8: one team's development summary for a completed season -
+    // frozen into that season's SeasonArchive alongside DriverSeasonChangeRecord.
+    [Serializable]
+    public class TeamDevelopmentRecord
+    {
+        public string teamId;
+        public string teamName;
+        public int ratingAtSeasonStart;
+        public int ratingAtSeasonEnd;
+        public int ratingChange;
+        public int upgradesCompleted;
+        public int projectsFailed;
+        public string strongestDevelopmentArea;
+        public int constructorFinish;
     }
 
     // Part 21: one season-award line (Driver of the Year, Cleanest Driver,
@@ -447,6 +700,11 @@ namespace LocalFormulaRacing
         public List<SeasonAward> awards = new List<SeasonAward>();
         public List<string> keyHeadlines = new List<string>();
         public List<SeasonObjective> objectives = new List<SeasonObjective>();
+
+        // Part 8: full per-driver rating changes and per-team development
+        // summaries for this completed season.
+        public List<DriverSeasonChangeRecord> driverChanges = new List<DriverSeasonChangeRecord>();
+        public List<TeamDevelopmentRecord> teamDevelopment = new List<TeamDevelopmentRecord>();
     }
 
     // Part 20: a single news-feed entry with real body copy and a category,
