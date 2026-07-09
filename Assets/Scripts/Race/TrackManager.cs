@@ -682,6 +682,55 @@ namespace LocalFormulaRacing
             return lateral;
         }
 
+        // Real collider half-width is roughly 0.875m; this leaves a genuine
+        // ~1.2-1.4m of clearance between the car's centre and the paved track
+        // edge while pre-positioning ahead of the real pit-entry opening.
+        public const float PitEntryCarBodyClearanceMeters = 1.3f;
+
+        // Shared pit-entry target-point builder (used by both AiVehicleController
+        // and RaceManager.BuildPitEntryAssistCommand, so player and AI pit-entry
+        // geometry can never diverge again). Builds a dedicated world-space
+        // pit-entry target - position AND lateral sampled together at the SAME
+        // distance, using the canonical ramp/track geometry - instead of
+        // grafting a lateral computed at one distance onto a point sampled at
+        // another. Never looks past the real physical opening
+        // (PitCorridorStartNormalized).
+        //
+        // Before the real ramp begins (PitEntryRampStartNormalized), the target
+        // is deliberately kept just inside the live track edge
+        // (HalfWidthAt - PitEntryCarBodyClearanceMeters) - PitEntryApproachLateral
+        // is NOT used here, because it intentionally returns a point outside the
+        // track edge (behind the barrier that stands there until the real
+        // opening starts), which would steer a car into the wall between
+        // PitApproachStartNormalized and PitEntryRampStartNormalized.
+        public void ComputePitEntryTargetPoint(float fromDistance, float lookAheadMeters, out Vector3 targetPoint, out Quaternion targetRotation)
+        {
+            float corridorStartDistance = length * TrackRuntime.PitCorridorStartNormalized;
+            float distanceToCorridor = Mathf.Max(1f, WrapDistance(corridorStartDistance - fromDistance));
+            float pitLookAhead = Mathf.Min(lookAheadMeters, distanceToCorridor);
+            float pitTargetDistance = WrapDistance(fromDistance + pitLookAhead);
+            float pitTargetNormalized = pitTargetDistance / Mathf.Max(1f, length);
+
+            if (pitTargetNormalized < PitEntryRampStartNormalized)
+            {
+                // Stage A (pre-position): still on the live racing surface,
+                // ahead of the real opening - line up on the outer-right edge,
+                // with genuine car-body clearance from the paved edge, so the
+                // car is already positioned to turn in the instant the ramp
+                // starts.
+                float preEntryLateral = HalfWidthAt(pitTargetDistance) - PitEntryCarBodyClearanceMeters;
+                SamplePitLanePose(pitTargetDistance, preEntryLateral, out targetPoint, out targetRotation);
+            }
+            else
+            {
+                // Stage B (on the ramp): physically inside the real opening -
+                // the canonical built ramp envelope/pose (GetPitEntryRampEnvelope
+                // via SamplePitEntryRampPose), the same surface
+                // BuildPitRampSurface paves.
+                SamplePitEntryRampPose(pitTargetDistance, out targetPoint, out targetRotation);
+            }
+        }
+
         // Pit-exit merge bugfix: GetPitExitRampEnvelope's own lateral never goes
         // below HalfWidthAt + PitRampNearTrackLateral even at the very end of the
         // ramp (exitT == 1 clamps to the live track edge PLUS the ramp's own
@@ -1950,6 +1999,33 @@ namespace LocalFormulaRacing
             runtime.kerbStart = 9.28f;
             runtime.drsZoneOne = new Vector2(0.89f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.64f);
+            // Final-corner barrier fix: the old final corner was a single anchor
+            // (-148f, 0f, -8f) sitting between (82f, 0f, -22f) and the
+            // start/finish anchor (0f, 0f, 0f). That single vertex turned the
+            // centerline heading by ~173 degrees - almost a total reversal -
+            // while both flanking segments stayed inside a roughly 20m-tall
+            // band (z between -22 and 0). Every other corner on this (and
+            // every other) layout turns well under 100 degrees per anchor;
+            // asking one Catmull-Rom vertex to nearly double back on itself
+            // inside a squashed, nearly one-dimensional sliver is exactly the
+            // shape that made the old Suzuka anchors self-intersect (see the
+            // rebuild note on BuildSuzukaLayout above) - the smoothed curve
+            // through it overshoots and loops rather than tracing a clean
+            // corner, which is what made every barrier system downstream
+            // (BuildContinuousEdgeBarriers/ComputeBarrierPlan's tight-corner
+            // containment, ResolveOverlappingBarrierColliders,
+            // ValidateBarrierPocketFree/Smoothness) produce a visibly broken
+            // mess right at the final corner - those systems can only smooth
+            // over a legitimate corner shape, not a near-self-intersecting one.
+            // Replaced the single anchor with a genuine three-point hairpin
+            // bowl - real z-depth (down to -85) instead of a flat sliver, so
+            // the curve has actual 2D room to turn through rather than folding
+            // back on itself - splitting the same ~173 degree net direction
+            // change across three moderate turns (the tightest single vertex is
+            // now ~134 degrees, a normal hairpin apex, flanked by ~51 and ~48
+            // degree turns on either side) instead of one near-total reversal.
+            // Checked against every other anchor on this layout to stay well
+            // clear (45m+) of the infield loop (anchors 9-11) it passes near.
             AddSmoothedAnchors(runtime, new[]
             {
                 new Vector3(0f, 0f, 0f), new Vector3(162f, 0f, 0f), new Vector3(230f, 0f, 36f),
@@ -1957,7 +2033,8 @@ namespace LocalFormulaRacing
                 new Vector3(42f, 0f, 132f), new Vector3(-18f, 0f, 158f), new Vector3(-88f, 0f, 134f),
                 new Vector3(-116f, 0f, 82f), new Vector3(-76f, 0f, 42f), new Vector3(-14f, 0f, 52f),
                 new Vector3(48f, 0f, 88f), new Vector3(120f, 0f, 80f), new Vector3(158f, 0f, 28f),
-                new Vector3(82f, 0f, -22f), new Vector3(-148f, 0f, -8f)
+                new Vector3(82f, 0f, -22f), new Vector3(-20f, 0f, -85f), new Vector3(-148f, 0f, -40f),
+                new Vector3(-40f, 0f, 15f)
             }, 5);
         }
 

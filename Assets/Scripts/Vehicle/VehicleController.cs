@@ -138,7 +138,12 @@ namespace LocalFormulaRacing
         const float RaceSpeedCeilingKph = 350f;
         // Player-only straightline speed buff - never applies to AI (see
         // CalculateTargetTopSpeedKph, gated on IsPlayerControlled). Raised
-        // from 4 to 9 (an additional +5).
+        // from 4 to 9 (an additional +5). This constant alone only ever raised
+        // the governor's target/ceiling, not an actual push - see
+        // playerTopSpeedBoost in ApplyForces for the dedicated additive force
+        // that was missing, without which a car whose real drag-limited
+        // equilibrium speed already sat at or below the old ceiling never
+        // actually reached (or felt) this bonus at all.
         const float PlayerTopSpeedBonusKph = 9f;
         const float DrsTopSpeedBonusKph = 32f;
         // ERS buff: raised from 20, then 26 - with the stronger deploy force
@@ -966,6 +971,25 @@ namespace LocalFormulaRacing
                 ? Mathf.Lerp(12f, 22.5f, CarData.aeroEfficiency / 100f) * slipstreamStrength * slipstreamSpeedRamp
                 : 0f;
 
+            // Player straightline speed buff, round 2: PlayerTopSpeedBonusKph
+            // above only ever raised CalculateTargetTopSpeedKph's target/ceiling
+            // (the governor threshold speedLimiter cuts drive force against) -
+            // it was never an actual push. That's the exact same diagnosis DRS,
+            // ERS and slipstream all needed their own dedicated boost force
+            // terms for (see the comments on drsBoost/ersBoost/slipstreamBoost):
+            // if the car's real drag-limited equilibrium speed already sits at
+            // or below the OLD ceiling, raising the ceiling further changes
+            // nothing actually reached on a real straight, because nothing is
+            // pushing the car any harder to get there. Gives the player bonus
+            // its own genuine additive force, ramped in only at high speed (a
+            // straightline tool, not extra corner-exit grunt) so the car
+            // actually earns the extra top speed instead of it being
+            // aspirational. Never applies to AI (gated on IsPlayerControlled,
+            // same as PlayerTopSpeedBonusKph itself).
+            float playerTopSpeedBoost = IsPlayerControlled
+                ? Mathf.Lerp(10f, 16f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph))
+                : 0f;
+
             float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
             float speedLimiter = Mathf.Clamp01((topSpeed + limiterWindow - forwardSpeed) / limiterWindow);
             if (!IsHeldInPit && activeCommand.throttle > 0.01f && speedLimiter > 0.01f)
@@ -996,7 +1020,7 @@ namespace LocalFormulaRacing
                     ActiveSlowdownReason = "FUEL STARVATION";
                 }
 
-                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoost * drsSpeedRamp + slipstreamBoost) * starvationPower, ForceMode.Acceleration);
+                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoost * drsSpeedRamp + slipstreamBoost + playerTopSpeedBoost) * starvationPower, ForceMode.Acceleration);
                 if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
                 {
                     float pullThrough = Mathf.Lerp(5.6f, 2.0f, speedRatio) * activeCommand.throttle * speedLimiter;

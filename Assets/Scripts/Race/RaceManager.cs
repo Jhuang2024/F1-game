@@ -6286,34 +6286,40 @@ namespace LocalFormulaRacing
         }
 
         const float PitEntryAssistTargetSpeedKph = 90f;
+        // Same short, dedicated pit-entry look-ahead AiVehicleController uses
+        // (PitEntryLookAheadMeters) - the normal racing-line lookahead is tuned
+        // for reading corners far down the track, not for tracking the much
+        // shorter pit-entry ramp whose lateral envelope changes quickly.
+        const float PitEntryAssistLookAheadMeters = 18f;
 
         // Builds the actual steer/throttle/brake command for the assist window
-        // identified by ShouldAssistPlayerPitEntry - guides the player off the
-        // racing line toward Track.PitEntryApproachLateral first, then blends
-        // onto the real ramp centerline (Track.PitEntryPathLateral) as the car
-        // gets deeper into the entry zone, the same two-target approach
-        // AiVehicleController's own pit-entry steering already uses, and shapes
-        // speed down toward a safe entry pace. Callers must have already
-        // confirmed ShouldAssistPlayerPitEntry(participant) is true.
+        // identified by ShouldAssistPlayerPitEntry. Targeting geometry-fix: this
+        // used to blend Track.PitEntryApproachLateral (a point deliberately
+        // OUTSIDE the live track edge, behind the barrier that still stands
+        // there before the real opening) against a lateral computed at the
+        // car's current distance but attached to a racing-line point sampled
+        // further down the track - together that steered the player straight
+        // into the wall between PitApproachStartNormalized and
+        // PitEntryRampStartNormalized, and the position/lateral mismatch meant
+        // the two didn't even describe the same point on a curved approach.
+        // Now delegates to TrackRuntime.ComputePitEntryTargetPoint, the exact
+        // same two-stage (stay-on-track pre-position, then canonical ramp pose),
+        // same-distance world-space target builder AiVehicleController's own
+        // pit-entry steering already uses, so player and AI pit-entry geometry
+        // can never diverge again. Callers must have already confirmed
+        // ShouldAssistPlayerPitEntry(participant) is true.
         public VehicleCommand BuildPitEntryAssistCommand(RaceParticipant participant, VehicleCommand fallback)
         {
             VehicleCommand command = fallback;
             TrackProgress progress = State.GetCurrentProgress(participant);
             float speedKph = Mathf.Abs(participant.vehicle.CurrentSpeedKph);
 
-            float approachLateral = Track.PitEntryApproachLateral(progress.distance);
-            float rampLateral = Track.PitEntryPathLateral(progress.distance);
-            float rampBlend = Mathf.InverseLerp(TrackRuntime.PitApproachStartNormalized, TrackRuntime.PitEntryRampStartNormalized, progress.normalized);
-            float targetLateral = Mathf.Lerp(approachLateral, rampLateral, rampBlend);
+            Vector3 targetPoint;
+            Quaternion targetRotation;
+            Track.ComputePitEntryTargetPoint(progress.distance, PitEntryAssistLookAheadMeters, out targetPoint, out targetRotation);
 
-            float lookAhead = Mathf.Lerp(10f, 30f, Mathf.Clamp01(speedKph / 150f));
-            Vector3 point;
-            Vector3 forward;
-            Vector3 right;
-            Track.SampleAtDistance(Track.WrapDistance(progress.distance + lookAhead), out point, out forward, out right);
-            Vector3 aimPoint = point + right * targetLateral;
-            Vector3 toTarget = aimPoint - participant.transform.position;
-            command.steer = Mathf.Clamp(Vector3.Dot(toTarget.normalized, participant.transform.right) * 2.2f, -1f, 1f);
+            Vector3 toTarget = targetPoint - participant.transform.position;
+            float steer = Mathf.Clamp(Vector3.Dot(toTarget.normalized, participant.transform.right) * 2.2f, -1f, 1f);
 
             float speedGapKph = PitEntryAssistTargetSpeedKph - speedKph;
             if (speedGapKph < -3f)
@@ -6327,6 +6333,19 @@ namespace LocalFormulaRacing
                 command.throttle = Mathf.Clamp01(0.2f + speedGapKph / 35f);
             }
 
+            // Defensive: never hold full steering lock and meaningful throttle
+            // if forward progress is genuinely blocked (the car sitting nearly
+            // stationary while the assist is still asking for throttle) - ease
+            // both off instead of grinding into whatever is in the way, rather
+            // than relying solely on the target point never being behind a
+            // barrier in the first place.
+            if (speedKph < 3f && command.throttle > 0f)
+            {
+                command.throttle = Mathf.Min(command.throttle, 0.35f);
+                steer = Mathf.Clamp(steer, -0.5f, 0.5f);
+            }
+
+            command.steer = steer;
             command.ers = false;
             command.drs = false;
             return command;

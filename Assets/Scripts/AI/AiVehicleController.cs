@@ -32,12 +32,6 @@ namespace LocalFormulaRacing
         // reading corners far down the track, not for tracking a ~210m-long ramp
         // whose lateral envelope changes meaningfully over a much shorter span.
         const float PitEntryLookAheadMeters = 18f;
-        // Real collider half-width is roughly 0.875m; this leaves a genuine
-        // ~1.2-1.4m of clearance between the car's centre and the paved track
-        // edge while pre-positioning, instead of the old HalfWidthAt - 0.4f
-        // target (only ~0.4-0.55m of clearance - physically inside the divider
-        // wall's own footprint).
-        const float PitEntryCarBodyClearanceMeters = 1.3f;
 
         // Pit-entry look-ahead fix: builds a dedicated world-space pit-entry
         // target - position AND lateral sampled together at the SAME distance,
@@ -48,35 +42,14 @@ namespace LocalFormulaRacing
         // while the car is still in PitPhase.None - once it has genuinely
         // entered PitPhase.Entry, RaceManager's own guided kinematic sequence
         // (UpdatePitEntry) takes over movement entirely and this is no longer
-        // consulted.
+        // consulted. Delegates to TrackRuntime.ComputePitEntryTargetPoint, the
+        // single shared implementation RaceManager's player pit-entry assist
+        // now also uses, so the two can never diverge.
         Vector3 ComputePitEntryTargetPoint(TrackProgress fromProgress)
         {
-            float corridorStartDistance = track.length * TrackRuntime.PitCorridorStartNormalized;
-            float distanceToCorridor = Mathf.Max(1f, track.WrapDistance(corridorStartDistance - fromProgress.distance));
-            float pitLookAhead = Mathf.Min(PitEntryLookAheadMeters, distanceToCorridor);
-            float pitTargetDistance = track.WrapDistance(fromProgress.distance + pitLookAhead);
-            float pitTargetNormalized = pitTargetDistance / Mathf.Max(1f, track.length);
-
             Vector3 pitTargetPoint;
             Quaternion pitTargetRotation;
-            if (pitTargetNormalized < TrackRuntime.PitEntryRampStartNormalized)
-            {
-                // Stage A (pre-position): still on the live racing surface, ahead
-                // of the real opening - line up on the outer-right edge, with
-                // genuine car-body clearance from the paved edge, so the car is
-                // already positioned to turn in the instant the ramp starts.
-                float preEntryLateral = track.HalfWidthAt(pitTargetDistance) - PitEntryCarBodyClearanceMeters;
-                track.SamplePitLanePose(pitTargetDistance, preEntryLateral, out pitTargetPoint, out pitTargetRotation);
-            }
-            else
-            {
-                // Stage B (on the ramp): physically inside the real 0.850-0.885
-                // opening - the canonical built ramp envelope/pose
-                // (GetPitEntryRampEnvelope via SamplePitEntryRampPose), the same
-                // surface BuildPitRampSurface paves.
-                track.SamplePitEntryRampPose(pitTargetDistance, out pitTargetPoint, out pitTargetRotation);
-            }
-
+            track.ComputePitEntryTargetPoint(fromProgress.distance, PitEntryLookAheadMeters, out pitTargetPoint, out pitTargetRotation);
             return pitTargetPoint;
         }
 
