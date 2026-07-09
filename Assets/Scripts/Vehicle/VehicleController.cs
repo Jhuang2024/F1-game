@@ -818,8 +818,10 @@ namespace LocalFormulaRacing
                 // ERS drain-rate fix round 5: raised back up 20% (was 0.0357-0.0504) -
                 // battery now drains faster per second while deploying again; boost
                 // power (ersBoost below) is unchanged.
+                // ERS drain-rate fix round 6: raised a further 30% (was 0.0428-0.0605) -
+                // boost power (ersBoost below) is unchanged.
                 ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
-                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0428f, 0.0605f, activeCommand.throttle));
+                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0556f, 0.0787f, activeCommand.throttle));
             }
 
             // Braking-zone recharge fix: raised 50% (was 0.28-0.42) - a hard braking
@@ -837,9 +839,10 @@ namespace LocalFormulaRacing
             // rest of a lap without changing how fast a braking zone itself charges.
             // Round 4: raised a further 20% on top of that (was 0.13-0.288).
             // Round 5: cut back down 20% (was 0.156-0.346).
+            // Round 6: cut a further 30% (was 0.1248-0.2768).
             else if (activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.1248f, 0.2768f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0874f, 0.1938f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ErsDeploying)
@@ -857,7 +860,9 @@ namespace LocalFormulaRacing
                 // rate above.
                 // Round 5: cut back down 20% (was 0.049-0.104), same non-braking-only
                 // regen cut as the coasting rate above.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0392f, 0.0832f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                // Round 6: cut a further 30% (was 0.0392-0.0832), same non-braking-only
+                // regen cut as the coasting rate above.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0274f, 0.0582f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
