@@ -9374,7 +9374,16 @@ namespace LocalFormulaRacing
         // accelerate abruptly the instant guidance ends - kept a few kph below
         // that real cap so the free-driving handoff is a gentle pickup, not a
         // jump.
-        const float PitReleasePaceKph = 100f;
+        // Pit-release throughput fix: raised again from 100 to 106 so a
+        // released car clears the FIFO exit queue's own spatial headway
+        // (PitLaneHeadwayMeters) sooner, letting the next car in the box be
+        // released sooner too - this only speeds up how fast an already-clear
+        // car moves once it IS released, it does not touch the headway
+        // distance, the occupancy/queue-blocking checks, or any of the other
+        // pit-exit safety logic, so the exact same safe-release procedure
+        // still applies, just resolved faster. Still 2kph below the 108
+        // physical cap, so the handoff is still a gentle pickup, not a jump.
+        const float PitReleasePaceKph = 106f;
         const float PitGuideLateralRateMetersPerSecond = 9f;
         // Generous relative to the above paces so GuideToPitPose's own
         // MoveTowards/RotateTowards - now chasing a waypoint only a fraction
@@ -9897,7 +9906,11 @@ namespace LocalFormulaRacing
         // (at the real merge end, the same boundary the physical pit-exit barrier
         // geometry itself uses - see TrackManager.PitZoneExitRampEnd), so the car
         // visibly follows the lane instead of cutting a diagonal to the apex.
-        const float PitExitMergePaceKph = 100f;
+        // Pit-release throughput fix: raised from 100 to 106, matching
+        // PitReleasePaceKph - the merge phase is the tail end of the same
+        // release sequence, so it moves at the same pace rather than
+        // suddenly slowing back down right as the car clears the queue.
+        const float PitExitMergePaceKph = 106f;
         const float PitExitMergeLookaheadMeters = 12f;
         const float PitExitMergeCompletionBufferMeters = 10f;
         const float PitExitLaneHoldSeconds = 1.5f;
