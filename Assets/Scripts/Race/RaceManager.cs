@@ -10654,7 +10654,10 @@ namespace LocalFormulaRacing
             // several rounds of small nudges.
             // Round 5: halved again.
             // Round 6: halved again.
-            breakdown.driverEffect = (qualifying - 88f) * -0.00075f + (pace - 88f) * -0.00025f + (confidence - 80f) * -0.000075f;
+            // Round 7: the qualifying-stat term specifically raised 75% (-0.00075 ->
+            // -0.0013125) so a driver's own qualifying rating matters more, separate
+            // from carEffect below which is being cut the opposite direction.
+            breakdown.driverEffect = (qualifying - 88f) * -0.0013125f + (pace - 88f) * -0.00025f + (confidence - 80f) * -0.000075f;
             // Balance fix: car upgrade stats can reach up to 125 (see
             // CareerManager.ApplyCareerUpgrades' clamps) against an 86
             // baseline - uncapped, a fully maxed car alone was worth roughly
@@ -10671,7 +10674,11 @@ namespace LocalFormulaRacing
             // Round 4: same hard cut as driverEffect above.
             // Round 5: halved again.
             // Round 6: halved again.
-            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.00075f;
+            // Round 7: cut a further 50% (-0.00075 -> -0.000375) - the car matters
+            // less in qualifying, weighting the result more toward driver/qualifying
+            // skill (see driverEffect's qualifying-stat term above, raised the
+            // opposite direction this same round).
+            breakdown.carEffect = (carRatingForQualifying - 86f) * -0.000375f;
             // Percentage of baseLap rather than a flat constant, so difficulty stays
             // meaningful regardless of track length: Easy is clearly the slowest,
             // Expert clearly the fastest/most aggressive, Medium close to neutral.
