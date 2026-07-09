@@ -523,9 +523,13 @@ namespace LocalFormulaRacing
         // steering) are reading from the exact same function.
         public const float PitEntryRampStartNormalized = 0.85f;
         public const float PitExitRampStartNormalized = 0.995f;
-        public const float PitRampNearTrackLateral = 1.6f;
-        public const float PitRampNarrowWidth = 6f;
-        public const float PitRampFullWidth = 13.5f;
+        // Speed-rebalance pass: widened ~25% alongside the wider base road, so the
+        // pit lane/ramp gets proportionally more room too - AI has more physical
+        // space to enter/exit cleanly instead of the pit path staying narrow while
+        // the rest of the track widens around it.
+        public const float PitRampNearTrackLateral = 2f;
+        public const float PitRampNarrowWidth = 7.5f;
+        public const float PitRampFullWidth = 16.9f;
 
         // Entry ramp: tapers from the live track edge (HalfWidthAt + PitRampNearTrackLateral)
         // at PitEntryRampStartNormalized to the pit lane's own centerline/width at
@@ -645,8 +649,12 @@ namespace LocalFormulaRacing
         // between consecutive centerline segments) rather than inventing a new
         // classification, so "hairpin" means the same thing everywhere in the file.
         public const float HairpinCornerAngleThreshold = 55f;
-        public const float HairpinExtraHalfWidth = 4.5f;
-        public const float HairpinBlendDistance = 24f;
+        // Speed-rebalance pass: scaled with the wider base roadHalfWidth (both by
+        // the same ~1.25x) so a hairpin's extra bonus stays proportional, and the
+        // ease-in distance widened too so the now-faster cars get a more gradual
+        // width transition instead of a sharper one at the same old blend length.
+        public const float HairpinExtraHalfWidth = 5.6f;
+        public const float HairpinBlendDistance = 30f;
 
         readonly List<float> hairpinCenters = new List<float>();
 
@@ -673,7 +681,12 @@ namespace LocalFormulaRacing
         // threshold). Sums the vertex-to-vertex turn over a trailing window of real
         // arc-length instead, using cumulativeDistances so it works regardless of
         // how unevenly spaced the repaired/smoothed points are.
-        const float HairpinWindowSpanMeters = 56f;
+        // Speed-rebalance pass: every layout's anchors now scale up ~25% uniformly
+        // (NormalizeTrackLength/TargetTrackLength), so a real corner's own physical
+        // arc-length grew by the same proportion - this trailing-window span has to
+        // widen to match, or it under-samples a now-bigger corner and misses turns
+        // it used to correctly catch as hairpin-grade.
+        const float HairpinWindowSpanMeters = 70f;
 
         public void RecalculateHairpinWidening()
         {
@@ -906,9 +919,13 @@ namespace LocalFormulaRacing
         // off the built pit lane surface entirely.
         const float PitQueueCorridorMargin = 10f;
 
+        // Speed-rebalance pass: the standoff from the track edge widened alongside
+        // PitRampFullWidth (13.5f -> 16.9f) so the pit lane's own inner edge keeps
+        // the same real clearance from the live track edge as before, not a
+        // shrunken one now that the corridor itself is wider.
         public float PitLaneLateral
         {
-            get { return roadHalfWidth + 9.2f; }
+            get { return roadHalfWidth + 11.5f; }
         }
 
         public float PitBoxDistance(int pitBoxIndex)
@@ -1311,8 +1328,8 @@ namespace LocalFormulaRacing
 
             float corridorStart = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
             float corridorEnd = Runtime.length * PitZoneExitRampStart;
-            CreateBoundaryDebugLine(overlay.transform, "Pit lane inner edge", Color.yellow, d => Runtime.PitLaneLateral - 6.75f, corridorStart, corridorEnd);
-            CreateBoundaryDebugLine(overlay.transform, "Pit lane outer edge", Color.yellow, d => Runtime.PitLaneLateral + 6.75f, corridorStart, corridorEnd);
+            CreateBoundaryDebugLine(overlay.transform, "Pit lane inner edge", Color.yellow, d => Runtime.PitLaneLateral - TrackRuntime.PitRampFullWidth * 0.5f, corridorStart, corridorEnd);
+            CreateBoundaryDebugLine(overlay.transform, "Pit lane outer edge", Color.yellow, d => Runtime.PitLaneLateral + TrackRuntime.PitRampFullWidth * 0.5f, corridorStart, corridorEnd);
             CreateBoundaryDebugLine(overlay.transform, "Pit/track separator", Color.green, d => Runtime.HalfWidthAt(d) + EdgeBarrierClearance, corridorStart, corridorEnd);
 
             // The two intentional perimeter openings, called out explicitly in a
@@ -1464,8 +1481,11 @@ namespace LocalFormulaRacing
             {
                 trackId = eventData != null ? eventData.trackId : "bahrain_desert",
                 displayName = eventData != null ? eventData.displayName : "Bahrain-style Desert GP",
-                roadHalfWidth = 13.4f,
-                kerbStart = 7.9f,
+                // Matches BuildBahrainLayout's own (rebalanced) values - this default
+                // is only ever a fallback, always immediately overwritten once the
+                // matching Build*Layout method runs.
+                roadHalfWidth = 16.75f,
+                kerbStart = 9.88f,
                 weather = DetermineWeather(eventData == null ? "clear_hot" : eventData.weatherProfile)
             };
 
@@ -1646,6 +1666,15 @@ namespace LocalFormulaRacing
                          targetLength.ToString("0") + "m (scale " + scale.ToString("0.00") + ")");
         }
 
+        // Speed-rebalance pass: AI/player cornering speed and ERS were buffed
+        // significantly elsewhere (AiVehicleController/VehicleController), which
+        // compressed lap times on these lengths far more than intended - laps got
+        // absurdly short relative to how fast cars now actually go. Every target
+        // here is scaled up ~25% (TrackLengthRebalanceScale) instead of tuning car
+        // speed back down, so the faster cars get the room (longer straights, more
+        // space between corners) they need without undoing the speed buffs.
+        const float TrackLengthRebalanceScale = 1.25f;
+
         float TargetTrackLength(TrackRuntime runtime)
         {
             string id = runtime.trackId ?? "";
@@ -1653,33 +1682,34 @@ namespace LocalFormulaRacing
 
             // High-speed / long circuits. Recalibrated back down from an earlier +50%
             // pass that made laps take too long - lands in the 4.8-5.6km band for a
-            // ~1:15-1:30 lap instead of several minutes.
+            // ~1:15-1:30 lap instead of several minutes. Now scaled back up by
+            // TrackLengthRebalanceScale on top of that base band, for the faster cars.
             if (id.Contains("spa"))
             {
-                return 5600f;
+                return 5600f * TrackLengthRebalanceScale;
             }
 
             if (id.Contains("monza") || id.Contains("silverstone") || id.Contains("jeddah") ||
                 id.Contains("las_vegas") || id.Contains("baku") || id.Contains("qatar") || id.Contains("suzuka"))
             {
-                return 5300f;
+                return 5300f * TrackLengthRebalanceScale;
             }
 
             // Tight / street layouts stay shorter but never kart-track short.
             if (id.Contains("monaco"))
             {
-                return 3900f;
+                return 3900f * TrackLengthRebalanceScale;
             }
 
             if (id.Contains("singapore") || id.Contains("hungary") || id.Contains("zandvoort") ||
                 id.Contains("interlagos") || id.Contains("madrid") || id.Contains("monaco") ||
                 style.ToLowerInvariant().Contains("street"))
             {
-                return 4200f;
+                return 4200f * TrackLengthRebalanceScale;
             }
 
             // Standard circuits.
-            return 4650f;
+            return 4650f * TrackLengthRebalanceScale;
         }
 
         // Auto-repair pass: merge tiny segments, split very long segments, and smooth
@@ -1765,8 +1795,8 @@ namespace LocalFormulaRacing
         void BuildBahrainLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Desert power braking";
-            runtime.roadHalfWidth = 13.4f;
-            runtime.kerbStart = 7.9f;
+            runtime.roadHalfWidth = 16.75f;
+            runtime.kerbStart = 9.88f;
             runtime.drsZoneOne = new Vector2(0.91f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.57f);
             AddSmoothedAnchors(runtime, new[]
@@ -1783,8 +1813,8 @@ namespace LocalFormulaRacing
         void BuildJeddahLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Fast coastal street";
-            runtime.roadHalfWidth = 12.8f;
-            runtime.kerbStart = 7.5f;
+            runtime.roadHalfWidth = 16.0f;
+            runtime.kerbStart = 9.38f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.56f, 0.73f);
             AddSmoothedAnchors(runtime, new[]
@@ -1800,8 +1830,8 @@ namespace LocalFormulaRacing
         void BuildMonacoLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Tight harbour street";
-            runtime.roadHalfWidth = 10.8f;
-            runtime.kerbStart = 6.3f;
+            runtime.roadHalfWidth = 13.5f;
+            runtime.kerbStart = 7.88f;
             runtime.drsZoneOne = new Vector2(0.87f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.46f, 0.58f);
             AddSmoothedAnchors(runtime, new[]
@@ -1821,8 +1851,8 @@ namespace LocalFormulaRacing
             // figure-eight anchors spanned ~3km, self-intersected at ground level, and broke
             // progress tracking, AI navigation, and object budgets.
             runtime.styleName = "Technical esses Park";
-            runtime.roadHalfWidth = 13.2f;
-            runtime.kerbStart = 7.7f;
+            runtime.roadHalfWidth = 16.5f;
+            runtime.kerbStart = 9.62f;
             runtime.drsZoneOne = new Vector2(0.9f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.5f, 0.63f);
             AddSmoothedAnchors(runtime, new[]
@@ -1845,8 +1875,8 @@ namespace LocalFormulaRacing
         void BuildSilverstoneLayout(TrackRuntime runtime)
         {
             runtime.styleName = "High-speed airfield";
-            runtime.roadHalfWidth = 15.4f;
-            runtime.kerbStart = 9.0f;
+            runtime.roadHalfWidth = 19.25f;
+            runtime.kerbStart = 11.25f;
             runtime.drsZoneOne = new Vector2(0.89f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.64f);
             AddSmoothedAnchors(runtime, new[]
@@ -1863,8 +1893,8 @@ namespace LocalFormulaRacing
         void BuildMonzaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Low-downforce park";
-            runtime.roadHalfWidth = 15.5f;
-            runtime.kerbStart = 9.1f;
+            runtime.roadHalfWidth = 19.38f;
+            runtime.kerbStart = 11.38f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.44f, 0.62f);
             AddSmoothedAnchors(runtime, new[]
@@ -1881,8 +1911,8 @@ namespace LocalFormulaRacing
         void BuildSpaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Long Ardennes elevation";
-            runtime.roadHalfWidth = 14.8f;
-            runtime.kerbStart = 8.7f;
+            runtime.roadHalfWidth = 18.5f;
+            runtime.kerbStart = 10.88f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.18f, 0.36f);
             AddSmoothedAnchors(runtime, new[]
@@ -1899,8 +1929,8 @@ namespace LocalFormulaRacing
         void BuildSingaporeLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Night street ninety";
-            runtime.roadHalfWidth = 11.2f;
-            runtime.kerbStart = 6.6f;
+            runtime.roadHalfWidth = 14.0f;
+            runtime.kerbStart = 8.25f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.07f);
             runtime.drsZoneTwo = new Vector2(0.55f, 0.69f);
             AddSmoothedAnchors(runtime, new[]
@@ -1916,8 +1946,8 @@ namespace LocalFormulaRacing
         void BuildMelbourneLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Park circuit";
-            runtime.roadHalfWidth = 15.0f;
-            runtime.kerbStart = 8.8f;
+            runtime.roadHalfWidth = 18.75f;
+            runtime.kerbStart = 11.0f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.52f, 0.69f);
             // Hairpin-pinch fix: anchor 14 used to sit at z=6, almost exactly level
@@ -1949,8 +1979,8 @@ namespace LocalFormulaRacing
         void BuildInterlagosLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Short flowing hillside";
-            runtime.roadHalfWidth = 13.0f;
-            runtime.kerbStart = 7.6f;
+            runtime.roadHalfWidth = 16.25f;
+            runtime.kerbStart = 9.5f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.62f, 0.79f);
             AddSmoothedAnchors(runtime, new[]
@@ -1966,8 +1996,8 @@ namespace LocalFormulaRacing
         void BuildAbuDhabiLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Twilight finale";
-            runtime.roadHalfWidth = 14.2f;
-            runtime.kerbStart = 8.3f;
+            runtime.roadHalfWidth = 17.75f;
+            runtime.kerbStart = 10.38f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.34f, 0.53f);
             AddSmoothedAnchors(runtime, new[]
@@ -1983,8 +2013,8 @@ namespace LocalFormulaRacing
         void BuildChinaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Technical snail and back straight";
-            runtime.roadHalfWidth = 14.6f;
-            runtime.kerbStart = 8.6f;
+            runtime.roadHalfWidth = 18.25f;
+            runtime.kerbStart = 10.75f;
             runtime.drsZoneOne = new Vector2(0.83f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.58f);
             AddSmoothedAnchors(runtime, new[]
@@ -2001,8 +2031,8 @@ namespace LocalFormulaRacing
         void BuildMiamiLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Stadium street rhythm";
-            runtime.roadHalfWidth = 12.6f;
-            runtime.kerbStart = 7.4f;
+            runtime.roadHalfWidth = 15.75f;
+            runtime.kerbStart = 9.25f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.64f);
             AddSmoothedAnchors(runtime, new[]
@@ -2019,8 +2049,8 @@ namespace LocalFormulaRacing
         void BuildCanadaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Stop-go island";
-            runtime.roadHalfWidth = 12.8f;
-            runtime.kerbStart = 7.5f;
+            runtime.roadHalfWidth = 16.0f;
+            runtime.kerbStart = 9.38f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.09f);
             runtime.drsZoneTwo = new Vector2(0.56f, 0.72f);
             AddSmoothedAnchors(runtime, new[]
@@ -2037,8 +2067,8 @@ namespace LocalFormulaRacing
         void BuildBarcelonaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Flowing test track";
-            runtime.roadHalfWidth = 14.4f;
-            runtime.kerbStart = 8.4f;
+            runtime.roadHalfWidth = 18.0f;
+            runtime.kerbStart = 10.5f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.5f, 0.65f);
             AddSmoothedAnchors(runtime, new[]
@@ -2055,8 +2085,8 @@ namespace LocalFormulaRacing
         void BuildAustriaLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Short alpine power";
-            runtime.roadHalfWidth = 14.0f;
-            runtime.kerbStart = 8.2f;
+            runtime.roadHalfWidth = 17.5f;
+            runtime.kerbStart = 10.25f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.18f, 0.36f);
             AddSmoothedAnchors(runtime, new[]
@@ -2072,8 +2102,8 @@ namespace LocalFormulaRacing
         void BuildHungaryLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Twisty technical bowl";
-            runtime.roadHalfWidth = 12.6f;
-            runtime.kerbStart = 7.4f;
+            runtime.roadHalfWidth = 15.75f;
+            runtime.kerbStart = 9.25f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.34f, 0.45f);
             AddSmoothedAnchors(runtime, new[]
@@ -2090,8 +2120,8 @@ namespace LocalFormulaRacing
         void BuildZandvoortLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Coastal banked flow";
-            runtime.roadHalfWidth = 12.5f;
-            runtime.kerbStart = 7.3f;
+            runtime.roadHalfWidth = 15.62f;
+            runtime.kerbStart = 9.12f;
             runtime.drsZoneOne = new Vector2(0.87f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.54f, 0.68f);
             AddSmoothedAnchors(runtime, new[]
@@ -2107,8 +2137,8 @@ namespace LocalFormulaRacing
         void BuildMadridLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Hybrid street exhibition";
-            runtime.roadHalfWidth = 12.0f;
-            runtime.kerbStart = 7.0f;
+            runtime.roadHalfWidth = 15.0f;
+            runtime.kerbStart = 8.75f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.46f, 0.62f);
             AddSmoothedAnchors(runtime, new[]
@@ -2125,8 +2155,8 @@ namespace LocalFormulaRacing
         void BuildBakuLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Castle straight street";
-            runtime.roadHalfWidth = 12.4f;
-            runtime.kerbStart = 7.3f;
+            runtime.roadHalfWidth = 15.5f;
+            runtime.kerbStart = 9.12f;
             runtime.drsZoneOne = new Vector2(0.78f, 0.1f);
             runtime.drsZoneTwo = new Vector2(0.52f, 0.67f);
             AddSmoothedAnchors(runtime, new[]
@@ -2143,8 +2173,8 @@ namespace LocalFormulaRacing
         void BuildAustinLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Rollercoaster esses";
-            runtime.roadHalfWidth = 14.6f;
-            runtime.kerbStart = 8.6f;
+            runtime.roadHalfWidth = 18.25f;
+            runtime.kerbStart = 10.75f;
             runtime.drsZoneOne = new Vector2(0.86f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.38f, 0.56f);
             AddSmoothedAnchors(runtime, new[]
@@ -2161,8 +2191,8 @@ namespace LocalFormulaRacing
         void BuildMexicoLayout(TrackRuntime runtime)
         {
             runtime.styleName = "High-altitude stadium";
-            runtime.roadHalfWidth = 14.2f;
-            runtime.kerbStart = 8.3f;
+            runtime.roadHalfWidth = 17.75f;
+            runtime.kerbStart = 10.38f;
             runtime.drsZoneOne = new Vector2(0.84f, 0.09f);
             runtime.drsZoneTwo = new Vector2(0.48f, 0.63f);
             AddSmoothedAnchors(runtime, new[]
@@ -2179,8 +2209,8 @@ namespace LocalFormulaRacing
         void BuildLasVegasLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Neon strip street";
-            runtime.roadHalfWidth = 13.0f;
-            runtime.kerbStart = 7.6f;
+            runtime.roadHalfWidth = 16.25f;
+            runtime.kerbStart = 9.5f;
             runtime.drsZoneOne = new Vector2(0.74f, 0.13f);
             runtime.drsZoneTwo = new Vector2(0.42f, 0.58f);
             AddSmoothedAnchors(runtime, new[]
@@ -2197,8 +2227,8 @@ namespace LocalFormulaRacing
         void BuildQatarLayout(TrackRuntime runtime)
         {
             runtime.styleName = "Desert high-speed flow";
-            runtime.roadHalfWidth = 15.0f;
-            runtime.kerbStart = 8.8f;
+            runtime.roadHalfWidth = 18.75f;
+            runtime.kerbStart = 11.0f;
             runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
             runtime.drsZoneTwo = new Vector2(0.55f, 0.72f);
             AddSmoothedAnchors(runtime, new[]
@@ -2253,14 +2283,18 @@ namespace LocalFormulaRacing
                 }
             }
 
-            if (runtime.roadHalfWidth < 9f || runtime.roadHalfWidth > 17f)
+            // Speed-rebalance pass: every per-track roadHalfWidth literal was scaled
+            // up ~25% (widest circuits now sit around 19.4f) - this clamp has to
+            // widen to match or the wider tracks get silently clamped straight back
+            // down to the old ceiling, undoing the width increase.
+            if (runtime.roadHalfWidth < 9f || runtime.roadHalfWidth > 21f)
             {
                 if (LastReport != null)
                 {
                     LastReport.Warn("road half width " + runtime.roadHalfWidth.ToString("0.0") + " out of range, clamping.");
                 }
 
-                runtime.roadHalfWidth = Mathf.Clamp(runtime.roadHalfWidth, 9f, 17f);
+                runtime.roadHalfWidth = Mathf.Clamp(runtime.roadHalfWidth, 9f, 21f);
             }
 
             if (runtime.kerbStart <= 0f || runtime.kerbStart >= runtime.roadHalfWidth)
@@ -3421,7 +3455,11 @@ namespace LocalFormulaRacing
         // segment overlap hairpins get, so there is no gap a car can find at entry,
         // apex or exit just because the corner was 45 degrees instead of 60.
         const float TightCornerFenceAngle = 40f;
-        const float TightCornerFenceRadius = 35f;
+        // Speed-rebalance pass: widened alongside the corner-detection window spans
+        // above - a real corner's own footprint is ~25% bigger now, so the
+        // containment radius around its detected peak needs to cover that whole
+        // bigger footprint, not just the old (now too-small) radius.
+        const float TightCornerFenceRadius = 44f;
 
         // Pit-exit early-turn fix round 4: bakes Runtime.tightFenceContainmentZones
         // from the exact same corner detection + radius/span math ComputeBarrierPlan
@@ -4130,8 +4168,8 @@ namespace LocalFormulaRacing
             // Flat corridor: PitRampEnvelopeAt is only valid inside the ramp
             // windows checked above (see its own comment) - here the drivable
             // surface is BuildPitLane's fixed-width service road, centred on
-            // PitLaneLateral with a 13.5m width (half-width 6.75).
-            return Runtime.PitLaneLateral + 6.75f + standoff;
+            // PitLaneLateral with a PitRampFullWidth-wide width.
+            return Runtime.PitLaneLateral + TrackRuntime.PitRampFullWidth * 0.5f + standoff;
         }
 
         // ---------- pit lane / track divider ----------
@@ -4227,7 +4265,7 @@ namespace LocalFormulaRacing
 
             float midDistance = distance + step * 0.5f;
             float innerFace = Runtime.HalfWidthAt(midDistance) + EdgeBarrierClearance;
-            float pitLaneInnerEdge = Runtime.PitLaneLateral - 6.75f;
+            float pitLaneInnerEdge = Runtime.PitLaneLateral - TrackRuntime.PitRampFullWidth * 0.5f;
             float outerFace = Mathf.Max(innerFace + PitDividerMinHalfWidth * 2f, pitLaneInnerEdge - PitDividerPitSideClearance);
             float wallHalfWidth = (outerFace - innerFace) * 0.5f;
             float centerLateral = innerFace + wallHalfWidth;
@@ -4428,7 +4466,10 @@ namespace LocalFormulaRacing
         // the true cumulative curvature of the corner regardless of how many
         // points the underlying spline happens to be built from.
         const float CornerSampleStepMeters = 8f;
-        const float CornerWindowSpanMeters = 56f;
+        // Speed-rebalance pass: widened alongside HairpinWindowSpanMeters above for
+        // the same reason - corners themselves are ~25% bigger now that every
+        // layout scales up uniformly, so the trailing window needs to match.
+        const float CornerWindowSpanMeters = 70f;
 
         List<CornerInfo> DetectCorners(float angleThreshold)
         {
@@ -6432,7 +6473,7 @@ namespace LocalFormulaRacing
                     "Pit lane asphalt service road",
                     point + right * Runtime.PitLaneLateral + Vector3.up * 0.015f,
                     Quaternion.LookRotation(forward, Vector3.up),
-                    new Vector3(13.5f, 0.16f, 21f),
+                    new Vector3(TrackRuntime.PitRampFullWidth, 0.16f, 21f),
                     pitMaterial);
             }
 
@@ -9506,7 +9547,7 @@ namespace LocalFormulaRacing
             }
 
             const float boundaryMargin = 0.6f;
-            const float pitLaneHalfWidth = 6.75f;
+            float pitLaneHalfWidth = TrackRuntime.PitRampFullWidth * 0.5f;
 
             if (normalized >= TrackRuntime.PitCorridorStartNormalized && normalized <= PitZoneExitRampStart)
             {
@@ -9652,11 +9693,15 @@ namespace LocalFormulaRacing
                 report.roadColliderValid = Runtime.roadCollider != null && Runtime.roadCollider.sharedMesh != null && !Runtime.roadCollider.isTrigger;
             }
 
+            // Speed-rebalance pass: TargetTrackLength's per-style targets are now
+            // scaled by TrackLengthRebalanceScale (~1.25x) - Spa's own target alone
+            // moved from 5600m to 7000m, so this ceiling has to move with it or
+            // every long circuit would trip a false "exceeds ceiling" warning.
             if (Runtime.length < 3700f)
             {
                 report.Warn("track length " + Runtime.length.ToString("0") + "m is INVALID: circuits must normalize to at least 3.7 km for race pacing.");
             }
-            else if (Runtime.length > 6000f)
+            else if (Runtime.length > 7500f)
             {
                 report.Warn("track length " + Runtime.length.ToString("0") + "m exceeds the expected normalization ceiling.");
             }

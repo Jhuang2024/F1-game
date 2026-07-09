@@ -1276,8 +1276,13 @@ namespace LocalFormulaRacing
         // sharper AI field pushes harder and burns a touch more per lap.
         public float EstimateFuelPerLapKg(TrackRuntime track, RaceDifficulty difficulty)
         {
-            float trackLength = track != null && track.length > 1f ? track.length : 4650f;
-            float perLap = Mathf.Lerp(1.35f, 1.65f, Mathf.Clamp01(Mathf.InverseLerp(3200f, 6200f, trackLength)));
+            // Speed-rebalance pass: TrackManager.TargetTrackLength scaled every
+            // circuit's target length up ~25% - both the fallback and the
+            // short/long InverseLerp band here need to move with it, or every
+            // rebalanced track (now mostly 4.9-7km) would sit near/above the old
+            // 6200f ceiling and lose the intended short-vs-long fuel variation.
+            float trackLength = track != null && track.length > 1f ? track.length : 5813f;
+            float perLap = Mathf.Lerp(1.35f, 1.65f, Mathf.Clamp01(Mathf.InverseLerp(4000f, 7750f, trackLength)));
             float difficultyFactor = difficulty == RaceDifficulty.Easy ? 0f : difficulty == RaceDifficulty.Medium ? 0.33f : difficulty == RaceDifficulty.Hard ? 0.66f : 1f;
             perLap *= Mathf.Lerp(0.97f, 1.06f, difficultyFactor);
             return perLap;
@@ -4428,7 +4433,10 @@ namespace LocalFormulaRacing
         // and applies it identically for the player and every AI car - nothing
         // here is player-only.
         const float SlipstreamMinDistance = 8f;
-        const float SlipstreamMaxDistance = 85f;
+        // Speed-rebalance pass: straights are now ~25% longer, giving a following
+        // car more real room to build/hold a tow before the braking zone - nudged
+        // up from 85f rather than left to feel weak on the longer straights.
+        const float SlipstreamMaxDistance = 95f;
         const float SlipstreamFullLateralWidth = 3.5f;
         const float SlipstreamMaxLateralWidth = 7.5f;
         const float SlipstreamMinSpeedKph = 130f;
@@ -10368,7 +10376,7 @@ namespace LocalFormulaRacing
             float carTopSpeedKph = car == null || car.topSpeed <= 0 ? 337f : car.topSpeed;
             float styleFactor = TrackAverageSpeedFactor(track);
             float referenceSpeedMps = (carTopSpeedKph / 3.6f) * styleFactor;
-            float trackLength = track == null ? 4650f : track.length;
+            float trackLength = track == null ? 5813f : track.length;
             return Mathf.Max(45f, trackLength / referenceSpeedMps);
         }
 
