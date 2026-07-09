@@ -2007,6 +2007,15 @@ namespace LocalFormulaRacing
                 ShowSettings(data, career, settings);
             });
 
+            RectTransform ghostControl;
+            UiFactory.CreateSettingRow(list, "Time Trial Ghost", "A translucent car tracing a recorded lap alongside you.", out ghostControl);
+            UiFactory.CreateCycleControl(ghostControl, GhostModeLabel(settings.Current.ghostMode), () =>
+            {
+                settings.Current.ghostMode = (settings.Current.ghostMode + 1) % 3;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
             RectTransform gridControl;
             UiFactory.CreateSettingRow(list, "Grid Size", "Fixed at a full field for now.", out gridControl);
             UiFactory.CreateText(gridControl, "Grid size value", "22 drivers", 16, UiFactory.TextMuted, TextAnchor.MiddleRight).GetComponent<RectTransform>().anchorMin = new Vector2(0f, 0f);
@@ -2195,6 +2204,16 @@ namespace LocalFormulaRacing
                 case 1: return "Low";
                 case 3: return "High";
                 default: return "Standard";
+            }
+        }
+
+        string GhostModeLabel(int value)
+        {
+            switch (value)
+            {
+                case 1: return "Session Best";
+                case 2: return "All-Time Best";
+                default: return "Off";
             }
         }
 

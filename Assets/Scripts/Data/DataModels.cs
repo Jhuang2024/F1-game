@@ -755,6 +755,14 @@ namespace LocalFormulaRacing
         public bool compactHud;
         public bool particlesEnabled = true;
 
+        // Time-trial ghost: 0=Off, 1=Session best (this session's own best
+        // lap, not carried from a prior session), 2=All-time best (the
+        // locally stored record, see TimeTrialGhostStore). Defaults to
+        // all-time best since that's the most useful default for a returning
+        // player and an existing save with no ghost data yet behaves exactly
+        // like "no ghost available" either way.
+        public int ghostMode = 2;
+
         // Per-module HUD visibility toggles. All default true so an existing
         // save's HUD looks identical to before these fields existed - only an
         // explicit opt-out in Display Settings hides a module.
@@ -860,6 +868,35 @@ namespace LocalFormulaRacing
         public int wins;
         public int podiums;
         public int poles;
+    }
+
+    // Time-trial ghost: a compact trace of one lap, sampled at a fixed time
+    // interval (see RaceManager's ghost recording) rather than every physics
+    // frame, so a multi-minute lap stays a few hundred samples instead of
+    // thousands. distanceAlongLap lets playback/delta lookups interpolate by
+    // track progress instead of only by elapsed time.
+    [Serializable]
+    public class GhostSample
+    {
+        public float elapsedSeconds;
+        public float distanceAlongLap;
+        public Vector3 position;
+        public float headingDegrees;
+        public float speedKph;
+    }
+
+    [Serializable]
+    public class GhostLapData
+    {
+        public string trackId;
+        public float lapTime;
+        public List<GhostSample> samples = new List<GhostSample>();
+    }
+
+    [Serializable]
+    public class GhostStoreData
+    {
+        public List<GhostLapData> bestGhosts = new List<GhostLapData>();
     }
 
     public enum RaceDifficulty

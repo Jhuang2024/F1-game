@@ -141,6 +141,7 @@ namespace LocalFormulaRacing
         Image[] radioCardAccents = new Image[MaxRadioCards];
         Vector2[] radioCardRestPositions = new Vector2[MaxRadioCards];
         GameObject qualifyingCard;
+        Text qualifyingCardHeader;
         Text qualifyingDeltaValue;
         Text tyreTagText;
         GameObject scWindowCard;
@@ -1002,6 +1003,10 @@ namespace LocalFormulaRacing
         {
             RectTransform card = UiFactory.CreateHudCard(rightStack, "Qualifying", RightStackWidth, 56f, UiFactory.AccentPurple);
             qualifyingCard = card.gameObject;
+            // Captured before CreateHudLabelValueRow adds more Text children
+            // below - this card is reused for the Time Trial ghost delta too
+            // (see UpdateQualifyingCard), so its header needs to say which.
+            qualifyingCardHeader = card.GetComponentInChildren<Text>();
             UiFactory.CreateHudLabelValueRow(card, "Delta", 28f, out qualifyingDeltaValue);
             qualifyingCard.SetActive(false);
         }
@@ -2253,16 +2258,29 @@ namespace LocalFormulaRacing
 
         void UpdateQualifyingCard()
         {
-            bool show = race.CurrentSession == RaceWeekendSession.Qualifying;
+            bool qualifying = race.CurrentSession == RaceWeekendSession.Qualifying;
+            bool timeTrialGhost = race.IsTimeTrial;
+            bool show = qualifying || timeTrialGhost;
             if (qualifyingCard.activeSelf != show)
             {
                 qualifyingCard.SetActive(show);
             }
 
-            if (show)
+            if (!show)
             {
-                qualifyingDeltaValue.text = race.QualifyingDeltaText(player);
+                return;
             }
+
+            // Reused card (Time Trial ghost delta vs qualifying delta) - only
+            // rewrite the header text on an actual mode change, not every
+            // frame, to avoid needless Text layout churn.
+            string wantedHeader = qualifying ? "QUALIFYING" : "GHOST";
+            if (qualifyingCardHeader != null && qualifyingCardHeader.text != wantedHeader)
+            {
+                qualifyingCardHeader.text = wantedHeader;
+            }
+
+            qualifyingDeltaValue.text = qualifying ? race.QualifyingDeltaText(player) : race.GhostDeltaText(player);
         }
 
         void UpdateTopAccentFlash()
