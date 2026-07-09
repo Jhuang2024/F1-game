@@ -523,6 +523,20 @@ namespace LocalFormulaRacing
         const int FullWeekendAiCount = FullWeekendDriverCount - 1;
         const int Q1SurvivorCount = 16;
         const int Q2SurvivorCount = 10;
+        // Qualifying-vs-race calibration fix (single-flying-lap bug): this used to
+        // be a flat 2 laps (1 out lap + exactly 1 timed lap) for every car, AI and
+        // player alike, in a live-driven qualifying session. With per-lap noise
+        // (line wobble, apex-miss variance, mistakeChancePerLap) baked into the AI
+        // driving model, a single flying-lap attempt has real variance and no
+        // chance to throw away a scrappy lap and try again - while a full race
+        // gives the same AI dozens of laps to post its best, LapTracker.BestLapTime
+        // already tracks the minimum across all of them. That mismatch in sample
+        // size, not underlying pace, was the real reason race best laps kept
+        // beating qualifying best laps even after TrackAverageSpeedFactor was
+        // recalibrated. Raised to a real multi-attempt session (1 out lap + up to
+        // 4 timed attempts, same as real quali) so qualifying's best-of-many is
+        // actually comparable to the race's.
+        const int QualifyingSessionLapCap = 5;
         const string SectorPurple = "#B86CFF";
         const string SectorGreen = "#63FF82";
         const string SectorYellow = "#FFD45C";
@@ -5964,7 +5978,11 @@ namespace LocalFormulaRacing
             }
 
             LapTracker lap = PlayerParticipant.lapTracker;
-            if (RaceElapsed > 360f)
+            // Time budget widened alongside QualifyingSessionLapCap (was 360s for a
+            // flat 2-lap session) so the extra flying-lap attempts actually fit on
+            // longer circuits instead of being cut off by the clock before the lap
+            // cap is ever reached.
+            if (RaceElapsed > 480f)
             {
                 return true;
             }
@@ -5974,7 +5992,7 @@ namespace LocalFormulaRacing
                 return true;
             }
 
-            return lap.CompletedLaps >= 2;
+            return lap.CompletedLaps >= QualifyingSessionLapCap;
         }
 
         bool PlayerHoldsCurrentQualifyingPole()
@@ -6634,7 +6652,7 @@ namespace LocalFormulaRacing
                 VehicleEffects effects = carObject.AddComponent<VehicleEffects>();
                 effects.Initialize(controller);
             }
-            lapTracker.Initialize(Track, CurrentSession == RaceWeekendSession.Qualifying ? 2 : RaceLaps);
+            lapTracker.Initialize(Track, CurrentSession == RaceWeekendSession.Qualifying ? QualifyingSessionLapCap : RaceLaps);
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
                 lapTracker.ConfigureQualifyingOutLap();
@@ -9383,49 +9401,52 @@ namespace LocalFormulaRacing
         // real high-speed circuits (Jeddah, Baku, Las Vegas) are technically street
         // layouts but should not be bucketed with tight street pace.
         //
-        // Qualifying-vs-race calibration fix: these factors were tuned to
-        // realistic real-world average-speed fractions, but AiVehicleController's
-        // corner-speed model has since been buffed repeatedly (tight/Slow corners
-        // now target ~300-310kph, essentially straight-line pace, with only the
-        // narrow VeryTight/Hairpin bands still slowing cars meaningfully) without
-        // this separate statistical qualifying-sim formula ever being updated to
-        // match. The result was the reported bug: actual physics-driven race laps
-        // came out faster than the qualifying times this formula produced. Raised
-        // across every bucket (~1.2x) so the simulated qualifying baseline is back
-        // in line with (and, as a flying lap on low fuel should be, faster than)
-        // real race pace under the current corner-speed model.
+        // Qualifying-vs-race calibration fix round 2: this is the ONLY place AI
+        // qualifying times come from - RecordQualifyingPhase falls back to
+        // SimulateAiQualifyingTime for every AI entry even in the live/driven
+        // qualifying session, so AI never actually banks a real physics-driven lap
+        // time for qualifying purposes, live or simulated. Round 1's ~1.2x bump
+        // still undershot actual race pace: AiVehicleController's corner-speed
+        // model now keeps HighSpeed/Medium corners near 97-100% of straight-line
+        // pace and Slow (tight) corners at a flat ~300-310kph (itself often
+        // 90%+ of a car's real top speed) - only the narrow VeryTight/Hairpin
+        // bands meaningfully cut into a lap's average anymore, so a track's real
+        // achieved average speed fraction is far closer to its top speed than
+        // these factors assumed even after round 1. Pushed further here so the
+        // simulated qualifying baseline is genuinely faster than what the
+        // buffed race physics produce, matching a real low-fuel flying lap.
         float TrackAverageSpeedFactor(TrackRuntime track)
         {
             if (track == null)
             {
-                return 0.72f;
+                return 0.80f;
             }
 
             string id = track.trackId ?? "";
             string style = (track.styleName ?? "").ToLowerInvariant();
             if (id.Contains("monaco"))
             {
-                return 0.53f;
+                return 0.62f;
             }
 
             if (id.Contains("spa") || id.Contains("monza") || id.Contains("silverstone") ||
                 id.Contains("baku") || id.Contains("jeddah") || id.Contains("las_vegas") ||
                 id.Contains("suzuka") || id.Contains("qatar"))
             {
-                return 0.90f;
+                return 0.97f;
             }
 
             if (id.Contains("hungary"))
             {
-                return 0.60f;
+                return 0.68f;
             }
 
             if (style.Contains("street") || track.roadHalfWidth < 12f)
             {
-                return 0.64f;
+                return 0.73f;
             }
 
-            return 0.79f;
+            return 0.88f;
         }
 
         float WeatherQualifyingPenalty(DriverData driver)
