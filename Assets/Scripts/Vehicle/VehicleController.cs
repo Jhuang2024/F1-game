@@ -148,13 +148,20 @@ namespace LocalFormulaRacing
         const float RaceSpeedCeilingKph = 350f;
         // Player-only straightline speed buff - never applies to AI (see
         // CalculateTargetTopSpeedKph, gated on IsPlayerControlled). Raised
-        // from 4 to 9 (an additional +5), then lowered by 2 to 7. This
-        // constant alone only ever raises the governor's target/ceiling, not
-        // an actual push - see playerTopSpeedBoost in ApplyForces for the
-        // dedicated additive force that was missing, without which a car
-        // whose real drag-limited equilibrium speed already sat at or below
-        // the ceiling never actually reached (or felt) this bonus at all.
-        const float PlayerTopSpeedBonusKph = 7f;
+        // from 4 to 9 (an additional +5), then lowered by 2 to 7, then
+        // lowered by a further 2 to 5. This constant alone only ever raises
+        // the governor's target/ceiling, not an actual push - see
+        // playerTopSpeedBoost in ApplyForces for the dedicated additive force
+        // that was missing, without which a car whose real drag-limited
+        // equilibrium speed already sat at or below the ceiling never
+        // actually reached (or felt) this bonus at all.
+        const float PlayerTopSpeedBonusKph = 5f;
+        // AI-only straightline speed buff - never applies to the player (see
+        // CalculateTargetTopSpeedKph, gated on !IsPlayerControlled). Same
+        // ceiling-plus-dedicated-force pairing as PlayerTopSpeedBonusKph
+        // above (see aiTopSpeedBoost in ApplyForces) - a ceiling bump alone
+        // is aspirational unless something actually pushes the car up to it.
+        const float AiTopSpeedBonusKph = 3f;
         const float DrsTopSpeedBonusKph = 32f;
         // ERS buff: raised from 20, then 26 - with the stronger deploy force
         // below the car can now actually accelerate up to a ceiling this much
@@ -893,8 +900,10 @@ namespace LocalFormulaRacing
                 // power (ersBoost below) is unchanged.
                 // ERS drain-rate fix round 6: raised a further 30% (was 0.0428-0.0605) -
                 // boost power (ersBoost below) is unchanged.
+                // ERS drain-rate fix round 7: raised a further 20% (was 0.0556-0.0787) -
+                // boost power (ersBoost below) is unchanged.
                 ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
-                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0556f, 0.0787f, activeCommand.throttle));
+                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0667f, 0.0944f, activeCommand.throttle));
             }
 
             // Empty-battery recharge delay: arm a 5-second no-non-braking-
@@ -949,9 +958,11 @@ namespace LocalFormulaRacing
             // seconds (see ersEmptyCooldownTimer above).
             // Round 9: cut a further 10% on top of round 8 (was 0.0612-0.1357
             // * 0.8) - braking-zone recharge above is unaffected.
+            // Round 10: cut a further 10% on top of round 9 (was 0.0612-0.1357
+            // * 0.72) - braking-zone recharge above is unaffected.
             else if (!ersEmptyCooldownActive && activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.72f * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.648f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ersEmptyCooldownActive && !ErsDeploying)
@@ -979,7 +990,10 @@ namespace LocalFormulaRacing
                 // Round 9: cut a further 10% on top of round 8 (was 0.0192-0.0407
                 // * 0.8), same non-braking-only regen cut as the coasting rate
                 // above.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.72f * harvestModeMultiplier);
+                // Round 10: cut a further 10% on top of round 9 (was 0.0192-0.0407
+                // * 0.72), same non-braking-only regen cut as the coasting rate
+                // above.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.648f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
@@ -1057,6 +1071,13 @@ namespace LocalFormulaRacing
                 ? Mathf.Lerp(10f, 16f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph))
                 : 0f;
 
+            // AI straightline speed buff: same reasoning as playerTopSpeedBoost
+            // above, mirrored for AiTopSpeedBonusKph - never applies to the
+            // player.
+            float aiTopSpeedBoost = !IsPlayerControlled
+                ? Mathf.Lerp(6f, 10f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph))
+                : 0f;
+
             float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
             float speedLimiter = Mathf.Clamp01((topSpeed + limiterWindow - forwardSpeed) / limiterWindow);
             if (!IsHeldInPit && activeCommand.throttle > 0.01f && speedLimiter > 0.01f)
@@ -1087,7 +1108,7 @@ namespace LocalFormulaRacing
                     ActiveSlowdownReason = "FUEL STARVATION";
                 }
 
-                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoost * drsSpeedRamp + slipstreamBoost + playerTopSpeedBoost) * starvationPower, ForceMode.Acceleration);
+                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoost * drsSpeedRamp + slipstreamBoost + playerTopSpeedBoost + aiTopSpeedBoost) * starvationPower, ForceMode.Acceleration);
                 if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
                 {
                     float pullThrough = Mathf.Lerp(5.6f, 2.0f, speedRatio) * activeCommand.throttle * speedLimiter;
@@ -1329,6 +1350,11 @@ namespace LocalFormulaRacing
             {
                 target += PlayerTopSpeedBonusKph;
                 ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + PlayerTopSpeedBonusKph);
+            }
+            else
+            {
+                target += AiTopSpeedBonusKph;
+                ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + AiTopSpeedBonusKph);
             }
 
             if (DrsActive)

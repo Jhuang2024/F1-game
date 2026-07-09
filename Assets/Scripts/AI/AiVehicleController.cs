@@ -345,7 +345,9 @@ namespace LocalFormulaRacing
                     // Round 9: another +15kph on top of that (+137.5kph total).
                     // Round 10: another +20kph on top of that (+157.5kph total).
                     // Round 11: another +20kph on top of that (+177.5kph total).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence) + 177.5f);
+                    // Round 12: another +10kph on top of that (+187.5kph total) -
+                    // turning-speed pass across every non-hairpin bucket.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence) + 187.5f);
                     easePower = Mathf.Lerp(6f, 10f, skillTier);
                     break;
                 case CornerType.Medium:
@@ -367,7 +369,9 @@ namespace LocalFormulaRacing
                     // Round 11: another +15kph on top of that (+142.5kph total).
                     // Round 12: another +20kph on top of that (+162.5kph total).
                     // Round 13: another +20kph on top of that (+182.5kph total).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 182.5f);
+                    // Round 14: another +10kph on top of that (+192.5kph total) -
+                    // turning-speed pass across every non-hairpin bucket.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 192.5f);
                     easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
@@ -397,7 +401,9 @@ namespace LocalFormulaRacing
                     // Round 14: raised another flat 15kph (437.5-447.5kph -> 452.5-462.5kph).
                     // Round 15: raised another flat 20kph (452.5-462.5kph -> 472.5-482.5kph).
                     // Round 16: raised another flat 20kph (472.5-482.5kph -> 492.5-502.5kph).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(492.5f, Mathf.Lerp(497.5f, 502.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 17: raised another flat 10kph (492.5-502.5kph -> 502.5-512.5kph) -
+                    // turning-speed pass across every non-hairpin bucket.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(502.5f, Mathf.Lerp(507.5f, 512.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -419,7 +425,9 @@ namespace LocalFormulaRacing
                     // Round 8: raised another flat 10kph (257.5-292.5kph -> 267.5-302.5kph).
                     // Round 9: raised another flat 10kph (267.5-302.5kph -> 277.5-312.5kph).
                     // Round 10: raised another flat 5kph (277.5-312.5kph -> 282.5-317.5kph).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(282.5f, Mathf.Lerp(302.5f, 317.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 11: raised another flat 10kph (282.5-317.5kph -> 292.5-327.5kph) -
+                    // turning-speed pass across every non-hairpin bucket.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(292.5f, Mathf.Lerp(312.5f, 327.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
