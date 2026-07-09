@@ -419,16 +419,65 @@ namespace LocalFormulaRacing
             return normalized >= PitEntryRampStartNormalized && normalized <= PitCorridorStartNormalized;
         }
 
+        // Fixed-metre pit-exit geometry fix: every pit-exit boundary below used to
+        // be a flat fraction of the WHOLE LAP - fine on the ~1500-2000m layouts
+        // this was originally tuned against, but on a realistically-scaled track
+        // (Silverstone here is ~8281m) that same fraction (0.053 of a lap between
+        // release and merge-end) balloons into a genuinely enormous ~439m guided
+        // ExitMerge path - roughly 15 seconds per car at ~106 km/h even with a
+        // perfectly clear lane, which is exactly the reported 10-30 second gaps.
+        // A real pit exit is a fixed physical structure - it does not get longer
+        // because the rest of the circuit does. These boundaries are now computed
+        // from fixed METRE distances relative to the start/finish line instead,
+        // via NormalizedMetresBeforeLine/NormalizedMetresAfterLine below, so the
+        // guided exit path is the same ~90-130m (roughly 3-4 seconds) on every
+        // track regardless of total lap length. Every dependent system - the
+        // generated pit surface/barriers/divider fences, the ramp envelopes, the
+        // limiter zones, PitExitMergeBlend, IsInPitExitMergeZone,
+        // PitExitMergeLegalLateral, and RaceManager's own pitGuideDistance
+        // completion tracking - all read these same properties, so none of them
+        // can silently disagree about where the physical pit exit actually ends.
+        public const float PitExitReleaseLeadMetres = 70f;
+        public const float PitExitRampStartLeadMetres = 25f;
+        public const float PitExitLimiterStartLeadMetres = 80f;
+        public const float PitExitLimiterEndMetres = 15f;
+        public const float PitExitRampEndMetres = 35f;
+
+        // Converts "N metres before the start/finish line" into a normalized lap
+        // fraction - the shared building block every fixed-metre pit-exit boundary
+        // below is computed from.
+        float NormalizedMetresBeforeLine(float metres)
+        {
+            return Mathf.Clamp01((length - metres) / Mathf.Max(1f, length));
+        }
+
+        // Converts "N metres after the start/finish line" into a normalized lap
+        // fraction.
+        float NormalizedMetresAfterLine(float metres)
+        {
+            return Mathf.Clamp01(metres / Mathf.Max(1f, length));
+        }
+
         // Shared with PitExitMergeBlend below so the steering-line hold and the
         // speed limiter agree on exactly where the pit-exit merge window starts.
-        const float PitExitLimiterStartNormalized = 0.985f;
-        const float PitExitLimiterEndNormalized = 0.018f;
+        float PitExitLimiterStartNormalized
+        {
+            get { return NormalizedMetresBeforeLine(PitExitLimiterStartLeadMetres); }
+        }
+
+        float PitExitLimiterEndNormalized
+        {
+            get { return NormalizedMetresAfterLine(PitExitLimiterEndMetres); }
+        }
 
         // Shared with TrackManager's PitZoneExitRampEnd so the steering-line hold
         // (PitExitMergeBlend below) and the actual physical pit-exit ramp/guide-
         // fence geometry agree on exactly where the ramp finishes narrowing back
         // to the track edge.
-        public const float PitExitRampEndNormalized = 0.045f;
+        public float PitExitRampEndNormalized
+        {
+            get { return NormalizedMetresAfterLine(PitExitRampEndMetres); }
+        }
 
         public bool IsInPitExitLimiterZone(float normalizedProgress)
         {
@@ -498,9 +547,18 @@ namespace LocalFormulaRacing
         // where the barrier/merge actually ends" bug already found and fixed once
         // in this pit-exit code (the round-2 fix comment above). PitReleaseNormalized
         // documents GetPitReleasePose's own hardcoded release distance for
-        // readability - it's informational, not itself a zone boundary.
-        public const float PitReleaseNormalized = 0.992f;
-        public const float PitExitMergeEndNormalized = PitExitRampEndNormalized;
+        // readability - it's informational, not itself a zone boundary. Both are
+        // now fixed-metre-based (see PitExitReleaseLeadMetres above), same as
+        // every other boundary in this group.
+        public float PitReleaseNormalized
+        {
+            get { return NormalizedMetresBeforeLine(PitExitReleaseLeadMetres); }
+        }
+
+        public float PitExitMergeEndNormalized
+        {
+            get { return PitExitRampEndNormalized; }
+        }
 
         // Bugfix: this used to delegate to IsInPitExitLimiterZone, which ends at
         // PitExitLimiterEndNormalized (0.018) - the short SPEED-cap window. The
@@ -538,7 +596,14 @@ namespace LocalFormulaRacing
         // (RaceManager's guided pit phases, AiVehicleController's approach
         // steering) are reading from the exact same function.
         public const float PitEntryRampStartNormalized = 0.85f;
-        public const float PitExitRampStartNormalized = 0.995f;
+
+        // Fixed-metre pit-exit geometry fix (see PitExitReleaseLeadMetres etc.
+        // above): the physical ramp taper begins PitExitRampStartLeadMetres
+        // before the line, not a fraction of the whole lap.
+        public float PitExitRampStartNormalized
+        {
+            get { return NormalizedMetresBeforeLine(PitExitRampStartLeadMetres); }
+        }
         // Speed-rebalance pass: widened ~25% alongside the wider base road, so the
         // pit lane/ramp gets proportionally more room too - AI has more physical
         // space to enter/exit cleanly instead of the pit path staying narrow while
@@ -1045,6 +1110,27 @@ namespace LocalFormulaRacing
             get { return roadHalfWidth + 14.38f; }
         }
 
+        // Fast-lane/service-bay separation fix (root cause 1): PitBoxSpacing is
+        // only 10.5m, so with every box sitting directly on PitLaneLateral - the
+        // same lateral every car travels down the pit lane on - a stationary car
+        // in one box was always within blocking range of the very next box,
+        // serializing the whole field through the pit lane one car at a time.
+        // Service bays now sit further toward the garages than the fast lane
+        // (well within the existing PitRampFullWidth-wide paved corridor, no
+        // surface widening needed - 4.2m of offset against a ~10.6m half-width
+        // leaves comfortable clearance on both sides), so a parked car no longer
+        // physically overlaps the fast lane at all. AdvancePitGuideTarget's
+        // existing pitGuideLateral interpolation is what carries a car smoothly
+        // from the fast lane into its bay on the way in, and back out again on
+        // the way to pit exit - this offset is the only change needed for that
+        // to happen automatically.
+        public const float PitServiceBayOffsetMeters = 4.2f;
+
+        public float PitServiceBayLateral
+        {
+            get { return PitLaneLateral + PitServiceBayOffsetMeters; }
+        }
+
         public float PitBoxDistance(int pitBoxIndex)
         {
             int index = Mathf.Clamp(pitBoxIndex, 0, PitBoxCount - 1);
@@ -1057,7 +1143,7 @@ namespace LocalFormulaRacing
             Vector3 forward;
             Vector3 right;
             SampleAtDistance(PitBoxDistance(pitBoxIndex), out point, out forward, out right);
-            position = point + right * PitLaneLateral + Vector3.up * 0.58f;
+            position = point + right * PitServiceBayLateral + Vector3.up * 0.58f;
             rotation = Quaternion.LookRotation(forward, Vector3.up);
         }
 
@@ -1066,18 +1152,24 @@ namespace LocalFormulaRacing
             GetPitServicePose(0, out position, out rotation);
         }
 
+        // Root cause 3 fix: exposes the canonical distance a queue pose is
+        // generated from directly, so RaceManager can drive AdvancePitGuideTarget
+        // from this known-correct distance instead of reprojecting the resulting
+        // world position back through an unrestricted Track.GetProgress search
+        // (unsafe wherever the pit lane runs close to another part of the
+        // circuit).
+        public float GetPitQueueDistance(int pitBoxIndex, float holdBackMeters)
+        {
+            float minDistance = length * PitCorridorStartNormalized + PitQueueCorridorMargin;
+            float desired = PitBoxDistance(pitBoxIndex) - Mathf.Max(4f, holdBackMeters);
+            return Mathf.Max(minDistance, desired);
+        }
+
         // Queue pose short of a pit box, used while a car waits for its slot or a
         // safe release gap so two cars are never guided into the same spot.
         public void GetPitQueuePose(int pitBoxIndex, float holdBackMeters, out Vector3 position, out Quaternion rotation)
         {
-            Vector3 point;
-            Vector3 forward;
-            Vector3 right;
-            float minDistance = length * PitCorridorStartNormalized + PitQueueCorridorMargin;
-            float desired = PitBoxDistance(pitBoxIndex) - Mathf.Max(4f, holdBackMeters);
-            SampleAtDistance(Mathf.Max(minDistance, desired), out point, out forward, out right);
-            position = point + right * PitLaneLateral + Vector3.up * 0.58f;
-            rotation = Quaternion.LookRotation(forward, Vector3.up);
+            SamplePitLanePose(GetPitQueueDistance(pitBoxIndex, holdBackMeters), PitLaneLateral, out position, out rotation);
         }
 
         // Pit lane animation fix: generalizes the position + right * lateral
@@ -4336,8 +4428,21 @@ namespace LocalFormulaRacing
         // class inventing its own copy that can drift out of sync.
         const float PitZoneEntryRampStart = TrackRuntime.PitEntryRampStartNormalized;
         const float PitZoneEntryRampEnd = TrackRuntime.PitCorridorStartNormalized;
-        const float PitZoneExitRampStart = TrackRuntime.PitExitRampStartNormalized;
-        const float PitZoneExitRampEnd = TrackRuntime.PitExitRampEndNormalized;
+        // Fixed-metre pit-exit geometry fix: PitExitRampStartNormalized/
+        // PitExitRampEndNormalized are now instance properties on Runtime (computed
+        // from fixed metres, not a lap fraction - see TrackRuntime), so these two
+        // can no longer be compile-time constants. Still the single canonical
+        // source shared with RaceManager/AiVehicleController - just read through
+        // the instance now instead of the class.
+        float PitZoneExitRampStart
+        {
+            get { return Runtime.PitExitRampStartNormalized; }
+        }
+
+        float PitZoneExitRampEnd
+        {
+            get { return Runtime.PitExitRampEndNormalized; }
+        }
 
         float PitZoneBlend(float normalized)
         {
