@@ -314,7 +314,16 @@ namespace LocalFormulaRacing
         // While a car is animated through the pit lane it moves on rails: kinematic
         // and non-colliding so queued cars can never physics-fight, spin each other,
         // or take damage in the lane. Always restored on release.
-        public void SetPitGuidance(bool guided)
+        //
+        // Pit-exit handoff fix: releaseSpeedMps used to be silently ignored - the
+        // handoff always injected a fixed ~14 m/s (~50 km/h) regardless of how
+        // fast the car was actually being guided just before this call, halving a
+        // pit-exit merge's real ~100 km/h speed right in front of following pit
+        // traffic. Callers that know the real exit speed (RaceManager's
+        // ExitMerge completion) now pass it through; the 14 m/s default is kept
+        // only for callers with no meaningful guided speed of their own (e.g. a
+        // red-flag pit-sequence cancellation).
+        public void SetPitGuidance(bool guided, float releaseSpeedMps = 14f)
         {
             if (IsPitGuided == guided)
             {
@@ -340,7 +349,7 @@ namespace LocalFormulaRacing
                 {
                     body.isKinematic = false;
                     body.detectCollisions = true;
-                    body.velocity = transform.forward * 14f;
+                    body.velocity = transform.forward * Mathf.Max(0f, releaseSpeedMps);
                 }
             }
         }
@@ -386,7 +395,23 @@ namespace LocalFormulaRacing
             smoothedBrake = 1f;
         }
 
-        public float GuideToPitPose(Vector3 position, Quaternion rotation, float moveSpeed, float rotateSpeed)
+        // Collision-aware pit-exit fix: collisionAware is only ever passed true
+        // for the ExitMerge phase (see RaceManager.UpdatePitExitMerge). Entry/
+        // Service/Release stay fully non-colliding - queued cars in the pit lane
+        // must never physics-fight, spin each other, or take damage while boxed
+        // in - but a car merging back onto the live racing surface needs to
+        // actually register contact with other traffic and solid geometry
+        // instead of silently ghosting through the pit divider or the outside
+        // barrier. When collisionAware is set, detectCollisions is re-enabled
+        // and the kinematic body is advanced with Rigidbody.MovePosition/
+        // MoveRotation (the physics-engine-aware way to move a kinematic body)
+        // rather than a raw position teleport, so those contacts are actually
+        // generated. transform.position/rotation are still also written
+        // directly in the same call so every caller reading the participant's
+        // transform later in the same tick (progress projection, completion
+        // checks) sees the authoritative, up-to-date pose immediately rather
+        // than waiting for the next physics step.
+        public float GuideToPitPose(Vector3 position, Quaternion rotation, float moveSpeed, float rotateSpeed, bool collisionAware = false)
         {
             float dt = Mathf.Max(Time.deltaTime, 0.001f);
             Vector3 previousPosition = transform.position;
@@ -396,8 +421,18 @@ namespace LocalFormulaRacing
             transform.rotation = nextRotation;
             if (body != null)
             {
-                body.position = nextPosition;
-                body.rotation = nextRotation;
+                if (collisionAware && body.isKinematic)
+                {
+                    body.detectCollisions = true;
+                    body.MovePosition(nextPosition);
+                    body.MoveRotation(nextRotation);
+                }
+                else
+                {
+                    body.position = nextPosition;
+                    body.rotation = nextRotation;
+                }
+
                 if (!body.isKinematic)
                 {
                     body.velocity = Vector3.MoveTowards(body.velocity, Vector3.zero, 18f * dt);

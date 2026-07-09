@@ -162,6 +162,34 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Pit-exit handoff fix: a pit-guided car's transform moves kinematically
+        // for the entire stop, and Tick()'s own continuity-biased search
+        // (GetProgressNear, referenceDistance) only self-corrects gradually -
+        // a large kinematic jump right at handoff (a phase-transition snap, or
+        // the recovery snap in RaceManager.UpdatePitExitMerge) could otherwise
+        // leave LapTracker's own progress/checkpoint state disagreeing with
+        // where the car definitively now is for several ticks. Called once,
+        // right as pit guidance ends, with the known exit-merge distance the
+        // RaceManager pit-exit state machine already trusts, so every
+        // continuity reference here snaps into agreement immediately instead of
+        // drifting into it. Does not award a lap or otherwise change
+        // CompletedLaps/lap timing state - only the continuity references.
+        public void ResyncToDistance(float distance, Vector3 worldPosition)
+        {
+            if (Track == null)
+            {
+                return;
+            }
+
+            float wrapped = Track.WrapDistance(distance);
+            CurrentProgress = Track.GetProgressAtDistance(wrapped, worldPosition);
+            CurrentSector = CurrentProgress.sector;
+            referenceDistance = CurrentProgress.distance;
+            previousNormalized = CurrentProgress.normalized;
+            TotalProgressDistance = CompletedLaps * Track.length + CurrentProgress.distance + progressDistanceOffset;
+            ResetCheckpointsFromCurrentPosition();
+        }
+
         public void ConfigureQualifyingOutLap()
         {
             OutLapActive = true;
