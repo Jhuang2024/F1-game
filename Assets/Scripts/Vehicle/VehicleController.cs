@@ -611,25 +611,29 @@ namespace LocalFormulaRacing
                 // before the straight ran out. This range, combined with the
                 // steeper/earlier ramp-in below, is tuned to land in the
                 // requested 15-20 km/h felt-gain range on a typical straight.
-                // ERS drain-rate fix: slowed down from 0.11-0.16 - deploy now costs
-                // meaningfully less battery per second of use, so a deploy lasts
-                // noticeably longer before the car is forced back to harvesting.
+                // ERS drain-rate fix round 2: cut a further 30% (was 0.085-0.12) -
+                // deploy now costs noticeably less battery per second again, so a
+                // deploy lasts even longer before the car is forced back to
+                // harvesting.
                 ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
-                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.085f, 0.12f, activeCommand.throttle));
+                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0595f, 0.084f, activeCommand.throttle));
             }
 
+            // Braking-zone recharge fix: raised 50% (was 0.28-0.42) - a hard braking
+            // zone now banks charge noticeably faster than before.
             if (activeCommand.brake > 0.1f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.28f, 0.42f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.42f, 0.63f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
-            // Non-braking recharge fix: both the off-throttle coasting rate and the
-            // passive trickle rate below are nudged up slightly - only recovery that
-            // happens outside a genuine braking zone (which keeps its own rate above,
-            // untouched), so the battery fills a bit faster through the rest of a lap.
+            // Non-braking recharge fix round 2: both the off-throttle coasting rate
+            // and the passive trickle rate below are raised 200% (tripled) on top of
+            // their previous nudge-up - only recovery that happens outside a genuine
+            // braking zone (which keeps its own separately-tuned rate above), so the
+            // battery fills much faster through the rest of a lap.
             else if (activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.027f, 0.06f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.081f, 0.18f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ErsDeploying)
@@ -642,7 +646,7 @@ namespace LocalFormulaRacing
                 // than either the braking or coasting rate above (roughly 1/20th of
                 // the braking rate, well under half the coasting rate) so it reads as
                 // a slow background trickle, not a third harvesting mode.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0085f, 0.018f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0255f, 0.054f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
@@ -772,12 +776,13 @@ namespace LocalFormulaRacing
         void ApplySteering(VehicleCommand activeCommand, float speedKph, float dt)
         {
             float speedFactor = Mathf.Lerp(0.34f, 1f, Mathf.Clamp01(speedKph / 62f));
-            // Barrier-avoidance fix round 3: floor raised (was 0.54) - cars were
-            // still running wide into barriers through corners at real speed even
-            // after the medium-speed authority extension below, because this floor
-            // still cut turning authority nearly in half by 320kph regardless of
-            // that extension. More authority retained at genuine high speed too.
-            float highSpeedLimit = Mathf.Lerp(1f, 0.66f, Mathf.InverseLerp(90f, 320f, speedKph));
+            // Barrier-avoidance fix round 4: floor raised again (was 0.66) - the Slow
+            // corner-speed bucket now targets ~300-310kph, a genuinely tight corner's
+            // actual radius carried at essentially top-speed pace, and cars were
+            // running wide on corner exit because turning authority was still being
+            // cut by a third at that speed. More authority retained at genuine high
+            // speed again.
+            float highSpeedLimit = Mathf.Lerp(1f, 0.8f, Mathf.InverseLerp(90f, 320f, speedKph));
             float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);
             float turnRate = Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit * tyreGrip * Damage.HandlingMultiplier;
             // Tight-corner authority: a genuine hairpin's real turn radius needs more
@@ -795,14 +800,14 @@ namespace LocalFormulaRacing
             // snapping straight to 1x, so cars can actually hold a tighter line at
             // the higher speeds they're now carrying without needing to slow down
             // further.
-            // Barrier-avoidance fix round 3: pushed again (was 1.4->1.12 low
-            // segment, 1.12->1f high segment) and no longer fully converges back
-            // to 1x at high speed - keeps a genuine, permanent margin of extra
-            // authority even at top speed instead of fully giving it back, paired
-            // with the highSpeedLimit floor raise above.
+            // Barrier-avoidance fix round 4: pushed again (was 1.5->1.2 low segment,
+            // 1.2->1.08 high segment) - the ~300-310kph Slow-bucket tight-corner
+            // target now sits well past the old high-speed segment's own range, so
+            // that segment needed real headroom above 1.08x, not just the low-speed
+            // segment.
             float tightCorneringBoost = speedKph <= 120f
-                ? Mathf.Lerp(1.5f, 1.2f, Mathf.Clamp01((speedKph - 35f) / 85f))
-                : Mathf.Lerp(1.2f, 1.08f, Mathf.Clamp01((speedKph - 120f) / 160f));
+                ? Mathf.Lerp(1.65f, 1.35f, Mathf.Clamp01((speedKph - 35f) / 85f))
+                : Mathf.Lerp(1.35f, 1.22f, Mathf.Clamp01((speedKph - 120f) / 160f));
             turnRate *= tightCorneringBoost;
             turnRate *= Mathf.Lerp(1.04f, 0.72f, UndersteerAmount);
             float steerAmount = activeCommand.steer * turnRate * dt;

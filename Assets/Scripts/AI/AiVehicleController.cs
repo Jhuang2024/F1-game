@@ -115,7 +115,7 @@ namespace LocalFormulaRacing
         // Corner-type classification (Part 2): a single continuous severity number
         // hides the fact that a flowing high-speed corner and a genuine hairpin need
         // very different confidence curves, not the same eased Lerp toward one floor.
-        enum CornerType { HighSpeed, Medium, Slow, Hairpin }
+        enum CornerType { HighSpeed, Medium, Slow, VeryTight, Hairpin }
 
         // Corner-speed fix: Hard used to get zero benefit from every isExpert-only
         // branch in this classifier and in EstimateApexSpeedForCornerType below -
@@ -161,10 +161,28 @@ namespace LocalFormulaRacing
             return difficulty == RaceDifficulty.Medium ? 0.32f : 0f;
         }
 
+        // EstimateCornerSeverity measures heading change over a short, fixed ~32-36m
+        // window and clamps at 1.0 for anything tighter than roughly a 44m-radius
+        // turn - a genuinely tight corner and an actual near-180-degree hairpin both
+        // saturate that metric identically, so it alone can't tell them apart. This
+        // instead compares forward direction well before and well after the apex
+        // (a much wider baseline) to measure how much of a real U-turn the corner
+        // actually is - a track like Japan/Suzuka, whose tightest corners are real
+        // but well short of a full U-turn, saturates EstimateCornerSeverity the same
+        // as a genuine hairpin but should never read as one here.
+        float MeasureHairpinTurnAngle(float apexDistance)
+        {
+            Vector3 pointBefore, forwardBefore, rightBefore;
+            Vector3 pointAfter, forwardAfter, rightAfter;
+            track.SampleAtDistance(apexDistance - 55f, out pointBefore, out forwardBefore, out rightBefore);
+            track.SampleAtDistance(apexDistance + 55f, out pointAfter, out forwardAfter, out rightAfter);
+            return Vector3.Angle(forwardBefore, forwardAfter);
+        }
+
         // Part A.5: higher-skill tiers get wider HighSpeed/Medium buckets so they
         // stop treating flowing bends as real corners the way lower tiers
         // correctly still do.
-        CornerType ClassifyUpcomingCorner(float apexSeverity, float skillTier)
+        CornerType ClassifyUpcomingCorner(float apexSeverity, float skillTier, float hairpinTurnAngleDegrees)
         {
             // Corner-speed pass: the old bands (0.25-0.30 / 0.5-0.55) were
             // systematically mis-bucketing genuinely fast, flowing corners
@@ -184,9 +202,21 @@ namespace LocalFormulaRacing
             // only the most extreme ~10-12% instead of ~25-26%. Slow (a real but
             // non-hairpin tight corner) now sits in that narrow remaining band
             // between Medium and Hairpin.
+            // Three-tier tight-corner split: Slow ("tight corners"), VeryTight ("very
+            // very tight corners") and Hairpin now cover three genuinely distinct
+            // corner feels instead of Slow/Hairpin alone. Hairpin's band is narrowed
+            // to sit right at the top of the severity range so it's reserved for
+            // corners that are actually close to a 180-degree turn, not merely tight.
+            // Band rebalance: Slow expanded (0.88-0.90 -> 0.93-0.95 ceiling) and
+            // VeryTight tightened into the narrow remaining gap before Hairpin
+            // (was a 0.07-wide band, now ~0.02-0.04) - most corners that used to read
+            // as "very very tight" now read as an ordinary tight corner instead, and
+            // VeryTight is reserved for only the small severity range genuinely
+            // sharper than that.
             float highSpeedCeiling = Mathf.Lerp(0.42f, 0.60f, skillTier);
             float mediumCeiling = Mathf.Lerp(0.66f, 0.80f, skillTier);
-            float slowCeiling = Mathf.Lerp(0.88f, 0.90f, skillTier);
+            float slowCeiling = Mathf.Lerp(0.93f, 0.95f, skillTier);
+            float veryTightCeiling = Mathf.Lerp(0.95f, 0.97f, skillTier);
 
             if (apexSeverity < highSpeedCeiling)
             {
@@ -203,7 +233,19 @@ namespace LocalFormulaRacing
                 return CornerType.Slow;
             }
 
-            return CornerType.Hairpin;
+            if (apexSeverity < veryTightCeiling)
+            {
+                return CornerType.VeryTight;
+            }
+
+            // Genuine hairpin reservation: apexSeverity has saturated at 1.0, but that
+            // alone just means "tighter than ~44m radius" - it says nothing about
+            // whether the corner is actually close to a full 180-degree turn. Only
+            // promote to Hairpin when the wide-baseline turn angle backs that up;
+            // otherwise this is a very tight corner, not a hairpin (e.g. Japan/Suzuka's
+            // tightest corners, which saturate apexSeverity without ever approaching a
+            // true U-turn), and stays classified as VeryTight instead.
+            return hairpinTurnAngleDegrees >= 150f ? CornerType.Hairpin : CornerType.VeryTight;
         }
 
         // Per-tier apex speed curve instead of one flat Pow(severity, 1.4) eased
@@ -260,24 +302,31 @@ namespace LocalFormulaRacing
                     easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
-                    // Tight-corner speed calibration: previous rounds scaled this
-                    // relative to straightTargetSpeed, which chased the numbers up to
-                    // essentially Medium-bucket pace and lost any sense of "this is a
-                    // genuinely tight corner". Pinned to an explicit ~150-200kph target
-                    // instead (apexConfidence still blends toward the low end, skillTier
-                    // still lifts the ceiling within that band) - Mathf.Min against
-                    // straightTargetSpeed keeps the same overspeed/wall-crash guard for
-                    // the rare case a car's own straight-line pace is below this (e.g.
-                    // under a safety car).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(150f, Mathf.Lerp(170f, 200f, skillTier), apexConfidence));
+                    // Tight-corner speed calibration round 3: raised again from
+                    // ~250-300kph to ~300-310kph (apexConfidence still blends toward the
+                    // low end, skillTier still lifts the ceiling within that band) -
+                    // Mathf.Min against straightTargetSpeed keeps the same
+                    // overspeed/wall-crash guard for the rare case a car's own
+                    // straight-line pace is below this (e.g. under a safety car).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(300f, Mathf.Lerp(305f, 310f, skillTier), apexConfidence));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
+                case CornerType.VeryTight:
+                    // "Very very tight" corners: a distinct tier between Slow's
+                    // ~300-310kph tight corner and Hairpin's ~50-75kph crawl - pinned to
+                    // an explicit ~150kph target (130 low-confidence base, 150-165
+                    // skill-scaled ceiling) rather than a range, since this tier is
+                    // meant to read as one consistent speed rather than a wide band.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(130f, Mathf.Lerp(150f, 165f, skillTier), apexConfidence));
+                    easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
+                    break;
                 default:
-                    // Hairpin floor: pinned back to an explicit ~50-70kph target (a real
-                    // hairpin crawl) after previous rounds drifted this up to
-                    // ~115-155kph while chasing the Slow bucket buff - Mathf.Min against
-                    // straightTargetSpeed keeps the same overspeed guard as the Slow
-                    // bucket above.
+                    // Hairpin floor: an explicit ~50-75kph target (a real hairpin
+                    // crawl) - this bucket's severity band is now narrowed (see
+                    // ClassifyUpcomingCorner) so it's only reached by corners that are
+                    // actually close to a 180-degree turn, not merely tight ones.
+                    // Mathf.Min against straightTargetSpeed keeps the same overspeed
+                    // guard as the tiers above.
                     // Tight-corner fix round 2: easePower dropped from 1.2 to 0.45 - at
                     // 1.2, only a corner at the literal severity ceiling (~1.0) actually
                     // reached floorSpeed; anything else in the Hairpin bucket (severity
@@ -551,20 +600,20 @@ namespace LocalFormulaRacing
             // Car-relative hairpin floor instead of one flat number for every car: a
             // stronger braking/cornering car has a genuinely higher minimum apex speed
             // even at a true hairpin.
-            // Tight-corner speed calibration: explicit ~50-70kph target for a genuine
-            // hairpin (previous rounds drifted this up to ~115-155kph while chasing the
-            // Slow bucket buff, which read as far too fast for an actual hairpin -
-            // pinned back down to a real hairpin-crawl range). Genuine hairpins only;
-            // a merely-tight corner is the separate Slow bucket below and no longer
-            // derives from this number at all.
+            // Explicit ~50-75kph target for a genuine hairpin (a corner that's actually
+            // close to a 180-degree turn - see the narrowed Hairpin band in
+            // ClassifyUpcomingCorner). A merely-tight or very-tight corner is the
+            // separate Slow/VeryTight buckets below and no longer derives from this
+            // number at all.
             float carBrakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
             float carCorneringStat = vehicle.CarData == null ? 78f : vehicle.CarData.cornering;
-            float hairpinSpeedKph = Mathf.Lerp(50f, 70f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
+            float hairpinSpeedKph = Mathf.Lerp(50f, 75f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
             // genuine hairpin need very different confidence curves (Part 2).
-            CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity, skillTier);
+            float hairpinTurnAngle = MeasureHairpinTurnAngle(progress.distance + apexDistanceAhead);
+            CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity, skillTier, hairpinTurnAngle);
             float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, straightTargetSpeed, hairpinSpeedKph, gripMultiplier, apexConfidence, skillTier);
 
             // Cornering buff round 8: profile.cornerSpeedMultiplier is no longer
@@ -743,7 +792,12 @@ namespace LocalFormulaRacing
             // got. Speed is the one thing that always helps regardless of how tight
             // the turn radius needs to be, so this now genuinely brakes near the
             // edge too, not just steers.
-            float edgeMarginDistance = Mathf.Lerp(4.2f, 6.8f, Mathf.Clamp01(speedKph / 280f));
+            // Barrier-avoidance fix round 4: ceiling raised again and the scaling
+            // window extended out to 340kph (was 6.8m ceiling reached by 280kph) -
+            // the Slow corner-speed bucket now targets ~300-310kph, so the old curve
+            // was already maxed out well before cars reached their actual tight-corner
+            // speed, leaving no extra margin exactly when it was needed most.
+            float edgeMarginDistance = Mathf.Lerp(4.2f, 9f, Mathf.Clamp01(speedKph / 340f));
             float edgeMargin = track.HalfWidthAt(progress.distance) - edgeMarginDistance;
             float edgeOvershoot = Mathf.Abs(progress.lateralDistance) - edgeMargin;
             float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);
@@ -1166,7 +1220,11 @@ namespace LocalFormulaRacing
             // Car-avoidance fix: Expert's floor/discount pulled back further (was
             // 0.18 floor / *0.8 discount) - "committing to a real gap" was still
             // reading as running into the player/other cars, not clean hard racing.
-            float cautionFloor = isExpert ? 0.26f : 0.5f;
+            // Car-avoidance fix round 2: floors raised again (was 0.26/0.5) across
+            // every difficulty - cars were still making contact more than clean
+            // racing should allow, so the baseline caution every tier starts from
+            // is genuinely higher, not just Expert's discount being smaller.
+            float cautionFloor = isExpert ? 0.34f : 0.6f;
             float cautionFactor = Mathf.Clamp(profile.trafficAvoidanceCaution, cautionFloor, 1.4f);
             if (isExpert)
             {
@@ -1179,7 +1237,10 @@ namespace LocalFormulaRacing
             // Car-avoidance fix: widened (was 18-52) so anticipation starts earlier
             // at every speed, giving more real time to react before a car ahead
             // becomes an actual collision instead of a late dodge/brake.
-            float forwardWindow = Mathf.Lerp(24f, 64f, Mathf.Clamp01(speedKph / 320f));
+            // Car-avoidance fix round 2: widened again (was 24-64) - the higher
+            // corner-exit and straight-line speeds cars now carry closed the
+            // reaction window this detection range gives before contact.
+            float forwardWindow = Mathf.Lerp(30f, 76f, Mathf.Clamp01(speedKph / 320f));
 
             for (int i = 0; i < raceManager.Participants.Count; i++)
             {
@@ -1213,12 +1274,16 @@ namespace LocalFormulaRacing
                     // the brake/throttle response curves strengthened (was 0.12-0.95 /
                     // 0.85-0.15) - closing cars were still reaching contact before this
                     // reacted hard enough.
+                    // Car-avoidance fix round 2: threshold/gate widened again (was
+                    // 3.0s / 3.8m) and the brake/throttle response curves strengthened
+                    // further (was 0.2-1 / 0.8-0.05) - reacts earlier and harder to a
+                    // genuinely closing gap.
                     float timeToContact = local.z / Mathf.Max(1.5f, closingKph / 3.6f);
-                    if (timeToContact < 3.0f && absX < 3.8f)
+                    if (timeToContact < 3.6f && absX < 4.2f)
                     {
-                        float urgency = Mathf.Clamp01(1f - timeToContact / 3.0f);
-                        brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.2f, 1f, urgency * urgency) * overlap);
-                        throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.8f, 0.05f, urgency));
+                        float urgency = Mathf.Clamp01(1f - timeToContact / 3.6f);
+                        brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.3f, 1f, urgency * urgency) * overlap);
+                        throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.72f, 0.05f, urgency));
                     }
 
                     // Tighter lane-only overlap for the soft cruising cap so a car with
@@ -1259,7 +1324,8 @@ namespace LocalFormulaRacing
                         dodgeMemoryTimer = isExpert ? 0.6f : 1.1f;
                         float dodgeStrength = Mathf.Clamp01(1f - local.z / (forwardWindow * 0.7f));
                         // Car-avoidance fix: dodge commitment strengthened (was 0.08-0.4).
-                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.12f, 0.5f, dodgeStrength);
+                        // Car-avoidance fix round 2: strengthened again (was 0.12-0.5).
+                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.18f, 0.66f, dodgeStrength);
                     }
                 }
 
@@ -1269,7 +1335,11 @@ namespace LocalFormulaRacing
                 // and the push-away response strengthened further (was 0.06-0.34 /
                 // 4.8 divisor / 1-0.6 cutback) - side-by-side pairs were still
                 // converging into contact before this resolved them.
-                if (Mathf.Abs(local.z) < 7.5f && absX < 5.4f)
+                // Car-avoidance fix round 2: detection window widened again (was
+                // 7.5/5.4) and the push-away response strengthened further (was
+                // 0.1-0.48 / 5.4 divisor) - catches a converging side-by-side pair
+                // earlier and pushes apart harder once detected.
+                if (Mathf.Abs(local.z) < 8.5f && absX < 6.2f)
                 {
                     if (local.x < 0f)
                     {
@@ -1280,8 +1350,8 @@ namespace LocalFormulaRacing
                         blockedRight = true;
                     }
 
-                    float sideOverlap = Mathf.Clamp01(1f - absX / 5.4f);
-                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.1f, 0.48f, sideOverlap);
+                    float sideOverlap = Mathf.Clamp01(1f - absX / 6.2f);
+                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.14f, 0.6f, sideOverlap);
                     float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.5f, sideOverlap)) * cautionFactor);
                     throttleLimit = Mathf.Min(throttleLimit, sideCutback);
                 }

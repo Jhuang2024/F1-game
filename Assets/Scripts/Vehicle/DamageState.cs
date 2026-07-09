@@ -107,6 +107,12 @@ namespace LocalFormulaRacing
             float glancingFactor = Mathf.Lerp(0.35f, 1f, Mathf.Clamp01(normalSpeedKph / Mathf.Max(1f, impactSpeedKph)));
             energy *= glancingFactor;
 
+            // Collision damage nerf round 3: another 0.5x on top of round 2's 0.5x -
+            // every impact type (car/wall/barrier/solid) now registers about 25% of
+            // the damage it did before any of this scaling existed.
+            const float CollisionDamageScale = 0.25f;
+            energy *= CollisionDamageScale;
+
             float before = OverallPercent;
             if (localPoint.z > 0.1f)
             {
