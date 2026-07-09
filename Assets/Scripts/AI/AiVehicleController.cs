@@ -873,18 +873,50 @@ namespace LocalFormulaRacing
             // overtake/defend/mistake-steer commitment while committing to the box.
             // (committingToPit itself is now computed earlier, before the off-track
             // recovery decision above - see the comment there for why.)
+            //
+            // Pit-entry architecture fix: this used to weakly LERP requestedOffset
+            // toward the pit target using blends keyed off 0.955 (approachBlend) and
+            // 0.865 (lateEntryBlend) - neither matched the real physical ramp, which
+            // only spans PitEntryRampStartNormalized (0.85) to
+            // PitCorridorStartNormalized (0.885). At 0.885, where the ramp has
+            // already fully flattened into the corridor and the divider wall begins,
+            // lateEntryBlend was only ~0.22 (squared, ~0.05) - barely 5% committed to
+            // the ramp's own line by the time the physical opening had already
+            // closed, so the car reached the divider and continued down the main
+            // straight instead of turning in. Rewritten around the two real physical
+            // stages, with the pit target now a DIRECT assignment (not a weak lerp)
+            // so it wins outright over wobble/lineBias/aggressionOffset/mistakeSteer
+            // instead of merely blending against them.
+            bool preEntryRampStage = false;
+            bool onEntryRampStage = false;
+            float pitEntryTargetLateral = 0f;
             if (committingToPit)
             {
-                float approachBlend = Mathf.Clamp01((progress.normalized - 0.78f) / (0.955f - 0.78f));
-                float pitApproachTargetLateral = track.PitEntryApproachLateral(progress.distance);
-                requestedOffset = Mathf.Lerp(requestedOffset, pitApproachTargetLateral, approachBlend * approachBlend);
-
-                if (track.IsInPitEntryZone(progress.normalized))
+                if (progress.normalized < TrackRuntime.PitEntryRampStartNormalized)
                 {
-                    float lateEntryBlend = Mathf.Clamp01((progress.normalized - 0.865f) / (0.955f - 0.865f));
-                    float finalEntryLateral = track.PitEntryPathLateral(progress.distance);
-                    requestedOffset = Mathf.Lerp(requestedOffset, finalEntryLateral, lateEntryBlend * lateEntryBlend);
+                    // Stage A (pre-position): still on the live racing surface, ahead
+                    // of the real opening - line up on the outer-right edge so the
+                    // car is already positioned to turn in the instant the ramp
+                    // starts, rather than aiming metres outside the track before
+                    // there is anywhere to go.
+                    preEntryRampStage = true;
+                    pitEntryTargetLateral = track.HalfWidthAt(progress.distance) - 0.4f;
                 }
+                else
+                {
+                    // Stage B (on the ramp): physically inside the real
+                    // 0.850-0.885 opening - follow the actual built ramp
+                    // envelope/centerline directly (Track.PitEntryPathLateral, the
+                    // same GetPitEntryRampEnvelope taper BuildPitRampSurface paves)
+                    // instead of blending toward it.
+                    onEntryRampStage = true;
+                    pitEntryTargetLateral = track.PitEntryPathLateral(progress.distance);
+                }
+
+                // Direct assignment, not a lerp: the pit-entry target must win
+                // absolutely over ordinary racing-line offsets, not fight them for a
+                // share of requestedOffset.
+                requestedOffset = pitEntryTargetLateral;
             }
 
             // Pit-exit early-turn fix: the guided PitPhase.ExitMerge itself
@@ -896,7 +928,10 @@ namespace LocalFormulaRacing
             // post-merge hold (armed by RaceManager once ExitMerge completes) keeps
             // the car on the outer lane a little longer and decays smoothly, rather
             // than snapping straight back to full racing-line targeting.
-            if (participant.pitExitLaneHoldTimer > 0f || participant.pitExitLaneHoldDistanceRemaining > 0f)
+            // (Guarded against committingToPit so a fresh pit-entry target can never
+            // be overridden by a stale post-merge hold from a previous stop -
+            // committing to a NEW entry always wins.)
+            if (!committingToPit && (participant.pitExitLaneHoldTimer > 0f || participant.pitExitLaneHoldDistanceRemaining > 0f))
             {
                 participant.pitExitLaneHoldTimer = Mathf.Max(0f, participant.pitExitLaneHoldTimer - Time.deltaTime);
                 float distanceThisFrame = Mathf.Max(0f, vehicle.CurrentSpeedKph) / 3.6f * Time.deltaTime;
@@ -908,8 +943,9 @@ namespace LocalFormulaRacing
             }
 
             // Opening seconds: hold the assigned fan-out lane, blending back to the
-            // racing line as the field strings out.
-            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.RaceElapsed < OpeningFanDuration)
+            // racing line as the field strings out. (Guarded against committingToPit
+            // for the same reason as the post-merge hold above.)
+            if (!committingToPit && raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.RaceElapsed < OpeningFanDuration)
             {
                 float fanBlend = 1f - Mathf.Clamp01(raceManager.RaceElapsed / OpeningFanDuration);
                 requestedOffset = Mathf.Lerp(requestedOffset, openingFanOffset, fanBlend * 0.85f);
@@ -1150,7 +1186,29 @@ namespace LocalFormulaRacing
                 }
             }
 
-            ApplyTrafficAvoidance(ref command, progress, speedKph, profile, isExpert);
+            float preTrafficSteer = command.steer;
+            ApplyTrafficAvoidance(ref command, progress, speedKph, profile, isExpert, committingToPit);
+
+            if (committingToPit && !participant.isPlayer)
+            {
+                // Pit-entry debug logging (verbose-gated, matches the existing
+                // GameLog.Verbose convention): makes it obvious whether the AI
+                // failed to pre-position, traffic steering overrode the target, it
+                // reached the ramp but failed the physical test, or RaceManager
+                // failed to begin Entry (logged separately in
+                // RaceManager.HandlePitService's own "[PitEntry]" line).
+                GameLog.Info("[PitEntrySteer] " + participant.driverName +
+                             " normalized=" + progress.normalized.ToString("0.000") +
+                             " lateral=" + progress.lateralDistance.ToString("0.00") +
+                             " halfWidth=" + track.HalfWidthAt(progress.distance).ToString("0.00") +
+                             " preEntryStage=" + preEntryRampStage +
+                             " onRampStage=" + onEntryRampStage +
+                             " onPitEntryRamp=" + onPitEntryRamp +
+                             " pitTarget=" + pitEntryTargetLateral.ToString("0.00") +
+                             " requestedOffset=" + requestedOffset.ToString("0.00") +
+                             " trafficSteerAdjust=" + (command.steer - preTrafficSteer).ToString("0.00") +
+                             " command.steer=" + command.steer.ToString("0.00"));
+            }
 
             // Driver-pressure model: a car actively attacking or defending under
             // close pressure pushes slightly harder - the tyre lockup model already
@@ -1426,7 +1484,7 @@ namespace LocalFormulaRacing
             }
         }
 
-        void ApplyTrafficAvoidance(ref VehicleCommand command, TrackProgress progress, float speedKph, RaceManager.AiDifficultyProfile profile, bool isExpert)
+        void ApplyTrafficAvoidance(ref VehicleCommand command, TrackProgress progress, float speedKph, RaceManager.AiDifficultyProfile profile, bool isExpert, bool committingToPit)
         {
             float brakeDemand = 0f;
             float throttleLimit = 1f;
@@ -1628,6 +1686,23 @@ namespace LocalFormulaRacing
             }
 
             command.throttle = Mathf.Min(command.throttle, throttleLimit);
+
+            // Pit-entry queueing fix: while committing to a pit stop, braking/
+            // throttle reduction for a car ahead (e.g. another car already queued
+            // into the same entry) is kept exactly as-is - cars should still slow
+            // and queue behind one another. But the ordinary dodge/side-by-side
+            // steerAdjust above can swing up to +-0.78, which was easily strong
+            // enough to cancel or reverse the deterministic pit-entry line computed
+            // above, reading as the AI dodging sideways and missing the entrance
+            // entirely in a dense pack. Constrained to a small emergency-separation
+            // nudge only while committing - enough to avoid clipping another car,
+            // never enough to pull the car off the entry trajectory and into a
+            // three-wide scatter across the straight.
+            if (committingToPit)
+            {
+                steerAdjust = Mathf.Clamp(steerAdjust, -0.12f, 0.12f);
+            }
+
             command.steer = Mathf.Clamp(command.steer + steerAdjust, -1f, 1f);
         }
 

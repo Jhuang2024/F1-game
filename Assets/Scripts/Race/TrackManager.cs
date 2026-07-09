@@ -403,6 +403,22 @@ namespace LocalFormulaRacing
             return normalizedProgress > 0.865f && normalizedProgress < 0.955f;
         }
 
+        // Pit-entry timing fix: the REAL physical entry opening only exists between
+        // PitEntryRampStartNormalized (0.85, where the ramp first tapers off the live
+        // track edge) and PitCorridorStartNormalized (0.885, where the ramp has fully
+        // flattened into the enclosed corridor and the divider wall begins). The
+        // broader IsInPitEntryZone (0.865-0.955) above exists for approach/HUD
+        // messaging and used to also gate IsOnPitEntryRamp's physical commit test -
+        // meaning RaceManager couldn't even consider a car "on the ramp" until 0.865,
+        // by which point roughly 43% of the real 0.850-0.885 opening had already
+        // passed, and kept trying all the way out to 0.955, long after the physical
+        // opening (and the divider wall behind it) had already closed. Every physical
+        // commit/steering decision now uses this real window instead.
+        public bool IsInPitEntryRampWindow(float normalized)
+        {
+            return normalized >= PitEntryRampStartNormalized && normalized <= PitCorridorStartNormalized;
+        }
+
         // Shared with PitExitMergeBlend below so the steering-line hold and the
         // speed limiter agree on exactly where the pit-exit merge window starts.
         const float PitExitLimiterStartNormalized = 0.985f;
@@ -579,15 +595,23 @@ namespace LocalFormulaRacing
             SamplePitLanePose(wrapped, lateral, out position, out rotation);
         }
 
-        // Broader "is this car on the pit-entry side" test (gated on the wider
-        // IsInPitEntryZone commit window, not just the narrow physical taper) -
-        // used to decide whether a car has genuinely, physically committed to the
-        // pit lane before any guided pit sequence is allowed to begin. A car still
-        // out on the racing line reads as false even while inside the zone's
-        // normalized span.
+        // "Is this car on the pit-entry side" test - used to decide whether a car
+        // has genuinely, physically committed to the pit lane before any guided pit
+        // sequence is allowed to begin. A car still out on the racing line reads as
+        // false even while inside the ramp window's normalized span.
+        //
+        // Pit-entry timing fix: this used to gate on the broader IsInPitEntryZone
+        // (0.865-0.955), not the real physical ramp window (0.850-0.885,
+        // IsInPitEntryRampWindow) - a car couldn't be considered "on the ramp" until
+        // 0.865 even if it was already physically riding the built ramp surface at
+        // 0.855, and this test kept accepting a match all the way out to 0.955, long
+        // after the ramp itself had fully flattened into the corridor and the
+        // divider wall had begun. Gating on the real window instead means a car is
+        // only ever considered "on the ramp" while the physical ramp geometry
+        // actually exists there.
         public bool IsOnPitEntryRamp(TrackProgress progress)
         {
-            if (!IsInPitEntryZone(progress.normalized))
+            if (!IsInPitEntryRampWindow(progress.normalized))
             {
                 return false;
             }

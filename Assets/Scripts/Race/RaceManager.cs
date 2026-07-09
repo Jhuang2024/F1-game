@@ -8813,43 +8813,64 @@ namespace LocalFormulaRacing
                 PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is 80 km/h.", true, RaceAudioCue.PitConfirm);
             }
 
-            if (Track.IsInPitEntryZone(normalized))
+            // Pit-entry timing fix: physical commit decisions (whether a car is "on
+            // the ramp", and the missed-entry cutoff) now key off the REAL physical
+            // ramp window (Track.IsInPitEntryRampWindow, 0.850-0.885) instead of the
+            // broader approach/HUD zone (IsInPitEntryZone, 0.865-0.955). The old zone
+            // both started (0.865) after roughly 43% of the real 0.850-0.885 opening
+            // had already passed AND kept accepting a commit all the way to 0.955,
+            // long after the ramp had fully flattened into the corridor and the
+            // divider wall (TrackManager.BuildPitLaneDividerFence, which starts
+            // exactly at PitCorridorStartNormalized) had already begun - AI cars were
+            // reaching the wall and bouncing back onto the main straight instead of
+            // ever being recognized as having entered. Also re-samples the car's own
+            // ACTUAL current transform position fresh here (Track.GetProgressNear),
+            // not the cached/timing-snapshot progress used elsewhere for steering, so
+            // the commit decision is judged against where the car genuinely,
+            // physically is right now.
+            bool inPitEntryRampWindow = Track.IsInPitEntryRampWindow(normalized);
+            if (inPitEntryRampWindow)
             {
-                // Pit-lane architecture fix: this used to commit to the guided pit
-                // sequence off a lateral-fraction heuristic (>0.35 of the way to
-                // the track edge) OR unconditionally once the car reached the tail
-                // of the zone (mustCommitNow) - the latter meant a car that never
-                // actually steered toward the pits still got yanked into
-                // BeginPitEntry from wherever it happened to be on the racing
-                // surface, reading exactly like "pitting out of nowhere". Entry now
-                // requires the car to be genuinely, physically on the built pit-
-                // entry ramp (Track.IsOnPitEntryRamp - the same envelope
-                // BuildPitRampSurface paves), for both AI and the player. A car
-                // that runs out of zone without ever getting onto the ramp misses
-                // the stop cleanly and retries at the next pit window - it is never
-                // teleported/snapped sideways.
-                bool physicallyOnPitEntryRamp = Track.IsOnPitEntryRamp(currentProgress);
+                TrackProgress actualProgress = Track.GetProgressNear(participant.transform.position, currentProgress.distance);
+                bool physicallyOnPitEntryRamp = Track.IsOnPitEntryRamp(actualProgress);
                 if (physicallyOnPitEntryRamp)
                 {
                     BeginPitEntry(participant);
                 }
-                else if (normalized > 0.952f)
-                {
-                    participant.missedPitEntryThisLap = true;
-                    participant.vehicle.ClearPitRequest();
-                    if (participant.isPlayer)
-                    {
-                        SessionMessage = "Pit entry missed. We'll box next lap.";
-                        PostEngineerMessage("Pit entry missed. We'll box next lap.", true);
-                    }
-                    else
-                    {
-                        GameLog.Warn("[PitLane] " + participant.driverName + " missed pit entry; retrying next lap.");
-                    }
-                }
                 else if (participant.isPlayer)
                 {
                     SessionMessage = "Pit entry: steer right to commit";
+                }
+
+                if (!participant.isPlayer)
+                {
+                    GameLog.Info("[PitEntry] " + participant.driverName +
+                                 " normalized=" + normalized.ToString("0.000") +
+                                 " lateral=" + actualProgress.lateralDistance.ToString("0.00") +
+                                 " halfWidth=" + Track.HalfWidthAt(actualProgress.distance).ToString("0.00") +
+                                 " onRamp=" + physicallyOnPitEntryRamp +
+                                 " beganEntry=" + physicallyOnPitEntryRamp);
+                }
+            }
+            else if (normalized > TrackRuntime.PitCorridorStartNormalized)
+            {
+                // Past the real physical opening without ever committing - the
+                // divider wall has already begun by here, so there is no longer a
+                // physical path through. Mark the stop missed and retry next lap
+                // instead of continuing to steer the car toward a wall until some
+                // much later, physically meaningless deadline (this used to wait
+                // until 0.952, ~7% of a lap after the real opening had already
+                // closed).
+                participant.missedPitEntryThisLap = true;
+                participant.vehicle.ClearPitRequest();
+                if (participant.isPlayer)
+                {
+                    SessionMessage = "Pit entry missed. We'll box next lap.";
+                    PostEngineerMessage("Pit entry missed. We'll box next lap.", true);
+                }
+                else
+                {
+                    GameLog.Warn("[PitLane] " + participant.driverName + " missed pit entry; retrying next lap.");
                 }
             }
             else if (participant.isPlayer)
