@@ -322,7 +322,8 @@ namespace LocalFormulaRacing
                     // Tight-corner speed calibration round 4: raised another flat 50kph
                     // (300-310kph -> 350-360kph) - Hairpin's own floor below is
                     // deliberately untouched.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(350f, Mathf.Lerp(355f, 360f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 5: brought back down 25kph (350-360kph -> 325-335kph).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(325f, Mathf.Lerp(330f, 335f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
