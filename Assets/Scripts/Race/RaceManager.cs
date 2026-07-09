@@ -458,6 +458,21 @@ namespace LocalFormulaRacing
         bool engineerLockupWarningSent;
         int lastTeammateGapReportLap = -1;
         bool engineerPodiumMessageSent;
+
+        // Lap-gap radio: engineer call comparing the player's gap to the relevant
+        // car (car ahead, or P2 if the player leads) against the previous lap's
+        // gap. Split into "pending" state (armed the instant a new lap is detected,
+        // fires after a short delay once timing has settled) and a persistent
+        // snapshot of the last successfully-spoken/refreshed comparison.
+        float playerGapRadioPendingTimer = -1f;
+        int playerGapRadioPendingLapNumber = -1;
+        int playerGapRadioLastSeenCompletedLaps = -1;
+        int playerPitStopsAtLastGapRadioBoundary = -1;
+        int lastPlayerGapRadioLap = -1;
+        float previousPlayerComparisonGap = -1f;
+        string previousComparisonDriverId = "";
+        bool previousPlayerWasLeader;
+        int previousPlayerGapRadioPosition = -1;
         int lastStartLightCountPlayed = -1;
         // Restart countdown lights/audio (red flag and safety car restarts):
         // mirrors the original race-start light build-up (PlayStartLight)
@@ -990,6 +1005,7 @@ namespace LocalFormulaRacing
             SortRunningOrder();
             CheckIllegalOvertakesUnderYellow();
             UpdateOvertakeAndFastestLapNotifications();
+            UpdatePlayerLapGapRadio();
             UpdatePlayerAutoPitStrategy();
             UpdateRaceEngineer();
             UpdateWeatherTransition();
@@ -3956,6 +3972,15 @@ namespace LocalFormulaRacing
             lastTeammateGapReportLap = -1;
             engineerPodiumMessageSent = false;
             hudToastQueue.Clear();
+            playerGapRadioPendingTimer = -1f;
+            playerGapRadioPendingLapNumber = -1;
+            playerGapRadioLastSeenCompletedLaps = -1;
+            playerPitStopsAtLastGapRadioBoundary = -1;
+            lastPlayerGapRadioLap = -1;
+            previousPlayerComparisonGap = -1f;
+            previousComparisonDriverId = "";
+            previousPlayerWasLeader = false;
+            previousPlayerGapRadioPosition = -1;
         }
 
         // Number of stops the player planned on the strategy screen, defensively
@@ -4361,6 +4386,275 @@ namespace LocalFormulaRacing
                     }
                 }
             }
+        }
+
+        // Lap-gap radio feature: at the end of each completed player lap, the
+        // engineer reports how much time was gained or lost against the relevant
+        // car - the car directly ahead if the player isn't leading, or P2 if they
+        // are. Edge-detects a newly completed lap and arms a short delay
+        // (PlayerGapRadioDelaySeconds) before actually reading gaps/order, so a
+        // read taken the instant the line is crossed (when standings/distances can
+        // be momentarily noisy) never drives the call.
+        const float PlayerGapRadioDelaySeconds = 1.2f;
+
+        void UpdatePlayerLapGapRadio()
+        {
+            if (PlayerParticipant == null || PlayerParticipant.lapTracker == null || IsTimeTrial || CurrentSession == RaceWeekendSession.Qualifying)
+            {
+                return;
+            }
+
+            int completedLaps = PlayerParticipant.lapTracker.CompletedLaps;
+            if (completedLaps != playerGapRadioLastSeenCompletedLaps)
+            {
+                playerGapRadioLastSeenCompletedLaps = completedLaps;
+                playerGapRadioPendingLapNumber = completedLaps;
+                playerGapRadioPendingTimer = PlayerGapRadioDelaySeconds;
+            }
+
+            if (playerGapRadioPendingTimer < 0f)
+            {
+                return;
+            }
+
+            playerGapRadioPendingTimer -= Time.deltaTime;
+            if (playerGapRadioPendingTimer > 0f)
+            {
+                return;
+            }
+
+            playerGapRadioPendingTimer = -1f;
+            EvaluatePlayerLapGapRadio(playerGapRadioPendingLapNumber);
+        }
+
+        // Gap in seconds from `participant` to whoever is directly ahead of it in
+        // the running order (not the distance-radius-capped GetIntervalToAheadSeconds,
+        // which is tuned for DRS-range checks) - or -1f if `participant` is the
+        // leader, has no valid data, or the car ahead is a full lap or more up the
+        // road (not a meaningful "seconds" gap for a pace call).
+        float GetRunningOrderGapAheadSeconds(RaceParticipant participant)
+        {
+            if (participant == null || State == null || participant.lapTracker == null)
+            {
+                return -1f;
+            }
+
+            int index = State.SortedOrder.IndexOf(participant);
+            if (index <= 0)
+            {
+                return -1f;
+            }
+
+            RaceParticipant ahead = State.SortedOrder[index - 1];
+            if (ahead == null || ahead.lapTracker == null)
+            {
+                return -1f;
+            }
+
+            float aheadDistance = State.GetProgressDistance(ahead);
+            float participantDistance = State.GetProgressDistance(participant);
+            float deltaMeters = aheadDistance - participantDistance;
+            if (Track != null && deltaMeters >= Track.length * 0.92f)
+            {
+                return -1f;
+            }
+
+            float speed = Mathf.Max(24f, participant.vehicle == null ? 36f : Mathf.Abs(participant.vehicle.CurrentSpeedKph) / 3.6f);
+            return Mathf.Max(0f, deltaMeters) / speed;
+        }
+
+        // The actual comparison, run once the post-lap delay above has elapsed.
+        // Every exit path that isn't a genuine, clean, single-lap comparison
+        // returns without touching the persistent snapshot fields, so a dirty lap
+        // (pit stop, safety car, retired rival, lapped gap) never contaminates the
+        // baseline the next clean lap compares against - it just self-heals once
+        // a fully clean lap comes around again, rather than ever speaking a
+        // misleading number.
+        void EvaluatePlayerLapGapRadio(int completedLapNumber)
+        {
+            if (PlayerParticipant == null || PlayerParticipant.lapTracker == null ||
+                PlayerParticipant.retired || PlayerParticipant.finished || State == null)
+            {
+                return;
+            }
+
+            // Player pit-stop-this-lap detection: compares the pit-stop COUNT at
+            // this lap boundary against the count recorded at the previous one,
+            // which catches a stop that both started and fully completed within
+            // the same lap - a plain "is currently pitting" check taken only at
+            // this one delayed instant could miss that entirely.
+            bool playerPittedThisLap = playerPitStopsAtLastGapRadioBoundary >= 0 && PlayerParticipant.pitStops != playerPitStopsAtLastGapRadioBoundary;
+            playerPitStopsAtLastGapRadioBoundary = PlayerParticipant.pitStops;
+
+            if (completedLapNumber < 1)
+            {
+                // Lap 1 (out/formation lap) has no previous-lap reference - never a
+                // real comparison. Establish nothing yet; the snapshot starts once
+                // lap 1 itself completes cleanly.
+                return;
+            }
+
+            SortRunningOrder();
+            int playerIndex = State.SortedOrder.IndexOf(PlayerParticipant);
+            if (playerIndex < 0)
+            {
+                return;
+            }
+
+            bool playerIsLeader = playerIndex == 0;
+            int position = playerIndex + 1;
+            RaceParticipant comparisonDriver;
+            float currentGap;
+            if (playerIsLeader)
+            {
+                comparisonDriver = State.SortedOrder.Count > 1 ? State.SortedOrder[1] : null;
+                currentGap = comparisonDriver == null ? -1f : GetRunningOrderGapAheadSeconds(comparisonDriver);
+            }
+            else
+            {
+                comparisonDriver = State.SortedOrder[playerIndex - 1];
+                currentGap = GetRunningOrderGapAheadSeconds(PlayerParticipant);
+            }
+
+            bool raceControlUnsettled = drsRestartCooldownTimer > 0f ||
+                CurrentRaceControlState == RaceControlState.VirtualSafetyCar ||
+                CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
+                CurrentRaceControlState == RaceControlState.SafetyCarActive ||
+                CurrentRaceControlState == RaceControlState.SafetyCarInThisLap ||
+                CurrentRaceControlState == RaceControlState.RedFlagged ||
+                CurrentRaceControlState == RaceControlState.Restart;
+
+            bool comparisonDriverDirty = comparisonDriver == null || comparisonDriver.lapTracker == null ||
+                comparisonDriver.retired || comparisonDriver.finished ||
+                comparisonDriver.isPitting || comparisonDriver.pitPhase != PitPhase.None;
+
+            bool gapValid = currentGap >= 0f && currentGap < 40f;
+
+            bool lapIsClean = !playerPittedThisLap && !raceControlUnsettled && !comparisonDriverDirty && gapValid &&
+                !PlayerParticipant.isPitting && PlayerParticipant.pitPhase == PitPhase.None;
+
+            if (!lapIsClean)
+            {
+                return;
+            }
+
+            string comparisonId = comparisonDriver.driverId;
+            bool hasContinuousSnapshot = lastPlayerGapRadioLap == completedLapNumber - 1;
+            bool playerPositionChanged = hasContinuousSnapshot && previousPlayerGapRadioPosition > 0 && position != previousPlayerGapRadioPosition;
+
+            if (playerPositionChanged)
+            {
+                string name = DriverRadioName(comparisonDriver);
+                string gapText = FormatGapSeconds(currentGap);
+                if (position < previousPlayerGapRadioPosition)
+                {
+                    PostEngineerMessage(playerIsLeader
+                        ? "Position gained. Leading now, " + name + " is " + gapText + " behind."
+                        : "Position gained. Now chasing " + name + ", gap " + gapText + ".", false);
+                }
+                else
+                {
+                    PostEngineerMessage("Position lost. Car ahead is " + name + ", gap " + gapText + ".", false);
+                }
+            }
+            else if (hasContinuousSnapshot && !string.IsNullOrEmpty(previousComparisonDriverId) && previousComparisonDriverId == comparisonId &&
+                     previousPlayerWasLeader == playerIsLeader)
+            {
+                SpeakPlayerLapGapDelta(currentGap - previousPlayerComparisonGap, comparisonDriver, playerIsLeader);
+            }
+
+            // else: comparison target shuffled for reasons other than the player's
+            // own position (the car ahead pitted out/retired and got replaced by
+            // someone else, or this is the first clean lap after a gap in
+            // coverage) - stay silent, just refresh the baseline below.
+            previousPlayerGapRadioPosition = position;
+            lastPlayerGapRadioLap = completedLapNumber;
+            previousPlayerComparisonGap = currentGap;
+            previousComparisonDriverId = comparisonId;
+            previousPlayerWasLeader = playerIsLeader;
+        }
+
+        const float PlayerGapRadioStableThreshold = 0.15f;
+
+        void SpeakPlayerLapGapDelta(float delta, RaceParticipant comparisonDriver, bool playerIsLeader)
+        {
+            string name = DriverRadioName(comparisonDriver);
+            if (Mathf.Abs(delta) < PlayerGapRadioStableThreshold)
+            {
+                PostEngineerMessage(playerIsLeader ? "Gap to P2 is stable." : "Gap to " + name + " is stable.", false);
+                return;
+            }
+
+            string amount = FormatGapDelta(Mathf.Abs(delta));
+            if (playerIsLeader)
+            {
+                // delta > 0: the gap to P2 grew - player pulled away.
+                // delta < 0: the gap shrank - P2 gained on the player.
+                PostEngineerMessage(delta > 0f
+                    ? "You pulled " + amount + " on " + name + " last lap."
+                    : name + " gained " + amount + " on you last lap.", false);
+            }
+            else
+            {
+                // delta < 0: the gap to the car ahead shrank - player gained.
+                // delta > 0: the gap grew - player lost time to them.
+                PostEngineerMessage(delta < 0f
+                    ? "Good lap. You gained " + amount + " on " + name + "."
+                    : "You lost " + amount + " to " + name + " last lap.", false);
+            }
+        }
+
+        static readonly string[] TenthsWords = { "", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine" };
+
+        // Under a second: spoken as tenths ("seven tenths", "half a second" for
+        // exactly five). A second or more: plain numeric text - spec explicitly
+        // allows this fallback rather than a full number-to-words conversion.
+        string FormatGapDelta(float absSeconds)
+        {
+            if (absSeconds < 0.95f)
+            {
+                int tenths = Mathf.Clamp(Mathf.RoundToInt(absSeconds * 10f), 1, 9);
+                if (tenths == 5)
+                {
+                    return "half a second";
+                }
+
+                return tenths == 1 ? "one tenth" : TenthsWords[tenths] + " tenths";
+            }
+
+            return absSeconds.ToString("0.0") + " seconds";
+        }
+
+        string FormatGapSeconds(float seconds)
+        {
+            return Mathf.Max(0f, seconds).ToString("0.0") + " seconds";
+        }
+
+        // Radio name for a driver: last name if driverName resolves to one,
+        // falling back to the driver's real abbreviation/code.
+        string DriverRadioName(RaceParticipant participant)
+        {
+            if (participant == null)
+            {
+                return "the car";
+            }
+
+            if (!string.IsNullOrEmpty(participant.driverName))
+            {
+                string[] parts = participant.driverName.Trim().Split(' ');
+                string lastName = parts[parts.Length - 1];
+                if (!string.IsNullOrEmpty(lastName))
+                {
+                    return lastName;
+                }
+            }
+
+            if (participant.driverData != null && !string.IsNullOrEmpty(participant.driverData.abbreviation))
+            {
+                return participant.driverData.abbreviation.ToUpperInvariant();
+            }
+
+            return DriverCode(participant.driverName);
         }
 
         // Automatic pit stop fix: if the player set a stop plan on the
