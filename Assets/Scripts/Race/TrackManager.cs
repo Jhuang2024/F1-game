@@ -409,6 +409,29 @@ namespace LocalFormulaRacing
             return 1f - Mathf.Clamp01(wrapped / zoneLength);
         }
 
+        // Pit-exit path fix (PitPhase.ExitMerge): named aliases over the existing
+        // PitExitLimiterStartNormalized/PitExitRampEndNormalized/PitExitMergeBlend
+        // machinery above, which is already the single source of truth shared with
+        // the real pit-exit barrier geometry (see TrackManager.PitZoneExitRampEnd -
+        // literally the same constant). A second, independently-tuned merge-zone
+        // boundary would risk exactly the "two systems silently disagree about
+        // where the barrier/merge actually ends" bug already found and fixed once
+        // in this pit-exit code (the round-2 fix comment above). PitReleaseNormalized
+        // documents GetPitReleasePose's own hardcoded release distance for
+        // readability - it's informational, not itself a zone boundary.
+        public const float PitReleaseNormalized = 0.992f;
+        public const float PitExitMergeEndNormalized = PitExitRampEndNormalized;
+
+        public bool IsInPitExitMergeZone(float normalizedProgress)
+        {
+            return IsInPitExitLimiterZone(normalizedProgress);
+        }
+
+        public bool PastPitExitMergeEnd(float normalizedProgress)
+        {
+            return !IsInPitExitMergeZone(normalizedProgress);
+        }
+
         // ---------- hairpin widening ----------
         // Single shared width source so hairpins are physically wider - AI cars were
         // clipping barriers/each other in tight corners because every consumer (road
@@ -1047,6 +1070,8 @@ namespace LocalFormulaRacing
             // ValidateBarrierColliderCoverage for why this is independent of the
             // solidObstacles-based checks ValidateGeneratedTrack already ran.
             ValidateBarrierColliderCoverage();
+            ResolveOverlappingBarrierColliders();
+            ValidateBarrierPocketFree();
             ValidateSceneryGrounding();
             ValidateBarrierSmoothness();
             ValidatePitLaneSurfaceCoverage();
@@ -3252,6 +3277,7 @@ namespace LocalFormulaRacing
             public bool catchFence;
             public bool tyreStack;
             public int stripeIndex;
+            public bool nearTightCorner;
         }
 
         void BuildContinuousEdgeBarriers()
@@ -3365,6 +3391,17 @@ namespace LocalFormulaRacing
         // the track or moving a collision footprint toward the racing line. The whole
         // lap is a closed loop with no real start/end seam to preserve (unlike, say, a
         // single corner's own fence run), so neighbours simply wrap around.
+        // Barrier-pocket fix (item E): near a tight-fence-grade corner, on top of the
+        // one-sided moving-average floor above, also refuse to let any single sample
+        // sit inward of BOTH its immediate neighbours by more than this much. A tight
+        // corner is exactly where a discrete style/fan-out/tyre-stack transition is
+        // most likely to land right on the apex, and the 3-point average alone can
+        // still let a single-sample dip of a few tenths of a metre through if both
+        // neighbours also nudge slightly outward with it - this is a harder floor,
+        // not an average, so it can only ever push a sample OUTWARD to match its
+        // tightest neighbour, never pull one in.
+        const float MaxInwardNotchNearTightCornerMeters = 0.2f;
+
         void SmoothBarrierLateralSequence(List<BarrierPlanEntry> plan)
         {
             int count = plan.Count;
@@ -3385,7 +3422,18 @@ namespace LocalFormulaRacing
                 int next = (i + 1) % count;
                 float average = (original[prev] + original[i] + original[next]) / 3f;
                 BarrierPlanEntry entry = plan[i];
+                // Outward envelope only: take the larger of the original target and
+                // the neighbourhood average, never the smaller - averaging on its own
+                // can pull a barrier inward and create the exact notch this pass
+                // exists to erase.
                 entry.lateral = Mathf.Max(entry.lateral, average);
+
+                if (entry.nearTightCorner)
+                {
+                    float tightestNeighbor = Mathf.Min(original[prev], original[next]);
+                    entry.lateral = Mathf.Max(entry.lateral, tightestNeighbor - MaxInwardNotchNearTightCornerMeters);
+                }
+
                 plan[i] = entry;
             }
         }
@@ -3546,7 +3594,8 @@ namespace LocalFormulaRacing
                 style = style,
                 catchFence = catchFence,
                 tyreStack = tyreStack,
-                stripeIndex = stripeIndex
+                stripeIndex = stripeIndex,
+                nearTightCorner = nearTightFenceCorner
             };
         }
 
@@ -4400,31 +4449,25 @@ namespace LocalFormulaRacing
             TryPlaceSolidObstacle(wall, "bridge-wall", basePosition, forward, scale, 0.62f, EdgeBarrierClearance);
         }
 
+        // Barrier-pocket fix (item A): a catch fence always sits at the exact same
+        // basePosition/lateral as the primary solid barrier it backs (street wall,
+        // armco, or concrete wall) - it never guards open ground on its own. Giving
+        // it its own registered TrackSolidObstacle collider used to stack a second,
+        // independently-clearance-checked box directly on top of the primary wall's,
+        // which is exactly the kind of duplicate/overlapping collider geometry that
+        // can wedge a recovering AI car between two colliders instead of one clean
+        // face. The fence is now purely decorative (CreateVisualBox - no collider at
+        // all, same as its own posts/rail below it), so all actual collision at this
+        // spot comes from the one primary barrier placed by the caller.
         void CreateCatchFence(Vector3 basePosition, Vector3 forward, float segmentLength)
         {
-            GameObject fence = GameObject.CreatePrimitive(PrimitiveType.Cube);
-            fence.name = "Catch fence";
-            fence.transform.SetParent(transform);
             Vector3 scale = new Vector3(0.18f, 2.6f, segmentLength);
-            fence.transform.localScale = scale;
-            fence.GetComponent<Renderer>().sharedMaterial = fenceMaterial;
-            // Flush-fix: minimumClearance used to be a flat 0.5m, well past
-            // where basePosition (the same point the main barrier below it
-            // sits at) actually lands relative to the track edge - meaning
-            // this fence failed its OWN clearance check almost every time and
-            // silently repaired itself further out than the wall directly
-            // beneath it. Matching EdgeBarrierClearance keeps the catch fence
-            // vertically stacked on the same line as the barrier it backs,
-            // not drifting out on its own.
-            if (!TryPlaceSolidObstacle(fence, "catch-fence", basePosition, forward, scale, 2.5f, EdgeBarrierClearance))
-            {
-                return;
-            }
+            Vector3 placed = basePosition + Vector3.up * 2.5f;
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            CreateVisualBox("Catch fence", placed, rotation, scale, fenceMaterial);
 
-            // Visual posts and a top rail keyed off the placed fence so they follow
-            // any lateral repair the placement pass applied.
-            Vector3 placed = fence.transform.position;
-            Vector3 placedForward = fence.transform.forward;
+            // Visual posts and a top rail follow the same placed position.
+            Vector3 placedForward = forward;
             float detail = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
             int posts = detail < 0.6f ? 1 : 2;
             for (int i = 0; i <= posts; i++)
@@ -4724,12 +4767,22 @@ namespace LocalFormulaRacing
                         GameLog.Warn("[TrackValidation] Barrier flush check FAILED at " + d.ToString("0") + "m " + (side < 0 ? "left" : "right") +
                                      " side" + (nearCorner ? " (corner)" : "") + ": " + gapText + " (tolerance " + tolerance.ToString("0.00") + "m) on " + Runtime.displayName);
 
-                        // Full-perimeter requirement: don't just log the gap, close it.
-                        // Drops a short corrective barrier segment (style-matched to
-                        // elevated/street/standard) right at the true edge of this exact
-                        // sample point, reusing the same flush-distance math and
-                        // clearance-checked placement every other barrier segment uses.
-                        if (AutoFillBarrierGap(d, side))
+                        // Barrier-pocket fix (item C): the gap measured above is only
+                        // ever taken at this one exact sample point/height - a barrier
+                        // that exists nearby but a little short, angled, or offset from
+                        // this precise point can still read as "gapped" here even though
+                        // filling it would just stack a second collider right next to the
+                        // first one (a classic overlap/pocket source). Re-check with a
+                        // wider radius immediately before actually placing anything; if a
+                        // real barrier-like collider is already within that wider radius,
+                        // skip the fill entirely rather than duplicate it.
+                        TrackSolidObstacle existingNearby;
+                        if (HasBarrierColliderNearEdge(d, side, BarrierAutoFillDedupeRadius, out existingNearby))
+                        {
+                            GameLog.Info("[TrackValidation] Skipped auto-fill at " + d.ToString("0") + "m " + (side < 0 ? "left" : "right") +
+                                         " side - existing barrier-like collider (" + existingNearby.obstacleType + ") already nearby on " + Runtime.displayName);
+                        }
+                        else if (AutoFillBarrierGap(d, side))
                         {
                             autoFilled++;
                         }
@@ -4774,6 +4827,14 @@ namespace LocalFormulaRacing
         // near that corner without ever encroaching on the pit lane - so this
         // function no longer needs the corner override at all; the whole pit zone
         // blend window is unconditionally treated as intentional, corner or not.
+        // Item H note: this window (PitZoneEntryRampStart..PitZoneExitRampEnd, via
+        // PitZoneBlend) already fully contains the pit-exit merge zone used by
+        // RaceManager's PitPhase.ExitMerge / TrackRuntime.IsInPitExitMergeZone -
+        // PitZoneExitRampEnd and TrackRuntime.PitExitRampEndNormalized are the exact
+        // same constant. So the pit entry ramp, pit lane corridor, pit release, and
+        // the pit-exit merge path are all already covered by this one check; nothing
+        // here (gap auto-fill or the pocket sweep above) can ever wall the pit lane or
+        // the exit-merge path shut.
         bool IsIntentionalPitOpening(float normalized, int side, bool nearCorner)
         {
             if (side <= 0)
@@ -4857,6 +4918,317 @@ namespace LocalFormulaRacing
             CreateVisualBox("Auto-filled barrier gap rail", placed + Vector3.up * (halfHeight * 0.6f), rotation, new Vector3(scale.x + 0.05f, 0.1f, segmentLength - 0.2f), metalMaterial);
             GameLog.Info("[TrackValidation] Auto-filled barrier gap at " + distance.ToString("0") + "m " + (side < 0 ? "left" : "right") + " side on " + Runtime.displayName);
             return true;
+        }
+
+        // Barrier-pocket fix (item C): generous "is something already here" radius
+        // used only to decide whether to SKIP an auto-fill - deliberately wider than
+        // the tolerance ValidateBarrierColliderCoverage flags a gap at, so a barrier
+        // that's merely offset/angled (not truly missing) never gets a duplicate
+        // planted right beside it.
+        const float BarrierAutoFillDedupeRadius = 1.6f;
+
+        bool HasBarrierColliderNearEdge(float distance, int side, float maxGap, out TrackSolidObstacle nearest)
+        {
+            nearest = null;
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            float localHalfWidth = Runtime.HalfWidthAt(distance);
+            Vector3 edgePoint = point + right * side * localHalfWidth + Vector3.up * 0.55f;
+            Collider[] hits = Physics.OverlapSphere(edgePoint, Mathf.Max(maxGap, 0.1f));
+            float best = float.MaxValue;
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider hit = hits[i];
+                if (hit == null)
+                {
+                    continue;
+                }
+
+                TrackSolidObstacle solid = hit.GetComponentInParent<TrackSolidObstacle>();
+                if (solid == null || !solid.enabled)
+                {
+                    continue;
+                }
+
+                string type = solid.obstacleType ?? "";
+                if (!(type.Contains("wall") || type.Contains("fence") || type.Contains("barrier") || type.Contains("rail") || type.Contains("divider")))
+                {
+                    continue;
+                }
+
+                Vector3 closest = hit.ClosestPoint(edgePoint);
+                float dist = Vector3.Distance(closest, edgePoint);
+                if (dist < best)
+                {
+                    best = dist;
+                    nearest = solid;
+                }
+            }
+
+            return nearest != null && best <= maxGap;
+        }
+
+        struct BarrierColliderInfo
+        {
+            public TrackSolidObstacle solid;
+            public float distance;
+            public float lateral;
+            public int side;
+        }
+
+        // Barrier-pocket fix (item F): post-placement deconfliction pass. Runs once
+        // after every geometry-placing pass (continuous edge barriers, pit lane
+        // fencing/walls, auto-fill) has had its turn, over the single registry every
+        // solid barrier-family object goes through (solidObstacles/TryPlaceSolidObstacle).
+        // Two colliders from unrelated passes can end up genuinely overlapping or
+        // crossing at a sharp angle without either pass ever seeing the other's output
+        // as it's generated - that's exactly the "V/U pocket" shape a recovering car
+        // can wedge into. Heuristic, not exact geometry: same side, close together
+        // along the track, and lateral offsets close enough that a second full
+        // collider there is redundant rather than deliberate layered geometry (a
+        // barrier plus its own tyre-stack standoff sits much further apart laterally
+        // than this). Keeps the higher-priority/primary barrier and demotes the loser
+        // to visual-only (collider disabled, not destroyed - scenery dressing on it
+        // still reads correctly) rather than deleting geometry outright. Never
+        // demotes both sides of a pair, so a sample can never end up with zero
+        // barriers as a result of this pass.
+        const float OverlapDeconflictLongitudinalRadius = 4f;
+        const float OverlapDeconflictLateralRadius = 1.2f;
+
+        void ResolveOverlappingBarrierColliders()
+        {
+            if (Runtime == null || Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            List<BarrierColliderInfo> infos = new List<BarrierColliderInfo>();
+            for (int i = 0; i < solidObstacles.Count; i++)
+            {
+                TrackSolidObstacle solid = solidObstacles[i];
+                if (solid == null || !solid.enabled)
+                {
+                    continue;
+                }
+
+                string type = solid.obstacleType ?? "";
+                bool isBarrierFamily = type.Contains("wall") || type.Contains("barrier") || type.Contains("rail") ||
+                                        type.Contains("armco") || type.Contains("concrete") || type.Contains("auto-fill") ||
+                                        type.Contains("tyre-stack") || type.Contains("divider");
+                if (!isBarrierFamily)
+                {
+                    continue;
+                }
+
+                TrackProgress progress = Runtime.GetProgress(solid.transform.position);
+                BarrierColliderInfo info;
+                info.solid = solid;
+                info.distance = progress.distance;
+                info.lateral = Mathf.Abs(progress.lateralDistance);
+                info.side = progress.lateralDistance < 0f ? -1 : 1;
+                infos.Add(info);
+            }
+
+            infos.Sort((a, b) => a.distance.CompareTo(b.distance));
+            int demoted = 0;
+
+            for (int i = 0; i < infos.Count; i++)
+            {
+                BarrierColliderInfo a = infos[i];
+                if (a.solid == null || !a.solid.enabled)
+                {
+                    continue;
+                }
+
+                for (int j = i + 1; j < infos.Count; j++)
+                {
+                    BarrierColliderInfo b = infos[j];
+                    float rawGap = Mathf.Abs(b.distance - a.distance);
+                    float longitudinalGap = Mathf.Min(rawGap, Runtime.length - rawGap);
+                    if (longitudinalGap > OverlapDeconflictLongitudinalRadius)
+                    {
+                        break;
+                    }
+
+                    if (b.side != a.side || b.solid == null || !b.solid.enabled)
+                    {
+                        continue;
+                    }
+
+                    float lateralGap = Mathf.Abs(a.lateral - b.lateral);
+                    if (lateralGap > OverlapDeconflictLateralRadius)
+                    {
+                        // Far enough apart laterally that this is most likely a barrier
+                        // plus its own deliberate standoff layer (e.g. an Armco rail
+                        // behind a tyre stack) rather than a duplicate of the same line.
+                        continue;
+                    }
+
+                    TrackSolidObstacle loser = ChooseOverlapLoser(a.solid, b.solid);
+                    if (loser == null)
+                    {
+                        continue;
+                    }
+
+                    DemoteBarrierColliderToVisual(loser);
+                    demoted++;
+                    if (loser == a.solid)
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (demoted > 0)
+            {
+                GameLog.Info("[TrackValidation] Deconflicted " + demoted + " overlapping barrier collider(s) on " + Runtime.displayName);
+            }
+        }
+
+        // Lower number = demoted first when two barrier-family colliders overlap.
+        // Reactive auto-fill and tyre stacks are the most likely to be redundant with
+        // an already-continuous primary wall; street/armco/concrete walls, being the
+        // main continuous perimeter, are kept over everything else.
+        int BarrierRolePriority(string type)
+        {
+            if (type.Contains("auto-fill"))
+            {
+                return 0;
+            }
+
+            if (type.Contains("tyre-stack") || type.Contains("tyre-barrier"))
+            {
+                return 1;
+            }
+
+            if (type.Contains("divider") || type.Contains("pit-wall"))
+            {
+                return 2;
+            }
+
+            return 3;
+        }
+
+        TrackSolidObstacle ChooseOverlapLoser(TrackSolidObstacle a, TrackSolidObstacle b)
+        {
+            int priorityA = BarrierRolePriority(a.obstacleType ?? "");
+            int priorityB = BarrierRolePriority(b.obstacleType ?? "");
+            if (priorityA != priorityB)
+            {
+                return priorityA < priorityB ? a : b;
+            }
+
+            float lengthA = a.localScaleAtValidation.z;
+            float lengthB = b.localScaleAtValidation.z;
+            if (Mathf.Abs(lengthA - lengthB) > 0.05f)
+            {
+                return lengthA < lengthB ? a : b;
+            }
+
+            return b;
+        }
+
+        void DemoteBarrierColliderToVisual(TrackSolidObstacle solid)
+        {
+            GameLog.Info("[TrackValidation] Demoted duplicate/overlapping barrier collider (" + solid.obstacleType + ") to visual-only on " + Runtime.displayName);
+            MakeVisualOnly(solid.gameObject);
+            solid.enabled = false;
+        }
+
+        // Barrier-pocket fix (items D & G): heuristic pocket/trap sweep run once after
+        // all barrier geometry (including auto-fill and the dedup pass above) is
+        // final. Restricted to tight-corner stretches, where fan-out/tyre-stack/catch-
+        // fence transitions concentrate and a pocket is overwhelmingly likely to
+        // appear. Approximates a car as a small capsule and spherecasts from a few
+        // probe depths INSIDE the legal road width toward the centreline - if
+        // something solid blocks that inward path, a barrier-family collider is
+        // sitting inward of where it should be (or a second one is crossing in front
+        // of the first), i.e. exactly the pocket mouth a recovering car could catch a
+        // nose or wheel on. Never touches the intentional pit-opening stretch. Not
+        // exact computational geometry, deliberately - a robust heuristic plus the
+        // dedup pass above is enough to keep tight corners drivable.
+        const float PocketSweepStep = 4f;
+        const float PocketProbeCastRadius = 0.5f;
+        readonly float[] pocketProbeDepthsMeters = { 0.5f, 1.5f, 2.5f };
+
+        void ValidateBarrierPocketFree()
+        {
+            if (Runtime == null || Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            int cleared = 0;
+            for (float d = 0f; d < Runtime.length; d += PocketSweepStep)
+            {
+                if (!Runtime.IsNearTightFenceCorner(d))
+                {
+                    continue;
+                }
+
+                cleared += ClearPocketAt(d, -1);
+                cleared += ClearPocketAt(d, 1);
+            }
+
+            if (cleared > 0)
+            {
+                GameLog.Warn("[TrackValidation] Cleared " + cleared + " barrier pocket/trap collider(s) in tight corners on " + Runtime.displayName);
+            }
+        }
+
+        int ClearPocketAt(float distance, int side)
+        {
+            float normalized = distance / Mathf.Max(1f, Runtime.length);
+            if (IsIntentionalPitOpening(normalized, side, true))
+            {
+                return 0;
+            }
+
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(distance, out point, out forward, out right);
+            float halfWidth = Runtime.HalfWidthAt(distance);
+            Vector3 heightOffset = Vector3.up * 0.6f;
+            int cleared = 0;
+
+            for (int i = 0; i < pocketProbeDepthsMeters.Length; i++)
+            {
+                float probeLateral = halfWidth - pocketProbeDepthsMeters[i];
+                if (probeLateral <= 0f)
+                {
+                    continue;
+                }
+
+                Vector3 probePoint = point + right * side * probeLateral + heightOffset;
+                Vector3 towardCentre = -right * side;
+                RaycastHit hit;
+                if (!Physics.SphereCast(probePoint, PocketProbeCastRadius, towardCentre, out hit, 1.5f))
+                {
+                    continue;
+                }
+
+                TrackSolidObstacle solid = hit.collider.GetComponentInParent<TrackSolidObstacle>();
+                if (solid == null || !solid.enabled)
+                {
+                    continue;
+                }
+
+                string type = solid.obstacleType ?? "";
+                bool isBarrierFamily = type.Contains("wall") || type.Contains("barrier") || type.Contains("rail") ||
+                                        type.Contains("divider") || type.Contains("auto-fill");
+                if (!isBarrierFamily)
+                {
+                    continue;
+                }
+
+                DemoteBarrierColliderToVisual(solid);
+                cleared++;
+            }
+
+            return cleared;
         }
 
         // Real measured distance (metres) from a point on the true track edge

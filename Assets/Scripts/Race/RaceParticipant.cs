@@ -9,6 +9,15 @@ namespace LocalFormulaRacing
         Entry,
         Service,
         Release,
+        // Pit-exit path fix: the car has reached the release pose but is still
+        // guided (not handed back to normal racing-line targeting) along the
+        // pit-exit lane until it genuinely clears the merge point - see
+        // RaceManager.UpdatePitExitMerge. Path discipline (this phase) is
+        // deliberately separate from speed discipline (participant.pitLimiterUntilExit,
+        // which already clears independently once Track.IsInPitExitLimiterZone
+        // goes false) - a car can legally be at racing speed while still
+        // physically confined to the pit-exit lane for a few more metres.
+        ExitMerge,
         QualifyingReturn
     }
 

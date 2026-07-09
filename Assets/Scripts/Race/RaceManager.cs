@@ -5013,6 +5013,11 @@ namespace LocalFormulaRacing
                 return "PIT RELEASE  LIMITER 80";
             }
 
+            if (participant.pitPhase == PitPhase.ExitMerge)
+            {
+                return "PIT EXIT  MERGING";
+            }
+
             if (participant.pitLimiterUntilExit)
             {
                 return "PIT EXIT  LIMITER 80";
@@ -7808,7 +7813,7 @@ namespace LocalFormulaRacing
 
         void UpdatePitDrivingStuckWatchdog(RaceParticipant participant, TrackProgress currentProgress)
         {
-            if (participant.pitPhase != PitPhase.Entry && participant.pitPhase != PitPhase.Release)
+            if (participant.pitPhase != PitPhase.Entry && participant.pitPhase != PitPhase.Release && participant.pitPhase != PitPhase.ExitMerge)
             {
                 participant.pitStuckWatchdogTimer = 0f;
                 participant.pitStuckLastDistance = -1f;
@@ -7955,6 +7960,12 @@ namespace LocalFormulaRacing
             if (participant.pitPhase == PitPhase.Release)
             {
                 UpdatePitRelease(participant);
+                return;
+            }
+
+            if (participant.pitPhase == PitPhase.ExitMerge)
+            {
+                UpdatePitExitMerge(participant);
                 return;
             }
 
@@ -8441,21 +8452,78 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Pit-exit path fix: this used to hand the car straight back to normal
+            // racing-line targeting right here (pitPhase = None, SetPitGuidance(false))
+            // the instant it reached the release pose - AiVehicleController had no
+            // idea it had just merged out of the pit lane and immediately steered
+            // for the racing line/next apex, cutting across the pit-exit lane ~20m
+            // before the real merge point. Snaps to the release pose and hands off
+            // to PitPhase.ExitMerge instead, which keeps the car under the SAME
+            // kinematic guidance (SetPitGuidance is deliberately NOT turned off
+            // here - it stays true, continuing straight into UpdatePitExitMerge)
+            // along the pit-exit lane until it genuinely clears the merge zone.
             participant.vehicle.SnapToPitPose(releasePosition, releaseRotation);
-            participant.vehicle.SetPitGuidance(false);
+            participant.hasPitGuideState = false;
+            participant.pitPhase = PitPhase.ExitMerge;
             participant.vehicle.SetPitServiceHold(false);
             participant.vehicle.SetPitLimiter(true);
-            // Pit-exit speed fix: from this point on the car is driving itself
-            // (not guided) down an already-cleared stretch of pit lane with
-            // nothing left to be cautious of - switch to the higher exit cap
-            // instead of the entry-grade one so it doesn't crawl.
+            // Pit-exit speed fix: from this point on the car is driving down an
+            // already-cleared stretch of pit lane with nothing left to be
+            // cautious of - switch to the higher exit cap instead of the
+            // entry-grade one so it doesn't crawl. Speed discipline
+            // (pitLimiterUntilExit) is intentionally independent of path
+            // discipline (pitPhase == ExitMerge) - it already clears itself once
+            // Track.IsInPitExitLimiterZone goes false, in HandlePitService above.
             participant.vehicle.SetPitExitFastLimiter(true);
             SimpleAudioManager.PlayPitRelease(releasePosition);
-            participant.pitPhase = PitPhase.None;
-            participant.isPitting = false;
             participant.pitAwaitingRelease = false;
             participant.pitLimiterUntilExit = true;
+            if (participant.isPlayer)
+            {
+                SessionMessage = "Pit release: merging onto the racing line";
+            }
+        }
+
+        // Pit-exit path fix: guides the car along the pit-exit lane from the
+        // release pose through the actual merge point, instead of handing it
+        // straight back to normal racing-line targeting at the release pose (see
+        // UpdatePitRelease above for why that read as "turns onto the track too
+        // early"). Chases a rolling waypoint a short distance ahead - the same
+        // "always target a point just ahead, not a single fixed destination"
+        // approach AdvancePitGuideTarget already uses elsewhere - whose lateral
+        // offset blends from the pit-exit-lane position down toward a safe legal
+        // track offset as Track.PitExitMergeBlend fades from 1 (at release) to 0
+        // (at the real merge end, the same boundary the physical pit-exit barrier
+        // geometry itself uses - see TrackManager.PitZoneExitRampEnd), so the car
+        // visibly follows the lane instead of cutting a diagonal to the apex.
+        const float PitExitMergePaceKph = 100f;
+        const float PitExitMergeLookaheadMeters = 12f;
+
+        void UpdatePitExitMerge(RaceParticipant participant)
+        {
+            TrackProgress currentProgress = GetPitAwareProgress(participant);
+            float targetDistance = Track.WrapDistance(currentProgress.distance + PitExitMergeLookaheadMeters);
+            float targetNormalized = targetDistance / Mathf.Max(1f, Track.length);
+            float blend = Track.PitExitMergeBlend(targetNormalized);
+            float releaseLateral = Track.roadHalfWidth + 4.8f;
+            float mergedLateral = Track.HalfWidthAt(targetDistance) * 0.45f;
+            float targetLateral = Mathf.Lerp(mergedLateral, releaseLateral, blend);
+
+            Vector3 waypoint;
+            Quaternion waypointRotation;
+            AdvancePitGuideTarget(participant, targetDistance, targetLateral, PitExitMergePaceKph, out waypoint, out waypointRotation);
+            participant.vehicle.GuideToPitPose(waypoint, waypointRotation, PitGuideChaseSpeed, PitGuideChaseRotateSpeed);
+
+            if (!Track.PastPitExitMergeEnd(currentProgress.normalized))
+            {
+                return;
+            }
+
+            participant.vehicle.SetPitGuidance(false);
+            participant.pitPhase = PitPhase.None;
+            participant.isPitting = false;
             participant.hasPitGuideState = false;
+
             AiVehicleController releasedAi = participant.GetComponent<AiVehicleController>();
             if (releasedAi != null)
             {
@@ -8464,20 +8532,17 @@ namespace LocalFormulaRacing
                 // kinematic guidance the whole time it was pit-guided, so its
                 // cached track-progress reference is stale and needs a fresh
                 // full-track resync rather than a near-search seeded from
-                // wherever it was before pitting.
+                // wherever it was before pitting. Unlike the old fix, no
+                // additional AI-side steering hold needs arming here - the
+                // guided merge above already delivered the car to a sensible,
+                // legal line, so normal racing-line targeting can resume
+                // immediately and cleanly.
                 releasedAi.ResyncAfterForcedReposition();
-                // Pit-exit early-turn fix round 2: arms the AI's own steering-line
-                // hold through the real pit-exit ramp geometry - see
-                // AiVehicleController.NotifyPitExitReleased. Deliberately separate
-                // from pitLimiterUntilExit above, which clears on a shorter
-                // speed-limiter-only window that ends before the ramp itself
-                // actually finishes narrowing back to the track edge.
-                releasedAi.NotifyPitExitReleased();
             }
 
             if (participant.isPlayer)
             {
-                SessionMessage = "Released: limiter until pit exit";
+                SessionMessage = "Merged onto the racing line";
             }
         }
 

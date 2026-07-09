@@ -2147,6 +2147,10 @@ namespace LocalFormulaRacing
                     phaseText = "PIT EXIT";
                     phaseColor = UiFactory.AccentCyan;
                     break;
+                case PitPhase.ExitMerge:
+                    phaseText = "MERGING ONTO TRACK";
+                    phaseColor = UiFactory.AccentCyan;
+                    break;
                 case PitPhase.QualifyingReturn:
                     // Missing state fix: this phase (driving back to the pits
                     // between qualifying runs) used to fall through to the

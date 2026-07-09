@@ -761,55 +761,14 @@ namespace LocalFormulaRacing
                 requestedOffset = Mathf.Lerp(requestedOffset, pitApproachTargetLateral, approachBlend * approachBlend);
             }
 
-            // Pit-exit early-turn fix: the mirror image of the pit-entry fix above.
-            // A just-released car's normal line-following logic doesn't know it
-            // just merged out of the pit lane - it targets the racing line/next
-            // apex immediately, which read as "turns onto the track way too early"
-            // even though the physical pit-exit ramp/barrier is still narrowing
-            // back to the track edge. Holds the line near the pit-exit side
-            // through the real ramp geometry (track.PitExitMergeBlend), fading out
-            // smoothly as the car actually clears the merge instead of snapping
-            // straight to the racing line. Gated on pitExitMergeActive (set at
-            // release) rather than participant.pitLimiterUntilExit - that flag
-            // clears on the shorter speed-limiter window, well before the physical
-            // ramp actually finishes narrowing (see NotifyPitExitReleased for the
-            // round-2 fix history).
-            //
-            // Round 3: PitExitMergeBlend's own window is a FIXED normalized
-            // distance - it has no idea where the final corner's own curvature
-            // actually ends, which varies per track/apex. On a corner whose real
-            // barrier-hugging footprint runs longer than that fixed window, the
-            // hold used to let go (blend reaching exactly 0) while the corner - and
-            // its wall - was still very much in progress, and the sudden handoff to
-            // normal apex-seeking right there is exactly what put cars into the
-            // barrier "as soon as the limiter turned off".
-            //
-            // Round 4: round 3's extension used severityHere (EstimateCornerSeverity,
-            // a short-window heading-change heuristic built for braking/apex
-            // targeting) as a proxy for "is the barrier still there" - but that's a
-            // different algorithm, with different thresholds/radius, than what
-            // TrackManager's ComputeBarrierPlan actually uses to decide whether the
-            // main edge barrier is still in tight-corner containment mode. The two
-            // could (and did) disagree, so the hold could still release while a real
-            // wall was still tight. Now queries track.IsNearTightFenceCorner, which
-            // is baked directly from the exact same corner detection + radius/span
-            // math the barrier builder itself uses - "the barrier has ended" now
-            // means the literal same thing to both systems.
-            if (pitExitMergeActive)
-            {
-                float exitBlend = track.PitExitMergeBlend(progress.normalized);
-                bool stillInTightCorner = track.IsNearTightFenceCorner(progress.distance);
-                if (exitBlend > 0f || stillInTightCorner)
-                {
-                    float pitExitHoldLateral = track.HalfWidthAt(progress.distance) * 0.82f;
-                    float holdBlend = Mathf.Max(exitBlend, stillInTightCorner ? 0.75f : 0f);
-                    requestedOffset = Mathf.Lerp(requestedOffset, pitExitHoldLateral, holdBlend * holdBlend);
-                }
-                else
-                {
-                    pitExitMergeActive = false;
-                }
-            }
+            // Pit-exit early-turn fix: superseded by RaceManager's guided
+            // PitPhase.ExitMerge (see RaceManager.UpdatePitRelease/UpdatePitExitMerge).
+            // The car now stays under kinematic pit guidance - the same mechanism
+            // used for Entry/Service/Release - all the way through the real
+            // pit-exit merge geometry, so this controller no longer needs a
+            // steering-blend heuristic to hold the line after release; letting
+            // both systems fight over requestedOffset post-release was the source
+            // of the earlier round-2/3/4 divergence bugs.
 
             // Opening seconds: hold the assigned fan-out lane, blending back to the
             // racing line as the field strings out.
@@ -1162,13 +1121,6 @@ namespace LocalFormulaRacing
             currentThrottle = 0f;
             previousSeverityHere = 0f;
             handbackRampTimer = HandbackRampDuration;
-            // Any forced reposition (safety car handback, stuck-recovery teleport)
-            // invalidates whatever pit-exit merge was in progress just as much as
-            // it invalidates the rest of this transient state - clear it here so a
-            // stale pitExitMergeActive can't linger and pull the car sideways well
-            // after it's actually relevant. The real pit-release path re-arms it
-            // via NotifyPitExitReleased right after calling this.
-            pitExitMergeActive = false;
         }
 
         // Stuck-recovery escalation fix: called by RaceManager right after it
@@ -1185,26 +1137,6 @@ namespace LocalFormulaRacing
             HandleRaceControlAutopilotReleased();
             activeManeuver = RecoveryManeuver.None;
             stuckDetectTimer = 0f;
-        }
-
-        // Pit-exit early-turn fix round 2: participant.pitLimiterUntilExit (the
-        // speed-limiter flag) used to double as the steering-line-hold gate too,
-        // but it deliberately clears early (IsInPitExitLimiterZone's short
-        // speed-cap window) - well before the physical pit-exit ramp geometry
-        // actually finishes narrowing back to the track edge
-        // (TrackRuntime.PitExitRampEndNormalized). Reusing it meant the AI's line
-        // hold let go and handed back to completely normal racing-line targeting
-        // while the ramp was still narrowing, which is exactly the "turns onto
-        // the track too early" bug. This flag is set once, right at release (see
-        // RaceManager.UpdatePitRelease), and clears itself in Update() only once
-        // track.PitExitMergeBlend actually reaches 0 - i.e. once the car has
-        // genuinely cleared the real ramp - instead of on any fixed timer or the
-        // shorter speed-limiter window.
-        bool pitExitMergeActive;
-
-        public void NotifyPitExitReleased()
-        {
-            pitExitMergeActive = true;
         }
 
         // Part 1: the real safety car isn't a RaceParticipant, so it never shows
