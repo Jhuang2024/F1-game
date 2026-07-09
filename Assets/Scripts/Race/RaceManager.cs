@@ -4710,7 +4710,9 @@ namespace LocalFormulaRacing
         // up from 85f rather than left to feel weak on the longer straights.
         // Round 2: stacked another 25% (95f -> 119f) to match the further track
         // length increase.
-        const float SlipstreamMaxDistance = 119f;
+        // Round 3: increased range further (119f -> 150f) so a following car can
+        // pick up a tow from noticeably further back.
+        const float SlipstreamMaxDistance = 150f;
         const float SlipstreamFullLateralWidth = 3.5f;
         const float SlipstreamMaxLateralWidth = 7.5f;
         const float SlipstreamMinSpeedKph = 130f;
@@ -4842,10 +4844,12 @@ namespace LocalFormulaRacing
             return strength * SlipstreamStraightSectionStrength(followerProgress.distance);
         }
 
-        // Mild bends still get a partial tow (full below 6 degrees of heading
-        // change over the sampled span, fading to none by 16) rather than a hard
+        // Mild bends still get a partial tow (full below 9 degrees of heading
+        // change over the sampled span, fading to none by 22) rather than a hard
         // corner/straight cutoff - a slipstream doesn't vanish the instant a
-        // straight has the faintest kink in it.
+        // straight has the faintest kink in it. Widened from 6/16 so a following
+        // car keeps (at least partial) tow through gentler, longer-radius bends
+        // too, not just near-dead-straight sections.
         float SlipstreamStraightSectionStrength(float distance)
         {
             Vector3 point1;
@@ -4857,7 +4861,7 @@ namespace LocalFormulaRacing
             Vector3 right2;
             Track.SampleAtDistance(distance + 55f, out point2, out forward2, out right2);
             float angle = Vector3.Angle(forward1, forward2);
-            return Mathf.Clamp01(Mathf.InverseLerp(16f, 6f, angle));
+            return Mathf.Clamp01(Mathf.InverseLerp(22f, 9f, angle));
         }
 
         // Lap-gap radio feature: at the end of each completed player lap, the
