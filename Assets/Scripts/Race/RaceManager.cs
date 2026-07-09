@@ -10496,9 +10496,12 @@ namespace LocalFormulaRacing
             float improveChance = Mathf.Lerp(0.46f, 0.78f, consistency / 100f);
             // Restored to its original range - the round-4 trim of this second-run
             // swing was reverted per request.
+            // Residual-gap trim: upper end of the improve swing brought back down
+            // from 0.46 to 0.25 - a high-qualifying driver's best-case second-run
+            // gain was still a bigger residual gap source than intended.
             if (Random.value < improveChance)
             {
-                secondRun -= Random.Range(0.04f, Mathf.Lerp(0.18f, 0.46f, qualifying / 100f));
+                secondRun -= Random.Range(0.04f, Mathf.Lerp(0.18f, 0.25f, qualifying / 100f));
             }
             else
             {
