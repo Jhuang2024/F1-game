@@ -304,7 +304,9 @@ namespace LocalFormulaRacing
                     // Round 3: another +10kph on top of that (+55kph total).
                     // Round 4: another +15kph on top of that (+70kph total).
                     // Round 5: another +20kph on top of that (+90kph total).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence) + 90f);
+                    // Round 6: another +10kph on top of that (+100kph total). HighSpeed
+                    // and Medium now diverge from each other for the first time here.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence) + 100f);
                     easePower = Mathf.Lerp(6f, 10f, skillTier);
                     break;
                 case CornerType.Medium:
@@ -318,7 +320,8 @@ namespace LocalFormulaRacing
                     // Round 3: another +10kph on top of that (+55kph total).
                     // Round 4: another +15kph on top of that (+70kph total).
                     // Round 5: another +20kph on top of that (+90kph total).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 90f);
+                    // Round 6: eased back down 5kph (+85kph total).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 85f);
                     easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
