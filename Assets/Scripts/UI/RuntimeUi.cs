@@ -6279,7 +6279,15 @@ namespace LocalFormulaRacing
             float height = position == 1 ? 300f : (position == 2 ? 254f : 224f);
             TeamData team = race != null && race.Data != null ? race.Data.FindTeam(entry.teamId) : null;
             Color teamColor = team != null ? team.PrimaryUnityColor : new Color(0.6f, 0.66f, 0.72f);
-            string timeLabel = position == 1 ? UiFactory.FormatTime(entry.totalTime + entry.penaltiesSeconds) : GapLabel(results, entry);
+            // Bug fix: this used to always format position 1 as a finishing time,
+            // even when results[0] is a DNF (possible in a fully-retired/red-flagged
+            // race, where every entry still gets a large synthetic finishTime and
+            // sorts by it) - the podium would show "WINNER" next to a nonsense
+            // multi-hour time instead of "DNF", while P2/P3 correctly showed DNF via
+            // GapLabel below. GapLabel already has the right DNF check; reuse it here
+            // too instead of duplicating a P1-only special case that skipped it.
+            bool isDnf = !string.IsNullOrEmpty(entry.penaltyReason) && entry.penaltyReason.Contains("DNF");
+            string timeLabel = position == 1 && !isDnf ? UiFactory.FormatTime(entry.totalTime + entry.penaltiesSeconds) : GapLabel(results, entry);
             UiFactory.CreatePodiumCard(parent, position, entry.driverName, TeamLabel(race, entry.teamId), teamColor, timeLabel, 280f, height);
         }
 
