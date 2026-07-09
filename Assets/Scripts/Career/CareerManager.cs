@@ -3566,36 +3566,59 @@ namespace LocalFormulaRacing
         }
 
         // Part 4: a custom (non-existing-driver) player's persistent rating
-        // profile - created once, from a modest rookie-ish template, then
-        // never mutated directly; all subsequent movement happens through
-        // DriverRatingModifier entries keyed "player", exactly like a real
-        // driver's drivers.json entry.
+        // profile - created once, then never mutated directly; all subsequent
+        // movement happens through DriverRatingModifier entries keyed
+        // "player", exactly like a real driver's drivers.json entry. The
+        // baseline mirrors the reputation-scaled formula RaceManager used to
+        // compute fresh every qualifying session before this persistent
+        // profile existed (roughly qualifying 70-90 for a mid-pack seat), so
+        // an existing custom-driver save doesn't suddenly regress to a
+        // rookie-level grid filler the first time this runs.
         void EnsureCustomPlayerDriverBase()
         {
-            if (Save.customPlayerDriverBase != null)
+            if (Save.customPlayerDriverBase != null && !IsUnfixedRookieTemplate(Save.customPlayerDriverBase))
             {
                 return;
             }
 
+            float reputationBonus = Mathf.Clamp((Save.reputation - 50f) * 0.10f, -6f, 6f);
+            int qualifying = Mathf.Clamp(Mathf.RoundToInt(76f + reputationBonus), 58, 90);
+            int consistency = Mathf.Clamp(qualifying - 2, 55, 92);
             Save.customPlayerDriverBase = new DriverData
             {
                 id = "player",
                 displayName = Save.playerDriverName,
                 abbreviation = "PLR",
                 teamId = Save.playerTeamId,
-                pace = 68,
-                racecraft = 66,
-                qualifying = 66,
-                tyreManagement = 65,
-                wetSkill = 64,
-                consistency = 64,
-                aggression = 70,
-                defending = 64,
-                overtaking = 65,
-                awareness = 65,
-                experience = 35,
-                developmentPotential = 85
+                pace = Mathf.Clamp(qualifying - 1, 50, 99),
+                racecraft = Mathf.Clamp(qualifying - 3, 50, 99),
+                qualifying = qualifying,
+                tyreManagement = Mathf.Clamp(qualifying - 4, 50, 96),
+                wetSkill = Mathf.Clamp(qualifying - 2, 50, 96),
+                consistency = consistency,
+                aggression = 72,
+                defending = Mathf.Clamp(qualifying - 6, 45, 94),
+                overtaking = Mathf.Clamp(qualifying - 4, 45, 94),
+                awareness = consistency,
+                experience = Mathf.Clamp(70 + Save.currentSeason * 2, 60, 94),
+                developmentPotential = 84
             };
+        }
+
+        // One-time save repair: an earlier build seeded a much weaker fixed
+        // rookie template (pace 68/racecraft 66/qualifying 66/experience 35)
+        // regardless of the player's actual reputation, which made an
+        // existing custom-driver career suddenly qualify near the back after
+        // updating even with no season transition. Detects that exact
+        // fingerprint (never itself a value the reputation-scaled formula
+        // above can produce, since it always keys every stat off the same
+        // qualifying baseline) and lets EnsureCustomPlayerDriverBase
+        // regenerate it - safe to run unconditionally since a driver actually
+        // progressed by GenerateDriverProgression will not match it.
+        static bool IsUnfixedRookieTemplate(DriverData driver)
+        {
+            return driver.pace == 68 && driver.racecraft == 66 && driver.qualifying == 66 &&
+                   driver.tyreManagement == 65 && driver.experience == 35 && driver.developmentPotential == 85;
         }
 
         void GenerateTeamPerformanceEvolution(SeasonArchive completedSeason)
