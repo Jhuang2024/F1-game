@@ -840,9 +840,10 @@ namespace LocalFormulaRacing
             // Round 4: raised a further 20% on top of that (was 0.13-0.288).
             // Round 5: cut back down 20% (was 0.156-0.346).
             // Round 6: cut a further 30% (was 0.1248-0.2768).
+            // Round 7: cut a further 30% (was 0.0874-0.1938).
             else if (activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0874f, 0.1938f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ErsDeploying)
@@ -862,7 +863,9 @@ namespace LocalFormulaRacing
                 // regen cut as the coasting rate above.
                 // Round 6: cut a further 30% (was 0.0392-0.0832), same non-braking-only
                 // regen cut as the coasting rate above.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0274f, 0.0582f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                // Round 7: cut a further 30% (was 0.0274-0.0582), same non-braking-only
+                // regen cut as the coasting rate above.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
