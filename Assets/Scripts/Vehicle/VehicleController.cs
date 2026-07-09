@@ -22,6 +22,17 @@ namespace LocalFormulaRacing
         public bool ErsDeploying { get; private set; }
         public bool ErsHarvesting { get; private set; }
         public bool DrsActive { get; private set; }
+        // Flat-rate DRS speed boost: separate from DrsActive (which only governs
+        // the wing-open visual and the drag-coefficient cut). Once triggered by a
+        // fresh DRS activation, this runs for DrsBoostDurationSeconds of real time
+        // regardless of what the wing does afterward (braking, toggling closed),
+        // and grants DrsBoostAmountKph on top of the car's normal target speed
+        // whenever it's actually above DrsBoostThresholdKph - with no ceiling
+        // clamp applied to this component, unlike every other speed bonus.
+        public bool DrsBoostActive { get; private set; }
+        public float DrsBoostSecondsRemaining { get; private set; }
+        bool drsCommandPrevious;
+        float drsBoostTimer;
         // Slipstream: automatic, physics-based tow from running in another car's
         // wake on a straight - distinct from DRS (button/AI-commanded, gated by
         // race eligibility rules, much bigger effect). RaceManager.UpdateSlipstreamEffects
@@ -162,7 +173,18 @@ namespace LocalFormulaRacing
         // above (see aiTopSpeedBoost in ApplyForces) - a ceiling bump alone
         // is aspirational unless something actually pushes the car up to it.
         const float AiTopSpeedBonusKph = 3f;
-        const float DrsTopSpeedBonusKph = 32f;
+        // Flat DRS speed boost (replaces the old ramped/capped drsBoost model):
+        // a fresh DRS activation grants +DrsBoostAmountKph, uncapped by the
+        // normal top-speed ceiling, for DrsBoostDurationSeconds - but only while
+        // actually above DrsBoostThresholdKph, so it never does anything at pit-
+        // lane/low-corner speed.
+        const float DrsBoostDurationSeconds = 15f;
+        const float DrsBoostThresholdKph = 150f;
+        const float DrsBoostAmountKph = 30f;
+        // Dedicated additive force (same reasoning as playerTopSpeedBoost/
+        // aiTopSpeedBoost/ersBoost above) so the raised target is actually
+        // reached quickly rather than being aspirational against drag.
+        const float DrsBoostForceAccel = 45f;
         // ERS buff: raised from 20, then 26 - with the stronger deploy force
         // below the car can now actually accelerate up to a ceiling this much
         // higher within a normal straight, instead of the old ceiling being
@@ -787,10 +809,29 @@ namespace LocalFormulaRacing
             // coefficient and top-speed bonus below for both the player and every AI
             // car identically - no separate logic to keep in sync.
             DrsActive = activeCommand.drs && absoluteSpeedKph > 90f && activeCommand.brake < 0.05f;
+
+            // Flat DRS speed-boost timer: a fresh activation (command.drs rising
+            // from false to true) arms a DrsBoostDurationSeconds window that
+            // counts down in real time regardless of subsequent braking/wing
+            // toggling - unlike DrsActive above, closing the wing mid-window does
+            // not cancel it. The actual bonus only applies while both the window
+            // is still open AND current speed is above DrsBoostThresholdKph (see
+            // CalculateTargetTopSpeedKph/drsBoostForce below).
+            if (activeCommand.drs && !drsCommandPrevious)
+            {
+                drsBoostTimer = DrsBoostDurationSeconds;
+            }
+
+            drsCommandPrevious = activeCommand.drs;
+            drsBoostTimer = Mathf.Max(0f, drsBoostTimer - dt);
+            DrsBoostSecondsRemaining = drsBoostTimer;
+            DrsBoostActive = drsBoostTimer > 0f && absoluteSpeedKph > DrsBoostThresholdKph;
+
             TargetTopSpeedKph = CalculateTargetTopSpeedKph(activeCommand);
             if (PitLimiterActive)
             {
                 DrsActive = false;
+                DrsBoostActive = false;
                 TargetTopSpeedKph = Mathf.Min(TargetTopSpeedKph, PitExitFastLimiter ? PitExitLimiterCapKph : PitEntryLimiterCapKph);
             }
 
@@ -802,6 +843,7 @@ namespace LocalFormulaRacing
             if (raceControlCapActive)
             {
                 DrsActive = false;
+                DrsBoostActive = false;
                 TargetTopSpeedKph = Mathf.Min(TargetTopSpeedKph, RaceControlSpeedCapKph);
             }
 
@@ -1012,29 +1054,14 @@ namespace LocalFormulaRacing
                 highSpeedPower += 0.1f;
             }
 
-            // DRS force fix: DRS previously only raised TargetTopSpeedKph's ceiling
-            // (+32kph, see CalculateTargetTopSpeedKph) and halved the drag
-            // coefficient below - both real, but neither actually pushes the car
-            // toward that raised ceiling with any urgency. DRS is used exactly when
-            // a car is already near its normal top speed (that's the whole point -
-            // better terminal speed on a straight), which is precisely where net
-            // propulsive force is weakest (highSpeedPower already faded down toward
-            // its 0.82 floor, drag near its peak) - so the promised ~30kph gain was
-            // barely reached, if at all, within a typical zone's length before the
-            // car had to lift for the next corner. Matches the same diagnosis ERS
-            // got (a raised ceiling is aspirational without the underlying push to
-            // actually reach it) - gives DRS its own genuine additive force term,
-            // scaled by the car's aero rating, same as ERS gets its own additive
-            // ersBoost term below rather than only a softened drag figure.
-            // DRS calibration fix: the old ramp (0.5-1 over 90-170kph) meant DRS was
-            // already half-strength well below normal cruising speed and barely grew
-            // from there - DRS is a top-speed tool, not a low-speed one, so it should
-            // do almost nothing below ~120kph and build hardest in the 140-260kph
-            // band where it's actually used. The old 22-34 additive term also wasn't
-            // enough to overcome drag at those speeds within a typical zone's length
-            // to produce a real, felt top-speed gain - raised well above that.
-            float drsBoost = DrsActive ? Mathf.Lerp(38f, 55f, CarData.aeroEfficiency / 100f) : 0f;
-            float drsSpeedRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(140f, 260f, forwardSpeedKph));
+            // Flat DRS boost force: DrsBoostActive (see ApplyForces' timer above)
+            // already grants an uncapped +DrsBoostAmountKph to TargetTopSpeedKph
+            // while it's active, but a raised ceiling alone is aspirational unless
+            // something actually pushes the car toward it - same reasoning as
+            // ERS/slipstream/top-speed-buff's own dedicated additive terms below.
+            // No speed ramp here on purpose: the request is a flat, on/off boost
+            // above DrsBoostThresholdKph, not a gradual build like the old model.
+            float drsBoostForce = DrsBoostActive ? DrsBoostForceAccel : 0f;
 
             // Slipstream force: same reasoning as DRS above - a raised top-speed
             // ceiling alone may not be reachable before the straight ends, so this
@@ -1057,7 +1084,7 @@ namespace LocalFormulaRacing
             // (the governor threshold speedLimiter cuts drive force against) -
             // it was never an actual push. That's the exact same diagnosis DRS,
             // ERS and slipstream all needed their own dedicated boost force
-            // terms for (see the comments on drsBoost/ersBoost/slipstreamBoost):
+            // terms for (see the comments on drsBoostForce/ersBoost/slipstreamBoost):
             // if the car's real drag-limited equilibrium speed already sits at
             // or below the OLD ceiling, raising the ceiling further changes
             // nothing actually reached on a real straight, because nothing is
@@ -1108,7 +1135,7 @@ namespace LocalFormulaRacing
                     ActiveSlowdownReason = "FUEL STARVATION";
                 }
 
-                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoost * drsSpeedRamp + slipstreamBoost + playerTopSpeedBoost + aiTopSpeedBoost) * starvationPower, ForceMode.Acceleration);
+                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoostForce + slipstreamBoost + playerTopSpeedBoost + aiTopSpeedBoost) * starvationPower, ForceMode.Acceleration);
                 if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
                 {
                     float pullThrough = Mathf.Lerp(5.6f, 2.0f, speedRatio) * activeCommand.throttle * speedLimiter;
@@ -1325,21 +1352,10 @@ namespace LocalFormulaRacing
             float carTopSpeed = CarData == null || CarData.topSpeed <= 0 ? 337f : CarData.topSpeed;
             float target = Mathf.Clamp(carTopSpeed + 15f, 342f, RaceSpeedCeilingKph) * setupTopSpeedMultiplier;
 
-            // DRS and ERS both need a ceiling above the normal ~350 clamp, otherwise
-            // their bonus is silently absorbed since the unassisted target already
-            // sits close to it. Real F1 DRS: better terminal speed on straights, not
-            // an arcade boost, so the drag reduction (see ApplyForces) does most of
-            // the work; this raises the ceiling that drag reduction is allowed to reach.
-            //
-            // DRS speed cap removed: this used to hard-set ceiling to a fixed
-            // DrsSpeedCeilingKph (392) the moment DRS was active, which silently
-            // clipped a genuinely fast car's own DRS-boosted target (carTopSpeed +
-            // 15 + DrsTopSpeedBonusKph can exceed 392 on a well-upgraded car) back
-            // down below what its own stats/bonus should have allowed. Ceiling now
-            // just tracks the target itself while DRS is active - DRS's own
-            // contribution is never clamped away - and the shared safety cap below
-            // (405, same one ERS/slipstream already answer to) is still the only
-            // real limit on how high everything can stack together.
+            // ERS needs a ceiling above the normal ~350 clamp, otherwise its bonus
+            // is silently absorbed since the unassisted target already sits close
+            // to it. DRS no longer touches this ceiling at all - see the flat,
+            // uncapped DrsBoostActive bonus applied after every clamp below.
             float ceiling = RaceSpeedCeilingKph;
 
             // Player-only straightline speed buff: AiVehicleController's own
@@ -1355,12 +1371,6 @@ namespace LocalFormulaRacing
             {
                 target += AiTopSpeedBonusKph;
                 ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + AiTopSpeedBonusKph);
-            }
-
-            if (DrsActive)
-            {
-                target += DrsTopSpeedBonusKph;
-                ceiling = Mathf.Max(ceiling, target);
             }
 
             // Battery-never-reaches-0% fix: matches ErsDeploying's own floor in
@@ -1399,7 +1409,19 @@ namespace LocalFormulaRacing
                 target -= Tyres.CompoundSpeedOffsetKph(Weather);
             }
 
-            return Mathf.Min(Mathf.Max(target, 60f), ceiling);
+            float cappedTarget = Mathf.Min(Mathf.Max(target, 60f), ceiling);
+
+            // Flat DRS speed boost: deliberately added AFTER every ceiling clamp
+            // above (the 350 base ceiling and the 405 shared safety cap both) so
+            // it is never absorbed by them - a genuinely uncapped +DrsBoostAmountKph
+            // on top of whatever the car could otherwise reach, exactly as
+            // requested, for as long as DrsBoostActive holds (see ApplyForces).
+            if (DrsBoostActive)
+            {
+                cappedTarget += DrsBoostAmountKph;
+            }
+
+            return cappedTarget;
         }
 
         float BrakeResponse(float input)

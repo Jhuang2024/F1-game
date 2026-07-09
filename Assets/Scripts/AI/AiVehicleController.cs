@@ -843,15 +843,35 @@ namespace LocalFormulaRacing
             // paceMultiplier/damageMultiplier are still applied on top so the
             // field doesn't all bunch at one identical number and a genuinely
             // damaged car can still legitimately fall short of the cap.
-            if (raceManager.CurrentRaceControlState == RaceManager.RaceControlState.SafetyCarActive ||
-                raceManager.CurrentRaceControlState == RaceManager.RaceControlState.VirtualSafetyCar)
+            // Round 3 - still crawling everywhere but the dead-straights: the
+            // Round 2 fix above only ever capped apexTargetSpeed DOWN toward
+            // paceCap via Mathf.Min, but apexTargetSpeed itself was derived
+            // (several lines up, through EstimateApexSpeedForCornerType) from
+            // straightTargetSpeed - which by this point already has the large
+            // flat "Round 1-15" historical discount baked in (~92kph, tuned
+            // only for unrestricted green-flag pace, with no relationship to
+            // the posted SC/VSC/yellow limit). So Min(alreadyCrushedNumber,
+            // paceCap) just kept returning the crushed number almost
+            // everywhere a corner existed, i.e. everywhere except a pure
+            // straight - exactly the reported "crawling in every corner"
+            // behaviour. The apex reference now gets rebuilt from the real
+            // legal cap instead of the discounted one, so cappedApexTargetSpeed
+            // is genuinely close to the posted limit, only pulled down by
+            // actual corner severity - never by an unrelated straight-line
+            // pace discount. This also now covers a local yellow sector, not
+            // only full/virtual safety car, via the same canonical cap
+            // (RaceControlSpeedCapKphFor) the physical hard limiter already
+            // uses for every car.
+            float raceControlCap = raceManager.RaceControlSpeedCapKphFor(participant);
+            if (raceControlCap < 9000f)
             {
-                float paceCap = raceManager.CurrentRaceControlState == RaceManager.RaceControlState.SafetyCarActive
-                    ? raceManager.SafetyCarTargetSpeedKph
-                    : RaceManager.VirtualSafetyCarSpeedCapKph;
+                float paceCap = raceControlCap;
+
+                float trueApexSpeedUnderCap = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, paceCap, hairpinSpeedKph, gripMultiplier, apexConfidence, skillTier, compoundSpeedOffsetKph);
+                float apexTargetSpeedUnderCap = Mathf.Lerp(trueApexSpeedUnderCap * 0.5f, trueApexSpeedUnderCap, apexConfidence);
 
                 straightTargetSpeed = paceCap;
-                float cappedApexTargetSpeed = Mathf.Min(apexTargetSpeed, paceCap);
+                float cappedApexTargetSpeed = Mathf.Min(apexTargetSpeedUnderCap, paceCap);
                 float paceScale = driverPaceVariance * profile.paceMultiplier * damageMultiplier;
                 cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, cappedApexTargetSpeed, severityHere) * paceScale;
                 brakingApexSpeed = cappedApexTargetSpeed * paceScale;
