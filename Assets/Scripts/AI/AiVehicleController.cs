@@ -1986,7 +1986,22 @@ namespace LocalFormulaRacing
                         if (timeToContact < 4.2f && absX < 4.6f)
                         {
                             float urgency = Mathf.Clamp01(1f - timeToContact / 4.2f);
-                            brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.38f, 1f, urgency * urgency) * overlap);
+                            // Launch concertina fix (diagnosed from the FIRING logs:
+                            // the boost lands on every car, so the remaining launch
+                            // killer is this brake pulsing through the compressing
+                            // pack - brake force ~40 m/s2 dwarfs the 30 boost, and
+                            // each pulse re-opens a gap the car behind then closes,
+                            // re-triggering the pulse behind IT: the accordion the
+                            // player drives around for 10+ places). During the
+                            // race-start window braking is reserved for genuinely
+                            // imminent contact (<1.2s); ordinary closing is managed
+                            // by the throttle cut alone, which also scales the
+                            // launch boost down (see VehicleController), so the
+                            // pack stays dense AND fast like a real F1 start.
+                            if (!raceStartPackWindow || timeToContact < 1.2f)
+                            {
+                                brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.38f, 1f, urgency * urgency) * overlap);
+                            }
                             throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.65f, 0.02f, urgency));
                         }
                     }
@@ -2128,6 +2143,17 @@ namespace LocalFormulaRacing
             if (committingToPit)
             {
                 steerAdjust = Mathf.Clamp(steerAdjust, -0.12f, 0.12f);
+            }
+
+            // Launch-window steering: the dodge/side-by-side adjustments can swing
+            // to +-0.78, and on a dense grid every car has triggers on both flanks
+            // - full-authority dodging off the line reads as the pack zigzagging
+            // and scrubs launch speed through lateral grip. The opening fan-out
+            // lane offsets already separate the field; traffic steering is capped
+            // to a separation nudge for those first seconds.
+            if (raceStartPackWindow)
+            {
+                steerAdjust = Mathf.Clamp(steerAdjust, -0.3f, 0.3f);
             }
 
             command.steer = Mathf.Clamp(command.steer + steerAdjust, -1f, 1f);
@@ -2581,12 +2607,12 @@ namespace LocalFormulaRacing
         float LegalOffsetLimit(float cornerSeverity, float distance)
         {
             // Aligned EXACTLY with TrackRuntime.ComputeRacingLine's corridor
-            // (kerbStart + 0.5, capped at halfWidth - 0.5) so the runtime clamp
-            // can never clip the precomputed optimal line the AI is targeting -
-            // including apexes that put the inside wheels on the kerb.
+            // (full drivable surface minus 1m, or the kerb band where that gives
+            // more room) so the runtime clamp can never clip the precomputed
+            // optimal line the AI is targeting.
             float localHalfWidth = track.HalfWidthAt(distance);
-            float kerbLimit = track.kerbStart > 0f ? track.kerbStart + 0.5f : localHalfWidth - 0.5f;
-            return Mathf.Max(0.75f, Mathf.Min(localHalfWidth - 0.5f, kerbLimit));
+            float kerbLimit = track.kerbStart > 0f ? Mathf.Min(track.kerbStart + 0.5f, localHalfWidth - 0.5f) : localHalfWidth - 1f;
+            return Mathf.Max(0.75f, Mathf.Max(kerbLimit, localHalfWidth - 1f));
         }
 
         float EstimateTurnDirection(float distance)

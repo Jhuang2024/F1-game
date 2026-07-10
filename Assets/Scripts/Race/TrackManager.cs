@@ -121,14 +121,18 @@ namespace LocalFormulaRacing
                 centers[i] = point;
                 rights[i] = right;
                 float halfWidth = HalfWidthAt(d);
-                // Corridor reaches the KERB (apex commitment fix): the previous
-                // halfWidth - 1.5 corridor stopped ~0.8m short of the kerb, so the
-                // computed line physically could not clip an apex no matter how
-                // well the solver converged. A racing car puts its inside wheels
-                // on the kerb: the corridor now runs to kerbStart + 0.5 (capped
-                // 0.5m inside the true edge for barrier margin).
-                float kerbLimit = kerbStart > 0f ? kerbStart + 0.5f : halfWidth - 0.5f;
-                limits[i] = Mathf.Max(0.75f, Mathf.Min(halfWidth - 0.5f, kerbLimit));
+                // Corridor apex-commitment fix round 2: capping at kerbStart + 0.5
+                // was STILL wrong on the wide layouts - e.g. Qatar has
+                // roadHalfWidth 15.47 with kerbStart 9.07, i.e. the kerb band sits
+                // 6m INSIDE the drivable surface, so a kerb-capped corridor
+                // stopped 6m short of the true edge and the computed line looked
+                // nothing like an optimal line ("doesn't clip the apexes at all").
+                // The full drivable surface minus a 1m barrier margin is the real
+                // corridor; on narrow layouts whose kerbs sit right at the edge,
+                // kerbStart + 0.5 (capped halfWidth - 0.5) still allows riding the
+                // kerb, whichever is more room.
+                float kerbLimit = kerbStart > 0f ? Mathf.Min(kerbStart + 0.5f, halfWidth - 0.5f) : halfWidth - 1f;
+                limits[i] = Mathf.Max(0.75f, Mathf.Max(kerbLimit, halfWidth - 1f));
                 offsets[i] = 0f;
             }
 

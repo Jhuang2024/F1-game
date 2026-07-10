@@ -1174,8 +1174,13 @@ namespace LocalFormulaRacing
             // "AI crawl off the line" exactly).
             bool launchWindowArmed = raceLaunchBoostUntil > 0f && Time.time < raceLaunchBoostUntil;
             float launchCommand = Mathf.Max(Mathf.Clamp01(activeCommand.launchBoost), launchWindowArmed ? 1f : 0f);
+            // The boost yields progressively to a hard traffic throttle cut
+            // (urgency braking is suppressed in the launch window, so the throttle
+            // cut is what regulates a closing car - an unbrakeable full-strength
+            // shove would otherwise ram it into the car ahead): full boost at
+            // >=0.72 commanded throttle, fading to zero as the cut approaches 0.
             float launchBoostForce = (!IsPlayerControlled && !speedCapEngaged && launchCommand > 0.01f)
-                ? Mathf.Lerp(30f, 5f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * launchCommand
+                ? Mathf.Lerp(30f, 5f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * launchCommand * Mathf.Clamp01(activeCommand.throttle * 1.4f)
                 : 0f;
             bool launchGatesOpen = !IsHeldInPit && !IsHeldOnGrid && activeCommand.brake < 0.25f && !fuelStarved;
             if (launchBoostForce > 0.01f && launchGatesOpen)
