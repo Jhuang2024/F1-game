@@ -1114,6 +1114,21 @@ namespace LocalFormulaRacing
                 ? Mathf.Lerp(6f, 10f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph))
                 : 0f;
 
+            // AI launch boost: a genuine additive forward force off a standing
+            // start and off VSC/SC/yellow restarts (activeCommand.launchBoost, set
+            // by AiVehicleController during its launch/recovery window). Doubling
+            // the throttle INPUT ramp never helped because both cars reach full
+            // throttle almost instantly and then share identical physics - so this
+            // is the lever that actually makes AI accelerate as hard as (or harder
+            // than) the player off the line. Strongest from a standstill and ramps
+            // fully out by ~150 km/h so it's a launch/traction tool, never extra
+            // straight-line top speed. Never applies to the player (the launchBoost
+            // channel is AI-only) and is gated off any active speed cap so it can't
+            // fight the pit/race-control limiter.
+            float launchBoostForce = (!IsPlayerControlled && !speedCapEngaged && activeCommand.launchBoost > 0.01f)
+                ? Mathf.Lerp(11f, 4f, Mathf.InverseLerp(0f, 150f, forwardSpeedKph)) * Mathf.Clamp01(activeCommand.launchBoost)
+                : 0f;
+
             float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
             float speedLimiter = Mathf.Clamp01((topSpeed + limiterWindow - forwardSpeed) / limiterWindow);
             if (!IsHeldInPit && activeCommand.throttle > 0.01f && speedLimiter > 0.01f)
@@ -1144,7 +1159,7 @@ namespace LocalFormulaRacing
                     ActiveSlowdownReason = "FUEL STARVATION";
                 }
 
-                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoostForce + slipstreamBoost + playerTopSpeedBoost + aiTopSpeedBoost) * starvationPower, ForceMode.Acceleration);
+                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoostForce + slipstreamBoost + playerTopSpeedBoost + aiTopSpeedBoost + launchBoostForce) * starvationPower, ForceMode.Acceleration);
                 if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
                 {
                     float pullThrough = Mathf.Lerp(5.6f, 2.0f, speedRatio) * activeCommand.throttle * speedLimiter;

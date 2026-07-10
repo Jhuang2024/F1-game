@@ -471,6 +471,14 @@ namespace LocalFormulaRacing
         // rather than silently discarded, then the per-stat system takes over.
         public int ratingDelta;
         public bool legacyDeltaMigrated;
+        // One-time repair marker: an interim build folded the legacy ratingDelta
+        // into every per-stat field for the player's OWN seat too (before that was
+        // recognised as dumping the AI's invisible random-walk history onto the
+        // player - the "suddenly qualifying P22" regression). Saves touched by that
+        // build have legacyDeltaMigrated already true with the damage baked in, so
+        // the ordinary migration guard skips them. CareerManager.MigrateLegacyRatingModifier
+        // uses this flag to undo that fold exactly once for the player's own seat.
+        public bool legacyPlayerDeltaRepaired;
 
         // Independent cumulative deltas, one per meaningful subrating -
         // GetEffectiveDriver applies each to its matching DriverData field

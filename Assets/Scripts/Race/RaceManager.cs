@@ -1762,10 +1762,10 @@ namespace LocalFormulaRacing
             // Incident odds reduction (per request): freqScale is the single
             // factor every yellow/VSC/SC escalation chance below multiplies
             // by, so scaling it here reduces the whole family of race-control
-            // interruptions uniformly. Now 0.42 (the earlier 0.7, i.e. -30%,
-            // then a further -40% on top = 0.7 * 0.6), taking the standard
-            // setting's base 0.13 down to an effective 0.055.
-            float freqScale = (freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.06f : (freqSetting == 3 ? 0.28f : 0.13f))) * 0.42f;
+            // interruptions uniformly. Now 0.21 - the earlier 0.42 (a -30% then a
+            // further -40%, 0.7 * 0.6) with another -50% on top (0.42 * 0.5),
+            // taking the standard setting's base 0.13 down to an effective 0.027.
+            float freqScale = (freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.06f : (freqSetting == 3 ? 0.28f : 0.13f))) * 0.21f;
             bool preRace = StartCountdown > 0f;
             int mechanicalMode = Settings == null ? 2 : Settings.Current.mechanicalFailureMode;
 

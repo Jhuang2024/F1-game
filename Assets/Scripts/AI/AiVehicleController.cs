@@ -1029,7 +1029,15 @@ namespace LocalFormulaRacing
             {
                 bool curvatureRising = severityHere > previousSeverityHere + 0.012f;
                 bool curvatureFalling = severityHere < previousSeverityHere - 0.012f;
-                float biasMagnitude = Mathf.Lerp(legalLimit * 0.35f, legalLimit * 0.98f, severityHere);
+                // Racing-line reach fix: swing much wider through corners. The old
+                // 0.35-0.98 band left even the entry/exit bias short of the legal
+                // limit, so the "outside-inside-outside" arc was shallow and read
+                // as central. Now runs from just over half the legal width on the
+                // gentlest bends up to the FULL legal limit (which itself now
+                // reaches the kerb - see LegalOffsetLimit), so the AI genuinely
+                // works the whole track width and clips the kerbs like the overtake
+                // line does.
+                float biasMagnitude = Mathf.Lerp(legalLimit * 0.6f, legalLimit, severityHere);
                 if (curvatureRising || curvatureFalling)
                 {
                     lineBias = -turnSign * biasMagnitude;
@@ -1037,7 +1045,13 @@ namespace LocalFormulaRacing
                 else
                 {
                     float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
-                    float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 4f);
+                    // Apex-precision dilution softened (was /4, which drove the apex
+                    // clip toward ZERO for lower-skill AI - a 2.6m apex error gave
+                    // apexPrecision ~0.35, so Easy/Medium cars ran the apex almost
+                    // dead centre). /9 keeps a real skill spread (a sloppy driver
+                    // still misses the apex by the noise term) while ensuring every
+                    // tier actually turns in toward the inside kerb.
+                    float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 9f);
                     lineBias = turnSign * biasMagnitude * apexPrecision + apexMissNoise;
                 }
             }
@@ -1356,6 +1370,20 @@ namespace LocalFormulaRacing
             float baseRamp = brakeDemand > 0.02f ? 4.5f : 5.2f * profile.throttleAggressionMultiplier;
             currentThrottle = Mathf.MoveTowards(currentThrottle, throttleTarget, Time.deltaTime * baseRamp * accelerationBoost);
             command.throttle = currentThrottle;
+
+            // Physics-level launch boost off a standing start / VSC-SC-yellow
+            // restart. The throttle-input ramp above is already saturated within a
+            // fraction of a second, so buffing it further did nothing the player
+            // could feel - both cars then share identical physics and the AI could
+            // never out-drag the player off the line. This flag hands
+            // VehicleController a real additive low-speed forward push (AI-only,
+            // ramped out by ~150 km/h) so the AI genuinely launches as hard as the
+            // player. Only ever set while actually braking-clear and on throttle so
+            // it can't shove a car that's trying to slow for turn one.
+            if ((inLaunchWindow || paceCapRecoveryBoostTimer > 0f) && brakeDemand < 0.05f)
+            {
+                command.launchBoost = Mathf.Clamp01(command.throttle);
+            }
 
             // Launch confidence: a brief, skill-scaled settle-in right off the line.
             // Pure input timing/ramp - never an engine or grip boost.
@@ -2440,7 +2468,13 @@ namespace LocalFormulaRacing
             float desired = Mathf.Clamp(requestedOffset, -legalLimit, legalLimit);
             if (Mathf.Abs(turnSign) > 0.01f && cornerSeverity > 0.18f)
             {
-                float insideLimit = Mathf.Lerp(legalLimit, legalLimit * 0.42f, cornerSeverity);
+                // Apex reach: the old 0.42 floor clamped the inside line to under
+                // half the legal width on a sharp corner, so the AI clipped the
+                // apex well short of the inside kerb and drifted back toward centre.
+                // Raised to 0.72 so a proper apex actually reaches the inside edge,
+                // while still stopping the car short of cutting straight across the
+                // corner.
+                float insideLimit = Mathf.Lerp(legalLimit, legalLimit * 0.72f, cornerSeverity);
                 if (turnSign > 0f)
                 {
                     desired = Mathf.Clamp(desired, -legalLimit, insideLimit);
@@ -2451,11 +2485,14 @@ namespace LocalFormulaRacing
                 }
             }
 
-            // Barrier-avoidance fix round 5: trigger band widened (was 1.6m) and the
-            // pull-back rate strengthened (was 2.2-5.2) so a car already running
-            // close to the true edge gets pulled back toward the centerline harder
-            // and starting a bit further out.
-            if (Mathf.Abs(progress.lateralDistance) > track.HalfWidthAt(progress.distance) - 2.2f)
+            // Near-wall recovery: only engage right at the true track edge so it
+            // catches a car genuinely drifting toward the barrier without fighting
+            // the intended wide/kerb-clipping racing line (which now deliberately
+            // reaches ~kerbStart - see LegalOffsetLimit). Trigger moved out to
+            // HalfWidth - 1.0 (was 2.2) so a car sitting on the optimal line at the
+            // kerb is left alone; only a car past the kerb, right against the wall,
+            // is pulled back.
+            if (Mathf.Abs(progress.lateralDistance) > track.HalfWidthAt(progress.distance) - 1.0f)
             {
                 desired = Mathf.MoveTowards(desired, 0f, Mathf.Lerp(3f, 6.5f, cornerSeverity));
             }
@@ -2465,12 +2502,20 @@ namespace LocalFormulaRacing
 
         float LegalOffsetLimit(float cornerSeverity, float distance)
         {
-            // Barrier-avoidance fix round 5: margin widened (was 1.8-3.1) so the
-            // legal line itself sits a bit further from the true edge, leaving more
-            // real room before a line error becomes a barrier hit.
-            float margin = Mathf.Lerp(2.3f, 3.8f, cornerSeverity);
+            // Racing-line reach fix (per request - "they're just driving in the
+            // middle of the road"): the old margin (2.3-3.8m) plus the kerbStart
+            // - 0.8m clamp held the legal line ~0.6 of the half-width from centre,
+            // so the AI never actually used the kerbs and the racing line read as
+            // timid/central next to the full-width overtake/defend offsets. The
+            // margin is cut right down and the kerb clamp now allows the line ONTO
+            // the inside of the kerb (kerbStart + 0.4m), so the optimal line
+            // genuinely swings out to the track edge and clips the kerb - the 0.9m
+            // barrier runoff beyond the kerb (Track.EdgeBarrierClearance) plus the
+            // near-wall pullback in ConstrainLegalLineOffset still keep it off the
+            // barrier itself.
+            float margin = Mathf.Lerp(1.4f, 2.3f, cornerSeverity);
             float localHalfWidth = track.HalfWidthAt(distance);
-            float kerbLimit = track.kerbStart > 0f ? track.kerbStart - 0.8f : localHalfWidth - margin;
+            float kerbLimit = track.kerbStart > 0f ? track.kerbStart + 0.4f : localHalfWidth - margin;
             return Mathf.Max(0.75f, Mathf.Min(localHalfWidth - margin, kerbLimit));
         }
 

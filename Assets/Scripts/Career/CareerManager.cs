@@ -4236,10 +4236,39 @@ namespace LocalFormulaRacing
             }
 
             bool isPlayersOwnSeat = Save.useExistingDriver && !string.IsNullOrEmpty(Save.selectedDriverId) && modifier.driverId == Save.selectedDriverId;
+
+            // One-time repair for saves already migrated by the interim buggy
+            // build: that build folded the legacy ratingDelta into all nine
+            // per-stat fields for the player's OWN seat as well, then set
+            // legacyDeltaMigrated=true - so the guard below skips it and the
+            // damage (often a sharply negative delta, dropping the player to P22)
+            // stays baked in forever. ratingDelta itself is still populated (the
+            // fold never zeroed it), so we can subtract exactly what was added back
+            // out of the same nine fields, then zero it. Runs once, gated by
+            // legacyPlayerDeltaRepaired, and only for the player's own seat.
+            if (isPlayersOwnSeat && modifier.legacyDeltaMigrated && !modifier.legacyPlayerDeltaRepaired && modifier.ratingDelta != 0)
+            {
+                int baked = modifier.ratingDelta;
+                modifier.paceDelta -= baked;
+                modifier.racecraftDelta -= baked;
+                modifier.qualifyingDelta -= baked;
+                modifier.tyreManagementDelta -= baked;
+                modifier.wetSkillDelta -= baked;
+                modifier.consistencyDelta -= baked;
+                modifier.defendingDelta -= baked;
+                modifier.overtakingDelta -= baked;
+                modifier.awarenessDelta -= baked;
+                modifier.ratingDelta = 0;
+                modifier.legacyPlayerDeltaRepaired = true;
+                GameLog.Info("[Progression] Repaired player's own driver (" + modifier.driverId + ", season " + modifier.season + "): backed out the interim build's folded legacy delta (" + baked + ") that had tanked qualifying to the back of the grid.");
+                return;
+            }
+
             if (isPlayersOwnSeat && !modifier.legacyDeltaMigrated)
             {
                 modifier.ratingDelta = 0;
                 modifier.legacyDeltaMigrated = true;
+                modifier.legacyPlayerDeltaRepaired = true;
                 GameLog.Info("[Progression] Discarded legacy rating history for the player's own driver (" + modifier.driverId + ", season " + modifier.season + ") - it never reflected actual player performance.");
                 return;
             }
