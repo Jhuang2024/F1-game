@@ -1518,6 +1518,20 @@ namespace LocalFormulaRacing
                 command.pitRequest = true;
             }
 
+            // Never pit on the final lap (per request), whatever the tyre wear:
+            // a stop here only throws away track position the car can't win
+            // back before the flag, and the mandatory stop is always taken well
+            // before this. Overrides every trigger above; a car already on the
+            // pit rail (pitPhase != None) is mid-stop and unaffected - this only
+            // suppresses a NEW request. Uses CompletedLaps + 1 (the lap being
+            // driven) vs RaceLaps so it engages the moment the last lap starts.
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
+                raceManager.RaceLaps > 0 && participant.lapTracker != null &&
+                participant.lapTracker.CompletedLaps + 1 >= raceManager.RaceLaps)
+            {
+                command.pitRequest = false;
+            }
+
             ApplyDamageStrategy(ref command, damagePercent);
 
             // Deterministic-deadlock fix: once a real physical pit-entry opening
