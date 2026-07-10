@@ -7784,16 +7784,6 @@ namespace LocalFormulaRacing
             }
 
             DriverData playerQualiDriver = ResolvePlayerQualifyingDriverData(playerName, playerTeamId);
-            // P22-diagnosis log: makes the player's ACTUAL effective qualifying
-            // inputs visible in the log for every simulated session, so a
-            // "suddenly qualifying at the back" report can be pinned to either
-            // bad driver stats (progression/migration damage) or a bad car
-            // rating, instead of guessing.
-            GameLog.Info("[QualiSim] Player effective stats: qualifying=" + playerQualiDriver.qualifying +
-                         " pace=" + playerQualiDriver.pace +
-                         " consistency=" + playerQualiDriver.consistency +
-                         " experience=" + playerQualiDriver.experience +
-                         " car=" + (playerCar == null ? "null" : playerCar.id));
             qualifyingEntries.Add(new QualifyingSimEntry
             {
                 driverId = "player",
@@ -11123,6 +11113,35 @@ namespace LocalFormulaRacing
             breakdown.finalTime = breakdown.baseLap + breakdown.driverEffect + breakdown.carEffect +
                                   breakdown.difficultyEffect + breakdown.phaseEffect + breakdown.tyrePrep +
                                   breakdown.weatherPenalty + breakdown.mistakePenalty + breakdown.variance;
+            // P19/P22-diagnosis log: the whole per-term breakdown for the
+            // player's OWN simulated lap, every phase, unconditionally to the
+            // console (Debug.Log, not GameLog.Info - GameLog.Info is silently
+            // dropped unless verbose/F3 logging is on, which is exactly why an
+            // earlier version of this same diagnostic never actually reached
+            // the console on a real play session). Placed here rather than at
+            // field-build time so avgQualifying/fieldAverageCarRating are the
+            // REAL field averages (qualifyingEntries is empty earlier in
+            // BuildSimulatedQualifyingField, before the AI grid is added) - a
+            // "qualifying at the back despite good stats" report can now be
+            // pinned to a specific term (driver stats vs. field average, car
+            // rating vs. field average, a harsh mistake penalty, unlucky
+            // variance) instead of guessing.
+            if (entry.isPlayer)
+            {
+                Debug.Log("[QualiSim] phase " + phase + " driver(qualifying=" + qualifying + " pace=" + pace +
+                          " consistency=" + consistency + " experience=" + confidence + ") vs field avg(qualifying=" +
+                          avgQualifying.ToString("0.0") + " pace=" + avgPace.ToString("0.0") + " confidence=" +
+                          avgConfidence.ToString("0.0") + ") -> driverEffect=" + breakdown.driverEffect.ToString("0.000") +
+                          " || car=" + (car == null ? "null" : car.id) + " carRating=" + carRating.ToString("0.0") +
+                          " vs fieldAvgCarRating=" + fieldAverageCarRating.ToString("0.0") + " -> carEffect=" +
+                          breakdown.carEffect.ToString("0.000") + " || baseLap=" + breakdown.baseLap.ToString("0.000") +
+                          " difficultyEffect=" + breakdown.difficultyEffect.ToString("0.000") + " phaseEffect=" +
+                          breakdown.phaseEffect.ToString("0.000") + " tyrePrep=" + breakdown.tyrePrep.ToString("0.000") +
+                          " weatherPenalty=" + breakdown.weatherPenalty.ToString("0.000") + " mistakePenalty=" +
+                          breakdown.mistakePenalty.ToString("0.000") + " (" + breakdown.mistakeType + ") variance=" +
+                          breakdown.variance.ToString("0.000") + " -> finalTime=" + breakdown.finalTime.ToString("0.000"));
+            }
+
             return breakdown;
         }
 
