@@ -9625,7 +9625,31 @@ namespace LocalFormulaRacing
                 step = Mathf.Min(step, Mathf.Max(0f, participant.pitRailBoxS - participant.pitRailTraveled));
             }
 
-            participant.pitLaneHeldByOccupancy = blocker != null && step <= 0.0001f;
+            // Live-traffic safety: FindRailCarAhead above only tracks OTHER
+            // RAILED cars - the instant a car completes its own handoff it
+            // goes live and drops off that radar entirely. If it hasn't
+            // cleanly accelerated away (still slow right where this car's
+            // path is headed), a following railed car had no way to see it
+            // and would kinematically advance straight through/into it -
+            // harmless while both stay non-colliding, but violently unsafe
+            // the moment physics restores real colliders on two overlapping
+            // cars (exactly what flings cars off-track at handoff/hard-
+            // escape). Checked every tick against EVERY participant, not
+            // just other rail cars and not just at the final handoff.
+            bool blockedByLiveCar = false;
+            if (step > 0.0001f)
+            {
+                Vector3 candidateWaypoint;
+                Quaternion candidateRotation;
+                Track.SamplePitLanePose(Track.WrapDistance(participant.pitGuideDistance + step), participant.pitGuideLateral, out candidateWaypoint, out candidateRotation);
+                if (FindOverlapBlocker(participant, candidateWaypoint) != null)
+                {
+                    step = 0f;
+                    blockedByLiveCar = true;
+                }
+            }
+
+            participant.pitLaneHeldByOccupancy = blockedByLiveCar || (blocker != null && step <= 0.0001f);
             participant.pitRailTraveled += step;
             participant.pitGuideDistance = Track.WrapDistance(participant.pitGuideDistance + step);
             participant.pitGuideLateral = Mathf.MoveTowards(participant.pitGuideLateral, RailLateralTarget(participant), PitGuideLateralRateMetersPerSecond * Time.deltaTime);
