@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: d472c6c97b52f47c989850fee1d397b2, type: 3}
+  m_Name: Cam_Cockpit
+  m_EditorClassIdentifier:
+  kind: 2
+  mountNode: Cameras/CockpitMount
+  followOffset: {x: 0, y: 0, z: 0}
+  followDamping: 0.0
+  rotationDamping: 0.0
+  horizonStability: 0.1
+  baseFov: 62
+  fovSpeedWiden: 6
+  fovDamping: 2.5
+  impactImpulseScale: 1.2
+  kerbVibrationScale: 1.3
+  cameraCollision: 0
+  userOffsetRange: {x: -0.5, y: 0.5}

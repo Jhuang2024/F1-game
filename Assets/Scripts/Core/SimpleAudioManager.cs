@@ -412,6 +412,14 @@ namespace LocalFormulaRacing
 
         AudioClip CreateTone(string clipName, float frequency, float duration, float decay)
         {
+            // Audio-bank architecture: an authored clip in the main bank
+            // (slot key = clipName) replaces this generated fallback outright.
+            AudioClip authored = F1Game.Audio.AudioBankService.Resolve(clipName);
+            if (authored != null)
+            {
+                return authored;
+            }
+
             int sampleRate = 44100;
             int sampleCount = Mathf.CeilToInt(sampleRate * duration);
             float[] samples = new float[sampleCount];
@@ -432,6 +440,14 @@ namespace LocalFormulaRacing
         // stinger so they read as "rising" rather than a flat tone.
         AudioClip CreateSweep(string clipName, float startFrequency, float endFrequency, float duration)
         {
+            // Audio-bank architecture: an authored clip in the main bank
+            // (slot key = clipName) replaces this generated fallback outright.
+            AudioClip authored = F1Game.Audio.AudioBankService.Resolve(clipName);
+            if (authored != null)
+            {
+                return authored;
+            }
+
             int sampleRate = 44100;
             int sampleCount = Mathf.CeilToInt(sampleRate * duration);
             float[] samples = new float[sampleCount];
@@ -455,6 +471,14 @@ namespace LocalFormulaRacing
         // richer than the single-tone flag/warning cues.
         AudioClip CreateChord(string clipName, float[] frequencies, float duration)
         {
+            // Audio-bank architecture: an authored clip in the main bank
+            // (slot key = clipName) replaces this generated fallback outright.
+            AudioClip authored = F1Game.Audio.AudioBankService.Resolve(clipName);
+            if (authored != null)
+            {
+                return authored;
+            }
+
             int sampleRate = 44100;
             int sampleCount = Mathf.CeilToInt(sampleRate * duration);
             float[] samples = new float[sampleCount];
@@ -483,6 +507,14 @@ namespace LocalFormulaRacing
         // filter.
         AudioClip CreateNoise(string clipName, float duration, float centerFrequency)
         {
+            // Audio-bank architecture: an authored clip in the main bank
+            // (slot key = clipName) replaces this generated fallback outright.
+            AudioClip authored = F1Game.Audio.AudioBankService.Resolve(clipName);
+            if (authored != null)
+            {
+                return authored;
+            }
+
             int sampleRate = 44100;
             int sampleCount = Mathf.CeilToInt(sampleRate * duration);
             float[] samples = new float[sampleCount];
@@ -507,6 +539,14 @@ namespace LocalFormulaRacing
         // (rain hisses faster, wind is slower/deeper, crowd sits in between).
         AudioClip CreateSmoothedNoiseLoop(string clipName, float duration, float smoothing)
         {
+            // Audio-bank architecture: an authored clip in the main bank
+            // (slot key = clipName) replaces this generated fallback outright.
+            AudioClip authored = F1Game.Audio.AudioBankService.Resolve(clipName);
+            if (authored != null)
+            {
+                return authored;
+            }
+
             int sampleRate = 44100;
             int sampleCount = Mathf.CeilToInt(sampleRate * duration);
             float[] samples = new float[sampleCount];
