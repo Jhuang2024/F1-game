@@ -1179,8 +1179,13 @@ namespace LocalFormulaRacing
             // cut is what regulates a closing car - an unbrakeable full-strength
             // shove would otherwise ram it into the car ahead): full boost at
             // >=0.72 commanded throttle, fading to zero as the cut approaches 0.
+            // Nerf (per request - "AI has a way better launch than me", applies
+            // uniformly across every difficulty, this boost was never
+            // difficulty-scaled): peak cut ~25% (30 -> 22.5) and the high-speed
+            // tail cut similarly (5 -> 4) so the AI launches strong but no longer
+            // dominates the player's own launch outright.
             float launchBoostForce = (!IsPlayerControlled && !speedCapEngaged && launchCommand > 0.01f)
-                ? Mathf.Lerp(30f, 5f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * launchCommand * Mathf.Clamp01(activeCommand.throttle * 1.4f)
+                ? Mathf.Lerp(22.5f, 4f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * launchCommand * Mathf.Clamp01(activeCommand.throttle * 1.4f)
                 : 0f;
             bool launchGatesOpen = !IsHeldInPit && !IsHeldOnGrid && activeCommand.brake < 0.25f && !fuelStarved;
             if (launchBoostForce > 0.01f && launchGatesOpen)

@@ -1185,6 +1185,15 @@ namespace LocalFormulaRacing
                 float fanBlend = raceManager.RaceElapsed < holdPhase
                     ? 1f
                     : 1f - Mathf.Clamp01((raceManager.RaceElapsed - holdPhase) / (OpeningFanDuration - holdPhase));
+                // "AI taking longer to turn" fix: the fan-out hold had no idea
+                // whether the car was actually approaching a real corner - on a
+                // track whose first corner arrives inside the opening window
+                // (common on the shorter/technical layouts), it kept forcing the
+                // car toward its flat grid-lane offset right through the corner
+                // instead of letting it turn in, reading as sluggish/late
+                // steering. Fades the hold out with corner severity, so a genuine
+                // corner always wins the fan-out lane hold, straights don't.
+                fanBlend *= 1f - Mathf.Clamp01(severityHere * 2.5f);
                 requestedOffset = Mathf.Lerp(requestedOffset, openingFanOffset, fanBlend);
             }
 
@@ -2312,6 +2321,22 @@ namespace LocalFormulaRacing
         // existing legal-line clamp and traffic-avoidance safety logic still bound.
         void UpdateOvertakeState(TrackProgress progress, float severityHere, float apexDistanceAhead, float apexSeverity, float turnSign, int aggression, int overtaking, int defending, RaceManager.AiDifficultyProfile profile, bool isExpert, DriverData driver)
         {
+            // Swarming fix (per request - "everyone rushing to get onto the
+            // line" right after the start): this state machine drove every AI's
+            // overtake/defend jockeying, and it was NEVER suppressed during the
+            // opening fan-out window - so from lights-out, cars were both trying
+            // to hold their fan-out lane AND simultaneously fighting for
+            // overtaking/defending position against their immediate neighbours,
+            // reading as a chaotic scrum. Held off entirely for the same opening
+            // window the fan-out lane hold already uses, decaying any in-progress
+            // move cleanly rather than snapping it off.
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.RaceElapsed < OpeningFanDuration)
+            {
+                aggressionOffset = Mathf.MoveTowards(aggressionOffset, 0f, Time.deltaTime * 4f);
+                overtakeState = OvertakeState.Following;
+                return;
+            }
+
             RaceParticipant ahead = raceManager.FindCarAhead(participant, 46f);
             RaceParticipant behind = raceManager.FindCarBehind(participant, 32f);
             float legalLimit = LegalOffsetLimit(severityHere, progress.distance);
