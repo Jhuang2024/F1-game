@@ -70,23 +70,9 @@ namespace LocalFormulaRacing
 
         static void ApplyLivery(GameObject car, CarDefinition definition, Color primary, Color secondary)
         {
-            // Per-car team colour via MaterialPropertyBlock (no material clones).
-            var block = new MaterialPropertyBlock();
-            foreach (Renderer renderer in car.GetComponentsInChildren<Renderer>())
-            {
-                if (renderer == null)
-                {
-                    continue;
-                }
-
-                renderer.GetPropertyBlock(block);
-                if (!string.IsNullOrEmpty(definition.paintColorProperty))
-                {
-                    block.SetColor(definition.paintColorProperty, primary);
-                }
-
-                renderer.SetPropertyBlock(block);
-            }
+            // Central material-instance ownership: per-car colour via
+            // MaterialPropertyBlock, no material clones.
+            F1Game.Rendering.MaterialInstanceService.ApplyLivery(car, primary);
         }
     }
 }
