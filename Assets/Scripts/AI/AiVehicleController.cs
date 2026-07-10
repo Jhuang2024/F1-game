@@ -2010,6 +2010,24 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
+                // FPS fix: this loop runs every physics tick for every one of the
+                // ~20 AI cars against every OTHER participant (~400+ pairs/tick,
+                // ~20k+/second at a 50Hz fixed timestep), and used to run a full
+                // InverseTransformPoint (matrix multiply) on every single pair
+                // before checking whether the other car was even remotely close.
+                // On a full grid, the overwhelming majority of pairs are cars on
+                // opposite sides of the track - a cheap squared-distance check in
+                // world space (no transform needed) filters those out first, so
+                // the actual per-pair local-space math below only ever runs for
+                // cars that could plausibly interact. Radius covers the widest
+                // forward window (86m) plus the behind/lateral checks further
+                // down with margin.
+                float sqrDistance = (other.transform.position - transform.position).sqrMagnitude;
+                if (sqrDistance > 100f * 100f)
+                {
+                    continue;
+                }
+
                 Vector3 local = transform.InverseTransformPoint(other.transform.position);
                 float absX = Mathf.Abs(local.x);
                 if (local.z <= -6f || local.z >= forwardWindow || absX >= 8.5f)

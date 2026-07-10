@@ -4536,7 +4536,34 @@ namespace LocalFormulaRacing
                     }
                     else
                     {
-                        lateral = Mathf.Max(baseLateral, PitMinimumOuterLateral(midDistance, normalized));
+                        // Barrier-gap fix ("no barriers on the outside line,
+                        // everyone flies into the grass" - the final hairpin,
+                        // real Monza-layout report): PitMinimumOuterLateral is
+                        // computed purely from the PIT LANE's own geometry
+                        // (PitLaneLateral, a fixed offset that can be 20m+ from
+                        // the racing centreline), taken via Mathf.Max against
+                        // baseLateral (the tight corner's own correct flush
+                        // distance). Whenever a real corner - like the final
+                        // hairpin - overlaps the pit zone's normalized band
+                        // (the routine case the "corner-priority" branch above
+                        // exists to handle), that Max() ALWAYS won with the far
+                        // pit-lane value, since it's computed from an entirely
+                        // different, much larger offset than the corner's own
+                        // tight containment - so the "corner priority" fix never
+                        // actually applied in exactly the case it was built for,
+                        // and the wall sat far out near the pit lane while the
+                        // hairpin curved away from it, leaving open grass in
+                        // between with nothing guarding the true corner edge.
+                        // The anti-trapping floor still matters (an earlier bug
+                        // fully collapsing to baseLateral trapped cars physically
+                        // driving through the pits), so it isn't removed - just
+                        // capped to a bounded bulge past the corner's own flush
+                        // distance, enough to clear a real, modest pit-surface
+                        // encroachment without letting the wall balloon far out
+                        // into open grass at a tight corner.
+                        const float maxPitBulgeMeters = 8f;
+                        float pitMinimum = PitMinimumOuterLateral(midDistance, normalized);
+                        lateral = Mathf.Max(baseLateral, Mathf.Min(pitMinimum, baseLateral + maxPitBulgeMeters));
                     }
                 }
             }
