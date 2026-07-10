@@ -8,9 +8,18 @@ Living ledger for the production rebuild. Updated after every logical commit.
 - No claim of compilation, runtime, visual, test, or performance success is made.
 
 ## Git
-- Branch: `claude/unity-production-migration-so7zih`
-- Base `origin/main`: NOT diverged at last check → ff-only merge to main is the
-  intended final step.
+- Branch: `claude/unity-production-migration-so7zih` (pushed; tip `025301f`).
+- **`origin/main` has diverged** — it advanced to `7db7626`, the merge commit of
+  PR #10 (which brought this branch's *earlier* Phase 0/1 work up to `7fa2f42`
+  into main). That merge commit is not in this branch's history, so an
+  **ff-only merge to main is impossible**, and the directive forbids
+  rebase/reset/force/non-ff-merge to resolve a diverged main.
+- Resolution (per directive §4/§206): the 11 new commits are safely committed
+  and pushed on the branch. Land them via a **new PR** to main (same as PR #10)
+  — main already contains everything up to `7fa2f42`; this PR adds `8e5fa7d..
+  025301f`.
+- Note: commits show GitHub "Unverified" (no GPG signing key in this
+  environment); author identity is correct (`noreply@anthropic.com` / `Claude`).
 
 ## Phase status
 - Phase 0 (stabilization/architecture): **implemented**
