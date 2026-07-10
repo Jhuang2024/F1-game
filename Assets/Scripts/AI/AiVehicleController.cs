@@ -80,8 +80,8 @@ namespace LocalFormulaRacing
         // Pure throttle-ramp response, never an engine/grip boost (same
         // convention as launchConfidence above) - how fast currentThrottle
         // catches up to its target during a race start or a VSC/SC/yellow
-        // recovery, per request.
-        const float AccelerationBoostMultiplier = 1.5f;
+        // recovery. Raised to 2x per request.
+        const float AccelerationBoostMultiplier = 2f;
 
         // Race-start confidence, derived once at spawn from difficulty + driver
         // skill. Pure input timing/ramp, never an engine or grip boost.
@@ -674,8 +674,17 @@ namespace LocalFormulaRacing
             int consistency = driver == null ? 80 : driver.consistency;
             int aggression = driver == null ? 75 : driver.aggression;
             int tyreManagement = driver == null ? 80 : driver.tyreManagement;
-            int defending = driver == null ? 78 : driver.defending;
-            int overtaking = driver == null ? 78 : driver.overtaking;
+            // Defence/overtaking buff (+30%, all difficulties, per request):
+            // these two feed every downstream wheel-to-wheel behaviour
+            // (UpdateOvertakeState's commit/lunge/hold decisions and the
+            // defensive-line logic), so scaling them once here - the single
+            // point both are read from - sharpens AI racecraft uniformly
+            // across every difficulty without touching pace, consistency, or
+            // the pit/qualifying paths. Clamped to a sane ceiling so a
+            // already-elite 95 defender doesn't overflow the 0-100 band the
+            // downstream math assumes.
+            int defending = driver == null ? 78 : Mathf.Clamp(Mathf.RoundToInt(driver.defending * 1.3f), 0, 100);
+            int overtaking = driver == null ? 78 : Mathf.Clamp(Mathf.RoundToInt(driver.overtaking * 1.3f), 0, 100);
             int experience = driver == null ? 75 : driver.experience;
             int wetSkill = driver == null ? 75 : driver.wetSkill;
 
@@ -1318,7 +1327,16 @@ namespace LocalFormulaRacing
             bool inLaunchWindow = raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                                    raceManager.RaceElapsed >= 0f && raceManager.RaceElapsed < launchSettleDuration + 1.5f;
             float accelerationBoost = (inLaunchWindow || paceCapRecoveryBoostTimer > 0f) ? AccelerationBoostMultiplier : 1f;
-            currentThrottle = Mathf.MoveTowards(currentThrottle, throttleTarget, Time.deltaTime * (brakeDemand > 0.02f ? 4.5f : 2.6f * profile.throttleAggressionMultiplier) * accelerationBoost);
+            // AI acceleration 2x (per request): the BASE on-power throttle ramp
+            // (previously 2.6 * throttleAggression) is doubled so AI cars get
+            // back to full throttle roughly twice as fast on every corner exit
+            // and rolling start, everywhere on track - not just off cautions.
+            // This is throttle INPUT ramp only; the vehicle's own grip/power
+            // model still bounds actual acceleration, so it sharpens corner
+            // exits and traffic response without becoming unphysical. The
+            // launch/recovery boost above still stacks on top of it.
+            float baseRamp = brakeDemand > 0.02f ? 4.5f : 5.2f * profile.throttleAggressionMultiplier;
+            currentThrottle = Mathf.MoveTowards(currentThrottle, throttleTarget, Time.deltaTime * baseRamp * accelerationBoost);
             command.throttle = currentThrottle;
 
             // Launch confidence: a brief, skill-scaled settle-in right off the line.
