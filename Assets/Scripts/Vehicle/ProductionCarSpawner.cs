@@ -21,6 +21,15 @@ namespace LocalFormulaRacing
             GameObject authored = CarRuntimeFactory.Instantiate(definition, driverName + " car");
             if (authored != null)
             {
+                // Gameplay contract: a spawned car is physics-driven, so it must
+                // carry a Rigidbody (the placeholder path adds one). Guard the
+                // authored prefab in case its art was exported without one, so
+                // the participant/ghost setup that expects a Rigidbody is safe.
+                if (authored.GetComponent<Rigidbody>() == null)
+                {
+                    authored.AddComponent<Rigidbody>();
+                }
+
                 CarRigBinding binding = authored.GetComponent<CarRigBinding>();
                 if (binding != null)
                 {
