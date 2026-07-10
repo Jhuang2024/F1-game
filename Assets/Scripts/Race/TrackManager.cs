@@ -4423,6 +4423,26 @@ namespace LocalFormulaRacing
             return Runtime.HalfWidthAt(distance) + EdgeBarrierClearance + extraStandoff + barrierHalfThickness;
         }
 
+        // Direct, undiscretized curvature reading at one point (degrees of
+        // heading change across a 40m/80m window either side) - used as a
+        // permissive, can't-miss-a-real-bend fallback for barrier-gap
+        // decisions, independent of the cumulative-window/angle-threshold/
+        // radius corner-DETECTION pipeline (DetectCorners/IsNearCorner) which
+        // has needed repeated widening and can still miss part of a real
+        // corner's footprint.
+        float LocalCurvatureAngle(float distance)
+        {
+            Vector3 pointA, forwardA, rightA;
+            Vector3 pointB, forwardB, rightB;
+            Vector3 pointC, forwardC, rightC;
+            Runtime.SampleAtDistance(distance - 40f, out pointA, out forwardA, out rightA);
+            Runtime.SampleAtDistance(distance, out pointB, out forwardB, out rightB);
+            Runtime.SampleAtDistance(distance + 40f, out pointC, out forwardC, out rightC);
+            float turnNear = Vector3.Angle(forwardA, forwardB);
+            float turnFar = Vector3.Angle(forwardB, forwardC);
+            return Mathf.Max(turnNear, turnFar);
+        }
+
         // Decides style/offset for one side at one step, including the pit-corridor
         // fan-out on the right side, and returns the plan rather than placing geometry
         // directly - BuildContinuousEdgeBarriers buffers a whole lap's worth of these,
@@ -4538,7 +4558,21 @@ namespace LocalFormulaRacing
                 float pitBlend = PitZoneBlend(normalized);
                 if (pitBlend > 0f)
                 {
-                    if (!nearTightFenceCorner)
+                    // Barrier-gap fix round 3 (per report - two rounds of tuning
+                    // the DISCRETE corner-detection thresholds/radius still
+                    // didn't fix it): rather than trust nearTightFenceCorner
+                    // (built from a cumulative-window/angle-threshold/radius
+                    // pipeline that has already needed two rounds of widening
+                    // and still evidently misses part of this exact hairpin),
+                    // sample the REAL local curvature directly at this exact
+                    // point, with a permissive threshold well below full
+                    // hairpin severity. This can never miss a genuine bend the
+                    // way a discretized detector with a fixed radius/threshold
+                    // can - if the road is actually turning here, the wall gets
+                    // capped near the flush distance, full stop, independent of
+                    // whatever the corner-list pipeline concluded elsewhere.
+                    bool realCurvatureHere = LocalCurvatureAngle(midDistance) > 12f;
+                    if (!nearTightFenceCorner && !realCurvatureHere)
                     {
                         lateral = Mathf.Lerp(baseLateral, PitOuterLateral(), pitBlend);
                         style = EdgeBarrierStyle.StreetWall;
