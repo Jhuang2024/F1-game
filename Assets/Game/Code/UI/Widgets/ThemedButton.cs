@@ -22,7 +22,7 @@ namespace F1Game.UI.Widgets
         [SerializeField] Variant variant = Variant.Secondary;
         [SerializeField] TMP_Text label;
         [SerializeField] Image background;
-        [SerializeField] Image focusOutline;
+        [SerializeField] GameObject focusOutline;
         [SerializeField] GameObject loadingIndicator;
 
         bool isSelectedInGroup;
@@ -37,7 +37,7 @@ namespace F1Game.UI.Widgets
         public TMP_Text Label => label;
         public VisualState CurrentState { get; private set; } = VisualState.Normal;
 
-        public void Bind(TMP_Text labelText, Image backgroundImage, Image outline, GameObject loading)
+        public void Bind(TMP_Text labelText, Image backgroundImage, GameObject outline, GameObject loading)
         {
             label = labelText;
             background = backgroundImage;
@@ -225,8 +225,7 @@ namespace F1Game.UI.Widgets
 
             if (focusOutline != null)
             {
-                focusOutline.enabled = state == VisualState.Focused || (isFocused && state == VisualState.Selected);
-                focusOutline.color = theme.palette.focusOutline;
+                focusOutline.SetActive(state == VisualState.Focused || (isFocused && state == VisualState.Selected));
             }
         }
 

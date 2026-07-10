@@ -100,16 +100,17 @@ namespace F1Game.UI
             go.transform.SetParent(parent, false);
             var background = go.AddComponent<Image>();
 
-            // Focus outline as an inset frame, drawn above the background.
+            // Focus outline as an inset frame built from four edge strips - a
+            // sliced Image with no sprite would render as a full opaque quad.
             var outlineGo = new GameObject("FocusOutline", typeof(RectTransform));
             outlineGo.transform.SetParent(go.transform, false);
             Stretch((RectTransform)outlineGo.transform);
-            var outline = outlineGo.AddComponent<Image>();
-            outline.raycastTarget = false;
-            outline.color = theme.palette.focusOutline;
-            outline.type = Image.Type.Sliced;
-            outline.fillCenter = false;
-            outline.enabled = false;
+            float outlineWidth = theme.states.focusOutlineWidth;
+            CreateOutlineEdge(outlineGo.transform, "Top", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(0f, -outlineWidth), Vector2.zero, theme.palette.focusOutline);
+            CreateOutlineEdge(outlineGo.transform, "Bottom", new Vector2(0f, 0f), new Vector2(1f, 0f), Vector2.zero, new Vector2(0f, outlineWidth), theme.palette.focusOutline);
+            CreateOutlineEdge(outlineGo.transform, "Left", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(outlineWidth, 0f), theme.palette.focusOutline);
+            CreateOutlineEdge(outlineGo.transform, "Right", new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(-outlineWidth, 0f), Vector2.zero, theme.palette.focusOutline);
+            outlineGo.SetActive(false);
 
             TMP_Text label = CreateText(go.transform, "Label", TextStyle.Button, text);
             Stretch(label.rectTransform);
@@ -121,10 +122,24 @@ namespace F1Game.UI
             layoutElement.minHeight = layoutElement.preferredHeight;
 
             var button = go.AddComponent<ThemedButton>();
-            button.Bind(label, background, outline, null);
+            button.Bind(label, background, outlineGo, null);
             button.SetVariant(variant);
             button.transition = Selectable.Transition.None;
             return button;
+        }
+
+        static void CreateOutlineEdge(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax, Vector2 offsetMin, Vector2 offsetMax, Color color)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = anchorMin;
+            rect.anchorMax = anchorMax;
+            rect.offsetMin = offsetMin;
+            rect.offsetMax = offsetMax;
+            var image = go.AddComponent<Image>();
+            image.color = color;
+            image.raycastTarget = false;
         }
 
         public static void Stretch(RectTransform rect, float margin = 0f)

@@ -14,6 +14,15 @@ namespace F1Game.UI.Widgets
         {
             fill = fillImage;
             track = trackImage;
+
+            // fillAmount only works on Filled images; a Simple-type image
+            // silently ignores it (meter stuck at 100%).
+            if (fill != null)
+            {
+                fill.type = Image.Type.Filled;
+                fill.fillMethod = Image.FillMethod.Horizontal;
+                fill.fillOrigin = (int)Image.OriginHorizontal.Left;
+            }
         }
 
         public void SetValue(float normalized)
