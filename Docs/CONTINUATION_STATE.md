@@ -9,49 +9,66 @@ Living ledger for the production rebuild. Updated after every logical commit.
 
 ## Git
 - Branch: `claude/unity-production-migration-so7zih`
-- Base: `origin/main` (NOT diverged — ff-only merge to main is possible at end)
-- Last completed commit at session resume: `7fa2f42`
+- Base `origin/main`: NOT diverged at last check → ff-only merge to main is the
+  intended final step.
 
 ## Phase status
 - Phase 0 (stabilization/architecture): **implemented**
-- Phase 1 (production vertical slice): **integration in progress** (this run)
-- Phases 2–6: architecture/code being added this run
+- Phase 1 (production vertical slice + integration): **live paths in place**
+  (input, camera, car spawn interface, HUD modules, audio, rendering); authored
+  track runtime built + reference circuit; production UI covers 4 screens.
+- Phases 2–6: **additive architecture landed** (rulebook, replay model, VFX
+  pool, physics models, telemetry). NOT full feature completion — see below.
 
-## Completed this continuation run
-- (updated as batches land)
+## Completed this continuation run (commits after 7fa2f42)
+1. Input System is the live driving path behind one flag (IDriveInputSource +
+   legacy/InputSystem sources; gamepad rumble adapter).
+2. Cinemachine is the live camera path behind one flag (CameraRig delegates to
+   RaceCameraDirector; look-back, user offset, shake scale).
+3. Production car spawn interface (CarDefinition/CarRuntimeFactory/CarRigBinding
+   + ProductionCarSpawner); race + ghost spawn route through it.
+4. Authored-track runtime (sampler + query runtimes + mesh builder + orchestrator
+   + reference circuit generator + editor tools) + Docs/TRACK_PIPELINE.md.
+5. Audio bank drives real events (RaceAudioDirector) + layered engine audio
+   (EngineAudioLayers, used by VehicleAudio when the bank has layers).
+6. Rendering centralization (MaterialInstanceService, LightingMoodApplier) +
+   Docs/UI_DESIGN_SYSTEM.md.
+7. Production HUD modules (telemetry snapshot + event-driven widgets on HudRoot).
+8. Additive: FlagRules, StartProcedureRules, ReplayRecording, RaceVfxController,
+   physics models (Tyre/Aero/Brake/Powertrain), TelemetryRecorder.
 
-## Current phase / task
-- Phase 1 live integration → driving input adapter (feature-flagged), camera
-  director live, production car spawn interface, authored-track runtime,
-  production HUD modules, audio runtime, rendering centralization.
-
-## Decisions
-- Input: abstract raw driving reads behind `IDriveInputSource`; legacy and new
-  Input System sources swappable behind one flag (`DriveInputConfig.UseInputSystem`),
-  so all RaceManager wiring in PlayerVehicleInput is preserved.
-- Car/track/camera new paths land behind explicit feature flags defaulting to the
-  legacy path until in-editor validation; flags documented, not permanent.
-- New runtime assemblies never reference Assembly-CSharp; legacy bridges live in
-  Assembly-CSharp and reference the new modules.
+## What is LIVE vs BUILT-NOT-LIVE (honest)
+- LIVE (default on, legacy behind flag): driving input (Input System), race
+  camera (Cinemachine), car spawn (production interface), event audio director,
+  graphics quality tier routing, save protection, extracted race rules.
+- BUILT, NOT YET THE LIVE PATH (documented flags / follow-on extraction):
+  - Production HUD shell/modules — legacy RaceHud is still the single live HUD
+    (feature parity not reached, so not removed).
+  - Authored-track runtime — legacy procedural TrackManager still builds the
+    live race track (RaceManager query-interface extraction is Phase 3).
+  - Physics models, replay model, VFX pool, flag/start rulebook — additive,
+    not wired into the live loop yet.
+  - Production UI covers 4 screens; career/settings/etc still legacy RuntimeUi.
 
 ## Known unverified risks
-- All package-API usage (URP 14 / Cinemachine 2.9 / Input System 1.7 / TMP 3.0.6)
-  verified only by static review, not compilation.
+- All package-API usage verified only by static review, not compilation.
 - Hand-authored .asset/.meta GUIDs rely on package script GUIDs resolving in-editor.
+- Cinemachine/Input System live paths default ON; if a package API mismatch
+  surfaces in-editor, flip the PlayerPrefs flags (f1game_cinemachine=0,
+  f1game_input_system=0) to fall back to legacy while fixing.
 
 ## External-asset blockers
-- Final car/track/UI/audio art. Slots + specs exist (Docs/ART_PIPELINE.md).
+- Final car/track/UI/audio/VFX art + audio recordings. Slots + specs exist
+  (Docs/ART_PIPELINE.md). Placeholders explicitly marked.
 
-## Remaining ordered tasks (see continuation directive §12)
-1. New architecture live path (input/camera/car/track).
-2. Production UI + HUD completion.
-3. Audio + rendering integration.
-4. Pit lane, AI, rules, reliability.
-5. Physics + weather.
-6. Career + frontend migration.
-7. Replay, telemetry, broadcast, photo mode, accessibility, localization.
+## Remaining ordered tasks (directive §12), not yet done
+4. Pit-lane rework, AI racecraft, full rules integration, race reliability.
+5. Physics wiring into VehicleController, weather/track-state depth.
+6. Career screen migration to production UI + career systems depth.
+7. Replay/telemetry/broadcast/photo-mode/accessibility/localization runtime.
 8. Multiplayer architecture.
 
 ## Exact next action
-- Author the driving input adapter (F1Game.Input.DrivingInputReader) + legacy
-  bridge (IDriveInputSource) and wire PlayerVehicleInput behind the flag.
+- In-editor bring-up (Docs/EDITOR_BRINGUP.md): packages, TMP, tests, prefab
+  bakes, then validate the live input/camera flags. After that, resume at
+  directive §12 item 4 (pit lane + AI + rules integration).

@@ -10,12 +10,16 @@ Private, local-only Unity Formula-style simcade career/race game, currently **mi
 | Modular assemblies, typed event bus, unit-tested race rulebook | **Implemented** (Phase 0) |
 | Save backups / corruption recovery / schema migration | **Implemented** |
 | URP + Linear colour + Volume post-processing + quality tiers | **Implemented — needs first in-editor validation** (`Docs/EDITOR_BRINGUP.md`) |
-| Production UI (theme, router, TMP; rebuilt: menu, track select, strategy, HUD shell) | **Partial** — quick-race path on the new UI; remaining screens legacy |
-| Input System (6 action maps, rebinding, hot-plug, prompt glyphs) | **Implemented — driving-controls integration pending** |
-| Cinemachine camera set (chase/T-cam/cockpit/trackside) | **Implemented, gated off** pending validation |
-| Audio banks | **Architecture implemented; all clips remain labelled procedural fallbacks (blocked by assets)** |
-| Final car/track/UI/audio art | **Blocked by assets** — slots, specs and explicit placeholders exist (`Docs/ART_PIPELINE.md`); primitives are interim, not final art |
-| Replay, photo mode, multiplayer | **Planned** (not started) |
+| Input System driving controls (dead-zone/sensitivity/rebind, gamepad rumble) | **Live behind a flag** (Input System is the default driving backend; legacy fallback via `f1game_input_system=0`) |
+| Cinemachine camera set (chase/T-cam/cockpit/trackside, look-back) | **Live behind a flag** (default on; legacy CameraRig via `f1game_cinemachine=0`) |
+| Production car spawn interface (CarDefinition/RigBinding) | **Live** — race + ghost spawn route through it; placeholder car until authored art |
+| Authored-track runtime (sampler/mesh/queries/reference circuit) | **Built + reference circuit**; legacy procedural TrackManager still the live race track (query-interface extraction is Phase 3) |
+| Audio banks + event director + layered engine | **Live event director**; all clips still labelled procedural fallbacks (blocked by assets) |
+| Production UI (theme, router, TMP; menu, track select, strategy, HUD shell + modules) | **Partial** — quick-race path on the new UI; career/settings/etc still legacy |
+| Production HUD modules (telemetry + event driven) | **Built, not yet live** — legacy RaceHud remains the single live HUD until parity |
+| Additive systems (flag/start rulebook, replay model, pooled VFX, physics models, telemetry CSV) | **Implemented additively**, not yet wired into the live loop |
+| Final car/track/UI/audio/VFX art | **Blocked by assets** — slots, specs and explicit placeholders exist (`Docs/ART_PIPELINE.md`); primitives are interim, not final art |
+| Multiplayer | **Planned** (not started) |
 
 Key docs: `Docs/BASELINE_AUDIT.md`, `Docs/REFACTOR_MAP.md`, `Docs/MILESTONE_REPORT.md`, and `Docs/EDITOR_BRINGUP.md` — **run the bring-up checklist on first editor open of the migration branch.**
 
