@@ -1068,7 +1068,12 @@ namespace LocalFormulaRacing
             // Rate-limit the line so it slews smoothly rather than snapping frame to
             // frame. Speed-scaled so the crossing to the apex completes at any
             // speed without gaining weave authority at low speed.
-            float lineSlewRate = Mathf.Lerp(4.5f, 9.5f, Mathf.Clamp01(speedKph / 300f));
+            // Ceiling raised (9.5 -> 15): the deterministic line's entry-to-apex
+            // swings now span the full corridor (up to ~24m on the wide layouts),
+            // and the target itself is a smooth precomputed curve - this limiter
+            // is only an anti-noise guard, so it must never be what stops the car
+            // reaching the apex at speed.
+            float lineSlewRate = Mathf.Lerp(4.5f, 15f, Mathf.Clamp01(speedKph / 300f));
             smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * lineSlewRate);
             lineBias = smoothedLineBias;
             previousSeverityHere = severityHere;
@@ -1994,11 +1999,12 @@ namespace LocalFormulaRacing
                             // re-triggering the pulse behind IT: the accordion the
                             // player drives around for 10+ places). During the
                             // race-start window braking is reserved for genuinely
-                            // imminent contact (<1.2s); ordinary closing is managed
-                            // by the throttle cut alone, which also scales the
-                            // launch boost down (see VehicleController), so the
+                            // imminent contact (<0.5s - was 1.2s, per feedback the
+                            // pack was still too brake-happy); ordinary closing is
+                            // managed by the throttle cut alone, which also scales
+                            // the launch boost down (see VehicleController), so the
                             // pack stays dense AND fast like a real F1 start.
-                            if (!raceStartPackWindow || timeToContact < 1.2f)
+                            if (!raceStartPackWindow || timeToContact < 0.5f)
                             {
                                 brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.38f, 1f, urgency * urgency) * overlap);
                             }
