@@ -1,5 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
+using F1Game.Core.Events;
+using F1Game.Race.Rules;
 using UnityEngine;
 
 namespace LocalFormulaRacing
@@ -601,8 +603,10 @@ namespace LocalFormulaRacing
         static PhysicMaterial carBodyPhysicsMaterial;
         const int FullWeekendDriverCount = 22;
         const int FullWeekendAiCount = FullWeekendDriverCount - 1;
-        const int Q1SurvivorCount = 16;
-        const int Q2SurvivorCount = 10;
+        // Survivor counts moved to F1Game.Race.Rules.QualifyingProgression (the
+        // unit-tested source of truth for Q1/Q2/Q3 elimination).
+        const int Q1SurvivorCount = QualifyingProgression.Q1SurvivorCount;
+        const int Q2SurvivorCount = QualifyingProgression.Q2SurvivorCount;
         // Qualifying-vs-race calibration fix (single-flying-lap bug): this used to
         // be a flat 2 laps (1 out lap + exactly 1 timed lap) for every car, AI and
         // player alike, in a live-driven qualifying session. With per-lap noise
@@ -3779,6 +3783,7 @@ namespace LocalFormulaRacing
             PlayerParticipant.activePitRequestSource = PitRequestSource.SafetyCarPrompt;
             PlayerParticipant.manualPitRequested = true;
             PlayerParticipant.manualPitCommitted = false;
+            GameEvents.Publish(new PitRequestChangedEvent(PlayerParticipant.driverId, PitRequestState.Requested, -1));
             if (!PlayerParticipant.requestedPitCompoundSet)
             {
                 PlayerParticipant.requestedPitCompound = NextPlannedPitCompoundFor(PlayerParticipant);
@@ -3813,58 +3818,49 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial || IsRaceFinished || participant.retired || participant.finished)
-            {
-                return false;
-            }
-
-            // Source/state gate: only a Manual or SafetyCarPrompt request that
-            // hasn't yet committed is cancellable - the pre-race plan's own
-            // auto-trigger (PitRequestSource.PreRacePlan) is never cancellable
-            // through this feature at all.
-            if (!participant.manualPitRequested || participant.manualPitCommitted)
-            {
-                return false;
-            }
-
-            if (participant.activePitRequestSource != PitRequestSource.Manual &&
-                participant.activePitRequestSource != PitRequestSource.SafetyCarPrompt)
-            {
-                return false;
-            }
-
-            if (!participant.vehicle.PitRequested)
-            {
-                return false;
-            }
-
-            // Phase/lockout gate: not already in the pit-entry sequence, pit
-            // lane, box, exit or exit-merge - the project's actual PitPhase
-            // values equivalent to Entry/PitLane/Service/Exit/ExitMerge.
-            if (participant.pitPhase != PitPhase.None || participant.isPitting || participant.pitEntryCommitted)
-            {
-                return false;
-            }
-
-            // Live commitment-boundary gate: re-check the SAME authoritative
-            // boundary HandlePitService itself uses
-            // (Track.HasCrossedPitEntryLimiterLine) directly against the car's
-            // actual current position, not the cached pitPhase/pitEntryCommitted
-            // flags alone - those only update once HandlePitService ticks this
-            // frame, so a player who has already physically crossed the line
-            // this same frame (before that tick runs) must not be able to
-            // cancel and suddenly regain normal racing control inside the
-            // pit-entry lane.
+            // The decision itself (source/state gates, commitment lockouts, the
+            // PreRacePlan never-cancellable rule) lives in the unit-tested
+            // rulebook; this method only assembles the live snapshot. The
+            // limiter-line probe re-checks the SAME authoritative boundary
+            // HandlePitService uses, directly against the car's current position,
+            // because the cached pitPhase/pitEntryCommitted flags only update once
+            // HandlePitService ticks this frame.
+            bool crossedLimiterLine = false;
             if (Track != null && participant.lapTracker != null)
             {
                 TrackProgress liveProgress = Track.GetProgressNear(participant.transform.position, participant.lapTracker.CurrentProgress.distance);
-                if (Track.HasCrossedPitEntryLimiterLine(liveProgress))
-                {
-                    return false;
-                }
+                crossedLimiterLine = Track.HasCrossedPitEntryLimiterLine(liveProgress);
             }
 
-            return true;
+            var context = new PitRequestContext
+            {
+                IsQualifying = CurrentSession == RaceWeekendSession.Qualifying,
+                IsTimeTrial = IsTimeTrial,
+                RaceFinished = IsRaceFinished,
+                ParticipantRetired = participant.retired,
+                ParticipantFinished = participant.finished,
+                ManualPitRequested = participant.manualPitRequested,
+                ManualPitCommitted = participant.manualPitCommitted,
+                Origin = MapPitRequestOrigin(participant.activePitRequestSource),
+                VehiclePitRequested = participant.vehicle.PitRequested,
+                InPitSequence = participant.pitPhase != PitPhase.None,
+                IsPitting = participant.isPitting,
+                PitEntryCommitted = participant.pitEntryCommitted,
+                CrossedPitEntryLimiterLine = crossedLimiterLine,
+            };
+
+            return PitRequestRules.CanCancel(context);
+        }
+
+        static PitRequestOrigin MapPitRequestOrigin(PitRequestSource source)
+        {
+            switch (source)
+            {
+                case PitRequestSource.PreRacePlan: return PitRequestOrigin.PreRacePlan;
+                case PitRequestSource.Manual: return PitRequestOrigin.Manual;
+                case PitRequestSource.SafetyCarPrompt: return PitRequestOrigin.SafetyCarPrompt;
+                default: return PitRequestOrigin.None;
+            }
         }
 
         public void CancelManualPitRequest()
@@ -3879,6 +3875,7 @@ namespace LocalFormulaRacing
             participant.pitTyreSelectionActive = false;
             participant.pitAutoTriggered = false;
             ClearManualPitRequestTracking(participant);
+            GameEvents.Publish(new PitRequestChangedEvent(participant.driverId, PitRequestState.Cancelled, -1));
 
             // A cancelled manual request never touches the pre-race plan
             // (NextPlannedPitLapFor keeps reading Settings.Current.plannedPitLapOne/
@@ -6103,6 +6100,7 @@ namespace LocalFormulaRacing
             participant.activePitRequestSource = PitRequestSource.Manual;
             participant.manualPitRequested = true;
             participant.manualPitCommitted = false;
+            GameEvents.Publish(new PitRequestChangedEvent(participant.driverId, PitRequestState.Requested, -1));
             SessionMessage = "Pit request: choose tyre 1-5";
             PostEngineerMessage("Pit request received. Select tyres: 1 Soft, 2 Medium, 3 Hard, 4 Intermediate, 5 Wet.", true, RaceAudioCue.PitCall);
         }
@@ -7043,6 +7041,7 @@ namespace LocalFormulaRacing
 
             participant.retired = true;
             participant.retirementReason = string.IsNullOrEmpty(reason) ? "Damage" : reason;
+            GameEvents.Publish(new RetirementEvent(participant.driverId, participant.retirementReason));
             float retiredTime = RaceElapsed + 9999f + Mathf.Max(0f, RaceLaps - (participant.lapTracker == null ? 0 : participant.lapTracker.CompletedLaps)) * 120f;
             State.OnParticipantFinished(participant, retiredTime);
             if (string.IsNullOrEmpty(participant.penaltyReason))
@@ -10054,33 +10053,20 @@ namespace LocalFormulaRacing
 
         void ApplyMandatoryPitPenalty(RaceParticipant participant)
         {
-            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
-            {
-                return;
-            }
-
-            // Configurable race length: a compulsory stop makes no sense on a
-            // genuinely short race (a 3-lap blast can't fit a competitive pit
-            // window at all) - same RaceLaps<=3 threshold RecommendedPitLap
-            // already uses for the same reason, rather than inventing a second
-            // one here.
-            if (RaceLaps <= 3)
-            {
-                return;
-            }
-
-            if (participant.pitStops > 0)
-            {
-                return;
-            }
-
-            if (participant.mandatoryPitPenaltyApplied)
+            // Gates (incl. the RaceLaps<=3 short-race exemption) live in the
+            // unit-tested rulebook - see PenaltyRules.ShouldApplyMandatoryPitPenalty.
+            if (!PenaltyRules.ShouldApplyMandatoryPitPenalty(
+                    CurrentSession == RaceWeekendSession.Qualifying,
+                    IsTimeTrial,
+                    RaceLaps,
+                    participant.pitStops,
+                    participant.mandatoryPitPenaltyApplied))
             {
                 return;
             }
 
             participant.mandatoryPitPenaltyApplied = true;
-            AddPenalty(participant, 10f, "No mandatory stop");
+            AddPenalty(participant, PenaltyRules.MandatoryPitPenaltySeconds, PenaltyRules.MandatoryPitReason);
             if (participant.isPlayer)
             {
                 SessionMessage = "No mandatory stop: +10s";
@@ -10090,14 +10076,12 @@ namespace LocalFormulaRacing
         void AddPenalty(RaceParticipant participant, float seconds, string reason)
         {
             participant.penaltiesSeconds += seconds;
-            if (string.IsNullOrEmpty(participant.penaltyReason))
-            {
-                participant.penaltyReason = reason;
-            }
-            else if (!participant.penaltyReason.Contains(reason))
-            {
-                participant.penaltyReason += ", " + reason;
-            }
+            participant.penaltyReason = PenaltyRules.AppendPenaltyReason(participant.penaltyReason, reason);
+            GameEvents.Publish(new PenaltyIssuedEvent(
+                participant.driverId,
+                PenaltyKind.TimePenalty,
+                seconds,
+                reason));
 
             // Player-only: an AI penalty lands every few laps across a 21-car
             // field, which would flood a shared timeline with noise the player
@@ -10303,23 +10287,20 @@ namespace LocalFormulaRacing
                     // finish time is strictly monotonic with real race distance:
                     // more of the lap done -> less time left, and a lapped car
                     // always has at least a full extra lap of time on top.
-                    float lapsRemaining = Mathf.Max(0f, RaceLaps - (participant.lapTracker.CompletedLaps + participant.lapTracker.CurrentProgress.normalized));
-                    entry.totalTime = RaceElapsed + lapsRemaining * Mathf.Max(72f, Track.length / 56f);
+                    entry.totalTime = RaceClassifier.EstimateUnfinishedTotalTime(
+                        RaceElapsed,
+                        RaceLaps,
+                        participant.lapTracker.CompletedLaps + participant.lapTracker.CurrentProgress.normalized,
+                        Track.length);
                 }
                 results.Add(entry);
             }
 
-            results.Sort((a, b) =>
-            {
-                float aTime = a.totalTime + a.penaltiesSeconds;
-                float bTime = b.totalTime + b.penaltiesSeconds;
-                return aTime.CompareTo(bTime);
-            });
-
-            for (int i = 0; i < results.Count; i++)
-            {
-                results[i].finishingPosition = i + 1;
-            }
+            RaceClassifier.AssignFinishingOrder(
+                results,
+                entry => entry.totalTime,
+                entry => entry.penaltiesSeconds,
+                (entry, position) => entry.finishingPosition = position);
 
             if (IsCareerRace)
             {
@@ -10858,17 +10839,7 @@ namespace LocalFormulaRacing
 
         int QualifyingEliminationCount(int phase, int activeCount)
         {
-            if (phase == 1)
-            {
-                return Mathf.Clamp(activeCount - Q1SurvivorCount, 0, 6);
-            }
-
-            if (phase == 2)
-            {
-                return Mathf.Clamp(activeCount - Q2SurvivorCount, 0, 6);
-            }
-
-            return 0;
+            return QualifyingProgression.EliminationCount(phase, activeCount);
         }
 
         void AppendQualifyingResults(List<QualifyingResultEntry> results, List<QualifyingSimEntry> entries, string eliminatedIn)
