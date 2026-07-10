@@ -1057,30 +1057,34 @@ namespace LocalFormulaRacing
             // lap. Cut to 0.5x so they sit much closer to the optimal line while
             // still not being robotically perfect.
             float wobble = (Mathf.PerlinNoise(noiseSeed, Time.time * 0.5f) * 2f - 1f) * profile.lineOffsetNoise * 0.5f;
-            float lineBias;
-            // PRECOMPUTED optimal racing line (per request - every previous
-            // version here was a reactive heuristic layered on the CENTERLINE,
-            // there was never an actual computed line for the AI to follow, which
-            // is why it kept reading as "driving down the middle of the road" no
-            // matter how the heuristics were tuned). TrackRuntime.ComputeRacingLine
-            // now solves the taut-string/shortest-path line through the legal
-            // corridor once at build time - wide entry, kerb-clipping apex, wide
-            // exit, dead straight elsewhere - and the AI simply targets that line's
-            // offset at its own steering lookahead point. Per-driver apex error is
-            // layered on top as noise so skill still differentiates precision, and
-            // the slew smoothing below keeps transitions swerve-free.
-            float optimalLineOffset = track.RacingLineOffsetAt(progress.distance + lookAhead);
-            float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError * Mathf.Clamp01(severityHere * 3f);
-            lineBias = optimalLineOffset + apexMissNoise;
-            // Rate-limit the line so it slews smoothly rather than snapping frame to
-            // frame. Speed-scaled so the crossing to the apex completes at any
-            // speed without gaining weave authority at low speed.
-            // Ceiling raised (9.5 -> 15): the deterministic line's entry-to-apex
-            // swings now span the full corridor (up to ~24m on the wide layouts),
-            // and the target itself is a smooth precomputed curve - this limiter
-            // is only an anti-noise guard, so it must never be what stops the car
-            // reaching the apex at speed.
-            float lineSlewRate = Mathf.Lerp(4.5f, 15f, Mathf.Clamp01(speedKph / 300f));
+            float lineBias = 0f;
+            // Reverted to the reactive heuristic line (per request - "revert back
+            // to your slightly less aggressive line"). The precomputed
+            // pin-to-corridor construction clipped apexes cleanly but proved
+            // repeatedly fragile against this game's real barrier geometry (wall
+            // contact, jagged kinks, pile-ups) despite several rounds of corridor
+            // and smoothing fixes. This version drives off the SAME
+            // already-safe LegalOffsetLimit corridor every frame (no separate
+            // precomputed pin data to fall out of sync with the corridor-safety
+            // fixes), with the magnitude gated by curvature at/just ahead of the
+            // car (severityHere - zero on a straight, so no early wandering) and
+            // the side a continuous function of how close the sharpest upcoming
+            // point is (apexDistanceAhead): outside on approach, sweeping to the
+            // inside at the apex, back outside on exit. No boolean flip (that was
+            // the original swerve cause), so it stays smooth without needing the
+            // precomputed line's separate multi-pass smoothing/knot machinery.
+            if (severityHere > 0.05f)
+            {
+                float biasMagnitude = Mathf.Lerp(legalLimit * 0.6f, legalLimit, severityHere);
+                float apexProximity = Mathf.Clamp01(1f - apexDistanceAhead / 50f);
+                float lineShape = apexProximity * 2f - 1f;
+                float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
+                float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 9f);
+                float shapedSide = lineShape > 0f ? lineShape * apexPrecision : lineShape;
+                lineBias = turnSign * biasMagnitude * shapedSide + (lineShape > 0f ? apexMissNoise : 0f);
+            }
+
+            float lineSlewRate = Mathf.Lerp(4.5f, 9.5f, Mathf.Clamp01(speedKph / 300f));
             smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * lineSlewRate);
             lineBias = smoothedLineBias;
             previousSeverityHere = severityHere;
@@ -2019,12 +2023,12 @@ namespace LocalFormulaRacing
                             // re-triggering the pulse behind IT: the accordion the
                             // player drives around for 10+ places). During the
                             // race-start window braking is reserved for genuinely
-                            // imminent contact (<0.5s - was 1.2s, per feedback the
-                            // pack was still too brake-happy); ordinary closing is
-                            // managed by the throttle cut alone, which also scales
-                            // the launch boost down (see VehicleController), so the
-                            // pack stays dense AND fast like a real F1 start.
-                            if (!raceStartPackWindow || timeToContact < 0.5f)
+                            // imminent contact (0.8s, per request); ordinary
+                            // closing is managed by the throttle cut alone, which
+                            // also scales the launch boost down (see
+                            // VehicleController), so the pack stays dense AND
+                            // fast like a real F1 start.
+                            if (!raceStartPackWindow || timeToContact < 0.8f)
                             {
                                 brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.38f, 1f, urgency * urgency) * overlap);
                             }
