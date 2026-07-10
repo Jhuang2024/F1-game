@@ -684,7 +684,24 @@ namespace LocalFormulaRacing
             float rampCenter;
             float rampHalfWidth;
             GetPitEntryRampEnvelope(progress.normalized, progress.distance, out rampCenter, out rampHalfWidth);
-            return Mathf.Abs(progress.lateralDistance - rampCenter) <= rampHalfWidth * 0.65f;
+            if (Mathf.Abs(progress.lateralDistance - rampCenter) <= rampHalfWidth * 0.75f)
+            {
+                return true;
+            }
+
+            // Player pit-entry fix: at the START of the window the ramp
+            // centerline sits OUTSIDE the live track edge (the envelope begins
+            // at trackEdge + PitRampNearTrackLateral), so a car correctly
+            // hugging the right-hand edge of the racing surface - exactly
+            // where the pre-position assist and any sensible player put it -
+            // could never satisfy the centerline-proximity test above, never
+            // committed, and ground along the fan-out barrier at 0 km/h
+            // instead of ever entering the pits. Hugging the outer edge while
+            // the window is open IS committing to pit entry (the caller
+            // already gates on an active pit request); the guided rail then
+            // carries the car smoothly onto the canonical ramp path from
+            // wherever it committed.
+            return progress.lateralDistance >= HalfWidthAt(progress.distance) - 2.6f;
         }
 
         // Single authoritative pit-entry limiter boundary (bugfix): the painted
@@ -783,7 +800,13 @@ namespace LocalFormulaRacing
                 // with genuine car-body clearance from the paved edge, so the
                 // car is already positioned to turn in the instant the ramp
                 // starts.
-                float preEntryLateral = HalfWidthAt(pitTargetDistance) - PitEntryCarBodyClearanceMeters;
+                // Wall-clearance fix: 1.3m of clearance put the car's body
+                // ~0.4m from a barrier that sits flush with the paved edge -
+                // one steering oscillation from wedging against it at ~0 km/h
+                // (exactly the reported player pit-entry failure). 2.4m keeps
+                // the car unmistakably in the rightmost lane while leaving a
+                // real margin from the wall.
+                float preEntryLateral = HalfWidthAt(pitTargetDistance) - 2.4f;
                 SamplePitLanePose(pitTargetDistance, preEntryLateral, out targetPoint, out targetRotation);
             }
             else

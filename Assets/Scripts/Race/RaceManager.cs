@@ -6377,16 +6377,28 @@ namespace LocalFormulaRacing
                 command.throttle = Mathf.Clamp01(0.2f + speedGapKph / 35f);
             }
 
-            // Defensive: never hold full steering lock and meaningful throttle
-            // if forward progress is genuinely blocked (the car sitting nearly
-            // stationary while the assist is still asking for throttle) - ease
-            // both off instead of grinding into whatever is in the way, rather
-            // than relying solely on the target point never being behind a
-            // barrier in the first place.
-            if (speedKph < 3f && command.throttle > 0f)
+            // Unstick fix: the old "ease off" branch capped throttle at 0.35
+            // and kept steering at the (outboard) target - a car that touched
+            // the pit wall just ground against it at 0 km/h forever, which is
+            // exactly how the player ended up parked on the barrier with "Pit
+            // entry approaching" on screen. A genuinely wedged car (near-zero
+            // speed, hard against the right edge) now steers LEFT, away from
+            // the wall the pit lane always sits on, with enough throttle to
+            // actually free itself, then resumes chasing the target normally.
+            if (speedKph < 3f)
             {
-                command.throttle = Mathf.Min(command.throttle, 0.35f);
-                steer = Mathf.Clamp(steer, -0.5f, 0.5f);
+                bool againstWall = progress.lateralDistance > Track.HalfWidthAt(progress.distance) - 1.6f;
+                if (againstWall)
+                {
+                    steer = -0.45f;
+                    command.throttle = 0.5f;
+                    command.brake = 0f;
+                }
+                else if (command.throttle > 0f)
+                {
+                    command.throttle = Mathf.Min(command.throttle, 0.5f);
+                    steer = Mathf.Clamp(steer, -0.5f, 0.5f);
+                }
             }
 
             command.steer = steer;
@@ -8843,7 +8855,12 @@ namespace LocalFormulaRacing
 
             RenderSettings.fog = true;
             RenderSettings.fogMode = FogMode.ExponentialSquared;
-            RenderSettings.fogDensity = rainThreat ? 0.00024f : (mountain ? 0.00019f : 0.00015f);
+            // Premium visual pass: the old densities (0.00015-0.00024, exp-
+            // squared) were effectively invisible inside the 2.6km draw
+            // distance - the ground plane met the sky as a hard line with no
+            // aerial perspective at all. These values leave the first ~300m
+            // crisp and fade the far scenery gently into the horizon haze.
+            RenderSettings.fogDensity = rainThreat ? 0.0011f : (mountain ? 0.0008f : 0.00065f);
             Color dryFog = desert ? new Color(0.65f, 0.55f, 0.42f)
                 : (coastal ? new Color(0.5f, 0.62f, 0.68f)
                 : (mountain ? new Color(0.4f, 0.5f, 0.46f)
@@ -9352,7 +9369,14 @@ namespace LocalFormulaRacing
         const float PitRailBayBlendMeters = 14f;
         const float PitRailHardEscapeMeters = 40f;
         const float PitRailHeadingLookaheadMeters = 12f;
-        const float PitRailReleaseRearWindowMeters = 22f;
+        // Release-cadence fix: was 22m - combined with counting every rolling
+        // railed car (including ones still driving IN to boxes behind this
+        // bay), a busy pit wave kept re-blocking each bay release for seconds
+        // at a time, which read as the pit lane dribbling cars out one every
+        // ~20s. 12m is still comfortably more than the following car needs to
+        // brake from lane pace (its own car-following clamps it the moment
+        // the released car is rolling ahead of it).
+        const float PitRailReleaseRearWindowMeters = 12f;
         const float PitExitLaneHoldSeconds = 1.5f;
         const float PitExitLaneHoldDistanceMeters = 40f;
         const float PitExitOverlapRadiusMeters = 7f;
@@ -9436,6 +9460,22 @@ namespace LocalFormulaRacing
 
                 float ahead = WrappedForwardDistance(participant.pitGuideDistance, other.pitGuideDistance);
                 float behind = WrappedForwardDistance(other.pitGuideDistance, participant.pitGuideDistance);
+
+                // Release-cadence fix: a car still on its ENTRY leg parks at
+                // its own box - if that box is at or before this bay, it can
+                // never reach this bay's lane position, so it must not block
+                // the release (during a full pit wave, every incoming car
+                // used to re-block every waiting bay for a few seconds each,
+                // which serialized releases to a crawl).
+                if (!other.pitRailServiceStarted && behind <= PitRailReleaseRearWindowMeters)
+                {
+                    float metresUntilOtherParks = Mathf.Max(0f, other.pitRailBoxS - other.pitRailTraveled);
+                    if (metresUntilOtherParks < behind - 2f)
+                    {
+                        continue;
+                    }
+                }
+
                 if (ahead <= PitRailHeadwayMeters || behind <= PitRailReleaseRearWindowMeters)
                 {
                     return other;

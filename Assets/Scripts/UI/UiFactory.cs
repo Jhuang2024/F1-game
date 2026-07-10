@@ -733,7 +733,20 @@ namespace LocalFormulaRacing
             text.color = color;
             text.alignment = alignment;
             text.horizontalOverflow = HorizontalWrapMode.Wrap;
-            text.verticalOverflow = VerticalWrapMode.Truncate;
+            // Font-metrics fix: this defaulted to Truncate, which drops WHOLE
+            // LINES the moment the font's line box exceeds the rect - fine by
+            // luck with Arial's metrics, but the shipped Rajdhani face has a
+            // taller line height (Devanagari-compatible ascenders), so every
+            // snugly-sized single-line label in the game silently vanished.
+            // Overflow renders the glyphs regardless; a slightly clipped
+            // descender beats invisible text in every case.
+            text.verticalOverflow = VerticalWrapMode.Overflow;
+            // Premium visual pass: a subtle drop shadow on all text lifts it
+            // off busy backgrounds (HUD over bright sky especially) - the
+            // single cheapest "shipped game" typography cue there is.
+            Shadow shadow = textObject.AddComponent<Shadow>();
+            shadow.effectColor = new Color(0f, 0f, 0f, 0.55f);
+            shadow.effectDistance = new Vector2(0f, -1.5f);
             RectTransform rect = text.GetComponent<RectTransform>();
             // A GameObject.AddComponent<Text>() (as opposed to the Editor's GameObject
             // > UI menu) leaves the RectTransform at Unity's raw default anchors,

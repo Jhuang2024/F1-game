@@ -877,7 +877,7 @@ namespace LocalFormulaRacing
         // actually are (tyres vs. everything else about the car).
         void BuildCarStatusCard()
         {
-            RectTransform card = UiFactory.CreateHudCard(rightStack, "Car Status", RightStackWidth, 236f, UiFactory.AccentCyan, out carStatusAccent);
+            RectTransform card = UiFactory.CreateHudCard(rightStack, "Car Status", RightStackWidth, 254f, UiFactory.AccentCyan, out carStatusAccent);
 
             // 2x2 tyre corner grid on the left half of the card.
             tyreFl = CreateTyreCorner(card, "FL", new Vector2(24f, -36f));
@@ -902,20 +902,27 @@ namespace LocalFormulaRacing
 
             // Lockup / flat spot tags: blank most of the time, so it reads as
             // empty space rather than a widget until there's something to say.
+            // Layout fix (was overlapping in the wild): the lockup/flat-spot
+            // tag line used to span the FULL card width at y -80..-98 - straight
+            // across the RL/RR tyre boxes - and the WEAR meter sat at y 116,
+            // colliding with the corner grid's labels (which extend to ~-133).
+            // Tags now live in the right-hand column under COMPOUND/TEMP, and
+            // every row below the grid moved down clear of it (card height
+            // grew to match).
             tyreTagText = UiFactory.CreateText(card, "Tyre condition tags", "", 13, UiFactory.AccentAmber, TextAnchor.MiddleLeft);
             RectTransform tagRect = tyreTagText.GetComponent<RectTransform>();
-            tagRect.anchorMin = new Vector2(0f, 1f);
+            tagRect.anchorMin = new Vector2(0.38f, 1f);
             tagRect.anchorMax = new Vector2(1f, 1f);
-            tagRect.offsetMin = new Vector2(14f, -98f);
-            tagRect.offsetMax = new Vector2(-10f, -80f);
+            tagRect.offsetMin = new Vector2(4f, -100f);
+            tagRect.offsetMax = new Vector2(-10f, -82f);
 
-            tyreWearFill = UiFactory.CreateHudMeter(card, "Wear", 116f, UiFactory.AccentAmber, out tyreWearValue);
+            tyreWearFill = UiFactory.CreateHudMeter(card, "Wear", 140f, UiFactory.AccentAmber, out tyreWearValue);
 
-            UiFactory.CreateBand(card, "Car status divider", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(14f, -142f), new Vector2(-10f, -140f), new Color(1f, 1f, 1f, 0.08f));
+            UiFactory.CreateBand(card, "Car status divider", new Vector2(0f, 1f), new Vector2(1f, 1f), new Vector2(14f, -162f), new Vector2(-10f, -160f), new Color(1f, 1f, 1f, 0.08f));
 
-            ersFill = UiFactory.CreateHudMeter(card, "ERS", 152f, UiFactory.AccentCyan, out ersValue);
-            fuelFill = UiFactory.CreateHudMeter(card, "Fuel", 178f, new Color(0.7f, 0.95f, 1f), out fuelValue);
-            damageFill = UiFactory.CreateHudMeter(card, "Dmg", 204f, UiFactory.Accent, out damageValue);
+            ersFill = UiFactory.CreateHudMeter(card, "ERS", 172f, UiFactory.AccentCyan, out ersValue);
+            fuelFill = UiFactory.CreateHudMeter(card, "Fuel", 198f, new Color(0.7f, 0.95f, 1f), out fuelValue);
+            damageFill = UiFactory.CreateHudMeter(card, "Dmg", 224f, UiFactory.Accent, out damageValue);
         }
 
         // The tyre card shares its left half with the corner grid, so shift the
