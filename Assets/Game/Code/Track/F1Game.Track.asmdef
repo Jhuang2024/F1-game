@@ -2,7 +2,8 @@
     "name": "F1Game.Track",
     "rootNamespace": "F1Game.Track",
     "references": [
-        "F1Game.Core"
+        "F1Game.Core",
+        "F1Game.Rendering"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],
