@@ -7,8 +7,20 @@ Living ledger for the production rebuild. Updated after every logical commit.
   below is **static-only / unverified**: not compiled, not tested, not run.
 - No claim of compilation, runtime, visual, test, or performance success is made.
 
-## Git
-- Branch: `claude/unity-production-migration-so7zih` (pushed; tip `025301f`).
+## Completion run (final directive)
+- Branch: `claude/unity-production-completion` (descends from `origin/main` a57712d).
+- Critical UI transition bug FIXED: ProductionUiReadiness (no TMP auto-activation),
+  UiSessionCoordinator (single-flight state machine), atomic strategy→race
+  transition, single live HUD (production HudRoot or legacy, never both),
+  NavigationLocked, clean pause/results/menu-return.
+- Live integrations added: pooled VFX wired to vehicle events (VehicleVfxDriver);
+  ITrackQuery adapters (legacy + authored) with a live TrackQueryProvider.Select
+  call at race start (reference circuit runs the authored path).
+- Still built-not-live (honest): full HUD-module parity + legacy RaceHud removal;
+  full frontend/career migration; physics/replay/rulebook wiring; multiplayer.
+
+## Git (prior)
+- Branch: `claude/unity-production-migration-so7zih` (pushed; merged to main via PR #11).
 - **`origin/main` has diverged** — it advanced to `7db7626`, the merge commit of
   PR #10 (which brought this branch's *earlier* Phase 0/1 work up to `7fa2f42`
   into main). That merge commit is not in this branch's history, so an

@@ -15,8 +15,11 @@ Private, local-only Unity Formula-style simcade career/race game, currently **mi
 | Production car spawn interface (CarDefinition/RigBinding) | **Live** — race + ghost spawn route through it; placeholder car until authored art |
 | Authored-track runtime (sampler/mesh/queries/reference circuit) | **Built + reference circuit**; legacy procedural TrackManager still the live race track (query-interface extraction is Phase 3) |
 | Audio banks + event director + layered engine | **Live event director**; all clips still labelled procedural fallbacks (blocked by assets) |
-| Production UI (theme, router, TMP; menu, track select, strategy, HUD shell + modules) | **Partial** — quick-race path on the new UI; career/settings/etc still legacy |
-| Production HUD modules (telemetry + event driven) | **Built, not yet live** — legacy RaceHud remains the single live HUD until parity |
+| Production UI (theme, router, TMP; menu, track select, strategy, HUD shell + modules) | **Partial** — quick-race path on the new UI (explicit opt-in `f1game_production_ui=1`); career/settings/etc still legacy |
+| UI ownership state machine + atomic race transition | **Implemented** — `UiSessionCoordinator` + `ProductionUiReadiness`; importing TMP no longer auto-activates the UI; strategy→race is single-flight and shows exactly one HUD |
+| Production HUD modules (telemetry + event driven) | **Live when production UI is active** (`ProductionSessionUi` shows HudRoot instead of legacy RaceHud); legacy HUD remains for the default legacy path |
+| Pooled VFX wired to vehicle events (lockup/wheelspin/kerb/impact) | **Live** (placeholder particle art) |
+| Authored-track query path (ITrackQuery adapters) | **Live call site** — reference circuit runs the authored adapter; other circuits use the legacy adapter |
 | Additive systems (flag/start rulebook, replay model, pooled VFX, physics models, telemetry CSV) | **Implemented additively**, not yet wired into the live loop |
 | Final car/track/UI/audio/VFX art | **Blocked by assets** — slots, specs and explicit placeholders exist (`Docs/ART_PIPELINE.md`); primitives are interim, not final art |
 | Multiplayer | **Planned** (not started) |
