@@ -683,8 +683,8 @@ namespace LocalFormulaRacing
             // the pit/qualifying paths. Clamped to a sane ceiling so a
             // already-elite 95 defender doesn't overflow the 0-100 band the
             // downstream math assumes.
-            int defending = driver == null ? 78 : Mathf.Clamp(Mathf.RoundToInt(driver.defending * 1.3f), 0, 100);
-            int overtaking = driver == null ? 78 : Mathf.Clamp(Mathf.RoundToInt(driver.overtaking * 1.3f), 0, 100);
+            int defending = driver == null ? 78 : Mathf.Clamp(Mathf.RoundToInt(driver.defending * 1.69f), 0, 100);
+            int overtaking = driver == null ? 78 : Mathf.Clamp(Mathf.RoundToInt(driver.overtaking * 1.69f), 0, 100);
             int experience = driver == null ? 75 : driver.experience;
             int wetSkill = driver == null ? 75 : driver.wetSkill;
 
@@ -1370,8 +1370,15 @@ namespace LocalFormulaRacing
                 // ever existed to keep the pack from bunching too tightly into
                 // turn one, and was holding every difficulty back for longer
                 // than that job needs.
-                float openingCapDuration = confidentTier ? (isExpert ? 0.4f : 1.3f) : 2.4f;
-                float openingCapFloor = confidentTier ? (isExpert ? 0.97f : 0.9f) : 0.8f;
+                // Start-acceleration buff (per request, 2x off the line): the
+                // opening pileup-safety throttle cap is shortened and its floor
+                // raised close to full so AI barely lift off the line - the
+                // launch throttle-ramp boost (AccelerationBoostMultiplier during
+                // the launch window) still stacks on top. ApplyTrafficAvoidance
+                // remains the actual anti-collision guard, so this only removes
+                // the artificial early-race hesitation, it doesn't cause pileups.
+                float openingCapDuration = confidentTier ? (isExpert ? 0.2f : 0.6f) : 1.1f;
+                float openingCapFloor = confidentTier ? (isExpert ? 0.99f : 0.96f) : 0.92f;
                 if (raceManager.RaceElapsed < openingCapDuration)
                 {
                     command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(openingCapFloor, 1f, raceManager.RaceElapsed / openingCapDuration));

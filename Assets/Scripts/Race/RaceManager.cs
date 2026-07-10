@@ -1479,7 +1479,14 @@ namespace LocalFormulaRacing
             int targetLap = RecommendedPitLap(participant);
             int currentLapNumber = participant.lapTracker.CompletedLaps + 1;
 
-            return currentLapNumber >= targetLap;
+            // Pit-timing fix (per request: AI was pitting a lap early): hold the
+            // stop until the car has fully COMPLETED the recommended lap and is
+            // running the one after it, rather than triggering the instant it
+            // starts the recommended lap. Tyre-wear / SC / undercut triggers
+            // elsewhere can still bring a stop forward when the situation
+            // genuinely calls for it - this only shifts the routine strategy
+            // stop one lap later.
+            return currentLapNumber >= targetLap + 1;
         }
 
         // Deterministic, race-independent value in the 0-1 range derived from a
@@ -1752,7 +1759,11 @@ namespace LocalFormulaRacing
             // High is "occasional but never chaotic" - a short prototype race
             // should usually run green start to finish unless something
             // genuinely serious happens.
-            float freqScale = freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.06f : (freqSetting == 3 ? 0.28f : 0.13f));
+            // Incident odds -30% (per request): freqScale is the single factor
+            // every yellow/VSC/SC escalation chance below multiplies by, so
+            // scaling it here reduces the whole family of race-control
+            // interruptions uniformly (0.06/0.13/0.28 -> 0.042/0.091/0.196).
+            float freqScale = (freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.06f : (freqSetting == 3 ? 0.28f : 0.13f))) * 0.7f;
             bool preRace = StartCountdown > 0f;
             int mechanicalMode = Settings == null ? 2 : Settings.Current.mechanicalFailureMode;
 
@@ -2646,7 +2657,7 @@ namespace LocalFormulaRacing
 
                 queued.safetyCarQueueIndex = i;
                 queued.preSafetyCarOrderIndex = i;
-                if (!queued.retired && !queued.finished)
+                if (ShouldQueueUnderRaceControl(queued))
                 {
                     queued.isRaceControlAutopilot = true;
                 }
@@ -2787,6 +2798,35 @@ namespace LocalFormulaRacing
         // Field-wide backstop (Part 1/2): keeps the pace-limiter's own target
         // number honest against the real car's actual speed instead of a single
         // number picked once at deployment, ends the period by sending the car
+        // Safety-car capture gate: a car is pulled under race-control convoy
+        // autopilot ONLY if it isn't pitting and doesn't intend to. A pending
+        // pit request (or a car already on the pit rail) means the car
+        // continues its stop instead of being yanked into the queue - real
+        // cars dive for the pits under a safety car, they don't abandon a
+        // committed stop to form up. Because the per-tick upkeep re-evaluates
+        // this every frame, a car that finishes its stop and clears its
+        // request rejoins the convoy automatically while the hold period
+        // lasts.
+        bool ShouldQueueUnderRaceControl(RaceParticipant p)
+        {
+            if (p == null || p.retired || p.finished)
+            {
+                return false;
+            }
+
+            if (p.pitPhase != PitPhase.None || p.isPitting)
+            {
+                return false;
+            }
+
+            if (p.vehicle != null && p.vehicle.PitRequested)
+            {
+                return false;
+            }
+
+            return true;
+        }
+
         // toward the pits once race control calls "safety car in this lap",
         // penalizes anyone who actually gets past it on track, and - watchdog -
         // rebuilds/respawns the whole car if a full SC period is somehow running
@@ -2814,7 +2854,7 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                if (IsRaceControlAutopilotHoldPeriod && !p.retired && !p.finished)
+                if (IsRaceControlAutopilotHoldPeriod && ShouldQueueUnderRaceControl(p))
                 {
                     p.isRaceControlAutopilot = true;
                 }
@@ -2975,11 +3015,11 @@ namespace LocalFormulaRacing
                 targetSpeedKph = Mathf.Lerp(raceControlReferenceSpeedKph, RestartFormationTargetSpeedKph, rampProgress);
             }
 
-            // Acceleration buff: was 30 kph/s - the shared restart convoy ramp
-            // every car under race-control autopilot (SC/VSC restart, and the
-            // green-flag ramp tail right after it) accelerates at, buffed 50%
-            // per request.
-            raceControlReferenceSpeedKph = Mathf.MoveTowards(raceControlReferenceSpeedKph, targetSpeedKph, Time.deltaTime * 45f);
+            // Restart-acceleration buff: the shared convoy ramp every car under
+            // race-control autopilot follows (SC/VSC restart + the green-flag
+            // ramp tail) - raised again to 90 kph/s (2x the earlier 45) per
+            // request, so the field gets back up to speed off a caution hard.
+            raceControlReferenceSpeedKph = Mathf.MoveTowards(raceControlReferenceSpeedKph, targetSpeedKph, Time.deltaTime * 90f);
             raceControlReferenceDistance = Track.WrapDistance(raceControlReferenceDistance + raceControlReferenceSpeedKph / 3.6f * Time.deltaTime);
         }
 
