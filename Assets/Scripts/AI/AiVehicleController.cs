@@ -1436,10 +1436,16 @@ namespace LocalFormulaRacing
                 command.steer = Mathf.Clamp(command.steer * (1f + pressureFactor * 0.06f), -1f, 1f);
             }
 
-            // Part A.9: reacts a bit earlier than before (was Lerp(0.68, 0.52, ...)) -
-            // the old threshold let strategy hang on for slightly too long before
-            // requesting a stop.
-            float tyrePitThreshold = Mathf.Lerp(0.72f, 0.58f, tyreManagement / 100f) + profile.tyreSavingBias * 0.05f;
+            // Pit-timing fix (per request, AI still pitting a lap too early):
+            // the routine tyre-wear trigger was firing at 58-72% remaining,
+            // which on a short race is reached a whole lap before the intended
+            // strategy lap - so it pre-empted the strategy stop entirely and
+            // the +1 strategy-lap delay never got a chance to matter. Lowered
+            // the band to 45-59% remaining so the car runs its tyres a lap
+            // longer and the strategy lap becomes the real trigger. The
+            // destroyed-tyre safety nets below (0.12 wear, 0.5 grip) still
+            // force a stop before tyres are genuinely gone.
+            float tyrePitThreshold = Mathf.Lerp(0.59f, 0.45f, tyreManagement / 100f) + profile.tyreSavingBias * 0.05f;
             // Tyre-overextension fix (compound life): the threshold above was a flat
             // wear NUMBER applied identically to every compound. Wear itself already
             // decays faster on a Soft than a Hard (TyreState.baseWear), so a flat
