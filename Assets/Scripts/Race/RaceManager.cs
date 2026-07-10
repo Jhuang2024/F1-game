@@ -9407,18 +9407,52 @@ namespace LocalFormulaRacing
             return !(p.pitRailServiceStarted && !p.pitRailServiceDone);
         }
 
-        // Nearest rolling railed car ahead of this one along the pit path,
-        // within the shared headway. Wrapped forward distance is naturally
-        // asymmetric (if B is behind A, A never sees B as ahead), so two cars
-        // can never mutually block each other.
-        RaceParticipant FindRailCarAhead(RaceParticipant participant)
+        // A rolling rail car is on one of two independent legs: driving IN to
+        // its box (entry) or driving OUT toward the exit (exit). A car parked
+        // in its bay is neither (excluded by IsRailRolling).
+        bool IsRailRollingEntry(RaceParticipant p)
+        {
+            return IsRailRolling(p) && !p.pitRailServiceStarted;
+        }
+
+        bool IsRailRollingExit(RaceParticipant p)
+        {
+            return IsRailRolling(p) && p.pitRailServiceDone;
+        }
+
+        // Nearest matching-leg rolling car ahead of this one along the pit
+        // path, within the shared headway.
+        //
+        // Decoupling fix (the release trickle / massive gaps): entry cars and
+        // exit cars share the SAME physical fast lane, but they must NOT queue
+        // on each other. A car rolling IN to a far box (e.g. the player
+        // heading to box 22) sits directly in the forward exit path of every
+        // car trying to leave a nearer box - so when a single shared pool was
+        // used, those exiting cars piled up nose-to-tail behind the slow
+        // entering car and couldn't pass until it finally parked, which is
+        // exactly the "only two released, everyone else waiting, huge gaps"
+        // seen on the timing screen. An entry car therefore only ever yields
+        // to other ENTRY cars ahead of it, and an exit car only to other EXIT
+        // cars. Cross-leg overlap is harmless: rail cars are kinematic and
+        // non-colliding, and the physics handoff relocates to a genuinely
+        // clear pose (CompletePitRail), so an exit car passing "through" the
+        // lane space of an entering car never produces a real collision.
+        // Wrapped forward distance is asymmetric, so two same-leg cars can
+        // never mutually block each other.
+        RaceParticipant FindRailCarAheadOnLeg(RaceParticipant participant, bool exitLeg)
         {
             RaceParticipant closest = null;
             float closestGap = float.MaxValue;
             for (int i = 0; i < Participants.Count; i++)
             {
                 RaceParticipant other = Participants[i];
-                if (other == null || other == participant || !IsRailRolling(other))
+                if (other == null || other == participant)
+                {
+                    continue;
+                }
+
+                bool match = exitLeg ? IsRailRollingExit(other) : IsRailRollingEntry(other);
+                if (!match)
                 {
                     continue;
                 }
@@ -9427,45 +9461,21 @@ namespace LocalFormulaRacing
                 if (gap > 0.01f && gap < closestGap)
                 {
                     closestGap = gap;
+                    closest = other;
                 }
-                else
-                {
-                    continue;
-                }
-
-                closest = other;
             }
 
             return closestGap <= PitRailHeadwayMeters ? closest : null;
         }
 
-        // Bay-release gate: pulling out of the box must not cut directly in
-        // front of a railed car already rolling in the lane just ahead of
-        // this bay's own position.
-        //
-        // Root-cause fix: this used to ALSO refuse release while any rolling
-        // car sat within a REAR window - but pit boxes are PitBoxSpacing
-        // (10.5m) apart, and that rear window (first 22m, then "fixed" to
-        // 12m) was WIDER than the box gap itself. The instant a car left box
-        // N, it sat ~10.5m ahead of box N+1 - inside any window >= 10.5m -
-        // so box N+1 could never release until that car traveled the ENTIRE
-        // gap clear, and the same trap immediately repeated at box N+2, N+3,
-        // and so on down the whole line. That serialized every release to a
-        // crawl (the reported ~20s cadence) and, under a full mandatory-stop
-        // wave, backed up dozens of cars with nowhere to go.
-        //
-        // There is no real need for a rear check here at all: this is the
-        // exact same "car ahead" relationship FindRailCarAhead already
-        // computes symmetrically for every rolling car, every tick - the
-        // instant this car starts rolling, whatever car is genuinely closing
-        // from behind sees IT as the blocker on its own very next tick and
-        // clamps its own step accordingly (ComputeStep-equivalent logic in
-        // UpdatePitRail). A separate, wider rear window here was pure
-        // redundant complexity, and the one component of it that used a
-        // fixed distance both wider than the box spacing was the actual bug.
+        // Bay-release gate: a car pulling out of its box joins the EXIT flow,
+        // so it only waits for another EXIT car already rolling in the lane
+        // just ahead of its own box - never for entry traffic still driving
+        // deeper into the pits (that is the exact cross-leg block the
+        // decoupling above removes).
         RaceParticipant FindBayReleaseBlocker(RaceParticipant participant)
         {
-            return FindRailCarAhead(participant);
+            return FindRailCarAheadOnLeg(participant, true);
         }
 
         // Genuine physical overlap only - the one remaining world-space
@@ -9617,7 +9627,11 @@ namespace LocalFormulaRacing
                 ? PitPhase.Entry
                 : (participant.pitRailTraveled >= participant.pitRailReleaseS ? PitPhase.ExitMerge : PitPhase.Release);
 
-            RaceParticipant blocker = FindRailCarAhead(participant);
+            // Only ever queue behind a car on the SAME leg (see
+            // FindRailCarAheadOnLeg) - entry cars never block exit cars and
+            // vice-versa, which is what lets the exit flow drain freely past
+            // cars still rolling in to far boxes.
+            RaceParticipant blocker = FindRailCarAheadOnLeg(participant, !beforeBox);
             float step = Mathf.Max(0f, paceKph / 3.6f * Time.deltaTime);
             if (blocker != null)
             {
