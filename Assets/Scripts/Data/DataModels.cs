@@ -1053,6 +1053,9 @@ namespace LocalFormulaRacing
         public float hudScale = 1f;
         public float cameraFov = 60f;
         public float cameraShakeStrength = 0.2f;
+        // Gamepad vibration / force-feedback strength (0..1). Consumed by the
+        // F1Game.Input force-feedback adapter (GamepadRumbleFeedback).
+        public float controllerVibration = 1f;
         public bool useMphUnits;
         public float sceneryDensity = 1f;
         public int graphicsQuality = 2;

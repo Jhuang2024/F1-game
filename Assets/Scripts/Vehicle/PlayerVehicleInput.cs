@@ -10,6 +10,8 @@ namespace LocalFormulaRacing
         public RaceParticipant participant;
 
         VehicleController vehicle;
+        IDriveInputSource input;
+        F1Game.Input.GamepadRumbleFeedback rumble;
         float steerValue;
         float throttleValue;
         float brakeValue;
@@ -26,6 +28,17 @@ namespace LocalFormulaRacing
         void Awake()
         {
             vehicle = GetComponent<VehicleController>();
+            // Driving input backend chosen once here (Input System when enabled
+            // and its action asset resolves, legacy Input otherwise). All the
+            // race-manager wiring below is unchanged; only the raw reads route
+            // through the source, so the two backends never poll in parallel.
+            input = DriveInputConfig.CreateSource();
+
+            // Connect the real gamepad-vibration adapter (replaces the permanent
+            // no-op stub). Wheel-class force feedback still falls back to no-op
+            // until wheel hardware APIs are wired.
+            rumble = new F1Game.Input.GamepadRumbleFeedback();
+            F1Game.Input.ForceFeedbackHub.Active = rumble;
         }
 
         void Update()
@@ -35,24 +48,27 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            if (Input.GetKeyDown(KeyCode.Escape))
+            GameSettingsData settings = raceManager.Settings != null ? raceManager.Settings.Current : null;
+            input.Tick(settings);
+
+            if (input.PausePressed)
             {
                 raceManager.TogglePause();
             }
 
-            if (Input.GetKeyDown(KeyCode.C) && cameraRig != null)
+            if (input.CameraPressed && cameraRig != null)
             {
                 cameraRig.NextMode();
             }
 
             // Track test: cycle to the next calendar circuit while in a time trial.
-            if (Input.GetKeyDown(KeyCode.F2) && raceManager.IsTimeTrial)
+            if (input.CycleTrackPressed && raceManager.IsTimeTrial)
             {
                 raceManager.CycleToNextTrack();
                 return;
             }
 
-            if (Input.GetKeyDown(KeyCode.F3))
+            if (input.ToggleVerbosePressed)
             {
                 GameLog.Verbose = !GameLog.Verbose;
                 Debug.Log("[GameLog] Verbose logging " + (GameLog.Verbose ? "enabled" : "disabled"));
@@ -63,16 +79,19 @@ namespace LocalFormulaRacing
             // pit lane boundary, and pit/track separator line directly (see
             // TrackManager.BuildBoundaryDebugOverlay), so a gap between a
             // barrier and its intended line is obvious at a glance.
-            if (Input.GetKeyDown(KeyCode.F9) && raceManager.Track != null)
+            if (input.ToggleOverlayPressed && raceManager.Track != null)
             {
                 bool nowVisible = raceManager.Track.ToggleBoundaryDebugOverlay();
                 Debug.Log("[Debug] Track boundary overlay " + (nowVisible ? "shown" : "hidden"));
             }
 
-            GameSettingsData settings = raceManager.Settings.Current;
+            if (settings == null)
+            {
+                return;
+            }
 
             // R: tap cycles ERS mode, hold ~1 second recovers a stuck car.
-            if (Input.GetKey(KeyCode.R))
+            if (input.ResetHeld)
             {
                 resetHoldTime += Time.deltaTime;
                 if (!resetTriggered && resetHoldTime >= 1.0f)
@@ -82,7 +101,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            if (Input.GetKeyUp(KeyCode.R))
+            if (input.ResetReleased)
             {
                 if (!resetTriggered && resetHoldTime < 0.45f)
                 {
@@ -94,36 +113,11 @@ namespace LocalFormulaRacing
             }
 
             VehicleCommand command = new VehicleCommand();
-            float targetThrottle = Key(KeyCode.W) || Key(KeyCode.UpArrow) ? 1f : 0f;
-            float targetBrake = Key(KeyCode.S) || Key(KeyCode.DownArrow) ? 1f : 0f;
-            float targetSteer = 0f;
-            if (Key(KeyCode.A) || Key(KeyCode.LeftArrow))
-            {
-                targetSteer -= 1f;
-            }
-
-            if (Key(KeyCode.D) || Key(KeyCode.RightArrow))
-            {
-                targetSteer += 1f;
-            }
-
-            float horizontalAxis = SafeAxis("Horizontal");
-            float verticalAxis = SafeAxis("Vertical");
-            horizontalAxis = ApplyDeadzone(horizontalAxis, settings.controllerDeadzone);
-            verticalAxis = ApplyDeadzone(verticalAxis, settings.controllerDeadzone);
-            if (Mathf.Abs(horizontalAxis) > Mathf.Abs(targetSteer))
-            {
-                targetSteer = horizontalAxis;
-            }
-
-            if (verticalAxis > 0.1f)
-            {
-                targetThrottle = Mathf.Max(targetThrottle, verticalAxis);
-            }
-            else if (verticalAxis < -0.1f)
-            {
-                targetBrake = Mathf.Max(targetBrake, -verticalAxis);
-            }
+            // Raw targets (keyboard digital + analog, deadzoned/shaped) come from
+            // the active input source; this component keeps its own smoothing.
+            float targetThrottle = input.TargetThrottle;
+            float targetBrake = input.TargetBrake;
+            float targetSteer = input.TargetSteer;
 
             // Return-to-center is faster than steering in, which keeps keyboard input
             // responsive without making the car twitchy at speed.
@@ -136,7 +130,7 @@ namespace LocalFormulaRacing
             command.throttle = Mathf.Clamp01(throttleValue);
             command.brake = Mathf.Clamp01(brakeValue);
             command.steer = Mathf.Clamp(steerValue, -1f, 1f);
-            if (Input.GetKeyDown(KeyCode.Space))
+            if (input.DrsPressed)
             {
                 if (raceManager.IsDrsAvailable(participant))
                 {
@@ -174,9 +168,9 @@ namespace LocalFormulaRacing
                 drsLatched = false;
             }
 
-            command.ers = Key(KeyCode.LeftShift) || Key(KeyCode.RightShift);
+            command.ers = input.ErsDeployHeld;
             command.drs = drsLatched;
-            command.pitRequest = Input.GetKeyDown(KeyCode.P);
+            command.pitRequest = input.PitPressed;
             if (command.pitRequest)
             {
                 // VSC/SC interactive pit-window offer: while the radio's offer is
@@ -201,34 +195,19 @@ namespace LocalFormulaRacing
             // keyboard and mouse behave identically - CancelManualPitRequest
             // re-validates internally regardless, but checking here too avoids
             // even attempting the call (and its GameLog line) on a no-op press.
-            if (Input.GetKeyDown(KeyCode.O) && raceManager.CanCancelManualPitRequest())
+            if (input.PitCancelPressed && raceManager.CanCancelManualPitRequest())
             {
                 raceManager.CancelManualPitRequest();
             }
 
-            if (Input.GetKeyDown(KeyCode.Alpha1))
+            TyreCompound? tyreSelect = input.TyreSelectPressed;
+            if (tyreSelect.HasValue)
             {
-                raceManager.SelectPlayerPitTyre(participant, TyreCompound.Soft);
-            }
-            else if (Input.GetKeyDown(KeyCode.Alpha2))
-            {
-                raceManager.SelectPlayerPitTyre(participant, TyreCompound.Medium);
-            }
-            else if (Input.GetKeyDown(KeyCode.Alpha3))
-            {
-                raceManager.SelectPlayerPitTyre(participant, TyreCompound.Hard);
-            }
-            else if (Input.GetKeyDown(KeyCode.Alpha4))
-            {
-                raceManager.SelectPlayerPitTyre(participant, TyreCompound.Intermediate);
-            }
-            else if (Input.GetKeyDown(KeyCode.Alpha5))
-            {
-                raceManager.SelectPlayerPitTyre(participant, TyreCompound.Wet);
+                raceManager.SelectPlayerPitTyre(participant, tyreSelect.Value);
             }
 
-            command.shiftDown = Input.GetKeyDown(KeyCode.Q);
-            command.shiftUp = Input.GetKeyDown(KeyCode.E);
+            command.shiftDown = input.ShiftDownPressed;
+            command.shiftUp = input.ShiftUpPressed;
             if (!raceManager.CanDrive)
             {
                 if (command.throttle > 0.55f)
@@ -290,51 +269,51 @@ namespace LocalFormulaRacing
 
             vehicle.SetCommand(command);
 
-            // Kerb vibration: a tiny camera impulse sells the rumble without nausea.
-            if (cameraRig != null && vehicle.IsOnKerb && Mathf.Abs(vehicle.CurrentSpeedKph) > 70f)
+            // Force-feedback strength tracks the user's vibration setting.
+            if (rumble != null)
+            {
+                rumble.VibrationScale = Mathf.Clamp01(settings.controllerVibration);
+            }
+
+            bool onKerbFast = vehicle.IsOnKerb && Mathf.Abs(vehicle.CurrentSpeedKph) > 70f;
+
+            // Kerb vibration: a tiny camera impulse sells the rumble without nausea,
+            // plus a continuous high-frequency rumble term on the pad.
+            if (onKerbFast && cameraRig != null)
             {
                 cameraRig.AddImpulseShake(0.018f);
             }
 
+            if (rumble != null)
+            {
+                rumble.SetTextureRumble(onKerbFast ? 0.35f : 0f, 60f);
+            }
+
             // Impact hit: a short, proportional jolt when new damage lands.
-            if (cameraRig != null && vehicle.Damage != null)
+            if (vehicle.Damage != null)
             {
                 float damagePercent = vehicle.Damage.OverallPercent;
                 if (lastDamagePercent >= 0f && damagePercent > lastDamagePercent + 0.05f)
                 {
                     float hit = Mathf.Clamp((damagePercent - lastDamagePercent) * 0.01f, 0.02f, 0.12f);
-                    cameraRig.AddImpulseShake(hit);
+                    if (cameraRig != null)
+                    {
+                        cameraRig.AddImpulseShake(hit);
+                    }
+
+                    rumble?.PulseImpulse(Mathf.Clamp01(hit * 6f), 0.22f);
                 }
 
                 lastDamagePercent = damagePercent;
             }
+
+            rumble?.Tick();
         }
 
-        bool Key(KeyCode code)
+        void OnDisable()
         {
-            return Input.GetKey(code);
+            rumble?.StopAll();
         }
 
-        float SafeAxis(string axisName)
-        {
-            try
-            {
-                return Input.GetAxis(axisName);
-            }
-            catch
-            {
-                return 0f;
-            }
-        }
-
-        float ApplyDeadzone(float value, float deadzone)
-        {
-            if (Mathf.Abs(value) < deadzone)
-            {
-                return 0f;
-            }
-
-            return Mathf.Sign(value) * Mathf.InverseLerp(deadzone, 1f, Mathf.Abs(value));
-        }
     }
 }
