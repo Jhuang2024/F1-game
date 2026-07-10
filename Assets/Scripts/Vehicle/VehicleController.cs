@@ -36,6 +36,15 @@ namespace LocalFormulaRacing
         // One-shot flag for the [LaunchBoost] diagnostic log below - logs only the
         // first frame the AI launch boost lands on this car per race session.
         bool launchBoostLoggedThisRace;
+        // Self-armed race-start launch window (see ArmRaceLaunchBoost): RaceManager
+        // arms this directly at lights-out, so the launch boost no longer depends
+        // on ANY part of the AI command pipeline (window flags, throttle values,
+        // traffic logic) having behaved - the vehicle itself knows the race just
+        // started and boosts. -1 = never armed.
+        float raceLaunchBoostUntil = -1f;
+        // One-shot "the boost never fired" alarm - if the window was armed and ran
+        // out without the boost ever landing, log WHY (which gate was closed).
+        bool launchFailureLogged;
         // Slipstream: automatic, physics-based tow from running in another car's
         // wake on a straight - distinct from DRS (button/AI-commanded, gated by
         // race eligibility rules, much bigger effect). RaceManager.UpdateSlipstreamEffects
@@ -507,6 +516,22 @@ namespace LocalFormulaRacing
             }
 
             IsHeldOnGrid = held;
+        }
+
+        // Arms the AI launch boost for the next durationSeconds - called by
+        // RaceManager at the exact lights-out frame. The vehicle then applies its
+        // launch push itself (see ApplyForces), fully independent of the AI
+        // command pipeline; the player's car ignores this entirely.
+        public void ArmRaceLaunchBoost(float durationSeconds)
+        {
+            if (IsPlayerControlled)
+            {
+                return;
+            }
+
+            raceLaunchBoostUntil = Time.time + Mathf.Max(0f, durationSeconds);
+            launchBoostLoggedThisRace = false;
+            launchFailureLogged = false;
         }
 
         void FixedUpdate()
@@ -1139,35 +1164,47 @@ namespace LocalFormulaRacing
             // straight-line top speed. Never applies to the player (the launchBoost
             // channel is AI-only) and is gated off any active speed cap so it can't
             // fight the pit/race-control limiter.
-            float launchBoostForce = (!IsPlayerControlled && !speedCapEngaged && activeCommand.launchBoost > 0.01f)
-                ? Mathf.Lerp(30f, 5f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * Mathf.Clamp01(activeCommand.launchBoost)
+            // AI launch boost, fully self-contained: the window comes from
+            // ArmRaceLaunchBoost (called by RaceManager at the lights-out frame)
+            // OR from the AI's own command flag (VSC/SC restart recovery). It is
+            // applied as its OWN force, never multiplied by throttle - every
+            // previous attempt fed it through the throttle-multiplied drive term,
+            // so any AI throttle trim silently strangled it (an offline replica of
+            // this physics shows a throttle-capped car reproduces the reported
+            // "AI crawl off the line" exactly).
+            bool launchWindowArmed = raceLaunchBoostUntil > 0f && Time.time < raceLaunchBoostUntil;
+            float launchCommand = Mathf.Max(Mathf.Clamp01(activeCommand.launchBoost), launchWindowArmed ? 1f : 0f);
+            float launchBoostForce = (!IsPlayerControlled && !speedCapEngaged && launchCommand > 0.01f)
+                ? Mathf.Lerp(30f, 5f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * launchCommand
                 : 0f;
-            // One-shot launch diagnostic: logs the first frame the boost actually
-            // lands on this car, with every input that could have gated it - so a
-            // "the AI launch is still slow" report can be checked against whether
-            // the force genuinely fired and how strong it was, instead of guessing.
-            if (launchBoostForce > 0.01f && !launchBoostLoggedThisRace)
-            {
-                launchBoostLoggedThisRace = true;
-                GameLog.Info("[LaunchBoost] " + name + " boost=" + launchBoostForce.ToString("0.0") +
-                             " m/s2 speed=" + forwardSpeedKph.ToString("0") +
-                             "kph throttle=" + activeCommand.throttle.ToString("0.00"));
-            }
-
-            // Launch fix, decoupled from throttle: every previous attempt fed the
-            // boost through the drive-force term below, which multiplies by
-            // activeCommand.throttle - so ANY path that trims AI throttle in a
-            // packed launch (traffic caution, urgency caps, opening caps, or
-            // whatever else) silently strangled the boost along with the base
-            // power, and the AI launch never visibly changed no matter how big the
-            // number got. An offline replica of this exact physics confirms a
-            // throttle-capped car reproduces the reported behaviour precisely.
-            // Applied as its OWN force, gated only on not-braking and not held, the
-            // boost now lands at full strength regardless of what the AI's throttle
-            // pipeline decides - a genuinely brake-committed car still forfeits it.
-            if (launchBoostForce > 0.01f && !IsHeldInPit && activeCommand.brake < 0.25f && !fuelStarved)
+            bool launchGatesOpen = !IsHeldInPit && !IsHeldOnGrid && activeCommand.brake < 0.25f && !fuelStarved;
+            if (launchBoostForce > 0.01f && launchGatesOpen)
             {
                 body.AddForce(transform.forward * launchBoostForce, ForceMode.Acceleration);
+                // One-shot diagnostic - ALWAYS printed to the Unity console (the
+                // earlier version used GameLog.Info, which is silently dropped
+                // unless verbose logging (F3) is on, so its absence proved nothing).
+                if (!launchBoostLoggedThisRace)
+                {
+                    launchBoostLoggedThisRace = true;
+                    Debug.Log("[LaunchBoost] FIRING " + name + " boost=" + launchBoostForce.ToString("0.0") +
+                              " m/s2 speed=" + forwardSpeedKph.ToString("0") +
+                              "kph throttle=" + activeCommand.throttle.ToString("0.00"));
+                }
+            }
+            else if (launchWindowArmed && !launchBoostLoggedThisRace && !launchFailureLogged &&
+                     Time.time > raceLaunchBoostUntil - 3f)
+            {
+                // The window has been armed for 2s+ and the boost has NEVER landed:
+                // print exactly which gate is closed, once, unconditionally.
+                launchFailureLogged = true;
+                Debug.LogWarning("[LaunchBoost] NOT FIRING " + name +
+                                 " speedCapEngaged=" + speedCapEngaged +
+                                 " brake=" + activeCommand.brake.ToString("0.00") +
+                                 " throttle=" + activeCommand.throttle.ToString("0.00") +
+                                 " heldPit=" + IsHeldInPit + " heldGrid=" + IsHeldOnGrid +
+                                 " starved=" + fuelStarved +
+                                 " isPlayer=" + IsPlayerControlled);
             }
 
             float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;

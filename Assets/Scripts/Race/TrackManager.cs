@@ -121,42 +121,62 @@ namespace LocalFormulaRacing
                 centers[i] = point;
                 rights[i] = right;
                 float halfWidth = HalfWidthAt(d);
-                float kerbLimit = kerbStart > 0f ? kerbStart + 0.4f : halfWidth - 1.5f;
-                limits[i] = Mathf.Max(0.75f, Mathf.Min(halfWidth - 1.5f, kerbLimit));
+                // Corridor reaches the KERB (apex commitment fix): the previous
+                // halfWidth - 1.5 corridor stopped ~0.8m short of the kerb, so the
+                // computed line physically could not clip an apex no matter how
+                // well the solver converged. A racing car puts its inside wheels
+                // on the kerb: the corridor now runs to kerbStart + 0.5 (capped
+                // 0.5m inside the true edge for barrier margin).
+                float kerbLimit = kerbStart > 0f ? kerbStart + 0.5f : halfWidth - 0.5f;
+                limits[i] = Mathf.Max(0.75f, Mathf.Min(halfWidth - 0.5f, kerbLimit));
                 offsets[i] = 0f;
             }
 
+            // Solver parameters found by offline parameter sweep on a hard
+            // synthetic layout (hairpin R25 + chicane + fast sweeper): the
+            // un-normalised gradient with a SMALL learn rate and a hard per-update
+            // STEP CLAMP converges cleanly (apex pinned to the full corridor
+            // limit, committed outside swings); the step clamp is the crucial
+            // stabiliser - without it the large-stride passes overshoot into
+            // bang-bang zigzag that the fine strides then waste all their
+            // iterations undoing (the shipped v1 "bogus soft line").
             int[] strides = { 64, 32, 16, 8, 4, 2, 1 };
-            const int itersPerStride = 80;
-            const float learnRate = 0.06f;
-            for (int s = 0; s < strides.Length; s++)
+            const int cycles = 2;
+            const int itersPerStride = 200;
+            const float learnRate = 0.05f;
+            const float maxStepMeters = 0.5f;
+            for (int cycle = 0; cycle < cycles; cycle++)
             {
-                int k = strides[s];
-                if (k * 4 >= count)
+                for (int s = 0; s < strides.Length; s++)
                 {
-                    continue;
-                }
-
-                for (int iter = 0; iter < itersPerStride; iter++)
-                {
-                    for (int i = 0; i < count; i++)
+                    int k = strides[s];
+                    if (k * 4 >= count)
                     {
-                        int im2 = (i - 2 * k % count + count) % count;
-                        int im1 = (i - k % count + count) % count;
-                        int ip1 = (i + k) % count;
-                        int ip2 = (i + 2 * k) % count;
-                        Vector3 pIm2 = centers[im2] + rights[im2] * offsets[im2];
-                        Vector3 pIm1 = centers[im1] + rights[im1] * offsets[im1];
-                        Vector3 pI = centers[i] + rights[i] * offsets[i];
-                        Vector3 pIp1 = centers[ip1] + rights[ip1] * offsets[ip1];
-                        Vector3 pIp2 = centers[ip2] + rights[ip2] * offsets[ip2];
-                        // d/dp_i of |secondDiff|^2 terms centred at i-1, i, i+1.
-                        Vector3 centre = pIm1 - 2f * pI + pIp1;
-                        Vector3 left = pIm2 - 2f * pIm1 + pI;
-                        Vector3 right2 = pI - 2f * pIp1 + pIp2;
-                        Vector3 gradient = -4f * centre + 2f * left + 2f * right2;
-                        float g = Vector3.Dot(gradient, rights[i]);
-                        offsets[i] = Mathf.Clamp(offsets[i] - learnRate * g, -limits[i], limits[i]);
+                        continue;
+                    }
+
+                    for (int iter = 0; iter < itersPerStride; iter++)
+                    {
+                        for (int i = 0; i < count; i++)
+                        {
+                            int im2 = (i - 2 * k + count * 4) % count;
+                            int im1 = (i - k + count * 2) % count;
+                            int ip1 = (i + k) % count;
+                            int ip2 = (i + 2 * k) % count;
+                            Vector3 pIm2 = centers[im2] + rights[im2] * offsets[im2];
+                            Vector3 pIm1 = centers[im1] + rights[im1] * offsets[im1];
+                            Vector3 pI = centers[i] + rights[i] * offsets[i];
+                            Vector3 pIp1 = centers[ip1] + rights[ip1] * offsets[ip1];
+                            Vector3 pIp2 = centers[ip2] + rights[ip2] * offsets[ip2];
+                            // d/dp_i of |secondDiff|^2 terms centred at i-1, i, i+1.
+                            Vector3 centre = pIm1 - 2f * pI + pIp1;
+                            Vector3 left = pIm2 - 2f * pIm1 + pI;
+                            Vector3 right2 = pI - 2f * pIp1 + pIp2;
+                            Vector3 gradient = -4f * centre + 2f * left + 2f * right2;
+                            float g = Vector3.Dot(gradient, rights[i]);
+                            float step = Mathf.Clamp(-learnRate * g, -maxStepMeters, maxStepMeters);
+                            offsets[i] = Mathf.Clamp(offsets[i] + step, -limits[i], limits[i]);
+                        }
                     }
                 }
             }

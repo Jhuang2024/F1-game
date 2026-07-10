@@ -983,6 +983,17 @@ namespace LocalFormulaRacing
                         waitingForPlayerReaction = true;
                         playerReactionTime = -1f;
                         SimpleAudioManager.PlayStartLight(5);
+                        // Arm every AI car's launch boost directly at the
+                        // lights-out frame - the vehicle applies the boost itself
+                        // (VehicleController.ArmRaceLaunchBoost), independent of
+                        // the whole AI command pipeline.
+                        for (int i = 0; i < Participants.Count; i++)
+                        {
+                            if (Participants[i] != null && Participants[i].vehicle != null && !Participants[i].isPlayer)
+                            {
+                                Participants[i].vehicle.ArmRaceLaunchBoost(6f);
+                            }
+                        }
                     }
                 }
                 return;
