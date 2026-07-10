@@ -8,6 +8,10 @@ namespace LocalFormulaRacing
         VehicleController vehicle;
         AudioSource engineSource;
         AudioSource scrubSource;
+        // Production layered-engine path: used when the audio bank supplies
+        // engine-layer clips, otherwise null and the generated loop below is the
+        // labelled fallback.
+        F1Game.Audio.EngineAudioLayers engineLayers;
         int lastGear;
         bool enabledAudio;
         float carVolumeScale;
@@ -17,6 +21,19 @@ namespace LocalFormulaRacing
             enabledAudio = audioEnabled;
             carVolumeScale = volume;
             vehicle = GetComponent<VehicleController>();
+
+            // Prefer authored layered engine audio when the bank has it.
+            F1Game.Audio.AudioBank bank = F1Game.Audio.AudioBankService.Bank;
+            if (bank != null && bank.engineExternal != null && bank.engineExternal.Count > 0)
+            {
+                engineLayers = gameObject.AddComponent<F1Game.Audio.EngineAudioLayers>();
+                if (!engineLayers.Initialize(bank, onboardPerspective: false))
+                {
+                    Destroy(engineLayers);
+                    engineLayers = null;
+                }
+            }
+
             engineSource = gameObject.AddComponent<AudioSource>();
             engineSource.clip = CreateEngineLoop();
             engineSource.loop = true;
@@ -47,10 +64,23 @@ namespace LocalFormulaRacing
             }
 
             float categoryVolume = SimpleAudioManager.EngineVolumeScale;
-            engineSource.mute = !enabledAudio || categoryVolume <= 0f;
             float speed01 = Mathf.Clamp01(Mathf.Abs(vehicle.CurrentSpeedKph) / 330f);
-            engineSource.pitch = Mathf.Lerp(0.65f, 1.95f, speed01) + vehicle.CurrentGear * 0.035f;
-            engineSource.volume = Mathf.Lerp(0.18f, 0.5f, speed01) * carVolumeScale * 2f * categoryVolume;
+
+            if (engineLayers != null && engineLayers.HasLayers)
+            {
+                // Authored layered engine audio owns the engine voice; the
+                // generated loop is silenced to a labelled fallback state.
+                engineSource.mute = true;
+                float rpm01 = Mathf.Clamp01(speed01 * 0.85f + (vehicle.CurrentGear > 0 ? 0.1f : 0f));
+                engineLayers.SetMasterVolume((enabledAudio && categoryVolume > 0f) ? carVolumeScale * categoryVolume : 0f);
+                engineLayers.Tick(rpm01, Mathf.Clamp01(vehicle.CurrentSpeedKph > 0f ? speed01 * 1.2f : 0f));
+            }
+            else
+            {
+                engineSource.mute = !enabledAudio || categoryVolume <= 0f;
+                engineSource.pitch = Mathf.Lerp(0.65f, 1.95f, speed01) + vehicle.CurrentGear * 0.035f;
+                engineSource.volume = Mathf.Lerp(0.18f, 0.5f, speed01) * carVolumeScale * 2f * categoryVolume;
+            }
             if (lastGear != 0 && vehicle.CurrentGear != lastGear)
             {
                 SimpleAudioManager.PlayShift(transform.position);

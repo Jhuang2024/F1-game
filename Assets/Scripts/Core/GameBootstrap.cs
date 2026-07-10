@@ -46,6 +46,9 @@ namespace LocalFormulaRacing
             gameObject.AddComponent<RaceEventRelay>().Attach(raceManager);
             SimpleAudioManager.Ensure(transform);
             SimpleAudioManager.ApplySettings(settings.Current);
+            // Event-driven authored-bank audio (race control, penalties, pit,
+            // weather, radio). Empty bank slots defer to the generated cues.
+            F1Game.Audio.RaceAudioDirector.Create(transform);
             UiFactory.AnimationsEnabled = settings.Current.uiAnimations;
         }
 

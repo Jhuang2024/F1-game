@@ -52,6 +52,7 @@ namespace LocalFormulaRacing
             Current.hudScale = ClampSetting(Current.hudScale, 1f, 0.75f, 1.3f);
             Current.cameraFov = ClampSetting(Current.cameraFov, 60f, 48f, 78f);
             Current.cameraShakeStrength = Mathf.Clamp(Current.cameraShakeStrength, 0f, 0.6f);
+            Current.controllerVibration = Mathf.Clamp01(Current.controllerVibration);
             Current.sceneryDensity = ClampSetting(Current.sceneryDensity, 1f, 0.25f, 2f);
             Current.graphicsQuality = Mathf.Clamp(Current.graphicsQuality, 0, 3);
 

@@ -43,7 +43,9 @@
                 { "name": "PitRequest", "type": "Button", "id": "0a1b2c30-0012-4000-8000-000000000008", "expectedControlType": "Button", "processors": "", "interactions": "" },
                 { "name": "CycleCamera", "type": "Button", "id": "0a1b2c30-0012-4000-8000-000000000009", "expectedControlType": "Button", "processors": "", "interactions": "" },
                 { "name": "LookBack", "type": "Button", "id": "0a1b2c30-0012-4000-8000-00000000000a", "expectedControlType": "Button", "processors": "", "interactions": "" },
-                { "name": "Pause", "type": "Button", "id": "0a1b2c30-0012-4000-8000-00000000000b", "expectedControlType": "Button", "processors": "", "interactions": "" }
+                { "name": "Pause", "type": "Button", "id": "0a1b2c30-0012-4000-8000-00000000000b", "expectedControlType": "Button", "processors": "", "interactions": "" },
+                { "name": "ErsDeploy", "type": "Button", "id": "0a1b2c30-0012-4000-8000-00000000000c", "expectedControlType": "Button", "processors": "", "interactions": "" },
+                { "name": "PitCancel", "type": "Button", "id": "0a1b2c30-0012-4000-8000-00000000000d", "expectedControlType": "Button", "processors": "", "interactions": "" }
             ],
             "bindings": [
                 { "name": "", "id": "0a1b2c30-0022-4000-8000-000000000001", "path": "<Gamepad>/leftStick/x", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Steer", "isComposite": false, "isPartOfComposite": false },
@@ -72,7 +74,11 @@
                 { "name": "", "id": "0a1b2c30-0022-4000-8000-00000000001a", "path": "<Gamepad>/rightStickPress", "interactions": "", "processors": "", "groups": "Gamepad", "action": "CycleCamera", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "0a1b2c30-0022-4000-8000-000000000013", "path": "<Keyboard>/b", "interactions": "", "processors": "", "groups": "Keyboard", "action": "LookBack", "isComposite": false, "isPartOfComposite": false },
                 { "name": "", "id": "0a1b2c30-0022-4000-8000-000000000014", "path": "<Keyboard>/escape", "interactions": "", "processors": "", "groups": "Keyboard", "action": "Pause", "isComposite": false, "isPartOfComposite": false },
-                { "name": "", "id": "0a1b2c30-0022-4000-8000-00000000001b", "path": "<Gamepad>/start", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Pause", "isComposite": false, "isPartOfComposite": false }
+                { "name": "", "id": "0a1b2c30-0022-4000-8000-00000000001b", "path": "<Gamepad>/start", "interactions": "", "processors": "", "groups": "Gamepad", "action": "Pause", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "0a1b2c30-0022-4000-8000-00000000001c", "path": "<Keyboard>/leftShift", "interactions": "", "processors": "", "groups": "Keyboard", "action": "ErsDeploy", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "0a1b2c30-0022-4000-8000-00000000001d", "path": "<Keyboard>/rightShift", "interactions": "", "processors": "", "groups": "Keyboard", "action": "ErsDeploy", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "0a1b2c30-0022-4000-8000-00000000001e", "path": "<Gamepad>/leftStickPress", "interactions": "", "processors": "", "groups": "Gamepad", "action": "ErsDeploy", "isComposite": false, "isPartOfComposite": false },
+                { "name": "", "id": "0a1b2c30-0022-4000-8000-00000000001f", "path": "<Keyboard>/o", "interactions": "", "processors": "", "groups": "Keyboard", "action": "PitCancel", "isComposite": false, "isPartOfComposite": false }
             ]
         },
         {

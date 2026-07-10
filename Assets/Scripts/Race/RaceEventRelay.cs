@@ -94,6 +94,54 @@ namespace LocalFormulaRacing
                     GameEvents.Publish(new SessionStateChangedEvent(MapSession(), SessionPhase.Green, SessionPhase.Finished));
                 }
             }
+
+            PublishTelemetry();
+        }
+
+        void PublishTelemetry()
+        {
+            RaceParticipant player = race.PlayerParticipant;
+            if (player == null || player.vehicle == null)
+            {
+                F1Game.Core.HudTelemetry.Clear();
+                return;
+            }
+
+            VehicleController vehicle = player.vehicle;
+            float ers = vehicle.ErsBattery;
+            if (ers > 1.5f)
+            {
+                ers /= 100f; // normalise if stored as a percentage
+            }
+
+            float speed01 = Mathf.Clamp01(Mathf.Abs(vehicle.CurrentSpeedKph) / Mathf.Max(200f, vehicle.TargetTopSpeedKph));
+            float wear = vehicle.Tyres != null ? Mathf.Clamp01(vehicle.Tyres.Wear) : 0f;
+            int compound = vehicle.Tyres != null ? (int)vehicle.Tyres.Compound : 1;
+
+            var snapshot = new F1Game.Core.HudTelemetrySnapshot
+            {
+                Valid = true,
+                Position = race.GetPosition(player),
+                FieldSize = 22,
+                Lap = player.lapTracker != null ? player.lapTracker.CompletedLaps + 1 : 1,
+                TotalLaps = race.RaceLaps,
+                SessionClockSeconds = race.RaceElapsed,
+                SpeedKph = Mathf.Abs(vehicle.CurrentSpeedKph),
+                Gear = vehicle.CurrentGear,
+                Rpm01 = Mathf.Clamp01(speed01 * 0.9f + (vehicle.CurrentGear > 0 ? 0.1f : 0f)),
+                Ers01 = Mathf.Clamp01(ers),
+                DrsActive = vehicle.DrsActive,
+                DrsAvailable = race.IsDrsAvailable(player),
+                Fuel01 = 0f,
+                FuelLapsRemaining = vehicle.FuelPerLapEstimateKg > 0.01f ? vehicle.FuelKg / vehicle.FuelPerLapEstimateKg : 0f,
+                TyreCompound = compound,
+                TyreWear01 = wear,
+                BrakeTemp01 = 0f,
+                DeltaSeconds = 0f,
+                HasDelta = false,
+            };
+
+            F1Game.Core.HudTelemetry.Publish(snapshot);
         }
 
         FlagState MapFlag()
