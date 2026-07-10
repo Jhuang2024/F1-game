@@ -1516,7 +1516,7 @@ namespace LocalFormulaRacing
             }
 
             foundRenderer.sharedMaterial.SetFloat("_Metallic", metallic);
-            foundRenderer.F1Game.Rendering.ShaderCompat.SetSmoothness(sharedMaterial, smoothness);
+            F1Game.Rendering.ShaderCompat.SetSmoothness(foundRenderer.sharedMaterial, smoothness);
         }
 
         // Center-lock hub cap + a small lug ring on each wheel, built once the

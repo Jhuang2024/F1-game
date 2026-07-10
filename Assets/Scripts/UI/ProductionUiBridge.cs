@@ -28,6 +28,16 @@ namespace LocalFormulaRacing
     {
         const string ToggleKey = "f1game_production_ui";
 
+        // Canonical compound order shared with the legacy UI
+        // (RuntimeUi.TyreCompoundOrder) - settings store compounds as names.
+        static readonly string[] CompoundNames = { "Soft", "Medium", "Hard", "Intermediate", "Wet" };
+
+        static int CompoundIndex(string compoundName, int fallback)
+        {
+            int index = System.Array.IndexOf(CompoundNames, compoundName);
+            return index >= 0 ? index : fallback;
+        }
+
         static UiShell shell;
         static MainMenuPresenter mainMenuPresenter;
         static TrackSelectPresenter trackSelectPresenter;
@@ -223,12 +233,12 @@ namespace LocalFormulaRacing
                 trackName = model.trackName,
                 raceLaps = model.laps,
                 weatherForecast = model.weatherHint,
-                selectedCompoundIndex = Mathf.Clamp(settings.Current.tyreCompound, 0, 4),
+                selectedCompoundIndex = CompoundIndex(settings.Current.tyreCompound, 1),
                 plannedStopCount = Mathf.Clamp(settings.Current.plannedStopCount, 1, 2),
                 plannedPitLapOne = settings.Current.plannedPitLapOne,
                 plannedPitLapTwo = settings.Current.plannedPitLapTwo,
-                stopOneCompoundIndex = Mathf.Clamp(settings.Current.plannedStopOneCompound, 0, 4),
-                stopTwoCompoundIndex = Mathf.Clamp(settings.Current.plannedStopTwoCompound, 0, 4),
+                stopOneCompoundIndex = CompoundIndex(settings.Current.plannedStopOneCompound, 2),
+                stopTwoCompoundIndex = CompoundIndex(settings.Current.plannedStopTwoCompound, 1),
             };
 
             shell.Router.Show(PreRaceStrategyView.Id);
@@ -237,12 +247,12 @@ namespace LocalFormulaRacing
 
         static void OnStrategyConfirmed(StrategyChoice choice)
         {
-            settings.Current.tyreCompound = choice.StartCompoundIndex;
+            settings.Current.tyreCompound = CompoundNames[Mathf.Clamp(choice.StartCompoundIndex, 0, CompoundNames.Length - 1)];
             settings.Current.plannedStopCount = choice.PlannedStopCount;
             settings.Current.plannedPitLapOne = choice.PlannedPitLapOne;
             settings.Current.plannedPitLapTwo = choice.PlannedPitLapTwo;
-            settings.Current.plannedStopOneCompound = choice.StopOneCompoundIndex;
-            settings.Current.plannedStopTwoCompound = choice.StopTwoCompoundIndex;
+            settings.Current.plannedStopOneCompound = CompoundNames[Mathf.Clamp(choice.StopOneCompoundIndex, 0, CompoundNames.Length - 1)];
+            settings.Current.plannedStopTwoCompound = CompoundNames[Mathf.Clamp(choice.StopTwoCompoundIndex, 0, CompoundNames.Length - 1)];
             settings.Save();
 
             bootstrap.Ui.SetQuickRaceSelectedEvent(selectedEvent);
