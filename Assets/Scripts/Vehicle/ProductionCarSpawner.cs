@@ -38,6 +38,7 @@ namespace LocalFormulaRacing
                 }
 
                 ApplyLivery(authored, definition, primary, secondary);
+                authored.AddComponent<VehicleVfxDriver>();
                 return authored;
             }
 
@@ -45,6 +46,9 @@ namespace LocalFormulaRacing
             // PlaceholderArtMarker, wrapped in the production rig binding.
             GameObject placeholder = CarVisualFactory.CreateOpenWheelCar(driverName, primary, secondary);
             AttachPlaceholderBinding(placeholder, primary, secondary);
+            // Live pooled VFX driver (lazily binds to the VehicleController that
+            // the participant setup adds after this returns).
+            placeholder.AddComponent<VehicleVfxDriver>();
             return placeholder;
         }
 
