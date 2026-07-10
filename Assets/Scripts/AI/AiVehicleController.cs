@@ -873,7 +873,10 @@ namespace LocalFormulaRacing
             // number at all.
             float carBrakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
             float carCorneringStat = vehicle.CarData == null ? 78f : vehicle.CarData.cornering;
-            float hairpinSpeedKph = Mathf.Lerp(50f, 75f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
+            // Hairpin apex speed cut ~15% (per request, "maybe reduce hairpin
+            // speed" - the Italy hairpin barrier-gap report) as extra margin on
+            // top of the corner-detection/barrier-radius fixes: 50-75 -> 42-64.
+            float hairpinSpeedKph = Mathf.Lerp(42f, 64f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
@@ -2387,7 +2390,12 @@ namespace LocalFormulaRacing
                 // corner still breaks early as before, but a chicane/back-to-back
                 // corner pair keeps scanning until it finds the (possibly
                 // tighter) second apex.
-                if (apexSeverity > 0.55f && severity < 0.2f)
+                // Round 2 (per request - "mostly fixed but could use
+                // improvement"): threshold tightened further (0.2 -> 0.12) so
+                // the scan keeps going through an even milder partial
+                // straighten between two corners before concluding the road
+                // has genuinely opened up.
+                if (apexSeverity > 0.55f && severity < 0.12f)
                 {
                     break;
                 }

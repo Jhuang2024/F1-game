@@ -4156,7 +4156,18 @@ namespace LocalFormulaRacing
         // above - a real corner's own footprint is ~25% bigger now, so the
         // containment radius around its detected peak needs to cover that whole
         // bigger footprint, not just the old (now too-small) radius.
-        const float TightCornerFenceRadius = 55f;
+        // Barrier-gap fix round 2 (Italy hairpin, "no barriers on the outside,
+        // people overspeeding and not turning" persisting after the pit-lane
+        // floor cap): 55m only covers +-55m around the corner's PEAK - a real
+        // decreasing-radius hairpin's braking zone/apex/exit easily spans well
+        // past 110m total on a 6x-scaled layout, so the far end of a long
+        // hairpin (typically the EXIT, exactly where an overspeeding car runs
+        // wide) fell outside this radius entirely - nearTightFenceCorner went
+        // false there, so neither the corner-priority pit-blend containment nor
+        // the forced continuous catch fencing applied for that whole stretch,
+        // regardless of the bulge cap fixed last round. Widened to fully cover
+        // a real hairpin's whole entry-to-exit footprint.
+        const float TightCornerFenceRadius = 95f;
 
         // Pit-exit early-turn fix round 4: bakes Runtime.tightFenceContainmentZones
         // from the exact same corner detection + radius/span math ComputeBarrierPlan

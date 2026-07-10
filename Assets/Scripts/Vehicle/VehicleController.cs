@@ -998,11 +998,13 @@ namespace LocalFormulaRacing
                 // boost power (ersBoost below) is unchanged.
                 // ERS drain-rate fix round 7: raised a further 20% (was 0.0556-0.0787) -
                 // boost power (ersBoost below) is unchanged.
-                // ERS drain-rate fix round 8: raised a further 15% (per request,
-                // was 0.0667-0.0944) - boost power (ersBoost below) is unchanged.
+                // ERS drain-rate fix round 8: raised a further 15% (was
+                // 0.0667-0.0944) - boost power (ersBoost below) is unchanged.
+                // Round 9: raised a further 5% (per request, was 0.0767-0.1086) -
+                // boost power (ersBoost below) is unchanged.
                 ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
                 float ersBefore = ErsBattery;
-                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0767f, 0.1086f, activeCommand.throttle));
+                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0805f, 0.1140f, activeCommand.throttle));
                 // Unconditional diagnostic (not GameLog.Info, which is silently
                 // dropped unless verbose/F3 is on) for the reported "battery not
                 // decreasing while deploying during DRS" - the drain math here
@@ -1211,42 +1213,20 @@ namespace LocalFormulaRacing
             // cut is what regulates a closing car - an unbrakeable full-strength
             // shove would otherwise ram it into the car ahead): full boost at
             // >=0.72 commanded throttle, fading to zero as the cut approaches 0.
-            // Nerf (per request, another -30% on top of the earlier -25% then
-            // -30%, applies uniformly across every difficulty - this boost was
-            // never difficulty-scaled): peak 15.75 -> 11.025, high-speed tail
-            // 2.8 -> 1.96.
-            float launchBoostForce = (!IsPlayerControlled && !speedCapEngaged && launchCommand > 0.01f)
-                ? Mathf.Lerp(11.025f, 1.96f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * launchCommand * Mathf.Clamp01(activeCommand.throttle * 1.4f)
-                : 0f;
-            bool launchGatesOpen = !IsHeldInPit && !IsHeldOnGrid && activeCommand.brake < 0.25f && !fuelStarved;
-            if (launchBoostForce > 0.01f && launchGatesOpen)
-            {
-                body.AddForce(transform.forward * launchBoostForce, ForceMode.Acceleration);
-                // One-shot diagnostic - ALWAYS printed to the Unity console (the
-                // earlier version used GameLog.Info, which is silently dropped
-                // unless verbose logging (F3) is on, so its absence proved nothing).
-                if (!launchBoostLoggedThisRace)
-                {
-                    launchBoostLoggedThisRace = true;
-                    Debug.Log("[LaunchBoost] FIRING " + name + " boost=" + launchBoostForce.ToString("0.0") +
-                              " m/s2 speed=" + forwardSpeedKph.ToString("0") +
-                              "kph throttle=" + activeCommand.throttle.ToString("0.00"));
-                }
-            }
-            else if (launchWindowArmed && !launchBoostLoggedThisRace && !launchFailureLogged &&
-                     Time.time > raceLaunchBoostUntil - 3f)
-            {
-                // The window has been armed for 2s+ and the boost has NEVER landed:
-                // print exactly which gate is closed, once, unconditionally.
-                launchFailureLogged = true;
-                Debug.LogWarning("[LaunchBoost] NOT FIRING " + name +
-                                 " speedCapEngaged=" + speedCapEngaged +
-                                 " brake=" + activeCommand.brake.ToString("0.00") +
-                                 " throttle=" + activeCommand.throttle.ToString("0.00") +
-                                 " heldPit=" + IsHeldInPit + " heldGrid=" + IsHeldOnGrid +
-                                 " starved=" + fuelStarved +
-                                 " isPlayer=" + IsPlayerControlled);
-            }
+            // Nerf history: -25%, then -30%, then -30% again (peak 30 -> 22.5 ->
+            // 15.75 -> 11.025). Per request, reduced by a final -100%: the
+            // dedicated AI launch boost force is now fully disabled. AI launch
+            // performance is whatever the shared throttle-ramp/physics model on
+            // its own produces, identical in kind to the player's - no AI-only
+            // additive push at all. launchCommand/launchWindowArmed above are
+            // left in place (harmless - they just no longer drive a nonzero
+            // force) so this can be re-enabled with a single number if ever
+            // needed again.
+            // Force is disabled (see comment above), so the FIRING/NOT-FIRING
+            // diagnostics are pointless noise now - a "NOT FIRING" warning would
+            // spam every single race even though nothing is actually wrong. Both
+            // removed; launchGatesOpen/the AddForce call go with them since
+            // there's nothing left to gate.
 
             float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
             float speedLimiter = Mathf.Clamp01((topSpeed + limiterWindow - forwardSpeed) / limiterWindow);
