@@ -32,6 +32,11 @@ namespace LocalFormulaRacing
         Camera followCamera;
         Rigidbody targetBody;
         VehicleController targetVehicle;
+        // When the Cinemachine backend is live, this director drives the camera
+        // and CameraRig becomes a thin compatibility wrapper: it stops moving the
+        // transform and forwards mode-cycling, impulses, shake scale and look-back.
+        F1Game.Cameras.RaceCameraDirector director;
+        bool directorActive;
         int mode;
         Vector3 velocitySmoothed;
         float smoothedSpeedKph;
@@ -119,15 +124,50 @@ namespace LocalFormulaRacing
             }
 
             SnapToTarget();
+
+            // Cinemachine live path: attach the director to the race camera. When
+            // active, this rig stops driving the transform (the brain does) and
+            // only forwards cycling/impulse/shake/look-back.
+            if (CameraConfig.UseCinemachine && target != null)
+            {
+                VehicleController vehicle = targetVehicle;
+                director = F1Game.Cameras.RaceCameraDirector.Attach(
+                    followCamera,
+                    target,
+                    () => vehicle != null
+                        ? Mathf.Clamp01(Mathf.Abs(vehicle.CurrentSpeedKph) / Mathf.Max(200f, vehicle.TargetTopSpeedKph))
+                        : 0f);
+                directorActive = director != null;
+                if (directorActive)
+                {
+                    F1Game.Cameras.RaceCameraDirector.UseCinemachine = true;
+                    director.ShakeScale = shakeStrength / 0.6f; // normalise the 0..0.6 shake setting
+                }
+            }
         }
 
         public void NextMode()
         {
+            if (directorActive)
+            {
+                director.NextCamera();
+                return;
+            }
+
             mode = (mode + 1) % offsets.Length;
 
             // Start the blend timer fresh so the cut into the new angle eases
             // in over ModeBlendDuration instead of snapping straight there.
             modeBlend = 0f;
+        }
+
+        /// <summary>Look-back forwarding (Cinemachine path only).</summary>
+        public void SetLookBack(bool active)
+        {
+            if (directorActive)
+            {
+                director.SetLookBack(active);
+            }
         }
 
         float ModeFov(float speed01)
@@ -168,6 +208,13 @@ namespace LocalFormulaRacing
         void LateUpdate()
         {
             if (target == null || followCamera == null)
+            {
+                return;
+            }
+
+            // Cinemachine live path: the director + brain own the camera transform,
+            // FOV and shake. This rig does no manual positioning in that mode.
+            if (directorActive)
             {
                 return;
             }
@@ -601,6 +648,14 @@ namespace LocalFormulaRacing
         {
             if (!cameraShake || followCamera == null)
             {
+                return;
+            }
+
+            // Cinemachine live path: route impulses to the director's impulse
+            // source (kerb taps and impacts alike) instead of the legacy pools.
+            if (directorActive)
+            {
+                director.AddImpulse(Mathf.Clamp(amount, 0f, 0.15f) / 0.15f);
                 return;
             }
 

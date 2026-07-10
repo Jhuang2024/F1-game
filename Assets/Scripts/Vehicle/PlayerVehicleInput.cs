@@ -61,6 +61,11 @@ namespace LocalFormulaRacing
                 cameraRig.NextMode();
             }
 
+            if (cameraRig != null)
+            {
+                cameraRig.SetLookBack(input.LookBackHeld);
+            }
+
             // Track test: cycle to the next calendar circuit while in a time trial.
             if (input.CycleTrackPressed && raceManager.IsTimeTrial)
             {

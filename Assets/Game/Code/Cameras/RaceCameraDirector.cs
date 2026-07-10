@@ -10,27 +10,41 @@ namespace F1Game.Cameras
     /// trackside), cycles between them by priority, applies speed-dependent
     /// FOV, camera collision and impulse-based impacts/kerb vibration.
     ///
-    /// Integration status: constructed and compilable, but the legacy CameraRig
-    /// remains the active race camera until this director is validated
-    /// in-editor (flip <see cref="UseCinemachine"/> to switch). Camera shake is
-    /// impulse-driven and fully tunable per profile — it is a feedback accent,
-    /// not the speed presentation.
+    /// The legacy CameraRig attaches this as the live race camera when the
+    /// Cinemachine backend is enabled (CameraRig then stops driving the camera
+    /// transform and delegates cycling/impulses here). Camera shake is
+    /// impulse-driven and fully tunable per profile — a feedback accent, not the
+    /// speed presentation.
     /// </summary>
     public class RaceCameraDirector : MonoBehaviour
     {
-        /// <summary>Feature gate read by the spawn path once validated in-editor.</summary>
+        /// <summary>True while a director is the live camera path (set on Attach).</summary>
         public static bool UseCinemachine;
 
         public const string ProfileResourceFolder = "CameraProfiles";
 
         readonly List<CinemachineVirtualCamera> cameras = new List<CinemachineVirtualCamera>();
         readonly List<CameraProfile> profiles = new List<CameraProfile>();
+        readonly List<CinemachineTransposer> transposers = new List<CinemachineTransposer>();
+        readonly List<Vector3> baseOffsets = new List<Vector3>();
 
         CinemachineBrain brain;
         CinemachineImpulseSource impulseSource;
         Transform followTarget;
         System.Func<float> speed01Provider;
         int activeIndex;
+
+        /// <summary>Global multiplier on impulse strength (camera-shake / reduced-motion setting).</summary>
+        public float ShakeScale = 1f;
+
+        Vector3 userOffset;
+        bool lookBack;
+
+        /// <summary>User camera position offset (settings), applied to chase-type views.</summary>
+        public void SetUserOffset(Vector3 offset) => userOffset = offset;
+
+        /// <summary>Look-back toggle: mirrors the chase view to frame behind the car.</summary>
+        public void SetLookBack(bool active) => lookBack = active;
 
         public int ActiveIndex => activeIndex;
         public CameraProfile ActiveProfile => profiles.Count > 0 ? profiles[Mathf.Clamp(activeIndex, 0, profiles.Count - 1)] : null;
@@ -72,14 +86,17 @@ namespace F1Game.Cameras
             foreach (CameraProfile profile in loaded)
             {
                 profiles.Add(profile);
-                cameras.Add(BuildVirtualCamera(rigRoot, profile, car));
+                cameras.Add(BuildVirtualCamera(rigRoot, profile, car, out CinemachineTransposer transposer));
+                transposers.Add(transposer);
+                baseOffsets.Add(profile.followOffset);
             }
 
             SetActive(0);
         }
 
-        CinemachineVirtualCamera BuildVirtualCamera(Transform parent, CameraProfile profile, Transform car)
+        CinemachineVirtualCamera BuildVirtualCamera(Transform parent, CameraProfile profile, Transform car, out CinemachineTransposer chaseTransposer)
         {
+            chaseTransposer = null;
             var go = new GameObject("VCam_" + profile.kind);
             go.transform.SetParent(parent, false);
             var vcam = go.AddComponent<CinemachineVirtualCamera>();
@@ -118,6 +135,7 @@ namespace F1Game.Cameras
                 var composer = vcam.AddCinemachineComponent<CinemachineComposer>();
                 composer.m_HorizontalDamping = profile.rotationDamping;
                 composer.m_VerticalDamping = profile.rotationDamping;
+                chaseTransposer = transposer;
             }
 
             if (profile.cameraCollision)
@@ -173,18 +191,18 @@ namespace F1Game.Cameras
         /// <summary>Impact impulse (collision, kerb strike). Magnitude ~0..1.</summary>
         public void AddImpulse(float magnitude)
         {
-            if (impulseSource != null && ActiveProfile != null)
+            if (impulseSource != null && ActiveProfile != null && ShakeScale > 0.001f)
             {
-                impulseSource.GenerateImpulse(Vector3.one * (magnitude * ActiveProfile.impactImpulseScale * 0.35f));
+                impulseSource.GenerateImpulse(Vector3.one * (magnitude * ActiveProfile.impactImpulseScale * ShakeScale * 0.35f));
             }
         }
 
         /// <summary>Continuous kerb vibration hook; call per-frame while on kerb.</summary>
         public void KerbVibrationTick(float intensity01)
         {
-            if (impulseSource != null && ActiveProfile != null && intensity01 > 0.05f)
+            if (impulseSource != null && ActiveProfile != null && ShakeScale > 0.001f && intensity01 > 0.05f)
             {
-                impulseSource.GenerateImpulse(Vector3.up * (intensity01 * ActiveProfile.kerbVibrationScale * 0.03f));
+                impulseSource.GenerateImpulse(Vector3.up * (intensity01 * ActiveProfile.kerbVibrationScale * ShakeScale * 0.03f));
             }
         }
 
@@ -200,6 +218,28 @@ namespace F1Game.Cameras
             CinemachineVirtualCamera vcam = cameras[activeIndex];
             float target = profile.baseFov + profile.fovSpeedWiden * Mathf.Clamp01(speed01Provider());
             vcam.m_Lens.FieldOfView = Mathf.Lerp(vcam.m_Lens.FieldOfView, target, Time.deltaTime * profile.fovDamping);
+
+            // User offset + look-back applied to chase-type views (hard-mounted
+            // cockpit/nose/T-cam have no transposer and are left untouched).
+            CinemachineTransposer transposer = activeIndex < transposers.Count ? transposers[activeIndex] : null;
+            if (transposer != null)
+            {
+                Vector3 baseOffset = baseOffsets[activeIndex] + userOffset;
+                if (lookBack)
+                {
+                    // Mirror the rig in front of the car and aim back at it.
+                    baseOffset = new Vector3(baseOffset.x, baseOffset.y, -baseOffset.z);
+                }
+
+                transposer.m_FollowOffset = Vector3.Lerp(transposer.m_FollowOffset, baseOffset, Time.deltaTime * 8f);
+            }
+        }
+
+        /// <summary>Session teardown: the director lives on the camera object, so
+        /// destroying the camera cleans it up; this stops any residual impulse.</summary>
+        void OnDisable()
+        {
+            UseCinemachine = false;
         }
     }
 }
