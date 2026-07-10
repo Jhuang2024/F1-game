@@ -2975,7 +2975,11 @@ namespace LocalFormulaRacing
                 targetSpeedKph = Mathf.Lerp(raceControlReferenceSpeedKph, RestartFormationTargetSpeedKph, rampProgress);
             }
 
-            raceControlReferenceSpeedKph = Mathf.MoveTowards(raceControlReferenceSpeedKph, targetSpeedKph, Time.deltaTime * 30f);
+            // Acceleration buff: was 30 kph/s - the shared restart convoy ramp
+            // every car under race-control autopilot (SC/VSC restart, and the
+            // green-flag ramp tail right after it) accelerates at, buffed 50%
+            // per request.
+            raceControlReferenceSpeedKph = Mathf.MoveTowards(raceControlReferenceSpeedKph, targetSpeedKph, Time.deltaTime * 45f);
             raceControlReferenceDistance = Track.WrapDistance(raceControlReferenceDistance + raceControlReferenceSpeedKph / 3.6f * Time.deltaTime);
         }
 
@@ -9466,13 +9470,47 @@ namespace LocalFormulaRacing
 
         // Genuine physical overlap only - the one remaining world-space
         // clearance rule at handoff. Unlike proximity windows, overlap always
-        // self-resolves: both cars keep moving.
+        // self-resolves: both cars keep moving. Checks EVERY participant
+        // (rail or live) - used only once, at the final handoff near the
+        // exit ramp end, where "everyone" is safe and cheap to check.
         RaceParticipant FindOverlapBlocker(RaceParticipant participant, Vector3 candidatePosition)
         {
             for (int i = 0; i < Participants.Count; i++)
             {
                 RaceParticipant other = Participants[i];
                 if (other == null || other == participant || other.vehicle == null || other.retired)
+                {
+                    continue;
+                }
+
+                if (Vector3.Distance(candidatePosition, other.transform.position) < PitExitOverlapRadiusMeters)
+                {
+                    return other;
+                }
+            }
+
+            return null;
+        }
+
+        // Gridlock fix: the continuous per-tick version of the overlap check
+        // (see UpdatePitRail) must ONLY ever consider genuinely LIVE cars
+        // (pitPhase == None, back on the racing surface) - never other
+        // pitting cars. Checking everyone there caused a full-field freeze:
+        // a car PARKED in its service bay sits only PitServiceBayOffsetMeters
+        // (4.2m) off the fast lane, so any car simply driving PAST an
+        // occupied box (queueing to reach its own, further down the lane)
+        // was well within the 7m overlap radius of it - during a real
+        // mandatory-stop wave, with most of the 22 boxes occupied at once,
+        // every queueing car was blocked by nearly every box it passed,
+        // gridlocking the whole pit lane exactly as reported. Rail-to-rail
+        // spacing is already fully handled by FindRailCarAhead; this only
+        // needs to catch a genuinely live car sitting in the path.
+        RaceParticipant FindLiveTrafficOverlapBlocker(RaceParticipant participant, Vector3 candidatePosition)
+        {
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant other = Participants[i];
+                if (other == null || other == participant || other.vehicle == null || other.retired || other.pitPhase != PitPhase.None)
                 {
                     continue;
                 }
@@ -9634,15 +9672,23 @@ namespace LocalFormulaRacing
             // harmless while both stay non-colliding, but violently unsafe
             // the moment physics restores real colliders on two overlapping
             // cars (exactly what flings cars off-track at handoff/hard-
-            // escape). Checked every tick against EVERY participant, not
-            // just other rail cars and not just at the final handoff.
+            // escape).
+            //
+            // Scoped to the EXIT leg only, and to genuinely live cars only
+            // (FindLiveTrafficOverlapBlocker) - checking this on the ENTRY
+            // leg too, against every participant, is what gridlocked the
+            // whole pit lane during a stop wave: a car simply queueing past
+            // an occupied box (only ~4.2m off the fast lane) read as
+            // "overlapping" it. The entry leg never merges into live
+            // traffic, so it never needed this check at all - FindRailCarAhead
+            // already fully governs its spacing against other rail cars.
             bool blockedByLiveCar = false;
-            if (step > 0.0001f)
+            if (!beforeBox && step > 0.0001f)
             {
                 Vector3 candidateWaypoint;
                 Quaternion candidateRotation;
                 Track.SamplePitLanePose(Track.WrapDistance(participant.pitGuideDistance + step), participant.pitGuideLateral, out candidateWaypoint, out candidateRotation);
-                if (FindOverlapBlocker(participant, candidateWaypoint) != null)
+                if (FindLiveTrafficOverlapBlocker(participant, candidateWaypoint) != null)
                 {
                     step = 0f;
                     blockedByLiveCar = true;

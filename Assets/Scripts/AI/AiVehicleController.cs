@@ -68,6 +68,21 @@ namespace LocalFormulaRacing
         float throttleDelayTimer;
         float currentThrottle;
 
+        // Restart/caution-recovery throttle boost: counts UP to
+        // PaceCapRecoveryBoostSeconds every frame the car is genuinely
+        // pace-capped (VSC/SC/local yellow), then counts back DOWN once the
+        // cap clears - so the boosted throttle ramp (see AccelerationBoostMultiplier)
+        // covers both the run back up to speed while still technically capped
+        // and, more importantly, the first few seconds after the cap actually
+        // lifts, which is when a real driver floors it hardest.
+        float paceCapRecoveryBoostTimer;
+        const float PaceCapRecoveryBoostSeconds = 4f;
+        // Pure throttle-ramp response, never an engine/grip boost (same
+        // convention as launchConfidence above) - how fast currentThrottle
+        // catches up to its target during a race start or a VSC/SC/yellow
+        // recovery, per request.
+        const float AccelerationBoostMultiplier = 1.5f;
+
         // Race-start confidence, derived once at spawn from difficulty + driver
         // skill. Pure input timing/ramp, never an engine or grip boost.
         float launchConfidence = 1f;
@@ -345,9 +360,11 @@ namespace LocalFormulaRacing
                     // Round 9: another +15kph on top of that (+137.5kph total).
                     // Round 10: another +20kph on top of that (+157.5kph total).
                     // Round 11: another +20kph on top of that (+177.5kph total).
-                    // Round 12: another +10kph on top of that (+187.5kph total) -
-                    // turning-speed pass across every non-hairpin bucket.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence) + 187.5f);
+                    // Round 12: another +10kph on top of that (+187.5kph total).
+                    // Round 13: another +10kph on top of that (+197.5kph total) -
+                    // turning-speed pass across every non-hairpin bucket except
+                    // hairpin, per request.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence) + 197.5f);
                     easePower = Mathf.Lerp(6f, 10f, skillTier);
                     break;
                 case CornerType.Medium:
@@ -369,9 +386,11 @@ namespace LocalFormulaRacing
                     // Round 11: another +15kph on top of that (+142.5kph total).
                     // Round 12: another +20kph on top of that (+162.5kph total).
                     // Round 13: another +20kph on top of that (+182.5kph total).
-                    // Round 14: another +10kph on top of that (+192.5kph total) -
-                    // turning-speed pass across every non-hairpin bucket.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 192.5f);
+                    // Round 14: another +10kph on top of that (+192.5kph total).
+                    // Round 15: another +10kph on top of that (+202.5kph total) -
+                    // turning-speed pass across every non-hairpin bucket except
+                    // hairpin, per request.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 202.5f);
                     easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
@@ -401,9 +420,11 @@ namespace LocalFormulaRacing
                     // Round 14: raised another flat 15kph (437.5-447.5kph -> 452.5-462.5kph).
                     // Round 15: raised another flat 20kph (452.5-462.5kph -> 472.5-482.5kph).
                     // Round 16: raised another flat 20kph (472.5-482.5kph -> 492.5-502.5kph).
-                    // Round 17: raised another flat 10kph (492.5-502.5kph -> 502.5-512.5kph) -
-                    // turning-speed pass across every non-hairpin bucket.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(502.5f, Mathf.Lerp(507.5f, 512.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 17: raised another flat 10kph (492.5-502.5kph -> 502.5-512.5kph).
+                    // Round 18: raised another flat 10kph (502.5-512.5kph -> 512.5-522.5kph) -
+                    // turning-speed pass across every non-hairpin bucket except
+                    // hairpin, per request.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(512.5f, Mathf.Lerp(517.5f, 522.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -425,9 +446,11 @@ namespace LocalFormulaRacing
                     // Round 8: raised another flat 10kph (257.5-292.5kph -> 267.5-302.5kph).
                     // Round 9: raised another flat 10kph (267.5-302.5kph -> 277.5-312.5kph).
                     // Round 10: raised another flat 5kph (277.5-312.5kph -> 282.5-317.5kph).
-                    // Round 11: raised another flat 10kph (282.5-317.5kph -> 292.5-327.5kph) -
-                    // turning-speed pass across every non-hairpin bucket.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(292.5f, Mathf.Lerp(312.5f, 327.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 11: raised another flat 10kph (282.5-317.5kph -> 292.5-327.5kph).
+                    // Round 12: raised another flat 10kph (292.5-327.5kph -> 302.5-337.5kph) -
+                    // turning-speed pass across every non-hairpin bucket except
+                    // hairpin, per request.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(302.5f, Mathf.Lerp(322.5f, 337.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
@@ -875,6 +898,11 @@ namespace LocalFormulaRacing
                 float paceScale = driverPaceVariance * profile.paceMultiplier * damageMultiplier;
                 cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, cappedApexTargetSpeed, severityHere) * paceScale;
                 brakingApexSpeed = cappedApexTargetSpeed * paceScale;
+                paceCapRecoveryBoostTimer = PaceCapRecoveryBoostSeconds;
+            }
+            else if (paceCapRecoveryBoostTimer > 0f)
+            {
+                paceCapRecoveryBoostTimer -= Time.deltaTime;
             }
 
             UpdateMistake(consistency, aggression, profile);
@@ -1277,7 +1305,20 @@ namespace LocalFormulaRacing
 
             // Smooth the ramp instead of snapping frame to frame - lift off quickly
             // into a brake, but build throttle back in without chopping.
-            currentThrottle = Mathf.MoveTowards(currentThrottle, throttleTarget, Time.deltaTime * (brakeDemand > 0.02f ? 4.5f : 2.6f * profile.throttleAggressionMultiplier));
+            //
+            // Acceleration buff (race start / VSC-SC-yellow recovery, +50%):
+            // pure throttle-ramp response, never an engine/grip boost, matching
+            // launchConfidence's own "input timing only" convention. Applies
+            // during the opening seconds of the race (RaceElapsed - the same
+            // window the launch-confidence/pileup-safety cap just below already
+            // covers) and for PaceCapRecoveryBoostSeconds after a VSC/SC/local
+            // yellow pace cap actually clears (paceCapRecoveryBoostTimer, set
+            // above whenever raceControlCap is active) - the two moments a real
+            // driver floors it hardest.
+            bool inLaunchWindow = raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
+                                   raceManager.RaceElapsed >= 0f && raceManager.RaceElapsed < launchSettleDuration + 1.5f;
+            float accelerationBoost = (inLaunchWindow || paceCapRecoveryBoostTimer > 0f) ? AccelerationBoostMultiplier : 1f;
+            currentThrottle = Mathf.MoveTowards(currentThrottle, throttleTarget, Time.deltaTime * (brakeDemand > 0.02f ? 4.5f : 2.6f * profile.throttleAggressionMultiplier) * accelerationBoost);
             command.throttle = currentThrottle;
 
             // Launch confidence: a brief, skill-scaled settle-in right off the line.
