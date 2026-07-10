@@ -518,8 +518,15 @@ namespace LocalFormulaRacing
             // also shortened (was 1.3f ceiling / *0.35f reaction weight) so
             // whatever gap remains between initial confidence and full
             // throttle closes faster.
-            launchConfidence = Mathf.Clamp01(Mathf.Lerp(0.68f, launchSkillCeiling, launchSkill) - startupProfile.reactionTimeSeconds * 0.08f);
-            launchSettleDuration = Mathf.Lerp(settleFloor, 0.9f, 1f - launchSkill) + startupProfile.reactionTimeSeconds * 0.22f;
+            // Start acceleration (per request - player was making up 10-12
+            // places from P22): the AI now launches essentially flat out. The
+            // confidence floor is raised near full (was 0.68) so even a
+            // low-skill / slow-reacting driver leaves the line hard, and the
+            // settle window is much shorter so any remaining gap to full
+            // throttle closes almost immediately. ApplyTrafficAvoidance is
+            // still the actual first-corner anti-pileup guard.
+            launchConfidence = Mathf.Clamp01(Mathf.Lerp(0.92f, launchSkillCeiling, launchSkill) - startupProfile.reactionTimeSeconds * 0.04f);
+            launchSettleDuration = Mathf.Lerp(settleFloor, 0.45f, 1f - launchSkill) + startupProfile.reactionTimeSeconds * 0.12f;
         }
 
         void Update()
@@ -1007,19 +1014,30 @@ namespace LocalFormulaRacing
             float perCarApexError = profile.apexErrorMeters * Mathf.Lerp(1.4f, 0.6f, consistency / 100f);
             float wobble = (Mathf.PerlinNoise(noiseSeed, Time.time * 0.5f) * 2f - 1f) * profile.lineOffsetNoise;
             float lineBias = 0f;
-            if (severityHere > 0.12f)
+            // Racing-line buff (per request - AI was driving down the middle of
+            // the road): the AI now works the FULL legal track width, swinging
+            // to the OUTSIDE on corner entry/exit and clipping the apex on the
+            // INSIDE, rather than the timid fraction of the width it used
+            // before (~0.6 of the legal limit, only above severity 0.12). The
+            // activation threshold is lowered so the line is shaped through
+            // gentler bends too, and both the entry/exit and apex biases scale
+            // up to nearly the full legal limit so a genuine wide-apex-wide arc
+            // is actually driven. The downstream ConstrainLegalLineOffset /
+            // LegalOffsetLimit clamps still bound it inside the safe surface,
+            // so a stronger bias can never steer a car into the barrier.
+            if (severityHere > 0.05f)
             {
-                bool curvatureRising = severityHere > previousSeverityHere + 0.015f;
-                bool curvatureFalling = severityHere < previousSeverityHere - 0.015f;
-                float biasMagnitude = Mathf.Lerp(0f, legalLimit * 0.6f, severityHere);
+                bool curvatureRising = severityHere > previousSeverityHere + 0.012f;
+                bool curvatureFalling = severityHere < previousSeverityHere - 0.012f;
+                float biasMagnitude = Mathf.Lerp(legalLimit * 0.35f, legalLimit * 0.98f, severityHere);
                 if (curvatureRising || curvatureFalling)
                 {
-                    lineBias = -turnSign * biasMagnitude * 0.7f;
+                    lineBias = -turnSign * biasMagnitude;
                 }
                 else
                 {
                     float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
-                    float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 3f);
+                    float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 4f);
                     lineBias = turnSign * biasMagnitude * apexPrecision + apexMissNoise;
                 }
             }
@@ -1536,12 +1554,13 @@ namespace LocalFormulaRacing
             {
                 handbackRampTimer -= Time.deltaTime;
                 float rampBlend = 1f - Mathf.Clamp01(handbackRampTimer / HandbackRampDuration);
-                // VSC/SC restart acceleration fix: raised the throttle floor
-                // (was 0.55) alongside the shorter HandbackRampDuration above -
-                // the steering cap is untouched, so this only changes how hard
-                // the car picks up speed on the restart, not how sharply it's
-                // still allowed to steer while doing it.
-                command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(0.75f, 1f, rampBlend));
+                // Restart acceleration (per request - player was gaining ~2s on
+                // every restart): the throttle is NO LONGER capped on the
+                // green-flag handback - the AI floors it the instant control
+                // returns, exactly like a player mashing the throttle at the
+                // line. Only the STEERING is still eased for a beat so the car
+                // doesn't snap sideways into whatever the overtake/defend logic
+                // last decided.
                 float steerCap = Mathf.Lerp(0.7f, 1f, rampBlend);
                 command.steer = Mathf.Clamp(command.steer, -steerCap, steerCap);
             }
@@ -2083,8 +2102,16 @@ namespace LocalFormulaRacing
             RaceParticipant ahead = raceManager.FindCarAhead(participant, 46f);
             RaceParticipant behind = raceManager.FindCarBehind(participant, 32f);
             float legalLimit = LegalOffsetLimit(severityHere, progress.distance);
-            float commitment = Mathf.Clamp01(profile.overtakeCommitment * Mathf.Lerp(0.7f, 1.15f, (aggression + overtaking) / 200f));
-            float defendCommitment = Mathf.Clamp01(profile.defendCommitment * Mathf.Lerp(0.7f, 1.15f, defending / 100f));
+            // Racecraft buff (per request, cumulative +30% +30% +25% ~= x2.1,
+            // all difficulties): the earlier stat multipliers stopped mattering
+            // because the stat-based Lerp below already saturates at stat 100,
+            // so the buff now lands on the COMMITMENT values directly - how far
+            // the AI actually commits to an overtake or a defensive move. Still
+            // Clamp01'd, so it only ever raises commitment toward full, never
+            // past it.
+            const float RacecraftBuff = 2.1f;
+            float commitment = Mathf.Clamp01(profile.overtakeCommitment * Mathf.Lerp(0.7f, 1.15f, (aggression + overtaking) / 200f) * RacecraftBuff);
+            float defendCommitment = Mathf.Clamp01(profile.defendCommitment * Mathf.Lerp(0.7f, 1.15f, defending / 100f) * RacecraftBuff);
 
             // Part A.3/A.4: extended state timers so Expert doesn't bail out of an
             // attack or a defend cover early. Everything else keeps the previous

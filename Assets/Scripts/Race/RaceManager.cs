@@ -1759,11 +1759,13 @@ namespace LocalFormulaRacing
             // High is "occasional but never chaotic" - a short prototype race
             // should usually run green start to finish unless something
             // genuinely serious happens.
-            // Incident odds -30% (per request): freqScale is the single factor
-            // every yellow/VSC/SC escalation chance below multiplies by, so
-            // scaling it here reduces the whole family of race-control
-            // interruptions uniformly (0.06/0.13/0.28 -> 0.042/0.091/0.196).
-            float freqScale = (freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.06f : (freqSetting == 3 ? 0.28f : 0.13f))) * 0.7f;
+            // Incident odds reduction (per request): freqScale is the single
+            // factor every yellow/VSC/SC escalation chance below multiplies
+            // by, so scaling it here reduces the whole family of race-control
+            // interruptions uniformly. Now 0.42 (the earlier 0.7, i.e. -30%,
+            // then a further -40% on top = 0.7 * 0.6), taking the standard
+            // setting's base 0.13 down to an effective 0.055.
+            float freqScale = (freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.06f : (freqSetting == 3 ? 0.28f : 0.13f))) * 0.42f;
             bool preRace = StartCountdown > 0f;
             int mechanicalMode = Settings == null ? 2 : Settings.Current.mechanicalFailureMode;
 
