@@ -36,6 +36,10 @@ namespace LocalFormulaRacing
         // One-shot flag for the [LaunchBoost] diagnostic log below - logs only the
         // first frame the AI launch boost lands on this car per race session.
         bool launchBoostLoggedThisRace;
+        // Throttle for the [ErsDrain] diagnostic below - printed at most once
+        // every 0.5s while deploying, so a held Shift key doesn't spam the
+        // console for the whole DRS zone.
+        float ersDrainLogTimer;
         // Self-armed race-start launch window (see ArmRaceLaunchBoost): RaceManager
         // arms this directly at lights-out, so the launch boost no longer depends
         // on ANY part of the AI command pipeline (window flags, throttle values,
@@ -995,7 +999,27 @@ namespace LocalFormulaRacing
                 // ERS drain-rate fix round 7: raised a further 20% (was 0.0556-0.0787) -
                 // boost power (ersBoost below) is unchanged.
                 ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
+                float ersBefore = ErsBattery;
                 ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0667f, 0.0944f, activeCommand.throttle));
+                // Unconditional diagnostic (not GameLog.Info, which is silently
+                // dropped unless verbose/F3 is on) for the reported "battery not
+                // decreasing while deploying during DRS" - the drain math here
+                // reads correctly on inspection (unconditional on DrsActive,
+                // never re-added by any recharge branch this same frame), so
+                // this proves or disproves it directly from a real play session
+                // instead of another round of static-code guessing.
+                if (IsPlayerControlled)
+                {
+                    ersDrainLogTimer -= dt;
+                    if (ersDrainLogTimer <= 0f)
+                    {
+                        ersDrainLogTimer = 0.5f;
+                        Debug.Log("[ErsDrain] battery " + (ersBefore * 100f).ToString("0.0") + "% -> " +
+                                  (ErsBattery * 100f).ToString("0.0") + "% drsActive=" + DrsActive +
+                                  " drsBoostActive=" + DrsBoostActive + " throttle=" + activeCommand.throttle.ToString("0.00") +
+                                  " ersMode=" + (settings != null ? settings.ersMode : -1));
+                    }
+                }
             }
 
             // Empty-battery recharge delay: arm a 5-second no-non-braking-

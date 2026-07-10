@@ -1573,6 +1573,29 @@ namespace LocalFormulaRacing
             StyleRoundedSmall(background, highlight
                 ? new Color(0.62f, 0.06f, 0.05f, 0.66f)
                 : (zebraIndex % 2 == 0 ? RowEven : RowOdd));
+            // Classification-table fix (Full Classification rendering broken -
+            // cells bleeding into each other/adjacent rows, reading as garbled
+            // overlapping text): two real gaps. (1) AddRowCell sets
+            // horizontalOverflow = Overflow on every cell (deliberately, to
+            // never DROP content) - but with no clip mask on the row, an
+            // overlong string that doesn't fit even at the resizeTextForBestFit
+            // floor (9pt) bleeds sideways past its own column into the next
+            // cell or, in a tightly packed table, the row above/below - the
+            // "DNF" and best-lap time reading struck-through/overlapped
+            // symptom. A RectMask2D clips each row to its own bounds, so
+            // overflow is cut off cleanly instead of bleeding. (2) the row
+            // itself carried no ILayoutElement, so the parent
+            // VerticalLayoutGroup (childControlHeight=false, per
+            // AddVerticalLayout) fell back to reading the row's raw
+            // RectTransform height for stacking - correct in the common case,
+            // but fragile the moment anything (a UiFadeIn setup, a later resize)
+            // touches the rect before the layout pass runs. An explicit
+            // LayoutElement pins the intended height unambiguously.
+            row.gameObject.AddComponent<RectMask2D>();
+            LayoutElement layoutElement = row.gameObject.AddComponent<LayoutElement>();
+            layoutElement.minHeight = height;
+            layoutElement.preferredHeight = height;
+            layoutElement.flexibleHeight = 0f;
             return row;
         }
 

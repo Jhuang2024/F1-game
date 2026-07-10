@@ -2129,8 +2129,16 @@ namespace LocalFormulaRacing
                         // lingering on a stale side-choice that's no longer relevant.
                         dodgeMemoryTimer = isExpert ? 0.6f : 1.1f;
                         float dodgeStrength = Mathf.Clamp01(1f - local.z / (forwardWindow * 0.7f));
-                        // Car-avoidance fix round 3: strengthened again (was 0.18-0.66).
-                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.24f, 0.78f, dodgeStrength);
+                        // Dodge authority trimmed back a bit (per request - "AI
+                        // swerve out of others' way too readily, hurts
+                        // wheel-to-wheel racing"): this was how eagerly the AI
+                        // steers CLEAR of a car ahead sharing its lane, distinct
+                        // from the genuine collision brake/throttle cut above
+                        // (untouched, still a real safety response). Cut from
+                        // 0.24-0.78 to 0.18-0.6 so the AI holds its line and
+                        // fights for the corner more instead of backing out of
+                        // contested space at the first overlap.
+                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.18f, 0.6f, dodgeStrength);
                     }
                 }
 
@@ -2160,7 +2168,10 @@ namespace LocalFormulaRacing
                     }
 
                     float sideOverlap = Mathf.Clamp01(1f - absX / 7f);
-                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.18f, 0.68f, sideOverlap);
+                    // Same dodge-authority trim as the in-lane case above - the
+                    // push-apart steering, not the throttle cutback just below
+                    // (kept as-is; that's genuine collision protection).
+                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.14f, 0.52f, sideOverlap);
                     // Side-by-side throttle cutback suppressed during the race-start
                     // pack window - see raceStartPackWindow above. Every grid car
                     // has flank neighbours by definition; lifting for them is what
