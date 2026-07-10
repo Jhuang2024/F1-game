@@ -1050,73 +1050,24 @@ namespace LocalFormulaRacing
             // lap. Cut to 0.5x so they sit much closer to the optimal line while
             // still not being robotically perfect.
             float wobble = (Mathf.PerlinNoise(noiseSeed, Time.time * 0.5f) * 2f - 1f) * profile.lineOffsetNoise * 0.5f;
-            float lineBias = 0f;
-            // Racing-line buff (per request - AI was driving down the middle of
-            // the road): the AI now works the FULL legal track width, swinging
-            // to the OUTSIDE on corner entry/exit and clipping the apex on the
-            // INSIDE, rather than the timid fraction of the width it used
-            // before (~0.6 of the legal limit, only above severity 0.12). The
-            // activation threshold is lowered so the line is shaped through
-            // gentler bends too, and both the entry/exit and apex biases scale
-            // up to nearly the full legal limit so a genuine wide-apex-wide arc
-            // is actually driven. The downstream ConstrainLegalLineOffset /
-            // LegalOffsetLimit clamps still bound it inside the safe surface,
-            // so a stronger bias can never steer a car into the barrier.
-            // Continuous outside-apex-outside racing line. The previous version
-            // classified the corner phase from a frame-to-frame severity delta
-            // (rising/falling vs steady) and hard-flipped lineBias between full
-            // outside and full inside on that boolean. Once the bias magnitude was
-            // raised to the full track width, that flip swung the car right across
-            // the road whenever the noisy severity signal crossed its threshold -
-            // exactly the "cars are swerving" symptom. This replaces it with ONE
-            // smooth curve: the MAGNITUDE is gated by the curvature at/just ahead
-            // of the car (severityHere - zero on a straight, so no early wandering),
-            // and the SIDE is a continuous function of how close the sharpest
-            // upcoming point is (apexDistanceAhead): outside on the approach,
-            // sweeping to the inside right at the apex, back to the outside on exit
-            // as the apex falls behind. No boolean, no flip.
-            if (severityHere > 0.05f)
-            {
-                // Outside (entry/exit) reach capped at 0.85 of the legal width -
-                // the apex clip below keeps the full width. A full-width EXIT swing
-                // combined with the buffed corner speeds is what was drifting cars
-                // into the barrier on fast final corners (the Hungary report); the
-                // apex itself is the part of the line that matters for lap time.
-                float biasMagnitude = Mathf.Lerp(legalLimit * 0.6f, legalLimit, severityHere);
-                // Optimal-line reach fix: the apex swing used a fixed 50 m window,
-                // but at real corner-approach speed the car covers 50 m in well
-                // under a second - with a rate-limited lateral slew it physically
-                // could not cross from the outside to the inside kerb in time, so
-                // it settled mid-road (the persistent "not taking the optimal
-                // line"). Scale the window with speed (~2.4 s of travel) so the
-                // turn-in starts early enough for the full crossing to complete.
-                float apexWindow = Mathf.Max(50f, speedKph / 3.6f * 2.4f);
-                float apexProximity = Mathf.Clamp01(1f - smoothedApexDistance / apexWindow);
-                float lineShape = apexProximity * 2f - 1f;
-                // Turn direction anchored AT the targeted apex, not generically
-                // 16-64m ahead of the car - approaching corner A, the generic
-                // sample could already be reading corner B's direction (chicanes,
-                // esses), biasing the car to the wrong side of the road for the
-                // corner it's actually shaping its line for.
-                float apexTurnSign = EstimateTurnDirection(progress.distance + Mathf.Max(0f, smoothedApexDistance - 24f));
-                float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
-                // Apex-precision (softened to /9 - a 2.6m error no longer collapses
-                // the clip to near zero) only dilutes the INSIDE/apex portion of the
-                // arc; the outside preposition on entry/exit is driven cleanly.
-                float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 9f);
-                // Outside portion (lineShape < 0) capped at 0.85 - see the comment
-                // on biasMagnitude above (barrier drift on fast corners); the apex
-                // clip (lineShape > 0) keeps the full width.
-                float shapedSide = lineShape > 0f ? lineShape * apexPrecision : lineShape * 0.85f;
-                lineBias = apexTurnSign * biasMagnitude * shapedSide + (lineShape > 0f ? apexMissNoise : 0f);
-            }
+            float lineBias;
+            // PRECOMPUTED optimal racing line (per request - every previous
+            // version here was a reactive heuristic layered on the CENTERLINE,
+            // there was never an actual computed line for the AI to follow, which
+            // is why it kept reading as "driving down the middle of the road" no
+            // matter how the heuristics were tuned). TrackRuntime.ComputeRacingLine
+            // now solves the taut-string/shortest-path line through the legal
+            // corridor once at build time - wide entry, kerb-clipping apex, wide
+            // exit, dead straight elsewhere - and the AI simply targets that line's
+            // offset at its own steering lookahead point. Per-driver apex error is
+            // layered on top as noise so skill still differentiates precision, and
+            // the slew smoothing below keeps transitions swerve-free.
+            float optimalLineOffset = track.RacingLineOffsetAt(progress.distance + lookAhead);
+            float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError * Mathf.Clamp01(severityHere * 3f);
+            lineBias = optimalLineOffset + apexMissNoise;
             // Rate-limit the line so it slews smoothly rather than snapping frame to
-            // frame - the cure for the swerve. Speed-scaled: a fixed rate was either
-            // too slow to complete the outside-to-apex crossing at real corner speed
-            // (car settles mid-road, "not on the optimal line") or fast enough to
-            // weave at low speed. ~4.5 m/s parked rising to ~9.5 m/s at 300 km/h
-            // tracks the actual distance covered per second, so the line completes
-            // its crossing at any speed without gaining weave authority at low speed.
+            // frame. Speed-scaled so the crossing to the apex completes at any
+            // speed without gaining weave authority at low speed.
             float lineSlewRate = Mathf.Lerp(4.5f, 9.5f, Mathf.Clamp01(speedKph / 300f));
             smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * lineSlewRate);
             lineBias = smoothedLineBias;
@@ -1937,17 +1888,23 @@ namespace LocalFormulaRacing
                 cautionFactor *= 0.9f;
             }
 
-            // Launch aggression (the real "AI slow off the line" cause): at a
-            // standing start the whole field is bunched on the grid, so this soft
-            // traffic-caution throttle cutback fired for EVERY AI at once - each one
-            // lifting for the car ahead of it - and the pack crawled away while the
-            // player, who has no such caution, simply drove through for a 10-place
-            // gain. The physics launch boost can't overcome a throttle that's being
-            // capped. Cut the soft caution right down for the first few seconds so
-            // the AI actually commit off the line; the hard collision brake
-            // (timeToContact, below) is a separate term and stays fully active, so
-            // this frees up the launch without causing first-corner pileups.
-            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.RaceElapsed < RaceStartBoostSeconds)
+            // Race-start pack window (THE "AI slow off the line" cause, found at
+            // last): on a two-column grid EVERY mid-pack car has a neighbour on
+            // both flanks within the side-by-side detection window and a
+            // same-column car ahead within the carDirectlyAhead window - so the
+            // "boxed in on both sides, lift and wait for a gap" branch below
+            // clamped every mid-pack AI to ~0.31-0.46 throttle WITH 0.16 brake for
+            // the whole run to turn one, while the player launched at 100% and
+            // drove straight through for 10+ places. That lift is correct racing
+            // behaviour mid-race, but a real F1 start holds full throttle in a
+            // dense pack and lifts only for genuine closure - which the
+            // closing-speed urgency brake above already handles. During this
+            // window the boxed-in lift and the side-by-side/soft throttle
+            // cutbacks are suppressed entirely (steering separation and genuine
+            // collision braking stay fully active).
+            bool raceStartPackWindow = raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
+                                       raceManager.RaceElapsed < 12f;
+            if (raceStartPackWindow)
             {
                 cautionFactor *= 0.3f;
             }
@@ -2110,17 +2067,28 @@ namespace LocalFormulaRacing
 
                     float sideOverlap = Mathf.Clamp01(1f - absX / 7f);
                     steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.18f, 0.68f, sideOverlap);
-                    float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.5f, sideOverlap)) * cautionFactor);
-                    throttleLimit = Mathf.Min(throttleLimit, sideCutback);
+                    // Side-by-side throttle cutback suppressed during the race-start
+                    // pack window - see raceStartPackWindow above. Every grid car
+                    // has flank neighbours by definition; lifting for them is what
+                    // killed the AI launch. Steering separation above stays.
+                    if (!raceStartPackWindow)
+                    {
+                        float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.5f, sideOverlap)) * cautionFactor);
+                        throttleLimit = Mathf.Min(throttleLimit, sideCutback);
+                    }
                 }
             }
 
             // Boxed in on both sides with a car ahead: lift cleanly and wait for a
-            // gap instead of forcing a three-wide wedge.
+            // gap instead of forcing a three-wide wedge. Suppressed during the
+            // race-start pack window (see raceStartPackWindow above) - EVERY
+            // mid-pack grid car is "boxed in" by definition off a standing start,
+            // and this clamp was the single thing killing the AI launch; the
+            // genuine-closing urgency brake still protects against real contact.
             if (blockedLeft && blockedRight)
             {
                 steerAdjust = 0f;
-                if (carDirectlyAhead)
+                if (carDirectlyAhead && !raceStartPackWindow)
                 {
                     throttleLimit = Mathf.Min(throttleLimit, Mathf.Clamp01(1f - (1f - 0.34f) * cautionFactor));
                     brakeDemand = Mathf.Max(brakeDemand, 0.16f * Mathf.Clamp01(cautionFactor));
@@ -2590,26 +2558,12 @@ namespace LocalFormulaRacing
         float ConstrainLegalLineOffset(TrackProgress progress, float requestedOffset, float cornerSeverity)
         {
             float legalLimit = LegalOffsetLimit(cornerSeverity, progress.distance);
-            float turnSign = EstimateTurnDirection(progress.distance);
             float desired = Mathf.Clamp(requestedOffset, -legalLimit, legalLimit);
-            if (Mathf.Abs(turnSign) > 0.01f && cornerSeverity > 0.18f)
-            {
-                // Apex reach: the old 0.42 floor clamped the inside line to under
-                // half the legal width on a sharp corner, so the AI clipped the
-                // apex well short of the inside kerb and drifted back toward centre.
-                // Raised to 0.72 so a proper apex actually reaches the inside edge,
-                // while still stopping the car short of cutting straight across the
-                // corner.
-                float insideLimit = Mathf.Lerp(legalLimit, legalLimit * 0.72f, cornerSeverity);
-                if (turnSign > 0f)
-                {
-                    desired = Mathf.Clamp(desired, -legalLimit, insideLimit);
-                }
-                else
-                {
-                    desired = Mathf.Clamp(desired, -insideLimit, legalLimit);
-                }
-            }
+            // (The old inside-limit shrink that clamped the apex to a fraction of
+            // the legal width is gone - the precomputed racing line already
+            // respects the kerb corridor by construction, and shrinking the inside
+            // here was exactly what kept clipping the computed apex back toward
+            // the centre of the road.)
 
             // Near-wall recovery: only engage right at the true track edge so it
             // catches a car genuinely drifting toward the barrier without fighting
@@ -2628,21 +2582,12 @@ namespace LocalFormulaRacing
 
         float LegalOffsetLimit(float cornerSeverity, float distance)
         {
-            // Racing-line reach fix (per request - "they're just driving in the
-            // middle of the road"): the old margin (2.3-3.8m) plus the kerbStart
-            // - 0.8m clamp held the legal line ~0.6 of the half-width from centre,
-            // so the AI never actually used the kerbs and the racing line read as
-            // timid/central next to the full-width overtake/defend offsets. The
-            // margin is cut right down and the kerb clamp now allows the line ONTO
-            // the inside of the kerb (kerbStart + 0.4m), so the optimal line
-            // genuinely swings out to the track edge and clips the kerb - the 0.9m
-            // barrier runoff beyond the kerb (Track.EdgeBarrierClearance) plus the
-            // near-wall pullback in ConstrainLegalLineOffset still keep it off the
-            // barrier itself.
-            float margin = Mathf.Lerp(1.4f, 2.3f, cornerSeverity);
+            // Aligned EXACTLY with TrackRuntime.ComputeRacingLine's corridor
+            // (halfWidth - 1.5, up to the inside of the kerb) so the runtime clamp
+            // can never clip the precomputed optimal line the AI is now targeting.
             float localHalfWidth = track.HalfWidthAt(distance);
-            float kerbLimit = track.kerbStart > 0f ? track.kerbStart + 0.4f : localHalfWidth - margin;
-            return Mathf.Max(0.75f, Mathf.Min(localHalfWidth - margin, kerbLimit));
+            float kerbLimit = track.kerbStart > 0f ? track.kerbStart + 0.4f : localHalfWidth - 1.5f;
+            return Mathf.Max(0.75f, Mathf.Min(localHalfWidth - 1.5f, kerbLimit));
         }
 
         float EstimateTurnDirection(float distance)

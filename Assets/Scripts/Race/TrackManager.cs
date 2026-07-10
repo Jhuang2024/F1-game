@@ -71,6 +71,99 @@ namespace LocalFormulaRacing
             return false;
         }
 
+        // Precomputed optimal racing line - lateral offsets (along the right
+        // vector) from the centerline, sampled every ~racingLineSpacing metres
+        // around the whole lap. Computed once at build time by ComputeRacingLine
+        // below; the AI previously had NO computed line at all - it targeted the
+        // road CENTERLINE plus reactive severity-based offsets, which is exactly
+        // why it read as "driving down the middle of the road" no matter how the
+        // offsets were tuned.
+        public float[] racingLineOffsets;
+        public float racingLineSpacing = 4f;
+
+        // Shortest-path-in-corridor relaxation ("pull a string tight through the
+        // track corridor"): every sample is iteratively pulled toward the midpoint
+        // of its neighbours (straightening the path), clamped to the legal
+        // corridor (up to the kerb, never the barrier). A taut string through a
+        // corner corridor is the classic racing-line approximation - it swings
+        // wide on entry, clips the inside kerb at the apex and releases wide on
+        // exit, and runs dead straight everywhere else, maximising the effective
+        // corner radius. One-time cost at track build (~a few hundred thousand
+        // cheap ops), nothing at runtime.
+        public void ComputeRacingLine()
+        {
+            if (centerLine.Count < 8 || length < 200f)
+            {
+                racingLineOffsets = null;
+                return;
+            }
+
+            int count = Mathf.Max(32, Mathf.RoundToInt(length / 4f));
+            racingLineSpacing = length / count;
+            Vector3[] centers = new Vector3[count];
+            Vector3[] rights = new Vector3[count];
+            float[] limits = new float[count];
+            float[] offsets = new float[count];
+            for (int i = 0; i < count; i++)
+            {
+                float d = i * racingLineSpacing;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                SampleAtDistance(d, out point, out forward, out right);
+                centers[i] = point;
+                rights[i] = right;
+                float halfWidth = HalfWidthAt(d);
+                float kerbLimit = kerbStart > 0f ? kerbStart + 0.4f : halfWidth - 1.5f;
+                limits[i] = Mathf.Max(0.75f, Mathf.Min(halfWidth - 1.5f, kerbLimit));
+                offsets[i] = 0f;
+            }
+
+            for (int iter = 0; iter < 400; iter++)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    int prev = (i - 1 + count) % count;
+                    int next = (i + 1) % count;
+                    Vector3 pointPrev = centers[prev] + rights[prev] * offsets[prev];
+                    Vector3 pointNext = centers[next] + rights[next] * offsets[next];
+                    Vector3 mid = (pointPrev + pointNext) * 0.5f;
+                    float target = Vector3.Dot(mid - centers[i], rights[i]);
+                    offsets[i] = Mathf.Clamp(Mathf.Lerp(offsets[i], target, 0.5f), -limits[i], limits[i]);
+                }
+            }
+
+            racingLineOffsets = offsets;
+        }
+
+        // Lateral offset of the optimal racing line at a given track distance
+        // (linear interpolation between the precomputed samples). 0 if the line
+        // was never computed (degenerate/test layouts) - i.e. the centerline.
+        public float RacingLineOffsetAt(float distance)
+        {
+            if (racingLineOffsets == null || racingLineOffsets.Length == 0)
+            {
+                return 0f;
+            }
+
+            float samplePosition = WrapDistance(distance) / racingLineSpacing;
+            int index = Mathf.FloorToInt(samplePosition);
+            float t = samplePosition - index;
+            index %= racingLineOffsets.Length;
+            int nextIndex = (index + 1) % racingLineOffsets.Length;
+            return Mathf.Lerp(racingLineOffsets[index], racingLineOffsets[nextIndex], t);
+        }
+
+        // World-space point on the optimal racing line at a given distance.
+        public Vector3 RacingLinePointAt(float distance)
+        {
+            Vector3 point;
+            Vector3 forward;
+            Vector3 right;
+            SampleAtDistance(distance, out point, out forward, out right);
+            return point + right * RacingLineOffsetAt(distance);
+        }
+
         // Race-control visual furniture (marshal flag boards, SC/VSC board, gantry
         // lights) built by TrackManager and wired up here so RaceManager can drive it
         // live without needing a cross-file dependency on TrackManager itself, or on
@@ -1491,6 +1584,11 @@ namespace LocalFormulaRacing
             BuildGridPaint();
             BuildKerbs();
             PopulateCornerContainmentZones();
+            // Real optimal racing line (per request - the AI previously had no
+            // computed line at all and targeted the centerline). Computed after
+            // the geometry/width data is final so the corridor limits are correct;
+            // AiVehicleController targets it via Runtime.RacingLineOffsetAt.
+            Runtime.ComputeRacingLine();
             BuildContinuousEdgeBarriers();
             BuildTrackMarkers();
             BuildDrsZoneBoards();
@@ -9700,17 +9798,31 @@ namespace LocalFormulaRacing
 
         void BuildRacingLine()
         {
+            // Draws the PRECOMPUTED optimal line (see TrackRuntime.ComputeRacingLine),
+            // not the centerline it used to trace - the visual now shows the actual
+            // line the AI drives.
             GameObject line = new GameObject("AI racing line");
             line.transform.SetParent(transform);
             LineRenderer renderer = line.AddComponent<LineRenderer>();
             renderer.useWorldSpace = true;
             renderer.loop = true;
             renderer.widthMultiplier = 0.16f;
-            renderer.positionCount = Runtime.centerLine.Count;
             renderer.sharedMaterial = CreateMaterial("Racing line material", new Color(0.1f, 0.78f, 0.42f), 0f, 0.7f, new Color(0.02f, 0.18f, 0.06f));
-            for (int i = 0; i < Runtime.centerLine.Count; i++)
+            if (Runtime.racingLineOffsets != null && Runtime.racingLineOffsets.Length > 0)
             {
-                renderer.SetPosition(i, Runtime.centerLine[i] + Vector3.up * 0.06f);
+                renderer.positionCount = Runtime.racingLineOffsets.Length;
+                for (int i = 0; i < Runtime.racingLineOffsets.Length; i++)
+                {
+                    renderer.SetPosition(i, Runtime.RacingLinePointAt(i * Runtime.racingLineSpacing) + Vector3.up * 0.06f);
+                }
+            }
+            else
+            {
+                renderer.positionCount = Runtime.centerLine.Count;
+                for (int i = 0; i < Runtime.centerLine.Count; i++)
+                {
+                    renderer.SetPosition(i, Runtime.centerLine[i] + Vector3.up * 0.06f);
+                }
             }
         }
 
