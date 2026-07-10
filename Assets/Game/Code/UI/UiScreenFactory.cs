@@ -320,6 +320,10 @@ namespace F1Game.UI
 
             var hud = screenGo.AddComponent<HudRoot>();
             hud.Bind(topLeft, topRight, timingTower, bottomCenter, bottomRight, chip, feed);
+
+            // Telemetry-driven modules (position, lap/clock, speed/gear/rpm,
+            // ERS/DRS, tyres, fuel) dock into the shell.
+            F1Game.UI.Screens.RaceHudShell.HudModuleAssembler.Populate(hud);
             return hud;
         }
 

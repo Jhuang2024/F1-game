@@ -1,0 +1,115 @@
+using F1Game.UI.Theme;
+using F1Game.UI.Widgets;
+using TMPro;
+using UnityEngine;
+using UnityEngine.UI;
+
+namespace F1Game.UI.Screens.RaceHudShell
+{
+    /// <summary>
+    /// Assembles the telemetry-driven HUD modules into a <see cref="HudRoot"/>'s
+    /// docks. Kept separate from HudRoot so the module set can grow without
+    /// touching the shell. Widgets are built from theme tokens (no magic pixels).
+    /// </summary>
+    public static class HudModuleAssembler
+    {
+        public static void Populate(HudRoot hud)
+        {
+            if (hud == null)
+            {
+                return;
+            }
+
+            // Top-left: position + lap/clock.
+            var posValue = Text(hud.TopLeftDock, "Position", 44f, TextAlignmentOptions.Left);
+            hud.gameObject.AddComponent<PositionModule>().Bind(posValue);
+            var lapText = Text(hud.TopLeftDock, "Lap", 20f, TextAlignmentOptions.Left);
+            var clockText = Numeric(hud.TopLeftDock, "Clock", 22f);
+            hud.gameObject.AddComponent<LapClockModule>().Bind(lapText, clockText);
+
+            // Bottom-center: speed + gear + rpm.
+            var gearText = Text(hud.BottomCenterDock, "Gear", 64f, TextAlignmentOptions.Center);
+            var speedText = Numeric(hud.BottomCenterDock, "Speed", 26f);
+            var rpmBar = ProgressBar(hud.BottomCenterDock, "Rpm");
+            hud.gameObject.AddComponent<SpeedGearModule>().Bind(gearText, speedText, rpmBar);
+
+            // Bottom-right column already hosts the notification feed; add
+            // ERS/DRS, tyres and fuel to the top-right dock.
+            var ersBar = ProgressBar(hud.TopRightDock, "Ers");
+            var drsChip = Chip(hud.TopRightDock, "Drs");
+            hud.gameObject.AddComponent<ErsDrsModule>().Bind(ersBar, drsChip);
+
+            var compoundChip = Chip(hud.TopRightDock, "Compound");
+            var wearBar = ProgressBar(hud.TopRightDock, "Wear");
+            hud.gameObject.AddComponent<TyresModule>().Bind(compoundChip, wearBar);
+
+            var fuelText = Numeric(hud.TopRightDock, "Fuel", 18f);
+            hud.gameObject.AddComponent<FuelModule>().Bind(fuelText);
+        }
+
+        static TMP_Text Text(Transform parent, string name, float size, TextAlignmentOptions align)
+        {
+            var go = new GameObject("Hud" + name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var tmp = go.AddComponent<TextMeshProUGUI>();
+            tmp.fontSize = size;
+            tmp.alignment = align;
+            tmp.color = UiTheme.Active.palette.textPrimary;
+            if (UiTheme.Active.typography.semiBold != null) tmp.font = UiTheme.Active.typography.semiBold;
+            go.AddComponent<LayoutElement>().preferredHeight = size + 6f;
+            return tmp;
+        }
+
+        static TMP_Text Numeric(Transform parent, string name, float size)
+        {
+            TMP_Text t = Text(parent, name, size, TextAlignmentOptions.Left);
+            if (UiTheme.Active.typography.tabularNumeric != null) t.font = UiTheme.Active.typography.tabularNumeric;
+            return t;
+        }
+
+        static UiProgressBar ProgressBar(Transform parent, string name)
+        {
+            var go = new GameObject("HudBar" + name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            go.AddComponent<LayoutElement>().preferredHeight = 10f;
+
+            var trackImg = go.AddComponent<Image>();
+            trackImg.color = UiTheme.Active.palette.surface;
+
+            var fillGo = new GameObject("Fill", typeof(RectTransform));
+            fillGo.transform.SetParent(go.transform, false);
+            var fillRect = (RectTransform)fillGo.transform;
+            fillRect.anchorMin = Vector2.zero;
+            fillRect.anchorMax = Vector2.one;
+            fillRect.offsetMin = Vector2.zero;
+            fillRect.offsetMax = Vector2.zero;
+            var fillImg = fillGo.AddComponent<Image>();
+            fillImg.color = UiTheme.Active.palette.accent;
+
+            var bar = go.AddComponent<UiProgressBar>();
+            bar.Bind(fillImg, trackImg);
+            return bar;
+        }
+
+        static StatusChip Chip(Transform parent, string name)
+        {
+            var go = new GameObject("HudChip" + name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            go.AddComponent<LayoutElement>().preferredHeight = 30f;
+            var bg = go.AddComponent<Image>();
+
+            var labelGo = new GameObject("Label", typeof(RectTransform));
+            labelGo.transform.SetParent(go.transform, false);
+            var lr = (RectTransform)labelGo.transform;
+            lr.anchorMin = Vector2.zero; lr.anchorMax = Vector2.one; lr.offsetMin = Vector2.zero; lr.offsetMax = Vector2.zero;
+            var label = labelGo.AddComponent<TextMeshProUGUI>();
+            label.alignment = TextAlignmentOptions.Center;
+            label.fontSize = 16f;
+            label.color = UiTheme.Active.palette.textPrimary;
+
+            var chip = go.AddComponent<StatusChip>();
+            chip.Bind(label, bg);
+            return chip;
+        }
+    }
+}
