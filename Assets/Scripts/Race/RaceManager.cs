@@ -1762,10 +1762,10 @@ namespace LocalFormulaRacing
             // Incident odds reduction (per request): freqScale is the single
             // factor every yellow/VSC/SC escalation chance below multiplies
             // by, so scaling it here reduces the whole family of race-control
-            // interruptions uniformly. Now 0.126 - the earlier 0.21 (-30%, -40%,
-            // -50% compounded) with another -40% on top (0.21 * 0.6), taking the
-            // standard setting's base 0.13 down to an effective 0.016.
-            float freqScale = (freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.06f : (freqSetting == 3 ? 0.28f : 0.13f))) * 0.126f;
+            // interruptions uniformly. Now 0.063 - the compounded 0.126 with
+            // another -50% on top (0.126 * 0.5), taking the standard setting's
+            // base 0.13 down to an effective 0.008. Interruptions are now rare.
+            float freqScale = (freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.06f : (freqSetting == 3 ? 0.28f : 0.13f))) * 0.063f;
             bool preRace = StartCountdown > 0f;
             int mechanicalMode = Settings == null ? 2 : Settings.Current.mechanicalFailureMode;
 
@@ -10278,7 +10278,20 @@ namespace LocalFormulaRacing
 
                 if (!participant.finished && participant.lapTracker != null)
                 {
-                    int lapsRemaining = Mathf.Max(0, RaceLaps - participant.lapTracker.CompletedLaps);
+                    // Finishing-order fix: this used an INTEGER laps-remaining
+                    // (RaceLaps - CompletedLaps), which discards where each car
+                    // actually is on its current lap - so every car with the same
+                    // whole number of laps left tied on totalTime and the sort
+                    // below fell back to arbitrary order, and a lapped car sitting
+                    // near the start/finish line could be classified ahead of a
+                    // lead-lap car that had only just crossed it (the "3 closest to
+                    // the line, sometimes a lapped car" bug). Use FRACTIONAL laps
+                    // remaining (including current-lap normalized progress, the same
+                    // form the retired-time estimate already uses) so the estimated
+                    // finish time is strictly monotonic with real race distance:
+                    // more of the lap done -> less time left, and a lapped car
+                    // always has at least a full extra lap of time on top.
+                    float lapsRemaining = Mathf.Max(0f, RaceLaps - (participant.lapTracker.CompletedLaps + participant.lapTracker.CurrentProgress.normalized));
                     entry.totalTime = RaceElapsed + lapsRemaining * Mathf.Max(72f, Track.length / 56f);
                 }
                 results.Add(entry);

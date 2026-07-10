@@ -97,6 +97,11 @@ namespace LocalFormulaRacing
         // between frames so the outside->apex->outside line slews smoothly instead
         // of snapping, which was reading as the cars visibly swerving/weaving.
         float smoothedLineBias;
+        // Denoised distance-to-apex. FindUpcomingApex resolves in 20 m steps, so
+        // the raw value can jump a full step between frames and wobble the racing
+        // line's apex-proximity term; this low-passes it so the line phase changes
+        // smoothly.
+        float smoothedApexDistance = 400f;
 
         // Traffic dodge-side memory so a car sitting near local.x==0 ahead of us
         // doesn't make the avoidance steer flicker frame to frame.
@@ -746,6 +751,11 @@ namespace LocalFormulaRacing
             float apexDistanceAhead;
             float apexSeverity;
             FindUpcomingApex(progress.distance, speedKph, skillTier, out apexDistanceAhead, out apexSeverity);
+            // Low-pass the 20 m-quantised apex distance so the racing line's
+            // apex-proximity term doesn't wobble on single-frame steps. Fast enough
+            // (up to 140 m/s) to track a genuinely approaching corner, slow enough
+            // to swallow the step noise.
+            smoothedApexDistance = Mathf.MoveTowards(smoothedApexDistance, apexDistanceAhead, Time.deltaTime * 140f);
             float turnSign = EstimateTurnDirection(progress.distance);
 
             // Real ceiling, not an invented ~330-350kph clamp: the same DRS/ERS-aware
@@ -1022,7 +1032,12 @@ namespace LocalFormulaRacing
             // tightest, steady point - diluted by this driver's apex precision.
             float legalLimit = LegalOffsetLimit(severityHere, progress.distance);
             float perCarApexError = profile.apexErrorMeters * Mathf.Lerp(1.4f, 0.6f, consistency / 100f);
-            float wobble = (Mathf.PerlinNoise(noiseSeed, Time.time * 0.5f) * 2f - 1f) * profile.lineOffsetNoise;
+            // Wobble halved (per "not fully following the optimal line"): the
+            // per-driver line noise is a human-imperfection wander, but at full
+            // strength it kept the cars visibly off the ideal line even on a clean
+            // lap. Cut to 0.5x so they sit much closer to the optimal line while
+            // still not being robotically perfect.
+            float wobble = (Mathf.PerlinNoise(noiseSeed, Time.time * 0.5f) * 2f - 1f) * profile.lineOffsetNoise * 0.5f;
             float lineBias = 0f;
             // Racing-line buff (per request - AI was driving down the middle of
             // the road): the AI now works the FULL legal track width, swinging
@@ -1055,7 +1070,7 @@ namespace LocalFormulaRacing
                 // (exit - apexDistanceAhead jumps to the next corner/400), 1 right on
                 // the apex. lineShape maps that to -1 (full outside) .. +1 (full
                 // inside/apex).
-                float apexProximity = Mathf.Clamp01(1f - apexDistanceAhead / 50f);
+                float apexProximity = Mathf.Clamp01(1f - smoothedApexDistance / 50f);
                 float lineShape = apexProximity * 2f - 1f;
                 float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
                 // Apex-precision (softened to /9 - a 2.6m error no longer collapses
@@ -1066,10 +1081,11 @@ namespace LocalFormulaRacing
                 lineBias = turnSign * biasMagnitude * shapedSide + (lineShape > 0f ? apexMissNoise : 0f);
             }
             // Rate-limit the line so it slews smoothly rather than snapping frame to
-            // frame - the actual cure for the swerve. ~9 m of lateral offset change
-            // per second is responsive enough to shape a corner yet far too slow to
-            // weave the car on per-frame target noise.
-            smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * 9f);
+            // frame - the actual cure for the swerve. ~6 m of lateral offset change
+            // per second: still reaches the apex within a normal entry phase, but
+            // slow enough that any residual target noise can't weave the car (the
+            // remaining "somewhat swerving").
+            smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * 6f);
             lineBias = smoothedLineBias;
             previousSeverityHere = severityHere;
 
@@ -1486,16 +1502,14 @@ namespace LocalFormulaRacing
                 command.steer = Mathf.Clamp(command.steer * (1f + pressureFactor * 0.06f), -1f, 1f);
             }
 
-            // Pit-timing fix (per request, AI still pitting a lap too early):
-            // the routine tyre-wear trigger was firing at 58-72% remaining,
-            // which on a short race is reached a whole lap before the intended
-            // strategy lap - so it pre-empted the strategy stop entirely and
-            // the +1 strategy-lap delay never got a chance to matter. Lowered
-            // the band to 45-59% remaining so the car runs its tyres a lap
-            // longer and the strategy lap becomes the real trigger. The
-            // destroyed-tyre safety nets below (0.12 wear, 0.5 grip) still
-            // force a stop before tyres are genuinely gone.
-            float tyrePitThreshold = Mathf.Lerp(0.59f, 0.45f, tyreManagement / 100f) + profile.tyreSavingBias * 0.05f;
+            // Pit-timing rule (per request): "only pit if tyre WEAR exceeds 60%".
+            // Tyres.Wear here is REMAINING life (1.0 fresh, 0.12 = destroyed), so
+            // 60% wear == 40% remaining == a 0.40 threshold. Centred tightly on
+            // 0.40 with only a small skill spread so every AI genuinely runs its
+            // tyres to ~60% wear before the routine stop, instead of pitting while
+            // there's still plenty of life left. The destroyed-tyre safety nets
+            // below (0.12 wear, 0.5 grip) still force a stop before tyres are gone.
+            float tyrePitThreshold = Mathf.Lerp(0.42f, 0.38f, tyreManagement / 100f) + profile.tyreSavingBias * 0.03f;
             // Tyre-overextension fix (compound life): the threshold above was a flat
             // wear NUMBER applied identically to every compound. Wear itself already
             // decays faster on a Soft than a Hard (TyreState.baseWear), so a flat
@@ -1546,7 +1560,14 @@ namespace LocalFormulaRacing
             // fired the request only after lap 3 was done (i.e. already on lap 4).
             // ShouldAiPitByStrategyLap does the same display-lap (+1) comparison
             // the player's own auto-pit path already used, in one shared place.
-            if (raceManager.ShouldAiPitByStrategyLap(participant))
+            // Gated behind the same 60%-wear rule as the routine trigger: a planned
+            // strategy lap should not drag a car in while its tyres are still fresh
+            // (the recurring "AI pits too early" complaint). Only let the strategy
+            // lap actually trigger the stop once wear has reached ~55%+ (0.45
+            // remaining, a hair before the 0.40 routine point so a well-timed plan
+            // can still fire slightly ahead of pure wear). Destroyed-tyre/grip
+            // safety nets above are unaffected and still force a stop when needed.
+            if (raceManager.ShouldAiPitByStrategyLap(participant) && vehicle.Tyres.Wear < 0.45f)
             {
                 command.pitRequest = true;
                 participant.pitRequestLapNumber = participant.lapTracker.CompletedLaps + 1;
@@ -1663,6 +1684,7 @@ namespace LocalFormulaRacing
             currentThrottle = 0f;
             previousSeverityHere = 0f;
             smoothedLineBias = 0f;
+            smoothedApexDistance = 400f;
         }
 
         // Race-control autopilot has just handed control back - see the call site
@@ -1868,6 +1890,21 @@ namespace LocalFormulaRacing
             if (isExpert)
             {
                 cautionFactor *= 0.9f;
+            }
+
+            // Launch aggression (the real "AI slow off the line" cause): at a
+            // standing start the whole field is bunched on the grid, so this soft
+            // traffic-caution throttle cutback fired for EVERY AI at once - each one
+            // lifting for the car ahead of it - and the pack crawled away while the
+            // player, who has no such caution, simply drove through for a 10-place
+            // gain. The physics launch boost can't overcome a throttle that's being
+            // capped. Cut the soft caution right down for the first few seconds so
+            // the AI actually commit off the line; the hard collision brake
+            // (timeToContact, below) is a separate term and stays fully active, so
+            // this frees up the launch without causing first-corner pileups.
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.RaceElapsed < RaceStartBoostSeconds)
+            {
+                cautionFactor *= 0.3f;
             }
             bool legalDrsHere = raceManager.IsDrsAvailable(participant);
 
