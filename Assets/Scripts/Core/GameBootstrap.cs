@@ -64,6 +64,10 @@ namespace LocalFormulaRacing
                 raceManager.CleanupRaceWorld();
             }
 
+            // Return-to-frontend: clear any live-session UI ownership so the shell
+            // navigates cleanly (nav unlocked, HUD hidden, state = Frontend).
+            ProductionSessionUi.EndSession();
+
             SimpleAudioManager.ApplySettings(settings.Current);
 
             // Production-UI vertical slice: prefab/TMP main menu when available;

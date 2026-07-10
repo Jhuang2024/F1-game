@@ -36,6 +36,14 @@ namespace F1Game.UI
         RectTransform screenLayer;
 
         /// <summary>
+        /// Set by the race layer's session coordinator while a session is starting
+        /// or live, so global Back / controller-East cannot pop the frontend stack
+        /// (and reopen the strategy screen) during/after the transition. Modals may
+        /// still be closed.
+        /// </summary>
+        public static bool NavigationLocked;
+
+        /// <summary>
         /// TMP must be usable (essentials imported or theme fonts assigned)
         /// before the production UI can render text at all.
         /// </summary>
@@ -169,8 +177,10 @@ namespace F1Game.UI
                 {
                     Modals.CloseTop();
                 }
-                else
+                else if (!NavigationLocked)
                 {
+                    // While a session is starting/live the race owns pause/back;
+                    // never pop the frontend stack (which would reopen strategy).
                     Router.Back();
                 }
             }

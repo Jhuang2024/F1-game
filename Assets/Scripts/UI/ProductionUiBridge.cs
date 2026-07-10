@@ -50,6 +50,9 @@ namespace LocalFormulaRacing
         static CareerManager career;
         static GameSettingsStore settings;
 
+        /// <summary>The production shell (exposed so the session-UI bridge can drive the HUD).</summary>
+        public static UiShell Shell => shell;
+
         static bool Enabled
         {
             get
@@ -59,18 +62,9 @@ namespace LocalFormulaRacing
                     return false;
                 }
 
-                int toggle = PlayerPrefs.GetInt(ToggleKey, -1);
-                if (toggle == 0)
-                {
-                    return false;
-                }
-
-                if (toggle == 1)
-                {
-                    return true;
-                }
-
-                return UiShell.TextPipelineReady();
+                // Explicit, versioned capability — NOT TMP-readiness alone.
+                // Importing TMP no longer flips the active frontend.
+                return ProductionUiReadiness.Enabled;
             }
         }
 
@@ -245,18 +239,68 @@ namespace LocalFormulaRacing
             strategyPresenter.Present(strategyModel);
         }
 
+        /// <summary>
+        /// Atomic Start-Race transition (fixes the strategy-screen-stuck bug):
+        /// single-flight guarded, disables the button, saves the plan and event
+        /// once, tears down transient frontend UI, hands off to the race, and
+        /// restores a coherent frontend on failure. Repeated submit / Back /
+        /// controller-East cannot re-enter this while it runs.
+        /// </summary>
         static void OnStrategyConfirmed(StrategyChoice choice)
         {
-            settings.Current.tyreCompound = CompoundNames[Mathf.Clamp(choice.StartCompoundIndex, 0, CompoundNames.Length - 1)];
-            settings.Current.plannedStopCount = choice.PlannedStopCount;
-            settings.Current.plannedPitLapOne = choice.PlannedPitLapOne;
-            settings.Current.plannedPitLapTwo = choice.PlannedPitLapTwo;
-            settings.Current.plannedStopOneCompound = CompoundNames[Mathf.Clamp(choice.StopOneCompoundIndex, 0, CompoundNames.Length - 1)];
-            settings.Current.plannedStopTwoCompound = CompoundNames[Mathf.Clamp(choice.StopTwoCompoundIndex, 0, CompoundNames.Length - 1)];
-            settings.Save();
+            if (!UiSessionCoordinator.TryBeginSessionStart())
+            {
+                return; // a start is already in flight — ignore the duplicate.
+            }
 
-            bootstrap.Ui.SetQuickRaceSelectedEvent(selectedEvent);
-            LeaveToLegacy(() => bootstrap.BeginQuickRace());
+            // Lock frontend Back navigation for the duration of the session.
+            UiShell.NavigationLocked = true;
+
+            // Disable the Start button immediately so a second press is a no-op.
+            if (strategyPresenter != null)
+            {
+                strategyPresenter.SetStartInteractable(false);
+            }
+
+            try
+            {
+                // Save the strategy exactly once.
+                settings.Current.tyreCompound = CompoundNames[Mathf.Clamp(choice.StartCompoundIndex, 0, CompoundNames.Length - 1)];
+                settings.Current.plannedStopCount = choice.PlannedStopCount;
+                settings.Current.plannedPitLapOne = choice.PlannedPitLapOne;
+                settings.Current.plannedPitLapTwo = choice.PlannedPitLapTwo;
+                settings.Current.plannedStopOneCompound = CompoundNames[Mathf.Clamp(choice.StopOneCompoundIndex, 0, CompoundNames.Length - 1)];
+                settings.Current.plannedStopTwoCompound = CompoundNames[Mathf.Clamp(choice.StopTwoCompoundIndex, 0, CompoundNames.Length - 1)];
+                settings.Save();
+
+                // Set the selected event exactly once.
+                bootstrap.Ui.SetQuickRaceSelectedEvent(selectedEvent);
+
+                // Tear down transient frontend UI and hide the strategy screen
+                // BEFORE race init so it can never linger into the live session.
+                shell.Modals.CloseAll();
+                shell.Router.ResetStack();
+                shell.SetShellVisible(false);
+
+                // Start the race exactly once. RaceManager.StartSession then shows
+                // exactly one HUD (production HudRoot here, via ProductionSessionUi)
+                // and the coordinator moves to LiveSession.
+                bootstrap.BeginQuickRace();
+            }
+            catch (Exception exception)
+            {
+                // Restore one coherent frontend state and re-enable the button.
+                UiSessionCoordinator.FailToFrontend();
+                UiShell.NavigationLocked = false;
+                if (strategyPresenter != null)
+                {
+                    strategyPresenter.SetStartInteractable(true);
+                }
+
+                shell.SetShellVisible(true);
+                shell.Router.Show(PreRaceStrategyView.Id);
+                Fail("strategy start", exception);
+            }
         }
 
         static void LeaveToLegacy(Action legacyAction)

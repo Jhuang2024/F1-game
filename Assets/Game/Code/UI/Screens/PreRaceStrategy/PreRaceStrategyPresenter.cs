@@ -53,6 +53,16 @@ namespace F1Game.UI.Screens.PreRaceStrategy
             model = strategyModel;
             ClampPlan();
             Rerender();
+            SetStartInteractable(true);
+        }
+
+        /// <summary>Enables/disables the Start button (single-flight transition guard).</summary>
+        public void SetStartInteractable(bool interactable)
+        {
+            if (view != null && view.StartRaceButton != null)
+            {
+                view.StartRaceButton.interactable = interactable;
+            }
         }
 
         void AdjustStops(int delta)

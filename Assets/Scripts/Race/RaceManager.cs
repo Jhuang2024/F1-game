@@ -757,7 +757,13 @@ namespace LocalFormulaRacing
             PostEngineerMessage(OpeningEngineerMessage(), true);
             engineerWeatherSent = true;
             raceStartTime = Time.time + StartCountdown;
-            ui.ShowRaceHud(this, PlayerParticipant);
+            // Exactly one HUD: the production HudRoot when the production UI owns
+            // the frontend, otherwise the legacy RaceHud. Never both.
+            if (!ProductionSessionUi.TryShowRaceHud())
+            {
+                ui.ShowRaceHud(this, PlayerParticipant);
+            }
+
             LogPlayerSpawnPhysics();
         }
 
@@ -851,6 +857,7 @@ namespace LocalFormulaRacing
                 Career.ApplyQualifyingResults(EventData, results);
             }
 
+            ProductionSessionUi.BeginResults();
             ui.ShowQualifyingResults(this, results, IsCareerRace);
         }
 
@@ -1151,6 +1158,9 @@ namespace LocalFormulaRacing
 
             IsPaused = !IsPaused;
             Time.timeScale = IsPaused ? 0f : 1f;
+            // Production HUD (if active) hides while paused so the legacy pause
+            // menu is visible/interactable; restored on resume.
+            ProductionSessionUi.SetPaused(IsPaused);
             ui.SetPauseVisible(IsPaused);
         }
 
@@ -1158,6 +1168,7 @@ namespace LocalFormulaRacing
         {
             IsPaused = false;
             Time.timeScale = 1f;
+            ProductionSessionUi.SetPaused(false);
             ui.SetPauseVisible(false);
         }
 
@@ -9868,6 +9879,7 @@ namespace LocalFormulaRacing
             }
             else
             {
+                ProductionSessionUi.BeginResults();
                 ui.ShowResults(this, results, IsCareerRace);
             }
         }
@@ -10243,6 +10255,7 @@ namespace LocalFormulaRacing
             }
 
             LogAiQualifyingDiagnostics(results, playerQualifying);
+            ProductionSessionUi.BeginResults();
             ui.ShowQualifyingResults(this, results, IsCareerRace);
         }
 
