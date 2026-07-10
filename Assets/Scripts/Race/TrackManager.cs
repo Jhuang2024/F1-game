@@ -121,17 +121,21 @@ namespace LocalFormulaRacing
                 centers[i] = point;
                 rights[i] = right;
                 float halfWidth = HalfWidthAt(d);
-                // Corridor round 3 (wall-contact fix): halfWidth - 1 put the CAR
-                // CENTRE 1m from the surface edge - wheels on the very edge, so
-                // any slip/understeer while tracking the line met the barrier
-                // ("sometimes goes into the wall, AI crash"). Outer bound pulled
-                // in to halfWidth - 2 (car edge ~1m inside the surface), and a
-                // further metre near tight-fence corners where the barrier
-                // geometry hugs the track. The kerb allowance still lets narrow
-                // layouts ride the kerb where that's the wider option.
-                float outer = halfWidth - (IsNearTightFenceCorner(d) ? 3f : 2f);
-                float kerbAllowance = kerbStart > 0f ? Mathf.Min(kerbStart + 0.5f, halfWidth - 1.2f) : outer;
-                limits[i] = Mathf.Max(0.75f, Mathf.Max(outer, kerbAllowance));
+                // Corridor round 4 (REAL wall-contact fix): round 3 introduced a
+                // wall-safety bound (wallSafetyLimit below) but then combined it
+                // with the kerb allowance using Mathf.Max - which always picks
+                // whichever of the two is CLOSER TO THE WALL, silently defeating
+                // the safety bound the instant the kerb happened to sit close to
+                // the edge (narrow/technical layouts). That is exactly why the
+                // line still ran the barrier despite the "fix": Max() was backwards.
+                // Corrected to Min() - the corridor can never exceed the wall
+                // safety bound, full stop; the kerb-based limit only ever pulls
+                // the corridor further IN (which is where the apex-clipping shape
+                // actually comes from on real layouts, since the kerb typically
+                // starts well before the wall).
+                float wallSafetyLimit = halfWidth - (IsNearTightFenceCorner(d) ? 2.6f : 1.8f);
+                float kerbBasedLimit = kerbStart > 0f ? kerbStart + 0.5f : wallSafetyLimit;
+                limits[i] = Mathf.Max(0.75f, Mathf.Min(wallSafetyLimit, kerbBasedLimit));
                 offsets[i] = 0f;
             }
 

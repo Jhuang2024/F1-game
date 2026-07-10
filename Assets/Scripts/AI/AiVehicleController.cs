@@ -25,7 +25,14 @@ namespace LocalFormulaRacing
         // Opening-lap fan-out: a per-car lane the AI holds for the first seconds
         // so the pack spreads across the full road instead of forming a train.
         float openingFanOffset;
-        const float OpeningFanDuration = 7f;
+        // Extended per request ("AI shouldn't immediately look for the line once
+        // it starts, to avoid accidents") - was 7s with an 85%-strength blend that
+        // was already mostly back on the racing line (and its tight apex swings)
+        // within a couple of seconds. Now matches the traffic-caution race-start
+        // window (12s) so the two systems agree on how long "just after the
+        // start" lasts, and the hold is full-strength for the first stretch
+        // before easing off - see the fan-blend curve below.
+        const float OpeningFanDuration = 12f;
 
         // Pit-entry target look-ahead, kept short and dedicated - the normal
         // racing-line lookahead (22-62m, speed/severity scaled) is tuned for
@@ -1158,10 +1165,23 @@ namespace LocalFormulaRacing
             // Opening seconds: hold the assigned fan-out lane, blending back to the
             // racing line as the field strings out. (Guarded against committingToPit
             // for the same reason as the post-merge hold above.)
+            //
+            // Delayed line-seeking (per request): the old linear ramp started
+            // easing back toward the racing line - including its tight apex
+            // swings right against the wall - from the very first frame, so the
+            // field was substantially back on the aggressive line within a
+            // couple of seconds of a compressed, still-settling launch. Now holds
+            // FULL fan-out strength for the first third of the window (a flat
+            // plateau, not an immediate ramp-down) and only eases toward the
+            // racing line over the remaining two-thirds, by which point the pack
+            // has actually strung out.
             if (!committingToPit && raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.RaceElapsed < OpeningFanDuration)
             {
-                float fanBlend = 1f - Mathf.Clamp01(raceManager.RaceElapsed / OpeningFanDuration);
-                requestedOffset = Mathf.Lerp(requestedOffset, openingFanOffset, fanBlend * 0.85f);
+                float holdPhase = OpeningFanDuration * 0.35f;
+                float fanBlend = raceManager.RaceElapsed < holdPhase
+                    ? 1f
+                    : 1f - Mathf.Clamp01((raceManager.RaceElapsed - holdPhase) / (OpeningFanDuration - holdPhase));
+                requestedOffset = Mathf.Lerp(requestedOffset, openingFanOffset, fanBlend);
             }
 
             // Pit-lane architecture fix: the legal-line clamp exists to keep normal
@@ -2047,7 +2067,22 @@ namespace LocalFormulaRacing
                     if (absX < 3.0f && local.z < forwardWindow * 0.7f)
                     {
                         carDirectlyAhead = true;
-                        float rawDodgeSide = Mathf.Abs(local.x) < 0.4f ? preferredSide : -Mathf.Sign(local.x);
+                        // Pile-up fix ("one AI hits the barrier, the rest hit it
+                        // too"): when the blocking car is dead-ahead (|local.x| <
+                        // 0.4, e.g. exactly where a crash tends to leave a car
+                        // sitting - ON the tight racing line), this used to fall
+                        // back to preferredSide, a FIXED per-driver constant
+                        // decided once at the grid (which side of the grid they
+                        // started on) with no idea where the wall actually is.
+                        // On the half of the field whose preferredSide happened to
+                        // point at the wall, every following car dodged INTO the
+                        // wall side instead of away from it - the exact pile-up
+                        // mechanism reported. Now picks whichever side has more
+                        // real room between the car and the track edge.
+                        float roomRight = track.HalfWidthAt(progress.distance) - progress.lateralDistance;
+                        float roomLeft = track.HalfWidthAt(progress.distance) + progress.lateralDistance;
+                        float roomBasedSide = roomRight > roomLeft ? 1f : -1f;
+                        float rawDodgeSide = Mathf.Abs(local.x) < 0.4f ? roomBasedSide : -Mathf.Sign(local.x);
                         if (dodgeMemoryTimer <= 0f)
                         {
                             dodgeMemorySide = rawDodgeSide;
@@ -2612,15 +2647,15 @@ namespace LocalFormulaRacing
 
         float LegalOffsetLimit(float cornerSeverity, float distance)
         {
-            // Aligned EXACTLY with TrackRuntime.ComputeRacingLine's corridor
-            // (halfWidth - 2, a further metre near tight-fence corners, or the
-            // kerb band where that's wider) so the runtime clamp can never clip
-            // the precomputed optimal line the AI is targeting, and the line can
-            // never legally sit within a car's width of the wall.
+            // Aligned EXACTLY with TrackRuntime.ComputeRacingLine's corridor (see
+            // the corridor-round-4 comment there): the wall-safety bound is a hard
+            // ceiling combined with Mathf.Min, never Max - a Max here would let
+            // this runtime clamp re-permit exactly the too-close-to-the-wall
+            // offset the corridor computation was just fixed to rule out.
             float localHalfWidth = track.HalfWidthAt(distance);
-            float outer = localHalfWidth - (track.IsNearTightFenceCorner(distance) ? 3f : 2f);
-            float kerbAllowance = track.kerbStart > 0f ? Mathf.Min(track.kerbStart + 0.5f, localHalfWidth - 1.2f) : outer;
-            return Mathf.Max(0.75f, Mathf.Max(outer, kerbAllowance));
+            float wallSafetyLimit = localHalfWidth - (track.IsNearTightFenceCorner(distance) ? 2.6f : 1.8f);
+            float kerbBasedLimit = track.kerbStart > 0f ? track.kerbStart + 0.5f : wallSafetyLimit;
+            return Mathf.Max(0.75f, Mathf.Min(wallSafetyLimit, kerbBasedLimit));
         }
 
         float EstimateTurnDirection(float distance)
