@@ -9289,10 +9289,28 @@ namespace LocalFormulaRacing
 
             // ==== Rail seed (pit-system rebuild) ====
             // The rail's single authority starts exactly where the car
-            // physically committed. Every landmark S-value is computed ONCE,
-            // here, by chaining strictly-forward wrapped segments (commit ->
-            // box -> release -> ramp end) so no later tick ever interprets a
-            // wrap as a whole lap of travel in either direction.
+            // physically committed. Every landmark S-value is the distance
+            // FROM COMMIT, measured forward, then clamped into one bounded,
+            // monotonic corridor.
+            //
+            // Root-cause fix (the ~+290s "stuck exiting" stall): the pit lane
+            // is one short forward corridor - commit -> boxes -> release ->
+            // ramp end - normally ~0.12 of a lap total. But PitBoxDistance
+            // returns 0.9*length + index*10.5m UNWRAPPED, and 22 boxes are
+            // 231m of boxes; on a short circuit they physically overflow PAST
+            // the release/exit point (and even past the start/finish line).
+            // The old chain then computed the exit leg as
+            // WrappedForwardDistance(box, release) with the box sitting AHEAD
+            // of release - which wraps almost a whole lap. Cars in the
+            // high-numbered boxes therefore rolled the ENTIRE track on the pit
+            // rail at pit-lane pace before "reaching" the exit: ~+290s, hitting
+            // exactly the block of ~10 cars seen stacked on the timing screen.
+            //
+            // Fix: wrap the box distance, measure every landmark from commit,
+            // and clamp all of them into [0, corridor] (corridor = the real
+            // commit->ramp-end forward span) with a monotonic order. No car
+            // can ever be sent further than the actual pit corridor again,
+            // whatever the track length or however the boxes fall.
             participant.pitGuideDistance = commitProgress.distance;
             participant.pitGuideLateral = commitProgress.lateralDistance;
             participant.hasPitGuideState = true;
@@ -9300,12 +9318,15 @@ namespace LocalFormulaRacing
             participant.pitRailServiceStarted = false;
             participant.pitRailStopServed = false;
             participant.pitRailServiceDone = false;
-            float boxDistance = Track.PitBoxDistance(participant.pitBoxIndex);
+            float boxDistance = Track.WrapDistance(Track.PitBoxDistance(participant.pitBoxIndex));
             float releaseDistance = Track.WrapDistance(Track.length * Track.PitReleaseNormalized);
             float rampEndDistance = Track.WrapDistance(Track.length * Track.PitExitRampEndNormalized);
-            participant.pitRailBoxS = WrappedForwardDistance(commitProgress.distance, boxDistance);
-            participant.pitRailReleaseS = participant.pitRailBoxS + WrappedForwardDistance(boxDistance, releaseDistance);
-            participant.pitRailRampEndS = participant.pitRailReleaseS + WrappedForwardDistance(releaseDistance, rampEndDistance);
+            float corridor = WrappedForwardDistance(commitProgress.distance, rampEndDistance);
+            float rawBoxS = WrappedForwardDistance(commitProgress.distance, boxDistance);
+            float rawReleaseS = WrappedForwardDistance(commitProgress.distance, releaseDistance);
+            participant.pitRailRampEndS = corridor;
+            participant.pitRailBoxS = Mathf.Clamp(rawBoxS, 0f, Mathf.Max(0f, corridor - 8f));
+            participant.pitRailReleaseS = Mathf.Clamp(rawReleaseS, participant.pitRailBoxS, corridor);
             participant.pitRailHardEndS = participant.pitRailRampEndS + PitRailHardEscapeMeters;
 
             participant.vehicle.SetPitLimiter(true);
@@ -9553,7 +9574,11 @@ namespace LocalFormulaRacing
                 Quaternion serviceRotation;
                 Track.GetPitServicePose(participant.pitBoxIndex, out servicePosition, out serviceRotation);
                 participant.vehicle.SnapToPitPose(servicePosition, serviceRotation);
-                participant.pitGuideDistance = Track.PitBoxDistance(participant.pitBoxIndex);
+                // Wrap: PitBoxDistance can exceed track length on short
+                // circuits (see the rail-seed comment in BeginPitEntry) - an
+                // unwrapped guide distance would then mis-measure every
+                // subsequent gap/pose lookup on the exit leg.
+                participant.pitGuideDistance = Track.WrapDistance(Track.PitBoxDistance(participant.pitBoxIndex));
                 participant.pitGuideLateral = Track.PitServiceBayLateral;
                 participant.pitRailServiceStarted = true;
                 participant.pitLaneHeldByOccupancy = false;
