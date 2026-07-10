@@ -2597,12 +2597,12 @@ namespace LocalFormulaRacing
             // here was exactly what kept clipping the computed apex back toward
             // the centre of the road.)
 
-            // Near-wall recovery: only engage past the corridor's own outer bound
-            // (halfWidth - 0.3) so it catches a car genuinely drifting toward the
-            // barrier without EVER fighting the computed line - the line's corridor
-            // tops out at halfWidth - 0.5 / kerbStart + 0.5, safely inside this
-            // trigger, so a car committed to a kerb-clipping apex is left alone.
-            if (Mathf.Abs(progress.lateralDistance) > track.HalfWidthAt(progress.distance) - 0.3f)
+            // Near-wall recovery: engages just past the corridor's outer bound
+            // (corridor tops out at halfWidth - 1.2 at the widest kerb allowance),
+            // so a car on the computed line is never touched but one genuinely
+            // drifting toward the barrier gets pulled back while there is still a
+            // full metre of room - part of the "AI crash into the barriers" fix.
+            if (Mathf.Abs(progress.lateralDistance) > track.HalfWidthAt(progress.distance) - 0.8f)
             {
                 desired = Mathf.MoveTowards(desired, 0f, Mathf.Lerp(3f, 6.5f, cornerSeverity));
             }
@@ -2613,12 +2613,14 @@ namespace LocalFormulaRacing
         float LegalOffsetLimit(float cornerSeverity, float distance)
         {
             // Aligned EXACTLY with TrackRuntime.ComputeRacingLine's corridor
-            // (full drivable surface minus 1m, or the kerb band where that gives
-            // more room) so the runtime clamp can never clip the precomputed
-            // optimal line the AI is targeting.
+            // (halfWidth - 2, a further metre near tight-fence corners, or the
+            // kerb band where that's wider) so the runtime clamp can never clip
+            // the precomputed optimal line the AI is targeting, and the line can
+            // never legally sit within a car's width of the wall.
             float localHalfWidth = track.HalfWidthAt(distance);
-            float kerbLimit = track.kerbStart > 0f ? Mathf.Min(track.kerbStart + 0.5f, localHalfWidth - 0.5f) : localHalfWidth - 1f;
-            return Mathf.Max(0.75f, Mathf.Max(kerbLimit, localHalfWidth - 1f));
+            float outer = localHalfWidth - (track.IsNearTightFenceCorner(distance) ? 3f : 2f);
+            float kerbAllowance = track.kerbStart > 0f ? Mathf.Min(track.kerbStart + 0.5f, localHalfWidth - 1.2f) : outer;
+            return Mathf.Max(0.75f, Mathf.Max(outer, kerbAllowance));
         }
 
         float EstimateTurnDirection(float distance)

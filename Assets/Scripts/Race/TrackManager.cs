@@ -121,18 +121,17 @@ namespace LocalFormulaRacing
                 centers[i] = point;
                 rights[i] = right;
                 float halfWidth = HalfWidthAt(d);
-                // Corridor apex-commitment fix round 2: capping at kerbStart + 0.5
-                // was STILL wrong on the wide layouts - e.g. Qatar has
-                // roadHalfWidth 15.47 with kerbStart 9.07, i.e. the kerb band sits
-                // 6m INSIDE the drivable surface, so a kerb-capped corridor
-                // stopped 6m short of the true edge and the computed line looked
-                // nothing like an optimal line ("doesn't clip the apexes at all").
-                // The full drivable surface minus a 1m barrier margin is the real
-                // corridor; on narrow layouts whose kerbs sit right at the edge,
-                // kerbStart + 0.5 (capped halfWidth - 0.5) still allows riding the
-                // kerb, whichever is more room.
-                float kerbLimit = kerbStart > 0f ? Mathf.Min(kerbStart + 0.5f, halfWidth - 0.5f) : halfWidth - 1f;
-                limits[i] = Mathf.Max(0.75f, Mathf.Max(kerbLimit, halfWidth - 1f));
+                // Corridor round 3 (wall-contact fix): halfWidth - 1 put the CAR
+                // CENTRE 1m from the surface edge - wheels on the very edge, so
+                // any slip/understeer while tracking the line met the barrier
+                // ("sometimes goes into the wall, AI crash"). Outer bound pulled
+                // in to halfWidth - 2 (car edge ~1m inside the surface), and a
+                // further metre near tight-fence corners where the barrier
+                // geometry hugs the track. The kerb allowance still lets narrow
+                // layouts ride the kerb where that's the wider option.
+                float outer = halfWidth - (IsNearTightFenceCorner(d) ? 3f : 2f);
+                float kerbAllowance = kerbStart > 0f ? Mathf.Min(kerbStart + 0.5f, halfWidth - 1.2f) : outer;
+                limits[i] = Mathf.Max(0.75f, Mathf.Max(outer, kerbAllowance));
                 offsets[i] = 0f;
             }
 
@@ -315,6 +314,39 @@ namespace LocalFormulaRacing
                 }
 
                 offsets = smoothed;
+            }
+
+            // World-space smoothing + reprojection (jaggedness fix): the offset
+            // PROFILE above is smooth, but the centerline is a coarse polyline
+            // whose right vectors jump a few degrees at every segment joint - at a
+            // 10m+ offset that direction jump becomes a visible ~1m sideways kink
+            // in the world-space line (and in the AI's steering target). Build the
+            // world points, smooth THEM, then project back to per-sample offsets:
+            // center + right * offset then reproduces the smooth world line, so
+            // both the visual and the AI target lose the kinks.
+            Vector3[] world = new Vector3[count];
+            for (int i = 0; i < count; i++)
+            {
+                world[i] = centers[i] + rights[i] * offsets[i];
+            }
+
+            for (int pass = 0; pass < 3; pass++)
+            {
+                Vector3[] smoothedWorld = new Vector3[count];
+                for (int i = 0; i < count; i++)
+                {
+                    smoothedWorld[i] = (world[(i - 2 + count) % count] + 2f * world[(i - 1 + count) % count] +
+                                        3f * world[i] +
+                                        2f * world[(i + 1) % count] + world[(i + 2) % count]) / 9f;
+                }
+
+                world = smoothedWorld;
+            }
+
+            for (int i = 0; i < count; i++)
+            {
+                float projected = Vector3.Dot(world[i] - centers[i], rights[i]);
+                offsets[i] = Mathf.Clamp(projected, -limits[i], limits[i]);
             }
 
             racingLineOffsets = offsets;
