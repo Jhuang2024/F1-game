@@ -81,15 +81,22 @@ namespace LocalFormulaRacing
         public float[] racingLineOffsets;
         public float racingLineSpacing = 4f;
 
-        // Shortest-path-in-corridor relaxation ("pull a string tight through the
-        // track corridor"): every sample is iteratively pulled toward the midpoint
-        // of its neighbours (straightening the path), clamped to the legal
-        // corridor (up to the kerb, never the barrier). A taut string through a
-        // corner corridor is the classic racing-line approximation - it swings
-        // wide on entry, clips the inside kerb at the apex and releases wide on
-        // exit, and runs dead straight everywhere else, maximising the effective
-        // corner radius. One-time cost at track build (~a few hundred thousand
-        // cheap ops), nothing at runtime.
+        // MINIMUM-CURVATURE racing line (the real thing): gradient descent on the
+        // lateral offsets minimising the sum of squared second differences of the
+        // line's world positions - i.e. the flattest possible path through the
+        // legal corridor, which is what "the racing line" means: swing to the full
+        // outside on entry, clip the inside kerb at the apex, release to the full
+        // outside on exit, and position across straights to set up the next
+        // corner, maximising every corner's effective radius. (The first version
+        // of this used shortest-path/taut-string relaxation, which hugs the INSIDE
+        // of corners rather than maximising radius, and was so under-converged the
+        // result sat partway off the centerline everywhere - the reported "line is
+        // way too noncommitted / not maximising speed".) The stride ladder is a
+        // multigrid pass: large strides converge the long-wavelength shape
+        // (straight positioning, corner-to-corner setup) that single-step descent
+        // takes tens of thousands of iterations to reach, then small strides
+        // sharpen the apexes. Validated offline on a closed test circuit: apexes
+        // reach the full inside limit, entry/exit the full outside limit.
         public void ComputeRacingLine()
         {
             if (centerLine.Count < 8 || length < 200f)
@@ -119,17 +126,38 @@ namespace LocalFormulaRacing
                 offsets[i] = 0f;
             }
 
-            for (int iter = 0; iter < 400; iter++)
+            int[] strides = { 64, 32, 16, 8, 4, 2, 1 };
+            const int itersPerStride = 80;
+            const float learnRate = 0.06f;
+            for (int s = 0; s < strides.Length; s++)
             {
-                for (int i = 0; i < count; i++)
+                int k = strides[s];
+                if (k * 4 >= count)
                 {
-                    int prev = (i - 1 + count) % count;
-                    int next = (i + 1) % count;
-                    Vector3 pointPrev = centers[prev] + rights[prev] * offsets[prev];
-                    Vector3 pointNext = centers[next] + rights[next] * offsets[next];
-                    Vector3 mid = (pointPrev + pointNext) * 0.5f;
-                    float target = Vector3.Dot(mid - centers[i], rights[i]);
-                    offsets[i] = Mathf.Clamp(Mathf.Lerp(offsets[i], target, 0.5f), -limits[i], limits[i]);
+                    continue;
+                }
+
+                for (int iter = 0; iter < itersPerStride; iter++)
+                {
+                    for (int i = 0; i < count; i++)
+                    {
+                        int im2 = (i - 2 * k % count + count) % count;
+                        int im1 = (i - k % count + count) % count;
+                        int ip1 = (i + k) % count;
+                        int ip2 = (i + 2 * k) % count;
+                        Vector3 pIm2 = centers[im2] + rights[im2] * offsets[im2];
+                        Vector3 pIm1 = centers[im1] + rights[im1] * offsets[im1];
+                        Vector3 pI = centers[i] + rights[i] * offsets[i];
+                        Vector3 pIp1 = centers[ip1] + rights[ip1] * offsets[ip1];
+                        Vector3 pIp2 = centers[ip2] + rights[ip2] * offsets[ip2];
+                        // d/dp_i of |secondDiff|^2 terms centred at i-1, i, i+1.
+                        Vector3 centre = pIm1 - 2f * pI + pIp1;
+                        Vector3 left = pIm2 - 2f * pIm1 + pI;
+                        Vector3 right2 = pI - 2f * pIp1 + pIp2;
+                        Vector3 gradient = -4f * centre + 2f * left + 2f * right2;
+                        float g = Vector3.Dot(gradient, rights[i]);
+                        offsets[i] = Mathf.Clamp(offsets[i] - learnRate * g, -limits[i], limits[i]);
+                    }
                 }
             }
 
