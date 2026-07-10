@@ -7772,12 +7772,23 @@ namespace LocalFormulaRacing
                 playerCar = playerTeam == null ? Data.Cars.cars[0] : Data.FindCar(playerTeam.carPerformanceId);
             }
 
+            DriverData playerQualiDriver = ResolvePlayerQualifyingDriverData(playerName, playerTeamId);
+            // P22-diagnosis log: makes the player's ACTUAL effective qualifying
+            // inputs visible in the log for every simulated session, so a
+            // "suddenly qualifying at the back" report can be pinned to either
+            // bad driver stats (progression/migration damage) or a bad car
+            // rating, instead of guessing.
+            GameLog.Info("[QualiSim] Player effective stats: qualifying=" + playerQualiDriver.qualifying +
+                         " pace=" + playerQualiDriver.pace +
+                         " consistency=" + playerQualiDriver.consistency +
+                         " experience=" + playerQualiDriver.experience +
+                         " car=" + (playerCar == null ? "null" : playerCar.id));
             qualifyingEntries.Add(new QualifyingSimEntry
             {
                 driverId = "player",
                 driverName = string.IsNullOrEmpty(playerName) ? "Player Driver" : playerName,
                 teamId = playerTeam == null ? playerTeamId : playerTeam.id,
-                driverData = ResolvePlayerQualifyingDriverData(playerName, playerTeamId),
+                driverData = playerQualiDriver,
                 carData = playerCar,
                 isPlayer = true
             });

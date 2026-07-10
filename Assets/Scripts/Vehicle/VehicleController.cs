@@ -33,6 +33,9 @@ namespace LocalFormulaRacing
         public float DrsBoostSecondsRemaining { get; private set; }
         bool drsCommandPrevious;
         float drsBoostTimer;
+        // One-shot flag for the [LaunchBoost] diagnostic log below - logs only the
+        // first frame the AI launch boost lands on this car per race session.
+        bool launchBoostLoggedThisRace;
         // Slipstream: automatic, physics-based tow from running in another car's
         // wake on a straight - distinct from DRS (button/AI-commanded, gated by
         // race eligibility rules, much bigger effect). RaceManager.UpdateSlipstreamEffects
@@ -775,6 +778,17 @@ namespace LocalFormulaRacing
         void SmoothDriveCommand(ref VehicleCommand assisted, float speedKph, float dt)
         {
             float throttleRise = Mathf.Lerp(2.35f, 5.4f, Mathf.InverseLerp(80f, 240f, speedKph));
+            // AI launch fix: the low-speed rise rate above (2.35/s, ~0.43s to
+            // full throttle) exists to make normal corner-exit throttle feel
+            // human, but off a standing start it lops nearly half a second off
+            // the AI's launch on top of its reaction delay - while the player's
+            // instant reaction makes their own smoothing invisible. While the
+            // AI's launch boost window is armed, let the smoothed throttle rise
+            // near-instantly; everything after the launch window smooths normally.
+            if (assisted.launchBoost > 0.01f)
+            {
+                throttleRise = Mathf.Max(throttleRise, 14f);
+            }
             float throttleFall = 10.5f;
             smoothedThrottle = Mathf.MoveTowards(
                 smoothedThrottle,
@@ -1126,8 +1140,19 @@ namespace LocalFormulaRacing
             // channel is AI-only) and is gated off any active speed cap so it can't
             // fight the pit/race-control limiter.
             float launchBoostForce = (!IsPlayerControlled && !speedCapEngaged && activeCommand.launchBoost > 0.01f)
-                ? Mathf.Lerp(18f, 4f, Mathf.InverseLerp(0f, 180f, forwardSpeedKph)) * Mathf.Clamp01(activeCommand.launchBoost)
+                ? Mathf.Lerp(30f, 5f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * Mathf.Clamp01(activeCommand.launchBoost)
                 : 0f;
+            // One-shot launch diagnostic: logs the first frame the boost actually
+            // lands on this car, with every input that could have gated it - so a
+            // "the AI launch is still slow" report can be checked against whether
+            // the force genuinely fired and how strong it was, instead of guessing.
+            if (launchBoostForce > 0.01f && !launchBoostLoggedThisRace)
+            {
+                launchBoostLoggedThisRace = true;
+                GameLog.Info("[LaunchBoost] " + name + " boost=" + launchBoostForce.ToString("0.0") +
+                             " m/s2 speed=" + forwardSpeedKph.ToString("0") +
+                             "kph throttle=" + activeCommand.throttle.ToString("0.00"));
+            }
 
             float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
             float speedLimiter = Mathf.Clamp01((topSpeed + limiterWindow - forwardSpeed) / limiterWindow);

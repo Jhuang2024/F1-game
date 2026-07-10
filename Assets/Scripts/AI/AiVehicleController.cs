@@ -1065,27 +1065,42 @@ namespace LocalFormulaRacing
             // as the apex falls behind. No boolean, no flip.
             if (severityHere > 0.05f)
             {
+                // Outside (entry/exit) reach capped at 0.85 of the legal width -
+                // the apex clip below keeps the full width. A full-width EXIT swing
+                // combined with the buffed corner speeds is what was drifting cars
+                // into the barrier on fast final corners (the Hungary report); the
+                // apex itself is the part of the line that matters for lap time.
                 float biasMagnitude = Mathf.Lerp(legalLimit * 0.6f, legalLimit, severityHere);
-                // 0 while the apex is still ~50m+ ahead (approach) or already behind
-                // (exit - apexDistanceAhead jumps to the next corner/400), 1 right on
-                // the apex. lineShape maps that to -1 (full outside) .. +1 (full
-                // inside/apex).
-                float apexProximity = Mathf.Clamp01(1f - smoothedApexDistance / 50f);
+                // Optimal-line reach fix: the apex swing used a fixed 50 m window,
+                // but at real corner-approach speed the car covers 50 m in well
+                // under a second - with a rate-limited lateral slew it physically
+                // could not cross from the outside to the inside kerb in time, so
+                // it settled mid-road (the persistent "not taking the optimal
+                // line"). Scale the window with speed (~2.4 s of travel) so the
+                // turn-in starts early enough for the full crossing to complete.
+                float apexWindow = Mathf.Max(50f, speedKph / 3.6f * 2.4f);
+                float apexProximity = Mathf.Clamp01(1f - smoothedApexDistance / apexWindow);
                 float lineShape = apexProximity * 2f - 1f;
                 float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
                 // Apex-precision (softened to /9 - a 2.6m error no longer collapses
                 // the clip to near zero) only dilutes the INSIDE/apex portion of the
                 // arc; the outside preposition on entry/exit is driven cleanly.
                 float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 9f);
-                float shapedSide = lineShape > 0f ? lineShape * apexPrecision : lineShape;
+                // Outside portion (lineShape < 0) capped at 0.85 - see the comment
+                // on biasMagnitude above (barrier drift on fast corners); the apex
+                // clip (lineShape > 0) keeps the full width.
+                float shapedSide = lineShape > 0f ? lineShape * apexPrecision : lineShape * 0.85f;
                 lineBias = turnSign * biasMagnitude * shapedSide + (lineShape > 0f ? apexMissNoise : 0f);
             }
             // Rate-limit the line so it slews smoothly rather than snapping frame to
-            // frame - the actual cure for the swerve. ~6 m of lateral offset change
-            // per second: still reaches the apex within a normal entry phase, but
-            // slow enough that any residual target noise can't weave the car (the
-            // remaining "somewhat swerving").
-            smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * 6f);
+            // frame - the cure for the swerve. Speed-scaled: a fixed rate was either
+            // too slow to complete the outside-to-apex crossing at real corner speed
+            // (car settles mid-road, "not on the optimal line") or fast enough to
+            // weave at low speed. ~4.5 m/s parked rising to ~9.5 m/s at 300 km/h
+            // tracks the actual distance covered per second, so the line completes
+            // its crossing at any speed without gaining weave authority at low speed.
+            float lineSlewRate = Mathf.Lerp(4.5f, 9.5f, Mathf.Clamp01(speedKph / 300f));
+            smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * lineSlewRate);
             lineBias = smoothedLineBias;
             previousSeverityHere = severityHere;
 
@@ -1275,7 +1290,19 @@ namespace LocalFormulaRacing
             float edgeRecovery = edgeOvershoot > 0f
                 ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.38f, 1.03f, edgeProximity)
                 : 0f;
-            float edgeEmergencyBrake = edgeOvershoot > 0f ? Mathf.Lerp(0.14f, 0.9f, edgeProximity * edgeProximity) : 0f;
+            // Barrier-avoidance round 6 ("AI sending it into the final corner and
+            // hitting the barriers"): the emergency brake's quadratic ramp
+            // (edgeProximity^2) kept the response tiny through the first half of
+            // the margin band - a car arriving AT SPEED near the edge got almost
+            // no braking until it was nearly on the barrier, and by then no
+            // steering authority could save it. Linear ramp with a higher floor
+            // and full-brake ceiling, additionally scaled up with how much faster
+            // than a safe edge speed the car is travelling, so a genuinely
+            // overspeeding car gets braked hard while it still has room.
+            float edgeOverspeed = Mathf.Clamp01((speedKph - 130f) / 120f);
+            float edgeEmergencyBrake = edgeOvershoot > 0f
+                ? Mathf.Clamp01(Mathf.Lerp(0.22f, 1f, edgeProximity) * Mathf.Lerp(0.7f, 1.35f, edgeOverspeed))
+                : 0f;
             command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
 
             // Real braking point: a kinematic stopping distance from current speed down

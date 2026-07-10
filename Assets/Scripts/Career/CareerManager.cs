@@ -4235,7 +4235,15 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            bool isPlayersOwnSeat = Save.useExistingDriver && !string.IsNullOrEmpty(Save.selectedDriverId) && modifier.driverId == Save.selectedDriverId;
+            // The player's seat comes in TWO shapes: an existing real driver
+            // (modifier keyed by selectedDriverId) or a custom driver (modifier
+            // keyed by the literal "player"). The interim buggy build folded the
+            // legacy delta into BOTH shapes, but the first version of this guard
+            // (and the repair below) only covered the existing-driver case - a
+            // custom-driver career kept the baked-in damage and still qualified
+            // P22 on every new weekend. Cover both.
+            bool isPlayersOwnSeat = (Save.useExistingDriver && !string.IsNullOrEmpty(Save.selectedDriverId) && modifier.driverId == Save.selectedDriverId) ||
+                                    (!Save.useExistingDriver && modifier.driverId == "player");
 
             // One-time repair for saves already migrated by the interim buggy
             // build: that build folded the legacy ratingDelta into all nine
