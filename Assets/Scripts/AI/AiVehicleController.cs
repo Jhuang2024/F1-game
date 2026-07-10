@@ -109,6 +109,16 @@ namespace LocalFormulaRacing
         // line's apex-proximity term; this low-passes it so the line phase changes
         // smoothly.
         float smoothedApexDistance = 400f;
+        // Rate-limited traffic-avoidance steer nudge (dodge/side-by-side pushes in
+        // ApplyTrafficAvoidance). Unlike lineBias above, this was applied RAW every
+        // frame straight from that frame's proximity geometry - on a dense grid
+        // launch, many neighbour relationships sit right at a detection threshold
+        // and flicker in/out frame to frame, so the raw nudge could jump hard
+        // between +-0.3 (or +-0.78 outside the launch window) tick to tick. That
+        // is the "AI swerving erratically at the start" - smoothing it the same
+        // way lineBias is smoothed fixes it without weakening the underlying
+        // collision-avoidance response, just its frame-to-frame snappiness.
+        float smoothedSteerAdjust;
 
         // Traffic dodge-side memory so a car sitting near local.x==0 ahead of us
         // doesn't make the avoidance steer flicker frame to frame.
@@ -1719,6 +1729,7 @@ namespace LocalFormulaRacing
             previousSeverityHere = 0f;
             smoothedLineBias = 0f;
             smoothedApexDistance = 400f;
+            smoothedSteerAdjust = 0f;
         }
 
         // Race-control autopilot has just handed control back - see the call site
@@ -2210,7 +2221,15 @@ namespace LocalFormulaRacing
                 steerAdjust = Mathf.Clamp(steerAdjust, -0.3f, 0.3f);
             }
 
-            command.steer = Mathf.Clamp(command.steer + steerAdjust, -1f, 1f);
+            // Erratic-swerve fix: rate-limit the nudge itself (see
+            // smoothedSteerAdjust) instead of applying this frame's raw value
+            // straight to the wheel. ~4 units/second of adjustment change is
+            // still fast enough to react to a genuinely closing car within a
+            // fraction of a second, but can no longer jump instantly between
+            // opposite pushes just because a marginal neighbour flickered in or
+            // out of a detection window.
+            smoothedSteerAdjust = Mathf.MoveTowards(smoothedSteerAdjust, steerAdjust, Time.deltaTime * 4f);
+            command.steer = Mathf.Clamp(command.steer + smoothedSteerAdjust, -1f, 1f);
         }
 
         // Curvature sampled across three forward points instead of two, taking the
@@ -2347,7 +2366,13 @@ namespace LocalFormulaRacing
             // the AI actually commits to an overtake or a defensive move. Still
             // Clamp01'd, so it only ever raises commitment toward full, never
             // past it.
-            const float RacecraftBuff = 2.1f;
+            // Racecraft buff (per request, another pass on top of the existing
+            // 2.1x): 2.1 already saturated commitment to 1.0 for Medium/Hard/
+            // Expert, but Easy (lower base commitment + lower stat lerp) was
+            // still landing meaningfully below 1.0 - raised further so Easy
+            // actually commits to overtakes/defends too, not just the higher
+            // tiers.
+            const float RacecraftBuff = 2.6f;
             float commitment = Mathf.Clamp01(profile.overtakeCommitment * Mathf.Lerp(0.7f, 1.15f, (aggression + overtaking) / 200f) * RacecraftBuff);
             float defendCommitment = Mathf.Clamp01(profile.defendCommitment * Mathf.Lerp(0.7f, 1.15f, defending / 100f) * RacecraftBuff);
 
@@ -2467,7 +2492,12 @@ namespace LocalFormulaRacing
                         // untouched. Slight nerf pass: trimmed back a bit from
                         // 1.8s/3.0s so Expert doesn't launch attacks from quite as
                         // far back as before.
-                        float attackGapThreshold = isExpert ? (aheadIsBackmarker ? 2.6f : 1.6f) : 1.1f;
+                        // Buffed for non-Expert too (was a flat 1.1s regardless of
+                        // difficulty, while commitment above is now saturated at
+                        // 1.0 for most tiers - the gap threshold, not commitment,
+                        // was the real ceiling on how often Easy/Medium/Hard even
+                        // considered an attack).
+                        float attackGapThreshold = isExpert ? (aheadIsBackmarker ? 2.6f : 1.6f) : 1.5f;
                         bool attackTrigger = gapSeconds < attackGapThreshold && (approachingBrakeZone || drsHelp || clearlySlower || positiveSpeedDeltaExpert) && hasPace;
 
                         // Part A.2: Expert is fully deterministic once attackTrigger is
@@ -2624,8 +2654,11 @@ namespace LocalFormulaRacing
             // instead of weaving repeatedly. Part A.4: Expert covers from much
             // further out than the other tiers - earlier inside-cover before the
             // braking zone - while still only ever committing once per zone.
-            // Slight nerf pass: pulled in from 110m to 95m.
-            float approachTriggerDistance = isExpert ? 95f : 70f;
+            // Buffed for non-Expert (was 70m) alongside the attack-gap widening
+            // above - defendCommitment saturates for most tiers now too, so the
+            // detection distance was the real ceiling on how often Easy/Medium/
+            // Hard even attempted a defensive cover.
+            float approachTriggerDistance = isExpert ? 95f : 82f;
             bool approaching = apexDistanceAhead < approachTriggerDistance && apexSeverity > 0.16f;
             if (!approaching)
             {
@@ -2635,14 +2668,14 @@ namespace LocalFormulaRacing
             {
                 float behindGap = raceManager.GetIntervalToAheadSeconds(behind);
                 bool behindHasDrs = raceManager.IsDrsAvailable(behind);
-                bool threatClose = behindGap > 0f && (behindGap < 1.3f || behindHasDrs);
+                // Threat window widened (1.3 -> 1.6) alongside the rest of this pass.
+                bool threatClose = behindGap > 0f && (behindGap < 1.6f || behindHasDrs);
                 // Part A.2: Expert commits to the cover whenever a real threat is
                 // close, no roll.
                 if (threatClose && (isExpert || Random.value < defendCommitment))
                 {
-                    // Part A.4: a stronger cover offset ceiling for Expert specifically
-                    // (clamped by legalLimit like every other tier, same as before).
-                    float coverCeiling = isExpert ? 2.7f : 2.3f;
+                    // Cover ceiling raised for non-Expert too (was 2.3).
+                    float coverCeiling = isExpert ? 2.7f : 2.5f;
                     float coverOffset = turnSign * Mathf.Lerp(1f, coverCeiling, defendCommitment);
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, Mathf.Clamp(coverOffset, -legalLimit, legalLimit), Time.deltaTime * 5f);
                     hasCoveredThisApex = true;

@@ -3924,7 +3924,12 @@ namespace LocalFormulaRacing
                 }
 
                 TeamDevelopmentState state = GetOrCreateTeamDevelopmentState(team.id);
-                state.resourcePoints += Mathf.RoundToInt(65f * Save.currentSeasonResourceMultiplier);
+                // R&D pace buff (per request - "other teams' R&D increases their
+                // rating too slowly, I'm already at 104 and they're still at
+                // 90s"): AI teams were earning noticeably less usable R&D
+                // throughput than the player's own upgrade path. Weekly resource
+                // income raised (65 -> 95).
+                state.resourcePoints += Mathf.RoundToInt(95f * Save.currentSeasonResourceMultiplier);
 
                 for (int p = state.activeUpgradeProjects.Count - 1; p >= 0; p--)
                 {
@@ -4033,7 +4038,13 @@ namespace LocalFormulaRacing
                 }
             }
 
-            if (activeCount >= 2 || Random.value > 0.4f)
+            // R&D pace buff continued: one more concurrent project slot (2 -> 3)
+            // and a much higher per-race-week chance to actually start one
+            // (0.4 -> 0.7) - AI teams were frequently sitting on banked resource
+            // points with nothing in development because this roll failed,
+            // which is exactly the kind of stall that let the player's own,
+            // uninterrupted R&D pull away to 104 while the grid sat in the 90s.
+            if (activeCount >= 3 || Random.value > 0.7f)
             {
                 return;
             }
