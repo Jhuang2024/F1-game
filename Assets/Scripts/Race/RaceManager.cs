@@ -752,6 +752,10 @@ namespace LocalFormulaRacing
                       " roadLayer=" + (Track.roadCollider == null ? "none" : LayerMask.LayerToName(Track.roadCollider.gameObject.layer)) +
                       " roadIsTrigger=" + (Track.roadCollider != null && Track.roadCollider.isTrigger) +
                       " roadCollidesWithDefaultCars=" + (Track.roadCollider != null && !Physics.GetIgnoreLayerCollision(Track.roadCollider.gameObject.layer, 0)));
+            // Select the active track-query backend for this race: the authored
+            // adapter for the reference circuit (or when forced), else the legacy
+            // TrackRuntime. This is the live call site for the authored-track path.
+            TrackQueryProvider.Select(EventData != null ? EventData.trackId : null, Track);
             SpawnRaceGrid(playerName, playerTeamId, careerRace);
             SpawnGhostIfAvailable();
             PostEngineerMessage(OpeningEngineerMessage(), true);
@@ -1184,6 +1188,7 @@ namespace LocalFormulaRacing
 
         public void CleanupRaceWorld()
         {
+            TrackQueryProvider.Clear();
             Time.timeScale = 1f;
             IsPaused = false;
             IsRaceFinished = true;
