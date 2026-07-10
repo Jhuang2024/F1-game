@@ -409,6 +409,15 @@ namespace LocalFormulaRacing
 
         static UnityEngine.Font cachedFont;
 
+        // Typography fix (premium visual pass): the old chain tried two
+        // macOS-only OS fonts first ("Helvetica Neue", "Avenir Next"), so on
+        // Windows every player silently fell through to LegacyRuntime.ttf -
+        // i.e. Arial - the single loudest "prototype UI" signal in the whole
+        // product. The game now ships its own display face: Rajdhani (SIL OFL,
+        // see Assets/Resources/Fonts/OFL.txt), a condensed technical grotesque
+        // that reads like real motorsport timing graphics. OS-font fallbacks
+        // only apply if the shipped asset somehow fails to load, and the
+        // Windows-native DIN-style Bahnschrift now outranks the macOS names.
         public static UnityEngine.Font Font
         {
             get
@@ -418,7 +427,17 @@ namespace LocalFormulaRacing
                     return cachedFont;
                 }
 
-                cachedFont = UnityEngine.Font.CreateDynamicFontFromOSFont("Helvetica Neue", 16);
+                cachedFont = Resources.Load<UnityEngine.Font>("Fonts/Rajdhani-SemiBold");
+                if (cachedFont == null)
+                {
+                    cachedFont = UnityEngine.Font.CreateDynamicFontFromOSFont("Bahnschrift", 16);
+                }
+
+                if (cachedFont == null)
+                {
+                    cachedFont = UnityEngine.Font.CreateDynamicFontFromOSFont("Helvetica Neue", 16);
+                }
+
                 if (cachedFont == null)
                 {
                     cachedFont = UnityEngine.Font.CreateDynamicFontFromOSFont("Avenir Next", 16);

@@ -106,6 +106,13 @@ namespace LocalFormulaRacing
             followCamera.allowHDR = true;
             followCamera.allowMSAA = true;
             followCamera.backgroundColor = RenderSettings.fogColor;
+            // Premium visual pass: bloom/tonemap/grade/vignette chain (see
+            // CameraPostFx) - degrades to a plain blit if disabled/unsupported.
+            if (followCamera.GetComponent<CameraPostFx>() == null)
+            {
+                followCamera.gameObject.AddComponent<CameraPostFx>();
+            }
+
             AudioListener listener = followCamera.GetComponent<AudioListener>();
             if (listener == null)
             {

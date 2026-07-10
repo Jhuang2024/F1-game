@@ -1133,10 +1133,16 @@ namespace LocalFormulaRacing
                             // (on top of whatever RaceManager set) rather than
                             // every frame, and kept modest so the wet-sheen
                             // boost below still has headroom to read on top.
+                            // Premium visual pass: with a real skybox +
+                            // reflection probe + tonemapped HDR now in place,
+                            // paint can afford genuine metallic flake and a
+                            // hard lacquer clearcoat without blowing out -
+                            // the old 0.22/0.75 caps were tuned for a scene
+                            // with nothing worth reflecting.
                             float currentMetallic = bodyMaterial.GetFloat("_Metallic");
-                            bodyMaterial.SetFloat("_Metallic", Mathf.Min(0.22f, currentMetallic + 0.09f));
+                            bodyMaterial.SetFloat("_Metallic", Mathf.Min(0.55f, currentMetallic + 0.38f));
                             float currentGloss = bodyMaterial.GetFloat("_Glossiness");
-                            bodyMaterial.SetFloat("_Glossiness", Mathf.Min(0.75f, currentGloss + 0.08f));
+                            bodyMaterial.SetFloat("_Glossiness", Mathf.Min(0.85f, currentGloss + 0.2f));
                         }
                     }
                 }
