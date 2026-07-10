@@ -1330,9 +1330,16 @@ namespace LocalFormulaRacing
             // and full-brake ceiling, additionally scaled up with how much faster
             // than a safe edge speed the car is travelling, so a genuinely
             // overspeeding car gets braked hard while it still has room.
+            // Overspeed ceiling raised further (Italy hairpin/chicane fix,
+            // secondary safety net alongside the FindUpcomingApex chicane
+            // blind-spot fix above) - a car that still arrives at the edge
+            // carrying real speed (the exact failure mode reported) now gets
+            // braked harder still while there's room, rather than relying only
+            // on the corner-detection fix to prevent it arriving hot in the
+            // first place.
             float edgeOverspeed = Mathf.Clamp01((speedKph - 130f) / 120f);
             float edgeEmergencyBrake = edgeOvershoot > 0f
-                ? Mathf.Clamp01(Mathf.Lerp(0.22f, 1f, edgeProximity) * Mathf.Lerp(0.7f, 1.35f, edgeOverspeed))
+                ? Mathf.Clamp01(Mathf.Lerp(0.22f, 1f, edgeProximity) * Mathf.Lerp(0.7f, 1.55f, edgeOverspeed))
                 : 0f;
             command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
 
@@ -2344,9 +2351,25 @@ namespace LocalFormulaRacing
                     apexDistanceAhead = d;
                 }
 
-                // Found a real corner and it is falling away again - that is this
-                // corner's peak, no need to keep searching into the next one.
-                if (apexSeverity > 0.55f && severity < apexSeverity - 0.12f)
+                // Barrier-crash fix (Italy hairpin / turn 3-4 chicane): this used
+                // to break the instant severity dipped just 0.12 below the peak
+                // found so far - fine for a single isolated corner, but for a
+                // closely-spaced pair (a chicane, or a hairpin following another
+                // corner shortly after, e.g. Monza's Roggia/Ascari chicanes and
+                // the run into Parabolica) the road only straightens PARTIALLY
+                // between the two apexes. A relative dip of 0.12 is easily
+                // crossed by that partial straighten, so the scan stopped and
+                // completely missed the SECOND apex - the braking-point model
+                // then had zero awareness of it until the car was already on top
+                // of it next frame, with drastically less braking distance left:
+                // exactly the "carrying too much speed into the corner and
+                // hitting the barrier" pattern reported. Now only breaks once the
+                // road has genuinely opened up (an ABSOLUTE low severity, not a
+                // relative dip from the peak) - a real straight after a single
+                // corner still breaks early as before, but a chicane/back-to-back
+                // corner pair keeps scanning until it finds the (possibly
+                // tighter) second apex.
+                if (apexSeverity > 0.55f && severity < 0.2f)
                 {
                     break;
                 }
