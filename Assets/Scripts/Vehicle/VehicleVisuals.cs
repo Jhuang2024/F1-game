@@ -364,7 +364,7 @@ namespace LocalFormulaRacing
                 Renderer renderer = gun.GetComponent<Renderer>();
                 if (renderer != null)
                 {
-                    renderer.sharedMaterial = new Material(Shader.Find("Standard"));
+                    renderer.sharedMaterial = F1Game.Rendering.ShaderCompat.CreateLitMaterial();
                     renderer.sharedMaterial.color = new Color(0.85f, 0.1f, 0.08f);
                 }
 
@@ -742,7 +742,7 @@ namespace LocalFormulaRacing
                         {
                             caliperMaterial.EnableKeyword("_EMISSION");
                             caliperMaterial.SetFloat("_Metallic", 0.78f);
-                            caliperMaterial.SetFloat("_Glossiness", 0.42f);
+                            F1Game.Rendering.ShaderCompat.SetSmoothness(caliperMaterial, 0.42f);
                         }
                     }
                 }
@@ -1011,7 +1011,7 @@ namespace LocalFormulaRacing
             appliedTyreColor = color;
             tyreMaterial.color = Color.Lerp(color, TyreGrimeColor, offTrackGrime * 0.65f);
             tyreMaterial.SetFloat("_Metallic", metallic);
-            tyreMaterial.SetFloat("_Glossiness", smoothness);
+            F1Game.Rendering.ShaderCompat.SetSmoothness(tyreMaterial, smoothness);
         }
 
         // Off-track running (marbles, gravel, dust) leaves the tyres and
@@ -1142,7 +1142,7 @@ namespace LocalFormulaRacing
                             float currentMetallic = bodyMaterial.GetFloat("_Metallic");
                             bodyMaterial.SetFloat("_Metallic", Mathf.Min(0.55f, currentMetallic + 0.38f));
                             float currentGloss = bodyMaterial.GetFloat("_Glossiness");
-                            bodyMaterial.SetFloat("_Glossiness", Mathf.Min(0.85f, currentGloss + 0.2f));
+                            F1Game.Rendering.ShaderCompat.SetSmoothness(bodyMaterial, Mathf.Min(0.85f, currentGloss + 0.2f));
                         }
                     }
                 }
@@ -1169,7 +1169,7 @@ namespace LocalFormulaRacing
             targetSmoothness = Mathf.Max(baseBodySmoothness - 0.18f, targetSmoothness - offTrackGrime * 0.16f);
 
             float currentSmoothness = bodyMaterial.GetFloat("_Glossiness");
-            bodyMaterial.SetFloat("_Glossiness", Mathf.MoveTowards(currentSmoothness, targetSmoothness, Time.deltaTime * 0.6f));
+            F1Game.Rendering.ShaderCompat.SetSmoothness(bodyMaterial, Mathf.MoveTowards(currentSmoothness, targetSmoothness, Time.deltaTime * 0.6f));
         }
 
         // A knocked-about front wing visibly sags rather than staying rigid while
@@ -1516,7 +1516,7 @@ namespace LocalFormulaRacing
             }
 
             foundRenderer.sharedMaterial.SetFloat("_Metallic", metallic);
-            foundRenderer.sharedMaterial.SetFloat("_Glossiness", smoothness);
+            foundRenderer.F1Game.Rendering.ShaderCompat.SetSmoothness(sharedMaterial, smoothness);
         }
 
         // Center-lock hub cap + a small lug ring on each wheel, built once the
@@ -2205,11 +2205,11 @@ namespace LocalFormulaRacing
         // any new procedural detail built here follows the same convention.
         static Material CreateMaterial(string materialName, Color color, float metallic, float smoothness)
         {
-            Material material = new Material(Shader.Find("Standard"));
+            Material material = F1Game.Rendering.ShaderCompat.CreateLitMaterial();
             material.name = materialName;
             material.color = color;
             material.SetFloat("_Metallic", metallic);
-            material.SetFloat("_Glossiness", smoothness);
+            F1Game.Rendering.ShaderCompat.SetSmoothness(material, smoothness);
             return material;
         }
 

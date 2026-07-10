@@ -5759,17 +5759,10 @@ namespace LocalFormulaRacing
         // material-helper base class.
         Material CreateTranslucentMaterial(string materialName, Color color, float alpha)
         {
-            Material material = new Material(Shader.Find("Standard"));
+            Material material = F1Game.Rendering.ShaderCompat.CreateLitMaterial();
             material.name = materialName;
             material.color = new Color(color.r, color.g, color.b, alpha);
-            material.SetFloat("_Mode", 3f);
-            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-            material.SetInt("_ZWrite", 0);
-            material.DisableKeyword("_ALPHATEST_ON");
-            material.EnableKeyword("_ALPHABLEND_ON");
-            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-            material.renderQueue = 3000;
+            F1Game.Rendering.ShaderCompat.MakeTransparentFade(material);
             return material;
         }
 
@@ -8866,11 +8859,11 @@ namespace LocalFormulaRacing
 
         Material CreateMaterial(string materialName, Color color, float metallic, float smoothness)
         {
-            Material material = new Material(Shader.Find("Standard"));
+            Material material = F1Game.Rendering.ShaderCompat.CreateLitMaterial();
             material.name = materialName;
             material.color = color;
             material.SetFloat("_Metallic", metallic);
-            material.SetFloat("_Glossiness", smoothness);
+            F1Game.Rendering.ShaderCompat.SetSmoothness(material, smoothness);
             return material;
         }
 
@@ -8901,8 +8894,8 @@ namespace LocalFormulaRacing
             int quality = Settings == null ? 2 : Mathf.Clamp(Settings.Current.graphicsQuality, 0, 3);
             // Premium visual pass: the post chain follows the same mood the
             // lighting uses, and quality 0 ("Low") turns it off entirely.
-            CameraPostFx.GlobalEnabled = quality > 0;
-            CameraPostFx.ConfigureMood(night, rainThreat, twilight);
+            F1Game.Rendering.RaceVolumeService.GlobalEnabled = quality > 0;
+            F1Game.Rendering.RaceVolumeService.ConfigureMood(night, rainThreat, twilight);
             QualitySettings.antiAliasing = quality == 0 ? 0 : (quality == 1 ? 2 : (quality == 2 ? 4 : 8));
             QualitySettings.shadows = quality == 0 ? ShadowQuality.HardOnly : ShadowQuality.All;
             QualitySettings.shadowDistance = 140f + quality * 120f;
