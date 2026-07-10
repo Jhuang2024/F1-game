@@ -526,10 +526,24 @@ namespace LocalFormulaRacing
             int gridSlot = participant != null ? Mathf.Max(0, participant.gridPosition - 1) : 0;
             preferredSide = gridSlot % 2 == 0 ? -1f : 1f;
 
-            // Spread the field over four lanes at the start; the road is wide
-            // enough now for genuine side-by-side into turn one.
+            // Starting-mess fix ("people all over the place"): the old 4-lane
+            // scheme picked a fan-out target from gridSlot % 4, which does NOT
+            // correlate with which side of the grid a car actually spawned on
+            // (that's gridSlot % 2, matching preferredSide/GetGridSlot's real
+            // leftSlot). For half the grid (every slot where gridSlot % 4 was 1
+            // or 2) the two disagreed - e.g. slot 1 spawns on the RIGHT column
+            // but %4 assigned it a lane on the LEFT - so those cars launched by
+            // immediately cutting diagonally across the track to a lane on the
+            // OPPOSITE side from where they started, right as the fan-out hold
+            // (now full-strength for several seconds) locked them onto that
+            // wrong-side target. That cross-traffic every single race is the
+            // "starting procedure is a mess". Fan lane is now always on the same
+            // side the car actually started (preferredSide), with a near/far
+            // depth alternation within that side to keep the side-by-side
+            // spread effect without ever crossing the track's centreline.
             float laneSpread = Mathf.Min(3.4f, raceTrack.roadHalfWidth * 0.24f);
-            openingFanOffset = ((gridSlot % 4) - 1.5f) * laneSpread;
+            int depthIndex = (gridSlot / 2) % 2;
+            openingFanOffset = preferredSide * laneSpread * (depthIndex == 0 ? 0.6f : 1.4f);
 
             RaceManager.AiDifficultyProfile startupProfile = manager.GetAiDifficultyProfile();
             DriverData startupDriver = participant == null ? null : participant.driverData;

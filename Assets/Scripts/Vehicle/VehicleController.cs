@@ -184,7 +184,9 @@ namespace LocalFormulaRacing
         // ceiling-plus-dedicated-force pairing as PlayerTopSpeedBonusKph
         // above (see aiTopSpeedBoost in ApplyForces) - a ceiling bump alone
         // is aspirational unless something actually pushes the car up to it.
-        const float AiTopSpeedBonusKph = 3f;
+        // Raised +5kph (per request, across every difficulty - this constant
+        // was never difficulty-scaled) on top of the existing 3, to 8.
+        const float AiTopSpeedBonusKph = 8f;
         // Flat DRS speed boost (replaces the old ramped/capped drsBoost model):
         // a fresh DRS activation grants +DrsBoostAmountKph, uncapped by the
         // normal top-speed ceiling, for DrsBoostDurationSeconds - but only while
@@ -1148,9 +1150,11 @@ namespace LocalFormulaRacing
 
             // AI straightline speed buff: same reasoning as playerTopSpeedBoost
             // above, mirrored for AiTopSpeedBonusKph - never applies to the
-            // player.
+            // player. Force scaled up alongside AiTopSpeedBonusKph's ceiling
+            // raise (3->8kph) so the extra ceiling is actually reachable, not
+            // just aspirational (was 6-10).
             float aiTopSpeedBoost = !IsPlayerControlled
-                ? Mathf.Lerp(6f, 10f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph))
+                ? Mathf.Lerp(11f, 17f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph))
                 : 0f;
 
             // AI launch boost: a genuine additive forward force off a standing
