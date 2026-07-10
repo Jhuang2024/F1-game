@@ -1,6 +1,23 @@
-# Local Formula Racing Prototype
+# Local Formula Racing
 
-Private, local-only Unity prototype for a Formula-style simcade career/race vertical slice. It uses original placeholder visuals generated at runtime from Unity primitives, editable JSON text data, and local JSON saves only.
+Private, local-only Unity Formula-style simcade career/race game, currently **mid-migration from prototype architecture to a production pipeline** (URP, TextMeshPro, Input System, Cinemachine, authored assets, modular assemblies). Gameplay scope is substantial; visuals/UI are transitioning off runtime-generated primitives.
+
+## Production migration status
+
+| Area | Status |
+|---|---|
+| Gameplay (career, weekends, qualifying, race rules, weather, pits, R&D…) | **Implemented** (legacy architecture, preserved) |
+| Modular assemblies, typed event bus, unit-tested race rulebook | **Implemented** (Phase 0) |
+| Save backups / corruption recovery / schema migration | **Implemented** |
+| URP + Linear colour + Volume post-processing + quality tiers | **Implemented — needs first in-editor validation** (`Docs/EDITOR_BRINGUP.md`) |
+| Production UI (theme, router, TMP; rebuilt: menu, track select, strategy, HUD shell) | **Partial** — quick-race path on the new UI; remaining screens legacy |
+| Input System (6 action maps, rebinding, hot-plug, prompt glyphs) | **Implemented — driving-controls integration pending** |
+| Cinemachine camera set (chase/T-cam/cockpit/trackside) | **Implemented, gated off** pending validation |
+| Audio banks | **Architecture implemented; all clips remain labelled procedural fallbacks (blocked by assets)** |
+| Final car/track/UI/audio art | **Blocked by assets** — slots, specs and explicit placeholders exist (`Docs/ART_PIPELINE.md`); primitives are interim, not final art |
+| Replay, photo mode, multiplayer | **Planned** (not started) |
+
+Key docs: `Docs/BASELINE_AUDIT.md`, `Docs/REFACTOR_MAP.md`, `Docs/MILESTONE_REPORT.md`, and `Docs/EDITOR_BRINGUP.md` — **run the bring-up checklist on first editor open of the migration branch.**
 
 ## Open And Run On macOS
 
@@ -85,7 +102,7 @@ The boot scene is intentionally empty. `GameBootstrap` creates the menus, camera
 - Procedural tracks are inspired layout archetypes, not accurate replicas.
 - Pit entry/exit pathing is simplified to a pit service zone and timed hold.
 - AI can race, qualify, defend, attack, pit, and make mistakes, but close-quarters avoidance remains prototype-level.
-- Audio is generated with simple runtime clips and placeholder tones.
+- Audio is generated with simple runtime clips and placeholder tones (now formally fallback assets behind the empty `AudioBank` slots).
 - No official logos, liveries, sponsor marks, faces, helmets, copied broadcast art, or copyrighted audio are included.
 
 ## Next Improvement Checklist

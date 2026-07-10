@@ -1141,7 +1141,7 @@ namespace LocalFormulaRacing
                             // with nothing worth reflecting.
                             float currentMetallic = bodyMaterial.GetFloat("_Metallic");
                             bodyMaterial.SetFloat("_Metallic", Mathf.Min(0.55f, currentMetallic + 0.38f));
-                            float currentGloss = bodyMaterial.GetFloat("_Glossiness");
+                            float currentGloss = F1Game.Rendering.ShaderCompat.GetSmoothness(bodyMaterial);
                             F1Game.Rendering.ShaderCompat.SetSmoothness(bodyMaterial, Mathf.Min(0.85f, currentGloss + 0.2f));
                         }
                     }
@@ -1155,7 +1155,7 @@ namespace LocalFormulaRacing
 
             if (baseBodySmoothness < 0f)
             {
-                baseBodySmoothness = bodyMaterial.GetFloat("_Glossiness");
+                baseBodySmoothness = F1Game.Rendering.ShaderCompat.GetSmoothness(bodyMaterial);
             }
 
             bool wet = vehicle.Weather == WeatherState.LightRain || vehicle.Weather == WeatherState.HeavyRain;
@@ -1168,7 +1168,7 @@ namespace LocalFormulaRacing
             // reading as a totally matte respray.
             targetSmoothness = Mathf.Max(baseBodySmoothness - 0.18f, targetSmoothness - offTrackGrime * 0.16f);
 
-            float currentSmoothness = bodyMaterial.GetFloat("_Glossiness");
+            float currentSmoothness = F1Game.Rendering.ShaderCompat.GetSmoothness(bodyMaterial);
             F1Game.Rendering.ShaderCompat.SetSmoothness(bodyMaterial, Mathf.MoveTowards(currentSmoothness, targetSmoothness, Time.deltaTime * 0.6f));
         }
 

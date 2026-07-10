@@ -71,6 +71,21 @@ namespace F1Game.Rendering
             }
         }
 
+        public static float GetSmoothness(Material material)
+        {
+            if (material == null)
+            {
+                return 0f;
+            }
+
+            if (material.HasProperty("_Smoothness"))
+            {
+                return material.GetFloat("_Smoothness");
+            }
+
+            return material.HasProperty("_Glossiness") ? material.GetFloat("_Glossiness") : 0f;
+        }
+
         public static void SetEmission(Material material, Color emissionColor)
         {
             if (material == null)
