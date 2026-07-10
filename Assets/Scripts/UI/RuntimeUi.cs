@@ -2597,16 +2597,44 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            if (career.Save.useExistingDriver && !string.IsNullOrEmpty(career.Save.selectedDriverId))
+            List<DriverData> teamDrivers = data.GetDriversForTeam(career.Save.playerTeamId, career.Save.driverTransferRecords);
+            // Teammate-duplicate fix, same root cause as
+            // RaceManager.ReplacedDriverIdForPlayerTeam (this screen had its own
+            // separate, less-robust copy of the same resolution logic that never
+            // got the same fix): blindly trusting selectedDriverId whenever
+            // useExistingDriver happened to read true - with no validation
+            // against the save's actual condition - meant any save where that
+            // flag/id pair was ever stale silently fell through to "just pick
+            // teamDrivers[0] as the player", which is backwards on a
+            // two-real-driver team: that IS the teammate's id, not the player's
+            // own, so the OTHER driver (the player's real seat, e.g. Piastri
+            // when playing as Piastri) got mislabelled "TEAMMATE" on their own
+            // card. Now validates selectedDriverId against this team's actual
+            // roster before trusting it, with a same-name recovery path (and a
+            // write-back repair) before ever falling back to a guess.
+            if (career.Save.useExistingDriver && !string.IsNullOrEmpty(career.Save.selectedDriverId) &&
+                teamDrivers.Exists(d => d.id == career.Save.selectedDriverId))
             {
                 playerId = career.Save.selectedDriverId;
             }
+            else if (!string.IsNullOrEmpty(career.Save.playerDriverName))
+            {
+                DriverData byName = teamDrivers.Find(d => string.Equals(d.displayName, career.Save.playerDriverName, System.StringComparison.OrdinalIgnoreCase));
+                if (byName != null)
+                {
+                    career.Save.selectedDriverId = byName.id;
+                    playerId = byName.id;
+                }
+            }
 
-            List<DriverData> teamDrivers = data.GetDriversForTeam(career.Save.playerTeamId, career.Save.driverTransferRecords);
-            string excludedId = string.IsNullOrEmpty(playerId) && teamDrivers.Count > 0 ? teamDrivers[0].id : playerId;
+            if (string.IsNullOrEmpty(playerId) && teamDrivers.Count > 0)
+            {
+                playerId = teamDrivers[0].id;
+            }
+
             for (int i = 0; i < teamDrivers.Count; i++)
             {
-                if (teamDrivers[i].id != excludedId)
+                if (teamDrivers[i].id != playerId)
                 {
                     teammateId = teamDrivers[i].id;
                     break;
@@ -2909,6 +2937,23 @@ namespace LocalFormulaRacing
             if (overall >= 88f && (max - min) <= 13f)
             {
                 return "Balanced Front-Runner";
+            }
+
+            // Archetype-cliff fix round 2 (real report: McLaren overall 104,
+            // every single stat 91+, still labelled "Midfield Fighter"): the
+            // signature-stat checks above can miss a car whose top TWO
+            // signature stats sit within a few points of each other (neither
+            // one "clearly separates" per the >=6 gap rule - here cornering 116
+            // vs tyre management 115, a 1-point gap), and "Balanced
+            // Front-Runner" above requires the FULL stat spread across all 10
+            // stats to be <=13 - a genuinely dominant car can easily have one
+            // deliberately weak stat (here ERS/engine at 91 vs a 117 chassis
+            // balance, a 26-point spread) without being remotely "midfield".
+            // An overall this high is unambiguous regardless of spread or which
+            // exact stat leads, so it gets its own tier ahead of the fallback.
+            if (overall >= 96f)
+            {
+                return "Dominant Force";
             }
 
             if (overall < 80f)
