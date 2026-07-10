@@ -1528,7 +1528,7 @@ namespace LocalFormulaRacing
             }
 
             float preTrafficSteer = command.steer;
-            ApplyTrafficAvoidance(ref command, progress, speedKph, profile, isExpert, committingToPit);
+            ApplyTrafficAvoidance(ref command, progress, speedKph, profile, isExpert, committingToPit, nearCorner);
 
             if (committingToPit && !participant.isPlayer)
             {
@@ -1913,7 +1913,7 @@ namespace LocalFormulaRacing
             }
         }
 
-        void ApplyTrafficAvoidance(ref VehicleCommand command, TrackProgress progress, float speedKph, RaceManager.AiDifficultyProfile profile, bool isExpert, bool committingToPit)
+        void ApplyTrafficAvoidance(ref VehicleCommand command, TrackProgress progress, float speedKph, RaceManager.AiDifficultyProfile profile, bool isExpert, bool committingToPit, bool nearCorner)
         {
             float brakeDemand = 0f;
             float throttleLimit = 1f;
@@ -2062,7 +2062,23 @@ namespace LocalFormulaRacing
                             // also scales the launch boost down (see
                             // VehicleController), so the pack stays dense AND
                             // fast like a real F1 start.
-                            if (!raceStartPackWindow || timeToContact < 0.8f)
+                            //
+                            // Barrier-pileup fix: this suppression was scoped to
+                            // "the launch straight" but had no idea whether a real
+                            // corner was actually approaching - on a track whose
+                            // first corner arrives within the pack window (a short
+                            // start straight into a tight braking zone, e.g. a
+                            // chicane right after the grid), it silently held the
+                            // full collision brake off a tailgating car queued up
+                            // for the SAME braking zone too, right up until 0.8s
+                            // from impact - far too late to shed race-start speed
+                            // for a tight corner, so cars piled through each other
+                            // into the barrier. nearCorner (this driver's own
+                            // upcoming-apex detection, identical to the braking-
+                            // point model further up) always overrides the
+                            // suppression, so the launch-pack easing only ever
+                            // applies to genuine straight-line closing.
+                            if (!raceStartPackWindow || timeToContact < 0.8f || nearCorner)
                             {
                                 brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.38f, 1f, urgency * urgency) * overlap);
                             }
@@ -2176,7 +2192,9 @@ namespace LocalFormulaRacing
                     // pack window - see raceStartPackWindow above. Every grid car
                     // has flank neighbours by definition; lifting for them is what
                     // killed the AI launch. Steering separation above stays.
-                    if (!raceStartPackWindow)
+                    // nearCorner always overrides (barrier-pileup fix, same
+                    // reasoning as the urgency brake above).
+                    if (!raceStartPackWindow || nearCorner)
                     {
                         float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.5f, sideOverlap)) * cautionFactor);
                         throttleLimit = Mathf.Min(throttleLimit, sideCutback);
@@ -2190,10 +2208,14 @@ namespace LocalFormulaRacing
             // mid-pack grid car is "boxed in" by definition off a standing start,
             // and this clamp was the single thing killing the AI launch; the
             // genuine-closing urgency brake still protects against real contact.
+            // nearCorner always overrides (barrier-pileup fix): a boxed-in car
+            // arriving at the very first braking zone still needs to be able to
+            // lift/brake, not just hold flat because the launch window happens
+            // to still be open.
             if (blockedLeft && blockedRight)
             {
                 steerAdjust = 0f;
-                if (carDirectlyAhead && !raceStartPackWindow)
+                if (carDirectlyAhead && (!raceStartPackWindow || nearCorner))
                 {
                     throttleLimit = Mathf.Min(throttleLimit, Mathf.Clamp01(1f - (1f - 0.34f) * cautionFactor));
                     brakeDemand = Mathf.Max(brakeDemand, 0.16f * Mathf.Clamp01(cautionFactor));

@@ -998,9 +998,11 @@ namespace LocalFormulaRacing
                 // boost power (ersBoost below) is unchanged.
                 // ERS drain-rate fix round 7: raised a further 20% (was 0.0556-0.0787) -
                 // boost power (ersBoost below) is unchanged.
+                // ERS drain-rate fix round 8: raised a further 15% (per request,
+                // was 0.0667-0.0944) - boost power (ersBoost below) is unchanged.
                 ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
                 float ersBefore = ErsBattery;
-                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0667f, 0.0944f, activeCommand.throttle));
+                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0767f, 0.1086f, activeCommand.throttle));
                 // Unconditional diagnostic (not GameLog.Info, which is silently
                 // dropped unless verbose/F3 is on) for the reported "battery not
                 // decreasing while deploying during DRS" - the drain math here
@@ -1207,13 +1209,11 @@ namespace LocalFormulaRacing
             // cut is what regulates a closing car - an unbrakeable full-strength
             // shove would otherwise ram it into the car ahead): full boost at
             // >=0.72 commanded throttle, fading to zero as the cut approaches 0.
-            // Nerf (per request - "AI has a way better launch than me", applies
-            // uniformly across every difficulty, this boost was never
-            // difficulty-scaled): peak cut ~25% (30 -> 22.5) and the high-speed
-            // tail cut similarly (5 -> 4) so the AI launches strong but no longer
-            // dominates the player's own launch outright.
+            // Nerf (per request, another -30% on top of the earlier -25%,
+            // applies uniformly across every difficulty - this boost was never
+            // difficulty-scaled): peak 22.5 -> 15.75, high-speed tail 4 -> 2.8.
             float launchBoostForce = (!IsPlayerControlled && !speedCapEngaged && launchCommand > 0.01f)
-                ? Mathf.Lerp(22.5f, 4f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * launchCommand * Mathf.Clamp01(activeCommand.throttle * 1.4f)
+                ? Mathf.Lerp(15.75f, 2.8f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * launchCommand * Mathf.Clamp01(activeCommand.throttle * 1.4f)
                 : 0f;
             bool launchGatesOpen = !IsHeldInPit && !IsHeldOnGrid && activeCommand.brake < 0.25f && !fuelStarved;
             if (launchBoostForce > 0.01f && launchGatesOpen)
