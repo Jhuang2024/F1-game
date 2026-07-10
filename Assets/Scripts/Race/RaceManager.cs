@@ -6605,7 +6605,15 @@ namespace LocalFormulaRacing
                 return "UNAVAILABLE";
             }
 
-            if (participant.vehicle.DrsActive)
+            // DRS label fix: show ACTIVE whenever the DRS effect is actually
+            // in play - either the wing-open flag (DrsActive, which needs the
+            // button held, speed > 90 and no brake) OR the flat boost window
+            // (DrsBoostActive, the timer armed on activation that keeps
+            // delivering the speed boost even after the instantaneous flag
+            // momentarily drops). Keying only off DrsActive made the pill read
+            // "DRS READY" while the boost was demonstrably still pushing the
+            // car, which is what the driver sees as "activated".
+            if (participant.vehicle.DrsActive || participant.vehicle.DrsBoostActive)
             {
                 return "ACTIVE";
             }

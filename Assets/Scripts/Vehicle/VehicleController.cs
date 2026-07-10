@@ -757,7 +757,16 @@ namespace LocalFormulaRacing
             // holding the deploy key can genuinely empty the battery to 0%
             // (ApplyForces's own ErsDeploying/boost gates below are the same
             // true-empty floor, so nothing downstream re-imposes a hidden one).
-            bool manualDeployRequested = raw.ers && ErsBattery > 0f && assisted.throttle > 0.05f;
+            // ERS deploy gate fix: this used assisted.throttle, which the
+            // traction-control and auto-brake assists above can trim right
+            // down - so a driver holding the deploy key with the throttle
+            // pinned could still have ERS silently refuse to fire (or drain)
+            // whenever an assist momentarily cut the assisted throttle, e.g.
+            // easing toward the end of a DRS straight. Keyed off the driver's
+            // RAW throttle instead, so holding the deploy key with real
+            // throttle applied always deploys AND drains, regardless of what
+            // the assists do to the smoothed value.
+            bool manualDeployRequested = raw.ers && ErsBattery > 0f && raw.throttle > 0.05f;
             assisted.ers = autoDeployRequested || manualDeployRequested;
 
             return assisted;
