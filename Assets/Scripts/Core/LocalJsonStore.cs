@@ -3,52 +3,25 @@ using UnityEngine;
 
 namespace LocalFormulaRacing
 {
+    /// <summary>
+    /// Legacy persistence facade. All call sites (career, settings, records,
+    /// time-trial ghosts) keep this API; the implementation now delegates to
+    /// <see cref="F1Game.Core.Persistence.JsonSaveService"/>, which adds
+    /// atomic temp-file writes, a rotating .bak backup, corruption recovery
+    /// from that backup, schema-migration hooks, and SaveCompletedEvent
+    /// publication. On-disk format and paths are unchanged, so existing saves
+    /// load exactly as before.
+    /// </summary>
     public static class LocalJsonStore
     {
         public static T Load<T>(string fileName, T fallback)
         {
-            string path = GetPath(fileName);
-            if (!File.Exists(path))
-            {
-                return fallback;
-            }
-
-            try
-            {
-                string json = File.ReadAllText(path);
-                if (string.IsNullOrWhiteSpace(json))
-                {
-                    return fallback;
-                }
-
-                T value = JsonUtility.FromJson<T>(json);
-                return value == null ? fallback : value;
-            }
-            catch (System.Exception exception)
-            {
-                Debug.LogWarning("Could not load " + fileName + ": " + exception.Message);
-                return fallback;
-            }
+            return F1Game.Core.Persistence.JsonSaveService.Load(fileName, fallback);
         }
 
         public static void Save<T>(string fileName, T value)
         {
-            try
-            {
-                string path = GetPath(fileName);
-                string directory = Path.GetDirectoryName(path);
-                if (!Directory.Exists(directory))
-                {
-                    Directory.CreateDirectory(directory);
-                }
-
-                string json = JsonUtility.ToJson(value, true);
-                File.WriteAllText(path, json);
-            }
-            catch (System.Exception exception)
-            {
-                Debug.LogWarning("Could not save " + fileName + ": " + exception.Message);
-            }
+            F1Game.Core.Persistence.JsonSaveService.Save(fileName, value);
         }
 
         public static string GetPath(string fileName)
@@ -57,4 +30,3 @@ namespace LocalFormulaRacing
         }
     }
 }
-

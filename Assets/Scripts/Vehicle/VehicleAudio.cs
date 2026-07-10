@@ -75,6 +75,14 @@ namespace LocalFormulaRacing
 
         AudioClip CreateScrubLoop()
         {
+            // Audio-bank architecture: authored loop (slot "vehicle_scrub_loop")
+            // replaces this generated fallback when provided.
+            AudioClip authored = F1Game.Audio.AudioBankService.Resolve("vehicle_scrub_loop");
+            if (authored != null)
+            {
+                return authored;
+            }
+
             int sampleRate = 44100;
             int sampleCount = sampleRate;
             float[] samples = new float[sampleCount];
@@ -92,6 +100,14 @@ namespace LocalFormulaRacing
 
         AudioClip CreateEngineLoop()
         {
+            // Audio-bank architecture: authored loop (slot "vehicle_engine_loop")
+            // replaces this generated fallback when provided.
+            AudioClip authored = F1Game.Audio.AudioBankService.Resolve("vehicle_engine_loop");
+            if (authored != null)
+            {
+                return authored;
+            }
+
             int sampleRate = 44100;
             int sampleCount = sampleRate;
             float[] samples = new float[sampleCount];

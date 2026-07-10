@@ -31,6 +31,14 @@ namespace LocalFormulaRacing
         CalendarEventData quickRaceSelectedEvent;
         public CalendarEventData QuickRaceSelectedEvent { get { return quickRaceSelectedEvent; } }
 
+        // ProductionUiBridge (new UI shell) picks the quick-race track through
+        // its own screen; this hands the choice to the existing BeginQuickRace
+        // path without duplicating the flow.
+        public void SetQuickRaceSelectedEvent(CalendarEventData raceEvent)
+        {
+            quickRaceSelectedEvent = raceEvent;
+        }
+
         // Championship graph screen (ShowChampionshipGraphs) state - which tab
         // (driver/constructor/combined) and whether the full field is expanded,
         // plus the currently tapped point/legend entry - persisted across this

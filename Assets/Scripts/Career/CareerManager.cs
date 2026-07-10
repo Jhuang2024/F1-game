@@ -6,7 +6,8 @@ namespace LocalFormulaRacing
     public class CareerManager
     {
         const string CareerFile = "formula_racing_career.json";
-        static readonly int[] Points = { 25, 18, 15, 12, 10, 8, 6, 4, 2, 1 };
+        // Points table moved to F1Game.Race.Rules.ChampionshipPoints (single,
+        // unit-tested source of truth); this class now only applies the results.
         const float UpgradeEffectScale = 2.25f;
         const float ExperimentalBonusScale = 1.3f;
 
@@ -335,7 +336,7 @@ namespace LocalFormulaRacing
 
             for (int i = 0; i < results.Count; i++)
             {
-                int points = i < Points.Length ? Points[i] : 0;
+                int points = F1Game.Race.Rules.ChampionshipPoints.ForPosition(i + 1);
                 results[i].finishingPosition = i + 1;
                 results[i].points = points;
                 ApplyDriverPoints(results[i], points);
@@ -1791,22 +1792,9 @@ namespace LocalFormulaRacing
 
         void SortStandings(List<StandingEntry> standings)
         {
-            standings.Sort((a, b) =>
-            {
-                int pointsCompare = b.points.CompareTo(a.points);
-                if (pointsCompare != 0)
-                {
-                    return pointsCompare;
-                }
-
-                int winsCompare = b.wins.CompareTo(a.wins);
-                if (winsCompare != 0)
-                {
-                    return winsCompare;
-                }
-
-                return b.podiums.CompareTo(a.podiums);
-            });
+            standings.Sort((a, b) => F1Game.Race.Rules.ChampionshipPoints.CompareStandings(
+                a.points, a.wins, a.podiums,
+                b.points, b.wins, b.podiums));
         }
 
         // Standings-drift fix: the single canonical answer to "what team is this

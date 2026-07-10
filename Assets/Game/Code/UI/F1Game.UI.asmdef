@@ -1,0 +1,20 @@
+{
+    "name": "F1Game.UI",
+    "rootNamespace": "F1Game.UI",
+    "references": [
+        "F1Game.Core",
+        "F1Game.Race",
+        "UnityEngine.UI",
+        "Unity.TextMeshPro",
+        "Unity.InputSystem"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

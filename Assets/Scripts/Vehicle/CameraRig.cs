@@ -106,12 +106,11 @@ namespace LocalFormulaRacing
             followCamera.allowHDR = true;
             followCamera.allowMSAA = true;
             followCamera.backgroundColor = RenderSettings.fogColor;
-            // Premium visual pass: bloom/tonemap/grade/vignette chain (see
-            // CameraPostFx) - degrades to a plain blit if disabled/unsupported.
-            if (followCamera.GetComponent<CameraPostFx>() == null)
-            {
-                followCamera.gameObject.AddComponent<CameraPostFx>();
-            }
+            // URP migration: post-processing now comes from the global race
+            // Volume (RaceVolumeService) instead of the removed CameraPostFx
+            // OnRenderImage chain; this enables pipeline post/HDR/SMAA on the
+            // runtime-created camera.
+            F1Game.Rendering.UrpCameraSetup.Apply(followCamera);
 
             AudioListener listener = followCamera.GetComponent<AudioListener>();
             if (listener == null)

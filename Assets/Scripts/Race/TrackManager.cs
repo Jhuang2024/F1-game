@@ -3298,17 +3298,10 @@ namespace LocalFormulaRacing
         // the Spa mist banks, the only two places this file needs a see-through material.
         Material CreateTranslucentMaterial(string materialName, Color color, float alpha)
         {
-            Material material = new Material(Shader.Find("Standard"));
+            Material material = F1Game.Rendering.ShaderCompat.CreateLitMaterial();
             material.name = materialName;
             material.color = new Color(color.r, color.g, color.b, alpha);
-            material.SetFloat("_Mode", 3f);
-            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
-            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
-            material.SetInt("_ZWrite", 0);
-            material.DisableKeyword("_ALPHATEST_ON");
-            material.EnableKeyword("_ALPHABLEND_ON");
-            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-            material.renderQueue = 3000;
+            F1Game.Rendering.ShaderCompat.MakeTransparentFade(material);
             return material;
         }
 
@@ -3577,15 +3570,7 @@ namespace LocalFormulaRacing
         // texture's alpha channel actually punches holes instead of just tinting the color.
         void SetupCutoutTransparency(Material material, float cutoff)
         {
-            material.SetFloat("_Mode", 1f);
-            material.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.One);
-            material.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.Zero);
-            material.SetInt("_ZWrite", 1);
-            material.EnableKeyword("_ALPHATEST_ON");
-            material.DisableKeyword("_ALPHABLEND_ON");
-            material.DisableKeyword("_ALPHAPREMULTIPLY_ON");
-            material.SetFloat("_Cutoff", cutoff);
-            material.renderQueue = 2450;
+            F1Game.Rendering.ShaderCompat.MakeCutout(material, cutoff);
         }
 
         static readonly Dictionary<string, Texture2D> noiseTextureCache = new Dictionary<string, Texture2D>();
@@ -3631,11 +3616,11 @@ namespace LocalFormulaRacing
 
         Material CreateMaterial(string materialName, Color color, float metallic, float smoothness, Color emission)
         {
-            Material material = new Material(Shader.Find("Standard"));
+            Material material = F1Game.Rendering.ShaderCompat.CreateLitMaterial();
             material.name = materialName;
             material.color = color;
             material.SetFloat("_Metallic", metallic);
-            material.SetFloat("_Glossiness", smoothness);
+            F1Game.Rendering.ShaderCompat.SetSmoothness(material, smoothness);
             if (emission.r > 0f || emission.g > 0f || emission.b > 0f)
             {
                 material.EnableKeyword("_EMISSION");
@@ -9650,7 +9635,7 @@ namespace LocalFormulaRacing
         void BuildWetSheenOverlay()
         {
             Material sheen = CreateTranslucentMaterial("Runtime wet sheen", new Color(0.75f, 0.82f, 0.9f), 0.14f);
-            sheen.SetFloat("_Glossiness", 0.98f);
+            F1Game.Rendering.ShaderCompat.SetSmoothness(sheen, 0.98f);
             sheen.SetFloat("_Metallic", 0.05f);
             for (float d = 0f; d < Runtime.length; d += 40f)
             {

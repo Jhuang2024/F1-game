@@ -1,0 +1,32 @@
+{
+    "name": "F1Game.Editor",
+    "rootNamespace": "F1Game.Editor",
+    "references": [
+        "F1Game.Core",
+        "F1Game.Race",
+        "F1Game.Rendering",
+        "F1Game.Track",
+        "F1Game.Vehicle",
+        "F1Game.Cameras",
+        "F1Game.UI",
+        "F1Game.Audio",
+        "F1Game.Input",
+        "Unity.RenderPipelines.Universal.Runtime",
+        "Unity.RenderPipelines.Core.Runtime",
+        "Unity.TextMeshPro",
+        "Unity.InputSystem",
+        "UnityEngine.UI",
+        "Cinemachine"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

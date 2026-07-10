@@ -1,0 +1,16 @@
+{
+    "name": "F1Game.Track",
+    "rootNamespace": "F1Game.Track",
+    "references": [
+        "F1Game.Core"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

@@ -10,6 +10,9 @@ namespace LocalFormulaRacing
         RuntimeUi ui;
         RaceManager raceManager;
 
+        /// <summary>Exposed for ProductionUiBridge (new UI shell) interop.</summary>
+        public RuntimeUi Ui => ui;
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
         static void CreateBootstrap()
         {
@@ -38,6 +41,9 @@ namespace LocalFormulaRacing
             ui = gameObject.AddComponent<RuntimeUi>();
             ui.Initialize(this);
             raceManager = gameObject.AddComponent<RaceManager>();
+            // Interim typed-event publisher for flags/weather/laps/session state
+            // (see RaceEventRelay) - feeds the event-driven HUD/audio layers.
+            gameObject.AddComponent<RaceEventRelay>().Attach(raceManager);
             SimpleAudioManager.Ensure(transform);
             SimpleAudioManager.ApplySettings(settings.Current);
             UiFactory.AnimationsEnabled = settings.Current.uiAnimations;
@@ -56,6 +62,14 @@ namespace LocalFormulaRacing
             }
 
             SimpleAudioManager.ApplySettings(settings.Current);
+
+            // Production-UI vertical slice: prefab/TMP main menu when available;
+            // falls back to the legacy runtime-built menu automatically.
+            if (ProductionUiBridge.TryShowMainMenu(this, data, career, settings))
+            {
+                return;
+            }
+
             ui.ShowMainMenu(data, career, settings);
         }
 
@@ -96,6 +110,13 @@ namespace LocalFormulaRacing
 
         public void StartQuickRace()
         {
+            // Production-UI vertical slice: track select + strategy screens in
+            // the new shell when available, legacy flow otherwise.
+            if (ProductionUiBridge.TryShowQuickRaceFlow(this, data, career, settings))
+            {
+                return;
+            }
+
             // Track selection is now the first step of Quick Race instead of
             // jumping straight into tyre select against a hardcoded track - see
             // RuntimeUi.ShowQuickRaceTrackSelect / quickRaceSelectedEvent.
