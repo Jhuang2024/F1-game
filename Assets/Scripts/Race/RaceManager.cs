@@ -9369,14 +9369,6 @@ namespace LocalFormulaRacing
         const float PitRailBayBlendMeters = 14f;
         const float PitRailHardEscapeMeters = 40f;
         const float PitRailHeadingLookaheadMeters = 12f;
-        // Release-cadence fix: was 22m - combined with counting every rolling
-        // railed car (including ones still driving IN to boxes behind this
-        // bay), a busy pit wave kept re-blocking each bay release for seconds
-        // at a time, which read as the pit lane dribbling cars out one every
-        // ~20s. 12m is still comfortably more than the following car needs to
-        // brake from lane pace (its own car-following clamps it the moment
-        // the released car is rolling ahead of it).
-        const float PitRailReleaseRearWindowMeters = 12f;
         const float PitExitLaneHoldSeconds = 1.5f;
         const float PitExitLaneHoldDistanceMeters = 40f;
         const float PitExitOverlapRadiusMeters = 7f;
@@ -9444,45 +9436,32 @@ namespace LocalFormulaRacing
         }
 
         // Bay-release gate: pulling out of the box must not cut directly in
-        // front of a railed car rolling up the lane from behind, nor into the
-        // back of one just ahead. This is the only queue wait in the pit
-        // system, and it is bounded - the cars it waits for keep moving and
-        // never wait on this car in return.
+        // front of a railed car already rolling in the lane just ahead of
+        // this bay's own position.
+        //
+        // Root-cause fix: this used to ALSO refuse release while any rolling
+        // car sat within a REAR window - but pit boxes are PitBoxSpacing
+        // (10.5m) apart, and that rear window (first 22m, then "fixed" to
+        // 12m) was WIDER than the box gap itself. The instant a car left box
+        // N, it sat ~10.5m ahead of box N+1 - inside any window >= 10.5m -
+        // so box N+1 could never release until that car traveled the ENTIRE
+        // gap clear, and the same trap immediately repeated at box N+2, N+3,
+        // and so on down the whole line. That serialized every release to a
+        // crawl (the reported ~20s cadence) and, under a full mandatory-stop
+        // wave, backed up dozens of cars with nowhere to go.
+        //
+        // There is no real need for a rear check here at all: this is the
+        // exact same "car ahead" relationship FindRailCarAhead already
+        // computes symmetrically for every rolling car, every tick - the
+        // instant this car starts rolling, whatever car is genuinely closing
+        // from behind sees IT as the blocker on its own very next tick and
+        // clamps its own step accordingly (ComputeStep-equivalent logic in
+        // UpdatePitRail). A separate, wider rear window here was pure
+        // redundant complexity, and the one component of it that used a
+        // fixed distance both wider than the box spacing was the actual bug.
         RaceParticipant FindBayReleaseBlocker(RaceParticipant participant)
         {
-            for (int i = 0; i < Participants.Count; i++)
-            {
-                RaceParticipant other = Participants[i];
-                if (other == null || other == participant || !IsRailRolling(other))
-                {
-                    continue;
-                }
-
-                float ahead = WrappedForwardDistance(participant.pitGuideDistance, other.pitGuideDistance);
-                float behind = WrappedForwardDistance(other.pitGuideDistance, participant.pitGuideDistance);
-
-                // Release-cadence fix: a car still on its ENTRY leg parks at
-                // its own box - if that box is at or before this bay, it can
-                // never reach this bay's lane position, so it must not block
-                // the release (during a full pit wave, every incoming car
-                // used to re-block every waiting bay for a few seconds each,
-                // which serialized releases to a crawl).
-                if (!other.pitRailServiceStarted && behind <= PitRailReleaseRearWindowMeters)
-                {
-                    float metresUntilOtherParks = Mathf.Max(0f, other.pitRailBoxS - other.pitRailTraveled);
-                    if (metresUntilOtherParks < behind - 2f)
-                    {
-                        continue;
-                    }
-                }
-
-                if (ahead <= PitRailHeadwayMeters || behind <= PitRailReleaseRearWindowMeters)
-                {
-                    return other;
-                }
-            }
-
-            return null;
+            return FindRailCarAhead(participant);
         }
 
         // Genuine physical overlap only - the one remaining world-space
