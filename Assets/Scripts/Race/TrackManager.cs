@@ -819,20 +819,24 @@ namespace LocalFormulaRacing
             }
         }
 
-        // Pit-exit merge bugfix: GetPitExitRampEnvelope's own lateral never goes
-        // below HalfWidthAt + PitRampNearTrackLateral even at the very end of the
-        // ramp (exitT == 1 clamps to the live track edge PLUS the ramp's own
-        // near-track standoff) - that is still physically outside the racing
-        // surface. UpdatePitExitMerge used to guide straight to that ramp-envelope
-        // lateral forever, so the "back on track" completion check (which requires
-        // the car to be back inside roughly the track edge) could never actually
-        // pass - the car sat just outside the white line indefinitely. This is the
-        // genuinely legal, ON-track outer-lane target the merge should blend onto
-        // by the time the ramp finishes narrowing, comfortably inside HalfWidthAt
-        // rather than just outside it.
+        // Pit-exit release lateral: where a car ends up the instant physics is
+        // handed back (see RaceManager.CompletePitRail / RailLateralTarget).
+        //
+        // Barrier fix: this used to return HalfWidthAt - 1.2m. The edge barrier
+        // sits at HalfWidthAt + EdgeBarrierClearance (0.15m), and a car body is
+        // ~0.875m half-width, so a car released at HalfWidthAt - 1.2m had its
+        // OUTER edge only ~0.5m from the wall - one small AI steering correction
+        // and it clipped the barrier, stalled, and every car behind it in the
+        // exit train piled into it (the pit-exit stockpile seen from the rear
+        // camera). Merged cars now hand off onto a proper inside lane at ~55% of
+        // the half-width - firmly on the pit side of the track (so they don't cut
+        // across the racing line) but with a genuine ~2m of clearance to the
+        // barrier, giving the AI room to settle and pick up the racing line
+        // cleanly instead of fighting the wall. Still comfortably inside
+        // HalfWidthAt, so the merge/handoff on-track checks all still pass.
         public float PitExitMergeLegalLateral(float distance)
         {
-            return HalfWidthAt(distance) - 1.2f;
+            return HalfWidthAt(distance) * 0.55f;
         }
 
         // ---------- hairpin widening ----------
