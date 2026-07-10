@@ -1762,10 +1762,10 @@ namespace LocalFormulaRacing
             // Incident odds reduction (per request): freqScale is the single
             // factor every yellow/VSC/SC escalation chance below multiplies
             // by, so scaling it here reduces the whole family of race-control
-            // interruptions uniformly. Now 0.21 - the earlier 0.42 (a -30% then a
-            // further -40%, 0.7 * 0.6) with another -50% on top (0.42 * 0.5),
-            // taking the standard setting's base 0.13 down to an effective 0.027.
-            float freqScale = (freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.06f : (freqSetting == 3 ? 0.28f : 0.13f))) * 0.21f;
+            // interruptions uniformly. Now 0.126 - the earlier 0.21 (-30%, -40%,
+            // -50% compounded) with another -40% on top (0.21 * 0.6), taking the
+            // standard setting's base 0.13 down to an effective 0.016.
+            float freqScale = (freqSetting == 0 ? 0f : (freqSetting == 1 ? 0.06f : (freqSetting == 3 ? 0.28f : 0.13f))) * 0.126f;
             bool preRace = StartCountdown > 0f;
             int mechanicalMode = Settings == null ? 2 : Settings.Current.mechanicalFailureMode;
 
@@ -8170,8 +8170,14 @@ namespace LocalFormulaRacing
         {
             AiDifficultyProfile profile = GetAiDifficultyProfile();
             float skillBlend = driver == null ? 0.5f : Mathf.Clamp01((driver.awareness + driver.consistency) / 200f);
-            float baseDelay = profile.reactionTimeSeconds * Mathf.Lerp(1.3f, 0.75f, skillBlend);
-            float variance = Mathf.Lerp(0.28f, 0.05f, skillBlend);
+            // Start-reaction fix (per "AI still slow off the line"): the old
+            // 1.3-0.75 * reactionTime range left even mid-field cars sitting
+            // stationary for the better part of a second after lights-out while the
+            // player - who reacts instantly - simply drove away. Halved to
+            // 0.7-0.35 so a competent AI is off the line almost as promptly as the
+            // player, then the physics launch boost does the rest.
+            float baseDelay = profile.reactionTimeSeconds * Mathf.Lerp(0.7f, 0.35f, skillBlend);
+            float variance = Mathf.Lerp(0.14f, 0.03f, skillBlend);
             return Mathf.Max(0f, baseDelay + Random.Range(-variance, variance));
         }
 

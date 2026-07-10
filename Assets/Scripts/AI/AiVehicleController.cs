@@ -82,11 +82,21 @@ namespace LocalFormulaRacing
         // catches up to its target during a race start or a VSC/SC/yellow
         // recovery. Raised to 2x per request.
         const float AccelerationBoostMultiplier = 2f;
+        // How long the dedicated physics-level launch boost (VehicleCommand.launchBoost)
+        // stays armed from lights-out. Deliberately covers the whole first-corner
+        // sprint, not just the sub-second launch-confidence settle, so the AI
+        // actually drags off the line instead of the boost expiring before the
+        // pack has moved.
+        const float RaceStartBoostSeconds = 4.5f;
 
         // Race-start confidence, derived once at spawn from difficulty + driver
         // skill. Pure input timing/ramp, never an engine or grip boost.
         float launchConfidence = 1f;
         float launchSettleDuration;
+        // Rate-limited racing-line offset (see the racing-line block) - persists
+        // between frames so the outside->apex->outside line slews smoothly instead
+        // of snapping, which was reading as the cars visibly swerving/weaving.
+        float smoothedLineBias;
 
         // Traffic dodge-side memory so a car sitting near local.x==0 ahead of us
         // doesn't make the avoidance steer flicker frame to frame.
@@ -1025,36 +1035,42 @@ namespace LocalFormulaRacing
             // is actually driven. The downstream ConstrainLegalLineOffset /
             // LegalOffsetLimit clamps still bound it inside the safe surface,
             // so a stronger bias can never steer a car into the barrier.
+            // Continuous outside-apex-outside racing line. The previous version
+            // classified the corner phase from a frame-to-frame severity delta
+            // (rising/falling vs steady) and hard-flipped lineBias between full
+            // outside and full inside on that boolean. Once the bias magnitude was
+            // raised to the full track width, that flip swung the car right across
+            // the road whenever the noisy severity signal crossed its threshold -
+            // exactly the "cars are swerving" symptom. This replaces it with ONE
+            // smooth curve: the MAGNITUDE is gated by the curvature at/just ahead
+            // of the car (severityHere - zero on a straight, so no early wandering),
+            // and the SIDE is a continuous function of how close the sharpest
+            // upcoming point is (apexDistanceAhead): outside on the approach,
+            // sweeping to the inside right at the apex, back to the outside on exit
+            // as the apex falls behind. No boolean, no flip.
             if (severityHere > 0.05f)
             {
-                bool curvatureRising = severityHere > previousSeverityHere + 0.012f;
-                bool curvatureFalling = severityHere < previousSeverityHere - 0.012f;
-                // Racing-line reach fix: swing much wider through corners. The old
-                // 0.35-0.98 band left even the entry/exit bias short of the legal
-                // limit, so the "outside-inside-outside" arc was shallow and read
-                // as central. Now runs from just over half the legal width on the
-                // gentlest bends up to the FULL legal limit (which itself now
-                // reaches the kerb - see LegalOffsetLimit), so the AI genuinely
-                // works the whole track width and clips the kerbs like the overtake
-                // line does.
                 float biasMagnitude = Mathf.Lerp(legalLimit * 0.6f, legalLimit, severityHere);
-                if (curvatureRising || curvatureFalling)
-                {
-                    lineBias = -turnSign * biasMagnitude;
-                }
-                else
-                {
-                    float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
-                    // Apex-precision dilution softened (was /4, which drove the apex
-                    // clip toward ZERO for lower-skill AI - a 2.6m apex error gave
-                    // apexPrecision ~0.35, so Easy/Medium cars ran the apex almost
-                    // dead centre). /9 keeps a real skill spread (a sloppy driver
-                    // still misses the apex by the noise term) while ensuring every
-                    // tier actually turns in toward the inside kerb.
-                    float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 9f);
-                    lineBias = turnSign * biasMagnitude * apexPrecision + apexMissNoise;
-                }
+                // 0 while the apex is still ~50m+ ahead (approach) or already behind
+                // (exit - apexDistanceAhead jumps to the next corner/400), 1 right on
+                // the apex. lineShape maps that to -1 (full outside) .. +1 (full
+                // inside/apex).
+                float apexProximity = Mathf.Clamp01(1f - apexDistanceAhead / 50f);
+                float lineShape = apexProximity * 2f - 1f;
+                float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
+                // Apex-precision (softened to /9 - a 2.6m error no longer collapses
+                // the clip to near zero) only dilutes the INSIDE/apex portion of the
+                // arc; the outside preposition on entry/exit is driven cleanly.
+                float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 9f);
+                float shapedSide = lineShape > 0f ? lineShape * apexPrecision : lineShape;
+                lineBias = turnSign * biasMagnitude * shapedSide + (lineShape > 0f ? apexMissNoise : 0f);
             }
+            // Rate-limit the line so it slews smoothly rather than snapping frame to
+            // frame - the actual cure for the swerve. ~9 m of lateral offset change
+            // per second is responsive enough to shape a corner yet far too slow to
+            // weave the car on per-frame target noise.
+            smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * 9f);
+            lineBias = smoothedLineBias;
             previousSeverityHere = severityHere;
 
             float requestedOffset = wobble + lineBias + aggressionOffset + mistakeSteer;
@@ -1376,11 +1392,17 @@ namespace LocalFormulaRacing
             // fraction of a second, so buffing it further did nothing the player
             // could feel - both cars then share identical physics and the AI could
             // never out-drag the player off the line. This flag hands
-            // VehicleController a real additive low-speed forward push (AI-only,
-            // ramped out by ~150 km/h) so the AI genuinely launches as hard as the
-            // player. Only ever set while actually braking-clear and on throttle so
-            // it can't shove a car that's trying to slow for turn one.
-            if ((inLaunchWindow || paceCapRecoveryBoostTimer > 0f) && brakeDemand < 0.05f)
+            // VehicleController a real additive low-speed forward push (AI-only) so
+            // the AI genuinely launches as hard as - now harder than - the player.
+            // Driven by a dedicated, robust race-start window (the first
+            // RaceStartBoostSeconds of the race, independent of the fragile
+            // launchSettleDuration window above, which was so short the boost was
+            // gone before the pack had really moved) plus any pace-cap recovery.
+            // Only set while braking-clear and below race pace so it can't shove a
+            // car trying to slow for turn one and can't add straight-line top speed.
+            bool raceStartBoostWindow = raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
+                                        raceManager.RaceElapsed >= 0f && raceManager.RaceElapsed < RaceStartBoostSeconds;
+            if ((raceStartBoostWindow || paceCapRecoveryBoostTimer > 0f) && brakeDemand < 0.05f && speedKph < 210f)
             {
                 command.launchBoost = Mathf.Clamp01(command.throttle);
             }
@@ -1640,6 +1662,7 @@ namespace LocalFormulaRacing
             wasDrsLegalLastFrame = false;
             currentThrottle = 0f;
             previousSeverityHere = 0f;
+            smoothedLineBias = 0f;
         }
 
         // Race-control autopilot has just handed control back - see the call site

@@ -1126,7 +1126,7 @@ namespace LocalFormulaRacing
             // channel is AI-only) and is gated off any active speed cap so it can't
             // fight the pit/race-control limiter.
             float launchBoostForce = (!IsPlayerControlled && !speedCapEngaged && activeCommand.launchBoost > 0.01f)
-                ? Mathf.Lerp(11f, 4f, Mathf.InverseLerp(0f, 150f, forwardSpeedKph)) * Mathf.Clamp01(activeCommand.launchBoost)
+                ? Mathf.Lerp(18f, 4f, Mathf.InverseLerp(0f, 180f, forwardSpeedKph)) * Mathf.Clamp01(activeCommand.launchBoost)
                 : 0f;
 
             float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
