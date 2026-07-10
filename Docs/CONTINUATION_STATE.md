@@ -7,6 +7,28 @@ Living ledger for the production rebuild. Updated after every logical commit.
   below is **static-only / unverified**: not compiled, not tested, not run.
 - No claim of compilation, runtime, visual, test, or performance success is made.
 
+## Completion matrix (honest — unchecked = NOT the live path)
+- [x] TMP import cannot activate incomplete UI
+- [ ] Production UI is default (intentionally opt-in until full parity)
+- [ ] Full frontend migrated / [ ] career UI / [ ] race-weekend UI / [ ] settings+a11y UI
+- [ ] Production HUD parity / [ ] legacy HUD removed
+- [ ] Authored tracks default / [ ] every track migrated / [ ] procedural track removed
+- [ ] Production car path authoritative (placeholder until authored car art)
+- [ ] Material/rendering authoritative / [ ] VFX wired throughout / [ ] audio bank authoritative
+- [ ] RaceManager/TrackManager/RuntimeUi/RaceHud/CareerManager/VehicleVisuals decomposed
+- [ ] VehicleController modular physics / [ ] AI modular / [ ] pit lane / [ ] full rules authoritative
+- [ ] Full session formats / weather / damage integrated
+- [ ] Career systems / R&D / customization complete
+- [ ] Replay / spectator / broadcast / photo / telemetry live
+- [ ] Input+wheel / accessibility / localization / loading / diagnostics / release complete
+- [ ] Editor/content tools complete
+- [ ] Multiplayer complete
+- [x] Static checks clean  [x] Documentation honest  [x] Main fast-forwarded and pushed  [x] Worktree clean
+
+The unchecked items are genuine multi-week bodies of work that cannot be
+truthfully completed or made the sole live path in an environment with no
+compiler and no Unity. They are NOT claimed complete. See Docs/KNOWN_ISSUES.md.
+
 ## Completion run (final directive)
 - Branch: `claude/unity-production-completion` (descends from `origin/main` a57712d).
 - Critical UI transition bug FIXED: ProductionUiReadiness (no TMP auto-activation),
