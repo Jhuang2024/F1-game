@@ -2863,7 +2863,18 @@ namespace LocalFormulaRacing
             float tyreScore = car.tyreManagement;
             float topOfThree = Mathf.Max(topSpeedScore, Mathf.Max(corneringScore, tyreScore));
 
-            if (topOfThree >= 90f)
+            // Archetype-cliff fix: a genuinely elite car (e.g. a base cornering
+            // stat of 94) could lose its signature archetype entirely from one
+            // ordinary season's bounded performance-evolution swing (up to -9%,
+            // see GenerateTeamPerformanceEvolution) - 94 * 0.91 ~= 86, just under
+            // the old 90-point cliff, silently dumping a still-clearly-elite car
+            // into the generic overall-based tiers ("Midfield Fighter" for a car
+            // still in the mid-to-high 80s across the board, nowhere near
+            // midfield). Lowered to 85 so a normal seasonal dip doesn't erase a
+            // top team's identity; the >=6 gap-from-the-other-two-signature-
+            // stats check right below still keeps a genuinely average car out of
+            // these tiers.
+            if (topOfThree >= 85f)
             {
                 if (Mathf.Approximately(topSpeedScore, topOfThree) && topSpeedScore - corneringScore >= 6f && topSpeedScore - tyreScore >= 6f)
                 {

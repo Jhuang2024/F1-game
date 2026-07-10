@@ -1111,7 +1111,9 @@ namespace LocalFormulaRacing
                 // Round 10: cut a further 10% on top of round 9 (was 0.0192-0.0407
                 // * 0.72), same non-braking-only regen cut as the coasting rate
                 // above.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.648f * harvestModeMultiplier);
+                // Round 11: cut a further 15% (per request), applied as an extra
+                // multiplier so the whole prior 0.648 factor stays traceable.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.648f * 0.85f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
@@ -1209,11 +1211,12 @@ namespace LocalFormulaRacing
             // cut is what regulates a closing car - an unbrakeable full-strength
             // shove would otherwise ram it into the car ahead): full boost at
             // >=0.72 commanded throttle, fading to zero as the cut approaches 0.
-            // Nerf (per request, another -30% on top of the earlier -25%,
-            // applies uniformly across every difficulty - this boost was never
-            // difficulty-scaled): peak 22.5 -> 15.75, high-speed tail 4 -> 2.8.
+            // Nerf (per request, another -30% on top of the earlier -25% then
+            // -30%, applies uniformly across every difficulty - this boost was
+            // never difficulty-scaled): peak 15.75 -> 11.025, high-speed tail
+            // 2.8 -> 1.96.
             float launchBoostForce = (!IsPlayerControlled && !speedCapEngaged && launchCommand > 0.01f)
-                ? Mathf.Lerp(15.75f, 2.8f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * launchCommand * Mathf.Clamp01(activeCommand.throttle * 1.4f)
+                ? Mathf.Lerp(11.025f, 1.96f, Mathf.InverseLerp(0f, 220f, forwardSpeedKph)) * launchCommand * Mathf.Clamp01(activeCommand.throttle * 1.4f)
                 : 0f;
             bool launchGatesOpen = !IsHeldInPit && !IsHeldOnGrid && activeCommand.brake < 0.25f && !fuelStarved;
             if (launchBoostForce > 0.01f && launchGatesOpen)
