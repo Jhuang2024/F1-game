@@ -752,10 +752,22 @@ namespace LocalFormulaRacing
             float apexSeverity;
             FindUpcomingApex(progress.distance, speedKph, skillTier, out apexDistanceAhead, out apexSeverity);
             // Low-pass the 20 m-quantised apex distance so the racing line's
-            // apex-proximity term doesn't wobble on single-frame steps. Fast enough
-            // (up to 140 m/s) to track a genuinely approaching corner, slow enough
-            // to swallow the step noise.
-            smoothedApexDistance = Mathf.MoveTowards(smoothedApexDistance, apexDistanceAhead, Time.deltaTime * 140f);
+            // apex-proximity term doesn't wobble on single-frame steps - but
+            // ASYMMETRICALLY: passing an apex makes the raw value jump hundreds of
+            // metres up to the next corner in one frame, and slewing through that
+            // jump kept the car in "at apex" line-bias for ~2s after the corner
+            // while turnSign already pointed at the NEXT corner - steering the car
+            // to the wrong side between corners (line never settled, read as both
+            // "not on the optimal line" and residual weaving). Big upward jumps now
+            // snap immediately; only the small step noise is smoothed.
+            if (apexDistanceAhead > smoothedApexDistance + 45f)
+            {
+                smoothedApexDistance = apexDistanceAhead;
+            }
+            else
+            {
+                smoothedApexDistance = Mathf.MoveTowards(smoothedApexDistance, apexDistanceAhead, Time.deltaTime * 140f);
+            }
             float turnSign = EstimateTurnDirection(progress.distance);
 
             // Real ceiling, not an invented ~330-350kph clamp: the same DRS/ERS-aware
@@ -1081,6 +1093,12 @@ namespace LocalFormulaRacing
                 float apexWindow = Mathf.Max(50f, speedKph / 3.6f * 2.4f);
                 float apexProximity = Mathf.Clamp01(1f - smoothedApexDistance / apexWindow);
                 float lineShape = apexProximity * 2f - 1f;
+                // Turn direction anchored AT the targeted apex, not generically
+                // 16-64m ahead of the car - approaching corner A, the generic
+                // sample could already be reading corner B's direction (chicanes,
+                // esses), biasing the car to the wrong side of the road for the
+                // corner it's actually shaping its line for.
+                float apexTurnSign = EstimateTurnDirection(progress.distance + Mathf.Max(0f, smoothedApexDistance - 24f));
                 float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
                 // Apex-precision (softened to /9 - a 2.6m error no longer collapses
                 // the clip to near zero) only dilutes the INSIDE/apex portion of the
@@ -1090,7 +1108,7 @@ namespace LocalFormulaRacing
                 // on biasMagnitude above (barrier drift on fast corners); the apex
                 // clip (lineShape > 0) keeps the full width.
                 float shapedSide = lineShape > 0f ? lineShape * apexPrecision : lineShape * 0.85f;
-                lineBias = turnSign * biasMagnitude * shapedSide + (lineShape > 0f ? apexMissNoise : 0f);
+                lineBias = apexTurnSign * biasMagnitude * shapedSide + (lineShape > 0f ? apexMissNoise : 0f);
             }
             // Rate-limit the line so it slews smoothly rather than snapping frame to
             // frame - the cure for the swerve. Speed-scaled: a fixed rate was either
@@ -1991,12 +2009,33 @@ namespace LocalFormulaRacing
                     // 3.6s / 4.2m) and the brake/throttle response curves
                     // strengthened further (was 0.3-1 / 0.72-0.05) - reacts to a
                     // genuinely closing gap earlier and harder still.
-                    float timeToContact = local.z / Mathf.Max(1.5f, closingKph / 3.6f);
-                    if (timeToContact < 4.2f && absX < 4.6f)
+                    // Launch/pack-compression fix (THE "AI slow off the line" cause):
+                    // the old timeToContact divisor had a 1.5 m/s FLOOR - so a car
+                    // ahead travelling at the SAME speed still read as "contact in
+                    // gap/1.5 seconds", and any same-speed gap under ~6.3m tripped
+                    // the urgency brake/throttle-cap. Off a standing start the pack
+                    // compresses immediately, so every AI behind row one spent the
+                    // whole launch throttle-capped to ~0.6 with brake taps, pacing
+                    // the entire field to the front row's launch while the player
+                    // freely drove around the outside for 10+ places. Urgency now
+                    // only fires when GENUINELY closing (>0.8 m/s); a same-speed
+                    // near-gap instead gets a gentle non-braking throttle trim to
+                    // hold station. This also stops the pack yo-yoing behind a
+                    // slightly slower car mid-race.
+                    float closingMps = closingKph / 3.6f;
+                    if (closingMps > 0.8f)
                     {
-                        float urgency = Mathf.Clamp01(1f - timeToContact / 4.2f);
-                        brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.38f, 1f, urgency * urgency) * overlap);
-                        throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.65f, 0.02f, urgency));
+                        float timeToContact = local.z / closingMps;
+                        if (timeToContact < 4.2f && absX < 4.6f)
+                        {
+                            float urgency = Mathf.Clamp01(1f - timeToContact / 4.2f);
+                            brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.38f, 1f, urgency * urgency) * overlap);
+                            throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.65f, 0.02f, urgency));
+                        }
+                    }
+                    else if (local.z < 5.5f && absX < 3.2f)
+                    {
+                        throttleLimit = Mathf.Min(throttleLimit, 0.85f);
                     }
 
                     // Tighter lane-only overlap for the soft cruising cap so a car with
