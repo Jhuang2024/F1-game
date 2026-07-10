@@ -1,0 +1,93 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2849f9f1889a45cf7a986a3bbb70f3cc, type: 3}
+  m_Name: UiTheme_Default
+  m_EditorClassIdentifier:
+  typography:
+    regular: {fileID: 0}
+    semiBold: {fileID: 0}
+    tabularNumeric: {fileID: 0}
+    display: 64
+    h1: 40
+    h2: 28
+    h3: 22
+    body: 18
+    bodySmall: 15
+    label: 13
+    button: 18
+    numeric: 20
+    timingCompact: 16
+    caption: 12
+  spacing:
+    micro: 4
+    small: 8
+    normal: 16
+    section: 24
+    large: 32
+    major: 48
+    hero: 64
+  palette:
+    background: {r: 0.055, g: 0.06, b: 0.07, a: 1}
+    surface: {r: 0.09, g: 0.095, b: 0.11, a: 1}
+    surfaceRaised: {r: 0.125, g: 0.13, b: 0.15, a: 1}
+    outline: {r: 1, g: 1, b: 1, a: 0.08}
+    textPrimary: {r: 0.96, g: 0.96, b: 0.97, a: 1}
+    textMuted: {r: 0.62, g: 0.64, b: 0.68, a: 1}
+    accent: {r: 0.9, g: 0.17, b: 0.1, a: 1}
+    positive: {r: 0.24, g: 0.78, b: 0.42, a: 1}
+    warning: {r: 0.95, g: 0.72, b: 0.16, a: 1}
+    danger: {r: 0.92, g: 0.26, b: 0.21, a: 1}
+    focusOutline: {r: 1, g: 1, b: 1, a: 0.9}
+  states:
+    normal: {r: 0.125, g: 0.13, b: 0.15, a: 1}
+    hover: {r: 0.17, g: 0.175, b: 0.2, a: 1}
+    pressed: {r: 0.1, g: 0.105, b: 0.12, a: 1}
+    selected: {r: 0.24, g: 0.12, b: 0.1, a: 1}
+    disabledSurface: {r: 0.09, g: 0.095, b: 0.11, a: 0.5}
+    disabledText: {r: 0.45, g: 0.46, b: 0.49, a: 1}
+    focusOutlineWidth: 2
+  motion:
+    micro: 0.18
+    screen: 0.32
+    ease:
+      serializedVersion: 2
+      m_Curve:
+      - serializedVersion: 3
+        time: 0
+        value: 0
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0.33333334
+        outWeight: 0.33333334
+      - serializedVersion: 3
+        time: 1
+        value: 1
+        inSlope: 0
+        outSlope: 0
+        tangentMode: 0
+        weightedMode: 0
+        inWeight: 0.33333334
+        outWeight: 0.33333334
+      m_PreInfinity: 2
+      m_PostInfinity: 2
+      m_RotationOrder: 4
+    respectReducedMotion: 1
+  components:
+    buttonHeight: 56
+    buttonHeightCompact: 44
+    cornerRadius: 6
+    cardPadding: 16
+    modalBackdropOpacity: 0.68
+    toastSeconds: 3.5
+    tooltipDelaySeconds: 0.45
