@@ -41,6 +41,9 @@ namespace LocalFormulaRacing
             ui = gameObject.AddComponent<RuntimeUi>();
             ui.Initialize(this);
             raceManager = gameObject.AddComponent<RaceManager>();
+            // Interim typed-event publisher for flags/weather/laps/session state
+            // (see RaceEventRelay) - feeds the event-driven HUD/audio layers.
+            gameObject.AddComponent<RaceEventRelay>().Attach(raceManager);
             SimpleAudioManager.Ensure(transform);
             SimpleAudioManager.ApplySettings(settings.Current);
             UiFactory.AnimationsEnabled = settings.Current.uiAnimations;

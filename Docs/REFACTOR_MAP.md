@@ -21,7 +21,9 @@ New behavior goes into `Assets/Game/Code/*` modules; monoliths only shrink.
 | Race control / SC / VSC / red flag (1626–3660) | `IncidentService`, `SafetyCarCoordinator`, `RaceControlStateMachine` | planned (Phase 3, with rulebook) |
 | Timing/gaps (5967–7160) | `RaceOrderService` + `LapTimingService` (merge with RaceStateManager) | planned (Phase 2) |
 | Engineer/radio (4325–5322) | `RadioService` publishing `RadioMessageEvent` | planned (Phase 2) — HUD side already event-driven |
-| Car mesh construction (`CreateOpenWheelCar` 8426–8878) | **deleted** when car prefab pipeline replaces primitives (CarRigSpec/CarPrefabBuilder ready) | planned (Phase 2) |
+| Flag/weather/lap/session event publication | `RaceEventRelay` (interim per-frame diff watcher) → later the owning services | **bridged** — typed events now flow for flags, weather, player laps, session finish |
+| Graphics quality application (`CreateLighting` QualitySettings writes) | `F1Game.Rendering.GraphicsPresetService` | **extracted** — switches Unity quality levels/URP tiers instead of inert field writes |
+| Car mesh construction (`CreateOpenWheelCar` 8426–8878) | `CarVisualFactory` (Assets/Scripts/Vehicle) | **extracted** — 464 lines out of RaceManager; primitive output tagged `PlaceholderArtMarker`; authored-prefab hook (`PreferAuthoredPrefab`) ready for the CarRigSpec pipeline |
 | Lighting/skybox (`CreateLighting` 8890) | `F1Game.Rendering` lighting profiles | **partially done** — post/grade moved to `RaceVolumeService`; sun/sky next |
 | Fuel model (1330–1520) | `FuelModel` (pure) | planned |
 | Ghost record/playback (5592–5800) | `GhostService` | planned |

@@ -4,6 +4,8 @@
     "references": [
         "F1Game.Core",
         "F1Game.Race",
+        "F1Game.Track",
+        "F1Game.Input",
         "UnityEngine.TestRunner",
         "UnityEditor.TestRunner"
     ],
