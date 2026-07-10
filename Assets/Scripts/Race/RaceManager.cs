@@ -5712,7 +5712,7 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            ghostCarObject = CarVisualFactory.CreateOpenWheelCar("Ghost", new Color(0.3f, 0.62f, 1f), new Color(0.55f, 0.8f, 1f));
+            ghostCarObject = ProductionCarSpawner.SpawnCar("Ghost", new Color(0.3f, 0.62f, 1f), new Color(0.55f, 0.8f, 1f));
             ghostCarObject.name = "Ghost car";
             ghostCarObject.transform.SetParent(raceWorld.transform);
             Rigidbody body = ghostCarObject.GetComponent<Rigidbody>();
@@ -8064,7 +8064,7 @@ namespace LocalFormulaRacing
                 spawnPosition += Vector3.up * 0.1f;
             }
 
-            GameObject carObject = CarVisualFactory.CreateOpenWheelCar(driverName, team.PrimaryUnityColor, team.SecondaryUnityColor);
+            GameObject carObject = ProductionCarSpawner.SpawnCar(driverName, team.PrimaryUnityColor, team.SecondaryUnityColor);
             carObject.transform.SetParent(raceWorld.transform);
             carObject.transform.position = spawnPosition;
             carObject.transform.rotation = spawnRotation;
