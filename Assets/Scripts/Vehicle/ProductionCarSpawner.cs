@@ -38,7 +38,6 @@ namespace LocalFormulaRacing
                 }
 
                 ApplyLivery(authored, definition, primary, secondary);
-                authored.AddComponent<VehicleVfxDriver>();
                 return authored;
             }
 
@@ -46,9 +45,11 @@ namespace LocalFormulaRacing
             // PlaceholderArtMarker, wrapped in the production rig binding.
             GameObject placeholder = CarVisualFactory.CreateOpenWheelCar(driverName, primary, secondary);
             AttachPlaceholderBinding(placeholder, primary, secondary);
-            // Live pooled VFX driver (lazily binds to the VehicleController that
-            // the participant setup adds after this returns).
-            placeholder.AddComponent<VehicleVfxDriver>();
+            // Note: no VehicleVfxDriver here. The car already carries a full per-car
+            // particle system (VehicleEffects: dust/spray/lockup/wheelspin/sparks via
+            // CarVisualFactory), so attaching VehicleVfxDriver as well ran a second,
+            // redundant pooled-VFX stack on all 22 cars — doubling particle draw calls
+            // for the same events. One VFX system per car.
             return placeholder;
         }
 

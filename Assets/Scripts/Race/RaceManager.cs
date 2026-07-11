@@ -8527,7 +8527,13 @@ namespace LocalFormulaRacing
                 : (desert ? new Color(1f, 0.85f, 0.65f)
                 : (coastal ? new Color(1f, 0.94f, 0.85f)
                 : new Color(0.98f, 0.96f, 0.94f)))));
-            light.shadows = LightShadows.Soft;
+            // Performance: Hard rather than Soft shadows. Soft directional shadows
+            // do a multi-tap PCF filter over the whole shadow map every frame; with
+            // 22 cars each built from dozens of small cosmetic primitives plus
+            // thousands of procedural track objects all casting into that map, the
+            // soft filter was a dominant per-frame cost after the Built-in-RP revert.
+            // Hard shadows keep grounded contact shadows at a fraction of the cost.
+            light.shadows = LightShadows.Hard;
             light.shadowStrength = rainThreat ? 0.68f : 0.92f;
             light.shadowBias = 0.035f;
             light.shadowNormalBias = 0.22f;
@@ -8574,6 +8580,11 @@ namespace LocalFormulaRacing
             fillLight.intensity = night ? 1.8f : 0.64f;
             fillLight.range = 350f;
             fillLight.shadows = LightShadows.None;
+            // Performance: a 350m-range pixel point light in Built-in Forward adds an
+            // extra per-object forward pass to everything it touches. As a broad
+            // ambient fill it does not need per-pixel quality, so render it as a cheap
+            // vertex light instead.
+            fillLight.renderMode = LightRenderMode.ForceVertex;
 
             // Performance fix: this was Realtime + EveryFrame - a full 6-face
             // cubemap re-render of the ENTIRE scene, every single frame, on
@@ -8606,6 +8617,11 @@ namespace LocalFormulaRacing
                     floodLight.type = LightType.Point;
                     floodLight.intensity = 1.25f;
                     floodLight.range = 95f;
+                    floodLight.shadows = LightShadows.None;
+                    // Performance: six additive pixel point lights on a night track
+                    // each add a forward pass to every object in range. Vertex lighting
+                    // keeps the floodlit look at a fraction of the fill cost.
+                    floodLight.renderMode = LightRenderMode.ForceVertex;
                 }
             }
         }
