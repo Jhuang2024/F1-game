@@ -163,12 +163,15 @@ several sessions), not a thin v1 swap.
 31. `bc60d92` HUD tranche 4: SessionLabelModule (kind + event name), ERS
     meter dims under race-control lockout. Checklist updated.
 
-Exact next task: HUD parity tranche 5 - Tier 1 cancel-pit button
+32. `1e0d9f9`-range HUD tranche 5 (partial): SessionMessageModule live.
+
+Exact next task: HUD parity tranche 6 - Tier 1 cancel-pit button
 (interactive: check how the HUD canvas routes ThemedButton clicks during a
-live session, add cancel-eligibility to the snapshot, call
-race.CancelManualPitRequest through the session bridge); Tier 4 remaining
-(tyre temp/lockup detail, input bars, session message, track-limit flash).
-Then results-screen parity pass; then Phase E service extraction seams
+live session - UiShell has an EventSystem; add cancel-eligibility to the
+snapshot via PitRequestRules.CanCancel context, call
+race.CancelManualPitRequest through ProductionSessionUi); Tier 4 remaining
+(tyre temp/lockup detail, input bars, track-limit flash). Then
+results-screen parity pass; then Phase E service extraction seams
 (RaceSessionController / LapTimingService).
 
 ## Environment reality
