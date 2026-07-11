@@ -79,14 +79,18 @@ guarantees exactly one live HUD.
     parameterization); authored stays behind f1game_authored_track until
     track construction itself is authored.
 
-Exact next task: continue ITrackQuery consumer migration (remaining
-RaceManager HalfWidthAt sites at incident/blocking/pit checks, then
-AiVehicleController's edge checks - mechanical, use the same
-LocalHalfWidthAt pattern; add an equivalent helper on the AI side). Then:
-authored track construction (TrackRuntimeBuilder building the physical
-world from a TrackDefinitionAsset for one circuit) so the authored backend
-can become selectable for real. Career screens continue in the CareerHub
-pattern (save-slot info, driver profile).
+17. `d7bcbb9` All 17 remaining RaceManager/AI half-width consumers migrated
+    onto the LocalHalfWidthAt seam helpers (identical values today; authored
+    backend now covers width queries everywhere the race layer asks).
+
+Exact next task: authored track construction - make TrackRuntimeBuilder able
+to build the physical race world from a TrackDefinitionAsset for one circuit
+so TrackQueryProvider's authored backend can be selected coherently (world
+and query sharing one parameterization). This is the gating step for the
+rest of Phase C; requires careful review of TrackManager's build entry
+points (BuildTrack / world-object creation). After that: racing-line and
+sector consumers onto ITrackQuery, then career screens (save-slot info,
+driver profile) in the CareerHub pattern.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
