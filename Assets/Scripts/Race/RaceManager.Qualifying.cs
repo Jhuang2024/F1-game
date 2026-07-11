@@ -70,53 +70,11 @@ namespace LocalFormulaRacing
 
         float PlayerQualifyingTyreWeatherPenalty(TyreCompound compound)
         {
+            // Live weather read here; the weather x compound penalty table is the
+            // engine-free QualifyingModel.TyreWeatherPenalty (WeatherState and
+            // TyreCompound orderings match its codes).
             WeatherState weather = Track == null ? WeatherState.Clear : Track.weather;
-            if (weather == WeatherState.HeavyRain)
-            {
-                if (compound == TyreCompound.Wet)
-                {
-                    return -0.12f;
-                }
-
-                if (compound == TyreCompound.Intermediate)
-                {
-                    return 1.45f;
-                }
-
-                return 5.4f;
-            }
-
-            if (weather == WeatherState.LightRain)
-            {
-                if (compound == TyreCompound.Intermediate)
-                {
-                    return -0.12f;
-                }
-
-                if (compound == TyreCompound.Wet)
-                {
-                    return 0.74f;
-                }
-
-                return 2.75f;
-            }
-
-            if (compound == TyreCompound.Soft)
-            {
-                return -0.18f;
-            }
-
-            if (compound == TyreCompound.Medium)
-            {
-                return 0.08f;
-            }
-
-            if (compound == TyreCompound.Hard)
-            {
-                return 0.34f;
-            }
-
-            return compound == TyreCompound.Intermediate ? 1.7f : 3.1f;
+            return QualifyingModel.TyreWeatherPenalty((int)weather, (int)compound);
         }
 
         // ---------- Qualifying model rework ----------

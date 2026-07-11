@@ -1185,6 +1185,15 @@ deferred, not claimed complete.
         string formatting stay in the caller - byte-identical, one live path, one
         copy of the rule instead of two. GapMathTests added (threshold boundary,
         round/floor, banker's-rounding halves). Unity/runtime validation PENDING.
+    E8. Player tyre/weather qualifying penalty -> QualifyingModel. The weather x
+        compound penalty table in RaceManager.PlayerQualifyingTyreWeatherPenalty
+        (correct wet/inter a small bonus, wrong tyre a big penalty, dry slick ladder)
+        was a pure lookup. Extracted verbatim into
+        QualifyingModel.TyreWeatherPenalty(weatherCode, compoundCode) with a new
+        Compound code table (Soft 0..Wet 4) matching the live TyreCompound ordering.
+        The partial reads live Track.weather and delegates - byte-identical, one live
+        path. QualifyingModelTests extended (heavy/light rain + dry rows, incl. the
+        cloudy->dry-else path). Unity/runtime validation PENDING.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

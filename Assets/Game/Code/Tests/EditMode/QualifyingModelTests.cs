@@ -128,6 +128,29 @@ namespace F1Game.Tests
         }
 
         [Test]
+        public void TyreWeatherPenaltyRewardsTheRightRubber()
+        {
+            // Heavy rain: wets are a small bonus, inters a moderate penalty, slicks huge.
+            Assert.AreEqual(-0.12f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.HeavyRain, QualifyingModel.Compound.Wet), 0.0001f);
+            Assert.AreEqual(1.45f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.HeavyRain, QualifyingModel.Compound.Intermediate), 0.0001f);
+            Assert.AreEqual(5.4f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.HeavyRain, QualifyingModel.Compound.Soft), 0.0001f);
+
+            // Light rain: inters best, wets a small penalty, slicks a big one.
+            Assert.AreEqual(-0.12f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.LightRain, QualifyingModel.Compound.Intermediate), 0.0001f);
+            Assert.AreEqual(0.74f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.LightRain, QualifyingModel.Compound.Wet), 0.0001f);
+            Assert.AreEqual(2.75f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.LightRain, QualifyingModel.Compound.Medium), 0.0001f);
+
+            // Dry: soft fastest, then medium, then hard; rain tyres are penalised.
+            Assert.AreEqual(-0.18f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Soft), 0.0001f);
+            Assert.AreEqual(0.08f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Medium), 0.0001f);
+            Assert.AreEqual(0.34f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Hard), 0.0001f);
+            Assert.AreEqual(1.7f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Intermediate), 0.0001f);
+            Assert.AreEqual(3.1f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Wet), 0.0001f);
+            // Cloudy behaves like dry here (only Clear is checked implicitly by the else path).
+            Assert.AreEqual(-0.18f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Cloudy, QualifyingModel.Compound.Soft), 0.0001f);
+        }
+
+        [Test]
         public void CarEffectIsClampedRatingGap()
         {
             // Live coefficient 0.08/point, cap 2.0 s.

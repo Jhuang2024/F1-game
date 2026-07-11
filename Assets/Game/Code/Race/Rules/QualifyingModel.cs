@@ -21,6 +21,75 @@ namespace F1Game.Race.Rules
             public const int HeavyRain = 3;
         }
 
+        /// <summary>Tyre-compound codes matching the live TyreCompound enum values.</summary>
+        public static class Compound
+        {
+            public const int Soft = 0;
+            public const int Medium = 1;
+            public const int Hard = 2;
+            public const int Intermediate = 3;
+            public const int Wet = 4;
+        }
+
+        /// <summary>
+        /// The player's qualifying penalty (seconds) for running a given compound in
+        /// the current weather, extracted verbatim from
+        /// RaceManager.PlayerQualifyingTyreWeatherPenalty: the correct wet/inter tyre
+        /// is a small bonus, the wrong tyre for the conditions is a large penalty,
+        /// and in the dry the slick ladder (soft fastest) applies with a big penalty
+        /// for starting on a rain tyre. The caller maps its live Track.weather and
+        /// the chosen compound to codes.
+        /// </summary>
+        public static float TyreWeatherPenalty(int weatherCode, int compoundCode)
+        {
+            if (weatherCode == Weather.HeavyRain)
+            {
+                if (compoundCode == Compound.Wet)
+                {
+                    return -0.12f;
+                }
+
+                if (compoundCode == Compound.Intermediate)
+                {
+                    return 1.45f;
+                }
+
+                return 5.4f;
+            }
+
+            if (weatherCode == Weather.LightRain)
+            {
+                if (compoundCode == Compound.Intermediate)
+                {
+                    return -0.12f;
+                }
+
+                if (compoundCode == Compound.Wet)
+                {
+                    return 0.74f;
+                }
+
+                return 2.75f;
+            }
+
+            if (compoundCode == Compound.Soft)
+            {
+                return -0.18f;
+            }
+
+            if (compoundCode == Compound.Medium)
+            {
+                return 0.08f;
+            }
+
+            if (compoundCode == Compound.Hard)
+            {
+                return 0.34f;
+            }
+
+            return compoundCode == Compound.Intermediate ? 1.7f : 3.1f;
+        }
+
         /// <summary>
         /// A circuit's average-speed character (relative lap-time scaler), extracted
         /// verbatim from RaceManager.TrackAverageSpeedFactor. The caller keeps the
