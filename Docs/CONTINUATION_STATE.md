@@ -982,6 +982,14 @@ deferred, not claimed complete.
     stay public so the pause menu and GameBootstrap resolve in-class.
     RaceManager.cs -> 1342 lines: 10325 out over 51 slices (~88.5%).
     RaceManager is now spread across 47 focused partials (main + 46).
+    Slice 52: practice session - EvaluatePracticeSession (scores a just-driven
+    Practice session against the selected program from the real telemetry captured
+    during it, before CleanupRaceWorld while the car is still live) and
+    BestAiLapTimeThisSession - 90 lines - moved to RaceManager.Practice.cs. Scoring
+    criteria unchanged; the PracticeSessionResult nested type stays in main, and the
+    public entry point stays public so the practice UI resolves in-class.
+    RaceManager.cs -> 1251 lines: 10416 out over 52 slices (~89.3%).
+    RaceManager is now spread across 48 focused partials (main + 47).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
