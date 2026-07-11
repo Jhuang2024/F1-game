@@ -1006,6 +1006,14 @@ deferred, not claimed complete.
     resolves in-class. No new partial - still 48.
     RaceManager.cs -> 1117 lines: 10550 out over 54 slices (~90.4%).
     RaceManager is now spread across 48 focused partials (main + 47).
+    Slice 55: race-control state reset - ResetRaceControlState (resets the
+    green/VSC/SC/red state machine, target speeds, timers and per-session flags at
+    session start) - 84 lines - consolidated into the existing
+    RaceManager.RaceControl.cs partial (which already owns the incidents/escalation
+    logic). Reset values and order unchanged; the local-yellow consts and Weather
+    partial note-comment stay in main and resolve in-class. No new partial - still 48.
+    RaceManager.cs -> 1032 lines: 10635 out over 55 slices (~91.2%).
+    RaceManager is now spread across 48 focused partials (main + 47).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
