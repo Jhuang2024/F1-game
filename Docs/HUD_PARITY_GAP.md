@@ -12,9 +12,10 @@ timing tower (top-10 + player), notification feed (penalty/retirement/
 pit-request/radio events).
 
 ## Tier 1 — Interactive (input routing needed)
-- [ ] Cancel Pit Request button (1031/2235): only interactive HUD control.
-      Needs button widget + routing + cancel-eligibility flag
-      (`CanCancelManualPitRequest`).
+- [x] Cancel Pit Request button (1031/2235): CancelPitButtonModule, shown
+      only while cancellable. Click routes UI → race via HudCommands
+      (mirror of HudTelemetry); race-layer eligibility gate makes a late
+      click a no-op. (tranche 6)
 
 ## Tier 2 — Pit/strategy surface (snapshot fields)
 - [x] Pit phase pill incl. "BOX THIS LAP" (2265). (PitStrategyModule,

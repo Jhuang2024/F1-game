@@ -84,6 +84,7 @@ namespace F1Game.Core
         public float PitStopProgress01;   // 0 outside service, else 0..1
 
         // Pit strategy surface (Tier 2 parity).
+        public bool CanCancelPit;         // a manual/SC pit request can still be cancelled
         public bool PitRequested;         // team has been asked to box
         public int NextPlannedPitLap;     // 0 = no remaining planned stop
         public int NextPlannedPitCompound; // 0 soft .. 4 wet

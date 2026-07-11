@@ -65,6 +65,12 @@ namespace F1Game.UI.Screens.RaceHudShell
             var pitPlanText = Numeric(hud.TopLeftDock, "PitPlan", 18f);
             hud.gameObject.AddComponent<PitStrategyModule>().Bind(pitPlanText);
 
+            // The one interactive HUD control: cancel an uncommitted pit request.
+            var cancelPitButton = F1Game.UI.UiScreenFactory.CreateButton(
+                hud.TopLeftDock, "Btn_CancelPit", ThemedButton.Variant.Destructive, "Cancel Pit Request",
+                UiTheme.Active.components.buttonHeightCompact);
+            hud.gameObject.AddComponent<CancelPitButtonModule>().Bind(cancelPitButton);
+
             var sessionMessageText = Text(hud.TopLeftDock, "SessionMessage", 16f, TextAlignmentOptions.Left);
             hud.gameObject.AddComponent<SessionMessageModule>().Bind(sessionMessageText);
 

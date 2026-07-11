@@ -26,6 +26,11 @@ namespace LocalFormulaRacing
         public void Attach(RaceManager raceManager)
         {
             race = raceManager;
+            // Register the interactive HUD command handlers (UI → race). The
+            // eligibility gate still lives in CanCancelManualPitRequest, so a
+            // click that arrives after the request became uncancellable is a
+            // safe no-op.
+            F1Game.Core.HudCommands.CancelPitRequest = raceManager != null ? raceManager.CancelManualPitRequest : (System.Action)null;
         }
 
         void Update()
@@ -200,6 +205,7 @@ namespace LocalFormulaRacing
                 PaceCapKph = race.RaceControlSpeedCapKphFor(player),
                 RestartCountdownSeconds = race.RestartCountdownSeconds,
                 RaceControlDetail = BuildRaceControlDetail(),
+                CanCancelPit = race.CanCancelManualPitRequest(),
                 PitRequested = vehicle.PitRequested,
                 NextPlannedPitLap = race.NextPlannedPitLapFor(player),
                 NextPlannedPitCompound = (int)race.NextPlannedPitCompoundFor(player),
@@ -262,6 +268,7 @@ namespace LocalFormulaRacing
         {
             F1Game.Core.HudTelemetry.Clear();
             F1Game.Core.HudRaceOrder.Clear();
+            F1Game.Core.HudCommands.Clear();
         }
 
         // Running-order snapshot for the production timing tower: the sorted

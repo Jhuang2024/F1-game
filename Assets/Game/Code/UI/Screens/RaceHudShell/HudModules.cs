@@ -458,6 +458,38 @@ namespace F1Game.UI.Screens.RaceHudShell
     }
 
     /// <summary>
+    /// The one interactive HUD control: cancels an uncommitted manual/SC pit
+    /// request. Visible only while the request can still be cancelled
+    /// (snapshot CanCancelPit, which mirrors RaceManager.CanCancelManualPitRequest);
+    /// the click routes through HudCommands back to the race layer, where the
+    /// same eligibility gate makes a late click a safe no-op.
+    /// </summary>
+    public sealed class CancelPitButtonModule : HudModule
+    {
+        [SerializeField] ThemedButton button;
+
+        public void Bind(ThemedButton cancelButton)
+        {
+            button = cancelButton;
+            if (button != null)
+            {
+                button.Clicked += HudCommands.RequestCancelPit;
+                button.gameObject.SetActive(false);
+            }
+        }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (button == null) return;
+            bool show = t.Valid && t.CanCancelPit;
+            if (button.gameObject.activeSelf != show)
+            {
+                button.gameObject.SetActive(show);
+            }
+        }
+    }
+
+    /// <summary>
     /// Pit strategy line: the plan (next stop lap + compound), escalating to
     /// BOX THIS LAP, an SC-window prompt, or the live request state. Hidden
     /// when no plan or request exists.
