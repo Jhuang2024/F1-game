@@ -976,65 +976,6 @@ namespace LocalFormulaRacing
             }
         }
 
-        // Stuck recovery: snap the player back to the last safe on-track pose.
-        // Costs five seconds in competitive race sessions so it cannot be exploited.
-        public void ResetPlayerToSafePose(RaceParticipant participant)
-        {
-            if (participant == null || !participant.isPlayer || participant.vehicle == null || Track == null ||
-                participant.isPitting || participant.pitPhase != PitPhase.None || playerResetCooldown > 0f || !CanDrive)
-            {
-                return;
-            }
-
-            playerResetCooldown = 5f;
-            TrackProgress progress = participant.lapTracker != null
-                ? participant.lapTracker.CurrentProgress
-                : Track.GetProgress(participant.transform.position);
-
-            Vector3 respawnPosition;
-            Quaternion respawnRotation;
-            if (participant.hasLastSafePosition)
-            {
-                respawnPosition = participant.lastSafePosition + Vector3.up * 0.35f;
-                respawnRotation = participant.lastSafeRotation;
-            }
-            else
-            {
-                respawnPosition = progress.nearestPoint + Vector3.up * 0.45f;
-                respawnRotation = Quaternion.LookRotation(progress.forward, Vector3.up);
-            }
-
-            Rigidbody body = participant.GetComponent<Rigidbody>();
-            if (body != null)
-            {
-                body.velocity = Vector3.zero;
-                body.angularVelocity = Vector3.zero;
-                body.position = respawnPosition;
-                body.rotation = respawnRotation;
-            }
-
-            participant.transform.position = respawnPosition;
-            participant.transform.rotation = respawnRotation;
-            participant.fallRespawnCooldown = 2f;
-
-            if (participant.lapTracker != null)
-            {
-                participant.lapTracker.InvalidateCurrentLap();
-            }
-
-            if (CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial)
-            {
-                AddPenalty(participant, 5f, "Car recovery");
-                SessionMessage = "Car recovered: +5s";
-                PostEngineerMessage("Car recovered to the track. Five second penalty added.", true);
-            }
-            else
-            {
-                SessionMessage = "Car recovered: lap invalidated";
-                PostEngineerMessage("Car recovered. This lap will not count.", true);
-            }
-        }
-
         // Part 2: a local yellow only limits speed for cars actually near the
         // incident that caused it, not the entire lap-third sector it's flagged
         // in - a genuine "progress window around the incident", tighter than the

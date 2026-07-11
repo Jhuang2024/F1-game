@@ -997,6 +997,15 @@ deferred, not claimed complete.
     stack/fields stay in main and resolve in-class. No new partial - still 48.
     RaceManager.cs -> 1176 lines: 10491 out over 53 slices (~89.9%).
     RaceManager is now spread across 48 focused partials (main + 47).
+    Slice 54: player safe-pose recovery - ResetPlayerToSafePose (stuck recovery:
+    snap the player back to the last safe on-track pose, costing five seconds in
+    competitive sessions so it can't be exploited) - 58 lines - consolidated into
+    the existing RaceManager.Recovery.cs partial (which already owns HandleFallRespawn
+    / HandleStuckEscalation). Penalty and snap behaviour unchanged; the local-yellow
+    consts stay in main; the public entry point stays public so PlayerVehicleInput
+    resolves in-class. No new partial - still 48.
+    RaceManager.cs -> 1117 lines: 10550 out over 54 slices (~90.4%).
+    RaceManager is now spread across 48 focused partials (main + 47).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
