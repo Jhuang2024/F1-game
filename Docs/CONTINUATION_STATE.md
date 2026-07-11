@@ -793,6 +793,14 @@ deferred, not claimed complete.
     Light colours, intensities and render modes unchanged; callers resolve in-class.
     RaceManager.cs -> 3232 lines: 8435 out over 28 slices (~72.3%).
     RaceManager is now spread across 27 focused partials (main + 26).
+    Slice 29: qualifying pit return - AnimateQualifyingReturnToPits,
+    BeginQualifyingPitReturn and UpdateQualifyingPitReturn (animate the field back
+    into the pits between qualifying segments, snapping each car to its service
+    pose and posting the player status) - 54 lines - moved to
+    RaceManager.QualifyingPitReturn.cs. Poses and call order unchanged; callers
+    resolve in-class.
+    RaceManager.cs -> 3177 lines: 8490 out over 29 slices (~72.8%).
+    RaceManager is now spread across 28 focused partials (main + 27).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
