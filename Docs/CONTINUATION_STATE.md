@@ -1374,6 +1374,20 @@ deferred, not claimed complete.
         F1Game.Tests.EditMode (Assembly-CSharp is not referenceable there), so this
         is structural-only. VISUAL/RUNTIME VALIDATION PENDING (in-editor replay run).
 
+    F7. Replay scrubber UI -> ReplayScrubberUi (Assembly-CSharp MonoBehaviour,
+        LocalFormulaRacing, built with the existing UiFactory idiom). A bottom bar
+        with a draggable scrub track + playhead handle, a play/pause toggle, a speed
+        cycle (0.25/0.5/1/2/4/8x), and an elapsed/total time readout. Reads and
+        drives the tested transport via ReplayCameraController's Transport property
+        and its Play/Pause/TogglePlay/SetSpeed/SeekNormalized passthroughs; the
+        nested ScrubTrack pointer handler converts a click/drag x into a 0-1 seek
+        (RectTransformUtility.ScreenPointToLocalPointInRectangle) and pauses playback
+        while dragging, restoring the prior play state on release. Static factory
+        Create(parent, cam) is the wiring seam: it returns null (callers stay on the
+        live HUD) unless the replay camera feature switch is on, so nothing changes
+        on the live path. Runtime wiring into a replay-watch screen and visual
+        layout are editor-gated. VISUAL/RUNTIME VALIDATION PENDING.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
