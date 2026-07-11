@@ -385,7 +385,11 @@ deferred, not claimed complete.
     Coverage expansion: the six static production screen titles (SELECT CIRCUIT,
     CAREER, DRIVER PROFILE, SETTINGS, CHAMPIONSHIP STANDINGS, RACE STRATEGY) in
     UiScreenFactory now route through Localization.Get with English fallbacks
-    (Results/MainMenu titles are model-driven/none, left as-is).
+    (Results/MainMenu titles are model-driven/none, left as-is). The settings
+    screen's ~20 row labels are localized in one place via the Row helper
+    (key derived from the English text, e.g. settings.row.race_laps), so the
+    whole settings screen's static chrome is now translatable with English
+    fallbacks throughout.
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks

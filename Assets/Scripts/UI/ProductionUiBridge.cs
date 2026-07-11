@@ -847,7 +847,11 @@ namespace LocalFormulaRacing
 
         static void Row(SettingsModel model, string label, string value)
         {
-            model.rows.Add(new SettingsRowModel { label = label, value = value });
+            // Localize the row label by a key derived from its English text
+            // (e.g. "Race Laps" → settings.row.race_laps); the English text is the
+            // fallback, so untranslated builds read exactly as before.
+            string key = "settings.row." + label.ToLowerInvariant().Replace(" ", "_");
+            model.rows.Add(new SettingsRowModel { label = F1Game.Core.Localization.Get(key, label), value = value });
         }
 
         static string Pick(string[] names, int index)
