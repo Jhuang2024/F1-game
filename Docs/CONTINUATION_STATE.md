@@ -947,6 +947,16 @@ deferred, not claimed complete.
     list and RaceControlHistoryEntry nested type stay in main and resolve in-class.
     RaceManager.cs -> 1800 lines: 9867 out over 47 slices (~84.6%).
     RaceManager is now spread across 44 focused partials (main + 43).
+    Slice 48: engineer message accessors - the ActiveEngineerMessageCount property
+    and GetActiveEngineerMessageText / GetActiveEngineerMessagePriority /
+    GetActiveEngineerMessageFade (the HUD read-side over the stacked engineer
+    messages, incl. the 0-1 slide/fade progress) - 28 lines - consolidated into the
+    existing RaceManager.Engineer.cs partial (which already owns PostEngineerMessage
+    and the radio logic). Fade maths unchanged; the anim-duration consts,
+    activeEngineerMessages list and EngineerMessageEntry type stay in main and
+    resolve in-class. No new partial - still 44.
+    RaceManager.cs -> 1771 lines: 9896 out over 48 slices (~84.8%).
+    RaceManager is now spread across 44 focused partials (main + 43).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

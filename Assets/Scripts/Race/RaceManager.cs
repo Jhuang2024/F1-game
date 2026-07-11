@@ -486,35 +486,6 @@ namespace LocalFormulaRacing
         const float PriorityEngineerMessageDuration = 8.5f;
         const float RoutineEngineerMessageDuration = 5f;
 
-        public int ActiveEngineerMessageCount { get { return activeEngineerMessages.Count; } }
-
-        public string GetActiveEngineerMessageText(int index)
-        {
-            return index >= 0 && index < activeEngineerMessages.Count ? activeEngineerMessages[index].text : "";
-        }
-
-        public bool GetActiveEngineerMessagePriority(int index)
-        {
-            return index >= 0 && index < activeEngineerMessages.Count && activeEngineerMessages[index].priority;
-        }
-
-        // 0-1 slide/fade progress for one stacked entry: rises over
-        // EngineerMessageAnimInDuration after it first appears, holds at 1,
-        // then falls over EngineerMessageAnimOutDuration right before it
-        // expires and is removed.
-        public float GetActiveEngineerMessageFade(int index)
-        {
-            if (index < 0 || index >= activeEngineerMessages.Count)
-            {
-                return 0f;
-            }
-
-            EngineerMessageEntry entry = activeEngineerMessages[index];
-            float inProgress = Mathf.Clamp01(entry.age / EngineerMessageAnimInDuration);
-            float outProgress = Mathf.Clamp01(entry.remaining / EngineerMessageAnimOutDuration);
-            return Mathf.Min(inProgress, outProgress);
-        }
-
         float lightsOutTime;
         float playerReactionTime = -1f;
         float reactionDisplayTimer;
