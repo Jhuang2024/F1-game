@@ -718,6 +718,15 @@ deferred, not claimed complete.
     tower/display entry points stay public so the HUD callers resolve in-class.
     RaceManager.cs -> 4725 lines: 6942 out over 19 slices (~59.5%).
     RaceManager is now spread across 18 focused partials (main + 17).
+    Slice 20: grid spawn - ResolveGridIndex, SpawnParticipant (car + vehicle/AI/
+    player controller setup), ResolveAiStartReactionDelay, FindRoadSpawnPosition,
+    LogPlayerSpawnPhysics and HoldGridCars - 313 lines - moved to
+    RaceManager.Grid.cs. Spawn order, RNG call order (grid jitter / reaction
+    delays) and all tuned values unchanged; callers resolve in-class. The
+    qualifying field builders stay in the main partial, the recovery/respawn
+    handlers (HandleFallRespawn/HandleStuckEscalation) remain separate.
+    RaceManager.cs -> 4411 lines: 7256 out over 20 slices (~62.2%).
+    RaceManager is now spread across 19 focused partials (main + 18).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
