@@ -277,5 +277,21 @@ namespace LocalFormulaRacing
             }
         }
 
+        public void PrepareNewQualifyingWeekend()
+        {
+            CleanupRaceWorld();
+            qualifyingPhase = 1;
+            qualifyingEntries.Clear();
+            preserveQualifyingState = false;
+            qualifyingTransitionPending = false;
+            qualifyingTransitionFinish = false;
+            qualifyingTransitionTimer = 0f;
+            QualifyingFeedbackText = "";
+            lastQualifyingResultWasSimulated = false;
+            SimQualifyingExplanation = "";
+            ResetPlayerQualifyingCaptures();
+            ResetQualifyingSectorState();
+        }
+
     }
 }

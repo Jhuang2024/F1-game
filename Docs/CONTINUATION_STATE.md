@@ -1033,6 +1033,16 @@ deferred, not claimed complete.
     in-class.
     RaceManager.cs -> 971 lines: 10696 out over 57 slices (~91.7%).
     RaceManager is now spread across 50 focused partials (main + 49).
+    Slice 58: qualifying display + new-weekend prep - QualifyingLapStatusText (the
+    Qn push-lap status line) consolidated into RaceManager.LiveTiming.cs, and
+    PrepareNewQualifyingWeekend (tears down the world and resets all qualifying
+    phase/entry/transition/sector state for a fresh weekend) consolidated into
+    RaceManager.QualifyingFlow.cs - 44 lines total. Behaviour and reset order
+    unchanged; the RaceElapsed/RaceLaps properties stay in main, and the public
+    PrepareNewQualifyingWeekend stays public so GameBootstrap resolves in-class. No
+    new partials - still 50.
+    RaceManager.cs -> 925 lines: 10742 out over 58 slices (~92.1%).
+    RaceManager is now spread across 50 focused partials (main + 49).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

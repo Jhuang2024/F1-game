@@ -400,5 +400,35 @@ namespace LocalFormulaRacing
             return Mathf.Max(1, active.Count);
         }
 
+        string QualifyingLapStatusText(LapTracker lap)
+        {
+            if (lap == null)
+            {
+                return "Q" + qualifyingPhase;
+            }
+
+            if (lap.OutLapActive)
+            {
+                return "Q" + qualifyingPhase + " out lap";
+            }
+
+            if (lap.CurrentLapInvalidated)
+            {
+                return "Q" + qualifyingPhase + " timed lap invalid";
+            }
+
+            if (lap.CompletedLaps > 0 && lap.ValidLapsCompleted == 0)
+            {
+                return "Q" + qualifyingPhase + " second push lap";
+            }
+
+            if (lap.CompletedLaps > 0)
+            {
+                return "Q" + qualifyingPhase + " second push lap: improve";
+            }
+
+            return "Q" + qualifyingPhase + " push lap";
+        }
+
     }
 }

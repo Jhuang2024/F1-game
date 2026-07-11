@@ -828,52 +828,6 @@ namespace LocalFormulaRacing
             }
         }
 
-        string QualifyingLapStatusText(LapTracker lap)
-        {
-            if (lap == null)
-            {
-                return "Q" + qualifyingPhase;
-            }
-
-            if (lap.OutLapActive)
-            {
-                return "Q" + qualifyingPhase + " out lap";
-            }
-
-            if (lap.CurrentLapInvalidated)
-            {
-                return "Q" + qualifyingPhase + " timed lap invalid";
-            }
-
-            if (lap.CompletedLaps > 0 && lap.ValidLapsCompleted == 0)
-            {
-                return "Q" + qualifyingPhase + " second push lap";
-            }
-
-            if (lap.CompletedLaps > 0)
-            {
-                return "Q" + qualifyingPhase + " second push lap: improve";
-            }
-
-            return "Q" + qualifyingPhase + " push lap";
-        }
-
-        public void PrepareNewQualifyingWeekend()
-        {
-            CleanupRaceWorld();
-            qualifyingPhase = 1;
-            qualifyingEntries.Clear();
-            preserveQualifyingState = false;
-            qualifyingTransitionPending = false;
-            qualifyingTransitionFinish = false;
-            qualifyingTransitionTimer = 0f;
-            QualifyingFeedbackText = "";
-            lastQualifyingResultWasSimulated = false;
-            SimQualifyingExplanation = "";
-            ResetPlayerQualifyingCaptures();
-            ResetQualifyingSectorState();
-        }
-
         public float RaceElapsed
         {
             get { return Mathf.Max(0f, Time.time - raceStartTime); }
