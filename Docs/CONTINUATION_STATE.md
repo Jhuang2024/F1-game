@@ -867,6 +867,15 @@ deferred, not claimed complete.
     in-class.
     RaceManager.cs -> 2518 lines: 9149 out over 37 slices (~78.4%).
     RaceManager is now spread across 36 focused partials (main + 35).
+    Slice 38: gap/interval text - GapAheadText, GetIntervalToAheadSeconds,
+    GetGapBetweenSeconds, GapToLeaderText, IntervalAheadText and GapBehindText (the
+    radio/HUD timing strings) - ~117 lines across two ranges - moved to
+    RaceManager.GapText.cs. Formatting and maths unchanged; the rival/order/retire/
+    fuel helpers in between stay in main. The public entry points stay public so the
+    HUD/radio callers resolve in-class, and GetIntervalToAheadSeconds still resolves
+    for the DRS/Engineer/AiPitStrategy/Ers partials and RaceEventRelay.
+    RaceManager.cs -> 2399 lines: 9268 out over 38 slices (~79.4%).
+    RaceManager is now spread across 37 focused partials (main + 36).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
