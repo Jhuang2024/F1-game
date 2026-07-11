@@ -828,6 +828,13 @@ deferred, not claimed complete.
     BlueFlags, SpeedCaps, SafetyCar, main) resolve in-class.
     RaceManager.cs -> 2921 lines: 8746 out over 32 slices (~75.0%).
     RaceManager is now spread across 31 focused partials (main + 30).
+    Slice 33: position queries - GetPosition (running-order position lookup) and
+    the nearest-car-ahead / nearest-car-behind track-distance searches (FindCarAhead
+    / FindCarBehind) used by the AI, HUD and radio gap logic - 89 lines - moved to
+    RaceManager.PositionQueries.cs. Ordering and distance maths unchanged; the
+    public entry points stay public so external callers resolve in-class.
+    RaceManager.cs -> 2831 lines: 8836 out over 33 slices (~75.7%).
+    RaceManager is now spread across 32 focused partials (main + 31).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
