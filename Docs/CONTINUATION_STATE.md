@@ -957,6 +957,15 @@ deferred, not claimed complete.
     resolve in-class. No new partial - still 44.
     RaceManager.cs -> 1771 lines: 9896 out over 48 slices (~84.8%).
     RaceManager is now spread across 44 focused partials (main + 43).
+    Slice 49: session start - the public session entry points StartRace,
+    StartTimeTrial and StartSession (bootstrap a session from the data repository
+    and settings: build the field, grid, lighting, weather and player car, then hand
+    off to the live loop) plus CycleToNextTrack - 175 lines - moved to
+    RaceManager.SessionStart.cs. Setup order, RNG call order and tuned values
+    unchanged; the sector-colour / session-cap consts stay in main, and the public
+    entry points stay public so GameBootstrap resolves in-class.
+    RaceManager.cs -> 1595 lines: 10072 out over 49 slices (~86.3%).
+    RaceManager is now spread across 45 focused partials (main + 44).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
