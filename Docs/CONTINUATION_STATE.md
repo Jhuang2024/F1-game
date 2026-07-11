@@ -1330,6 +1330,22 @@ deferred, not claimed complete.
         Together with F2 this is the complete non-visual replay playback engine;
         only the scrub-bar widgets + replay camera (Unity scene) remain editor-gated.
         Runtime validation PENDING for the UI only.
+    F4. Replay save/load -> engine-free ReplaySerialization (F1Game.Race). Persists
+        a ReplayRecording to a compact, human-diffable text format (header magic +
+        schema/car/frame/marker counts, one F line per frame with every car's
+        pos/rot/speed, one M line per marker with the label as rest-of-line so
+        spaces survive) and parses it back. Floats use G9 (9 sig digits guarantees a
+        Single re-reads to identical bits), so a reloaded recording is exact.
+        FromText is defensive: null/empty/bad-header -> null, and malformed frame/
+        marker lines are skipped rather than throwing. Only the string<->data
+        conversion lives here; the disk read/write stays in the engine layer.
+        ReplaySerializationTests added (full frame+marker round-trip incl. a spaced
+        label, malformed/empty -> null not throw, null recording -> valid empty
+        replay, corrupt frame line skipped). This completes the non-visual replay
+        data layer: record (ReplayRecording) -> sample (ReplayPlayback) -> transport
+        (ReplayPlaybackController) -> persist (ReplaySerialization) -> export/highlights
+        (ReplayExport/ReplayTimeline), all engine-free and unit-tested. The replay
+        camera + scrub-bar UI (Unity scene) is the only editor-gated remainder.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
