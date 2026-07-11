@@ -2,6 +2,34 @@
 
 Living ledger for the production rebuild. Updated after every logical commit.
 
+## Current run (branch `claude/read-and-complete-ipelrl`, from origin/main 15e2af3)
+Rules-integration pass (directive §12 item 4: pit lane + AI + rules). All
+static-only, not compiled or run:
+
+1. `a014049` StartProcedureRules is the live start authority: light timing,
+   sequence duration, jump-start tariff routed through it; NEW false-start
+   (anticipation) judgement at lights-out. Tests added.
+2. `4862172` FlagRules is the live flag-policy authority: one
+   RaceControlState→RaceFlag mapping (GlobalRaceFlag / FlagForParticipant);
+   IsOvertakingAllowed now DERIVED (eight scattered writers removed); DRS,
+   ERS, overtaking, pace-limited all consult FlagRules; VSC/local-yellow cap
+   numbers live in FlagRules. Behavior preserved. Tests added.
+3. `75cc142` PitServiceRules owns stop duration: tyre windows preserved, NEW
+   damage-repair hold (3-7.5s over 12% damage) and rare (4%) crew fumble,
+   engineer messaging. Tests added.
+4. `50038b4` AiPitStrategyRules owns the AI pit OR-chain thresholds
+   (routine/compound/destroyed/grip/strategy-lap/final-lap); NEW green-flag
+   weather-crossover trigger with per-driver reaction stagger. Tests added.
+5. `27adfe2` Blue flags implemented end to end (previously absent): detection
+   in RaceManager, AI yield (attack suppression + straight-line lift), HUD
+   banner + radio for player, 20s→+5s compliance penalty via PenaltyRules.
+
+Exact next task: wire SessionFlow into GameBootstrap.StartCareerRace and the
+qualifying phase advance (it is still dead code); then continue directive
+§12 item 4 remainder (RaceManager-side AI strategy extraction:
+RecommendedPitLap / ShouldAiPitUnderSafetyCar / ShouldAiPitForUndercut), then
+item 5 (physics wiring into VehicleController).
+
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
   below is **static-only / unverified**: not compiled, not tested, not run.
