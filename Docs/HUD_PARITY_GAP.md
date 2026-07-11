@@ -53,10 +53,10 @@ pit-request/radio events).
       dots + progress strip still legacy-only, needs in-editor visual pass)
 
 ## Tier 6 — Notifications (event-bus work)
-- [ ] Watcher toasts: tyre overheat, track limits, best lap, pit-stop
-      complete, low fuel, lockup, damage band, pit window (2489).
-- [ ] Relayed toasts: overtake/lost position, session fastest, teammate,
-      podium (2590).
+- [x] Watcher + relayed toasts (2489/2590): RaceManager.QueueHudToast now
+      publishes a HudToastEvent at the source (queue preserved for legacy);
+      NotificationFeed subscribes. All existing toasts flow to production.
+      (tranche 10)
 - [ ] DRS-available flash + audio (1419); big-moment flashes LIGHTS OUT/
       GREEN FLAG/FINAL LAP/VICTORY (1667/2566/2955/3030).
 

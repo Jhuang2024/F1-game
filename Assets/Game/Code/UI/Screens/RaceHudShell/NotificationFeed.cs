@@ -42,6 +42,7 @@ namespace F1Game.UI.Screens.RaceHudShell
             GameEvents.Subscribe<RetirementEvent>(OnRetirement);
             GameEvents.Subscribe<PitRequestChangedEvent>(OnPitRequest);
             GameEvents.Subscribe<RadioMessageEvent>(OnRadio);
+            GameEvents.Subscribe<HudToastEvent>(OnToast);
         }
 
         void OnDisable()
@@ -50,6 +51,14 @@ namespace F1Game.UI.Screens.RaceHudShell
             GameEvents.Unsubscribe<RetirementEvent>(OnRetirement);
             GameEvents.Unsubscribe<PitRequestChangedEvent>(OnPitRequest);
             GameEvents.Unsubscribe<RadioMessageEvent>(OnRadio);
+            GameEvents.Unsubscribe<HudToastEvent>(OnToast);
+        }
+
+        void OnToast(HudToastEvent evt)
+        {
+            // Toast tone (0 positive / 1 caution / 2 neutral) maps onto the feed
+            // priority (0 highest): a caution reads above an informational note.
+            Push(evt.Message, evt.Tone == 1 ? 1 : 2);
         }
 
         void OnPenalty(PenaltyIssuedEvent evt)

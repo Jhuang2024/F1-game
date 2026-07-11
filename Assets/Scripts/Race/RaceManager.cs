@@ -601,6 +601,14 @@ namespace LocalFormulaRacing
             }
 
             hudToastQueue.Enqueue(new HudToast { text = text, colorKind = colorKind });
+
+            // Publish at the source (in addition to the legacy queue) so the
+            // production notification feed sees the same toasts without draining
+            // the queue the legacy HUD still consumes - exactly one HUD is live,
+            // but both paths stay correct. Tone maps the legacy colour kinds:
+            // green -> positive, amber -> caution, everything else -> neutral.
+            int tone = colorKind == ToastColorGreen ? 0 : (colorKind == ToastColorAmber ? 1 : 2);
+            GameEvents.Publish(new HudToastEvent(tone, text));
         }
 
         public bool TryDequeueHudToast(out string text, out int colorKind)

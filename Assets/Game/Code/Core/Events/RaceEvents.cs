@@ -241,4 +241,23 @@ namespace F1Game.Core.Events
             Message = message;
         }
     }
+
+    /// <summary>
+    /// A short HUD toast (overtake, position change, session-fastest, tyre/
+    /// fuel/lockup/damage warnings, pit-window prompts). The race layer already
+    /// queues these; the relay drains that queue and republishes each here so
+    /// the production notification feed and legacy HUD share one source.
+    /// </summary>
+    public readonly struct HudToastEvent
+    {
+        /// <summary>0 = positive/green, 1 = caution/amber, 2 = neutral.</summary>
+        public readonly int Tone;
+        public readonly string Message;
+
+        public HudToastEvent(int tone, string message)
+        {
+            Tone = tone;
+            Message = message;
+        }
+    }
 }
