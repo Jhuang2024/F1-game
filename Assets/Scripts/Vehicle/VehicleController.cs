@@ -1,4 +1,5 @@
 using F1Game.Race.Physics;
+using F1Game.Race.Rules;
 using UnityEngine;
 
 namespace LocalFormulaRacing
@@ -306,9 +307,10 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            float projectedNeededKg = Mathf.Max(0f, remainingLaps) * fuelPerLapEstimateKg;
-            ProjectedFuelDeltaKg = fuelKg - projectedNeededKg;
-            ProjectedFuelDeltaLaps = ProjectedFuelDeltaKg / fuelPerLapEstimateKg;
+            // Projection maths owned by the extracted FuelStrategy rulebook -
+            // behavior-identical, now stated and tested in one place.
+            ProjectedFuelDeltaKg = FuelStrategy.DeltaKg(fuelKg, remainingLaps, fuelPerLapEstimateKg);
+            ProjectedFuelDeltaLaps = FuelStrategy.DeltaLaps(fuelKg, remainingLaps, fuelPerLapEstimateKg);
         }
 
         // Translate the saved garage setup into small, readable physics trade-offs.
