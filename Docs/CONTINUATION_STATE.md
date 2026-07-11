@@ -374,6 +374,15 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+65. Production UI honours the UI-Animations (reduced-motion) accessibility
+    setting: the bridge sets UiShell.Transitions.ReducedMotion from
+    settings.uiAnimations on shell creation and re-applies it when the toggle
+    flips (ApplyAccessibilityToShell), so TransitionService completes every
+    screen/panel fade instantly when animations are off. Closes the loop on #63's
+    editable toggles: Units (HUD consumer, #62) and UI Animations (transition
+    consumer) are now both edited AND consumed in production; Camera Shake /
+    Compact HUD persist but their consumers (camera rig / HUD layout) need the
+    in-editor visual pass.
 64. Engineer debrief surfaced on the production RESULTS screen (exact-next-task
     item "placing the debrief summary on the results screen"): RaceManager.
     TelemetryDebriefLine() formats a compact one-liner (top speed, full-throttle/

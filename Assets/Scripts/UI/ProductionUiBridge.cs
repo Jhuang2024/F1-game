@@ -147,6 +147,7 @@ namespace LocalFormulaRacing
             }
 
             shell = UiShell.Create();
+            ApplyAccessibilityToShell();
 
             var mainMenuView = (MainMenuView)ShowAndGet(MainMenuView.Id);
             mainMenuPresenter = new MainMenuPresenter(mainMenuView)
@@ -668,7 +669,21 @@ namespace LocalFormulaRacing
 
             flip(settings.Current);
             settings.Save();
+            ApplyAccessibilityToShell();
             settingsPresenter.Present(BuildSettingsModel());
+        }
+
+        // Pushes accessibility settings that the production shell honours directly.
+        // Reduced motion (from the UI Animations toggle) makes TransitionService
+        // complete every screen/panel transition instantly.
+        static void ApplyAccessibilityToShell()
+        {
+            if (shell == null || shell.Transitions == null || settings == null || settings.Current == null)
+            {
+                return;
+            }
+
+            shell.Transitions.ReducedMotion = !settings.Current.uiAnimations;
         }
 
         static SettingsModel BuildSettingsModel()
