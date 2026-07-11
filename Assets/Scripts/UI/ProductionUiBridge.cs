@@ -317,6 +317,7 @@ namespace LocalFormulaRacing
                 var model = new ResultsModel
                 {
                     title = "RACE RESULT",
+                    subtitle = ResultsSubtitle(),
                     isCareer = careerRace,
                     primaryActionLabel = careerRace ? "Continue Career" : "Race Again",
                 };
@@ -442,6 +443,26 @@ namespace LocalFormulaRacing
             return minutes + ":" + rest.ToString("00.000");
         }
 
+        // Event/lap context line for the results screens, from the same bridge
+        // state used to start the session (career next-event or the quick-race
+        // selection).
+        static string ResultsSubtitle()
+        {
+            CalendarEventData eventData = selectedEvent;
+            if (eventData == null && career != null && career.Save != null)
+            {
+                eventData = career.CurrentEvent();
+            }
+
+            if (eventData == null)
+            {
+                return "";
+            }
+
+            int laps = settings != null ? settings.Current.laps : eventData.laps5;
+            return eventData.displayName + "  ·  " + laps + " laps";
+        }
+
         /// <summary>
         /// Production qualifying classification (career only; quick-race
         /// qualifying stays legacy). Same TryShow/legacy-fallback contract as
@@ -459,6 +480,7 @@ namespace LocalFormulaRacing
                 var model = new ResultsModel
                 {
                     title = "QUALIFYING RESULT",
+                    subtitle = ResultsSubtitle(),
                     isCareer = true,
                     showRaceColumns = false,
                     primaryActionLabel = "Continue to Race",
