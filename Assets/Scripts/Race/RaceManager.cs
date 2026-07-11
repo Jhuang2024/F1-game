@@ -9539,11 +9539,16 @@ namespace LocalFormulaRacing
             participant.pitPhase = PitPhase.Service;
             participant.isPitting = true;
             participant.pitAwaitingRelease = false;
-            // Tyre-change animation pass: a real stop is over in a few
-            // seconds, not four-plus - matched to the visible wheel-off/
-            // wheel-on animation below (VehicleVisuals.BeginPitStopVisual)
-            // so the timer and the animation always finish together.
-            participant.pitServiceDuration = participant.isPlayer ? Random.Range(1.8f, 2.6f) : Random.Range(2.0f, 3.0f);
+            // Stop duration is owned by the extracted rulebook: the tyre change
+            // (matched to the visible wheel-off/wheel-on animation below, so the
+            // timer and the animation always finish together), plus repair time
+            // when the car arrived damaged - the stop is also what repairs it
+            // (VehicleController.CompletePitStop) - plus a rare crew fumble.
+            float damagePercent = participant.vehicle.Damage == null ? 0f : participant.vehicle.Damage.OverallPercent;
+            float tyreSeconds = PitServiceRules.TyreChangeSeconds(participant.isPlayer, Random.value);
+            float repairSeconds = PitServiceRules.RepairSeconds(damagePercent, Random.value);
+            float fumbleSeconds = PitServiceRules.CrewErrorSeconds(Random.value, Random.value);
+            participant.pitServiceDuration = tyreSeconds + repairSeconds + fumbleSeconds;
             participant.pitTimer = participant.pitServiceDuration;
             participant.vehicle.SetPitServiceHold(true);
             participant.vehicle.SetPitLimiter(true);
@@ -9556,8 +9561,19 @@ namespace LocalFormulaRacing
 
             if (participant.isPlayer)
             {
-                SessionMessage = "Pit box " + (participant.pitBoxIndex + 1) + ": changing to " + participant.nextPitCompound;
-                PostEngineerMessage("Pit stop in progress. Tyres ready: " + participant.nextPitCompound + ".", true);
+                string work = "changing to " + participant.nextPitCompound;
+                if (repairSeconds > 0f)
+                {
+                    work += " + repairing damage";
+                }
+
+                SessionMessage = "Pit box " + (participant.pitBoxIndex + 1) + ": " + work;
+                PostEngineerMessage("Pit stop in progress. Tyres ready: " + participant.nextPitCompound +
+                    (repairSeconds > 0f ? ". We're repairing that damage too - longer stop." : "."), true);
+                if (fumbleSeconds > 0f)
+                {
+                    PostEngineerMessage("Problem on the front jack - hold, hold.", true);
+                }
             }
         }
 
