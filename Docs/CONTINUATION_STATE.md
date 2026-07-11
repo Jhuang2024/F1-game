@@ -600,6 +600,15 @@ deferred, not claimed complete.
     FinishRace callers resolve in-class. RaceManager.cs → 10456 lines (1211 out
     over 7 slices, ~10.4%). Full multi-partial review clean: all 6 files declare
     partial, braces balanced, metas present, only PostEngineerMessage overloads.
+    Slice 8: the race-engineer + radio subsystem (PostEngineerMessage overloads,
+    OpeningEngineerMessage, WeatherStateLabel, overtake/fastest-lap
+    notifications, the lap-gap radio chain, gap formatting, DriverShortCode/
+    DriverRadioName, auto-pit prompts and per-frame UpdateRaceEngineer) - 866
+    lines - moved verbatim to RaceManager.Engineer.cs. Shared helpers
+    (DriverShortCode, used by the Slipstream partial) resolve in-class. The
+    partial carries the full main using-set so no reference is missed.
+    RaceManager.cs → 9590 lines: 2077 out over 8 slices (~17.8%). No behaviour,
+    threshold or call-order change.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
