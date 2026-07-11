@@ -100,13 +100,18 @@ guarantees exactly one live HUD.
     fixed the hub's season-label binding (scaffold header had been bound as
     the season text).
 
-Exact next task: convert a second circuit to an authored definition (add a
-generator or asset for one existing calendar circuit reproducing its layout
-via authored spline points, route its trackId through the authored branch)
-to prove the Phase C pipeline generalizes; then per-point camber in the
-legacy road-mesh pass. Career: next screens are save-slot info + driver
-profile in the CareerHub pattern. All runtime-unverified; in-editor pass
-pending (Docs/EDITOR_BRINGUP.md).
+21. `7ede967` monza_low_downforce converted to the authored pipeline via the
+    new AuthoredCircuitCatalog (trackId -> definition registry, single
+    source); BuildMonzaLayout retired; authored branch generalized
+    (BuildAuthoredLayout(definition)) with emergency procedural fallback;
+    forced-authored validation path reads the catalog.
+
+Exact next task: convert the remaining calendar circuits to the catalog in
+batches (mechanical now: move each Build*Layout's anchors/width/DRS into a
+Generate<Name> entry using the same scale-to-target conversion, retire the
+legacy method; batch ~6 circuits per commit). Then per-point camber in the
+legacy road-mesh pass; then career save-slot/driver-profile screens. All
+runtime-unverified; in-editor pass pending (Docs/EDITOR_BRINGUP.md).
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
