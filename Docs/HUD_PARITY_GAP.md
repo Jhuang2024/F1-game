@@ -27,10 +27,10 @@ pit-request/radio events).
 - [ ] Slipstream/TOW pill (1562): strength/bonus/source.
 
 ## Tier 3 — Race-control safety states (snapshot fields)
-- [ ] Full race-control banner with reasons + restart countdown (1634):
-      `RaceControlState`, `RedFlagReason`, `RestartCountdownSeconds`,
-      autopilot flag, yellow sector.
-- [ ] Pace-compliance pill (1859): cap kph, SC gap, SLOW DOWN warnings.
+- [x] Race-control banner with reasons + restart countdown (1634).
+      (RaceControlModule, tranche 2; autopilot-ramp wording not yet shown)
+- [x] Pace cap surface (1859): live KEEP UNDER n KPH + SC queue slot.
+      (tranche 2; SLOW DOWN over-cap warning not yet shown)
 - [ ] ERS DISABLED lockout state (3107).
 
 ## Tier 4 — Core telemetry (snapshot fields)
