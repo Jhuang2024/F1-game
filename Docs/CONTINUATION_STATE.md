@@ -778,6 +778,15 @@ deferred, not claimed complete.
     RaceHud, RaceParticipant and RaceEventRelay callers resolve in-class.
     RaceManager.cs -> 3497 lines: 8170 out over 26 slices (~70.0%).
     RaceManager is now spread across 25 focused partials (main + 24).
+    Slice 27: driver/team identity - GetDisplayDriverCode (centralized 3-letter
+    code resolution: real DriverData.abbreviation first, last-name-token fallback
+    only for custom drivers), CodeFromToken, DriverCode, ResolveTeamCarPerformance
+    and ResolveDriverTeam (team/car resolution honouring career transfers) - 89
+    lines - moved to RaceManager.Identity.cs. Resolution rules unchanged; the public
+    GetDisplayDriverCode stays public so RaceHud and the LiveTiming partial resolve
+    in-class.
+    RaceManager.cs -> 3407 lines: 8260 out over 27 slices (~70.8%).
+    RaceManager is now spread across 26 focused partials (main + 25).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
