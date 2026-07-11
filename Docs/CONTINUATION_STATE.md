@@ -48,11 +48,24 @@ ChampionshipPoints) now have live consumers and EditMode tests.
    a fixed-buffer 2Hz running-order snapshot; relay OnDestroy now clears the
    static HUD snapshots (lifecycle fix).
 
-Exact next task: continue production-HUD parity (remaining Phase B modules:
-sector/personal-best/session-best times, weather chip, delta) OR begin career
-screen migration (directive item 6). Recommended next: sector/best-lap times
-into HudTelemetrySnapshot + a TimesModule, then weather chip; then career
-screens.
+11. `c995b6c` TimesModule (current/last-with-invalid-strike/best/session best;
+    new public RaceManager.SessionFastestLap) + WeatherModule chip.
+12. `e4ce731` SectorsModule (S1/S2/S3, green on session-best match) via new
+    RaceStateManager.GetSectorTimes/GetOverallBestSector float accessors.
+
+Production HUD module set now: position, lap/clock, speed/gear/rpm, ERS/DRS,
+tyres, fuel, gaps, lap times, sectors, flag (incl. blue), pit/penalty,
+weather, start lights, timing tower, notification feed. Legacy RaceHud stays
+the ordinary default until in-editor validation; UiSessionCoordinator
+guarantees exactly one live HUD.
+
+Exact next task: production-HUD remaining gap - a delta-to-best readout and
+a minimap need new data plumbing; defer both to an in-editor pass. Next
+implementation task: career screen migration to the production shell
+(directive item 6), starting with the standings/calendar screens
+(CareerManager data -> presenters), OR the authored-track migration
+(directive Phase C consumers). Pick whichever the next session's budget
+allows; both are documented in Docs/REFACTOR_MAP.md.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
