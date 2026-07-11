@@ -1065,6 +1065,12 @@ namespace LocalFormulaRacing
         public bool compactHud;
         public bool particlesEnabled = true;
 
+        // Accessibility: colour-vision mode for status/semantic colours.
+        // 0=None (default palette), 1=Protanopia, 2=Deuteranopia, 3=Tritanopia -
+        // matches F1Game.Core.AccessibilityPalette.ColorVisionMode. Field
+        // initializer keeps existing saves on the default palette.
+        public int colorBlindMode;
+
         // Time-trial ghost: 0=Off, 1=Session best (this session's own best
         // lap, not carried from a prior session), 2=All-time best (the
         // locally stored record, see TimeTrialGhostStore). Defaults to

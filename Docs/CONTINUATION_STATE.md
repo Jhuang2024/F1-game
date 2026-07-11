@@ -1428,6 +1428,23 @@ deferred, not claimed complete.
         truth + pseudo-locale source). Existing call sites unchanged; the untranslated
         path reads exactly as before. Editor binding/visual validation pending.
 
+    F10. Accessibility runtime -> engine-free AccessibilityPalette (F1Game.Core,
+        UNIT-TESTED) + Unity seam + settings field/display. AccessibilityPalette maps
+        the game's semantic status roles (positive/negative/warning/info/neutral) to
+        colours that stay distinguishable under protanopia/deuteranopia (blue vs
+        orange) and tritanopia (red vs teal/magenta), leaving the default scheme for
+        normal vision; it also computes WCAG relative luminance and contrast ratio.
+        Tests pin the default green positive, per-mode remap of the pos/neg pair,
+        strong channel separation of pos/neg in every mode, index clamping, and
+        black/white luminance (0/1) + contrast (21). AccessibilityColors (Assembly-
+        CSharp) holds the active mode and converts a role to a UnityEngine.Color so
+        UI adopts it incrementally; ProductionUiBridge.ApplyAccessibilityToShell now
+        drives the mode from the new GameSettingsData.colorBlindMode field (backward-
+        compatible default 0 = Off) and the production settings summary shows a
+        Colour-Vision Mode row. Additive: the default mode reproduces the current
+        colours exactly; no existing widget is recoloured yet (incremental adoption).
+        Editor visual validation pending.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

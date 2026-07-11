@@ -755,6 +755,7 @@ namespace LocalFormulaRacing
 
         static readonly string[] DifficultyNames = { "Easy", "Medium", "Hard", "Expert" };
         static readonly string[] ErsModeNames = { "Balanced", "Attack", "Harvest" };
+        static readonly string[] ColorBlindNames = { "Off", "Protanopia", "Deuteranopia", "Tritanopia" };
 
         static void ShowSettings()
         {
@@ -789,6 +790,8 @@ namespace LocalFormulaRacing
             }
 
             shell.Transitions.ReducedMotion = !settings.Current.uiAnimations;
+            // Drive the colour-vision-accessibility palette from the player's setting.
+            AccessibilityColors.SetMode(settings.Current.colorBlindMode);
         }
 
         static SettingsModel BuildSettingsModel()
@@ -828,6 +831,7 @@ namespace LocalFormulaRacing
             Row(model, "Camera Shake", OnOff(s.cameraShake));
             Row(model, "Speed Units", s.useMphUnits ? "MPH" : "KPH");
             Row(model, "Graphics Quality", GraphicsQualityName(s.graphicsQuality));
+            Row(model, "Colour-Vision Mode", Pick(ColorBlindNames, s.colorBlindMode));
 
             model.difficultyToggleLabel = "Difficulty: " + Pick(DifficultyNames, s.difficultyIndex);
             model.ersToggleLabel = "ERS: " + Pick(ErsModeNames, s.ersMode);
