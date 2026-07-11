@@ -1,3 +1,4 @@
+using F1Game.Race.Rules;
 using UnityEngine;
 
 namespace LocalFormulaRacing
@@ -72,10 +73,11 @@ namespace LocalFormulaRacing
             float leaderDistance = State.GetProgressDistance(leader);
             float participantDistance = State.GetProgressDistance(participant);
             float deltaMeters = leaderDistance - participantDistance;
-            if (Track != null && deltaMeters >= Track.length * 0.92f)
+            // Lapped-gap detection/count is the engine-free GapMath (the null-track
+            // guard and the live length read stay here).
+            if (Track != null && GapMath.IsLapDownGap(deltaMeters, Track.length))
             {
-                int laps = Mathf.Max(1, Mathf.RoundToInt(deltaMeters / Mathf.Max(1f, Track.length)));
-                return "+" + laps + "L";
+                return "+" + GapMath.LapsDown(deltaMeters, Track.length) + "L";
             }
 
             float speed = Mathf.Max(24f, participant.vehicle == null ? 36f : Mathf.Abs(participant.vehicle.CurrentSpeedKph) / 3.6f);
@@ -96,10 +98,11 @@ namespace LocalFormulaRacing
             float aheadDistance = State.GetProgressDistance(ahead);
             float participantDistance = State.GetProgressDistance(participant);
             float deltaMeters = aheadDistance - participantDistance;
-            if (Track != null && deltaMeters >= Track.length * 0.92f)
+            // Same lapped-gap detection/count as GapToLeaderText, now shared via the
+            // engine-free GapMath.
+            if (Track != null && GapMath.IsLapDownGap(deltaMeters, Track.length))
             {
-                int laps = Mathf.Max(1, Mathf.RoundToInt(deltaMeters / Mathf.Max(1f, Track.length)));
-                return "+" + laps + "L";
+                return "+" + GapMath.LapsDown(deltaMeters, Track.length) + "L";
             }
 
             float speed = Mathf.Max(24f, participant.vehicle == null ? 36f : Mathf.Abs(participant.vehicle.CurrentSpeedKph) / 3.6f);

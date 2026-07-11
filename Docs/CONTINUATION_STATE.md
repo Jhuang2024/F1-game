@@ -1175,6 +1175,16 @@ deferred, not claimed complete.
         live path. QualifyingModelTests extended (driver-effect field-centering +
         secondary terms, car-effect gap + cap clamp). These are the qualifying
         competitive-balance core, now pinned. Unity/runtime validation PENDING.
+    E7. Lapped-gap maths -> engine-free GapMath (dedup). GapToLeaderText and
+        IntervalAheadText carried an identical inline block (deltaMeters >=
+        trackLength*0.92 -> "+N L", laps = Max(1, RoundToInt(delta/Max(1,length)))).
+        Extracted verbatim into GapMath.IsLapDownGap(deltaMeters, trackLength) and
+        LapsDown(deltaMeters, trackLength); RoundToInt uses Math.Round ToEven so it
+        matches UnityEngine.Mathf.RoundToInt's banker's rounding exactly. Both call
+        sites now delegate; the null-track guard, live distance/speed reads and the
+        string formatting stay in the caller - byte-identical, one live path, one
+        copy of the rule instead of two. GapMathTests added (threshold boundary,
+        round/floor, banker's-rounding halves). Unity/runtime validation PENDING.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
