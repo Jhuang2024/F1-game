@@ -609,6 +609,12 @@ deferred, not claimed complete.
     partial carries the full main using-set so no reference is missed.
     RaceManager.cs → 9590 lines: 2077 out over 8 slices (~17.8%). No behaviour,
     threshold or call-order change.
+    Slice 9: the time-trial ghost + best-lap subsystem (TrackPlayerBestLapRecord,
+    PromoteGhostRecordingIfBest, RecordGhostSample, UpdateGhostPlayback + the
+    PUBLIC TryGetGhostDelta/GhostDeltaText read by the relay/HUD) - 218 lines -
+    moved to RaceManager.Ghost.cs. Public API unchanged (still public on
+    RaceManager; external callers resolve). RaceManager.cs → 9372 lines: 2295 out
+    over 9 slices (~19.7%).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
