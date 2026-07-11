@@ -68,11 +68,16 @@ guarantees exactly one live HUD.
 14. `1c70f46` Season calendar tab on the standings screen (drivers/teams/
     calendar TabBar, DONE/NEXT markers from currentRound, pooled RenderLines).
 
-Exact next task: career hub actions on the production side - a "Continue to
-next event" action so the career BUTTON can route production-first with the
-legacy hub as fallback (bridge: OnCareer tries production career screen
-before LeaveToLegacy). Then authored-track consumer migration (Phase C).
-HUD delta-to-best + minimap deferred to an in-editor pass.
+15. `2eae476` Production career hub live: Career button routes to
+    CareerHubView when a save exists (next-event card, Continue labelled by
+    SessionFlow, Standings & Calendar, Full Career Menu legacy fallback).
+
+Exact next task: authored-track consumer migration (Phase C) - route more
+RaceManager/AI consumers through ITrackQuery (TrackQueryProvider) instead of
+direct TrackRuntime calls, starting with read-only queries (DRS zones,
+sector lookup, half-width). Alternatively: next career screens (save-slot
+info, driver profile) in the CareerHub pattern. HUD delta/minimap and
+career-creation migration deferred to an in-editor pass.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
