@@ -43,17 +43,25 @@ is a runtime source, not merely an exporter target".
 
 ## Relationship to the legacy TrackManager (honest status)
 
-The legacy procedural `TrackManager` (~11k lines) is still the **live race**
-track: `RaceManager` queries its `TrackRuntime` for progress / pit / DRS /
-surface across hundreds of call sites. Swapping those onto
-`AuthoredTrackRuntime` is a Phase 3 monolith-split task (extract the
-RaceManager track-query interface, then back it with either runtime). Until
-then:
+Every calendar circuit's GEOMETRY now comes from authored definitions:
+`F1Game.Track.AuthoredCircuitCatalog` holds a `LegacyCircuitSpec` per circuit
+(the legacy anchors verbatim, scaled to the legacy length band, with width,
+kerb inset, smoothing density, environment style and DRS zones carried over)
+and `TrackManager.BuildAuthoredLayout` consumes it. The 22 per-circuit
+procedural layout methods are retired; the Bahrain template remains as the
+single emergency fallback world.
 
-- Authored-track runtime is complete and buildable, exercised via the editor
-  preview and the reference generator.
-- The legacy procedural path remains the fallback for every circuit not yet
-  migrated (all of them, currently).
+`TrackManager` still owns the world-BUILD passes (mesh, kerbs, barriers, pit
+lane, racing line) and its `TrackRuntime` remains the live query object;
+width and DRS-zone queries in the race layer go through the `ITrackQuery`
+seam (`TrackQueryProvider`), which the authored `AuthoredTrackRuntime` backs
+behind the `f1game_authored_track` validation flag. Remaining before the
+authored runtime can be the ordinary backend:
+
+- The authored world BUILDER (`TrackRuntimeBuilder`) lacks kerbs/barriers/
+  runoff parity with the legacy build passes.
+- Per-point camber is not yet honored by the legacy road-mesh pass (width is,
+  via the authored width profile).
 - `TrackDataExporter` (editor) can sample a live legacy `TrackManager` build
   into a `TrackDefinitionAsset` as an alternative authoring route.
 

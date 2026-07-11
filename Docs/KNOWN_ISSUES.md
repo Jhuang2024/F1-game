@@ -30,9 +30,15 @@ live path" without a compiler and Unity:
 - Full production-UI migration of the ~40 frontend/career/session screens; the
   legacy `RuntimeUi` still owns ordinary navigation.
 - Production HUD parity and removal of the legacy `RaceHud` from the default path.
-- Authored-track migration of **every** circuit and retirement of the procedural
-  `TrackManager`.
-- Wiring the physics model functions as the authoritative live vehicle physics.
+- Runtime validation of the authored-calendar conversion: every circuit's
+  geometry now loads through `AuthoredCircuitCatalog` definitions and the 22
+  per-circuit procedural layouts are retired (Bahrain template kept as the
+  emergency fallback world), but nothing has been compiled or driven - and
+  `TrackManager` still owns the world-build passes (mesh/kerbs/barriers/pit),
+  deliberately, until the authored builder reaches parity.
+- Wiring the remaining physics model functions (tyre slip curves, brake fade,
+  torque curve) as live vehicle physics; aero and ERS already consume the
+  rulebook.
 - AI racecraft/strategy overhaul; pit-lane rework; making the extracted rule
   classes the sole live race-control authority.
 - Full career-systems depth and career-UI migration; decomposition of
