@@ -68,6 +68,12 @@ namespace F1Game.UI.Screens.RaceHudShell
             var weatherChip = Chip(hud.TopRightDock, "Weather");
             hud.gameObject.AddComponent<WeatherModule>().Bind(weatherChip);
 
+            // Race-control banner sits above the tower in the top-center dock;
+            // it hides itself under ordinary green-flag running.
+            var raceControlText = Text(hud.TimingTowerDock, "RaceControl", 22f, TextAlignmentOptions.Center);
+            raceControlText.GetComponent<LayoutElement>().preferredHeight = 52f;
+            hud.gameObject.AddComponent<RaceControlModule>().Bind(raceControlText);
+
             // Start lights sit in the timing-tower dock (top-center of the
             // shell) so they read like the gantry; the module hides itself
             // outside the build-up sequence.

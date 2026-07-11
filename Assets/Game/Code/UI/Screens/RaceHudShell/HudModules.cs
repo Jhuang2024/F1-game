@@ -158,6 +158,71 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
+    /// <summary>
+    /// Race-control banner: the two-line caution surface (state + restart
+    /// countdown, then red-flag reason / SC queue slot / pace cap). Hides
+    /// itself entirely under ordinary green-flag running - the one-word
+    /// FlagModule chip covers that.
+    /// </summary>
+    public sealed class RaceControlModule : HudModule
+    {
+        [SerializeField] TMP_Text body;
+        public void Bind(TMP_Text bodyText) { body = bodyText; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (body == null) return;
+            bool caution = t.Valid &&
+                (t.Flag != F1Game.Core.Events.FlagState.Green || t.PaceLimited || t.RestartCountdownSeconds > 0f);
+            if (body.gameObject.activeSelf != caution)
+            {
+                body.gameObject.SetActive(caution);
+            }
+
+            if (!caution)
+            {
+                return;
+            }
+
+            string headline;
+            switch (t.Flag)
+            {
+                case F1Game.Core.Events.FlagState.Yellow:
+                case F1Game.Core.Events.FlagState.DoubleYellow:
+                    headline = "YELLOW FLAG - NO OVERTAKING";
+                    break;
+                case F1Game.Core.Events.FlagState.VirtualSafetyCar:
+                    headline = "VIRTUAL SAFETY CAR";
+                    break;
+                case F1Game.Core.Events.FlagState.SafetyCar:
+                    headline = t.RestartCountdownSeconds > 0f
+                        ? $"RESTART IN {Mathf.CeilToInt(t.RestartCountdownSeconds)}"
+                        : "SAFETY CAR DEPLOYED";
+                    break;
+                case F1Game.Core.Events.FlagState.Red:
+                    headline = "RED FLAG - SESSION SUSPENDED";
+                    break;
+                default:
+                    headline = t.PaceLimited ? "RACE CONTROL - HOLD PACE" : "GREEN FLAG";
+                    break;
+            }
+
+            string detail = t.RaceControlDetail ?? "";
+            if (t.PaceLimited && t.PaceCapKph < 900f)
+            {
+                string cap = $"KEEP UNDER {Mathf.RoundToInt(t.PaceCapKph)} KPH";
+                detail = string.IsNullOrEmpty(detail) ? cap : detail + " · " + cap;
+            }
+
+            Color tone = t.Flag == F1Game.Core.Events.FlagState.Red
+                ? UiTheme.Active.palette.danger
+                : UiTheme.Active.palette.warning;
+            body.text = string.IsNullOrEmpty(detail)
+                ? $"<color=#{ColorUtility.ToHtmlStringRGB(tone)}>{headline}</color>"
+                : $"<color=#{ColorUtility.ToHtmlStringRGB(tone)}>{headline}</color>\n<size=75%>{detail}</size>";
+        }
+    }
+
     /// <summary>Overall damage meter with the legacy thresholds' urgency tints.</summary>
     public sealed class DamageModule : HudModule
     {

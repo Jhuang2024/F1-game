@@ -63,6 +63,13 @@ namespace F1Game.Core
         // Live weather for the conditions chip.
         public Events.WeatherKind Weather;
 
+        // Race-control surface (Tier 3 parity): pace enforcement and restart
+        // context beyond the one-word flag.
+        public bool PaceLimited;
+        public float PaceCapKph;          // 9999 = uncapped
+        public float RestartCountdownSeconds;
+        public string RaceControlDetail;  // red-flag reason / SC queue line; empty otherwise
+
         // Damage + fuel emergency states and pit service progress.
         public float Damage01;            // 0 pristine .. 1 destroyed
         public bool FuelStarved;

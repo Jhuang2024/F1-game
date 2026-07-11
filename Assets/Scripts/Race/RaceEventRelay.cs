@@ -193,6 +193,10 @@ namespace LocalFormulaRacing
                 Damage01 = vehicle.Damage != null ? Mathf.Clamp01(vehicle.Damage.OverallPercent / 100f) : 0f,
                 FuelStarved = vehicle.FuelStarved,
                 PitStopProgress01 = race.PitStopProgress01(player),
+                PaceLimited = race.IsRaceControlPaceLimited,
+                PaceCapKph = race.RaceControlSpeedCapKphFor(player),
+                RestartCountdownSeconds = race.RestartCountdownSeconds,
+                RaceControlDetail = BuildRaceControlDetail(),
             };
 
             if (race.State != null)
@@ -215,6 +219,29 @@ namespace LocalFormulaRacing
                 raceOrderRefreshTimer = 0.5f;
                 PublishRaceOrder();
             }
+        }
+
+        // Second line of the production race-control banner: the red-flag
+        // reason while suspended, or the player's safety-car queue slot while
+        // one is out; empty under ordinary running.
+        string BuildRaceControlDetail()
+        {
+            if (race.IsRedFlagged && !string.IsNullOrEmpty(race.RedFlagReason))
+            {
+                return race.RedFlagReason;
+            }
+
+            if (race.IsSafetyCarConvoyActive)
+            {
+                int queue = race.PlayerSafetyCarQueuePosition;
+                float gap = race.PlayerGapToSafetyCarMeters();
+                if (queue > 0)
+                {
+                    return "Queue P" + queue + (gap > 0f ? " · +" + gap.ToString("0") + "m" : "");
+                }
+            }
+
+            return "";
         }
 
         float raceOrderRefreshTimer;
