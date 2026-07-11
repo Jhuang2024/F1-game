@@ -393,10 +393,16 @@ namespace LocalFormulaRacing
                     // Round 10: another +20kph on top of that (+157.5kph total).
                     // Round 11: another +20kph on top of that (+177.5kph total).
                     // Round 12: another +10kph on top of that (+187.5kph total).
-                    // Round 13: another +10kph on top of that (+197.5kph total) -
-                    // turning-speed pass across every non-hairpin bucket except
-                    // hairpin, per request.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence) + 197.5f);
+                    // CRASH FIX: the round 2-13 "+kph" buffs above compounded to
+                    // +197.5kph, which pushed this floor far past straightTargetSpeed
+                    // (~250-310kph for the AI). Mathf.Min then always picked
+                    // straightTargetSpeed, so the AI targeted full straight-line speed
+                    // through every high-speed corner, never braked, and ran into the
+                    // walls / each other. The additive term is removed; the floor is a
+                    // true fraction of straight-line speed again (a fast corner is taken
+                    // near, but below, straight-line pace), so Mathf.Min stops
+                    // saturating and real corner braking is restored.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.85f, straightTargetSpeed * Mathf.Lerp(0.88f, 0.94f, skillTier), apexConfidence));
                     easePower = Mathf.Lerp(6f, 10f, skillTier);
                     break;
                 case CornerType.Medium:
@@ -419,10 +425,12 @@ namespace LocalFormulaRacing
                     // Round 12: another +20kph on top of that (+162.5kph total).
                     // Round 13: another +20kph on top of that (+182.5kph total).
                     // Round 14: another +10kph on top of that (+192.5kph total).
-                    // Round 15: another +10kph on top of that (+202.5kph total) -
-                    // turning-speed pass across every non-hairpin bucket except
-                    // hairpin, per request.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 202.5f);
+                    // CRASH FIX: as with HighSpeed above, the accumulated +202.5kph
+                    // additive term saturated Mathf.Min at straightTargetSpeed, so the
+                    // AI took medium corners flat out and crashed. Additive term removed;
+                    // a medium corner keeps real curvature so it sits a clear margin
+                    // below straight-line speed.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.64f, straightTargetSpeed * Mathf.Lerp(0.72f, 0.80f, skillTier), apexConfidence));
                     easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
                     break;
                 case CornerType.Slow:
@@ -453,10 +461,13 @@ namespace LocalFormulaRacing
                     // Round 15: raised another flat 20kph (452.5-462.5kph -> 472.5-482.5kph).
                     // Round 16: raised another flat 20kph (472.5-482.5kph -> 492.5-502.5kph).
                     // Round 17: raised another flat 10kph (492.5-502.5kph -> 502.5-512.5kph).
-                    // Round 18: raised another flat 10kph (502.5-512.5kph -> 512.5-522.5kph) -
-                    // turning-speed pass across every non-hairpin bucket except
-                    // hairpin, per request.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(512.5f, Mathf.Lerp(517.5f, 522.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // CRASH FIX: rounds 4-18 raised this absolute floor to ~512-522kph,
+                    // far above the AI's ~250-310kph straight-line speed, so Mathf.Min
+                    // always clamped to straight and the AI never slowed for slow
+                    // corners. Restored to a realistic slow-corner target (2nd/3rd-gear
+                    // speed), still with the explicit compound penalty and the straight
+                    // clamp as an upper guard.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(125f, Mathf.Lerp(140f, 158f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -479,10 +490,11 @@ namespace LocalFormulaRacing
                     // Round 9: raised another flat 10kph (267.5-302.5kph -> 277.5-312.5kph).
                     // Round 10: raised another flat 5kph (277.5-312.5kph -> 282.5-317.5kph).
                     // Round 11: raised another flat 10kph (282.5-317.5kph -> 292.5-327.5kph).
-                    // Round 12: raised another flat 10kph (292.5-327.5kph -> 302.5-337.5kph) -
-                    // turning-speed pass across every non-hairpin bucket except
-                    // hairpin, per request.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(302.5f, Mathf.Lerp(322.5f, 337.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // CRASH FIX: rounds 2-12 raised this to ~302-337kph, again above
+                    // straight-line speed, so very-tight corners were also taken flat
+                    // out. Restored to a realistic very-tight target (just above hairpin
+                    // pace), with the compound penalty and straight clamp preserved.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(90f, Mathf.Lerp(105f, 120f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
