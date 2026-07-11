@@ -274,12 +274,21 @@ intact - production-first with legacy fallback, never both).
     (writes persistentDataPath CSV for engineer debrief). Added
     VehicleController.LastSteerInput accessor for the steer channel.
     TelemetryRecorderTests added.
+53. TELEMETRY DEBRIEF (in-game consumer of the live capture): TelemetryDebrief
+    (F1Game.Core.Diagnostics) turns a captured TelemetryRecorder trace into a
+    compact engineer summary - top/avg speed, top gear, full-throttle/braking/
+    coasting time share, DRS %, avg ERS, tyre-wear start/end/delta, distance,
+    duration. Pure over the samples (no race-path touch), so unit-tested.
+    TelemetryRecorder now exposes read-only Samples; RaceManager exposes
+    BuildTelemetryDebrief(). Completes the telemetry capture into a real
+    in-game consumer (the CSV export remains for offline tools).
+    TelemetryDebriefTests added.
 
 Exact next task: continue live integrations via compatibility paths + feature
-switches. Replay + telemetry are now captured live; the remaining consumer
-work (a replay playback/scrub UI, a debrief CSV-export button surfaced on the
-results screen) needs Unity scenes/UI and in-editor validation, so it waits for
-a compiler. Phase E RaceManager service extraction is the recorded larger item
+switches. Replay + telemetry are now captured live AND telemetry has an in-game
+debrief consumer; the remaining surface work (a replay playback/scrub UI, and
+placing the debrief summary + CSV-export button on the results screen) needs
+Unity scenes/UI and in-editor validation, so it waits for a compiler. Phase E RaceManager service extraction is the recorded larger item
 but the results-build loop and race-control state are tightly-coupled
 orchestration whose pure cores are already extracted (RaceClassifier,
 FlagRules...) - blind extraction of the stateful glue risks regressions the

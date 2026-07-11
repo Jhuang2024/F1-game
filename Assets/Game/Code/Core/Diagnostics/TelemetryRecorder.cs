@@ -32,6 +32,8 @@ namespace F1Game.Core.Diagnostics
         readonly int capacity;
 
         public int Count => samples.Count;
+        /// <summary>Read-only view of the captured trace (for in-game debrief analysis).</summary>
+        public IReadOnlyList<Sample> Samples => samples;
 
         public TelemetryRecorder(int capacity = 20000)
         {

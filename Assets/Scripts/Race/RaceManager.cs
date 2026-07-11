@@ -426,6 +426,8 @@ namespace LocalFormulaRacing
         public int TelemetrySampleCount => telemetryCapture.SampleCount;
         /// <summary>Export the current session's player telemetry to a CSV; returns the path or null.</summary>
         public string ExportTelemetryCsv(string fileName) => telemetryCapture.ExportCsv(fileName);
+        /// <summary>Build an engineer debrief (speed/throttle/brake/DRS/tyre summary) from the captured telemetry.</summary>
+        public TelemetryDebrief.Summary BuildTelemetryDebrief() => TelemetryDebrief.Build(telemetryCapture.Recorder);
         readonly HashSet<RaceParticipant> aheadOfSafetyCarLastTick = new HashSet<RaceParticipant>();
         // Blocks a NEW VSC/SC escalation for a while after the field returns to
         // Green, so one incident's aftermath can't chain into a second SC/VSC the
