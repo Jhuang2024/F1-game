@@ -371,7 +371,15 @@ namespace LocalFormulaRacing
             // otherwise this is a very tight corner, not a hairpin (e.g. Japan/Suzuka's
             // tightest corners, which saturate apexSeverity without ever approaching a
             // true U-turn), and stays classified as VeryTight instead.
-            return hairpinTurnAngleDegrees >= 150f ? CornerType.Hairpin : CornerType.VeryTight;
+            //
+            // Threshold raised 150 -> 168 degrees. Now that the turn angle is measured
+            // about the real apex, an early tight corner on Italy was measuring in the
+            // 150s and getting the hairpin crawl speed even though it is just a tight
+            // turn, not a U-turn. A genuine hairpin (the Italy switchback measures
+            // ~176) clears 168 comfortably, so only near-180 corners are treated as
+            // hairpins; everything from a merely-tight corner up to ~168 stays
+            // VeryTight and keeps its faster speed.
+            return hairpinTurnAngleDegrees >= 168f ? CornerType.Hairpin : CornerType.VeryTight;
         }
 
         // Per-tier apex speed curve instead of one flat Pow(severity, 1.4) eased
