@@ -27,6 +27,10 @@ namespace F1Game.UI.Screens.RaceHudShell
         public Action OnRestart;
         public Action OnQuit;
 
+        const string RestartLabel = "Restart Session";
+        const string RestartConfirmLabel = "Confirm Restart?";
+        bool restartArmed;
+
         public void Bind(TMP_Text session, ThemedButton resume, ThemedButton endPractice,
             ThemedButton mainMenu, ThemedButton restart, ThemedButton quit)
         {
@@ -37,13 +41,44 @@ namespace F1Game.UI.Screens.RaceHudShell
             restartButton = restart;
             quitButton = quit;
 
-            resumeButton.Clicked += () => OnResume?.Invoke();
-            endPracticeButton.Clicked += () => OnEndPractice?.Invoke();
-            mainMenuButton.Clicked += () => OnMainMenu?.Invoke();
-            restartButton.Clicked += () => OnRestart?.Invoke();
-            quitButton.Clicked += () => OnQuit?.Invoke();
+            // Any non-restart action also disarms a pending restart confirmation.
+            resumeButton.Clicked += () => { DisarmRestart(); OnResume?.Invoke(); };
+            endPracticeButton.Clicked += () => { DisarmRestart(); OnEndPractice?.Invoke(); };
+            mainMenuButton.Clicked += () => { DisarmRestart(); OnMainMenu?.Invoke(); };
+            quitButton.Clicked += () => { DisarmRestart(); OnQuit?.Invoke(); };
+
+            // Restart is destructive (throws away the session), so it confirms
+            // in place: first click arms, second click restarts.
+            restartButton.Clicked += OnRestartClicked;
 
             gameObject.SetActive(false);
+        }
+
+        void OnRestartClicked()
+        {
+            if (!restartArmed)
+            {
+                restartArmed = true;
+                restartButton.SetText(RestartConfirmLabel);
+                return;
+            }
+
+            DisarmRestart();
+            OnRestart?.Invoke();
+        }
+
+        void DisarmRestart()
+        {
+            if (!restartArmed)
+            {
+                return;
+            }
+
+            restartArmed = false;
+            if (restartButton != null)
+            {
+                restartButton.SetText(RestartLabel);
+            }
         }
 
         /// <summary>Sets the session/event line and whether the End-Practice action applies.</summary>
@@ -62,6 +97,9 @@ namespace F1Game.UI.Screens.RaceHudShell
 
         public void SetVisible(bool visible)
         {
+            // A fresh pause (or a hide) always starts from a disarmed restart.
+            DisarmRestart();
+
             if (gameObject.activeSelf != visible)
             {
                 gameObject.SetActive(visible);
