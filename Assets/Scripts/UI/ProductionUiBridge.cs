@@ -4,6 +4,7 @@ using F1Game.Core.Diagnostics;
 using F1Game.Race.Rules;
 using F1Game.UI;
 using F1Game.UI.Screens;
+using F1Game.UI.Screens.CareerCreation;
 using F1Game.UI.Screens.CareerHub;
 using F1Game.UI.Screens.CareerStandings;
 using F1Game.UI.Screens.DriverProfile;
@@ -52,6 +53,7 @@ namespace LocalFormulaRacing
         static PreRaceStrategyPresenter strategyPresenter;
         static CareerStandingsPresenter standingsPresenter;
         static CareerHubPresenter careerHubPresenter;
+        static CareerCreationPresenter careerCreationPresenter;
         static DriverProfilePresenter profilePresenter;
         static SettingsPresenter settingsPresenter;
         static ResultsPresenter resultsPresenter;
@@ -163,6 +165,10 @@ namespace LocalFormulaRacing
                     {
                         ShowCareerHub();
                     }
+                    else if (ProductionCareerCreationEnabled)
+                    {
+                        ShowCareerCreation();
+                    }
                     else
                     {
                         LeaveToLegacy(() => bootstrap.ShowCareer());
@@ -206,6 +212,13 @@ namespace LocalFormulaRacing
                 OnStandings = ShowCareerStandings,
                 OnProfile = ShowDriverProfile,
                 OnLegacyMenu = () => LeaveToLegacy(() => bootstrap.ShowCareer()),
+                OnBack = () => shell.Router.Back(),
+            };
+
+            var careerCreationView = (CareerCreationView)ShowAndGet(CareerCreationView.Id);
+            careerCreationPresenter = new CareerCreationPresenter(careerCreationView)
+            {
+                OnStart = StartProductionCareer,
                 OnBack = () => shell.Router.Back(),
             };
 
@@ -320,6 +333,64 @@ namespace LocalFormulaRacing
 
             shell.Router.Show(CareerHubView.Id);
             careerHubPresenter.Present(model);
+        }
+
+        /// <summary>Default-off switch for the production career-creation screen.</summary>
+        public const string ProductionCareerCreationKey = "f1game_production_career_creation";
+
+        public static bool ProductionCareerCreationEnabled => PlayerPrefs.GetInt(ProductionCareerCreationKey, 0) == 1;
+
+        // Clearly-labelled PLACEHOLDER driver names (fictional) offered on the
+        // production creation screen until free-text entry is validated in-editor.
+        static readonly string[] PlaceholderDriverNames =
+        {
+            "Alex Vettori", "Jordan Vale", "Sam Reyes", "Robin Vasseur",
+            "Chris Nakamura", "Dana Whitlock", "Player Driver",
+        };
+
+        static void ShowCareerCreation()
+        {
+            var model = new CareerCreationModel();
+            for (int i = 0; i < PlaceholderDriverNames.Length; i++)
+            {
+                model.driverNames.Add(PlaceholderDriverNames[i]);
+            }
+
+            if (data != null && data.Teams != null)
+            {
+                for (int i = 0; i < data.Teams.teams.Count; i++)
+                {
+                    TeamData team = data.Teams.teams[i];
+                    if (team == null)
+                    {
+                        continue;
+                    }
+
+                    model.teams.Add(new CareerTeamOption
+                    {
+                        teamId = team.id,
+                        teamName = string.IsNullOrEmpty(team.name) ? team.id : team.name,
+                        detail = "Reputation " + team.reputation,
+                    });
+                }
+            }
+
+            shell.Router.Show(CareerCreationView.Id);
+            careerCreationPresenter.Present(model);
+        }
+
+        // Create the new career from the production screen's choices, then continue
+        // into the production career hub (the same destination the legacy flow lands on).
+        static void StartProductionCareer(string driverName, string teamId)
+        {
+            if (career == null || string.IsNullOrEmpty(teamId))
+            {
+                LeaveToLegacy(() => bootstrap.ShowCareer());
+                return;
+            }
+
+            career.StartNewCareer(driverName, teamId);
+            ShowCareerHub();
         }
 
         /// <summary>

@@ -128,6 +128,24 @@ namespace F1Game.UI.Screens
     }
 
     [Serializable]
+    public class CareerTeamOption
+    {
+        public string teamId;
+        public string teamName;
+        public string detail;   // e.g. "Car 88 · Reputation 74"
+    }
+
+    /// <summary>New-career choices offered on the production career-creation screen.</summary>
+    [Serializable]
+    public class CareerCreationModel
+    {
+        public List<string> driverNames = new List<string>();
+        public int selectedNameIndex;
+        public List<CareerTeamOption> teams = new List<CareerTeamOption>();
+        public int selectedTeamIndex;
+    }
+
+    [Serializable]
     public class CareerHubModel
     {
         public string seasonLabel;      // "Season 2 · Round 5/22"

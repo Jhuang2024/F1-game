@@ -411,7 +411,7 @@ namespace F1Game.UI
             RectTransform editorSection = CreateLayoutColumn(content, "SettingsEditorSection", theme.spacing.micro);
             CreateText(editorSection, "FullEditorLabel", TextStyle.Label, "FULL SETTINGS EDITOR");
             RectTransform editorColumn = CreateLayoutColumn(editorSection, "SettingsEditorRows", theme.spacing.micro);
-            EditableSettingRow editorTemplate = BuildEditableSettingRowTemplate(editorColumn, theme);
+            EditableSettingRow editorTemplate = BuildEditableSettingRow(editorColumn, theme, startHidden: true);
 
             var view = content.parent.gameObject.AddComponent<Screens.Settings.SettingsView>();
             view.Bind(header, rowsColumn, rowTemplate, difficultyButton, ersButton, manualGearsButton,
@@ -420,8 +420,38 @@ namespace F1Game.UI
             return view;
         }
 
-        // Hidden template for one interactive settings-editor row: [ label ....... value  <  > ].
-        static EditableSettingRow BuildEditableSettingRowTemplate(Transform parent, UiTheme theme)
+        public static Screens.CareerCreation.CareerCreationView BuildCareerCreation(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_CareerCreation", "CREATE CAREER", out TMP_Text header);
+
+            CreateText(content, "Intro", TextStyle.Body, "Choose your driver name and team, then start your career.");
+            TMP_Text summary = CreateText(content, "Summary", TextStyle.H3, "");
+
+            RectTransform choiceColumn = CreateLayoutColumn(content, "CareerChoices", theme.spacing.micro);
+            EditableSettingRow nameRow = BuildEditableSettingRow(choiceColumn, theme, startHidden: false);
+            EditableSettingRow teamRow = BuildEditableSettingRow(choiceColumn, theme, startHidden: false);
+
+            var buttonRowGo = new GameObject("ButtonRow", typeof(RectTransform));
+            buttonRowGo.transform.SetParent(content, false);
+            var buttonLayout = buttonRowGo.AddComponent<HorizontalLayoutGroup>();
+            buttonLayout.spacing = theme.spacing.small;
+            buttonLayout.childForceExpandWidth = true;
+            buttonLayout.childControlWidth = true;
+            buttonLayout.childControlHeight = true;
+            ThemedButton start = CreateButton(buttonRowGo.transform, "Btn_StartCareer", ThemedButton.Variant.Primary, "Start Career",
+                theme.components.buttonHeightCompact);
+            ThemedButton back = CreateButton(buttonRowGo.transform, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
+                theme.components.buttonHeightCompact);
+
+            var view = content.parent.gameObject.AddComponent<Screens.CareerCreation.CareerCreationView>();
+            view.Bind(summary, nameRow, teamRow, start, back);
+            return view;
+        }
+
+        // One interactive stepper row: [ label ....... value  <  > ]. Hidden when it is
+        // a pool template; visible when it is a concrete row (e.g. career creation).
+        static EditableSettingRow BuildEditableSettingRow(Transform parent, UiTheme theme, bool startHidden)
         {
             var rowGo = new GameObject("EditorRow_Template", typeof(RectTransform));
             rowGo.transform.SetParent(parent, false);
@@ -454,7 +484,11 @@ namespace F1Game.UI
 
             var row = rowGo.AddComponent<EditableSettingRow>();
             row.Bind(label, value, decrement, increment);
-            rowGo.SetActive(false);
+            if (startHidden)
+            {
+                rowGo.SetActive(false);
+            }
+
             return row;
         }
 

@@ -1535,6 +1535,23 @@ deferred, not claimed complete.
         authoritative editor. Screens build at runtime via UiScreenFactory (no baked
         prefab exists), so no re-bake is needed; VISUAL VALIDATION PENDING.
 
+    F18. Production career-creation screen (replaces the no-career LeaveToLegacy
+        path, default-off). New CareerCreationModel + CareerTeamOption (F1Game.UI),
+        CareerCreationView + CareerCreationPresenter (F1Game.UI.Screens.CareerCreation)
+        - the driver name and team are chosen with two reused EditableSettingRow
+        steppers (no text-input widget needed), Start confirms (name, teamId), Back
+        returns. UiScreenFactory.BuildCareerCreation builds the screen (row builder
+        generalized to BuildEditableSettingRow(startHidden)); UiShell registers
+        "career-creation". ProductionUiBridge adds the f1game_production_career_creation
+        switch (default 0): MainMenu OnCareer routes no-career to ShowCareerCreation()
+        when on, else LeaveToLegacy(ShowCareer) as before; ShowCareerCreation builds
+        the model (clearly-labelled fictional placeholder driver names + real team
+        list) and presents; StartProductionCareer calls career.StartNewCareer(name,
+        teamId) then lands on the production career hub - the same destination the
+        legacy flow reaches. Exactly one path live at a time (switch-gated); legacy
+        free-text name entry remains the fallback until the production TMP_InputField
+        is built/validated. Runtime-built (no baked prefab); VISUAL VALIDATION PENDING.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
