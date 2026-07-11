@@ -4539,17 +4539,10 @@ namespace LocalFormulaRacing
                 return RecommendedPitLap(participant);
             }
 
-            if (participant.pitStops == 0)
-            {
-                return GetPlannedPitLapForStop(1);
-            }
-
-            if (participant.pitStops == 1 && GetPlannedStopCount() >= 2)
-            {
-                return GetPlannedPitLapForStop(2);
-            }
-
-            return -1;
+            // Which planned stop is next is the rulebook's call; the lap it maps
+            // to stays here. Behavior-identical to the prior inline branches.
+            int stopIndex = PitPlanRules.NextPlannedStopIndex(participant.pitStops, GetPlannedStopCount());
+            return stopIndex == 0 ? -1 : GetPlannedPitLapForStop(stopIndex);
         }
 
         // Compound for the player's next pending planned stop, parsed from the
