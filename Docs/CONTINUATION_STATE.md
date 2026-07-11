@@ -59,13 +59,19 @@ weather, start lights, timing tower, notification feed. Legacy RaceHud stays
 the ordinary default until in-editor validation; UiSessionCoordinator
 guarantees exactly one live HUD.
 
-Exact next task: production-HUD remaining gap - a delta-to-best readout and
-a minimap need new data plumbing; defer both to an in-editor pass. Next
-implementation task: career screen migration to the production shell
-(directive item 6), starting with the standings/calendar screens
-(CareerManager data -> presenters), OR the authored-track migration
-(directive Phase C consumers). Pick whichever the next session's budget
-allows; both are documented in Docs/REFACTOR_MAP.md.
+13. `6a20f4a` First production career screen: CareerStandingsView/Presenter
+    (drivers/teams tabs, pooled rows, player highlight), registered in
+    UiShell, mapped in ProductionUiBridge, reachable live from a new
+    Standings button on the production main menu (career-gated). Legacy
+    career hub untouched.
+
+Exact next task: continue career-screen migration in the same pattern -
+next screens in order: (a) season calendar (data.Calendar.events +
+career.Save.currentRound -> rows with done/next markers), (b) career hub
+actions (Continue to next event / standings / save info) so the career
+BUTTON can eventually route production-first with a legacy fallback. Then
+authored-track consumer migration (Phase C). HUD delta-to-best + minimap are
+deferred to an in-editor pass (need new data plumbing validated at runtime).
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
