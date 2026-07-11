@@ -1316,6 +1316,20 @@ deferred, not claimed complete.
         opposite-sign double-cover shortest arc, normalized round-trip). The scrub
         UI itself (Unity scene/widgets) remains the editor-gated remainder; this is
         its verified data foundation. Runtime validation PENDING for the UI only.
+    F3. Replay transport -> engine-free ReplayPlaybackController (F1Game.Race). The
+        play/pause/seek/speed state machine a scrub bar and replay camera drive over
+        a ReplayRecording: owns the playhead, Advance(realDelta) moves it by
+        realDelta*speed while playing and stops+pauses at the end, Play() from the
+        end rewinds first (replay again), Seek/SeekNormalized clamp to bounds,
+        SetSpeed clamps to 0.05x-16x, and SampleCar(carIndex) returns the
+        ReplayPlayback-interpolated transform at the current playhead. Pure state,
+        no engine dependency - the UI only reads NormalizedPlayhead and renders
+        SampleCar. ReplayPlaybackControllerTests added (start-paused, speed-scaled
+        advance only while playing, stop/pause at end, play-from-end rewind, seek
+        clamp + normalized round-trip, speed clamp, sample-at-playhead, empty-inert).
+        Together with F2 this is the complete non-visual replay playback engine;
+        only the scrub-bar widgets + replay camera (Unity scene) remain editor-gated.
+        Runtime validation PENDING for the UI only.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
