@@ -801,6 +801,15 @@ deferred, not claimed complete.
     resolve in-class.
     RaceManager.cs -> 3177 lines: 8490 out over 29 slices (~72.8%).
     RaceManager is now spread across 28 focused partials (main + 27).
+    Slice 30: low-speed stack resolution - ResolveLowSpeedStacks,
+    IsStackResolveCandidate and NudgeStackedCar (the gentle anti-pile pass that
+    eases nearly-stationary overlapping cars apart along track-right, damage-free
+    and clamped inside the road surface) - 93 lines - moved to
+    RaceManager.StackResolve.cs. Overlap/speed thresholds, nudge magnitude and call
+    order unchanged; the tiny SortRunningOrder tick stays in main; callers resolve
+    in-class.
+    RaceManager.cs -> 3083 lines: 8584 out over 30 slices (~73.6%).
+    RaceManager is now spread across 29 focused partials (main + 28).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
