@@ -134,6 +134,12 @@ namespace LocalFormulaRacing
             {
                 F1Game.Core.HudTelemetry.Clear();
                 F1Game.Core.HudRaceOrder.Clear();
+                if (mappedTrack != null)
+                {
+                    mappedTrack = null;
+                    F1Game.Core.HudTrackMap.Clear();
+                }
+
                 return;
             }
 
@@ -240,6 +246,7 @@ namespace LocalFormulaRacing
             }
 
             F1Game.Core.HudTelemetry.Publish(snapshot);
+            PublishTrackMap();
 
             raceOrderRefreshTimer -= Time.deltaTime;
             if (raceOrderRefreshTimer <= 0f)
@@ -247,6 +254,94 @@ namespace LocalFormulaRacing
                 raceOrderRefreshTimer = 0.5f;
                 PublishRaceOrder();
             }
+        }
+
+        // Minimap: the track outline (published once per track) and the live
+        // car dots (every frame), both normalized 0..1 into a shared XZ box so
+        // the UI maps into its own rect without knowing world scale.
+        TrackRuntime mappedTrack;
+        float mapMinX, mapMinZ, mapRangeX, mapRangeZ;
+        readonly Vector2[] outlineScratch = new Vector2[F1Game.Core.HudTrackMap.MaxOutline];
+
+        void PublishTrackMap()
+        {
+            if (race.Track == null || race.Track.centerLine == null || race.Track.centerLine.Count < 4)
+            {
+                if (mappedTrack != null)
+                {
+                    mappedTrack = null;
+                    F1Game.Core.HudTrackMap.Clear();
+                }
+
+                return;
+            }
+
+            if (!ReferenceEquals(race.Track, mappedTrack))
+            {
+                BuildTrackOutline();
+                mappedTrack = race.Track;
+            }
+
+            if (mapRangeX <= 0.0001f || mapRangeZ <= 0.0001f)
+            {
+                return;
+            }
+
+            var participants = race.Participants;
+            int dotCount = Mathf.Min(participants.Count, F1Game.Core.HudTrackMap.MaxDots);
+            for (int i = 0; i < dotCount; i++)
+            {
+                RaceParticipant p = participants[i];
+                Vector3 pos = p != null && p.vehicle != null ? p.transform.position
+                    : (p != null ? p.transform.position : Vector3.zero);
+                F1Game.Core.HudTrackMap.Dots[i] = new F1Game.Core.HudMapDot
+                {
+                    X = Mathf.Clamp01((pos.x - mapMinX) / mapRangeX),
+                    Y = Mathf.Clamp01((pos.z - mapMinZ) / mapRangeZ),
+                    IsPlayer = p != null && p.isPlayer,
+                    Retired = p != null && p.retired,
+                    InPit = p != null && (p.isPitting || p.pitPhase != PitPhase.None),
+                };
+            }
+
+            F1Game.Core.HudTrackMap.DotCount = dotCount;
+        }
+
+        void BuildTrackOutline()
+        {
+            var line = race.Track.centerLine;
+            float minX = float.MaxValue, minZ = float.MaxValue, maxX = float.MinValue, maxZ = float.MinValue;
+            for (int i = 0; i < line.Count; i++)
+            {
+                Vector3 p = line[i];
+                if (p.x < minX) minX = p.x;
+                if (p.x > maxX) maxX = p.x;
+                if (p.z < minZ) minZ = p.z;
+                if (p.z > maxZ) maxZ = p.z;
+            }
+
+            // Small margin so cars near the edge stay inside the map rect.
+            float margin = 0.04f;
+            mapRangeX = Mathf.Max(1f, maxX - minX);
+            mapRangeZ = Mathf.Max(1f, maxZ - minZ);
+            mapMinX = minX - mapRangeX * margin;
+            mapMinZ = minZ - mapRangeZ * margin;
+            mapRangeX *= 1f + margin * 2f;
+            mapRangeZ *= 1f + margin * 2f;
+
+            // Subsample the centerline down to the outline budget.
+            int budget = Mathf.Min(line.Count, F1Game.Core.HudTrackMap.MaxOutline);
+            int step = Mathf.Max(1, line.Count / budget);
+            int n = 0;
+            for (int i = 0; i < line.Count && n < F1Game.Core.HudTrackMap.MaxOutline; i += step)
+            {
+                Vector3 p = line[i];
+                outlineScratch[n++] = new Vector2(
+                    (p.x - mapMinX) / mapRangeX,
+                    (p.z - mapMinZ) / mapRangeZ);
+            }
+
+            F1Game.Core.HudTrackMap.PublishOutline(outlineScratch, n);
         }
 
         // Second line of the production race-control banner: the red-flag
@@ -282,6 +377,7 @@ namespace LocalFormulaRacing
             F1Game.Core.HudTelemetry.Clear();
             F1Game.Core.HudRaceOrder.Clear();
             F1Game.Core.HudCommands.Clear();
+            F1Game.Core.HudTrackMap.Clear();
         }
 
         // Running-order snapshot for the production timing tower: the sorted

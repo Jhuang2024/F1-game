@@ -65,6 +65,11 @@ namespace F1Game.UI.Screens.RaceHudShell
             var deltaText = Numeric(hud.TopLeftDock, "Delta", 20f);
             hud.gameObject.AddComponent<DeltaModule>().Bind(deltaText);
 
+            // Track minimap: a fixed square panel in the bottom-right dock; the
+            // module positions pooled dots within its rect.
+            var mapContainer = Minimap(hud.BottomRightDock);
+            hud.gameObject.AddComponent<MinimapModule>().Bind(mapContainer);
+
             // Top-left continues with the relative gaps under the lap/clock,
             // then the lap-time block (current/last/best/session best).
             var gapsText = Numeric(hud.TopLeftDock, "Gaps", 18f);
@@ -179,6 +184,24 @@ namespace F1Game.UI.Screens.RaceHudShell
             var chip = go.AddComponent<StatusChip>();
             chip.Bind(label, bg);
             return chip;
+        }
+
+        // Fixed square panel the MinimapModule positions its pooled dots inside.
+        static RectTransform Minimap(Transform parent)
+        {
+            const float Size = 180f;
+            var go = new GameObject("HudMinimap", typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var bg = go.AddComponent<Image>();
+            Color surface = UiTheme.Active.palette.surface;
+            surface.a = 0.55f;
+            bg.color = surface;
+            var layout = go.AddComponent<LayoutElement>();
+            layout.preferredWidth = Size;
+            layout.preferredHeight = Size;
+            layout.minWidth = Size;
+            layout.minHeight = Size;
+            return (RectTransform)go.transform;
         }
     }
 }

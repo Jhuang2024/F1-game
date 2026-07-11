@@ -48,8 +48,9 @@ pit-request/radio events).
 - [x] Tower per-row tyre compound + interval column. (tranche 1)
 - [x] Tower per-row DRS dot + PIT tag. (tranche 9; 22-row depth still
       capped at top-10 + player)
-- [ ] Track map minimap (497) + progress strip (2664): needs a per-car
-      position stream (heaviest new plumbing; no channel exists).
+- [x] Track map minimap (497): HudTrackMap channel (outline once per track +
+      per-frame car dots) + pooled-dot MinimapModule. (tranche 9; team-colour
+      dots + progress strip still legacy-only, needs in-editor visual pass)
 
 ## Tier 6 — Notifications (event-bus work)
 - [ ] Watcher toasts: tyre overheat, track limits, best lap, pit-stop
