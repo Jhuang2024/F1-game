@@ -235,13 +235,27 @@ PitPlanRules - all with EditMode tests and live consumers.
     BeginResults+ui.ShowResults(legacy). Registered in UiShell. Qualifying
     results still legacy.
 
-Exact next task: continue the session-end frontend migration - qualifying
-results (ShowQualifyingResults site, QualifyingResultEntry -> a reuse of the
-Results screen or a variant) behind the same TryShow/legacy-fallback pattern;
-then the pause menu to the production shell. Larger directive items (Phase E
-RaceManager service extraction, physics handling swaps) proceed via
-compatibility paths + feature switches + incremental delegation - preserve
-the existing path until the replacement is structurally wired, then switch
+47. `cd86ee9` Production qualifying-results screen (career): Results screen
+    gains a compact variant; bridge maps QualifyingResultEntry; RaceManager's
+    two qualifying sites gated production-first; quick-race quali stays legacy.
+48. `7f8ab38` Production PAUSE OVERLAY: fills a real gap (paused production-HUD
+    sessions had no menu). PauseOverlay on the shell overlay layer (UiShell
+    exposes ModalLayer) with Resume/EndPractice/MainMenu/Restart/Quit wired to
+    the legacy race+bootstrap hooks; SetPaused(race, paused) shows/hides it.
+
+Session frontend migration status: HUD (functional parity), race + career
+qualifying results, and pause are now production-first with legacy fallback.
+Remaining legacy-only session UI: MFD/radio overlays, restart-confirm modal,
+accessibility/settings overlays, replay/spectator/photo controls.
+
+Exact next task: continue live integrations via compatibility paths +
+feature switches. Candidates in dependency order: (a) restart-confirmation as
+a production modal (the pause Restart currently restarts immediately -
+legacy had a confirm); (b) settings overlay reachable from the pause menu
+(production settings screen -> a first slice); (c) Phase E RaceManager
+service extraction via incremental delegation (extract one coherent service,
+route live call sites, keep the existing path until wired). Preserve the
+existing path until the replacement is structurally wired, then switch
 ownership. In-editor VISUAL validation still required for every migrated
 screen. Multiplayer (Phase N) DEFERRED, out of scope.
 
