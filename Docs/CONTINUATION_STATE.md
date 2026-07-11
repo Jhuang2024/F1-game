@@ -1044,6 +1044,38 @@ deferred, not claimed complete.
     RaceManager.cs -> 925 lines: 10742 out over 58 slices (~92.1%).
     RaceManager is now spread across 50 focused partials (main + 49).
 
+    RaceManager partial-class decomposition: PHASE COMPLETE.
+    The 11667-line monolith is now a 926-line core (RaceManager.cs) plus 49 focused
+    behaviour-preserving partials, all in one class (partial class RaceManager,
+    namespace LocalFormulaRacing). Full consolidated review passes: every file's
+    braces balance and declares `partial`; 417 Assets metas with 0 duplicate GUIDs;
+    no unexpected cross-partial duplicate definitions (only the two legitimate
+    PostEngineerMessage overloads, both in Engineer.cs); `git diff --check` clean;
+    main untouched at 286e94f. Every slice moved code verbatim - identical members,
+    execution order, RNG call order, tuned values and public APIs; all callers
+    (in-class partials and external classes: AiVehicleController, RaceHud,
+    RaceEventRelay, PlayerVehicleInput, GameBootstrap, RaceParticipant, DataModels,
+    VehicleController) resolve in-class because the type is unchanged.
+    What remains in RaceManager.cs is the irreducible MonoBehaviour core and is NOT
+    a candidate for further partial slicing: the field/property/state declarations
+    that form the public API surface (race-control counts, flag state, capture
+    fields), the two small state-derived accessors woven into them
+    (FlagForParticipant, ReplayCarIndex) and the expression-bodied capture accessors,
+    the Update() per-frame orchestration tick that drives every extracted subsystem,
+    and the nested data types (RaceControlHistoryEntry, EngineerMessageEntry,
+    QualifyingLapBreakdown, QualifyingSimEntry, SectorSnapshot, PracticeSessionResult,
+    GhostSample). Extracting these individually would fragment the state surface and
+    the central tick for no cohesion gain, so they stay together.
+    Next recorded phase (Phase E, distinct and higher-risk): behaviour-preserving
+    SERVICE extraction/delegation from these partials where dependencies verify
+    statically - build the replacement service in coherent slices, keep the live
+    implementation behind a default-off switch, and record Unity validation as
+    pending. The pure cores that such services would wrap are already extracted
+    (RaceClassifier, FlagRules, PenaltyRules, AiPitStrategyRules, DrsRules,
+    QualifyingProgression, WeatherRules, PhysicsModels), so the remaining work is the
+    stateful-glue delegation, which must be sliced carefully (blind extraction of the
+    orchestration state risks regressions no static check can catch without Unity).
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
