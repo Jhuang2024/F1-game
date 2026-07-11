@@ -27,14 +27,19 @@ namespace LocalFormulaRacing
         }
 
         /// <summary>
-        /// Chooses and builds the adapter at race start. When the event is the
-        /// reference circuit (or authored is forced), builds the authored runtime
-        /// from the generated definition; otherwise wraps the live TrackRuntime.
+        /// Chooses and builds the adapter at race start. Live race-layer call
+        /// sites (DRS zones, track-limits width) now read the active query, so
+        /// the selected backend MUST share the physical world's lap
+        /// parameterization: the world is still built by the legacy
+        /// TrackManager on every circuit, so the authored adapter (whose
+        /// distances come from the generated definition, not the built world)
+        /// is only selected behind the explicit validation flag - no longer
+        /// auto-selected for the reference circuit. It becomes the ordinary
+        /// per-circuit backend once track construction itself is authored.
         /// </summary>
         public static ITrackQuery Select(string trackId, TrackRuntime legacyRuntime)
         {
-            bool useAuthored = ForceAuthored ||
-                (!string.IsNullOrEmpty(trackId) && trackId == ReferenceTrackGenerator.ReferenceTrackId);
+            bool useAuthored = ForceAuthored;
 
             if (useAuthored)
             {

@@ -6715,6 +6715,34 @@ namespace LocalFormulaRacing
             participant.previousDrsProgressNormalized = currentNormalized;
         }
 
+        // ---- Track-query seam (Phase C consumer migration) ----------------
+        // These consumers read the active ITrackQuery so an authored backend
+        // can drop in per circuit once track construction itself is authored;
+        // today the legacy adapter answers identically over the live
+        // TrackRuntime. Null-safe: falls back to the direct runtime before the
+        // provider is selected (e.g. qualifying warm-up before StartSession's
+        // Select call, or if selection failed).
+
+        int DrsZoneIndexAt(TrackProgress progress)
+        {
+            F1Game.Track.ITrackQuery query = TrackQueryProvider.Active;
+            if (query != null)
+            {
+                int zone = query.DrsZoneAt(progress.distance);
+                // The interface reports -1 for "no zone"; legacy call sites
+                // treat 0 as "no zone" and 1/2 as the zone index.
+                return zone < 0 ? 0 : zone;
+            }
+
+            return Track.GetDrsZoneIndex(progress.normalized);
+        }
+
+        float LocalHalfWidthAt(float distance)
+        {
+            F1Game.Track.ITrackQuery query = TrackQueryProvider.Active;
+            return query != null ? query.WidthAt(distance) * 0.5f : Track.HalfWidthAt(distance);
+        }
+
         // The actual 1-second-gap decision, made once at the detection point.
         // Qualifying/time trial never require a gap at all - every zone is always
         // available with no car-ahead requirement.
@@ -6759,7 +6787,7 @@ namespace LocalFormulaRacing
             }
 
             TrackProgress progress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
-            int zoneIndex = Track.GetDrsZoneIndex(progress.normalized);
+            int zoneIndex = DrsZoneIndexAt(progress);
             if (zoneIndex == 0)
             {
                 return false;
@@ -9682,7 +9710,7 @@ namespace LocalFormulaRacing
             // widened) drivable surface, not the flat field - otherwise a car using
             // the extra tarmac a widened hairpin exists to provide would rack up
             // false track-limits warnings and penalties for it.
-            float localHalfWidth = Track.HalfWidthAt(progress.distance);
+            float localHalfWidth = LocalHalfWidthAt(progress.distance);
             // Barrier-flush fix: these used to allow +2.2m/+5.2m of "legal"
             // space beyond the paved edge before even a warning - fine when
             // the nearest barrier's own inner face was 1.5m+ further out
