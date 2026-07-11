@@ -6593,14 +6593,6 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            // Time trial: DRS is a free lap-time tool available anywhere on the lap,
-            // not gated to detection zones or a car ahead. (The dry/countdown checks
-            // above still apply; there is no safety car or yellow in a time trial.)
-            if (IsTimeTrial)
-            {
-                return true;
-            }
-
             // DRS is off under any safety-car period and for a short cooldown after
             // the restart - real F1 rule, and the simplest correct place to gate it.
             if (drsRestartCooldownTimer > 0f ||
