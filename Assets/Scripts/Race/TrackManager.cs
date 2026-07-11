@@ -2072,19 +2072,36 @@ namespace LocalFormulaRacing
         void AddLayoutPoints(TrackRuntime runtime)
         {
             string id = string.IsNullOrEmpty(runtime.trackId) ? "bahrain_desert" : runtime.trackId;
-            if (id == F1Game.Track.ReferenceTrackGenerator.ReferenceTrackId)
+            if (F1Game.Track.AuthoredCircuitCatalog.Contains(id))
             {
-                // Authored-definition circuit: geometry comes from the generated
+                // Authored-definition circuit: geometry comes from the catalog's
                 // TrackDefinitionAsset, not hand-placed anchors, so the physical
-                // world and the authored data pipeline share one source. The
-                // authored spline is already real scale (~4.6 km), so the
+                // world and the authored data pipeline share one source. An
+                // authored spline is already real scale, so the
                 // NormalizeTrackLength pass - which exists to blow the ~200 m
                 // hand-sketched layouts up to circuit size - must NOT run here;
                 // it would distort the authored geometry it is meant to honor.
-                BuildAuroraParkLayout(runtime);
-                RepairLayout(runtime);
-                ValidateLayout(runtime);
-                return;
+                F1Game.Track.TrackDefinitionAsset definition = F1Game.Track.AuthoredCircuitCatalog.Generate(id);
+                if (definition != null && definition.spline.Count >= 8)
+                {
+                    BuildAuthoredLayout(runtime, definition);
+                    RepairLayout(runtime);
+                    ValidateLayout(runtime);
+                    return;
+                }
+
+                // Emergency fallback: an unusable definition falls through to
+                // the legacy chain (ultimately the Bahrain template) instead of
+                // producing an empty world.
+                if (definition != null)
+                {
+                    Destroy(definition);
+                }
+
+                if (LastReport != null)
+                {
+                    LastReport.Warn("Authored definition for '" + id + "' unusable; falling back to procedural layout.");
+                }
             }
 
             if (id.Contains("china"))
@@ -2154,10 +2171,6 @@ namespace LocalFormulaRacing
             else if (id.Contains("silverstone"))
             {
                 BuildSilverstoneLayout(runtime);
-            }
-            else if (id.Contains("monza"))
-            {
-                BuildMonzaLayout(runtime);
             }
             else if (id.Contains("spa"))
             {
@@ -2380,17 +2393,15 @@ namespace LocalFormulaRacing
             }
         }
 
-        // Aurora Park - the first circuit whose geometry comes from an authored
-        // TrackDefinitionAsset (Phase C). The legacy builder stays the mesh/
-        // kerb/barrier/pit engine; the definition supplies the centerline,
-        // width and DRS zones. Per-point width/camber collapse to the scalar
-        // width model this builder supports (lap average) until the mesh
-        // passes honor them; the authored detection points are likewise
-        // superseded by ValidateLayout's derived ones.
-        void BuildAuroraParkLayout(TrackRuntime runtime)
+        // Authored-definition layout build (Phase C). The legacy builder stays
+        // the mesh/kerb/barrier/pit engine; the catalog's definition supplies
+        // the centerline, per-point width (via the authored width profile) and
+        // DRS zones. Per-point camber is not yet honored by the legacy mesh
+        // pass; the authored detection points are likewise superseded by
+        // ValidateLayout's derived ones.
+        void BuildAuthoredLayout(TrackRuntime runtime, F1Game.Track.TrackDefinitionAsset definition)
         {
-            F1Game.Track.TrackDefinitionAsset definition = F1Game.Track.ReferenceTrackGenerator.Generate();
-            runtime.styleName = "Authored parkland";
+            runtime.styleName = "Authored circuit";
 
             var anchors = new Vector3[definition.spline.Count];
             float widthSum = 0f;
@@ -2596,23 +2607,9 @@ namespace LocalFormulaRacing
             }, 5);
         }
 
-        void BuildMonzaLayout(TrackRuntime runtime)
-        {
-            runtime.styleName = "Low-downforce park";
-            runtime.roadHalfWidth = 15.98f;
-            runtime.kerbStart = 9.4f;
-            runtime.drsZoneOne = new Vector2(0.88f, 0.08f);
-            runtime.drsZoneTwo = new Vector2(0.44f, 0.62f);
-            AddSmoothedAnchors(runtime, new[]
-            {
-                new Vector3(0f, 0f, 0f), new Vector3(230f, 0f, 0f), new Vector3(272f, 0f, 26f),
-                new Vector3(246f, 0f, 58f), new Vector3(194f, 0f, 48f), new Vector3(238f, 0f, 92f),
-                new Vector3(252f, 0f, 148f), new Vector3(196f, 0f, 184f), new Vector3(92f, 0f, 190f),
-                new Vector3(20f, 0f, 164f), new Vector3(-42f, 0f, 174f), new Vector3(-86f, 0f, 132f),
-                new Vector3(-48f, 0f, 86f), new Vector3(62f, 0f, 76f), new Vector3(112f, 0f, 42f),
-                new Vector3(74f, 0f, 14f), new Vector3(-210f, 0f, 0f)
-            }, 3);
-        }
+        // BuildMonzaLayout retired: monza_low_downforce converted to the
+        // authored pipeline - its geometry now lives in
+        // F1Game.Track.AuthoredCircuitCatalog.GenerateMonza (single source).
 
         void BuildSpaLayout(TrackRuntime runtime)
         {

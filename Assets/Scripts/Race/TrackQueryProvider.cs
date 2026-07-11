@@ -43,7 +43,14 @@ namespace LocalFormulaRacing
 
             if (useAuthored)
             {
-                var definition = ReferenceTrackGenerator.Generate();
+                // The catalog answers for converted circuits; anything else
+                // validates against the reference definition.
+                var definition = AuthoredCircuitCatalog.Generate(trackId);
+                if (definition == null)
+                {
+                    definition = ReferenceTrackGenerator.Generate();
+                }
+
                 var authored = new AuthoredTrackRuntime(definition);
                 if (authored.Length > 0f)
                 {
