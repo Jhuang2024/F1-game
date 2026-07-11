@@ -570,6 +570,12 @@ deferred, not claimed complete.
     SlipstreamStraightSectionStrength + the slipstream/dirty-air constants) moved
     verbatim into RaceManager.Slipstream.cs; DriverShortCode stays in main
     (shared). Racing-tick caller unchanged. RaceManager.cs → 11397 lines.
+    Slice 3: the AI difficulty-profile block (the AiDifficultyProfile struct +
+    GetAiDifficultyProfile's per-tier Easy/Medium/Hard/Expert profiles) moved to
+    RaceManager.AiProfiles.cs. Because it's a PARTIAL, the struct stays nested as
+    RaceManager.AiDifficultyProfile, so AiVehicleController's five references are
+    completely unchanged (the earlier-noted risk of a struct MOVE does not apply
+    to a partial split). No tuned value altered. RaceManager.cs → 11192 lines.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
