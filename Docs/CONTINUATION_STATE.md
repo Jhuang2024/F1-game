@@ -211,15 +211,24 @@ DEFERRED and out of scope.
 42. `0374a2a` routed RaceManager track-query + ProductionSessionUi HUD-show
     diagnostics onto the Track category / HudBindFailed code.
 
-Exact next task (tractable static-only work, safe to continue): further
-testable rules-core extractions mirroring the proven pattern, and routing
-remaining raw Debug.LogError/LogWarning sites onto DiagnosticCode where a
-stable code helps a crash report. The larger directive items
-(results-screen replacement, Phase E RaceManager service extraction, physics
-handling swaps, full career/settings/accessibility/localization depth) are
-in-editor-validation-bound or would change live handling, so per the
-engineering rule they wait for a compiler + Unity pass rather than being
-force-landed blind. Multiplayer (Phase N) DEFERRED, out of scope.
+43. `37e65a1` routed every remaining runtime Debug.LogError onto a stable
+    DiagnosticCode (new UiScreenMissing/InputActionsMissing codes + Input log
+    category); editor-tool logs left as developer-facing. Tests extended.
+44. `c1ccd1a` extracted FuelStrategy rulebook (needed/delta kg, delta laps,
+    save-target); VehicleController.UpdateFuelProjection delegates -
+    behavior-identical, now unit-tested. Mirrors the rules-extraction pattern.
+
+Exact next task (tractable static-only work, safe to continue): more
+behavior-identical rules-core extractions of PURE inline maths (e.g. the
+DRS 1-second-gap detection numeric, tyre-wear-per-lap, stint/pit-window
+projections) into F1Game.Race.Rules with tests, wiring the live call site to
+delegate. Do NOT add new gameplay rules (not-classified, countback,
+fastest-lap point) or swap live handling math - those change results/handling
+and need an in-editor + user-validation pass per the engineering rule. The
+larger directive items (results-screen replacement, Phase E RaceManager
+service extraction, physics handling swaps, full career/settings/
+accessibility/localization depth) remain in-editor-validation-bound.
+Multiplayer (Phase N) DEFERRED, out of scope.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
