@@ -628,6 +628,15 @@ deferred, not claimed complete.
     moved to RaceManager.RaceControl.cs. Escalation thresholds, RNG rolls and
     call order unchanged; IncidentSeverity stays a main-nested enum (resolves
     in-class). RaceManager.cs → 7619 lines: 4048 out over 11 slices (~34.7%).
+    Slice 12: race-control safety-car (part 2 of 2) - VSC/SC deployment, the
+    safety-car build/respawn/overtake checks, UpdateSafetyCar pacing, the
+    red-flag grid teleport, the green→SC→restart DriveRaceControlStateMachine and
+    the player SC-pit offer (public AcceptRaceControlPitOffer /
+    PlayerGapToSafetyCarMeters) - 1167 lines - moved to RaceManager.SafetyCar.cs.
+    Pacing/timings/RNG/call order unchanged; the part-1 escalation calls into
+    these deployers resolve in-class; the public API stays public (relay
+    resolves). RaceManager.cs → 6452 lines: 5215 out over 12 slices (~44.7%).
+    RaceManager is now spread across 11 focused partials (main + 10).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
