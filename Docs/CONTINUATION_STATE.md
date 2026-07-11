@@ -1409,6 +1409,25 @@ deferred, not claimed complete.
         can't be unit-tested from F1Game.Tests.EditMode; only the selector is covered.
         VISUAL/RUNTIME VALIDATION PENDING (in-editor broadcast/spectator/photo run).
 
+    F9. Localization runtime -> engine-free additions (F1Game.Core, UNIT-TESTED) +
+        Unity binder + placeholder content pipeline. Additive, behavior-preserving:
+        Localization gains a LanguageChanged event (System.Action; fired on Load/
+        LoadFromText/LoadPseudolocale/Clear), a GetFormat(key, fallbackFormat, args)
+        that fills the resolved template under invariant culture and degrades to the
+        unformatted template on a malformed placeholder (never throws), and a
+        standard pseudo-localization tool (Pseudolocalize accents/brackets/pads a
+        string ~40% while preserving {n} placeholders; LoadPseudolocale synthesizes a
+        qps-ploc table from the English source). New tests cover GetFormat fill +
+        malformed degrade, LanguageChanged firing, and pseudo expansion/round-trip.
+        LocalizationLoader now serves the pseudo-locale on the fly from the English
+        template and exposes SourceLanguage/PseudoLanguage consts. LocalizedText
+        (Assembly-CSharp MonoBehaviour) binds a UI Text to a key, captures the
+        authored text as the English fallback, and re-fetches on LanguageChanged so a
+        language switch updates live UI. Placeholder content: Resources/Localization/
+        en.txt authoring template seeded from the real externalized keys (source of
+        truth + pseudo-locale source). Existing call sites unchanged; the untranslated
+        path reads exactly as before. Editor binding/visual validation pending.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

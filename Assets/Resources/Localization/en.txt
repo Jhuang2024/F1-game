@@ -1,0 +1,33 @@
+# F1 Game - English source-of-truth localization template.
+#
+# The game's on-screen strings carry their English text as a call-site fallback
+# (Localization.Get(key, "ENGLISH")), so English needs no table to render. This
+# file is the authoring template: the canonical list of externalized keys with
+# their English source, the starting point a translator copies to <lang>.txt and
+# fills in. It is also the source the pseudo-locale (qps-ploc) is generated from
+# for localization QA. Keep keys sorted; keep values in sync with the call sites.
+#
+# Format: key=value, one per line. Blank lines and '#' comments are ignored.
+# {0}, {1}, ... are format placeholders (see Localization.GetFormat) and must be
+# preserved verbatim in every translation.
+
+hud.lap=LAP
+hud.moment.final_lap=FINAL LAP
+hud.moment.green_flag=GREEN FLAG
+hud.moment.lights_out=LIGHTS OUT
+hud.moment.track_limits=TRACK LIMITS
+lap.counter=LAP {0}/{1}
+screen.careerhub.title=CAREER
+screen.driverprofile.title=DRIVER PROFILE
+screen.settings.title=SETTINGS
+screen.standings.title=CHAMPIONSHIP STANDINGS
+screen.strategy.title=RACE STRATEGY
+screen.trackselect.title=SELECT CIRCUIT
+session.practice=PRACTICE
+session.qualifying=QUALIFYING
+session.race=RACE
+session.time_trial=TIME TRIAL
+settings.heading.audio=AUDIO
+settings.heading.display=DISPLAY & ACCESSIBILITY
+settings.heading.driving=DRIVING
+settings.heading.gameplay=GAMEPLAY

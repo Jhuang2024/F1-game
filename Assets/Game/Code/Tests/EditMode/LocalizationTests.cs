@@ -128,5 +128,69 @@ namespace F1Game.Tests
             Dictionary<string, string> parsed = Localization.Parse(template);
             Assert.AreEqual("SETTINGS", parsed["screen.title"]);
         }
+
+        [Test]
+        public void GetFormatFillsPlaceholdersFromTheResolvedTemplate()
+        {
+            Localization.Load("de", new Dictionary<string, string> { { "lap.counter", "RUNDE {0}/{1}" } });
+            Assert.AreEqual("RUNDE 3/58", Localization.GetFormat("lap.counter", "LAP {0}/{1}", 3, 58));
+            // Missing key -> the English fallback format is used.
+            Assert.AreEqual("LAP 3/58", Localization.GetFormat("lap.missing", "LAP {0}/{1}", 3, 58));
+        }
+
+        [Test]
+        public void GetFormatDegradesToTheTemplateOnAMalformedFormat()
+        {
+            // A bad translation ("{0" - unclosed placeholder) must not throw.
+            Localization.Load("xx", new Dictionary<string, string> { { "bad.key", "VALUE {0" } });
+            Assert.AreEqual("VALUE {0", Localization.GetFormat("bad.key", "VALUE {0}", 5));
+        }
+
+        [Test]
+        public void LanguageChangedFiresOnLoadAndClear()
+        {
+            int count = 0;
+            System.Action handler = () => count++;
+            Localization.LanguageChanged += handler;
+            try
+            {
+                Localization.Load("fr", new Dictionary<string, string> { { "k", "v" } });
+                Localization.Clear();
+                Assert.AreEqual(2, count);
+            }
+            finally
+            {
+                Localization.LanguageChanged -= handler;
+            }
+        }
+
+        [Test]
+        public void PseudolocalizeExpandsAndPreservesFormatPlaceholders()
+        {
+            string pseudo = Localization.Pseudolocalize("LAP {0}/{1}");
+            // Brackets wrap it, and the {0}/{1} placeholders survive verbatim for GetFormat.
+            StringAssert.StartsWith("⟦", pseudo);
+            StringAssert.EndsWith("⟧", pseudo);
+            StringAssert.Contains("{0}", pseudo);
+            StringAssert.Contains("{1}", pseudo);
+            // It is meaningfully longer than the source (truncation-catching pad).
+            Assert.Greater(pseudo.Length, "LAP {0}/{1}".Length);
+        }
+
+        [Test]
+        public void LoadPseudolocaleTranslatesEveryValueAndStaysFormattable()
+        {
+            var english = new Dictionary<string, string>
+            {
+                { "lap.counter", "LAP {0}/{1}" },
+                { "screen.title", "SETTINGS" },
+            };
+            Localization.LoadPseudolocale(english);
+            Assert.AreEqual("qps-ploc", Localization.Language);
+            // Placeholders still fill through the pseudo template.
+            StringAssert.Contains("3/58", Localization.GetFormat("lap.counter", "LAP {0}/{1}", 3, 58));
+            // A plain value is pseudo-translated (no longer the raw English).
+            Assert.AreNotEqual("SETTINGS", Localization.Get("screen.title", "SETTINGS"));
+        }
     }
 }

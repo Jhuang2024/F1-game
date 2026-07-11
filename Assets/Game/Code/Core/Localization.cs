@@ -24,11 +24,20 @@ namespace F1Game.Core
         /// <summary>True while key harvesting is active (see StartRecording).</summary>
         public static bool IsRecording => recorded != null;
 
+        /// <summary>
+        /// Raised after the active language table changes (Load / LoadFromText /
+        /// LoadPseudolocale / Clear). Runtime binders (e.g. a LocalizedText component)
+        /// subscribe to re-fetch their strings so a language switch updates live UI
+        /// without a scene reload. System.Action keeps this engine-free.
+        /// </summary>
+        public static event System.Action LanguageChanged;
+
         /// <summary>Loads a translation table for a language; null/empty clears it.</summary>
         public static void Load(string language, Dictionary<string, string> translations)
         {
             table = translations;
             Language = translations == null ? "" : (language ?? "");
+            LanguageChanged?.Invoke();
         }
 
         /// <summary>
@@ -45,6 +54,7 @@ namespace F1Game.Core
         {
             table = null;
             Language = "";
+            LanguageChanged?.Invoke();
         }
 
         /// <summary>
@@ -141,6 +151,130 @@ namespace F1Game.Core
             }
 
             return fallback;
+        }
+
+        /// <summary>
+        /// Like <see cref="Get"/> but the resolved template is a composite format
+        /// string filled with <paramref name="args"/> under the invariant culture
+        /// (e.g. "lap.counter" -&gt; "LAP {0}/{1}"). A malformed template (bad
+        /// placeholder) degrades to the resolved template unformatted rather than
+        /// throwing, so a bad translation can never crash the UI.
+        /// </summary>
+        public static string GetFormat(string key, string fallbackFormat, params object[] args)
+        {
+            string template = Get(key, fallbackFormat);
+            if (args == null || args.Length == 0)
+            {
+                return template;
+            }
+
+            try
+            {
+                return string.Format(System.Globalization.CultureInfo.InvariantCulture, template ?? "", args);
+            }
+            catch (System.FormatException)
+            {
+                return template;
+            }
+        }
+
+        /// <summary>
+        /// Loads a synthetic pseudo-locale generated from a set of source
+        /// English key=value entries (the harvested authoring template): every value
+        /// is transformed by <see cref="Pseudolocalize"/> - accented, bracketed and
+        /// padded - so the game can be run "translated" before real translations
+        /// exist. This is the standard localization QA tool: it makes any
+        /// un-externalized (hard-coded) string obvious because it stays plain, and it
+        /// surfaces layouts that will truncate once strings get ~40% longer. Clearly
+        /// a PLACEHOLDER, not a shipping translation.
+        /// </summary>
+        public static void LoadPseudolocale(Dictionary<string, string> englishSource)
+        {
+            var pseudo = new Dictionary<string, string>();
+            if (englishSource != null)
+            {
+                foreach (KeyValuePair<string, string> entry in englishSource)
+                {
+                    if (!string.IsNullOrEmpty(entry.Key))
+                    {
+                        pseudo[entry.Key] = Pseudolocalize(entry.Value);
+                    }
+                }
+            }
+
+            Load("qps-ploc", pseudo);
+        }
+
+        /// <summary>
+        /// Standard pseudo-localization of a source string: maps ASCII letters to
+        /// accented look-alikes (still readable), wraps the result in brackets, and
+        /// pads it ~40% longer with dots to expose truncation. Text inside
+        /// <c>{...}</c> format placeholders is left untouched so
+        /// <see cref="GetFormat"/> still works. Deterministic and engine-free.
+        /// </summary>
+        public static string Pseudolocalize(string source)
+        {
+            if (string.IsNullOrEmpty(source))
+            {
+                return source;
+            }
+
+            var sb = new System.Text.StringBuilder(source.Length + 8);
+            sb.Append('⟦'); // heavy left bracket, visually distinct from any real text
+            int letters = 0;
+            bool inPlaceholder = false;
+            for (int i = 0; i < source.Length; i++)
+            {
+                char c = source[i];
+                if (c == '{')
+                {
+                    inPlaceholder = true;
+                }
+                else if (c == '}')
+                {
+                    inPlaceholder = false;
+                }
+
+                if (inPlaceholder || c == '}')
+                {
+                    sb.Append(c);
+                    continue;
+                }
+
+                sb.Append(Accent(c));
+                if (char.IsLetter(c))
+                {
+                    letters++;
+                }
+            }
+
+            // ~40% expansion (rounded up), the industry rule-of-thumb growth budget.
+            int pad = (letters * 2 + 4) / 5;
+            for (int i = 0; i < pad; i++)
+            {
+                sb.Append('·'); // middle dot
+            }
+
+            sb.Append('⟧'); // heavy right bracket
+            return sb.ToString();
+        }
+
+        static char Accent(char c)
+        {
+            switch (c)
+            {
+                case 'a': return 'å';
+                case 'e': return 'é';
+                case 'i': return 'î';
+                case 'o': return 'ø';
+                case 'u': return 'ü';
+                case 'A': return 'Å';
+                case 'E': return 'É';
+                case 'I': return 'Î';
+                case 'O': return 'Ø';
+                case 'U': return 'Ü';
+                default: return c;
+            }
         }
 
         /// <summary>Begins harvesting requested keys + their English source for a template.</summary>

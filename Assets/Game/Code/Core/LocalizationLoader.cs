@@ -15,16 +15,28 @@ namespace F1Game.Core
     {
         public const string ResourceFolder = "Localization";
 
+        /// <summary>The English source-of-truth template (also the pseudo-locale source).</summary>
+        public const string SourceLanguage = "en";
+
+        /// <summary>Synthetic pseudo-locale code (generated from the English template for QA).</summary>
+        public const string PseudoLanguage = "qps-ploc";
+
         /// <summary>
         /// Loads the given language's table from Resources; returns true when a
-        /// table was actually applied. English / missing files clear to fallbacks.
+        /// table was actually applied. English / missing files clear to fallbacks;
+        /// the pseudo-locale is generated on the fly from the English template.
         /// </summary>
         public static bool LoadLanguage(string language)
         {
-            if (string.IsNullOrEmpty(language) || language == "en")
+            if (string.IsNullOrEmpty(language) || language == SourceLanguage)
             {
                 Localization.Clear();
                 return false;
+            }
+
+            if (language == PseudoLanguage)
+            {
+                return LoadPseudolocale();
             }
 
             TextAsset asset = Resources.Load<TextAsset>(ResourceFolder + "/" + language);
@@ -35,6 +47,24 @@ namespace F1Game.Core
             }
 
             Localization.LoadFromText(language, asset.text);
+            return true;
+        }
+
+        /// <summary>
+        /// Builds and activates the pseudo-locale from the English template
+        /// (<c>Resources/Localization/en.txt</c>). Clears to fallbacks when the
+        /// template is missing. Standard localization QA aid; clearly a placeholder.
+        /// </summary>
+        public static bool LoadPseudolocale()
+        {
+            TextAsset source = Resources.Load<TextAsset>(ResourceFolder + "/" + SourceLanguage);
+            if (source == null)
+            {
+                Localization.Clear();
+                return false;
+            }
+
+            Localization.LoadPseudolocale(Localization.Parse(source.text));
             return true;
         }
     }
