@@ -556,6 +556,16 @@ deferred, not claimed complete.
     New snapshot UseMphUnits populated by RaceEventRelay from race settings. A
     concrete example of a settings value having live effect in the production UI.
 
+82. RaceManager DECOMPOSITION begun (matrix "RaceManager decomposed"), via the
+    safest behavior-preserving technique - partial-class file split, zero
+    dependency risk (same class, all members reachable, moved verbatim):
+    RaceManager is now `partial`, and the weather-transition + track-evolution
+    subsystem (UpdateWeatherTransition, UpdateTrackEvolution + their 3 state
+    fields) moved into RaceManager.Weather.cs. Callers (racing tick) and the
+    session-reset of the fields are unchanged and resolve within the class.
+    RaceManager.cs: 11667 → 11576 lines. Behaviour identical; more cohesive
+    subsystems will peel off the same way.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
