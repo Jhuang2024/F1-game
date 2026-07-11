@@ -922,6 +922,15 @@ deferred, not claimed complete.
     partial resolve in-class.
     RaceManager.cs -> 1924 lines: 9743 out over 44 slices (~83.5%).
     RaceManager is now spread across 41 focused partials (main + 40).
+    Slice 45: debrief text - TelemetryDebriefLine (the telemetry driving summary),
+    ReplayHighlightLine (the replay race-events summary) and RaceDebriefLine (the
+    combined results-screen line) - 52 lines - moved to RaceManager.DebriefText.cs.
+    Formatting unchanged; they read BuildTelemetryDebrief/BuildReplayTimeline on the
+    main partial, and the public entry points stay public so the Results partial
+    resolves in-class. The telemetryCapture field and its expression-bodied
+    accessors stay in main.
+    RaceManager.cs -> 1872 lines: 9795 out over 45 slices (~84.0%).
+    RaceManager is now spread across 42 focused partials (main + 41).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
