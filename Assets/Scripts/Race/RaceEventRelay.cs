@@ -181,6 +181,7 @@ namespace LocalFormulaRacing
                 SessionClockSeconds = race.RaceElapsed,
                 SpeedKph = Mathf.Abs(vehicle.CurrentSpeedKph),
                 UseMphUnits = race.Settings != null && race.Settings.Current.useMphUnits,
+                CompactHud = race.Settings != null && race.Settings.Current.compactHud,
                 Gear = vehicle.CurrentGear,
                 Rpm01 = Mathf.Clamp01(speed01 * 0.9f + (vehicle.CurrentGear > 0 ? 0.1f : 0f)),
                 Ers01 = Mathf.Clamp01(ers),

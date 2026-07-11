@@ -255,7 +255,8 @@ namespace F1Game.UI.Screens.RaceHudShell
         protected override void Render(in HudTelemetrySnapshot t)
         {
             if (value == null) return;
-            bool show = t.Valid && t.SlipstreamStrength > 0.05f;
+            // Slipstream is a secondary readout - hidden in compact HUD mode.
+            bool show = t.Valid && !t.CompactHud && t.SlipstreamStrength > 0.05f;
             if (value.gameObject.activeSelf != show)
             {
                 value.gameObject.SetActive(show);
@@ -282,8 +283,19 @@ namespace F1Game.UI.Screens.RaceHudShell
         protected override void Render(in HudTelemetrySnapshot t)
         {
             if (!t.Valid) return;
-            if (throttle != null) throttle.SetValue(t.Throttle01, UiTheme.Active.palette.positive);
-            if (brake != null) brake.SetValue(t.Brake01, UiTheme.Active.palette.danger);
+            // Pedal bars are a secondary readout - hidden in compact HUD mode.
+            bool show = !t.CompactHud;
+            if (throttle != null)
+            {
+                if (throttle.gameObject.activeSelf != show) throttle.gameObject.SetActive(show);
+                if (show) throttle.SetValue(t.Throttle01, UiTheme.Active.palette.positive);
+            }
+
+            if (brake != null)
+            {
+                if (brake.gameObject.activeSelf != show) brake.gameObject.SetActive(show);
+                if (show) brake.SetValue(t.Brake01, UiTheme.Active.palette.danger);
+            }
         }
     }
 

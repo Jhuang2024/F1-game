@@ -374,6 +374,12 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+67. Production HUD honours the Compact HUD setting (closes the last inline-
+    toggle consumer gap): new snapshot CompactHud flag (from settings) hides the
+    secondary readouts - the slipstream/TOW pill and the throttle/brake pedal
+    bars - in compact mode. All four inline accessibility toggles now take live
+    effect in production (Units→speed readout, UI Animations→transitions, Camera
+    Shake→camera rig, Compact HUD→secondary HUD readouts).
 66. Production settings inline editing extended to key GAMEPLAY settings: a
     "Quick Gameplay Settings" row (Difficulty cycle Easy→Medium→Hard→Expert,
     ERS Strategy cycle Balanced→Attack→Harvest, Manual/Auto Gears toggle) using
