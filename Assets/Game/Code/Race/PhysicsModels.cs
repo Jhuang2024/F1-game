@@ -5,9 +5,10 @@ namespace F1Game.Race.Physics
     /// <summary>
     /// Engine-free simcade physics models as pure functions over explicit data,
     /// so tyre / aero / brake / powertrain behavior is documented and testable in
-    /// one place instead of as constants inside VehicleController. These are the
-    /// extraction target for the physics migration; the live VehicleController is
-    /// unchanged until it is wired onto these (a later, validated step).
+    /// one place instead of as constants inside VehicleController. The live
+    /// VehicleController consumes the aero (drag/downforce/slipstream) and ERS
+    /// (boost/drain) authorities directly; the slip-curve, brake and torque
+    /// functions remain the extraction target for the deeper physics migration.
     /// </summary>
     public static class TyreModel
     {
@@ -56,6 +57,25 @@ namespace F1Game.Race.Physics
 
     public static class AeroModel
     {
+        // Live tuning authority (consumed by VehicleController.ApplyForces).
+        // These are the shipped arcade-model coefficients; the car's stats,
+        // gear and damage scale them at the boundary.
+        public const float DrsClosedDragCoefficient = 0.00054f;
+        public const float DrsOpenDragCoefficient = 0.00025f;
+        public const float DrsDragReductionFraction = 1f - DrsOpenDragCoefficient / DrsClosedDragCoefficient;
+        public const float DownforceCoefficient = 0.0022f;
+
+        // Slipstream tow: deliberately much smaller than DRS's own drag cut -
+        // DRS is the big reduction from physically opening the rear wing,
+        // slipstream is only the benefit of running in another car's wake.
+        public const float SlipstreamDragReduction = 0.08f;
+
+        public static float SlipstreamDragFactor(float strength01)
+        {
+            float s = strength01 < 0f ? 0f : (strength01 > 1f ? 1f : strength01);
+            return 1f - SlipstreamDragReduction * s;
+        }
+
         /// <summary>Downforce (N) ∝ speed² × coefficient; ride-height and damage scale it.</summary>
         public static float Downforce(float speedMs, float coefficient, float rideHeightScale = 1f, float damageScale = 1f)
         {
@@ -121,6 +141,30 @@ namespace F1Game.Race.Physics
         public static float ErsDeployPower(float battery01, float modeCapKw)
         {
             return battery01 <= 0f ? 0f : modeCapKw * Math.Min(1f, battery01 * 2f);
+        }
+
+        // ---- Live ERS tuning (consumed by VehicleController) --------------------
+        // Boost force range across car ERS efficiency, tuned for a 15-20 km/h
+        // felt gain on a typical straight; drain range across throttle position
+        // (see the long drain-rate history in VehicleController for how these
+        // numbers were arrived at).
+        public const float MinErsBoostForce = 19f;
+        public const float MaxErsBoostForce = 30f;
+        public const float MinErsDrainPerSecond = 0.0805f;
+        public const float MaxErsDrainPerSecond = 0.1140f;
+
+        /// <summary>Deploy force for a car's ERS efficiency (0-1) in the current deploy mode.</summary>
+        public static float ErsBoostForce(float ersEfficiency01, float deployModeMultiplier)
+        {
+            float e = ersEfficiency01 < 0f ? 0f : (ersEfficiency01 > 1f ? 1f : ersEfficiency01);
+            return (MinErsBoostForce + (MaxErsBoostForce - MinErsBoostForce) * e) * deployModeMultiplier;
+        }
+
+        /// <summary>Battery drain per second while deploying, rising with throttle.</summary>
+        public static float ErsDrainPerSecond(float throttle01)
+        {
+            float t = throttle01 < 0f ? 0f : (throttle01 > 1f ? 1f : throttle01);
+            return MinErsDrainPerSecond + (MaxErsDrainPerSecond - MinErsDrainPerSecond) * t;
         }
     }
 }

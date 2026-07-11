@@ -1,3 +1,4 @@
+using F1Game.Race.Physics;
 using UnityEngine;
 
 namespace LocalFormulaRacing
@@ -991,38 +992,13 @@ namespace LocalFormulaRacing
             ErsHarvesting = false;
             if (ErsDeploying)
             {
-                // ERS buff: raised from 11-18 - the old range only ever translated
-                // into a ~6 km/h felt gain on a straight because the force was too
-                // weak to meaningfully move the equilibrium speed against drag
-                // before the straight ran out. This range, combined with the
-                // steeper/earlier ramp-in below, is tuned to land in the
-                // requested 15-20 km/h felt-gain range on a typical straight.
-                // ERS drain-rate fix round 2: cut a further 30% (was 0.085-0.12) -
-                // deploy now costs noticeably less battery per second again, so a
-                // deploy lasts even longer before the car is forced back to
-                // harvesting.
-                // ERS drain-rate fix round 3: cut a further 25% (was 0.0595-0.084) -
-                // deploy now costs noticeably less battery per second again, so a
-                // deploy lasts even longer before the car is forced back to
-                // harvesting.
-                // ERS drain-rate fix round 4: cut a further 20% (was 0.0446-0.063) -
-                // "decrease ERS deployment rate" meant drain the battery slower per
-                // second while deploying, not weaken the boost itself - boost power
-                // (ersBoost below) is unchanged.
-                // ERS drain-rate fix round 5: raised back up 20% (was 0.0357-0.0504) -
-                // battery now drains faster per second while deploying again; boost
-                // power (ersBoost below) is unchanged.
-                // ERS drain-rate fix round 6: raised a further 30% (was 0.0428-0.0605) -
-                // boost power (ersBoost below) is unchanged.
-                // ERS drain-rate fix round 7: raised a further 20% (was 0.0556-0.0787) -
-                // boost power (ersBoost below) is unchanged.
-                // ERS drain-rate fix round 8: raised a further 15% (was
-                // 0.0667-0.0944) - boost power (ersBoost below) is unchanged.
-                // Round 9: raised a further 5% (per request, was 0.0767-0.1086) -
-                // boost power (ersBoost below) is unchanged.
-                ersBoost = Mathf.Lerp(19f, 30f, CarData.ersEfficiency / 100f) * deployModeMultiplier;
+                // Boost force and drain rate are PowertrainModel's numbers
+                // (F1Game.Race.Physics) - the boost is tuned for a 15-20 km/h
+                // felt gain on a typical straight, and the drain range carries
+                // nine rounds of play-tuning history (see the model).
+                ersBoost = PowertrainModel.ErsBoostForce(CarData.ersEfficiency / 100f, deployModeMultiplier);
                 float ersBefore = ErsBattery;
-                ErsBattery = Mathf.Clamp01(ErsBattery - dt * Mathf.Lerp(0.0805f, 0.1140f, activeCommand.throttle));
+                ErsBattery = Mathf.Clamp01(ErsBattery - dt * PowertrainModel.ErsDrainPerSecond(activeCommand.throttle));
                 // Unconditional diagnostic (not GameLog.Info, which is silently
                 // dropped unless verbose/F3 is on) for the reported "battery not
                 // decreasing while deploying during DRS" - the drain math here
@@ -1329,19 +1305,18 @@ namespace LocalFormulaRacing
                 }
             }
 
-            float dragCoefficient = DrsActive ? 0.00025f : 0.00054f;
+            // Aero coefficients and formulas are AeroModel's (F1Game.Race.Physics);
+            // this block only applies the car's live modifiers - efficiency stat,
+            // gear, damage and the slipstream tow - to the base coefficient.
+            float dragCoefficient = AeroModel.DrsClosedDragCoefficient;
             dragCoefficient *= Mathf.Lerp(1.1f, 0.84f, CarData.aeroEfficiency / 100f);
             dragCoefficient *= Mathf.Lerp(1.02f, 0.88f, Mathf.InverseLerp(1, GearCount, CurrentGear));
             dragCoefficient /= Mathf.Max(0.55f, Damage.AeroMultiplier);
-            // Slipstream drag reduction: a genuine tow effect, deliberately much
-            // smaller than DRS's own drag cut above - DRS is the big reduction from
-            // physically opening the rear wing, slipstream is only the smaller
-            // benefit of running in another car's dirty air.
             if (slipstreamStrength > 0.05f)
             {
-                dragCoefficient *= Mathf.Lerp(1f, 0.92f, slipstreamStrength);
+                dragCoefficient *= AeroModel.SlipstreamDragFactor(slipstreamStrength);
             }
-            body.AddForce(-body.velocity.normalized * speedMps * speedMps * dragCoefficient, ForceMode.Acceleration);
+            body.AddForce(-body.velocity.normalized * AeroModel.Drag(speedMps, dragCoefficient, DrsActive, AeroModel.DrsDragReductionFraction), ForceMode.Acceleration);
 
             if (forwardSpeed > topSpeed)
             {
@@ -1350,7 +1325,11 @@ namespace LocalFormulaRacing
                 body.AddForce(-transform.forward * limiterDrag, ForceMode.Acceleration);
             }
 
-            float downforce = speedMps * speedMps * 0.0022f * Mathf.Lerp(0.85f, 1.18f, CarData.aeroEfficiency / 100f) * Damage.AeroMultiplier;
+            float downforce = AeroModel.Downforce(
+                speedMps,
+                AeroModel.DownforceCoefficient * Mathf.Lerp(0.85f, 1.18f, CarData.aeroEfficiency / 100f),
+                1f,
+                Damage.AeroMultiplier);
             body.AddForce(Vector3.down * downforce, ForceMode.Acceleration);
 
             if (IsOffTrackSlowdown)
