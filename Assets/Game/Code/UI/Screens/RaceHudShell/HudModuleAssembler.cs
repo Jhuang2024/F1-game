@@ -43,7 +43,8 @@ namespace F1Game.UI.Screens.RaceHudShell
 
             var compoundChip = Chip(hud.TopRightDock, "Compound");
             var wearBar = ProgressBar(hud.TopRightDock, "Wear");
-            hud.gameObject.AddComponent<TyresModule>().Bind(compoundChip, wearBar);
+            var tyreTempText = Numeric(hud.TopRightDock, "TyreTemp", 16f);
+            hud.gameObject.AddComponent<TyresModule>().Bind(compoundChip, wearBar, tyreTempText);
 
             var fuelText = Numeric(hud.TopRightDock, "Fuel", 18f);
             hud.gameObject.AddComponent<FuelModule>().Bind(fuelText);
@@ -51,6 +52,11 @@ namespace F1Game.UI.Screens.RaceHudShell
             var damageLabel = Numeric(hud.TopRightDock, "Damage", 16f);
             var damageBar = ProgressBar(hud.TopRightDock, "DamageBar");
             hud.gameObject.AddComponent<DamageModule>().Bind(damageBar, damageLabel);
+
+            // Bottom-center: pedal input bars beneath the speed/gear readout.
+            var throttleBar = ProgressBar(hud.BottomCenterDock, "Throttle");
+            var brakeBar = ProgressBar(hud.BottomCenterDock, "Brake");
+            hud.gameObject.AddComponent<InputTelemetryModule>().Bind(throttleBar, brakeBar);
 
             // Top-left continues with the relative gaps under the lap/clock,
             // then the lap-time block (current/last/best/session best).

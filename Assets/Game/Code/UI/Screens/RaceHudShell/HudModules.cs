@@ -163,13 +163,19 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
-    /// <summary>Tyre compound + wear meter.</summary>
+    /// <summary>Tyre compound + wear meter, temperature status and lockup warning.</summary>
     public sealed class TyresModule : HudModule
     {
         static readonly string[] CompoundLabels = { "S", "M", "H", "I", "W" };
         [SerializeField] StatusChip compound;
         [SerializeField] UiProgressBar wear;
-        public void Bind(StatusChip compoundChip, UiProgressBar wearBar) { compound = compoundChip; wear = wearBar; }
+        [SerializeField] TMP_Text temp;
+        public void Bind(StatusChip compoundChip, UiProgressBar wearBar, TMP_Text tempText)
+        {
+            compound = compoundChip;
+            wear = wearBar;
+            temp = tempText;
+        }
 
         protected override void Render(in HudTelemetrySnapshot t)
         {
@@ -184,6 +190,39 @@ namespace F1Game.UI.Screens.RaceHudShell
             {
                 wear.SetDepletion(1f - t.TyreWear01); // remaining life
             }
+
+            if (temp != null)
+            {
+                // A heavy lockup outranks the temperature readout - it's the
+                // more urgent thing to react to.
+                if (t.LockupSeverity > 0.35f)
+                {
+                    temp.text = $"<color=#{ColorUtility.ToHtmlStringRGB(UiTheme.Active.palette.danger)}>LOCKUP</color>";
+                }
+                else
+                {
+                    string status = string.IsNullOrEmpty(t.TyreTempStatus) ? "OPT" : t.TyreTempStatus;
+                    Color c = status == "HOT" || status == "COLD"
+                        ? UiTheme.Active.palette.warning
+                        : (status == "OPT" ? UiTheme.Active.palette.positive : UiTheme.Active.palette.textMuted);
+                    temp.text = $"TYRE <color=#{ColorUtility.ToHtmlStringRGB(c)}>{status}</color>";
+                }
+            }
+        }
+    }
+
+    /// <summary>Throttle / brake pedal bars.</summary>
+    public sealed class InputTelemetryModule : HudModule
+    {
+        [SerializeField] UiProgressBar throttle;
+        [SerializeField] UiProgressBar brake;
+        public void Bind(UiProgressBar throttleBar, UiProgressBar brakeBar) { throttle = throttleBar; brake = brakeBar; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (!t.Valid) return;
+            if (throttle != null) throttle.SetValue(t.Throttle01, UiTheme.Active.palette.positive);
+            if (brake != null) brake.SetValue(t.Brake01, UiTheme.Active.palette.danger);
         }
     }
 

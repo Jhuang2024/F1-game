@@ -37,11 +37,11 @@ pit-request/radio events).
 
 ## Tier 4 — Core telemetry (snapshot fields)
 - [x] Damage meter (2106): `Damage01`. (tranche 1)
-- [ ] Tyre corner grid + temps + lockup/flat-spot (2001/2009): temp status,
-      lockup severity.
+- [x] Tyre temp status + lockup warning (2009/2013). (TyresModule, tranche 7;
+      per-corner 2x2 grid still legacy-only)
 - [x] Session label + event name (1919/1922). (SessionLabelModule, tranche 4)
 - [x] Session message line (1929). (SessionMessageModule, tranche 5)
-- [ ] Input telemetry bars (627): effective throttle/brake.
+- [x] Input telemetry bars (627): throttle/brake. (InputTelemetryModule, tranche 7)
 - [ ] Track-limit warning flash (2469): warning count.
 
 ## Tier 5 — Spatial/order widgets

@@ -30,6 +30,12 @@ namespace F1Game.Core
         public int TyreCompound;  // 0 soft .. 4 wet
         public float TyreWear01;  // 0 fresh .. 1 worn
         public float BrakeTemp01;
+        public string TyreTempStatus; // COLD / EDGE / OPT / HOT
+        public float LockupSeverity;  // 0 none .. 1 heavy lockup
+
+        // Player input telemetry (0..1) for the pedal bars.
+        public float Throttle01;
+        public float Brake01;
 
         public float DeltaSeconds; // to reference lap (+ slower)
         public bool HasDelta;
