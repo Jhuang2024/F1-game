@@ -331,6 +331,22 @@ intact - production-first with legacy fallback, never both).
     (capture → pure consumer → race-end log), with the richer UI surfaces (scrub
     playback, on-screen debrief panel) still waiting for a compiler/editor.
 
+§10 static review re-run over the extended run diff (entries 51-59): clean -
+123 files vs origin/main, git diff --check clean, no merge markers, every
+changed .cs has a .meta, no duplicate GUIDs tree-wide, all new engine-free
+assemblies (F1Game.Race rules/consumers) verified free of UnityEngine usage.
+main remains the stable checkpoint (never pushed to); branch is 93 commits
+ahead and current with origin/main. Runtime validation of everything in this
+run remains PENDING (no compiler/editor here) and is not claimed.
+
+Note on what was deliberately NOT extracted: ShouldAiUseErs interleaves
+conditional Random.value calls with live scans; extracting it risks diverging
+the race RNG stream for marginal gain, so it stays inline (behavior/determinism
+preserved). Deeper physics handling (tyre slip-curves/brake fade), AI racecraft
+retuning, new UI screens (TT result, replay scrub, debrief panel) and RaceManager
+decomposition all genuinely require a compiler/editor/playtest and are honestly
+deferred, not claimed complete.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
