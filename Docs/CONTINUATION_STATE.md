@@ -1076,6 +1076,24 @@ deferred, not claimed complete.
     stateful-glue delegation, which must be sliced carefully (blind extraction of the
     orchestration state risks regressions no static check can catch without Unity).
 
+    Phase E progress (behaviour-preserving service extraction, compatibility-first):
+    E1. Fuel start-load maths -> engine-free FuelStrategy. The distance/difficulty
+        per-lap burn band and the start-fuel target/choice-shift/clamp were pure
+        numeric formulas inline in RaceManager.Fuel.cs (EstimateFuelPerLapKg /
+        ComputeRaceStartFuelKg). Extracted verbatim into FuelStrategy.PerLapBurnKg
+        (trackLengthMeters, difficultyFactor01) and FuelStrategy.StartFuelKg
+        (perLapKg, raceLaps, reserveKg, loadDeltaLaps, minKg, maxKg), taking
+        primitives only (F1Game.Race is noEngineReferences, so the enums/TrackRuntime
+        stay caller-side). Engine-free Clamp01/Clamp/Lerp/InverseLerp helpers mirror
+        Mathf byte-for-byte (Mathf.Lerp = a+(b-a)*Clamp01(t); Mathf.InverseLerp
+        clamps). RaceManager stays the owner: the partial still reads the live track
+        length, maps the difficulty tier and FuelLoadChoice to primitives, owns the
+        tank-window consts and the ResolveAiFuelChoice RNG, and now delegates the
+        numeric core - algebraically identical, one live path (pure calc, no state
+        mutation). Callers unchanged (RaceManager.Grid delegates as before).
+        FuelStrategyTests extended (PerLapBurn band/fallback/clamp/monotonic;
+        StartFuel target/shift/clamp/lap-floor). Unity/runtime validation PENDING.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

@@ -50,11 +50,16 @@ namespace LocalFormulaRacing
             // 6200f ceiling and lose the intended short-vs-long fuel variation.
             // Round 2: TrackLengthRebalanceScale stacked another 25% (1.5625x
             // total), so both the fallback and band move with it again.
-            float trackLength = track != null && track.length > 1f ? track.length : 7266f;
-            float perLap = Mathf.Lerp(1.35f, 1.65f, Mathf.Clamp01(Mathf.InverseLerp(5000f, 9688f, trackLength)));
+            //
+            // The distance/difficulty band maths live in the engine-free
+            // FuelStrategy.PerLapBurnKg (same 1.35-1.65 / 0.97-1.06 constants);
+            // this reads the live track length and maps the difficulty tier to the
+            // 0-1 factor, then delegates. Passing 0 for a null track lets the
+            // rule's own >1 m guard supply the ~7266 m reference, identical to the
+            // old inline "track != null && track.length > 1f ? ... : 7266f".
+            float trackLength = track != null ? track.length : 0f;
             float difficultyFactor = difficulty == RaceDifficulty.Easy ? 0f : difficulty == RaceDifficulty.Medium ? 0.33f : difficulty == RaceDifficulty.Hard ? 0.66f : 1f;
-            perLap *= Mathf.Lerp(0.97f, 1.06f, difficultyFactor);
-            return perLap;
+            return FuelStrategy.PerLapBurnKg(trackLength, difficultyFactor);
         }
 
         // requiredFuelKg = estimatedFuelPerLapKg * raceLaps + reserveFuelKg, then the
@@ -71,9 +76,12 @@ namespace LocalFormulaRacing
             int difficultyIndex = settings == null ? 1 : Mathf.Clamp(settings.difficultyIndex, 0, 3);
             RaceDifficulty difficulty = (RaceDifficulty)difficultyIndex;
             float perLap = EstimateFuelPerLapKg(track, difficulty);
-            float targetFuelKg = perLap * Mathf.Max(1, raceLaps) + RaceFuelReserveKg;
-            float choiceFuelKg = targetFuelKg + FuelLoadChoiceLapDelta(choice) * perLap;
-            return Mathf.Clamp(choiceFuelKg, MinimumRaceFuelKg, MaximumRaceFuelKg);
+            // Target/choice-shift/clamp maths live in the engine-free
+            // FuelStrategy.StartFuelKg; the fuel-load choice is still mapped to its
+            // lap delta here (FuelLoadChoiceLapDelta, enum-side) and the tank window
+            // consts stay owned by this partial.
+            return FuelStrategy.StartFuelKg(perLap, raceLaps, RaceFuelReserveKg,
+                FuelLoadChoiceLapDelta(choice), MinimumRaceFuelKg, MaximumRaceFuelKg);
         }
 
         // Enough for an out lap plus a genuine push lap (this game's live qualifying
