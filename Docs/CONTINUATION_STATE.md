@@ -24,11 +24,21 @@ static-only, not compiled or run:
    in RaceManager, AI yield (attack suppression + straight-line lift), HUD
    banner + radio for player, 20s→+5s compliance penalty via PenaltyRules.
 
-Exact next task: wire SessionFlow into GameBootstrap.StartCareerRace and the
-qualifying phase advance (it is still dead code); then continue directive
-§12 item 4 remainder (RaceManager-side AI strategy extraction:
-RecommendedPitLap / ShouldAiPitUnderSafetyCar / ShouldAiPitForUndercut), then
-item 5 (physics wiring into VehicleController).
+6. `e15708c` SessionFlow wired live: career weekend routing
+   (GameBootstrap.StartCareerRace) and the Q1→Q2→Q3 phase advance now consume
+   it; no rules class in F1Game.Race.Rules is dead code any more.
+7. `6dd9fe4` RaceManager-side AI strategy cores moved into AiPitStrategyRules:
+   RecommendedPitLap (ties-to-even rounding preserved), undercut call, SC/VSC
+   cheap-stop decision table. RaceManager keeps only the live-state boundary.
+
+All eight rule classes (Flag, StartProcedure, Penalty, PitRequest, PitService,
+AiPitStrategy, SessionFlow, QualifyingProgression + RaceClassifier/
+ChampionshipPoints) now have live consumers and EditMode tests.
+
+Exact next task: directive §12 item 5 - physics wiring into VehicleController
+(PhysicsModels.cs tyre/aero/brake/powertrain functions as the live authority,
+preserving handling). After that: HUD-module parity toward legacy RaceHud
+retirement, then career screen migration (item 6).
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
