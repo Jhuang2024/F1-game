@@ -751,6 +751,15 @@ deferred, not claimed complete.
     RaceParticipant and DataModels callers resolve in-class.
     RaceManager.cs -> 3884 lines: 7783 out over 23 slices (~66.7%).
     RaceManager is now spread across 22 focused partials (main + 21).
+    Slice 24: planned-pit schedule accessors - GetPlannedStopCount,
+    GetPlannedPitLapForStop, GetPlannedCompoundForStop, NextPlannedPitLapFor,
+    NextPlannedPitCompoundFor, ShouldPromptPlannedStop, PitRecommendationReasonClause
+    and PlannedPitLapFor - 157 lines - moved to RaceManager.PlannedPit.cs. The
+    read-side accessors over the player's strategy-screen pit plan; clamping and
+    planned-or-fallback behaviour unchanged; the cached-plan state stays main-nested
+    and resolves in-class, and the public entry points stay public.
+    RaceManager.cs -> 3726 lines: 7941 out over 24 slices (~68.1%).
+    RaceManager is now spread across 23 focused partials (main + 22).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
