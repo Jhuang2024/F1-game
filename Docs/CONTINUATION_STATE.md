@@ -1552,6 +1552,23 @@ deferred, not claimed complete.
         free-text name entry remains the fallback until the production TMP_InputField
         is built/validated. Runtime-built (no baked prefab); VISUAL VALIDATION PENDING.
 
+    F19. CinematicDirector -> session integration + lifecycle owner for the non-live
+        camera modes (Assembly-CSharp, LocalFormulaRacing, default-off
+        f1game_cinematic_director). Attaches the replay/spectator/broadcast/photo
+        controllers, holds the single active Mode (Live/Replay/Spectator/Broadcast/
+        Photo), and guarantees exactly one drives the output camera: SetMode
+        deactivates the current owner and activates the next, and while any cinematic
+        mode is active the live camera rig is suppressed via a host callback
+        (liveCameraSink) so there is never a second writer on the camera transform;
+        ReturnToLive/OnDisable hand ownership straight back. Configure() wires a
+        session (cars, camera, default focus, recording for replay + broadcast
+        director, optional authored trackside cameras, HUD canvas for the scrubber,
+        HUD-visibility sink for photo mode). Replay mode auto-builds the scrubber.
+        Inert until Configure(); mutates nothing but its own camera. This completes
+        the replay/spectator/broadcast/photo runtime lifecycle + mode-transition +
+        exit-path + session-integration seam (one-line host hookup remains, editor-
+        gated). VISUAL VALIDATION PENDING.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
