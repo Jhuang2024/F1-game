@@ -426,7 +426,17 @@ namespace LocalFormulaRacing
 
                 pauseOverlay.OnResume = () => race.Resume();
                 pauseOverlay.OnEndPractice = () => { HidePauseMenu(); bootstrap.EndPracticeSession(); };
-                pauseOverlay.OnMainMenu = () => { HidePauseMenu(); bootstrap.ShowMainMenu(); };
+                pauseOverlay.OnMainMenu = () =>
+                {
+                    HidePauseMenu();
+                    // A time trial has no finish line; leaving to the menu with a
+                    // valid lap shows a production result summary first, otherwise
+                    // (or if production UI is off) it goes straight to the menu.
+                    if (!TryShowTimeTrialResult(race))
+                    {
+                        bootstrap.ShowMainMenu();
+                    }
+                };
                 pauseOverlay.OnRestart = () => { HidePauseMenu(); race.RestartRace(); };
                 pauseOverlay.OnQuit = () => Application.Quit();
 
@@ -546,6 +556,93 @@ namespace LocalFormulaRacing
             catch (Exception exception)
             {
                 Fail("qualifying results", exception);
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// Production time-trial result summary, shown when a time-trial player
+        /// leaves to the menu with a valid lap. Reuses the compact Results screen
+        /// (like qualifying). Returns true when shown (caller must NOT also run the
+        /// straight-to-menu path); false when production UI is off, it isn't a time
+        /// trial, or no valid lap was set - the caller then goes straight to menu.
+        /// </summary>
+        public static bool TryShowTimeTrialResult(RaceManager race)
+        {
+            if (!Enabled || race == null || !race.IsTimeTrial || shell == null || bootstrap == null || resultsPresenter == null)
+            {
+                return false;
+            }
+
+            RaceParticipant player = race.PlayerParticipant;
+            if (player == null || player.lapTracker == null)
+            {
+                return false;
+            }
+
+            float sessionBest = player.lapTracker.BestLapTime;
+            if (sessionBest <= 0f)
+            {
+                // No clean lap this session - nothing to celebrate; fall back to
+                // the ordinary straight-to-menu exit.
+                return false;
+            }
+
+            try
+            {
+                string trackId = race.EventData != null ? race.EventData.trackId : null;
+                float record = string.IsNullOrEmpty(trackId) ? 0f : PlayerRecordsStore.GetBestLap(trackId);
+                bool holdsRecord = record <= 0f || sessionBest <= record + 0.0005f;
+
+                var model = new ResultsModel
+                {
+                    title = "TIME TRIAL RESULT",
+                    subtitle = ResultsSubtitle(),
+                    isCareer = false,
+                    showRaceColumns = false,
+                    primaryActionLabel = "Try Again",
+                };
+
+                TeamData team = data != null ? data.FindTeam(player.teamId) : null;
+                model.rows.Add(new ResultRowModel
+                {
+                    position = 1,
+                    code = string.IsNullOrEmpty(player.driverName) ? "YOU" : player.driverName,
+                    team = team != null ? team.name : "",
+                    gapText = FormatLapTime(sessionBest),
+                    penaltyText = holdsRecord ? "TRACK RECORD" : "SESSION BEST",
+                    isPlayer = true,
+                });
+
+                // Show the standing record too when the player didn't beat it.
+                if (record > 0f && !holdsRecord)
+                {
+                    model.rows.Add(new ResultRowModel
+                    {
+                        position = 2,
+                        code = "Track Record",
+                        team = "",
+                        gapText = FormatLapTime(record),
+                        penaltyText = "--",
+                    });
+                }
+
+                // "Try Again" returns to time-trial setup; "Main Menu" exits.
+                resultsPresenter.OnPrimary = () => LeaveToLegacy(() => bootstrap.ShowTimeTrialSetup());
+                resultsPresenter.OnMenu = () => LeaveToLegacy(() => bootstrap.ShowMainMenu());
+
+                UiShell.NavigationLocked = false;
+                shell.SetShellVisible(true);
+                shell.Modals.CloseAll();
+                shell.Router.ResetStack();
+                shell.Router.Show(ResultsView.Id);
+                resultsPresenter.Present(model);
+                UiSessionCoordinator.EnterResults();
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Fail("time trial result", exception);
                 return false;
             }
         }

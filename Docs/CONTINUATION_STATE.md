@@ -374,6 +374,16 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+69. PRODUCTION TIME-TRIAL RESULT screen (ledger candidate a, the last remaining
+    production session-end screen): TryShowTimeTrialResult(race) reuses the
+    compact ResultsView (like qualifying) to show the player's session best lap,
+    a TRACK RECORD / SESSION BEST tag (vs PlayerRecordsStore.GetBestLap) and the
+    standing record row when not beaten. Triggered from the production pause
+    overlay's Main Menu action for a time trial WITH a valid lap - production-
+    first, with the existing straight-to-menu as the fallback when production UI
+    is off or no clean lap was set (so behaviour is unchanged on the legacy
+    path). "Try Again" → time-trial setup, "Main Menu" → exit. Behind the
+    ProductionUiReadiness switch. Visual/flow validation PENDING (no editor).
 68. Replay capture gains a player-facing consumer on the RESULTS screen
     (symmetric with #64's telemetry): RaceManager.ReplayHighlightLine() summarises
     the race events (overtakes / incidents / pit stops) from BuildReplayTimeline;
