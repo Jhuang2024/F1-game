@@ -132,13 +132,15 @@ up to ~0.4 m on Aurora Park). Doing it right needs one shared
 SurfacePointAt(distance, lateral) consumed by road mesh + kerbs + barriers
 + stripes, audited together - an in-editor-verifiable change.
 
-Exact next task: career save-slot/driver-profile production screen (data:
-PlayerRecordsStore.Data statics - championshipsWon/completedSeasons/
-trackAchievements - plus career.Save identity; CareerHub pattern: view/
-presenter/factory/UiShell registration/bridge mapping + hub button). After
-that: production results screen at race end (UiSessionCoordinator owns the
-transition), then RaceHud-retirement gap analysis (what legacy HUD still
-shows that production modules don't).
+25. `d52ac1d` Production driver-profile screen (records-store stats + career
+    identity), live from a new Driver Profile button on the career hub.
+
+Exact next task: production results screen at race end - inspect how the
+legacy results screen is invoked (RaceManager race-finish -> RuntimeUi
+ShowResults?) and route production-first through UiSessionCoordinator with
+the legacy screen as fallback, mapping finishing order/penalties/best laps
+into view-models. After that: RaceHud-retirement gap analysis (what legacy
+HUD still shows that production modules don't cover).
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
