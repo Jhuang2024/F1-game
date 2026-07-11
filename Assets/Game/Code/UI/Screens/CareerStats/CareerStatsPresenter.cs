@@ -8,11 +8,13 @@ namespace F1Game.UI.Screens.CareerStats
         readonly CareerStatsView view;
 
         public Action OnBack;
+        public Action OnSecondary;
 
         public CareerStatsPresenter(CareerStatsView view)
         {
             this.view = view;
             view.BackClicked += () => OnBack?.Invoke();
+            view.SecondaryClicked += () => OnSecondary?.Invoke();
         }
 
         public void Present(CareerStatsModel model)

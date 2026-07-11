@@ -1644,6 +1644,20 @@ deferred, not claimed complete.
         Career Stats (reached through the Full Career Menu) remains as the emergency
         fallback. Runtime-built (no baked prefab); VISUAL VALIDATION PENDING.
 
+    F26. Career migration: production Trophy Cabinet (reuses the Career Stats view).
+        Rather than duplicate, CareerStatsView/Model/Presenter were generalized to
+        serve both screens: Bind takes a screenId (Id "career-stats" / TrophyId
+        "trophy-cabinet"), the model gains a secondaryLabel driving a cross-navigation
+        button, and BuildStatsScreen(name,title,recordsHeading,screenId) backs both
+        BuildCareerStats and BuildTrophyCabinet. UiShell registers both ids.
+        ProductionUiBridge builds a second CareerStatsPresenter (trophyCabinetPresenter)
+        and ShowTrophyCabinet binds the trophy data (championships, constructors'
+        titles, seasons, best clean streak, biggest comeback, most overtakes, best wet
+        result + per-track wins/podiums/poles achievements). Career Stats <-> Trophy
+        Cabinet cross-navigate via the secondary button (OnSecondary); both reached
+        from the career hub Stats button. Legacy Trophy Cabinet remains the emergency
+        fallback. Runtime-built (no baked prefab); VISUAL VALIDATION PENDING.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

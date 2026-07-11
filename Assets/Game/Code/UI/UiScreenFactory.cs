@@ -421,29 +421,46 @@ namespace F1Game.UI
             return view;
         }
 
-        public static Screens.CareerStats.CareerStatsView BuildCareerStats(Transform root)
+        public static Screens.CareerStats.CareerStatsView BuildCareerStats(Transform root) =>
+            BuildStatsScreen(root, "Screen_CareerStats", "CAREER STATS", "LOCAL TRACK RECORDS",
+                Screens.CareerStats.CareerStatsView.Id);
+
+        public static Screens.CareerStats.CareerStatsView BuildTrophyCabinet(Transform root) =>
+            BuildStatsScreen(root, "Screen_TrophyCabinet", "TROPHY CABINET", "TRACK ACHIEVEMENTS",
+                Screens.CareerStats.CareerStatsView.TrophyId);
+
+        // Shared stat-grid + record-list screen used by Career Stats and the Trophy Cabinet.
+        static Screens.CareerStats.CareerStatsView BuildStatsScreen(Transform root, string name, string title,
+            string recordsHeading, string screenId)
         {
             UiTheme theme = UiTheme.Active;
-            RectTransform content = ScreenScaffold(root, "Screen_CareerStats", "CAREER STATS", out TMP_Text header);
+            RectTransform content = ScreenScaffold(root, name, title, out TMP_Text header);
 
-            // Stat-tile grid.
             RectTransform statGrid = CreateLayoutColumn(content, "StatGrid", theme.spacing.small);
             var grid = statGrid.gameObject.AddComponent<GridLayoutGroup>();
             grid.cellSize = new Vector2(184f, 90f);
             grid.spacing = new Vector2(theme.spacing.small, theme.spacing.small);
             StatTile statTemplate = BuildStatTileTemplate(statGrid, theme);
 
-            // Track-records list.
-            CreateText(content, "RecordsLabel", TextStyle.Label, "LOCAL TRACK RECORDS");
-            RectTransform recordColumn = CreateLayoutColumn(content, "TrackRecords", theme.spacing.micro);
+            CreateText(content, "RecordsLabel", TextStyle.Label, recordsHeading);
+            RectTransform recordColumn = CreateLayoutColumn(content, "RecordRows", theme.spacing.micro);
             TMP_Text recordTemplate = CreateText(recordColumn, "Record_Template", TextStyle.Body, "");
             recordTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 8f;
 
-            ThemedButton back = CreateButton(content, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
+            var buttonRow = new GameObject("ButtonRow", typeof(RectTransform));
+            buttonRow.transform.SetParent(content, false);
+            var buttonLayout = buttonRow.AddComponent<HorizontalLayoutGroup>();
+            buttonLayout.spacing = theme.spacing.small;
+            buttonLayout.childForceExpandWidth = true;
+            buttonLayout.childControlWidth = true;
+            buttonLayout.childControlHeight = true;
+            ThemedButton secondary = CreateButton(buttonRow.transform, "Btn_Secondary", ThemedButton.Variant.Secondary, "More",
+                theme.components.buttonHeightCompact);
+            ThemedButton back = CreateButton(buttonRow.transform, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
                 theme.components.buttonHeightCompact);
 
             var view = content.parent.gameObject.AddComponent<Screens.CareerStats.CareerStatsView>();
-            view.Bind(statGrid, statTemplate, recordColumn, recordTemplate, back);
+            view.Bind(screenId, statGrid, statTemplate, recordColumn, recordTemplate, secondary, back);
             return view;
         }
 

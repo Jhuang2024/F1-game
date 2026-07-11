@@ -15,25 +15,31 @@ namespace F1Game.UI.Screens.CareerStats
     /// </summary>
     public class CareerStatsView : ScreenView
     {
+        // Two screens share this view: Career Stats and the Trophy Cabinet.
         public const string Id = "career-stats";
+        public const string TrophyId = "trophy-cabinet";
 
         [SerializeField] RectTransform statContainer;
         [SerializeField] StatTile statTemplate;
         [SerializeField] RectTransform recordContainer;
         [SerializeField] TMP_Text recordTemplate;
+        [SerializeField] ThemedButton secondaryButton;
         [SerializeField] ThemedButton backButton;
 
         readonly List<StatTile> statTiles = new List<StatTile>();
         readonly List<TMP_Text> recordRows = new List<TMP_Text>();
 
         public event Action BackClicked;
+        public event Action SecondaryClicked;
 
-        public void Bind(RectTransform stats, StatTile statTile, RectTransform records, TMP_Text recordRow, ThemedButton back)
+        public void Bind(string screenId, RectTransform stats, StatTile statTile, RectTransform records,
+            TMP_Text recordRow, ThemedButton secondary, ThemedButton back)
         {
             statContainer = stats;
             statTemplate = statTile;
             recordContainer = records;
             recordTemplate = recordRow;
+            secondaryButton = secondary;
             backButton = back;
 
             if (statTemplate != null)
@@ -46,12 +52,17 @@ namespace F1Game.UI.Screens.CareerStats
                 recordTemplate.gameObject.SetActive(false);
             }
 
+            if (secondaryButton != null)
+            {
+                secondaryButton.Clicked += () => SecondaryClicked?.Invoke();
+            }
+
             if (backButton != null)
             {
                 backButton.Clicked += () => BackClicked?.Invoke();
             }
 
-            SetScreenId(Id);
+            SetScreenId(screenId);
             SetDefaultSelection(back != null ? back.gameObject : null);
         }
 
@@ -60,6 +71,15 @@ namespace F1Game.UI.Screens.CareerStats
             CareerStatsModel m = model ?? new CareerStatsModel();
             RenderStats(m.stats);
             RenderRecords(m.records, m.emptyRecordsMessage);
+            if (secondaryButton != null)
+            {
+                bool show = !string.IsNullOrEmpty(m.secondaryLabel);
+                secondaryButton.gameObject.SetActive(show);
+                if (show)
+                {
+                    secondaryButton.SetText(m.secondaryLabel);
+                }
+            }
         }
 
         void RenderStats(IReadOnlyList<CareerStatCell> stats)

@@ -160,13 +160,18 @@ namespace F1Game.UI.Screens
         public string context;
     }
 
-    /// <summary>Read-only career statistics + local track records for the production stats screen.</summary>
+    /// <summary>
+    /// Read-only stat-grid + record-list model, shared by the production Career Stats
+    /// and Trophy Cabinet screens (same shape, different data + title). recordsHeading
+    /// labels the list; secondaryLabel names the cross-navigation button (empty hides it).
+    /// </summary>
     [Serializable]
     public class CareerStatsModel
     {
         public List<CareerStatCell> stats = new List<CareerStatCell>();
         public List<TrackRecordRow> records = new List<TrackRecordRow>();
         public string emptyRecordsMessage = "";
+        public string secondaryLabel = "";
     }
 
     [Serializable]

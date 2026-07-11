@@ -56,6 +56,7 @@ namespace LocalFormulaRacing
         static CareerHubPresenter careerHubPresenter;
         static CareerCreationPresenter careerCreationPresenter;
         static CareerStatsPresenter careerStatsPresenter;
+        static CareerStatsPresenter trophyCabinetPresenter;
         static DriverProfilePresenter profilePresenter;
         static SettingsPresenter settingsPresenter;
         static ResultsPresenter resultsPresenter;
@@ -230,6 +231,14 @@ namespace LocalFormulaRacing
             careerStatsPresenter = new CareerStatsPresenter(careerStatsView)
             {
                 OnBack = () => shell.Router.Back(),
+                OnSecondary = ShowTrophyCabinet,
+            };
+
+            var trophyCabinetView = (CareerStatsView)ShowAndGet(CareerStatsView.TrophyId);
+            trophyCabinetPresenter = new CareerStatsPresenter(trophyCabinetView)
+            {
+                OnBack = () => shell.Router.Back(),
+                OnSecondary = ShowCareerStats,
             };
 
             var profileView = (DriverProfileView)ShowAndGet(DriverProfileView.Id);
@@ -447,8 +456,50 @@ namespace LocalFormulaRacing
             }
 
             model.emptyRecordsMessage = "No lap records yet. Run a time trial to set benchmarks.";
+            model.secondaryLabel = "Trophy Cabinet";
             shell.Router.Show(CareerStatsView.Id);
             careerStatsPresenter.Present(model);
+        }
+
+        // Production trophy cabinet: season/championship trophies + per-track achievements.
+        static void ShowTrophyCabinet()
+        {
+            var model = new CareerStatsModel();
+            PlayerRecordsData records = PlayerRecordsStore.Data;
+            if (records != null)
+            {
+                Stat(model, "Championships", records.championshipsWon.ToString());
+                Stat(model, "Constructors' Titles", records.constructorsChampionshipsWon.ToString());
+                Stat(model, "Seasons Completed", records.completedSeasons.ToString());
+                Stat(model, "Best Clean Streak", records.bestCleanRaceStreak.ToString());
+                Stat(model, "Biggest Comeback", records.biggestComebackPositions > 0 ? "+" + records.biggestComebackPositions : "--");
+                Stat(model, "Most Overtakes (race)", records.mostOvertakesInRace.ToString());
+                Stat(model, "Best Wet Result", records.bestWetFinishPosition > 0 ? "P" + records.bestWetFinishPosition : "--");
+
+                if (records.trackAchievements != null)
+                {
+                    for (int i = 0; i < records.trackAchievements.Count; i++)
+                    {
+                        TrackAchievementEntry entry = records.trackAchievements[i];
+                        if (entry.wins == 0 && entry.podiums == 0 && entry.poles == 0)
+                        {
+                            continue;
+                        }
+
+                        model.records.Add(new TrackRecordRow
+                        {
+                            track = ResolveTrackName(entry.trackId),
+                            time = entry.wins + "W",
+                            context = entry.podiums + " podiums · " + entry.poles + " poles",
+                        });
+                    }
+                }
+            }
+
+            model.emptyRecordsMessage = "No wins, podiums or poles yet - they appear here after your first race weekend.";
+            model.secondaryLabel = "Career Stats";
+            shell.Router.Show(CareerStatsView.TrophyId);
+            trophyCabinetPresenter.Present(model);
         }
 
         static void Stat(CareerStatsModel model, string label, string value)
