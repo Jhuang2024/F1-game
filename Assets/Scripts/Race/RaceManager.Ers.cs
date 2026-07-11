@@ -39,7 +39,9 @@ namespace LocalFormulaRacing
 
             AiDifficultyProfile profile = GetAiDifficultyProfile();
             int awareness = participant.driverData == null ? 78 : participant.driverData.awareness;
-            float ersQuality = Mathf.Clamp01(profile.ersDeploymentQuality * Mathf.Lerp(0.8f, 1.08f, awareness / 100f));
+            // Awareness-modulated racecraft deploy quality is the engine-free
+            // AiErsRules; the live reads and the Random roll below stay here.
+            float ersQuality = AiErsRules.RacecraftDeployQuality(profile.ersDeploymentQuality, awareness);
 
             bool finalLap = CurrentSession != RaceWeekendSession.Qualifying && participant.lapTracker != null && participant.lapTracker.CompletedLaps >= RaceLaps - 1;
             float normalized = participant.lapTracker == null ? 0f : (State == null ? participant.lapTracker.CurrentProgress.normalized : State.GetCurrentProgress(participant).normalized);
@@ -77,7 +79,7 @@ namespace LocalFormulaRacing
                 {
                     // Part A.2: Expert-only, deterministic - a push-lap deploy with
                     // battery to spare is an obvious call, not a coin flip.
-                    return isExpert || Random.value < profile.ersDeploymentQuality * 0.5f;
+                    return isExpert || Random.value < AiErsRules.PushLapDeployChance(profile.ersDeploymentQuality);
                 }
 
                 return false;

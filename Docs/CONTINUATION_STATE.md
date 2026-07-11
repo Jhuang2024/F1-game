@@ -1222,6 +1222,32 @@ deferred, not claimed complete.
         byte-identical, one live path. StartProcedureRulesTests extended (skill-blend
         average/clamp, base-delay scale + monotonic, variance band). Unity/runtime
         validation PENDING (AI launch feel needs an in-editor run).
+    E11. AI ERS decision quality -> engine-free AiErsRules. The two awareness-
+        modulated probabilities gating the RNG in RaceManager.ShouldAiUseErs - the
+        racecraft-call quality (base tier quality x Lerp(0.8,1.08, awareness/100),
+        clamped) and the push-lap deploy chance (half base quality) - were pure
+        formulas inline. Extracted verbatim into AiErsRules.RacecraftDeployQuality
+        (baseQuality, awareness) and PushLapDeployChance(baseQuality). The Expert
+        deterministic bypass, every live read (corner severity, battery, flags,
+        gaps) and the Random.value rolls stay in RaceManager - byte-identical, one
+        live path. AiErsRulesTests added (quality awareness-scale/clamp/monotonic,
+        push-lap half). Unity/runtime validation PENDING.
+
+    Phase E status: the pure-calculation extraction pass across RaceManager is
+    substantially complete (E1-E11). The rules/model layer (F1Game.Race.Rules +
+    PhysicsModels) is now 21 engine-free, unit-tested classes covering fuel,
+    tyres, aero/slipstream, the full qualifying lap-time model, safety-car pacing,
+    AI start-reaction and ERS decision quality, alongside the pre-existing
+    Championship/Qualifying/Classifier/Penalty/Pit/AiPitStrategy/Session/Flag/
+    Start/Reliability/Drs/Weather/CarDevelopment rules. All extractions preserved
+    values, call order, RNG order and public APIs; RaceManager stays the
+    orchestration owner and delegates the maths. What remains inline in RaceManager
+    is NOT a safe static extraction: thin one-liner thresholds (over-fragmenting to
+    move), state-heavy decision trees with interleaved RNG (fragile to split), and
+    logic bound to engine-side Track/State/Physics queries (the pit-rail geometry,
+    incident detection) whose behaviour cannot be verified without Unity. Those are
+    recorded as needing an in-editor run; the ownership stays with RaceManager and
+    the live path is authoritative.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
