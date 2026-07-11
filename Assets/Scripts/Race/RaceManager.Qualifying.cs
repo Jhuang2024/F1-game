@@ -1,3 +1,4 @@
+using F1Game.Race.Rules;
 using UnityEngine;
 
 namespace LocalFormulaRacing
@@ -444,36 +445,14 @@ namespace LocalFormulaRacing
         // nerfs. Every factor nudged up again to buy back that headroom.
         float TrackAverageSpeedFactor(TrackRuntime track)
         {
+            // Null-track baseline stays here (returned before any descriptor read);
+            // the circuit-character lookup is the engine-free QualifyingModel.
             if (track == null)
             {
                 return 0.83f;
             }
 
-            string id = track.trackId ?? "";
-            string style = (track.styleName ?? "").ToLowerInvariant();
-            if (id.Contains("monaco"))
-            {
-                return 0.65f;
-            }
-
-            if (id.Contains("spa") || id.Contains("monza") || id.Contains("silverstone") ||
-                id.Contains("baku") || id.Contains("jeddah") || id.Contains("las_vegas") ||
-                id.Contains("suzuka") || id.Contains("qatar"))
-            {
-                return 1.02f;
-            }
-
-            if (id.Contains("hungary"))
-            {
-                return 0.71f;
-            }
-
-            if (style.Contains("street") || track.roadHalfWidth < 12f)
-            {
-                return 0.76f;
-            }
-
-            return 0.92f;
+            return QualifyingModel.TrackSpeedFactor(track.trackId, track.styleName, track.roadHalfWidth);
         }
 
         // All drivers under the same conditions share the same weather baseline
@@ -484,19 +463,11 @@ namespace LocalFormulaRacing
         // heavy rain).
         float WeatherQualifyingPenalty(DriverData driver)
         {
-            if (Track.weather == WeatherState.Clear)
-            {
-                return 0f;
-            }
-
-            if (Track.weather == WeatherState.Cloudy)
-            {
-                return 0.04f;
-            }
-
+            // Live weather state + the driver's wet skill read here; the shared
+            // per-condition baseline and the wetSkill spread are the engine-free
+            // QualifyingModel.WeatherPenalty (WeatherState ordering matches its codes).
             float wetSkill = driver == null ? 80f : driver.wetSkill;
-            float basePenalty = Track.weather == WeatherState.HeavyRain ? 2.65f : 1.25f;
-            return basePenalty * Mathf.Lerp(1.1f, 0.6f, wetSkill / 100f);
+            return QualifyingModel.WeatherPenalty((int)Track.weather, wetSkill);
         }
 
         // Mistakes are modeled explicitly and kept separate from ordinary
@@ -510,21 +481,11 @@ namespace LocalFormulaRacing
             mistakeType = "";
             float consistency = driver == null ? 80f : driver.consistency;
             float awareness = driver == null ? 80f : driver.awareness;
-            float chance = Mathf.Lerp(0.075f, 0.012f, consistency / 100f);
-            if (Track.weather == WeatherState.LightRain)
-            {
-                chance += 0.025f;
-            }
-            else if (Track.weather == WeatherState.HeavyRain)
-            {
-                chance += 0.045f;
-            }
-
-            if (phase == 3)
-            {
-                chance += 0.008f;
-            }
-
+            // Chance build-up (consistency base rate + rain + Q3 nudge) is the
+            // engine-free QualifyingModel.MistakeChance; every Random roll below -
+            // the trigger, the type pick and the magnitude - stays here so the RNG
+            // call order is unchanged.
+            float chance = QualifyingModel.MistakeChance(consistency, (int)Track.weather, phase);
             if (Random.value > chance)
             {
                 return 0f;
@@ -546,7 +507,7 @@ namespace LocalFormulaRacing
 
         float InvalidQualifyingTime(int phase)
         {
-            return 9998f + Mathf.Clamp(phase, 1, 3) * 0.1f;
+            return QualifyingModel.InvalidTime(phase);
         }
 
         float GetQualifyingPhaseTime(QualifyingSimEntry entry, int phase)

@@ -1128,6 +1128,26 @@ deferred, not claimed complete.
         calc, no state mutation). UpdateSlipstreamEffects (called from the Update
         tick) unchanged. PhysicsModelsTests extended (tow peak/fade/lateral/monotonic,
         straight-factor fade + clamps). Unity/runtime validation PENDING.
+    E4. Qualifying model (RNG-free pieces) -> engine-free QualifyingModel
+        (F1Game.Race.Rules). TrackAverageSpeedFactor (circuit-character speed
+        scaler), WeatherQualifyingPenalty (per-condition baseline + wetSkill spread),
+        the mistake-probability build-up inside QualifyingMistakePenalty, and
+        InvalidQualifyingTime were pure/RNG-free formulas inline in
+        RaceManager.Qualifying.cs. Extracted verbatim into
+        QualifyingModel.TrackSpeedFactor(trackId, styleName, roadHalfWidth),
+        WeatherPenalty(weatherCode, wetSkill), MistakeChance(consistency,
+        weatherCode, phase) and InvalidTime(phase), with weather int codes matching
+        the live WeatherState ordering (Clear 0/Cloudy 1/LightRain 2/HeavyRain 3) and
+        an engine-free Lerp mirroring Mathf. CRUCIAL: every Random roll stays in
+        RaceManager - the mistake trigger (Random.value > chance), the type pick
+        (Random.Range) and the magnitude (Random.Range x awareness spread, and the
+        rare major-mistake tail) are untouched, so RNG call order is identical; only
+        the pure chance build-up is delegated. Null-track baseline and the live
+        Track.weather / driver-stat reads stay caller-side. Feel-sensitive numbers
+        unchanged (relocation, not a retune). One live path (pure calc). In-class
+        callers (QualifyingFlow, main) unchanged. QualifyingModelTests added (circuit
+        table incl. case-sensitivity + null, weather baseline/spread, mistake-chance
+        rain/consistency/Q3, invalid-time clamp). Unity/runtime validation PENDING.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
