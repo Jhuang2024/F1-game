@@ -84,6 +84,15 @@ namespace F1Game.UI.Screens
         public List<CalendarRowModel> calendar = new List<CalendarRowModel>();
     }
 
+    [Serializable]
+    public class CareerHubModel
+    {
+        public string seasonLabel;      // "Season 2 · Round 5/22"
+        public string nextEventName;    // "Italian Grand Prix"
+        public string nextEventDetail;  // "Italy · 24 laps · Variable"
+        public string continueLabel;    // "Continue: Qualifying" / "Continue: Race"
+    }
+
     public static class CompoundPalette
     {
         /// <summary>Data-identity colours for tyre compounds (soft/medium/hard/inter/wet).</summary>

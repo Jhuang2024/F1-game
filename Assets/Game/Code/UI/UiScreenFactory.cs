@@ -222,6 +222,40 @@ namespace F1Game.UI
             return view;
         }
 
+        public static Screens.CareerHub.CareerHubView BuildCareerHub(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_CareerHub", "CAREER", out TMP_Text header);
+
+            TMP_Text season = CreateText(content, "SeasonLabel", TextStyle.H3, "");
+            season.color = theme.palette.textMuted;
+
+            var card = CreatePanel(content, "NextEventCard", theme.palette.surfaceRaised);
+            var cardLayout = card.gameObject.AddComponent<VerticalLayoutGroup>();
+            cardLayout.spacing = theme.spacing.micro;
+            cardLayout.padding = new RectOffset((int)theme.spacing.normal, (int)theme.spacing.normal,
+                (int)theme.spacing.normal, (int)theme.spacing.normal);
+            cardLayout.childForceExpandHeight = false;
+            cardLayout.childControlHeight = true;
+            cardLayout.childControlWidth = true;
+            CreateText(card.transform, "NextLabel", TextStyle.Label, "NEXT EVENT");
+            TMP_Text eventTitle = CreateText(card.transform, "EventTitle", TextStyle.H2, "");
+            TMP_Text eventDetail = CreateText(card.transform, "EventDetail", TextStyle.Body, "");
+            eventDetail.color = theme.palette.textMuted;
+
+            RectTransform actions = CreateLayoutColumn(content, "Actions", theme.spacing.small);
+            ThemedButton continueBtn = CreateButton(actions, "Btn_Continue", ThemedButton.Variant.Primary, "Continue");
+            ThemedButton standings = CreateButton(actions, "Btn_Standings", ThemedButton.Variant.Secondary, "Standings & Calendar");
+            ThemedButton legacyMenu = CreateButton(actions, "Btn_FullMenu", ThemedButton.Variant.Secondary, "Full Career Menu");
+            ThemedButton back = CreateButton(actions, "Btn_Back", ThemedButton.Variant.Tertiary, "Back");
+
+            SetUpDownNavigation(new[] { continueBtn, standings, legacyMenu, back });
+
+            var view = content.parent.gameObject.AddComponent<Screens.CareerHub.CareerHubView>();
+            view.Bind(header, eventTitle, eventDetail, continueBtn, standings, legacyMenu, back);
+            return view;
+        }
+
         public static Screens.CareerStandings.CareerStandingsView BuildCareerStandings(Transform root)
         {
             UiTheme theme = UiTheme.Active;

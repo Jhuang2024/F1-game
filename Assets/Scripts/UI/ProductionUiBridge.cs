@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
+using F1Game.Race.Rules;
 using F1Game.UI;
 using F1Game.UI.Screens;
+using F1Game.UI.Screens.CareerHub;
 using F1Game.UI.Screens.CareerStandings;
 using F1Game.UI.Screens.MainMenu;
 using F1Game.UI.Screens.PreRaceStrategy;
@@ -44,6 +46,7 @@ namespace LocalFormulaRacing
         static TrackSelectPresenter trackSelectPresenter;
         static PreRaceStrategyPresenter strategyPresenter;
         static CareerStandingsPresenter standingsPresenter;
+        static CareerHubPresenter careerHubPresenter;
         static bool failedThisSession;
         static CalendarEventData selectedEvent;
 
@@ -139,7 +142,19 @@ namespace LocalFormulaRacing
             var mainMenuView = (MainMenuView)ShowAndGet(MainMenuView.Id);
             mainMenuPresenter = new MainMenuPresenter(mainMenuView)
             {
-                OnCareer = () => LeaveToLegacy(() => bootstrap.ShowCareer()),
+                // Production career hub when a career exists; career creation
+                // (and everything the hub doesn't cover yet) stays legacy.
+                OnCareer = () =>
+                {
+                    if (career != null && career.Save != null)
+                    {
+                        ShowCareerHub();
+                    }
+                    else
+                    {
+                        LeaveToLegacy(() => bootstrap.ShowCareer());
+                    }
+                },
                 OnQuickRace = ShowTrackSelect,
                 OnTimeTrial = () => LeaveToLegacy(() => bootstrap.ShowTimeTrialSetup()),
                 OnStandings = ShowCareerStandings,
@@ -163,6 +178,18 @@ namespace LocalFormulaRacing
             var standingsView = (CareerStandingsView)ShowAndGet(CareerStandingsView.Id);
             standingsPresenter = new CareerStandingsPresenter(standingsView)
             {
+                OnBack = () => shell.Router.Back(),
+            };
+
+            var careerHubView = (CareerHubView)ShowAndGet(CareerHubView.Id);
+            careerHubPresenter = new CareerHubPresenter(careerHubView)
+            {
+                // The race start itself (tyre select / qualifying) is still the
+                // legacy flow; the hub hands off exactly like the legacy hub's
+                // own continue button does.
+                OnContinue = () => LeaveToLegacy(() => bootstrap.StartCareerRace()),
+                OnStandings = ShowCareerStandings,
+                OnLegacyMenu = () => LeaveToLegacy(() => bootstrap.ShowCareer()),
                 OnBack = () => shell.Router.Back(),
             };
 
@@ -199,6 +226,38 @@ namespace LocalFormulaRacing
                 playerName = hasCareer ? career.Save.playerDriverName : "",
                 versionLabel = "v" + Application.version + " · production migration slice",
             };
+        }
+
+        static void ShowCareerHub()
+        {
+            var model = new CareerHubModel();
+            if (career != null && career.Save != null)
+            {
+                int rounds = data != null && data.Calendar != null ? data.Calendar.events.Count : 0;
+                model.seasonLabel = string.Format("Season {0} · Round {1}{2} · {3}",
+                    career.Save.currentSeason,
+                    career.Save.currentRound + 1,
+                    rounds > 0 ? "/" + rounds : "",
+                    career.Save.playerDriverName);
+
+                CalendarEventData nextEvent = career.CurrentEvent();
+                if (nextEvent != null)
+                {
+                    model.nextEventName = nextEvent.displayName;
+                    model.nextEventDetail = string.Format("{0} · {1} laps · {2}",
+                        nextEvent.country,
+                        settings != null ? settings.Current.laps : nextEvent.laps5,
+                        string.IsNullOrEmpty(nextEvent.weatherProfile) ? "Variable" : nextEvent.weatherProfile);
+                }
+
+                // The rulebook decides where the weekend goes next.
+                model.continueLabel = SessionFlow.NextCareerStep(career.HasQualifyingForCurrentRound()) == WeekendSession.Qualifying
+                    ? "Continue: Qualifying"
+                    : "Continue: Race";
+            }
+
+            shell.Router.Show(CareerHubView.Id);
+            careerHubPresenter.Present(model);
         }
 
         static void ShowCareerStandings()
