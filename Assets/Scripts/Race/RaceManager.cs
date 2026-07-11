@@ -858,67 +858,6 @@ namespace LocalFormulaRacing
             return "Q" + qualifyingPhase + " push lap";
         }
 
-        public void TogglePause()
-        {
-            if (IsRaceFinished)
-            {
-                return;
-            }
-
-            IsPaused = !IsPaused;
-            Time.timeScale = IsPaused ? 0f : 1f;
-            // Production HUD (if active) hides while paused so the legacy pause
-            // menu is visible/interactable; restored on resume.
-            ProductionSessionUi.SetPaused(this, IsPaused);
-            ui.SetPauseVisible(IsPaused);
-        }
-
-        public void Resume()
-        {
-            IsPaused = false;
-            Time.timeScale = 1f;
-            ProductionSessionUi.SetPaused(this, false);
-            ui.SetPauseVisible(false);
-        }
-
-        public void RestartRace()
-        {
-            if (State != null)
-            {
-                State.ResetAllParticipants();
-            }
-            pendingTimeTrial = IsTimeTrial;
-            StartSession(Data, Career, Settings, ui, EventData, Career.Save.playerDriverName, Career.Save.playerTeamId, IsCareerRace, CurrentSession);
-        }
-
-        public void CleanupRaceWorld()
-        {
-            TrackQueryProvider.Clear();
-            Time.timeScale = 1f;
-            IsPaused = false;
-            IsRaceFinished = true;
-            IsTimeTrial = false;
-            State = null;
-            PlayerParticipant = null;
-            if (raceWorld != null)
-            {
-                Destroy(raceWorld);
-                raceWorld = null;
-            }
-
-            // Ghost car is parented under raceWorld so Destroy above already
-            // removes it from the scene - just drop the now-stale references.
-            ghostCarObject = null;
-            ghostController = null;
-            ghostRecordingBuffer.Clear();
-            ghostRecordedLapNumber = -1;
-            playerCameraRig = null;
-            ActivePracticeProgramId = null;
-
-            SimpleAudioManager.SetRain(false);
-            SimpleAudioManager.SetRaceAmbience(false);
-        }
-
         // Playable practice programs: scores the just-driven Practice session
         // against the criteria for whichever program (ActivePracticeProgramId)
         // the player picked in RuntimeUi.ShowPracticePrograms, from real telemetry

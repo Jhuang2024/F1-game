@@ -975,6 +975,13 @@ deferred, not claimed complete.
     in-class.
     RaceManager.cs -> 1403 lines: 10264 out over 50 slices (~88.0%).
     RaceManager is now spread across 46 focused partials (main + 45).
+    Slice 51: session control - TogglePause, Resume, RestartRace and CleanupRaceWorld
+    (the pause/resume, restart-the-current-race and race-world teardown that
+    destroys the spawned field/lighting and resets audio) - 60 lines - moved to
+    RaceManager.SessionControl.cs. Teardown order unchanged; the public entry points
+    stay public so the pause menu and GameBootstrap resolve in-class.
+    RaceManager.cs -> 1342 lines: 10325 out over 51 slices (~88.5%).
+    RaceManager is now spread across 47 focused partials (main + 46).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
