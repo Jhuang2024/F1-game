@@ -859,6 +859,14 @@ deferred, not claimed complete.
     public entry point stays public so input callers resolve in-class.
     RaceManager.cs -> 2596 lines: 9071 out over 36 slices (~77.7%).
     RaceManager is now spread across 35 focused partials (main + 34).
+    Slice 37: AI ERS deployment - ShouldAiUseErs (decides when the AI deploys ERS
+    from corner severity, the per-tier decision-quality profile and situational
+    context) - 77 lines - moved to RaceManager.Ers.cs. Thresholds and RNG call
+    order unchanged; the AiDifficultyProfile struct stays in the AiProfiles partial
+    (same class), and the public entry point stays public so AI callers resolve
+    in-class.
+    RaceManager.cs -> 2518 lines: 9149 out over 37 slices (~78.4%).
+    RaceManager is now spread across 36 focused partials (main + 35).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
