@@ -247,13 +247,34 @@ namespace F1Game.UI
             RectTransform actions = CreateLayoutColumn(content, "Actions", theme.spacing.small);
             ThemedButton continueBtn = CreateButton(actions, "Btn_Continue", ThemedButton.Variant.Primary, "Continue");
             ThemedButton standings = CreateButton(actions, "Btn_Standings", ThemedButton.Variant.Secondary, "Standings & Calendar");
+            ThemedButton profile = CreateButton(actions, "Btn_Profile", ThemedButton.Variant.Secondary, "Driver Profile");
             ThemedButton legacyMenu = CreateButton(actions, "Btn_FullMenu", ThemedButton.Variant.Secondary, "Full Career Menu");
             ThemedButton back = CreateButton(actions, "Btn_Back", ThemedButton.Variant.Tertiary, "Back");
 
-            SetUpDownNavigation(new[] { continueBtn, standings, legacyMenu, back });
+            SetUpDownNavigation(new[] { continueBtn, standings, profile, legacyMenu, back });
 
             var view = content.parent.gameObject.AddComponent<Screens.CareerHub.CareerHubView>();
-            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, legacyMenu, back);
+            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, profile, legacyMenu, back);
+            return view;
+        }
+
+        public static Screens.DriverProfile.DriverProfileView BuildDriverProfile(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_DriverProfile", "DRIVER PROFILE", out TMP_Text header);
+
+            TMP_Text name = CreateText(content, "DriverName", TextStyle.H2, "");
+            TMP_Text team = CreateText(content, "TeamLine", TextStyle.H3, "");
+            team.color = theme.palette.textMuted;
+
+            RectTransform rowsColumn = CreateLayoutColumn(content, "StatRows", theme.spacing.micro);
+            TMP_Text rowTemplate = CreateText(rowsColumn, "Row_Template", TextStyle.Body, "");
+            rowTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 8f;
+
+            ThemedButton back = CreateButton(content, "Btn_Back", ThemedButton.Variant.Tertiary, "Back");
+
+            var view = content.parent.gameObject.AddComponent<Screens.DriverProfile.DriverProfileView>();
+            view.Bind(name, team, rowsColumn, rowTemplate, back);
             return view;
         }
 

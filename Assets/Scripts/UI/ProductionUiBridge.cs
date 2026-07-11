@@ -5,6 +5,7 @@ using F1Game.UI;
 using F1Game.UI.Screens;
 using F1Game.UI.Screens.CareerHub;
 using F1Game.UI.Screens.CareerStandings;
+using F1Game.UI.Screens.DriverProfile;
 using F1Game.UI.Screens.MainMenu;
 using F1Game.UI.Screens.PreRaceStrategy;
 using F1Game.UI.Screens.TrackSelect;
@@ -47,6 +48,7 @@ namespace LocalFormulaRacing
         static PreRaceStrategyPresenter strategyPresenter;
         static CareerStandingsPresenter standingsPresenter;
         static CareerHubPresenter careerHubPresenter;
+        static DriverProfilePresenter profilePresenter;
         static bool failedThisSession;
         static CalendarEventData selectedEvent;
 
@@ -189,7 +191,14 @@ namespace LocalFormulaRacing
                 // own continue button does.
                 OnContinue = () => LeaveToLegacy(() => bootstrap.StartCareerRace()),
                 OnStandings = ShowCareerStandings,
+                OnProfile = ShowDriverProfile,
                 OnLegacyMenu = () => LeaveToLegacy(() => bootstrap.ShowCareer()),
+                OnBack = () => shell.Router.Back(),
+            };
+
+            var profileView = (DriverProfileView)ShowAndGet(DriverProfileView.Id);
+            profilePresenter = new DriverProfilePresenter(profileView)
+            {
                 OnBack = () => shell.Router.Back(),
             };
 
@@ -273,6 +282,39 @@ namespace LocalFormulaRacing
 
             shell.Router.Show(CareerHubView.Id);
             careerHubPresenter.Present(model);
+        }
+
+        static void ShowDriverProfile()
+        {
+            var model = new DriverProfileModel();
+            if (career != null && career.Save != null)
+            {
+                model.driverName = career.Save.playerDriverName;
+                TeamData team = data != null ? data.FindTeam(career.Save.playerTeamId) : null;
+                model.teamLine = (team != null ? team.name : "") + " · Season " + career.Save.currentSeason;
+            }
+
+            // Career-wide records are account-level (the local records store),
+            // matching how the legacy profile presents them.
+            PlayerRecordsData records = PlayerRecordsStore.Data;
+            if (records != null)
+            {
+                model.stats.Add(new ProfileStatModel { label = "Races finished", value = records.racesFinished.ToString() });
+                model.stats.Add(new ProfileStatModel { label = "Wins", value = records.raceWins.ToString() });
+                model.stats.Add(new ProfileStatModel { label = "Podiums", value = records.podiums.ToString() });
+                model.stats.Add(new ProfileStatModel { label = "Pole positions", value = records.polePositions.ToString() });
+                model.stats.Add(new ProfileStatModel { label = "Fastest laps", value = records.fastestLaps.ToString() });
+                model.stats.Add(new ProfileStatModel { label = "Career points", value = records.totalPoints.ToString() });
+                model.stats.Add(new ProfileStatModel { label = "Drivers' titles", value = records.championshipsWon.ToString() });
+                model.stats.Add(new ProfileStatModel { label = "Constructors' titles", value = records.constructorsChampionshipsWon.ToString() });
+                model.stats.Add(new ProfileStatModel { label = "Seasons completed", value = records.completedSeasons.ToString() });
+                model.stats.Add(new ProfileStatModel { label = "Clean races", value = records.cleanRaces.ToString() });
+                model.stats.Add(new ProfileStatModel { label = "Best clean streak", value = records.bestCleanRaceStreak.ToString() });
+                model.stats.Add(new ProfileStatModel { label = "Most overtakes in a race", value = records.mostOvertakesInRace.ToString() });
+            }
+
+            shell.Router.Show(DriverProfileView.Id);
+            profilePresenter.Present(model);
         }
 
         static void ShowCareerStandings()

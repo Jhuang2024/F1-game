@@ -1,6 +1,7 @@
 using F1Game.UI.Navigation;
 using F1Game.UI.Screens.CareerHub;
 using F1Game.UI.Screens.CareerStandings;
+using F1Game.UI.Screens.DriverProfile;
 using F1Game.UI.Screens.MainMenu;
 using F1Game.UI.Screens.PreRaceStrategy;
 using F1Game.UI.Screens.RaceHudShell;
@@ -131,6 +132,7 @@ namespace F1Game.UI
             RegisterScreen(HudRoot.Id, "UI/Screens/RaceHudShell", root => UiScreenFactory.BuildHudShell(root));
             RegisterScreen(CareerStandingsView.Id, "UI/Screens/CareerStandings", root => UiScreenFactory.BuildCareerStandings(root));
             RegisterScreen(CareerHubView.Id, "UI/Screens/CareerHub", root => UiScreenFactory.BuildCareerHub(root));
+            RegisterScreen(DriverProfileView.Id, "UI/Screens/DriverProfile", root => UiScreenFactory.BuildDriverProfile(root));
         }
 
         void RegisterScreen(string id, string prefabResourcePath, System.Func<Transform, ScreenView> factoryFallback)

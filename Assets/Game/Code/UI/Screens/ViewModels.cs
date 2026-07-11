@@ -94,6 +94,21 @@ namespace F1Game.UI.Screens
         public string standingLine;     // "P3 · 86 pts · 2 wins" (empty pre-season)
     }
 
+    [Serializable]
+    public class ProfileStatModel
+    {
+        public string label;
+        public string value;
+    }
+
+    [Serializable]
+    public class DriverProfileModel
+    {
+        public string driverName;
+        public string teamLine;     // "Aurora Racing · Season 3"
+        public List<ProfileStatModel> stats = new List<ProfileStatModel>();
+    }
+
     public static class CompoundPalette
     {
         /// <summary>Data-identity colours for tyre compounds (soft/medium/hard/inter/wet).</summary>
