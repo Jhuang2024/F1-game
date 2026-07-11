@@ -124,5 +124,40 @@ namespace F1Game.Tests
             Assert.Greater(AeroModel.DirtyAirLoss(1f), AeroModel.DirtyAirLoss(3f));
             Assert.Less(AeroModel.DirtyAirLoss(5f), 0.02f);
         }
+
+        [Test]
+        public void SlipstreamTowStrengthPeaksCloseAndOnLine()
+        {
+            // Live RaceManager tuning: max 150 m, peak 18 m, full lateral 3.5 m,
+            // fade to none by 7.5 m.
+            const float maxD = 150f, peakD = 18f, fullLat = 3.5f, maxLat = 7.5f;
+
+            // Peak distance, dead on line -> full tow; at the max distance -> none.
+            Assert.AreEqual(1f, AeroModel.SlipstreamTowStrength(18f, 0f, maxD, peakD, fullLat, maxLat), 0.0001f);
+            Assert.AreEqual(0f, AeroModel.SlipstreamTowStrength(150f, 0f, maxD, peakD, fullLat, maxLat), 0.0001f);
+            // Halfway through the distance band (84 m ~ the 0.5 point of 18..150).
+            Assert.AreEqual(0.5f, AeroModel.SlipstreamTowStrength(84f, 0f, maxD, peakD, fullLat, maxLat), 0.0001f);
+
+            // Lateral: full within 3.5 m, half at 5.5 m, none by 7.5 m.
+            Assert.AreEqual(1f, AeroModel.SlipstreamTowStrength(18f, 3.5f, maxD, peakD, fullLat, maxLat), 0.0001f);
+            Assert.AreEqual(0.5f, AeroModel.SlipstreamTowStrength(18f, 5.5f, maxD, peakD, fullLat, maxLat), 0.0001f);
+            Assert.AreEqual(0f, AeroModel.SlipstreamTowStrength(18f, 7.5f, maxD, peakD, fullLat, maxLat), 0.0001f);
+
+            // Closer is stronger at equal offset.
+            Assert.Greater(AeroModel.SlipstreamTowStrength(30f, 0f, maxD, peakD, fullLat, maxLat),
+                           AeroModel.SlipstreamTowStrength(100f, 0f, maxD, peakD, fullLat, maxLat));
+        }
+
+        [Test]
+        public void SlipstreamStraightFactorFadesThroughBends()
+        {
+            // Full tow at/below 9 deg of heading change over the sampled span,
+            // none at/above 22 deg, linear between.
+            Assert.AreEqual(1f, AeroModel.SlipstreamStraightFactor(9f, 9f, 22f), 0.0001f);
+            Assert.AreEqual(1f, AeroModel.SlipstreamStraightFactor(5f, 9f, 22f), 0.0001f);   // below full -> clamps to 1
+            Assert.AreEqual(0f, AeroModel.SlipstreamStraightFactor(22f, 9f, 22f), 0.0001f);
+            Assert.AreEqual(0f, AeroModel.SlipstreamStraightFactor(30f, 9f, 22f), 0.0001f);  // above none -> clamps to 0
+            Assert.AreEqual(0.5f, AeroModel.SlipstreamStraightFactor(15.5f, 9f, 22f), 0.0001f);
+        }
     }
 }

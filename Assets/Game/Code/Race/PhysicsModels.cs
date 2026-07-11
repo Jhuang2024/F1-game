@@ -100,6 +100,43 @@ namespace F1Game.Race.Physics
             // Loss decays with gap; negligible beyond ~3 car lengths.
             return 0.35f * (float)Math.Exp(-gapCarLengths / 1.5f);
         }
+
+        /// <summary>
+        /// The follower's tow strength (0-1) from the gap behind and the lateral
+        /// offset, extracted verbatim from RaceManager.ComputeSlipstreamStrength:
+        /// peak tow at <paramref name="peakDistance"/>, fading to zero by
+        /// <paramref name="maxDistance"/>, and full-width within
+        /// <paramref name="fullLateralWidth"/> fading to zero by
+        /// <paramref name="maxLateralWidth"/>. The distance/lateral cutoffs and every
+        /// track read stay in the caller; this is only the strength product it
+        /// applies once a pair is already in range.
+        /// </summary>
+        public static float SlipstreamTowStrength(float aheadDistance, float lateralDiff,
+            float maxDistance, float peakDistance, float fullLateralWidth, float maxLateralWidth)
+        {
+            float distanceStrength = InverseLerp(maxDistance, peakDistance, aheadDistance);
+            float lateralStrength = InverseLerp(maxLateralWidth, fullLateralWidth, lateralDiff);
+            return Clamp01(distanceStrength * lateralStrength);
+        }
+
+        /// <summary>
+        /// The straight-section scale (0-1) applied to the tow, extracted verbatim
+        /// from RaceManager.SlipstreamStraightSectionStrength: full tow at/below
+        /// <paramref name="fullAtDeg"/> of heading change across the sampled span,
+        /// fading to none at/above <paramref name="noneAtDeg"/>. The track sampling
+        /// that produces the angle stays in the caller.
+        /// </summary>
+        public static float SlipstreamStraightFactor(float headingAngleDeg, float fullAtDeg, float noneAtDeg)
+        {
+            return Clamp01(InverseLerp(noneAtDeg, fullAtDeg, headingAngleDeg));
+        }
+
+        // Engine-free equivalents of the UnityEngine.Mathf helpers the inline
+        // slipstream maths used, so the extracted curves stay byte-identical
+        // (Mathf.InverseLerp clamps and returns 0 when the endpoints coincide).
+        static float Clamp01(float v) => v < 0f ? 0f : (v > 1f ? 1f : v);
+
+        static float InverseLerp(float a, float b, float v) => a == b ? 0f : Clamp01((v - a) / (b - a));
     }
 
     public static class BrakeModel

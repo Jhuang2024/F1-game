@@ -1110,6 +1110,24 @@ deferred, not claimed complete.
         AiPitStrategy/PitTyreSelector) unchanged. TyreStrategyRulesTests added
         (short-stint reach boundaries, ladder incl. inter/wet fallthrough, roll
         pick). Unity/runtime validation PENDING.
+    E3. Slipstream strength curves -> engine-free AeroModel (F1Game.Race.Physics).
+        The tow-strength product (peak-at-18m/fade-to-150m distance curve x the
+        full-width/fade lateral curve, clamped) in ComputeSlipstreamStrength and the
+        straight-section fade (full below 9deg heading change, none above 22deg) in
+        SlipstreamStraightSectionStrength were pure numeric formulas inline in
+        RaceManager.Slipstream.cs. Extracted verbatim into
+        AeroModel.SlipstreamTowStrength(aheadDistance, lateralDiff, maxDistance,
+        peakDistance, fullLateralWidth, maxLateralWidth) and
+        AeroModel.SlipstreamStraightFactor(headingAngleDeg, fullAtDeg, noneAtDeg),
+        with engine-free Clamp01/InverseLerp mirroring Mathf. RaceManager stays the
+        owner: the partial keeps the per-frame orchestration, the in-range distance/
+        lateral cutoffs (so the early-outs still skip the straight-section track
+        sampling exactly as before), every TrackProgress/Track.SampleAtDistance read,
+        the tuned distances/widths, and the SetSlipstream/SetDirtyAirGap calls, and
+        delegates only the two curves - byte-identical result, one live path (pure
+        calc, no state mutation). UpdateSlipstreamEffects (called from the Update
+        tick) unchanged. PhysicsModelsTests extended (tow peak/fade/lateral/monotonic,
+        straight-factor fade + clamps). Unity/runtime validation PENDING.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

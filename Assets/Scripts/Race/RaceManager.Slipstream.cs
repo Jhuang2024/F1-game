@@ -1,3 +1,4 @@
+using F1Game.Race.Physics;
 using UnityEngine;
 
 namespace LocalFormulaRacing
@@ -168,9 +169,11 @@ namespace LocalFormulaRacing
                 return 0f;
             }
 
-            float distanceStrength = Mathf.InverseLerp(SlipstreamMaxDistance, 18f, aheadDistance);
-            float lateralStrength = Mathf.InverseLerp(SlipstreamMaxLateralWidth, SlipstreamFullLateralWidth, lateralDiff);
-            float strength = Mathf.Clamp01(distanceStrength * lateralStrength);
+            // Peak-at-18m / fade-to-150m distance curve and the full-width->fade
+            // lateral curve are the engine-free AeroModel.SlipstreamTowStrength; the
+            // in-range gates above and the tuned distances/widths stay owned here.
+            float strength = AeroModel.SlipstreamTowStrength(
+                aheadDistance, lateralDiff, SlipstreamMaxDistance, 18f, SlipstreamFullLateralWidth, SlipstreamMaxLateralWidth);
 
             return strength * SlipstreamStraightSectionStrength(followerProgress.distance);
         }
@@ -191,8 +194,10 @@ namespace LocalFormulaRacing
             Vector3 forward2;
             Vector3 right2;
             Track.SampleAtDistance(distance + 55f, out point2, out forward2, out right2);
+            // Track sampling + heading angle stay here; the full-below-9deg /
+            // none-above-22deg fade is the engine-free AeroModel.SlipstreamStraightFactor.
             float angle = Vector3.Angle(forward1, forward2);
-            return Mathf.Clamp01(Mathf.InverseLerp(22f, 9f, angle));
+            return AeroModel.SlipstreamStraightFactor(angle, 9f, 22f);
         }
     }
 }
