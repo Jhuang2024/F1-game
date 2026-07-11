@@ -65,13 +65,14 @@ guarantees exactly one live HUD.
     Standings button on the production main menu (career-gated). Legacy
     career hub untouched.
 
-Exact next task: continue career-screen migration in the same pattern -
-next screens in order: (a) season calendar (data.Calendar.events +
-career.Save.currentRound -> rows with done/next markers), (b) career hub
-actions (Continue to next event / standings / save info) so the career
-BUTTON can eventually route production-first with a legacy fallback. Then
-authored-track consumer migration (Phase C). HUD delta-to-best + minimap are
-deferred to an in-editor pass (need new data plumbing validated at runtime).
+14. `1c70f46` Season calendar tab on the standings screen (drivers/teams/
+    calendar TabBar, DONE/NEXT markers from currentRound, pooled RenderLines).
+
+Exact next task: career hub actions on the production side - a "Continue to
+next event" action so the career BUTTON can route production-first with the
+legacy hub as fallback (bridge: OnCareer tries production career screen
+before LeaveToLegacy). Then authored-track consumer migration (Phase C).
+HUD delta-to-best + minimap deferred to an in-editor pass.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
