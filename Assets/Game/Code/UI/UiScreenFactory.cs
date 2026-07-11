@@ -258,6 +258,35 @@ namespace F1Game.UI
             return view;
         }
 
+        public static Screens.Results.ResultsView BuildResults(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_Results", "RESULT", out TMP_Text header);
+
+            TMP_Text subtitle = CreateText(content, "Subtitle", TextStyle.H3, "");
+            subtitle.color = theme.palette.textMuted;
+
+            RectTransform rowsColumn = CreateLayoutColumn(content, "ResultRows", theme.spacing.micro);
+            TMP_Text rowTemplate = CreateText(rowsColumn, "Row_Template", TextStyle.Body, "");
+            rowTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 8f;
+
+            var actions = new GameObject("Actions", typeof(RectTransform));
+            actions.transform.SetParent(content, false);
+            var actionsLayout = actions.AddComponent<HorizontalLayoutGroup>();
+            actionsLayout.spacing = theme.spacing.small;
+            actionsLayout.childForceExpandWidth = true;
+            actionsLayout.childControlWidth = true;
+            actionsLayout.childControlHeight = true;
+            ThemedButton menu = CreateButton(actions.transform, "Btn_Menu", ThemedButton.Variant.Tertiary, "Main Menu");
+            ThemedButton primary = CreateButton(actions.transform, "Btn_Primary", ThemedButton.Variant.Primary, "Continue");
+
+            // Header carries the title; the screen keeps the H1 header and a
+            // muted subtitle line below it.
+            var view = content.parent.gameObject.AddComponent<Screens.Results.ResultsView>();
+            view.Bind(header, subtitle, rowsColumn, rowTemplate, primary, menu);
+            return view;
+        }
+
         public static Screens.DriverProfile.DriverProfileView BuildDriverProfile(Transform root)
         {
             UiTheme theme = UiTheme.Active;

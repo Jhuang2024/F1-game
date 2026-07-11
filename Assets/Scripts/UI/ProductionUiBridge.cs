@@ -8,6 +8,7 @@ using F1Game.UI.Screens.CareerHub;
 using F1Game.UI.Screens.CareerStandings;
 using F1Game.UI.Screens.DriverProfile;
 using F1Game.UI.Screens.MainMenu;
+using F1Game.UI.Screens.Results;
 using F1Game.UI.Screens.PreRaceStrategy;
 using F1Game.UI.Screens.TrackSelect;
 using UnityEngine;
@@ -50,6 +51,7 @@ namespace LocalFormulaRacing
         static CareerStandingsPresenter standingsPresenter;
         static CareerHubPresenter careerHubPresenter;
         static DriverProfilePresenter profilePresenter;
+        static ResultsPresenter resultsPresenter;
         static bool failedThisSession;
         static CalendarEventData selectedEvent;
 
@@ -203,6 +205,13 @@ namespace LocalFormulaRacing
                 OnBack = () => shell.Router.Back(),
             };
 
+            var resultsView = (ResultsView)ShowAndGet(ResultsView.Id);
+            resultsPresenter = new ResultsPresenter(resultsView)
+            {
+                // Wired per-session in TryShowResults (the action depends on
+                // whether the just-finished race was a career round).
+            };
+
             // Instantiation pass done; leave the router parked on the main menu.
             shell.Router.ResetStack();
             shell.Router.Show(MainMenuView.Id);
@@ -283,6 +292,91 @@ namespace LocalFormulaRacing
 
             shell.Router.Show(CareerHubView.Id);
             careerHubPresenter.Present(model);
+        }
+
+        /// <summary>
+        /// Production post-race classification. Returns true when the production
+        /// screen was shown (caller must NOT run the legacy results path);
+        /// false when production UI is not the active frontend, so the legacy
+        /// results screen remains the compatibility fallback. The action buttons
+        /// reuse the exact bootstrap hooks the legacy results screen used.
+        /// </summary>
+        public static bool TryShowResults(List<RaceResultEntry> results, bool careerRace)
+        {
+            // Uses the bridge state adopted when the frontend/race was started;
+            // no fresh owner args (RaceManager does not hold GameBootstrap).
+            if (!Enabled || results == null || shell == null || bootstrap == null || resultsPresenter == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var model = new ResultsModel
+                {
+                    title = "RACE RESULT",
+                    isCareer = careerRace,
+                    primaryActionLabel = careerRace ? "Continue Career" : "Race Again",
+                };
+
+                float winnerTime = results.Count > 0 ? results[0].totalTime + results[0].penaltiesSeconds : 0f;
+                for (int i = 0; i < results.Count; i++)
+                {
+                    RaceResultEntry e = results[i];
+                    bool dnf = !string.IsNullOrEmpty(e.penaltyReason) && e.penaltyReason.Contains("DNF");
+                    float classifiedTime = e.totalTime + e.penaltiesSeconds;
+                    string gap = dnf ? "DNF"
+                        : (i == 0 ? FormatLapTime(classifiedTime) : "+" + (classifiedTime - winnerTime).ToString("0.0") + "s");
+                    TeamData team = data != null ? data.FindTeam(e.teamId) : null;
+                    model.rows.Add(new ResultRowModel
+                    {
+                        position = e.finishingPosition > 0 ? e.finishingPosition : i + 1,
+                        code = string.IsNullOrEmpty(e.driverName) ? "---" : e.driverName,
+                        team = team != null ? team.name : "",
+                        gapText = gap,
+                        bestLapText = FormatLapTime(e.bestLapTime),
+                        pitStops = e.pitStops,
+                        points = e.points,
+                        penaltyText = dnf ? e.penaltyReason
+                            : (e.penaltiesSeconds > 0f ? "+" + e.penaltiesSeconds.ToString("0") + "s" : "--"),
+                        isPlayer = e.isPlayer,
+                        dnf = dnf,
+                    });
+                }
+
+                resultsPresenter.OnPrimary = careerRace
+                    ? (Action)(() => LeaveToLegacy(() => bootstrap.ShowCareer()))
+                    : () => LeaveToLegacy(() => bootstrap.StartQuickRace());
+                resultsPresenter.OnMenu = () => LeaveToLegacy(() => bootstrap.ShowMainMenu());
+
+                // Show the results screen on the (visible) shell, replacing the
+                // HUD; unlock frontend nav so its buttons work; enter Results.
+                UiShell.NavigationLocked = false;
+                shell.SetShellVisible(true);
+                shell.Modals.CloseAll();
+                shell.Router.ResetStack();
+                shell.Router.Show(ResultsView.Id);
+                resultsPresenter.Present(model);
+                UiSessionCoordinator.EnterResults();
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Fail("results", exception);
+                return false;
+            }
+        }
+
+        static string FormatLapTime(float seconds)
+        {
+            if (seconds <= 0f)
+            {
+                return "-:--.---";
+            }
+
+            int minutes = (int)(seconds / 60f);
+            float rest = seconds - minutes * 60f;
+            return minutes + ":" + rest.ToString("00.000");
         }
 
         static void ShowDriverProfile()

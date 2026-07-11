@@ -109,6 +109,31 @@ namespace F1Game.UI.Screens
         public List<ProfileStatModel> stats = new List<ProfileStatModel>();
     }
 
+    [Serializable]
+    public class ResultRowModel
+    {
+        public int position;
+        public string code;         // driver name / abbreviation
+        public string team;
+        public string gapText;      // winner's total time, "+N.Ns", or "DNF"
+        public string bestLapText;
+        public int pitStops;
+        public int points;
+        public string penaltyText;  // "+Ns", a DNF reason, or "--"
+        public bool isPlayer;
+        public bool dnf;
+    }
+
+    [Serializable]
+    public class ResultsModel
+    {
+        public string title;        // "RACE RESULT"
+        public string subtitle;     // event / lap context
+        public bool isCareer;
+        public string primaryActionLabel;  // "Continue Career" / "Race Again"
+        public List<ResultRowModel> rows = new List<ResultRowModel>();
+    }
+
     public static class CompoundPalette
     {
         /// <summary>Data-identity colours for tyre compounds (soft/medium/hard/inter/wet).</summary>

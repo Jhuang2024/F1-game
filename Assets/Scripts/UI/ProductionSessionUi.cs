@@ -74,6 +74,30 @@ namespace LocalFormulaRacing
             UiSessionCoordinator.EnterResults();
         }
 
+        /// <summary>
+        /// Show the production post-race classification when the production UI is
+        /// the active frontend. Returns true when it did (caller must NOT run the
+        /// legacy results path); false leaves the legacy results screen as the
+        /// compatibility fallback. Never throws into the race loop.
+        /// </summary>
+        public static bool TryShowResults(System.Collections.Generic.List<RaceResultEntry> results, bool careerRace)
+        {
+            if (!ProductionUiReadiness.Enabled)
+            {
+                return false;
+            }
+
+            try
+            {
+                return ProductionUiBridge.TryShowResults(results, careerRace);
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogError(DiagnosticLog.FormatError(DiagnosticCode.HudBindFailed, "Production results show failed; legacy fallback: " + exception));
+                return false;
+            }
+        }
+
         /// <summary>Pause: reveal the legacy pause panel by hiding the production HUD overlay.</summary>
         public static void SetPaused(bool paused)
         {

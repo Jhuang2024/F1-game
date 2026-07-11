@@ -10204,8 +10204,13 @@ namespace LocalFormulaRacing
             }
             else
             {
-                ProductionSessionUi.BeginResults();
-                ui.ShowResults(this, results, IsCareerRace);
+                // Production results screen when the production UI owns the
+                // frontend; the legacy screen is the compatibility fallback.
+                if (!ProductionSessionUi.TryShowResults(results, IsCareerRace))
+                {
+                    ProductionSessionUi.BeginResults();
+                    ui.ShowResults(this, results, IsCareerRace);
+                }
             }
         }
 
@@ -10373,7 +10378,12 @@ namespace LocalFormulaRacing
                 yield return null;
             }
 
-            ui.ShowResults(this, results, IsCareerRace);
+            // Same production-first results path as the non-cinematic branch.
+            if (!ProductionSessionUi.TryShowResults(results, IsCareerRace))
+            {
+                ProductionSessionUi.BeginResults();
+                ui.ShowResults(this, results, IsCareerRace);
+            }
         }
 
         // One-shot post-race summary so an Expert AI balance pass can be checked
