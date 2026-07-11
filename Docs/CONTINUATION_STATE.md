@@ -842,6 +842,14 @@ deferred, not claimed complete.
     entry points stay public so input callers resolve in-class.
     RaceManager.cs -> 2785 lines: 8882 out over 34 slices (~76.1%).
     RaceManager is now spread across 33 focused partials (main + 32).
+    Slice 35: player pit-tyre selector - OpenPlayerPitTyreSelector and
+    SelectPlayerPitTyre (open the in-race compound picker for the player's next stop
+    and apply the chosen compound) - 69 lines - moved to
+    RaceManager.PitTyreSelector.cs. Gating and selection behaviour unchanged; the
+    local-yellow speed-cap consts stay in main; the public entry points stay public
+    so UI/input callers resolve in-class.
+    RaceManager.cs -> 2715 lines: 8952 out over 35 slices (~76.7%).
+    RaceManager is now spread across 34 focused partials (main + 33).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
