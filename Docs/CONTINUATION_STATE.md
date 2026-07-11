@@ -664,6 +664,17 @@ deferred, not claimed complete.
     (ShouldCompleteQualifyingRun→CompleteQualifyingRun, FinishQualifying) resolve
     in-class. RaceManager.cs → 5824 lines: 5843 out over 14 slices (~50.1%).
     RaceManager is now spread across 13 focused partials (main + 12).
+    Slice 15: overtaking legality - the shared IsOvertakingRestrictedForParticipant
+    / IsPositionCorrectionAllowed / CanParticipantOvertake authority (global
+    SC/VSC/restart ban vs sector-wide local yellow via the engine-free FlagRules,
+    plus the order-correction exemption), the snapshot-based
+    CheckIllegalOvertakesUnderYellow penalty detection (with its pair-cooldown
+    state/consts) and TrackPlayerOvertakesCompleted - 275 lines - moved to
+    RaceManager.Overtaking.cs. Snapshot cadence (0.5s), the 25s pair cooldown, the
+    +5s penalty and the RNG-free comparison logic unchanged; the public entry
+    points stay public so AiVehicleController's calls resolve in-class.
+    RaceManager.cs -> 5548 lines: 6119 out over 15 slices (~52.4%).
+    RaceManager is now spread across 14 focused partials (main + 13).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
