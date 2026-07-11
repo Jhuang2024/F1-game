@@ -675,6 +675,15 @@ deferred, not claimed complete.
     points stay public so AiVehicleController's calls resolve in-class.
     RaceManager.cs -> 5548 lines: 6119 out over 15 slices (~52.4%).
     RaceManager is now spread across 14 focused partials (main + 13).
+    Slice 16: blue flags - IsShownBlueFlag, ClearBlueFlagState, UpdateBlueFlags and
+    FindCloseLappingCar (the being-lapped detection + linger/hold bookkeeping, with
+    the BlueFlagLingerSeconds const) - 113 lines - moved to
+    RaceManager.BlueFlags.cs. The consequence (must-yield) stays in the engine-free
+    FlagRules.MustYield and the penalty tariff in PenaltyRules; detection window,
+    linger timing and call order unchanged. IsShownBlueFlag stays public so the AI,
+    RaceHud and RaceEventRelay callers resolve in-class.
+    RaceManager.cs -> 5434 lines: 6233 out over 16 slices (~53.4%).
+    RaceManager is now spread across 15 focused partials (main + 14).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
