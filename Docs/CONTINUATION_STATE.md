@@ -650,6 +650,20 @@ deferred, not claimed complete.
     unchanged; FinishRace is still called from the race tick and resolves in-class.
     RaceManager.cs → 6081 lines: 5586 out over 13 slices (~47.9%).
     RaceManager is now spread across 12 focused partials (main + 11).
+    Slice 14: qualifying-session flow - CompleteQualifyingRun, the advance/
+    eliminated segment feedback, RecordQualifyingPhase, FinishQualifying (career
+    apply + player record + results handoff), LogAiQualifyingDiagnostics,
+    BuildFinalQualifyingResults, the EnsureQualifyingPhaseComplete /
+    ActiveQualifyingEntries / ApplyQualifyingElimination cut logic (counts from
+    the engine-free QualifyingProgression) and AppendQualifyingResults - 256 lines
+    - moved to RaceManager.QualifyingFlow.cs. The per-lap time model and shared
+    accessors stay in RaceManager.Qualifying.cs; the sim nested types
+    (QualifyingSimEntry/QualifyingLapBreakdown/SectorSnapshot) stay main-nested and
+    resolve in-class. Elimination counts, RNG use, execution order and the
+    production-first results handoff unchanged; the tick-loop callers
+    (ShouldCompleteQualifyingRun→CompleteQualifyingRun, FinishQualifying) resolve
+    in-class. RaceManager.cs → 5824 lines: 5843 out over 14 slices (~50.1%).
+    RaceManager is now spread across 13 focused partials (main + 12).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
