@@ -299,6 +299,14 @@ intact - production-first with legacy fallback, never both).
     delegate to it and keep the live state/engine calls; algebraically identical,
     authority moved. Local TrackEvolutionMaxGripBonus const removed (now in
     WeatherRules). WeatherRulesTests added.
+56. RELIABILITY rules extracted (directive §12 item 4 "race reliability"):
+    ReliabilityRules (F1Game.Race.Rules, engine-free) owns mechanical-failure
+    eligibility (mode 0 off / mode 1 AI-only, player exempt / mode 2 everyone;
+    excluded pre-race and while pace-limited under SC/VSC) and the reliability→
+    per-second-chance curve (0-rated at max, 100-rated at min), plus the
+    per-check roll test. RaceManager's race-control tick delegates to it; the RNG
+    call (Random.value) and retire/incident wiring stay in RaceManager, so it is
+    behavior-identical and deterministic. ReliabilityRulesTests added.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

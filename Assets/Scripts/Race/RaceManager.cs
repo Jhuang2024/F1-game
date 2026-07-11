@@ -2292,12 +2292,11 @@ namespace LocalFormulaRacing
                 // (Part 2) - over a full race this should be a rare talking point, not
                 // a routine occurrence, and a car under SC/VSC pacing is excluded
                 // entirely since its pace is race control's own doing.
-                bool mechanicalEligible = mechanicalMode != 0 && !(mechanicalMode == 1 && participant.isPlayer) && !preRace && !paceLimited;
+                bool mechanicalEligible = ReliabilityRules.IsEligible(mechanicalMode, participant.isPlayer, preRace, paceLimited);
                 if (mechanicalEligible)
                 {
-                    float reliability = participant.carData == null ? 88f : participant.carData.reliability;
-                    float perSecondChance = Mathf.Lerp(0.000015f, 0.000001f, Mathf.Clamp01(reliability / 100f));
-                    if (Random.value < perSecondChance * RaceControlCheckInterval)
+                    float reliability = participant.carData == null ? ReliabilityRules.DefaultReliability : participant.carData.reliability;
+                    if (ReliabilityRules.FailsThisCheck(reliability, RaceControlCheckInterval, Random.value))
                     {
                         RetireParticipant(participant, "Mechanical failure");
                         RegisterIncident(participant, blockingLine ? IncidentSeverity.Medium : IncidentSeverity.Minor, progress, freqScale, escalationAllowed, "Mechanical failure", false, blockingLine);
