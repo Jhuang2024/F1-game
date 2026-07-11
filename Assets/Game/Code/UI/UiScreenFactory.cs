@@ -258,6 +258,44 @@ namespace F1Game.UI
             return view;
         }
 
+        public static Screens.RaceHudShell.PauseOverlay BuildPauseOverlay(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            var overlayGo = new GameObject("PauseOverlay", typeof(RectTransform));
+            overlayGo.transform.SetParent(root, false);
+            Stretch((RectTransform)overlayGo.transform);
+
+            // Dimming backdrop that also blocks clicks to the HUD behind it.
+            var backdrop = overlayGo.AddComponent<Image>();
+            backdrop.color = new Color(0f, 0f, 0f, 0.72f);
+            backdrop.raycastTarget = true;
+
+            RectTransform card = CreatePanel(overlayGo.transform, "PauseCard", theme.palette.surface).rectTransform;
+            card.anchorMin = new Vector2(0.5f, 0.5f);
+            card.anchorMax = new Vector2(0.5f, 0.5f);
+            card.pivot = new Vector2(0.5f, 0.5f);
+            card.sizeDelta = new Vector2(520f, 520f);
+            RectTransform column = CreateLayoutColumn(card, "PauseMenu", theme.spacing.small,
+                new RectOffset((int)theme.spacing.major, (int)theme.spacing.major, (int)theme.spacing.major, (int)theme.spacing.major));
+            Stretch(column);
+
+            CreateText(column, "PauseTitle", TextStyle.H1, "PAUSED");
+            TMP_Text session = CreateText(column, "PauseSession", TextStyle.H3, "");
+            session.color = theme.palette.textMuted;
+
+            ThemedButton resume = CreateButton(column, "Btn_Resume", ThemedButton.Variant.Primary, "Resume");
+            ThemedButton endPractice = CreateButton(column, "Btn_EndPractice", ThemedButton.Variant.Primary, "End Practice Session");
+            ThemedButton mainMenu = CreateButton(column, "Btn_MainMenu", ThemedButton.Variant.Secondary, "Main Menu");
+            ThemedButton restart = CreateButton(column, "Btn_Restart", ThemedButton.Variant.Destructive, "Restart Session");
+            ThemedButton quit = CreateButton(column, "Btn_Quit", ThemedButton.Variant.Destructive, "Quit Game");
+
+            SetUpDownNavigation(new[] { resume, endPractice, mainMenu, restart, quit });
+
+            var overlay = overlayGo.AddComponent<Screens.RaceHudShell.PauseOverlay>();
+            overlay.Bind(session, resume, endPractice, mainMenu, restart, quit);
+            return overlay;
+        }
+
         public static Screens.Results.ResultsView BuildResults(Transform root)
         {
             UiTheme theme = UiTheme.Active;

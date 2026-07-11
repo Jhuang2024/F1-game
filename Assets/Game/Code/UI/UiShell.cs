@@ -38,6 +38,9 @@ namespace F1Game.UI
 
         Canvas canvas;
         RectTransform screenLayer;
+        RectTransform modalLayer;
+        /// <summary>Overlay layer above screens (modals, pause) - used to host the production pause overlay.</summary>
+        public RectTransform ModalLayer => modalLayer;
 
         /// <summary>
         /// Set by the race layer's session coordinator while a session is starting
@@ -93,7 +96,7 @@ namespace F1Game.UI
             }
 
             screenLayer = MakeLayer("Layer_Screens");
-            RectTransform modalLayer = MakeLayer("Layer_Modals");
+            modalLayer = MakeLayer("Layer_Modals");
             RectTransform toastLayer = MakeLayer("Layer_Toasts");
             RectTransform tooltipLayer = MakeLayer("Layer_Tooltip");
 

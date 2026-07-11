@@ -1284,7 +1284,7 @@ namespace LocalFormulaRacing
             Time.timeScale = IsPaused ? 0f : 1f;
             // Production HUD (if active) hides while paused so the legacy pause
             // menu is visible/interactable; restored on resume.
-            ProductionSessionUi.SetPaused(IsPaused);
+            ProductionSessionUi.SetPaused(this, IsPaused);
             ui.SetPauseVisible(IsPaused);
         }
 
@@ -1292,7 +1292,7 @@ namespace LocalFormulaRacing
         {
             IsPaused = false;
             Time.timeScale = 1f;
-            ProductionSessionUi.SetPaused(false);
+            ProductionSessionUi.SetPaused(this, false);
             ui.SetPauseVisible(false);
         }
 

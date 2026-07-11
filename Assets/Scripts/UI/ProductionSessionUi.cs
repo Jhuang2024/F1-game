@@ -118,27 +118,24 @@ namespace LocalFormulaRacing
         }
 
         /// <summary>Pause: reveal the legacy pause panel by hiding the production HUD overlay.</summary>
-        public static void SetPaused(bool paused)
+        public static void SetPaused(RaceManager race, bool paused)
         {
             if (!ProductionUiReadiness.Enabled)
             {
                 return;
             }
 
-            UiShell shell = ProductionUiBridge.Shell;
-            if (shell != null)
-            {
-                // Hide the HUD overlay while paused so the legacy pause menu (lower
-                // canvas) is visible and interactable; restore it on resume.
-                shell.SetShellVisible(!paused);
-            }
-
             if (paused)
             {
+                // The production HUD stays up; the pause overlay renders above it
+                // (the legacy pause panel does not exist while the production HUD
+                // is active). Shell stays visible.
+                ProductionUiBridge.ShowPauseMenu(race);
                 UiSessionCoordinator.EnterPaused();
             }
             else
             {
+                ProductionUiBridge.HidePauseMenu();
                 UiSessionCoordinator.ResumeLive();
             }
         }

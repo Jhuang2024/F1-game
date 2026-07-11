@@ -8,6 +8,7 @@ using F1Game.UI.Screens.CareerHub;
 using F1Game.UI.Screens.CareerStandings;
 using F1Game.UI.Screens.DriverProfile;
 using F1Game.UI.Screens.MainMenu;
+using F1Game.UI.Screens.RaceHudShell;
 using F1Game.UI.Screens.Results;
 using F1Game.UI.Screens.PreRaceStrategy;
 using F1Game.UI.Screens.TrackSelect;
@@ -52,6 +53,7 @@ namespace LocalFormulaRacing
         static CareerHubPresenter careerHubPresenter;
         static DriverProfilePresenter profilePresenter;
         static ResultsPresenter resultsPresenter;
+        static PauseOverlay pauseOverlay;
         static bool failedThisSession;
         static CalendarEventData selectedEvent;
 
@@ -365,6 +367,67 @@ namespace LocalFormulaRacing
                 Fail("results", exception);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// Show the production pause overlay above the HUD (the legacy pause
+        /// panel does not exist when the production HUD is active). Returns true
+        /// when shown; false leaves pause handling to the legacy path.
+        /// </summary>
+        public static bool ShowPauseMenu(RaceManager race)
+        {
+            if (!Enabled || shell == null || bootstrap == null || race == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                EnsurePauseOverlay();
+                if (pauseOverlay == null)
+                {
+                    return false;
+                }
+
+                string session = race.IsTimeTrial ? "Time Trial"
+                    : (race.CurrentSession == RaceWeekendSession.Qualifying ? "Qualifying"
+                    : (race.CurrentSession == RaceWeekendSession.Practice ? "Practice" : "Race"));
+                string eventLabel = race.EventData == null ? "" : "  ·  " + race.EventData.displayName;
+                bool isPractice = race.CurrentSession == RaceWeekendSession.Practice;
+                pauseOverlay.Configure(session + eventLabel, isPractice);
+
+                pauseOverlay.OnResume = () => race.Resume();
+                pauseOverlay.OnEndPractice = () => { HidePauseMenu(); bootstrap.EndPracticeSession(); };
+                pauseOverlay.OnMainMenu = () => { HidePauseMenu(); bootstrap.ShowMainMenu(); };
+                pauseOverlay.OnRestart = () => { HidePauseMenu(); race.RestartRace(); };
+                pauseOverlay.OnQuit = () => Application.Quit();
+
+                pauseOverlay.SetVisible(true);
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Fail("pause overlay", exception);
+                return false;
+            }
+        }
+
+        public static void HidePauseMenu()
+        {
+            if (pauseOverlay != null)
+            {
+                pauseOverlay.SetVisible(false);
+            }
+        }
+
+        static void EnsurePauseOverlay()
+        {
+            if (pauseOverlay != null || shell == null || shell.ModalLayer == null)
+            {
+                return;
+            }
+
+            pauseOverlay = UiScreenFactory.BuildPauseOverlay(shell.ModalLayer);
         }
 
         static string FormatLapTime(float seconds)
