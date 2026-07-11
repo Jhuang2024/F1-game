@@ -3234,30 +3234,13 @@ namespace LocalFormulaRacing
         // poor form hit harder (a veteran in decline regresses faster than a
         // young driver protected by their potential), and a driver already
         // near the 40-99 ceiling gets diminishing returns on further gains.
+        // The season subrating-change curve lives in the engine-adjacent
+        // DriverProgressionRules (F1Game.Core); this wrapper keeps the private
+        // signature every call site already uses.
         static int ScoreToDelta(float score, int currentEffectiveRating, int developmentPotential, int experience, float confidenceScale, float maxMagnitude)
         {
-            if (Mathf.Abs(score) < 0.02f)
-            {
-                return 0;
-            }
-
-            float potentialFactor = Mathf.Lerp(0.65f, 1.3f, Mathf.InverseLerp(40f, 95f, developmentPotential));
-            float raw = score * maxMagnitude * potentialFactor;
-
-            if (score < 0f)
-            {
-                // Veterans regress a little faster on poor form; young/high-
-                // potential drivers are cushioned somewhat.
-                raw *= Mathf.Lerp(0.85f, 1.25f, Mathf.InverseLerp(40f, 99f, experience));
-            }
-
-            if (score > 0f && currentEffectiveRating >= 94)
-            {
-                raw *= Mathf.Lerp(1f, 0.2f, Mathf.InverseLerp(94f, 99f, currentEffectiveRating));
-            }
-
-            raw *= confidenceScale;
-            return Mathf.Clamp(Mathf.RoundToInt(raw), -5, 5);
+            return F1Game.Core.DriverProgressionRules.RatingDelta(
+                score, currentEffectiveRating, developmentPotential, experience, confidenceScale, maxMagnitude);
         }
 
         // Driver progression: for every driver (plus the custom player driver,
@@ -4268,7 +4251,7 @@ namespace LocalFormulaRacing
 
         static int ClampRating(int value)
         {
-            return Mathf.Clamp(value, 40, 99);
+            return F1Game.Core.DriverProgressionRules.ClampRating(value);
         }
 
         // Part 4: the player's own effective driver, regardless of whether they

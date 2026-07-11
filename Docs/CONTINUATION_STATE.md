@@ -1260,6 +1260,17 @@ deferred, not claimed complete.
         Menu/progression numbers, not feel-sensitive physics, so extraction is safe.
         CarDevelopmentRulesTests extended (rework 40% + rounding, slot base/step/cap).
         Unity/runtime validation PENDING (compile only).
+    E13. Driver season-progression maths -> new DriverProgressionRules (F1Game.Core).
+        CareerManager.ScoreToDelta (the per-subrating season rating change: near-zero
+        deadband, potential/veteran/ceiling modifiers, confidence scale, +/-5 clamp)
+        and ClampRating (40-99 band) were pure static methods used across ~13 call
+        sites. Extracted verbatim into DriverProgressionRules.RatingDelta(...) and
+        ClampRating(value) (F1Game.Core permits Mathf, so Lerp/InverseLerp/RoundToInt/
+        Clamp match exactly); the two private CareerManager methods now delegate, so
+        every call site is unchanged. Non-feel-sensitive career progression, safe to
+        extract. DriverProgressionRulesTests added (deadband, sign, +/-5 cap,
+        potential-develops-faster, ceiling damping, 40-99 clamp). Unity/runtime
+        validation PENDING (compile only).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
