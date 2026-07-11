@@ -93,10 +93,14 @@ namespace F1Game.Track
         public string trackId;
         public string displayName;
         public string country;
+        [Tooltip("Environment style keywords the world decorator reads (e.g. contains 'street' or 'coastal'). Empty = neutral authored default.")]
+        public string environmentStyle = "";
 
         [Header("Geometry (authored)")]
         public List<SplinePoint> spline = new List<SplinePoint>();
         public bool closedLoop = true;
+        [Tooltip("Lateral distance from centerline where trackside kerbs begin (0 = derive from width).")]
+        public float kerbStartOffset;
 
         [Header("Timing")]
         public float[] sectorBoundaryDistances = new float[2];

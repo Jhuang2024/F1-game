@@ -2401,7 +2401,11 @@ namespace LocalFormulaRacing
         // ValidateLayout's derived ones.
         void BuildAuthoredLayout(TrackRuntime runtime, F1Game.Track.TrackDefinitionAsset definition)
         {
-            runtime.styleName = "Authored circuit";
+            // Environment style drives the street/coastal decoration checks, so
+            // converted circuits keep the look their legacy layout declared.
+            runtime.styleName = string.IsNullOrEmpty(definition.environmentStyle)
+                ? "Authored circuit"
+                : definition.environmentStyle;
 
             var anchors = new Vector3[definition.spline.Count];
             float widthSum = 0f;
@@ -2413,8 +2417,11 @@ namespace LocalFormulaRacing
 
             float averageHalfWidth = definition.spline.Count > 0 ? widthSum / definition.spline.Count * 0.5f : 13.82f;
             runtime.roadHalfWidth = Mathf.Max(6f, averageHalfWidth);
-            // Same kerb inset the hand-authored layouts use relative to their width.
-            runtime.kerbStart = Mathf.Max(4f, runtime.roadHalfWidth - 5.67f);
+            // Authored kerb inset when declared; otherwise the same inset the
+            // hand-authored layouts use relative to their width.
+            runtime.kerbStart = definition.kerbStartOffset > 0.01f
+                ? definition.kerbStartOffset
+                : Mathf.Max(4f, runtime.roadHalfWidth - 5.67f);
 
             // Per-point width, resampled by authored arc length into the uniform
             // profile HalfWidthAt interpolates (the world build and every width
