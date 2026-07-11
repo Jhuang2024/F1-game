@@ -1592,6 +1592,17 @@ deferred, not claimed complete.
         a HUD canvas is supplied. This adds the HUD-controls + mode-transition surface
         the replay/spectator/broadcast/photo runtime needed. VISUAL VALIDATION PENDING.
 
+    F22. Livery selection resolution -> engine-free LiverySelection (F1Game.Core,
+        UNIT-TESTED). Closes the customization loop: turns a persisted selection
+        string into a concrete CarLivery, tying together presets, the custom storage
+        triple and the procedural generator. A selection is a preset id ("azure"), a
+        custom "#P,#S,#A" storage triple, a "generated:index:total" marker, or empty;
+        anything empty/unrecognized falls back to a distinct generated livery so no
+        car is ever blank. ForPreset/ForCustom/ForGenerated build the strings; Resolve
+        reads them. LiverySelectionTests pin each round-trip plus the empty and
+        malformed fallbacks. Pure resolution glue; the Unity layer owns the actual
+        PlayerPrefs/JSON persistence and painting (LiveryPaint).
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
