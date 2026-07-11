@@ -15,6 +15,7 @@ namespace F1Game.Tests
         public void Reset()
         {
             Localization.Clear();
+            Localization.StopRecording();
         }
 
         [Test]
@@ -91,6 +92,41 @@ namespace F1Game.Tests
         {
             var missing = Localization.MissingKeys(new[] { "a", "b" });
             CollectionAssert.AreEquivalent(new[] { "a", "b" }, missing);
+        }
+
+        [Test]
+        public void RecordingHarvestsRequestedKeysWithEnglishSource()
+        {
+            Localization.StartRecording();
+            Assert.IsTrue(Localization.IsRecording);
+            Localization.Get("b.key", "Beta");
+            Localization.Get("a.key", "Alpha");
+            Localization.Get("b.key", "IGNORED SECOND FALLBACK"); // first-seen wins
+
+            // Exported template is sorted by key with the English source as value.
+            Assert.AreEqual("a.key=Alpha\nb.key=Beta\n", Localization.ExportRecordedTemplate());
+        }
+
+        [Test]
+        public void StopRecordingEndsHarvestAndClears()
+        {
+            Localization.StartRecording();
+            Localization.Get("k", "V");
+            Localization.StopRecording();
+            Assert.IsFalse(Localization.IsRecording);
+            Assert.AreEqual("", Localization.ExportRecordedTemplate());
+        }
+
+        [Test]
+        public void RecordingRoundTripsThroughParse()
+        {
+            Localization.StartRecording();
+            Localization.Get("screen.title", "SETTINGS");
+            string template = Localization.ExportRecordedTemplate();
+            Localization.StopRecording();
+
+            Dictionary<string, string> parsed = Localization.Parse(template);
+            Assert.AreEqual("SETTINGS", parsed["screen.title"]);
         }
     }
 }

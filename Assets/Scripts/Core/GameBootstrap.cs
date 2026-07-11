@@ -71,6 +71,26 @@ namespace LocalFormulaRacing
                 string label = raceManager != null && raceManager.CanDrive ? "race" : "frontend";
                 F1Game.Core.Diagnostics.PerformanceCapture.Begin(label, 20f);
             }
+
+            // F11 toggles localization key harvesting: start, navigate the screens
+            // you want covered, press again to write a complete key=english
+            // template (incl. runtime-derived keys) next to the saves. Dev tool.
+            if (Input.GetKeyDown(KeyCode.F11))
+            {
+                if (F1Game.Core.Localization.IsRecording)
+                {
+                    string template = F1Game.Core.Localization.ExportRecordedTemplate();
+                    F1Game.Core.Localization.StopRecording();
+                    string path = System.IO.Path.Combine(Application.persistentDataPath, "localization_template.txt");
+                    System.IO.File.WriteAllText(path, template);
+                    Debug.Log("[Loc] Key template exported: " + path);
+                }
+                else
+                {
+                    F1Game.Core.Localization.StartRecording();
+                    Debug.Log("[Loc] Key harvesting started; navigate screens, then press F11 to export.");
+                }
+            }
         }
 
         public void ShowMainMenu()

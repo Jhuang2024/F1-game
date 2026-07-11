@@ -427,6 +427,15 @@ deferred, not claimed complete.
     closed-loop distance wrapping (modulo, negative → near-end, always in
     [0,len)), open-spline clamping, and the zero cumulative distance at the
     start line, on a simple square loop (no interpolation-value assertions).
+79. LOCALIZATION key-harvesting authoring tool (ledger task "content authoring
+    tools"): Localization records each requested key + its English source while
+    harvesting (StartRecording/StopRecording/IsRecording), and
+    ExportRecordedTemplate emits a sorted key=english template - crucially
+    capturing the runtime-DERIVED keys (button.<slug>, settings.row.<slug>) that
+    no static source scan could find. GameBootstrap F11 toggles harvesting and
+    writes localization_template.txt next to the saves. The template round-trips
+    through Parse (load-ready). Default off, zero hot-path cost when idle.
+    LocalizationTests cover recording/export/round-trip.
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks

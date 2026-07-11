@@ -16,9 +16,13 @@ namespace F1Game.Core
     public static class Localization
     {
         static Dictionary<string, string> table;
+        static Dictionary<string, string> recorded;
 
         /// <summary>Currently loaded language code (empty = source English fallbacks).</summary>
         public static string Language { get; private set; } = "";
+
+        /// <summary>True while key harvesting is active (see StartRecording).</summary>
+        public static bool IsRecording => recorded != null;
 
         /// <summary>Loads a translation table for a language; null/empty clears it.</summary>
         public static void Load(string language, Dictionary<string, string> translations)
@@ -121,6 +125,15 @@ namespace F1Game.Core
         /// </summary>
         public static string Get(string key, string fallback)
         {
+            // Key harvesting (authoring): record each key with its English source
+            // the first time it's requested, so a play-through can export a
+            // complete translation template - including runtime-derived keys
+            // (button.<slug>, settings.row.<slug>) that no source scan would find.
+            if (recorded != null && !string.IsNullOrEmpty(key) && !recorded.ContainsKey(key))
+            {
+                recorded[key] = fallback ?? "";
+            }
+
             if (table != null && !string.IsNullOrEmpty(key) &&
                 table.TryGetValue(key, out string value) && !string.IsNullOrEmpty(value))
             {
@@ -128,6 +141,41 @@ namespace F1Game.Core
             }
 
             return fallback;
+        }
+
+        /// <summary>Begins harvesting requested keys + their English source for a template.</summary>
+        public static void StartRecording()
+        {
+            recorded = new Dictionary<string, string>();
+        }
+
+        /// <summary>Stops harvesting; the collected keys remain available via ExportRecordedTemplate.</summary>
+        public static void StopRecording()
+        {
+            recorded = null;
+        }
+
+        /// <summary>
+        /// A key=value template document of every key seen since StartRecording,
+        /// sorted by key with the English source as the value - the starting point
+        /// for a translation file. Empty when nothing was recorded.
+        /// </summary>
+        public static string ExportRecordedTemplate()
+        {
+            if (recorded == null || recorded.Count == 0)
+            {
+                return "";
+            }
+
+            var keys = new List<string>(recorded.Keys);
+            keys.Sort(System.StringComparer.Ordinal);
+            var sb = new System.Text.StringBuilder();
+            for (int i = 0; i < keys.Count; i++)
+            {
+                sb.Append(keys[i]).Append('=').Append(recorded[keys[i]]).Append('\n');
+            }
+
+            return sb.ToString();
         }
     }
 }
