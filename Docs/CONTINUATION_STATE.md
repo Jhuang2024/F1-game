@@ -565,6 +565,11 @@ deferred, not claimed complete.
     session-reset of the fields are unchanged and resolve within the class.
     RaceManager.cs: 11667 → 11576 lines. Behaviour identical; more cohesive
     subsystems will peel off the same way.
+    Slice 2: the slipstream + dirty-air cluster (UpdateSlipstreamEffects,
+    IsSlipstreamEligible, SlipstreamForwardDistance, ComputeSlipstreamStrength,
+    SlipstreamStraightSectionStrength + the slipstream/dirty-air constants) moved
+    verbatim into RaceManager.Slipstream.cs; DriverShortCode stays in main
+    (shared). Racing-tick caller unchanged. RaceManager.cs → 11397 lines.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
