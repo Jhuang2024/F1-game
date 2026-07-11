@@ -707,6 +707,17 @@ deferred, not claimed complete.
     the main partial, so this was a two-range slice around it.
     RaceManager.cs -> 5106 lines: 6561 out over 18 slices (~56.2%).
     RaceManager is now spread across 17 focused partials (main + 16).
+    Slice 19: live timing - the qualifying timing tower (BuildQualifyingTowerRows),
+    pole/delta references, the per-sector capture and records (ReportSectorToState,
+    UpdateSectorRecords, CheckCompletedSector, SampleCorneringTelemetry), the player
+    sector/live text, the qualifying best-lap captures and phase resets, and the
+    display-time / position-estimate helpers - 380 lines - moved to
+    RaceManager.LiveTiming.cs. Capture order and the RNG-free timing maths
+    unchanged; the sim/tower nested types (QualifyingTowerRow, QualifyingSimEntry,
+    SectorSnapshot) stay main-nested and resolve in-class, and the public
+    tower/display entry points stay public so the HUD callers resolve in-class.
+    RaceManager.cs -> 4725 lines: 6942 out over 19 slices (~59.5%).
+    RaceManager is now spread across 18 focused partials (main + 17).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
