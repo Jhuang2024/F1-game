@@ -622,6 +622,12 @@ deferred, not claimed complete.
     F1Game.Race.Rules, this partial owns the live state machine. Timings, tyre
     windows and call order unchanged. RaceManager.cs → 8534 lines: 3133 out over
     10 slices (~26.8%).
+    Slice 11: race-control incidents (part 1 of 2) - UpdateRaceControl,
+    DetectIncidents, RegisterIncident + pileup grouping, ApplyIncidentSeverity
+    escalation, ConsiderRedFlag/BeginRedFlag and TriggerYellowSector - 915 lines -
+    moved to RaceManager.RaceControl.cs. Escalation thresholds, RNG rolls and
+    call order unchanged; IncidentSeverity stays a main-nested enum (resolves
+    in-class). RaceManager.cs → 7619 lines: 4048 out over 11 slices (~34.7%).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
