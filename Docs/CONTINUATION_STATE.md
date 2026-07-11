@@ -393,7 +393,9 @@ deferred, not claimed complete.
     localizes every button label by a derived key (button.<slug>) in one place,
     so all production buttons (menu, career hub, pause, results, settings,
     track/strategy) are translatable at once; dynamic labels (later SetText,
-    tyre names) fall through to their text.
+    tyre names) fall through to their text. HUD moments too: the BigMomentModule
+    flashes (LIGHTS OUT / GREEN FLAG / FINAL LAP) and the track-limits flash now
+    resolve via Localization.Get with English fallbacks.
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks

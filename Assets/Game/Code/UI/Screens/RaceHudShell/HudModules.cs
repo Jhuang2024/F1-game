@@ -918,20 +918,20 @@ namespace F1Game.UI.Screens.RaceHudShell
                 if (prevValid && prevLightsVisible && !t.StartLightsVisible &&
                     t.Session == F1Game.Core.Events.SessionKind.Race)
                 {
-                    Trigger("LIGHTS OUT", UiTheme.Active.palette.positive);
+                    Trigger(F1Game.Core.Localization.Get("hud.moment.lights_out", "LIGHTS OUT"), UiTheme.Active.palette.positive);
                 }
                 // Green flag: a caution just cleared.
                 else if (prevValid && prevFlag != F1Game.Core.Events.FlagState.Green &&
                          t.Flag == F1Game.Core.Events.FlagState.Green &&
                          prevFlag != F1Game.Core.Events.FlagState.Chequered)
                 {
-                    Trigger("GREEN FLAG", UiTheme.Active.palette.positive);
+                    Trigger(F1Game.Core.Localization.Get("hud.moment.green_flag", "GREEN FLAG"), UiTheme.Active.palette.positive);
                 }
                 // Final lap: entering the last lap of a race.
                 else if (prevValid && t.TotalLaps > 0 && t.Lap == t.TotalLaps && prevLap == t.TotalLaps - 1 &&
                          t.Session == F1Game.Core.Events.SessionKind.Race)
                 {
-                    Trigger("FINAL LAP", UiTheme.Active.palette.warning);
+                    Trigger(F1Game.Core.Localization.Get("hud.moment.final_lap", "FINAL LAP"), UiTheme.Active.palette.warning);
                 }
 
                 prevLightsVisible = t.StartLightsVisible;
@@ -1078,7 +1078,7 @@ namespace F1Game.UI.Screens.RaceHudShell
                 {
                     seenWarnings = t.TrackLimitWarnings;
                     flashTimer = FlashSeconds;
-                    value.text = "TRACK LIMITS";
+                    value.text = F1Game.Core.Localization.Get("hud.moment.track_limits", "TRACK LIMITS");
                     if (!value.gameObject.activeSelf)
                     {
                         value.gameObject.SetActive(true);
