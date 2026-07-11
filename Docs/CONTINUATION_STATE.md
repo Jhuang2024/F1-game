@@ -1014,6 +1014,15 @@ deferred, not claimed complete.
     partial note-comment stay in main and resolve in-class. No new partial - still 48.
     RaceManager.cs -> 1032 lines: 10635 out over 55 slices (~91.2%).
     RaceManager is now spread across 48 focused partials (main + 47).
+    Slice 56: running order - GetRunningOrderSnapshot (ticks classification and
+    returns a snapshot of the current order) and ReportAiOvertakeCompleted (records
+    a completed AI overtake for the post-race diagnostics) plus the tiny
+    SortRunningOrder tick - 22 lines - moved to RaceManager.RunningOrder.cs.
+    Ordering unchanged; the public entry points stay public so the AI and consumers
+    resolve in-class (RaceStateManager has its own private SortRunningOrder, so its
+    calls are unaffected).
+    RaceManager.cs -> 1009 lines: 10658 out over 56 slices (~91.4%).
+    RaceManager is now spread across 49 focused partials (main + 48).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

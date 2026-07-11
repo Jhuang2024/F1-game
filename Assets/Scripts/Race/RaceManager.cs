@@ -933,29 +933,6 @@ namespace LocalFormulaRacing
         // decision-quality profiles) live in the RaceManager.AiProfiles.cs
         // partial (same class; the struct stays RaceManager.AiDifficultyProfile).
 
-        public List<RaceParticipant> GetRunningOrderSnapshot()
-        {
-            SortRunningOrder();
-            return State != null ? new List<RaceParticipant>(State.SortedOrder) : new List<RaceParticipant>();
-        }
-
-        // Called by AiVehicleController on the AttackingInside/AttackingOutside/
-        // SideBySide -> CompletingPass edge, once per completed overtake, for the
-        // post-race diagnostics log.
-        public void ReportAiOvertakeCompleted(RaceParticipant participant)
-        {
-            AiOvertakesCompletedCount++;
-            if (participant != null)
-            {
-                participant.overtakesCompleted++;
-            }
-        }
-
-        void SortRunningOrder()
-        {
-            if (State != null) State.Tick();
-        }
-
         // One fully-itemized simulated lap so the result screen can show the player
         // exactly where their time came from. Same model the AI runs through, plus
         // the player's actual tyre choice.
