@@ -179,24 +179,36 @@ several sessions), not a thin v1 swap.
     publishes at source (legacy queue preserved), NotificationFeed subscribes;
     all watcher/relay toasts reach production.
 
+39. `0ec330f` HUD tranche 11: BigMomentModule (LIGHTS OUT/GREEN FLAG/FINAL
+    LAP centre flashes, UI-side edge detection, no race-layer change).
+40. `1843bbb` normalized new .meta files to Unity's canonical format.
+
 HUD FUNCTIONAL PARITY REACHED (Docs/HUD_PARITY_GAP.md): every core telemetry,
-race-control, pit/strategy, interactive, notification, minimap and
-session-specific-delta element is live in production. REMAINING before
-RaceHud can be RETIRED as default = cosmetic/flourish tail (big-moment
-flashes, quali feedback panel, TT checkpoint counter, per-corner 2x2 tyre
-grid, progress strip) + an in-editor VISUAL validation pass (layout,
-minimap rendering, dot scaling). These are visual-verification-bound, so the
+race-control, pit/strategy, interactive (cancel-pit), notification, minimap,
+big-moment and session-delta element is live in production. REMAINING before
+RaceHud can be RETIRED as default = small cosmetic tail (quali feedback
+panel, TT checkpoint counter, per-corner 2x2 tyre grid, progress strip,
+DRS-available cue, VICTORY flash) + an in-editor VISUAL validation pass
+(layout, minimap rendering, dot scaling). Visual-verification-bound, so the
 legacy RaceHud stays the ordinary default until that pass runs.
 
-Exact next task: results-screen parity is the next big frontend gap
-(RuntimeUi.ShowResults:4759 is a nine-section report + rematch/menu actions).
-Since it is a rich screen best replaced with in-editor verification, prefer
-first the tractable static work: Phase E service-extraction seams from
-RaceManager (e.g. LapTimingService / ClassificationService pure cores with
-tests, mirroring the rules extractions), and the remaining physics model
-wiring (tyre slip curves / brake fade into VehicleController - behind static
-review only, no handling change claimed). Multiplayer (Phase N) is DEFERRED,
-out of scope - do not implement.
+Engineering-rule note: the remaining directive items are dominated by work
+that CANNOT be done coherently in a static-only (no-compiler, no-Unity)
+environment without violating "preserve working gameplay until the
+replacement is validated": results-screen replacement (rich 9-section report,
+visual), Phase E service extraction from the 11k-line uncompilable
+RaceManager (high regression risk uncompiled), physics handling swaps (tyre
+slip/brake curves would CHANGE handling - not algebraically identical to the
+live tuning, unlike the aero/ERS that were), and full career/settings/
+accessibility/localization depth (large, visual). Multiplayer (Phase N) is
+DEFERRED and out of scope.
+
+Exact next task (tractable static-only work, safe to continue): additional
+testable rules-core extractions mirroring the proven pattern (Flag/Start/
+Pit/AiPitStrategy/PitService), and additive diagnostics (structured logging
+categories / error codes, Phase M) which are static and low-risk. Avoid
+swapping live handling math or deleting working legacy paths without an
+in-editor validation pass - that is the documented, correct constraint.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
