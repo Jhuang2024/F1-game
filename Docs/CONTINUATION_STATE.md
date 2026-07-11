@@ -615,6 +615,13 @@ deferred, not claimed complete.
     moved to RaceManager.Ghost.cs. Public API unchanged (still public on
     RaceManager; external callers resolve). RaceManager.cs → 9372 lines: 2295 out
     over 9 slices (~19.7%).
+    Slice 10: the pit-lane service subsystem (HandlePitService, BeginPitEntry,
+    the rail approach/coordination - blocker finding, lateral rail, UpdatePitRail,
+    CompletePitRail - BeginPitStop and missed-entry handling) - 838 lines - moved
+    to RaceManager.Pit.cs; the pure duration/queue rules already live in
+    F1Game.Race.Rules, this partial owns the live state machine. Timings, tyre
+    windows and call order unchanged. RaceManager.cs → 8534 lines: 3133 out over
+    10 slices (~26.8%).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
