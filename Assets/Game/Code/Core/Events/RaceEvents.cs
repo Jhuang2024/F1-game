@@ -60,6 +60,20 @@ namespace F1Game.Core.Events
         ExitedPitLane,
     }
 
+    /// <summary>
+    /// What is driving the pit-status headline, so the production HUD can tint it
+    /// the way the legacy pit card does: a neutral limiter/phase readout, the
+    /// strategy plan's own queued request, a manual (P-key) override queued ahead
+    /// of the plan, or the just-cancelled confirmation.
+    /// </summary>
+    public enum PitEmphasis
+    {
+        Neutral,
+        Auto,
+        Manual,
+        Cancelled,
+    }
+
     public enum WeatherKind
     {
         Clear,

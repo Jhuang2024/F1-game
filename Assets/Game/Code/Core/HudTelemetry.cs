@@ -100,6 +100,16 @@ namespace F1Game.Core
         public bool FuelStarved;
         public float PitStopProgress01;   // 0 outside service, else 0..1
 
+        // Composed pit-status headline (Tier 2 parity): box number / limiter
+        // detail / queued-request / cancel confirmation, already resolved by the
+        // race layer, with an emphasis hint for tinting. Empty = hide the line.
+        public string PitStatusText;
+        public Events.PitEmphasis PitStatusEmphasis;
+
+        // Track-limit warning count (Tier 4 parity): the production HUD flashes a
+        // top accent when this rises, via UI-side edge detection over the value.
+        public int TrackLimitWarnings;
+
         // Pit strategy surface (Tier 2 parity).
         public bool CanCancelPit;         // a manual/SC pit request can still be cancelled
         public bool PitRequested;         // team has been asked to box

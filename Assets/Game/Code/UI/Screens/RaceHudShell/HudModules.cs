@@ -981,4 +981,104 @@ namespace F1Game.UI.Screens.RaceHudShell
             value.text = sb.ToString();
         }
     }
+
+    /// <summary>
+    /// Pit-status headline (Tier 2 parity): box number / limiter cap / queued
+    /// request / cancel confirmation, tinted by the race layer's emphasis. Hidden
+    /// when the line is empty (qualifying / idle time trial).
+    /// </summary>
+    public sealed class PitStatusModule : HudModule
+    {
+        [SerializeField] TMP_Text value;
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            bool show = t.Valid && !string.IsNullOrEmpty(t.PitStatusText);
+            if (value.gameObject.activeSelf != show)
+            {
+                value.gameObject.SetActive(show);
+            }
+
+            if (!show)
+            {
+                return;
+            }
+
+            value.text = t.PitStatusText;
+            value.color = EmphasisColor(t.PitStatusEmphasis);
+        }
+
+        static Color EmphasisColor(F1Game.Core.Events.PitEmphasis emphasis)
+        {
+            // Mirrors the legacy pit card's intent with the production palette:
+            // an auto-fired plan reads positive, a manual override reads accent,
+            // a cancel confirmation reads warning, everything else neutral.
+            switch (emphasis)
+            {
+                case F1Game.Core.Events.PitEmphasis.Auto:
+                    return UiTheme.Active.palette.positive;
+                case F1Game.Core.Events.PitEmphasis.Manual:
+                    return UiTheme.Active.palette.accent;
+                case F1Game.Core.Events.PitEmphasis.Cancelled:
+                    return UiTheme.Active.palette.warning;
+                default:
+                    return UiTheme.Active.palette.textPrimary;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Track-limit warning flash (Tier 4 parity): a brief amber pulse when the
+    /// player's warning count rises, detected UI-side over the snapshot count
+    /// (the same edge-detection shape as BigMomentModule).
+    /// </summary>
+    public sealed class TrackLimitFlashModule : HudModule
+    {
+        const float FlashSeconds = 2.2f;
+
+        [SerializeField] TMP_Text value;
+        int seenWarnings = -1;
+        float flashTimer;
+
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+
+            if (t.Valid)
+            {
+                // First valid frame seeds the baseline so a mid-session HUD spawn
+                // (or a count carried over) never flashes spuriously.
+                if (seenWarnings < 0)
+                {
+                    seenWarnings = t.TrackLimitWarnings;
+                }
+                else if (t.TrackLimitWarnings > seenWarnings)
+                {
+                    seenWarnings = t.TrackLimitWarnings;
+                    flashTimer = FlashSeconds;
+                    value.text = "TRACK LIMITS";
+                    if (!value.gameObject.activeSelf)
+                    {
+                        value.gameObject.SetActive(true);
+                    }
+                }
+            }
+
+            if (flashTimer > 0f)
+            {
+                flashTimer -= Time.deltaTime;
+                bool lit = Mathf.PingPong(Time.time * 4f, 1f) > 0.5f;
+                Color c = lit ? UiTheme.Active.palette.warning : UiTheme.Active.palette.accent;
+                value.color = c;
+                if (flashTimer <= 0f && value.gameObject.activeSelf)
+                {
+                    value.gameObject.SetActive(false);
+                }
+            }
+        }
+    }
 }

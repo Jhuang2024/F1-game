@@ -347,6 +347,19 @@ retuning, new UI screens (TT result, replay scrub, debrief panel) and RaceManage
 decomposition all genuinely require a compiler/editor/playtest and are honestly
 deferred, not claimed complete.
 
+60. HUD parity Tier 1-4 COMPLETED (ledger candidate b, toward switching HUD
+    ownership): added the last two Tier ≤4 gaps as production modules with
+    RaceHud as the live fallback. PitStatusModule renders a composed pit-status
+    headline (box/limiter incl. fast-exit 108 cap / queued request / cancel
+    confirmation) tinted by a new Events.PitEmphasis, built in RaceEventRelay
+    (BuildPitStatus) mirroring RaceHud.UpdatePitCard. TrackLimitFlashModule does
+    UI-side edge detection over a new snapshot TrackLimitWarnings count and
+    pulses amber, like BigMomentModule. Snapshot gained PitStatusText/
+    PitStatusEmphasis/TrackLimitWarnings; both modules assembled onto HudRoot.
+    Every Tier 1-4 item is now implemented in production; HUD ownership switch
+    now gated only on the in-editor visual pass (PENDING - no Unity here), so
+    RaceHud stays the live default. HUD_PARITY_GAP.md updated.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

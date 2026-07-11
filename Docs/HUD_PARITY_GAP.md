@@ -7,9 +7,16 @@ and validated in-editor. Update this file as gaps close.
 
 Production modules already live: position, lap/clock, speed/gear/rpm,
 ERS/DRS, tyre compound+wear, fuel laps, gaps, lap times, sectors, flag
-(incl. blue), pit/penalty chip, weather (production-only), start lights,
-timing tower (top-10 + player), notification feed (penalty/retirement/
-pit-request/radio events).
+(incl. blue), pit/penalty chip, pit status line, weather (production-only),
+start lights, timing tower (top-10 + player), track-limit flash, notification
+feed (penalty/retirement/pit-request/radio events).
+
+STATUS: every Tier 1-4 item is now implemented in production. The remaining
+unchecked items are Tier 5-8 (sub-widget depth + lowest-priority flourish)
+and are legacy-only refinements, not blockers. Per the retirement rule above,
+the production HUD is now structurally at Tier 1-4 parity; switching it to the
+ordinary default still requires the in-editor VISUAL pass (PENDING here - no
+Unity), so RaceHud stays the live default until that validation lands.
 
 ## Tier 1 — Interactive (input routing needed)
 - [x] Cancel Pit Request button (1031/2235): CancelPitButtonModule, shown
@@ -22,7 +29,9 @@ pit-request/radio events).
       tranche 3; approach/exit sub-phases still legacy-only)
 - [x] Pit plan line (2387): planned lap/compound. (tranche 3; AUTO/LATE
       tags still legacy-only)
-- [ ] Pit status line (2164): box number / limiter detail.
+- [x] Pit status line (2164): box number / limiter detail. (PitStatusModule -
+      composed headline + emphasis from the relay, mirrors UpdatePitCard incl.
+      the fast-exit 108 cap and the cancel-confirmation override)
 - [x] Pit stop progress meter (2210): `PitStopProgress01`. (PitStrategy tranche 1)
 - [x] SC window "BOX NOW?" prompt (2416). (tranche 3)
 - [x] Fuel pill states STARVATION/LOW/CRITICAL (1593). (tranche 1)
@@ -42,7 +51,8 @@ pit-request/radio events).
 - [x] Session label + event name (1919/1922). (SessionLabelModule, tranche 4)
 - [x] Session message line (1929). (SessionMessageModule, tranche 5)
 - [x] Input telemetry bars (627): throttle/brake. (InputTelemetryModule, tranche 7)
-- [ ] Track-limit warning flash (2469): warning count.
+- [x] Track-limit warning flash (2469): warning count. (TrackLimitFlashModule -
+      UI-side edge detection over snapshot TrackLimitWarnings, amber pulse)
 
 ## Tier 5 — Spatial/order widgets
 - [x] Tower per-row tyre compound + interval column. (tranche 1)

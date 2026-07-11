@@ -87,6 +87,10 @@ namespace F1Game.UI.Screens.RaceHudShell
             var sectorsText = Numeric(hud.TopLeftDock, "Sectors", 18f);
             hud.gameObject.AddComponent<SectorsModule>().Bind(sectorsText);
 
+            // Pit-status headline (box/limiter/queued/cancel) above the pit plan.
+            var pitStatusText = Numeric(hud.TopLeftDock, "PitStatus", 18f);
+            hud.gameObject.AddComponent<PitStatusModule>().Bind(pitStatusText);
+
             var pitPlanText = Numeric(hud.TopLeftDock, "PitPlan", 18f);
             hud.gameObject.AddComponent<PitStrategyModule>().Bind(pitPlanText);
 
@@ -111,6 +115,12 @@ namespace F1Game.UI.Screens.RaceHudShell
             var bigMomentText = Text(hud.BottomCenterDock, "BigMoment", 40f, TextAlignmentOptions.Center);
             bigMomentText.GetComponent<LayoutElement>().preferredHeight = 60f;
             hud.gameObject.AddComponent<BigMomentModule>().Bind(bigMomentText);
+
+            // Track-limit warning flash: a brief amber pulse under the big-moment
+            // line when the player collects another track-limits warning.
+            var trackLimitText = Text(hud.BottomCenterDock, "TrackLimit", 22f, TextAlignmentOptions.Center);
+            trackLimitText.GetComponent<LayoutElement>().preferredHeight = 34f;
+            hud.gameObject.AddComponent<TrackLimitFlashModule>().Bind(trackLimitText);
 
             // Race-control banner sits above the tower in the top-center dock;
             // it hides itself under ordinary green-flag running.

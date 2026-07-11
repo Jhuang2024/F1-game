@@ -169,6 +169,8 @@ namespace LocalFormulaRacing
             bool hasSessionDelta = race.TryGetGhostDelta(player, out float sessionDelta) ||
                                    race.TryGetQualifyingDelta(player, out sessionDelta);
 
+            string pitStatusText = BuildPitStatus(vehicle, out F1Game.Core.Events.PitEmphasis pitEmphasis);
+
             var snapshot = new F1Game.Core.HudTelemetrySnapshot
             {
                 Valid = true,
@@ -226,6 +228,9 @@ namespace LocalFormulaRacing
                 PaceCapKph = race.RaceControlSpeedCapKphFor(player),
                 RestartCountdownSeconds = race.RestartCountdownSeconds,
                 RaceControlDetail = BuildRaceControlDetail(),
+                PitStatusText = pitStatusText,
+                PitStatusEmphasis = pitEmphasis,
+                TrackLimitWarnings = player.trackLimitWarnings,
                 CanCancelPit = race.CanCancelManualPitRequest(),
                 PitRequested = vehicle.PitRequested,
                 NextPlannedPitLap = race.NextPlannedPitLapFor(player),
@@ -367,6 +372,43 @@ namespace LocalFormulaRacing
             }
 
             return "";
+        }
+
+        // Composes the pit-status headline + emphasis exactly as the legacy pit
+        // card does (RaceHud.UpdatePitCard): a just-cancelled confirmation wins,
+        // then the standalone limiter readout (entry 80 / fast-exit 108 cap)
+        // while outside the pit phase machine, otherwise the race layer's own
+        // PitStatusText with the queued-request tint. Empty means "hide the line"
+        // (qualifying / idle time trial). player is the local resolved above.
+        string BuildPitStatus(VehicleController vehicle, out F1Game.Core.Events.PitEmphasis emphasis)
+        {
+            emphasis = F1Game.Core.Events.PitEmphasis.Neutral;
+            RaceParticipant player = race.PlayerParticipant;
+            if (player == null || vehicle == null)
+            {
+                return "";
+            }
+
+            if (race.PlayerManualPitCancelMessageActive)
+            {
+                emphasis = F1Game.Core.Events.PitEmphasis.Cancelled;
+                return "MANUAL PIT STOP CANCELLED";
+            }
+
+            bool limiterOnly = vehicle.PitLimiterActive && player.pitPhase == PitPhase.None;
+            if (limiterOnly)
+            {
+                int limiterCapKph = vehicle.PitExitFastLimiter ? 108 : 80;
+                return (player.pitLimiterUntilExit ? "PIT EXIT  LIMITER " : "PIT APPROACH  LIMITER ") + limiterCapKph;
+            }
+
+            bool requestQueued = vehicle.PitRequested && player.pitPhase == PitPhase.None && !player.isPitting;
+            if (requestQueued)
+            {
+                emphasis = player.pitAutoTriggered ? F1Game.Core.Events.PitEmphasis.Auto : F1Game.Core.Events.PitEmphasis.Manual;
+            }
+
+            return race.PitStatusText(player);
         }
 
         float raceOrderRefreshTimer;
