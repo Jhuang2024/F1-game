@@ -35,10 +35,24 @@ All eight rule classes (Flag, StartProcedure, Penalty, PitRequest, PitService,
 AiPitStrategy, SessionFlow, QualifyingProgression + RaceClassifier/
 ChampionshipPoints) now have live consumers and EditMode tests.
 
-Exact next task: directive §12 item 5 - physics wiring into VehicleController
-(PhysicsModels.cs tyre/aero/brake/powertrain functions as the live authority,
-preserving handling). After that: HUD-module parity toward legacy RaceHud
-retirement, then career screen migration (item 6).
+8. `f933663` Physics rulebook wired live: VehicleController consumes
+   AeroModel (drag/DRS/downforce/slipstream constants + formulas) and
+   PowertrainModel (ERS boost/drain) - algebraically identical, authority
+   moved. PhysicsModelsTests added. Tyre slip-curves/brake fade remain the
+   deeper migration target (would change handling; needs runtime validation).
+9. `b818e22` Production HUD parity pass: GapsModule, FlagModule (incl. blue),
+   PitPenaltyModule, StartLightsModule; snapshot now carries real FieldSize/
+   Fuel01/gaps/flag/pit/penalty/lights. FIXED real bug: relay published
+   remaining tyre life into the worn-fraction field (wear bar inverted).
+10. `23c35e0` Production timing tower (TimingTowerModule) fed by HudRaceOrder,
+   a fixed-buffer 2Hz running-order snapshot; relay OnDestroy now clears the
+   static HUD snapshots (lifecycle fix).
+
+Exact next task: continue production-HUD parity (remaining Phase B modules:
+sector/personal-best/session-best times, weather chip, delta) OR begin career
+screen migration (directive item 6). Recommended next: sector/best-lap times
+into HudTelemetrySnapshot + a TimesModule, then weather chip; then career
+screens.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
