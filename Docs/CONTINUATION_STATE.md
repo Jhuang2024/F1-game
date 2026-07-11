@@ -381,8 +381,9 @@ deferred, not claimed complete.
     premium) computations moved out of CareerManager, which now delegates
     (ComputeProjectSuccessChanceForLevel / ComputeProjectWeeksForLevel /
     ComputeProjectCost). Algebraically identical, authority moved; the career
-    layer keeps the project state, RNG rolls and reward application.
-    CarDevelopmentRulesTests added.
+    layer keeps the project state, RNG rolls and reward application. Also folds
+    the department-upgrade cost (level × 400) into the same rules class
+    (GetDepartmentUpgradeCost delegates). CarDevelopmentRulesTests added.
 72. DIRTY-AIR cornering model wired live behind a switch (makes the built-not-
     live AeroModel.DirtyAirLoss live; matrix "physics"): a close car ahead now
     robs front-end grip IN CORNERS only (gated on |LastSteerInput|), via

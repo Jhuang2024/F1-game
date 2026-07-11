@@ -57,5 +57,12 @@ namespace F1Game.Tests
             Assert.AreEqual(1000, CarDevelopmentRules.Cost(1000, CarDevelopmentRules.RiskStandard));
             Assert.AreEqual(1150, CarDevelopmentRules.Cost(1000, CarDevelopmentRules.RiskConservative));
         }
+
+        [Test]
+        public void DepartmentUpgradeCostScalesWithLevel()
+        {
+            Assert.AreEqual(400, CarDevelopmentRules.DepartmentUpgradeCost(1));
+            Assert.AreEqual(1600, CarDevelopmentRules.DepartmentUpgradeCost(4));
+        }
     }
 }

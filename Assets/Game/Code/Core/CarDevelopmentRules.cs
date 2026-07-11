@@ -17,6 +17,9 @@ namespace F1Game.Core
         public const int RiskRush = 2;
         public const int RiskExperimental = 3;
 
+        // Cost to raise a department one level scales with its current level.
+        public const int DepartmentUpgradeCostPerLevel = 400;
+
         /// <summary>
         /// Success probability for a project: the upgrade's base chance, nudged up
         /// by department level, then shifted by the risk mode (conservative is
@@ -77,6 +80,12 @@ namespace F1Game.Core
         public static int Cost(int baseCost, int riskMode)
         {
             return riskMode == RiskConservative ? Mathf.RoundToInt(baseCost * 1.15f) : baseCost;
+        }
+
+        /// <summary>Cost to raise a department from its current level by one.</summary>
+        public static int DepartmentUpgradeCost(int currentLevel)
+        {
+            return currentLevel * DepartmentUpgradeCostPerLevel;
         }
     }
 }

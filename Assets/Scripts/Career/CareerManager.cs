@@ -1469,7 +1469,7 @@ namespace LocalFormulaRacing
 
         public int GetDepartmentUpgradeCost(int departmentIndex)
         {
-            return GetDepartmentLevel(departmentIndex) * 400;
+            return F1Game.Core.CarDevelopmentRules.DepartmentUpgradeCost(GetDepartmentLevel(departmentIndex));
         }
 
         public bool TryUpgradeDepartment(int departmentIndex)
