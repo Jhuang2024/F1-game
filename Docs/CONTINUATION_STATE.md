@@ -576,6 +576,12 @@ deferred, not claimed complete.
     RaceManager.AiDifficultyProfile, so AiVehicleController's five references are
     completely unchanged (the earlier-noted risk of a struct MOVE does not apply
     to a partial split). No tuned value altered. RaceManager.cs → 11192 lines.
+    Slice 4: the shared best-of-two qualifying attempt orchestration
+    (SimulateBestOfTwoQualifyingAttempt, SimulateAiQualifyingTime,
+    SimulatePlayerQualifyingTime, PlayerQualifyingTyreWeatherPenalty) moved to
+    RaceManager.Qualifying.cs verbatim - RNG order and every tuned value
+    unchanged; the deeper lap-time model stays in main for a later slice.
+    Callers resolve in-class. RaceManager.cs → 11088 lines (579 out over 4 slices).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
