@@ -155,13 +155,17 @@ several sessions), not a thin v1 swap.
     tranche 1: DamageModule, fuel emergency states, live pit-box progress
     chip, tower compound letters + interval column.
 
-Exact next task: HUD parity tranche 2 from Docs/HUD_PARITY_GAP.md -
-(a) Tier 3 race-control surface: snapshot RaceControlState/restart
-countdown/pace-cap fields + a RaceControlModule banner and pace pill;
-(b) Tier 2 pit strategy: snapshot pitPhase/nextPlannedPitLap/compound +
-PitStrategyModule; (c) Tier 1 cancel-pit button (needs the shell's input
-routing - check how ThemedButton clicks work on the HUD canvas). Then
-results-screen parity pass; then Phase E service extraction seams.
+29. `19dfaa3` HUD tranche 2: RaceControlModule (caution headline + restart
+    countdown + red-flag reason/SC queue + live pace cap).
+30. `a9d9265` HUD tranche 3: PitStrategyModule (plan lap/compound, BOX THIS
+    LAP, BOX CONFIRMED, SC WINDOW prompt). Checklist updated both times.
+
+Exact next task: HUD parity tranche 4 from Docs/HUD_PARITY_GAP.md -
+Tier 1 cancel-pit button (interactive: check how the HUD canvas routes
+ThemedButton clicks during a live session, add cancel-eligibility to the
+snapshot, call race.CancelManualPitRequest through the session bridge);
+plus Tier 4 quick wins (session label/event name, ERS DISABLED state).
+Then results-screen parity pass; then Phase E service extraction seams.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
