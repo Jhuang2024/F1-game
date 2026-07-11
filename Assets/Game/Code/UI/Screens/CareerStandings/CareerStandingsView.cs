@@ -77,6 +77,22 @@ namespace F1Game.UI.Screens.CareerStandings
             }
         }
 
+        /// <summary>Generic pooled-line rendering for tabs with their own formatting (calendar).</summary>
+        public void RenderLines(IReadOnlyList<string> lines)
+        {
+            EnsureRowCount(lines.Count);
+            for (int i = 0; i < lines.Count; i++)
+            {
+                rows[i].gameObject.SetActive(true);
+                rows[i].text = lines[i];
+            }
+
+            for (int i = lines.Count; i < rows.Count; i++)
+            {
+                rows[i].gameObject.SetActive(false);
+            }
+        }
+
         void EnsureRowCount(int count)
         {
             while (rows.Count < count)

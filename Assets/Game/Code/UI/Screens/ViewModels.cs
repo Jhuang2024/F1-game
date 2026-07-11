@@ -65,11 +65,23 @@ namespace F1Game.UI.Screens
     }
 
     [Serializable]
+    public class CalendarRowModel
+    {
+        public int round;
+        public string trackName;
+        public string country;
+        public int laps;
+        public bool isDone;
+        public bool isNext;
+    }
+
+    [Serializable]
     public class CareerStandingsModel
     {
         public string seasonLabel;  // e.g. "Season 2 · Round 5/22"
         public List<StandingsRowModel> drivers = new List<StandingsRowModel>();
         public List<StandingsRowModel> teams = new List<StandingsRowModel>();
+        public List<CalendarRowModel> calendar = new List<CalendarRowModel>();
     }
 
     public static class CompoundPalette

@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using F1Game.UI.Theme;
+using UnityEngine;
 
 namespace F1Game.UI.Screens.CareerStandings
 {
@@ -29,7 +32,31 @@ namespace F1Game.UI.Screens.CareerStandings
 
         void RenderTab(int index)
         {
+            if (index == 2)
+            {
+                view.RenderLines(BuildCalendarLines());
+                return;
+            }
+
             view.RenderRows(index == 1 ? model.teams : model.drivers);
+        }
+
+        List<string> BuildCalendarLines()
+        {
+            var lines = new List<string>(model.calendar.Count);
+            string accent = ColorUtility.ToHtmlStringRGB(UiTheme.Active.palette.accent);
+            string muted = ColorUtility.ToHtmlStringRGB(UiTheme.Active.palette.textMuted);
+            for (int i = 0; i < model.calendar.Count; i++)
+            {
+                CalendarRowModel row = model.calendar[i];
+                string status = row.isNext ? "<color=#" + accent + ">NEXT</color>"
+                    : (row.isDone ? "<color=#" + muted + ">DONE</color>" : "");
+                lines.Add(string.Format(
+                    "<mspace=0.62em>R{0:00}</mspace>  {1}   <color=#{2}>{3} · {4} laps</color>   {5}",
+                    row.round, row.trackName, muted, row.country, row.laps, status));
+            }
+
+            return lines;
         }
     }
 }

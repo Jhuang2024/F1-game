@@ -246,6 +246,23 @@ namespace LocalFormulaRacing
                         });
                     }
                 }
+
+                if (data != null && data.Calendar != null)
+                {
+                    for (int i = 0; i < data.Calendar.events.Count; i++)
+                    {
+                        CalendarEventData raceEvent = data.Calendar.events[i];
+                        model.calendar.Add(new CalendarRowModel
+                        {
+                            round = i + 1,
+                            trackName = raceEvent.displayName,
+                            country = raceEvent.country,
+                            laps = settings != null ? settings.Current.laps : raceEvent.laps5,
+                            isDone = i < career.Save.currentRound,
+                            isNext = i == career.Save.currentRound,
+                        });
+                    }
+                }
             }
 
             shell.Router.Show(CareerStandingsView.Id);

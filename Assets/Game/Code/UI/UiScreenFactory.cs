@@ -241,8 +241,10 @@ namespace F1Game.UI
                 theme.components.buttonHeightCompact);
             ThemedButton teamsTab = CreateButton(tabRowGo.transform, "Tab_Teams", ThemedButton.Variant.Secondary, "Teams",
                 theme.components.buttonHeightCompact);
+            ThemedButton calendarTab = CreateButton(tabRowGo.transform, "Tab_Calendar", ThemedButton.Variant.Secondary, "Calendar",
+                theme.components.buttonHeightCompact);
             var tabs = tabRowGo.AddComponent<TabBar>();
-            tabs.Bind(new List<ThemedButton> { driversTab, teamsTab });
+            tabs.Bind(new List<ThemedButton> { driversTab, teamsTab, calendarTab });
 
             RectTransform rowsColumn = CreateLayoutColumn(content, "StandingsRows", theme.spacing.micro);
             TMP_Text rowTemplate = CreateText(rowsColumn, "Row_Template", TextStyle.Body, "");
