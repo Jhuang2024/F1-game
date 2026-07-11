@@ -83,14 +83,19 @@ guarantees exactly one live HUD.
     onto the LocalHalfWidthAt seam helpers (identical values today; authored
     backend now covers width queries everywhere the race layer asks).
 
-Exact next task: authored track construction - make TrackRuntimeBuilder able
-to build the physical race world from a TrackDefinitionAsset for one circuit
-so TrackQueryProvider's authored backend can be selected coherently (world
-and query sharing one parameterization). This is the gating step for the
-rest of Phase C; requires careful review of TrackManager's build entry
-points (BuildTrack / world-object creation). After that: racing-line and
-sector consumers onto ITrackQuery, then career screens (save-slot info,
-driver profile) in the CareerHub pattern.
+18. `01d97c5` Aurora Park raceable: TrackManager builds the aurora-park
+    world from the authored TrackDefinitionAsset (centerline/width/DRS from
+    the definition, NormalizeTrackLength deliberately skipped for real-scale
+    authored geometry, downstream mesh/kerb/barrier/pit passes unchanged).
+    Quick-race card appended on the production track select with a
+    synthesized event. World+queries share one parameterization; first drive
+    needs the in-editor pass.
+
+Exact next task: honor authored per-point width in the legacy build
+(HalfWidthAt reading a per-point width table when the layout is authored -
+the seam helpers already route every consumer), then per-point camber in the
+road mesh. After that: career screens (save-slot info, driver profile) in
+the CareerHub pattern; then next authored circuit conversions.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
