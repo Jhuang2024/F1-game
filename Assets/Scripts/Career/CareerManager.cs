@@ -1403,7 +1403,7 @@ namespace LocalFormulaRacing
 
         public int GetReworkCost(ActiveUpgradeProject project)
         {
-            return Mathf.RoundToInt(project.cost * 0.4f);
+            return F1Game.Core.CarDevelopmentRules.ReworkCost(project.cost);
         }
 
         public ActiveUpgradeProject FindProject(string upgradeId)
@@ -1440,7 +1440,10 @@ namespace LocalFormulaRacing
                 extraLevels += Mathf.Max(0, Save.departmentLevels[i] - 1);
             }
 
-            return Mathf.Min(5, 2 + extraLevels / 2);
+            // The 2-base / +1-per-two-levels / cap-5 slot formula is the pure
+            // CarDevelopmentRules.EngineeringSlots; the department-levels sum stays
+            // here (it reads live save state).
+            return F1Game.Core.CarDevelopmentRules.EngineeringSlots(extraLevels);
         }
 
         public int GetDepartmentIndex(string category)

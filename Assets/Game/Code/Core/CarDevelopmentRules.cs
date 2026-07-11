@@ -92,6 +92,26 @@ namespace F1Game.Core
         }
 
         /// <summary>
+        /// Cost to re-attempt (rework) a project, extracted verbatim from
+        /// CareerManager.GetReworkCost: 40% of the project's original cost, rounded.
+        /// </summary>
+        public static int ReworkCost(int projectCost)
+        {
+            return Mathf.RoundToInt(projectCost * 0.4f);
+        }
+
+        /// <summary>
+        /// Concurrent engineering slots, extracted verbatim from
+        /// CareerManager.MaxActiveProjects: a base of 2, plus one per two facility
+        /// levels bought across the departments (the caller supplies that summed
+        /// count of levels above the first), capped at 5.
+        /// </summary>
+        public static int EngineeringSlots(int totalExtraFacilityLevels)
+        {
+            return Mathf.Min(5, 2 + totalExtraFacilityLevels / 2);
+        }
+
+        /// <summary>
         /// Applies one fitted upgrade's stat delta to a car stat: the raw delta
         /// times its per-stat scale, boosted when the project delivered an
         /// experimental breakthrough, rounded and added to the current value.

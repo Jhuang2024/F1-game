@@ -73,5 +73,28 @@ namespace F1Game.Tests
             // Same delta, +30% on an experimental breakthrough: 10 + round(8 * 1.3) = 20.
             Assert.AreEqual(20, CarDevelopmentRules.ApplyStatDelta(10, 4, 2f, true));
         }
+
+        [Test]
+        public void ReworkCostIs40PercentOfProjectCost()
+        {
+            Assert.AreEqual(400, CarDevelopmentRules.ReworkCost(1000));
+            Assert.AreEqual(0, CarDevelopmentRules.ReworkCost(0));
+            // Rounded: 250 * 0.4 = 100; 999 * 0.4 = 399.6 -> 400.
+            Assert.AreEqual(100, CarDevelopmentRules.ReworkCost(250));
+            Assert.AreEqual(400, CarDevelopmentRules.ReworkCost(999));
+        }
+
+        [Test]
+        public void EngineeringSlotsStartAtTwoAndCapAtFive()
+        {
+            // Base 2 slots with no extra facility levels.
+            Assert.AreEqual(2, CarDevelopmentRules.EngineeringSlots(0));
+            Assert.AreEqual(2, CarDevelopmentRules.EngineeringSlots(1));   // one level -> still 2
+            Assert.AreEqual(3, CarDevelopmentRules.EngineeringSlots(2));   // every two levels -> +1
+            Assert.AreEqual(4, CarDevelopmentRules.EngineeringSlots(4));
+            Assert.AreEqual(5, CarDevelopmentRules.EngineeringSlots(6));
+            // Capped at 5 no matter how many levels are bought.
+            Assert.AreEqual(5, CarDevelopmentRules.EngineeringSlots(20));
+        }
     }
 }

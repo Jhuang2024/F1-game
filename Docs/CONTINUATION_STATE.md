@@ -1248,6 +1248,18 @@ deferred, not claimed complete.
     incident detection) whose behaviour cannot be verified without Unity. Those are
     recorded as needing an in-editor run; the ownership stays with RaceManager and
     the live path is authoritative.
+    E12. Career finance/slot maths -> CarDevelopmentRules (non-feel-sensitive, safe).
+        Two pure career-progression formulas still inline in CareerManager:
+        GetReworkCost (40% of a project's cost, rounded) and the MaxActiveProjects
+        slot formula (base 2, +1 per two facility levels, cap 5). Extracted verbatim
+        into CarDevelopmentRules.ReworkCost(projectCost) and
+        EngineeringSlots(totalExtraFacilityLevels) - the established R&D-rules home
+        (F1Game.Core, which permits Mathf, so RoundToInt/Min match exactly). The
+        department-levels sum (live save read) stays in CareerManager; the public
+        GetReworkCost/MaxActiveProjects APIs are unchanged so RuntimeUi resolves.
+        Menu/progression numbers, not feel-sensitive physics, so extraction is safe.
+        CarDevelopmentRulesTests extended (rework 40% + rounding, slot base/step/cap).
+        Unity/runtime validation PENDING (compile only).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
