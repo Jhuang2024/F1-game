@@ -6114,7 +6114,7 @@ namespace LocalFormulaRacing
 
         public void OpenPlayerPitTyreSelector(RaceParticipant participant)
         {
-            if (participant == null || !participant.isPlayer || CurrentSession == RaceWeekendSession.Qualifying || participant.vehicle == null || participant.isPitting)
+            if (participant == null || !participant.isPlayer || IsTimeTrial || CurrentSession == RaceWeekendSession.Qualifying || participant.vehicle == null || participant.isPitting)
             {
                 return;
             }
@@ -6591,6 +6591,14 @@ namespace LocalFormulaRacing
             if (!CanDrive || Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain)
             {
                 return false;
+            }
+
+            // Time trial: DRS is a free lap-time tool available anywhere on the lap,
+            // not gated to detection zones or a car ahead. (The dry/countdown checks
+            // above still apply; there is no safety car or yellow in a time trial.)
+            if (IsTimeTrial)
+            {
+                return true;
             }
 
             // DRS is off under any safety-car period and for a short cooldown after
@@ -8127,6 +8135,14 @@ namespace LocalFormulaRacing
             TyreCompound startCompound = StartingTyreForParticipant(player);
             participant.startingCompound = startCompound;
             controller.Initialize(car, Track, startCompound, Settings.Current.manualGears && player, Settings.Current, player);
+            if (IsTimeTrial)
+            {
+                // Time trial: warm the tyres to their optimal window and switch off
+                // contact damage, so a flying lap has full grip immediately and can
+                // never be ended by a scrape.
+                controller.PreheatTyres();
+                controller.SetDamageEnabled(false);
+            }
 
             // Fuel system pass: session-specific start fuel instead of the old flat
             // 35kg for every session (see VehicleController.SetStartFuel). Player
@@ -9686,6 +9702,13 @@ namespace LocalFormulaRacing
         {
             if (player)
             {
+                // Time trial is a pure lap-time exercise: always start the player on
+                // the fastest slick, whatever compound was last selected elsewhere.
+                if (IsTimeTrial)
+                {
+                    return TyreCompound.Soft;
+                }
+
                 return Settings.SelectedTyreCompound;
             }
 

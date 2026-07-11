@@ -148,6 +148,7 @@ namespace LocalFormulaRacing
         Vector3 gridHoldPosition;
         Quaternion gridHoldRotation;
         float scrapeDamageCooldown;
+        bool damageEnabled = true;
         float stuckPowerDebugTimer;
         float smoothedThrottle;
         float smoothedBrake;
@@ -271,6 +272,23 @@ namespace LocalFormulaRacing
         public void SetFuelBurnDisabled(bool disabled)
         {
             fuelBurnDisabled = disabled;
+        }
+
+        // Time trial: bring the tyres straight up to their optimal window so the
+        // single flying lap has full grip from the first corner.
+        public void PreheatTyres()
+        {
+            if (Tyres != null)
+            {
+                Tyres.WarmToOptimal();
+            }
+        }
+
+        // Time trial: collision/contact damage is turned off entirely so a lap
+        // attempt is never ended by a scrape. Defaults on for races/qualifying.
+        public void SetDamageEnabled(bool enabled)
+        {
+            damageEnabled = enabled;
         }
 
         // Fuel system pass: RaceManager calls this once per tick (player and every
@@ -1587,7 +1605,7 @@ namespace LocalFormulaRacing
 
         void ProcessDamageCollision(Collision collision, bool sustained)
         {
-            if (!initialized || Damage == null || IsHeldOnGrid || IsHeldInPit || collision.contactCount == 0 || collision.collider == null)
+            if (!initialized || !damageEnabled || Damage == null || IsHeldOnGrid || IsHeldInPit || collision.contactCount == 0 || collision.collider == null)
             {
                 return;
             }

@@ -978,6 +978,12 @@ namespace LocalFormulaRacing
             // meter - see UpdatePitCard/PitPhasePillState and the button
             // built at the bottom of this method.
             RectTransform card = UiFactory.CreateHudCard(rightStack, "Pit", RightStackWidth, 222f, UiFactory.AccentAmber);
+            // Time trial has no pit stops, mandatory stop, or strategy - hide the
+            // whole pit card so the right stack shows only what's relevant to a lap.
+            if (race != null && race.IsTimeTrial)
+            {
+                card.gameObject.SetActive(false);
+            }
 
             pitPhasePill = UiFactory.CreatePill(card, "Pit Phase", 210f, 26f);
             pitPhasePill.root.anchorMin = new Vector2(0f, 1f);

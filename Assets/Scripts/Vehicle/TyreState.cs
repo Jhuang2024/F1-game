@@ -170,6 +170,16 @@ namespace LocalFormulaRacing
             RecentLockupWear = 0f;
         }
 
+        // Sets the tyre straight to the centre of its optimal temperature window,
+        // as if it came off warmers ready to perform. Used for time trials, where a
+        // single flying lap never generates enough heat to reach the window from the
+        // cold starting temperature (Soft starts at 78C but its window is 82-105C),
+        // so grip felt permanently low. Full grip from the first corner.
+        public void WarmToOptimal()
+        {
+            Temperature = (targetMin + targetMax) * 0.5f;
+        }
+
         public void Tick(float speedKph, float brake, float steer, float throttle, float slipEnergy, WeatherState weather, int tyreManagement, float deltaTime)
         {
             float speedHeat = speedKph / 310f;
