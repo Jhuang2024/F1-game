@@ -163,16 +163,25 @@ several sessions), not a thin v1 swap.
 31. `bc60d92` HUD tranche 4: SessionLabelModule (kind + event name), ERS
     meter dims under race-control lockout. Checklist updated.
 
-32. `1e0d9f9`-range HUD tranche 5 (partial): SessionMessageModule live.
+32. HUD tranche 5: SessionMessageModule live.
+33. `52b96d8` HUD tranche 6: interactive Cancel Pit Request button. NEW
+    UI->race channel HudCommands (F1Game.Core, mirror of HudTelemetry);
+    RaceEventRelay.Attach registers CancelPitRequest, OnDestroy clears it;
+    snapshot CanCancelPit gates visibility. Tier 1 closed.
+34. `8b47cbe` HUD tranche 7: tyre temp/lockup status + pedal input bars.
 
-Exact next task: HUD parity tranche 6 - Tier 1 cancel-pit button
-(interactive: check how the HUD canvas routes ThemedButton clicks during a
-live session - UiShell has an EventSystem; add cancel-eligibility to the
-snapshot via PitRequestRules.CanCancel context, call
-race.CancelManualPitRequest through ProductionSessionUi); Tier 4 remaining
-(tyre temp/lockup detail, input bars, track-limit flash). Then
-results-screen parity pass; then Phase E service extraction seams
-(RaceSessionController / LapTimingService).
+HUD parity progress (Docs/HUD_PARITY_GAP.md): Tier 1 done; Tier 2 mostly
+(slipstream pill + pit-status line remain); Tier 3 done (SLOW-DOWN warning
+minor); Tier 4 mostly (per-corner 2x2 grid + track-limit flash remain);
+Tiers 5-8 open (minimap = heaviest, needs per-car position stream).
+
+Exact next task: HUD tranche 8 - Tier 7 quali/ghost delta card (snapshot
+already carries unused DeltaSeconds/HasDelta; wire race.QualifyingDeltaText/
+GhostDeltaText source into a QualiDeltaModule) + Tier 2 slipstream/TOW pill
+(vehicle SlipstreamStrength/BonusKph/SourceCode). Then Tier 5 tower DRS
+dots + PIT tag. Minimap deferred (per-car position stream is the heaviest
+new plumbing - needs an in-editor-verifiable channel). Then results-screen
+parity pass; then Phase E service extraction seams.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
