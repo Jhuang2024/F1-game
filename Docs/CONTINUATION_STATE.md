@@ -227,16 +227,23 @@ RaceClassifier, PenaltyRules, PitRequestRules, PitServiceRules,
 AiPitStrategyRules, SessionFlow, FlagRules, StartProcedureRules, FuelStrategy,
 PitPlanRules - all with EditMode tests and live consumers.
 
-Exact next task (tractable static-only work, safe to continue): continue
-behavior-identical extractions of PURE inline maths into F1Game.Race.Rules
-with tests + live delegation (candidates: ERS deploy-budget-per-lap,
-tyre-temp window band, pit-loss/undercut-gap projection). Do NOT add new
-gameplay rules (not-classified, countback, fastest-lap point) or swap live
-handling math - those change results/handling and need an in-editor +
-user-validation pass per the engineering rule. Larger directive items
-(results-screen replacement, Phase E RaceManager service extraction, physics
-handling swaps, full career/settings/accessibility/localization depth) remain
-in-editor-validation-bound. Multiplayer (Phase N) DEFERRED, out of scope.
+46. `1382e91` PRODUCTION RESULTS SCREEN live with legacy fallback:
+    ResultsView/Presenter (full classification, player highlight, actions
+    reuse the legacy bootstrap hooks); ProductionUiBridge.TryShowResults maps
+    RaceResultEntry (gap/DNF/penalty mirror the legacy table);
+    RaceManager's two race-result sites try production first, fall back to
+    BeginResults+ui.ShowResults(legacy). Registered in UiShell. Qualifying
+    results still legacy.
+
+Exact next task: continue the session-end frontend migration - qualifying
+results (ShowQualifyingResults site, QualifyingResultEntry -> a reuse of the
+Results screen or a variant) behind the same TryShow/legacy-fallback pattern;
+then the pause menu to the production shell. Larger directive items (Phase E
+RaceManager service extraction, physics handling swaps) proceed via
+compatibility paths + feature switches + incremental delegation - preserve
+the existing path until the replacement is structurally wired, then switch
+ownership. In-editor VISUAL validation still required for every migrated
+screen. Multiplayer (Phase N) DEFERRED, out of scope.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
