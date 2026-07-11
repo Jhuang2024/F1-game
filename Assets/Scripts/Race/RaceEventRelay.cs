@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using F1Game.Core.Events;
 using UnityEngine;
 
@@ -127,6 +128,7 @@ namespace LocalFormulaRacing
             if (player == null || player.vehicle == null)
             {
                 F1Game.Core.HudTelemetry.Clear();
+                F1Game.Core.HudRaceOrder.Clear();
                 return;
             }
 
@@ -185,6 +187,58 @@ namespace LocalFormulaRacing
             };
 
             F1Game.Core.HudTelemetry.Publish(snapshot);
+
+            raceOrderRefreshTimer -= Time.deltaTime;
+            if (raceOrderRefreshTimer <= 0f)
+            {
+                raceOrderRefreshTimer = 0.5f;
+                PublishRaceOrder();
+            }
+        }
+
+        float raceOrderRefreshTimer;
+
+        // Static HUD snapshots must not outlive the session that produced them
+        // - a destroyed relay means no more publishes, so a stale "valid"
+        // snapshot would freeze the production HUD on old data.
+        void OnDestroy()
+        {
+            F1Game.Core.HudTelemetry.Clear();
+            F1Game.Core.HudRaceOrder.Clear();
+        }
+
+        // Running-order snapshot for the production timing tower: the sorted
+        // order the race already maintains, reduced to display rows in a fixed
+        // buffer (no allocation beyond the code strings Unity interns anyway).
+        void PublishRaceOrder()
+        {
+            if (race.State == null || race.State.SortedOrder == null)
+            {
+                F1Game.Core.HudRaceOrder.Clear();
+                return;
+            }
+
+            List<RaceParticipant> order = race.State.SortedOrder;
+            RaceParticipant leader = order.Count > 0 ? order[0] : null;
+            int count = Mathf.Min(order.Count, F1Game.Core.HudRaceOrder.MaxEntries);
+            for (int i = 0; i < count; i++)
+            {
+                RaceParticipant p = order[i];
+                string code = p == null ? "---"
+                    : (p.driverData != null && !string.IsNullOrEmpty(p.driverData.abbreviation) ? p.driverData.abbreviation
+                    : (string.IsNullOrEmpty(p.driverName) ? "---" : p.driverName));
+                F1Game.Core.HudRaceOrder.Entries[i] = new F1Game.Core.HudRaceOrderEntry
+                {
+                    Position = i + 1,
+                    Code = code,
+                    GapToLeaderSeconds = p == null || p == leader ? 0f : Mathf.Max(0f, race.GetGapBetweenSeconds(leader, p)),
+                    IsPlayer = p != null && p.isPlayer,
+                    InPit = p != null && (p.isPitting || p.pitPhase != PitPhase.None),
+                    Retired = p != null && p.retired,
+                };
+            }
+
+            F1Game.Core.HudRaceOrder.Count = count;
         }
 
         FlagState MapFlag()

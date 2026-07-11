@@ -236,6 +236,110 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
+    /// <summary>
+    /// Timing tower: the top of the running order plus the player's own row
+    /// when outside it, refreshed at the cadence the race layer publishes
+    /// (HudRaceOrder) rather than per frame.
+    /// </summary>
+    public sealed class TimingTowerModule : MonoBehaviour
+    {
+        const int VisibleRows = 10;
+
+        [SerializeField] TMP_Text body;
+        readonly System.Text.StringBuilder sb = new System.Text.StringBuilder(512);
+        float refreshTimer;
+
+        public void Bind(TMP_Text bodyText) { body = bodyText; }
+
+        void Update()
+        {
+            refreshTimer -= UnityEngine.Time.deltaTime;
+            if (refreshTimer > 0f)
+            {
+                return;
+            }
+
+            refreshTimer = 0.25f;
+            Render();
+        }
+
+        void Render()
+        {
+            if (body == null)
+            {
+                return;
+            }
+
+            int count = HudRaceOrder.Count;
+            if (count == 0)
+            {
+                if (body.gameObject.activeSelf)
+                {
+                    body.gameObject.SetActive(false);
+                }
+
+                return;
+            }
+
+            if (!body.gameObject.activeSelf)
+            {
+                body.gameObject.SetActive(true);
+            }
+
+            string accent = ColorUtility.ToHtmlStringRGB(UiTheme.Active.palette.accent);
+            string muted = ColorUtility.ToHtmlStringRGB(UiTheme.Active.palette.textMuted);
+            sb.Length = 0;
+            int shown = count < VisibleRows ? count : VisibleRows;
+            for (int i = 0; i < shown; i++)
+            {
+                AppendRow(HudRaceOrder.Entries[i], accent, muted);
+            }
+
+            // Player outside the visible window: append their row after a gap
+            // marker so the tower always answers "where am I".
+            for (int i = shown; i < count; i++)
+            {
+                if (HudRaceOrder.Entries[i].IsPlayer)
+                {
+                    sb.Append("<color=#").Append(muted).Append(">…</color>\n");
+                    AppendRow(HudRaceOrder.Entries[i], accent, muted);
+                    break;
+                }
+            }
+
+            body.text = sb.ToString();
+        }
+
+        void AppendRow(in HudRaceOrderEntry e, string accent, string muted)
+        {
+            if (e.IsPlayer)
+            {
+                sb.Append("<color=#").Append(accent).Append(">");
+            }
+
+            sb.Append("P").Append(e.Position.ToString("00")).Append(' ').Append(e.Code);
+            if (e.Retired)
+            {
+                sb.Append("  <color=#").Append(muted).Append(">OUT</color>");
+            }
+            else if (e.InPit)
+            {
+                sb.Append("  <color=#").Append(muted).Append(">PIT</color>");
+            }
+            else if (e.Position > 1)
+            {
+                sb.Append("  +").Append(e.GapToLeaderSeconds.ToString("0.0"));
+            }
+
+            if (e.IsPlayer)
+            {
+                sb.Append("</color>");
+            }
+
+            sb.Append('\n');
+        }
+    }
+
     /// <summary>The five start lights, drawn as filled/hollow dots during the sequence.</summary>
     public sealed class StartLightsModule : HudModule
     {

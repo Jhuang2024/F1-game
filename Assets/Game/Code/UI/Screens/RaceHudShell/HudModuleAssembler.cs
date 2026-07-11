@@ -61,6 +61,14 @@ namespace F1Game.UI.Screens.RaceHudShell
             // outside the build-up sequence.
             var lightsText = Text(hud.TimingTowerDock, "StartLights", 34f, TextAlignmentOptions.Center);
             hud.gameObject.AddComponent<StartLightsModule>().Bind(lightsText);
+
+            // Timing tower body: one multi-line tabular text, refreshed at the
+            // publish cadence rather than per frame.
+            var towerText = Numeric(hud.TimingTowerDock, "TimingTower", 17f);
+            towerText.alignment = TextAlignmentOptions.TopLeft;
+            // Multi-line body: the shared Text() helper sizes for one line.
+            towerText.GetComponent<LayoutElement>().preferredHeight = 260f;
+            hud.gameObject.AddComponent<TimingTowerModule>().Bind(towerText);
         }
 
         static TMP_Text Text(Transform parent, string name, float size, TextAlignmentOptions align)

@@ -69,4 +69,32 @@ namespace F1Game.Core
             Current = default;
         }
     }
+
+    /// <summary>One row of the running order, as the timing tower renders it.</summary>
+    public struct HudRaceOrderEntry
+    {
+        public int Position;
+        public string Code;
+        public float GapToLeaderSeconds;
+        public bool IsPlayer;
+        public bool InPit;
+        public bool Retired;
+    }
+
+    /// <summary>
+    /// Low-cadence running-order snapshot for the timing tower. Published by
+    /// the race layer a few times a second into a fixed buffer (no per-frame
+    /// allocation on either side).
+    /// </summary>
+    public static class HudRaceOrder
+    {
+        public const int MaxEntries = 32;
+        public static readonly HudRaceOrderEntry[] Entries = new HudRaceOrderEntry[MaxEntries];
+        public static int Count;
+
+        public static void Clear()
+        {
+            Count = 0;
+        }
+    }
 }
