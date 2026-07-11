@@ -1096,31 +1096,41 @@ namespace LocalFormulaRacing
             // lap. Cut to 0.5x so they sit much closer to the optimal line while
             // still not being robotically perfect.
             float wobble = (Mathf.PerlinNoise(noiseSeed, Time.time * 0.5f) * 2f - 1f) * profile.lineOffsetNoise * 0.5f;
-            float lineBias = 0f;
-            // Reverted to the reactive heuristic line (per request - "revert back
-            // to your slightly less aggressive line"). The precomputed
-            // pin-to-corridor construction clipped apexes cleanly but proved
-            // repeatedly fragile against this game's real barrier geometry (wall
-            // contact, jagged kinks, pile-ups) despite several rounds of corridor
-            // and smoothing fixes. This version drives off the SAME
-            // already-safe LegalOffsetLimit corridor every frame (no separate
-            // precomputed pin data to fall out of sync with the corridor-safety
-            // fixes), with the magnitude gated by curvature at/just ahead of the
-            // car (severityHere - zero on a straight, so no early wandering) and
-            // the side a continuous function of how close the sharpest upcoming
-            // point is (apexDistanceAhead): outside on approach, sweeping to the
-            // inside at the apex, back outside on exit. No boolean flip (that was
-            // the original swerve cause), so it stays smooth without needing the
-            // precomputed line's separate multi-pass smoothing/knot machinery.
-            if (severityHere > 0.05f)
+            // Follow the SAME racing line that is drawn on the ground. The visible
+            // ribbon is TrackRuntime.racingLineOffsets (an out-in-out, min-curvature
+            // line already clamped to the wall-safe corridor); sampling
+            // RacingLineOffsetAt at the lookahead distance - the exact distance
+            // targetPoint itself was sampled at above - makes the AI aim at the drawn
+            // line instead of a separate reactive heuristic that never matched it
+            // (which is why the line on the ground and the cars' actual path
+            // disagreed). Per-driver imperfection (wobble) and tactical offsets
+            // (aggressionOffset/mistakeSteer) still layer on top below, plus a small
+            // per-driver apex-miss term here, so the field isn't robotically identical
+            // and cars don't drive one behind another on a single string. Earlier
+            // fragility with the precomputed line came from the cars carrying far too
+            // much speed into corners (the apex-speed floors had been inflated so the
+            // AI never braked - now fixed) rather than from the line itself.
+            // The reactive heuristic is kept only as a fallback for layouts with no
+            // precomputed line (e.g. tiny test tracks), so behaviour is always defined.
+            float lineBias;
+            float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
+            if (track != null && track.racingLineOffsets != null && track.racingLineOffsets.Length > 1)
+            {
+                lineBias = track.RacingLineOffsetAt(progress.distance + lookAhead)
+                           + (severityHere > 0.05f ? apexMissNoise : 0f);
+            }
+            else if (severityHere > 0.05f)
             {
                 float biasMagnitude = Mathf.Lerp(legalLimit * 0.6f, legalLimit, severityHere);
                 float apexProximity = Mathf.Clamp01(1f - apexDistanceAhead / 50f);
                 float lineShape = apexProximity * 2f - 1f;
-                float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
                 float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 9f);
                 float shapedSide = lineShape > 0f ? lineShape * apexPrecision : lineShape;
                 lineBias = turnSign * biasMagnitude * shapedSide + (lineShape > 0f ? apexMissNoise : 0f);
+            }
+            else
+            {
+                lineBias = 0f;
             }
 
             float lineSlewRate = Mathf.Lerp(4.5f, 9.5f, Mathf.Clamp01(speedKph / 300f));
