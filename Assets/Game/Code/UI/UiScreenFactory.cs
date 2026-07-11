@@ -405,10 +405,57 @@ namespace F1Game.UI
             ThemedButton back = CreateButton(buttonRowGo.transform, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
                 theme.components.buttonHeightCompact);
 
+            // Full production settings editor (populated only when the editor switch
+            // is on - see ProductionUiBridge). A labelled section of pooled interactive
+            // rows built from a hidden template; the whole section hides when empty.
+            RectTransform editorSection = CreateLayoutColumn(content, "SettingsEditorSection", theme.spacing.micro);
+            CreateText(editorSection, "FullEditorLabel", TextStyle.Label, "FULL SETTINGS EDITOR");
+            RectTransform editorColumn = CreateLayoutColumn(editorSection, "SettingsEditorRows", theme.spacing.micro);
+            EditableSettingRow editorTemplate = BuildEditableSettingRowTemplate(editorColumn, theme);
+
             var view = content.parent.gameObject.AddComponent<Screens.Settings.SettingsView>();
             view.Bind(header, rowsColumn, rowTemplate, difficultyButton, ersButton, manualGearsButton,
                 unitsButton, cameraShakeButton, compactHudButton, uiAnimationsButton, classic, back);
+            view.BindEditor(editorSection.gameObject, editorColumn, editorTemplate);
             return view;
+        }
+
+        // Hidden template for one interactive settings-editor row: [ label ....... value  <  > ].
+        static EditableSettingRow BuildEditableSettingRowTemplate(Transform parent, UiTheme theme)
+        {
+            var rowGo = new GameObject("EditorRow_Template", typeof(RectTransform));
+            rowGo.transform.SetParent(parent, false);
+            var layout = rowGo.AddComponent<HorizontalLayoutGroup>();
+            layout.spacing = theme.spacing.small;
+            layout.childForceExpandWidth = false;
+            layout.childForceExpandHeight = false;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childAlignment = TextAnchor.MiddleLeft;
+            rowGo.AddComponent<LayoutElement>().preferredHeight = theme.components.buttonHeightCompact;
+
+            TMP_Text label = CreateText(rowGo.transform, "Label", TextStyle.Body, "");
+            var labelLayout = label.gameObject.AddComponent<LayoutElement>();
+            labelLayout.flexibleWidth = 1f;
+
+            TMP_Text value = CreateText(rowGo.transform, "Value", TextStyle.Numeric, "");
+            value.alignment = TextAlignmentOptions.Right;
+            var valueLayout = value.gameObject.AddComponent<LayoutElement>();
+            valueLayout.preferredWidth = 140f;
+            valueLayout.flexibleWidth = 0f;
+
+            // CreateButton already attaches a LayoutElement (height); reuse it for width.
+            ThemedButton decrement = CreateButton(rowGo.transform, "Btn_Dec", ThemedButton.Variant.Secondary, "<",
+                theme.components.buttonHeightCompact);
+            decrement.GetComponent<LayoutElement>().preferredWidth = theme.components.buttonHeightCompact * 1.4f;
+            ThemedButton increment = CreateButton(rowGo.transform, "Btn_Inc", ThemedButton.Variant.Secondary, ">",
+                theme.components.buttonHeightCompact);
+            increment.GetComponent<LayoutElement>().preferredWidth = theme.components.buttonHeightCompact * 1.4f;
+
+            var row = rowGo.AddComponent<EditableSettingRow>();
+            row.Bind(label, value, decrement, increment);
+            rowGo.SetActive(false);
+            return row;
         }
 
         public static Screens.CareerStandings.CareerStandingsView BuildCareerStandings(Transform root)

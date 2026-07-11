@@ -92,6 +92,22 @@ namespace F1Game.UI.Screens
         public bool isHeading;  // true = category divider row, value ignored
     }
 
+    /// <summary>
+    /// One interactive row of the full production settings editor: a stable id the
+    /// bridge switches on, a display label + current value, and whether the
+    /// decrement/increment controls apply (numeric fields at a bound disable the
+    /// control that would overshoot; cycles/toggles leave both on).
+    /// </summary>
+    [Serializable]
+    public class SettingsFieldModel
+    {
+        public string id;
+        public string label;
+        public string value;
+        public bool canDecrement = true;
+        public bool canIncrement = true;
+    }
+
     [Serializable]
     public class SettingsModel
     {
@@ -105,6 +121,10 @@ namespace F1Game.UI.Screens
         public string cameraShakeToggleLabel = "";
         public string compactHudToggleLabel = "";
         public string uiAnimationsToggleLabel = "";
+        // Full production editor: interactive rows for every setting. Populated only
+        // when the production-settings-editor switch is on (otherwise empty and the
+        // legacy "Classic Settings" path stays the editor).
+        public List<SettingsFieldModel> fields = new List<SettingsFieldModel>();
     }
 
     [Serializable]

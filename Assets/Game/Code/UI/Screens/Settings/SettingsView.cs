@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using F1Game.UI.Navigation;
 using F1Game.UI.Theme;
@@ -31,8 +32,15 @@ namespace F1Game.UI.Screens.Settings
         [SerializeField] ThemedButton uiAnimationsButton;
         [SerializeField] ThemedButton classicButton;
         [SerializeField] ThemedButton backButton;
+        [SerializeField] GameObject editorSection;
+        [SerializeField] RectTransform editorContainer;
+        [SerializeField] EditableSettingRow editorRowTemplate;
 
         readonly List<TMP_Text> rows = new List<TMP_Text>();
+        readonly List<EditableSettingRow> editorRows = new List<EditableSettingRow>();
+
+        /// <summary>Raised when a production-editor field control is pressed: (field id, -1/+1).</summary>
+        public event Action<string, int> FieldAdjusted;
 
         public ThemedButton DifficultyButton => difficultyButton;
         public ThemedButton ErsButton => ersButton;
@@ -64,6 +72,24 @@ namespace F1Game.UI.Screens.Settings
             rowTemplate.gameObject.SetActive(false);
             SetScreenId(Id);
             SetDefaultSelection(back != null ? back.gameObject : null);
+        }
+
+        /// <summary>Bind the full-editor section root, its row container and the poolable row template.</summary>
+        public void BindEditor(GameObject section, RectTransform container, EditableSettingRow rowTemplate)
+        {
+            editorSection = section;
+            editorContainer = container;
+            editorRowTemplate = rowTemplate;
+            if (editorRowTemplate != null)
+            {
+                editorRowTemplate.gameObject.SetActive(false);
+            }
+
+            // Hidden until fields are supplied (editor switch off = no empty section).
+            if (editorSection != null)
+            {
+                editorSection.SetActive(false);
+            }
         }
 
         /// <summary>Labels for the inline gameplay quick-setting buttons.</summary>
@@ -119,6 +145,50 @@ namespace F1Game.UI.Screens.Settings
             {
                 TMP_Text row = Instantiate(rowTemplate, rowContainer);
                 rows.Add(row);
+            }
+        }
+
+        /// <summary>
+        /// Render the full production-editor field rows (pooled from the template).
+        /// An empty list hides the whole editor block, so with the editor switch off
+        /// the screen shows only the summary + quick toggles + Classic Settings.
+        /// </summary>
+        public void RenderFields(IReadOnlyList<SettingsFieldModel> fields)
+        {
+            if (editorContainer == null || editorRowTemplate == null)
+            {
+                return;
+            }
+
+            int count = fields != null ? fields.Count : 0;
+            if (editorSection != null)
+            {
+                editorSection.SetActive(count > 0);
+            }
+
+            EnsureEditorRowCount(count);
+            for (int i = 0; i < count; i++)
+            {
+                SettingsFieldModel f = fields[i];
+                EditableSettingRow row = editorRows[i];
+                row.gameObject.SetActive(true);
+                row.Set(f.id, f.label, f.value, f.canDecrement, f.canIncrement);
+            }
+
+            for (int i = count; i < editorRows.Count; i++)
+            {
+                editorRows[i].gameObject.SetActive(false);
+            }
+        }
+
+        void EnsureEditorRowCount(int count)
+        {
+            while (editorRows.Count < count)
+            {
+                EditableSettingRow row = Instantiate(editorRowTemplate, editorContainer);
+                // Every pooled row forwards its adjust to the view-level event once.
+                row.Adjusted += (id, dir) => FieldAdjusted?.Invoke(id, dir);
+                editorRows.Add(row);
             }
         }
     }

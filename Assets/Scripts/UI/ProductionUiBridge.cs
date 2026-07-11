@@ -229,6 +229,8 @@ namespace LocalFormulaRacing
                 OnToggleCameraShake = () => ToggleSetting(s => s.cameraShake = !s.cameraShake),
                 OnToggleCompactHud = () => ToggleSetting(s => s.compactHud = !s.compactHud),
                 OnToggleUiAnimations = () => ToggleSetting(s => s.uiAnimations = !s.uiAnimations),
+                // Full production editor: adjust any setting by id + direction.
+                OnFieldAdjusted = AdjustSettingField,
             };
 
             var resultsView = (ResultsView)ShowAndGet(ResultsView.Id);
@@ -841,8 +843,132 @@ namespace LocalFormulaRacing
             model.compactHudToggleLabel = "Compact HUD: " + OnOff(s.compactHud);
             model.uiAnimationsToggleLabel = "UI Animations: " + OnOff(s.uiAnimations);
 
+            // Full production editor rows (only when the editor switch is on; otherwise
+            // the summary + quick toggles + Classic Settings remain the editing path).
+            if (ProductionSettingsEditorEnabled)
+            {
+                BuildEditorFields(model, s);
+            }
+
             return model;
         }
+
+        /// <summary>Default-off switch for the complete inline production settings editor.</summary>
+        public const string ProductionSettingsEditorKey = "f1game_production_settings_editor";
+
+        public static bool ProductionSettingsEditorEnabled => PlayerPrefs.GetInt(ProductionSettingsEditorKey, 0) == 1;
+
+        static readonly string[] CompoundNames = { "Soft", "Medium", "Hard", "Intermediate", "Wet" };
+
+        // Every editable setting as an interactive field: id, label, value, and whether
+        // each adjust control applies. Ids are matched in AdjustSettingField.
+        static void BuildEditorFields(SettingsModel model, GameSettingsData s)
+        {
+            Numeric(model, "laps", "Race Laps", s.laps.ToString(), s.laps, 3, 99);
+            Cycle(model, "difficulty", "Difficulty", Pick(DifficultyNames, s.difficultyIndex));
+            Cycle(model, "tyre", "Default Tyre", string.IsNullOrEmpty(s.tyreCompound) ? "Medium" : s.tyreCompound);
+            Cycle(model, "ers", "ERS Strategy", Pick(ErsModeNames, s.ersMode));
+
+            Toggle(model, "manualGears", "Manual Gears", OnOff(s.manualGears));
+            Toggle(model, "abs", "ABS", OnOff(s.absAssist));
+            Toggle(model, "tc", "Traction Control", OnOff(s.tractionControl));
+            Toggle(model, "racingLine", "Racing Line", OnOff(s.racingLineAssist));
+            Toggle(model, "autoBrake", "Auto Brake Assist", OnOff(s.autoBrakeAssist));
+            NumericF(model, "steering", "Steering Sensitivity", Multiplier(s.steeringSensitivity), s.steeringSensitivity, 0.45f, 1.65f);
+
+            Toggle(model, "sfx", "Sound Effects", OnOff(s.audioEnabled));
+            NumericF(model, "master", "Master Volume", Percent(s.masterVolume), s.masterVolume, 0f, 1f);
+            NumericF(model, "engine", "Engine Volume", Percent(s.engineVolume), s.engineVolume, 0f, 1f);
+            NumericF(model, "radio", "Radio Volume", Percent(s.radioVolume), s.radioVolume, 0f, 1f);
+
+            NumericF(model, "hudScale", "HUD Scale", Multiplier(s.hudScale), s.hudScale, 0.75f, 1.3f);
+            Toggle(model, "compactHud", "Compact HUD", OnOff(s.compactHud));
+            Toggle(model, "uiAnimations", "UI Animations", OnOff(s.uiAnimations));
+            Toggle(model, "cameraShake", "Camera Shake", OnOff(s.cameraShake));
+            Toggle(model, "units", "Speed Units", s.useMphUnits ? "MPH" : "KPH");
+            Cycle(model, "graphics", "Graphics Quality", GraphicsQualityName(s.graphicsQuality));
+            Cycle(model, "colorBlind", "Colour-Vision Mode", Pick(ColorBlindNames, s.colorBlindMode));
+        }
+
+        static void Field(SettingsModel model, string id, string label, string value, bool canDec, bool canInc)
+        {
+            string key = "settings.row." + label.ToLowerInvariant().Replace(" ", "_");
+            model.fields.Add(new SettingsFieldModel
+            {
+                id = id,
+                label = F1Game.Core.Localization.Get(key, label),
+                value = value,
+                canDecrement = canDec,
+                canIncrement = canInc,
+            });
+        }
+
+        // Toggles and cycles: both controls always apply (flip / wrap).
+        static void Toggle(SettingsModel model, string id, string label, string value) =>
+            Field(model, id, label, value, true, true);
+
+        static void Cycle(SettingsModel model, string id, string label, string value) =>
+            Field(model, id, label, value, true, true);
+
+        // Integer stepper: a control disables at its bound.
+        static void Numeric(SettingsModel model, string id, string label, string value, int current, int min, int max) =>
+            Field(model, id, label, value, current > min, current < max);
+
+        // Float stepper: a control disables within an epsilon of its bound.
+        static void NumericF(SettingsModel model, string id, string label, string value, float current, float min, float max) =>
+            Field(model, id, label, value, current > min + 1e-4f, current < max - 1e-4f);
+
+        // Apply an editor adjustment: mutate the matching setting by the direction,
+        // then persist + re-present via ToggleSetting (the single settings-write path).
+        static void AdjustSettingField(string id, int direction)
+        {
+            ToggleSetting(s =>
+            {
+                switch (id)
+                {
+                    case "laps": s.laps = ClampInt(s.laps + direction, 3, 99); break;
+                    case "difficulty": s.difficultyIndex = Wrap(s.difficultyIndex + direction, DifficultyNames.Length); break;
+                    case "tyre": s.tyreCompound = CompoundNames[Wrap(CompoundIndex(s.tyreCompound) + direction, CompoundNames.Length)]; break;
+                    case "ers": s.ersMode = Wrap(s.ersMode + direction, ErsModeNames.Length); break;
+                    case "manualGears": s.manualGears = !s.manualGears; break;
+                    case "abs": s.absAssist = !s.absAssist; break;
+                    case "tc": s.tractionControl = !s.tractionControl; break;
+                    case "racingLine": s.racingLineAssist = !s.racingLineAssist; break;
+                    case "autoBrake": s.autoBrakeAssist = !s.autoBrakeAssist; break;
+                    case "steering": s.steeringSensitivity = ClampFloat(s.steeringSensitivity + direction * 0.05f, 0.45f, 1.65f); break;
+                    case "sfx": s.audioEnabled = !s.audioEnabled; break;
+                    case "master": s.masterVolume = ClampFloat(s.masterVolume + direction * 0.05f, 0f, 1f); break;
+                    case "engine": s.engineVolume = ClampFloat(s.engineVolume + direction * 0.05f, 0f, 1f); break;
+                    case "radio": s.radioVolume = ClampFloat(s.radioVolume + direction * 0.05f, 0f, 1f); break;
+                    case "hudScale": s.hudScale = ClampFloat(s.hudScale + direction * 0.05f, 0.75f, 1.3f); break;
+                    case "compactHud": s.compactHud = !s.compactHud; break;
+                    case "uiAnimations": s.uiAnimations = !s.uiAnimations; break;
+                    case "cameraShake": s.cameraShake = !s.cameraShake; break;
+                    case "units": s.useMphUnits = !s.useMphUnits; break;
+                    case "graphics": s.graphicsQuality = Wrap(s.graphicsQuality + direction, 4); break;
+                    case "colorBlind": s.colorBlindMode = Wrap(s.colorBlindMode + direction, ColorBlindNames.Length); break;
+                }
+            });
+        }
+
+        static int CompoundIndex(string compound)
+        {
+            for (int i = 0; i < CompoundNames.Length; i++)
+            {
+                if (CompoundNames[i] == compound)
+                {
+                    return i;
+                }
+            }
+
+            return 1; // default Medium
+        }
+
+        static int ClampInt(int v, int min, int max) => v < min ? min : (v > max ? max : v);
+
+        static float ClampFloat(float v, float min, float max) => v < min ? min : (v > max ? max : v);
+
+        static int Wrap(int v, int count) => count <= 0 ? 0 : ((v % count) + count) % count;
 
         static void Heading(SettingsModel model, string label)
         {

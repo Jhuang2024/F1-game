@@ -23,6 +23,9 @@ namespace F1Game.UI.Screens.Settings
         public Action OnToggleCameraShake;
         public Action OnToggleCompactHud;
         public Action OnToggleUiAnimations;
+        // Full production editor: a field control was pressed - (field id, -1/+1).
+        // The bridge mutates + persists the setting and re-presents.
+        public Action<string, int> OnFieldAdjusted;
 
         public SettingsPresenter(SettingsView view)
         {
@@ -36,6 +39,7 @@ namespace F1Game.UI.Screens.Settings
             view.CameraShakeButton.Clicked += () => OnToggleCameraShake?.Invoke();
             view.CompactHudButton.Clicked += () => OnToggleCompactHud?.Invoke();
             view.UiAnimationsButton.Clicked += () => OnToggleUiAnimations?.Invoke();
+            view.FieldAdjusted += (id, dir) => OnFieldAdjusted?.Invoke(id, dir);
         }
 
         public void Present(SettingsModel model)
@@ -44,6 +48,7 @@ namespace F1Game.UI.Screens.Settings
             view.RenderRows(m.rows);
             view.RenderGameplay(m.difficultyToggleLabel, m.ersToggleLabel, m.manualGearsToggleLabel);
             view.RenderToggles(m.unitsToggleLabel, m.cameraShakeToggleLabel, m.compactHudToggleLabel, m.uiAnimationsToggleLabel);
+            view.RenderFields(m.fields);
         }
     }
 }

@@ -1516,6 +1516,25 @@ deferred, not claimed complete.
         Color. Both call sites reference F1Game.Core already. CarVisualCurvesTests pin
         the glow ramp (cold/hot/squared/clamp) and every compound's authored values.
 
+    F17. Complete production settings EDITOR (replaces the LeaveToLegacy full-edit
+        path, default-off). New SettingsFieldModel + SettingsModel.fields (F1Game.UI)
+        describe every editable setting (id/label/value/can-dec/can-inc). New
+        EditableSettingRow widget (label + value + </> adjust buttons) raises
+        Adjusted(id, dir); SettingsView pools these under a labelled editor section
+        that hides when empty, exposing FieldAdjusted; SettingsPresenter forwards it as
+        OnFieldAdjusted. UiScreenFactory.BuildSettings builds the section + a hidden
+        interactive-row template and BindEditor()s it. ProductionUiBridge adds the
+        f1game_production_settings_editor switch (default 0): when on, BuildSettingsModel
+        populates the full field list (laps, difficulty, tyre, ERS, all driving
+        assists + steering, audio enable + 3 volumes, HUD scale, compact HUD, UI
+        animations, camera shake, units, graphics quality, colour-vision mode) and
+        AdjustSettingField mutates the matched setting by direction (int/float steppers
+        with clamps, enum cycles with wrap, boolean toggles) through the single
+        ToggleSetting write path (Save + re-present). When off (default) the section is
+        hidden and the summary + quick toggles + Classic Settings (legacy) remain the
+        authoritative editor. Screens build at runtime via UiScreenFactory (no baked
+        prefab exists), so no re-bake is needed; VISUAL VALIDATION PENDING.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
