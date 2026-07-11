@@ -238,6 +238,8 @@ namespace LocalFormulaRacing
         {
             int lap = PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.DisplayLap : 0;
             raceControlHistory.Add(new RaceControlHistoryEntry { label = label, detail = detail, raceTimeSeconds = RaceElapsed, lap = lap });
+            // Every race-control event is a replay timeline marker (single hook).
+            replayCapture.AddFlagMarker(RaceElapsed, label);
             if (raceControlHistory.Count > MaxRaceControlHistoryEntries)
             {
                 raceControlHistory.RemoveAt(0);
@@ -390,6 +392,11 @@ namespace LocalFormulaRacing
         // session rather than instantiated fresh each time.
         GameObject safetyCarObject;
         SafetyCarController safetyCarController;
+        // Live full-session replay capture (Phase K); gated by its own flag,
+        // read-only over the cars, bounded memory. RaceManager drives it.
+        readonly ReplayCaptureService replayCapture = new ReplayCaptureService();
+        /// <summary>The current session's replay recording (null when capture is off/not started).</summary>
+        public F1Game.Race.ReplayRecording ReplayRecording => replayCapture.Recording;
         readonly HashSet<RaceParticipant> aheadOfSafetyCarLastTick = new HashSet<RaceParticipant>();
         // Blocks a NEW VSC/SC escalation for a while after the field returns to
         // Green, so one incident's aftermath can't chain into a second SC/VSC the
@@ -838,6 +845,7 @@ namespace LocalFormulaRacing
             }
 
             SpawnRaceGrid(playerName, playerTeamId, careerRace);
+            replayCapture.Begin(Participants, RaceElapsed);
             SpawnGhostIfAvailable();
             PostEngineerMessage(OpeningEngineerMessage(), true);
             engineerWeatherSent = true;
@@ -1194,6 +1202,7 @@ namespace LocalFormulaRacing
             }
 
             UpdateSlipstreamEffects();
+            replayCapture.Tick(Participants, RaceElapsed);
 
             if (IsTimeTrial)
             {
@@ -10126,6 +10135,7 @@ namespace LocalFormulaRacing
         {
             IsRaceFinished = true;
             Time.timeScale = 1f;
+            replayCapture.End(RaceElapsed);
             SortRunningOrder();
             List<RaceResultEntry> results = new List<RaceResultEntry>();
             if (State == null) return;
