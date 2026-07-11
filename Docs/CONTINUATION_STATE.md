@@ -1460,6 +1460,17 @@ deferred, not claimed complete.
         per-part re-skin needs CarVisualFactory part tagging and is editor-gated.
         Additive - no existing spawn path changed. Editor validation pending.
 
+    F12. Engine-audio mix maths -> engine-free EngineAudioMix (F1Game.Core,
+        UNIT-TESTED), extracted VERBATIM from EngineAudioLayers.Tick. Behavior-
+        preserving (no retuning): the layered-engine RPM crossfade weight
+        (triangular around each band centre, width scaling with layer count), the
+        off-throttle attenuation, the final layer volume (weight * attenuation *
+        master), and the pitch curve (0.85..1.25 across the RPM range * external
+        scale) now live in testable helpers, and Tick delegates to them - the
+        AudioSources and their ownership stay in the MonoBehaviour. EngineAudioMixTests
+        pin each curve at its key points. Same numbers as before; only the feel curve
+        is now guarded against silent drift.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

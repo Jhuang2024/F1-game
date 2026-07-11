@@ -87,17 +87,16 @@ namespace F1Game.Audio
             }
 
             rpm01 = Mathf.Clamp01(rpm01);
-            float offThrottle = 1f - Mathf.Clamp01(throttle01);
+            float offThrottle = F1Game.Core.EngineAudioMix.OffThrottle(throttle01);
 
             for (int i = 0; i < layers.Count; i++)
             {
                 LiveLayer layer = layers[i];
-                // Triangular crossfade weight around each band centre.
-                float distance = Mathf.Abs(rpm01 - layer.RpmCenter);
-                float weight = Mathf.Clamp01(1f - distance * (float)layers.Count);
-                float attenuation = 1f - offThrottle * layer.OffThrottleAttenuation;
-                layer.Source.volume = weight * attenuation * masterVolume;
-                layer.Source.pitch = Mathf.Lerp(0.85f, 1.25f, rpm01) * pitchScale;
+                // Triangular crossfade weight around each band centre (see EngineAudioMix).
+                float weight = F1Game.Core.EngineAudioMix.LayerWeight(rpm01, layer.RpmCenter, layers.Count);
+                layer.Source.volume = F1Game.Core.EngineAudioMix.LayerVolume(
+                    weight, offThrottle, layer.OffThrottleAttenuation, masterVolume);
+                layer.Source.pitch = F1Game.Core.EngineAudioMix.LayerPitch(rpm01, pitchScale);
             }
         }
 
