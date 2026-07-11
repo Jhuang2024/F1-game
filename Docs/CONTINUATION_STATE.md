@@ -389,7 +389,11 @@ deferred, not claimed complete.
     screen's ~20 row labels are localized in one place via the Row helper
     (key derived from the English text, e.g. settings.row.race_laps), so the
     whole settings screen's static chrome is now translatable with English
-    fallbacks throughout.
+    fallbacks throughout. Game-wide button coverage: UiScreenFactory.CreateButton
+    localizes every button label by a derived key (button.<slug>) in one place,
+    so all production buttons (menu, career hub, pause, results, settings,
+    track/strategy) are translatable at once; dynamic labels (later SetText,
+    tyre names) fall through to their text.
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks

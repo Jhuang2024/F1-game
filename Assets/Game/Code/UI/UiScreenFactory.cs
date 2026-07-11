@@ -112,7 +112,14 @@ namespace F1Game.UI
             CreateOutlineEdge(outlineGo.transform, "Right", new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(-outlineWidth, 0f), Vector2.zero, theme.palette.focusOutline);
             outlineGo.SetActive(false);
 
-            TMP_Text label = CreateText(go.transform, "Label", TextStyle.Button, text);
+            // Localize the button label by a key derived from its English text
+            // (e.g. "Continue Career" → button.continue_career); the English text
+            // is the fallback, so untranslated builds read exactly as before, and
+            // dynamic labels (later SetText, tyre names) simply fall through.
+            string localized = string.IsNullOrEmpty(text)
+                ? text
+                : F1Game.Core.Localization.Get("button." + text.ToLowerInvariant().Replace(" ", "_"), text);
+            TMP_Text label = CreateText(go.transform, "Label", TextStyle.Button, localized);
             Stretch(label.rectTransform);
             label.alignment = TextAlignmentOptions.Center;
             label.raycastTarget = false;
