@@ -374,6 +374,14 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+66. Production settings inline editing extended to key GAMEPLAY settings: a
+    "Quick Gameplay Settings" row (Difficulty cycle Easy→Medium→Hard→Expert,
+    ERS Strategy cycle Balanced→Attack→Harvest, Manual/Auto Gears toggle) using
+    the same flip/Save/re-present cycle as the a11y toggles. Production now owns
+    inline editing for the highest-traffic gameplay + accessibility settings;
+    the "Classic Settings" fallback is deliberately KEPT for the long-tail
+    controls (and as a safety net) until in-editor validation - one editor path
+    per setting preserved. SettingsView/Presenter/Model + BuildSettings extended.
 65. Production UI honours the UI-Animations (reduced-motion) accessibility
     setting: the bridge sets UiShell.Transitions.ReducedMotion from
     settings.uiAnimations on shell creation and re-applies it when the toggle

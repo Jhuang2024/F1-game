@@ -96,6 +96,10 @@ namespace F1Game.UI.Screens
     public class SettingsModel
     {
         public List<SettingsRowModel> rows = new List<SettingsRowModel>();
+        // Inline gameplay quick-setting button labels (e.g. "Difficulty: Expert").
+        public string difficultyToggleLabel = "";
+        public string ersToggleLabel = "";
+        public string manualGearsToggleLabel = "";
         // Inline accessibility quick-toggle button labels (e.g. "Units: MPH").
         public string unitsToggleLabel = "";
         public string cameraShakeToggleLabel = "";

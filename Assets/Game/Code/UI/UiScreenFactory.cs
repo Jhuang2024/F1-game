@@ -354,6 +354,21 @@ namespace F1Game.UI
             TMP_Text rowTemplate = CreateText(rowsColumn, "Row_Template", TextStyle.Body, "");
             rowTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 8f;
 
+            CreateText(content, "QuickGameplayLabel", TextStyle.Label, "QUICK GAMEPLAY SETTINGS");
+            var gameplayRowGo = new GameObject("GameplayRow", typeof(RectTransform));
+            gameplayRowGo.transform.SetParent(content, false);
+            var gameplayLayout = gameplayRowGo.AddComponent<HorizontalLayoutGroup>();
+            gameplayLayout.spacing = theme.spacing.small;
+            gameplayLayout.childForceExpandWidth = true;
+            gameplayLayout.childControlWidth = true;
+            gameplayLayout.childControlHeight = true;
+            ThemedButton difficultyButton = CreateButton(gameplayRowGo.transform, "Btn_Difficulty", ThemedButton.Variant.Secondary, "Difficulty",
+                theme.components.buttonHeightCompact);
+            ThemedButton ersButton = CreateButton(gameplayRowGo.transform, "Btn_Ers", ThemedButton.Variant.Secondary, "ERS",
+                theme.components.buttonHeightCompact);
+            ThemedButton manualGearsButton = CreateButton(gameplayRowGo.transform, "Btn_ManualGears", ThemedButton.Variant.Secondary, "Gears",
+                theme.components.buttonHeightCompact);
+
             CreateText(content, "QuickToggleLabel", TextStyle.Label, "QUICK ACCESSIBILITY TOGGLES");
             var toggleRowGo = new GameObject("ToggleRow", typeof(RectTransform));
             toggleRowGo.transform.SetParent(content, false);
@@ -384,7 +399,8 @@ namespace F1Game.UI
                 theme.components.buttonHeightCompact);
 
             var view = content.parent.gameObject.AddComponent<Screens.Settings.SettingsView>();
-            view.Bind(header, rowsColumn, rowTemplate, unitsButton, cameraShakeButton, compactHudButton, uiAnimationsButton, classic, back);
+            view.Bind(header, rowsColumn, rowTemplate, difficultyButton, ersButton, manualGearsButton,
+                unitsButton, cameraShakeButton, compactHudButton, uiAnimationsButton, classic, back);
             return view;
         }
 

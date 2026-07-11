@@ -13,6 +13,10 @@ namespace F1Game.UI.Screens.Settings
 
         public Action OnClassic;
         public Action OnBack;
+        // Inline gameplay quick-settings: cycle the value / flip the toggle.
+        public Action OnCycleDifficulty;
+        public Action OnCycleErs;
+        public Action OnToggleManualGears;
         // Inline accessibility quick-toggles: the bridge flips the setting,
         // persists it, and re-presents so the labels + summary refresh.
         public Action OnToggleUnits;
@@ -25,6 +29,9 @@ namespace F1Game.UI.Screens.Settings
             this.view = view;
             view.ClassicButton.Clicked += () => OnClassic?.Invoke();
             view.BackButton.Clicked += () => OnBack?.Invoke();
+            view.DifficultyButton.Clicked += () => OnCycleDifficulty?.Invoke();
+            view.ErsButton.Clicked += () => OnCycleErs?.Invoke();
+            view.ManualGearsButton.Clicked += () => OnToggleManualGears?.Invoke();
             view.UnitsButton.Clicked += () => OnToggleUnits?.Invoke();
             view.CameraShakeButton.Clicked += () => OnToggleCameraShake?.Invoke();
             view.CompactHudButton.Clicked += () => OnToggleCompactHud?.Invoke();
@@ -35,6 +42,7 @@ namespace F1Game.UI.Screens.Settings
         {
             SettingsModel m = model ?? new SettingsModel();
             view.RenderRows(m.rows);
+            view.RenderGameplay(m.difficultyToggleLabel, m.ersToggleLabel, m.manualGearsToggleLabel);
             view.RenderToggles(m.unitsToggleLabel, m.cameraShakeToggleLabel, m.compactHudToggleLabel, m.uiAnimationsToggleLabel);
         }
     }

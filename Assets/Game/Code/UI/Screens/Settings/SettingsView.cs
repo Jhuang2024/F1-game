@@ -22,6 +22,9 @@ namespace F1Game.UI.Screens.Settings
         [SerializeField] TMP_Text header;
         [SerializeField] RectTransform rowContainer;
         [SerializeField] TMP_Text rowTemplate;
+        [SerializeField] ThemedButton difficultyButton;
+        [SerializeField] ThemedButton ersButton;
+        [SerializeField] ThemedButton manualGearsButton;
         [SerializeField] ThemedButton unitsButton;
         [SerializeField] ThemedButton cameraShakeButton;
         [SerializeField] ThemedButton compactHudButton;
@@ -31,6 +34,9 @@ namespace F1Game.UI.Screens.Settings
 
         readonly List<TMP_Text> rows = new List<TMP_Text>();
 
+        public ThemedButton DifficultyButton => difficultyButton;
+        public ThemedButton ErsButton => ersButton;
+        public ThemedButton ManualGearsButton => manualGearsButton;
         public ThemedButton UnitsButton => unitsButton;
         public ThemedButton CameraShakeButton => cameraShakeButton;
         public ThemedButton CompactHudButton => compactHudButton;
@@ -39,12 +45,16 @@ namespace F1Game.UI.Screens.Settings
         public ThemedButton BackButton => backButton;
 
         public void Bind(TMP_Text headerText, RectTransform container, TMP_Text template,
+            ThemedButton difficulty, ThemedButton ers, ThemedButton manualGears,
             ThemedButton units, ThemedButton cameraShake, ThemedButton compactHud, ThemedButton uiAnimations,
             ThemedButton classic, ThemedButton back)
         {
             header = headerText;
             rowContainer = container;
             rowTemplate = template;
+            difficultyButton = difficulty;
+            ersButton = ers;
+            manualGearsButton = manualGears;
             unitsButton = units;
             cameraShakeButton = cameraShake;
             compactHudButton = compactHud;
@@ -54,6 +64,14 @@ namespace F1Game.UI.Screens.Settings
             rowTemplate.gameObject.SetActive(false);
             SetScreenId(Id);
             SetDefaultSelection(back != null ? back.gameObject : null);
+        }
+
+        /// <summary>Labels for the inline gameplay quick-setting buttons.</summary>
+        public void RenderGameplay(string difficulty, string ers, string manualGears)
+        {
+            if (difficultyButton != null) difficultyButton.SetText(difficulty);
+            if (ersButton != null) ersButton.SetText(ers);
+            if (manualGearsButton != null) manualGearsButton.SetText(manualGears);
         }
 
         /// <summary>Labels for the inline accessibility quick-toggle buttons.</summary>

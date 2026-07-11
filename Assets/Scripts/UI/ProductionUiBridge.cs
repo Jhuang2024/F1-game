@@ -217,6 +217,9 @@ namespace LocalFormulaRacing
                 // the live summary plus a handful of inline accessibility toggles.
                 OnClassic = () => LeaveToLegacy(() => bootstrap.Ui.ShowSettings(data, career, settings)),
                 OnBack = () => shell.Router.Back(),
+                OnCycleDifficulty = () => ToggleSetting(s => s.difficultyIndex = (s.difficultyIndex + 1) % DifficultyNames.Length),
+                OnCycleErs = () => ToggleSetting(s => s.ersMode = (s.ersMode + 1) % ErsModeNames.Length),
+                OnToggleManualGears = () => ToggleSetting(s => s.manualGears = !s.manualGears),
                 OnToggleUnits = () => ToggleSetting(s => s.useMphUnits = !s.useMphUnits),
                 OnToggleCameraShake = () => ToggleSetting(s => s.cameraShake = !s.cameraShake),
                 OnToggleCompactHud = () => ToggleSetting(s => s.compactHud = !s.compactHud),
@@ -724,6 +727,9 @@ namespace LocalFormulaRacing
             Row(model, "Speed Units", s.useMphUnits ? "MPH" : "KPH");
             Row(model, "Graphics Quality", GraphicsQualityName(s.graphicsQuality));
 
+            model.difficultyToggleLabel = "Difficulty: " + Pick(DifficultyNames, s.difficultyIndex);
+            model.ersToggleLabel = "ERS: " + Pick(ErsModeNames, s.ersMode);
+            model.manualGearsToggleLabel = "Gears: " + (s.manualGears ? "Manual" : "Auto");
             model.unitsToggleLabel = "Units: " + (s.useMphUnits ? "MPH" : "KPH");
             model.cameraShakeToggleLabel = "Camera Shake: " + OnOff(s.cameraShake);
             model.compactHudToggleLabel = "Compact HUD: " + OnOff(s.compactHud);
