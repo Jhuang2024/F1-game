@@ -345,6 +345,32 @@ namespace F1Game.UI
             return view;
         }
 
+        public static Screens.Settings.SettingsView BuildSettings(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_Settings", "SETTINGS", out TMP_Text header);
+
+            RectTransform rowsColumn = CreateLayoutColumn(content, "SettingsRows", theme.spacing.micro);
+            TMP_Text rowTemplate = CreateText(rowsColumn, "Row_Template", TextStyle.Body, "");
+            rowTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 8f;
+
+            var buttonRowGo = new GameObject("ButtonRow", typeof(RectTransform));
+            buttonRowGo.transform.SetParent(content, false);
+            var buttonLayout = buttonRowGo.AddComponent<HorizontalLayoutGroup>();
+            buttonLayout.spacing = theme.spacing.small;
+            buttonLayout.childForceExpandWidth = true;
+            buttonLayout.childControlWidth = true;
+            buttonLayout.childControlHeight = true;
+            ThemedButton classic = CreateButton(buttonRowGo.transform, "Btn_ClassicSettings", ThemedButton.Variant.Secondary, "Classic Settings",
+                theme.components.buttonHeightCompact);
+            ThemedButton back = CreateButton(buttonRowGo.transform, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
+                theme.components.buttonHeightCompact);
+
+            var view = content.parent.gameObject.AddComponent<Screens.Settings.SettingsView>();
+            view.Bind(header, rowsColumn, rowTemplate, classic, back);
+            return view;
+        }
+
         public static Screens.CareerStandings.CareerStandingsView BuildCareerStandings(Transform root)
         {
             UiTheme theme = UiTheme.Active;

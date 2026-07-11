@@ -85,6 +85,20 @@ namespace F1Game.UI.Screens
     }
 
     [Serializable]
+    public class SettingsRowModel
+    {
+        public string label;    // "Race Laps"
+        public string value;    // "5" / "Expert" / "On"
+        public bool isHeading;  // true = category divider row, value ignored
+    }
+
+    [Serializable]
+    public class SettingsModel
+    {
+        public List<SettingsRowModel> rows = new List<SettingsRowModel>();
+    }
+
+    [Serializable]
     public class CareerHubModel
     {
         public string seasonLabel;      // "Season 2 · Round 5/22"

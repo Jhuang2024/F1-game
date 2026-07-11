@@ -360,6 +360,20 @@ deferred, not claimed complete.
     now gated only on the in-editor visual pass (PENDING - no Unity here), so
     RaceHud stays the live default. HUD_PARITY_GAP.md updated.
 
+61. PRODUCTION SETTINGS SCREEN built + wired (completion matrix "settings+a11y
+    UI" - was the only unbuilt production frontend screen; menu/career/standings/
+    profile/results were already wired behind the readiness flag): new
+    F1Game.UI.Screens.Settings (SettingsView/SettingsPresenter, ViewModels
+    SettingsModel/SettingsRowModel), UiScreenFactory.BuildSettings, registered in
+    UiShell. Presents the live GameSettingsData as a categorised read-only
+    summary (Gameplay / Driving / Audio / Display & Accessibility) via pooled TMP
+    rows - production-first DISPLAY with a "Classic Settings" button that
+    LeaveToLegacy for EDITING, so exactly one editor path stays live while the
+    inline production controls are built. Production main menu OnSettings now
+    routes here (was straight-to-legacy); OnClassic/OnBack wired. Behind the same
+    ProductionUiReadiness flag as the rest of the production frontend, legacy
+    RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

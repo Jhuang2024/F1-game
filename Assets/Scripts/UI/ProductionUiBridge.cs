@@ -11,6 +11,7 @@ using F1Game.UI.Screens.MainMenu;
 using F1Game.UI.Screens.RaceHudShell;
 using F1Game.UI.Screens.Results;
 using F1Game.UI.Screens.PreRaceStrategy;
+using F1Game.UI.Screens.Settings;
 using F1Game.UI.Screens.TrackSelect;
 using UnityEngine;
 
@@ -52,6 +53,7 @@ namespace LocalFormulaRacing
         static CareerStandingsPresenter standingsPresenter;
         static CareerHubPresenter careerHubPresenter;
         static DriverProfilePresenter profilePresenter;
+        static SettingsPresenter settingsPresenter;
         static ResultsPresenter resultsPresenter;
         static PauseOverlay pauseOverlay;
         static bool failedThisSession;
@@ -165,7 +167,7 @@ namespace LocalFormulaRacing
                 OnQuickRace = ShowTrackSelect,
                 OnTimeTrial = () => LeaveToLegacy(() => bootstrap.ShowTimeTrialSetup()),
                 OnStandings = ShowCareerStandings,
-                OnSettings = () => LeaveToLegacy(() => bootstrap.Ui.ShowSettings(data, career, settings)),
+                OnSettings = ShowSettings,
             };
 
             var trackSelectView = (TrackSelectView)ShowAndGet(TrackSelectView.Id);
@@ -204,6 +206,15 @@ namespace LocalFormulaRacing
             var profileView = (DriverProfileView)ShowAndGet(DriverProfileView.Id);
             profilePresenter = new DriverProfilePresenter(profileView)
             {
+                OnBack = () => shell.Router.Back(),
+            };
+
+            var settingsView = (SettingsView)ShowAndGet(SettingsView.Id);
+            settingsPresenter = new SettingsPresenter(settingsView)
+            {
+                // Editing still routes to the legacy settings screen; production
+                // shows the live summary until the inline controls are validated.
+                OnClassic = () => LeaveToLegacy(() => bootstrap.Ui.ShowSettings(data, career, settings)),
                 OnBack = () => shell.Router.Back(),
             };
 
@@ -622,6 +633,97 @@ namespace LocalFormulaRacing
 
             shell.Router.Show(CareerStandingsView.Id);
             standingsPresenter.Present(model);
+        }
+
+        static readonly string[] DifficultyNames = { "Easy", "Medium", "Hard", "Expert" };
+        static readonly string[] ErsModeNames = { "Balanced", "Attack", "Harvest" };
+
+        static void ShowSettings()
+        {
+            shell.Router.Show(SettingsView.Id);
+            settingsPresenter.Present(BuildSettingsModel());
+        }
+
+        static SettingsModel BuildSettingsModel()
+        {
+            var model = new SettingsModel();
+            GameSettingsData s = settings != null ? settings.Current : null;
+            if (s == null)
+            {
+                return model;
+            }
+
+            Heading(model, "GAMEPLAY");
+            Row(model, "Race Laps", s.laps.ToString());
+            Row(model, "Difficulty", Pick(DifficultyNames, s.difficultyIndex));
+            Row(model, "AI Opponents", s.aiOpponentCount.ToString());
+            Row(model, "Default Tyre", string.IsNullOrEmpty(s.tyreCompound) ? "Medium" : s.tyreCompound);
+            Row(model, "ERS Strategy", Pick(ErsModeNames, s.ersMode));
+
+            Heading(model, "DRIVING");
+            Row(model, "Manual Gears", OnOff(s.manualGears));
+            Row(model, "ABS", OnOff(s.absAssist));
+            Row(model, "Traction Control", OnOff(s.tractionControl));
+            Row(model, "Racing Line", OnOff(s.racingLineAssist));
+            Row(model, "Auto Brake Assist", OnOff(s.autoBrakeAssist));
+            Row(model, "Steering Sensitivity", Multiplier(s.steeringSensitivity));
+
+            Heading(model, "AUDIO");
+            Row(model, "Sound Effects", OnOff(s.audioEnabled));
+            Row(model, "Master Volume", Percent(s.masterVolume));
+            Row(model, "Engine Volume", Percent(s.engineVolume));
+            Row(model, "Radio Volume", Percent(s.radioVolume));
+
+            Heading(model, "DISPLAY & ACCESSIBILITY");
+            Row(model, "HUD Scale", Multiplier(s.hudScale));
+            Row(model, "Compact HUD", OnOff(s.compactHud));
+            Row(model, "UI Animations", OnOff(s.uiAnimations));
+            Row(model, "Camera Shake", OnOff(s.cameraShake));
+            Row(model, "Speed Units", s.useMphUnits ? "MPH" : "KPH");
+            Row(model, "Graphics Quality", GraphicsQualityName(s.graphicsQuality));
+
+            return model;
+        }
+
+        static void Heading(SettingsModel model, string label)
+        {
+            model.rows.Add(new SettingsRowModel { label = label, isHeading = true });
+        }
+
+        static void Row(SettingsModel model, string label, string value)
+        {
+            model.rows.Add(new SettingsRowModel { label = label, value = value });
+        }
+
+        static string Pick(string[] names, int index)
+        {
+            return index >= 0 && index < names.Length ? names[index] : index.ToString();
+        }
+
+        static string OnOff(bool value)
+        {
+            return value ? "On" : "Off";
+        }
+
+        static string Percent(float value01)
+        {
+            return Mathf.RoundToInt(Mathf.Clamp01(value01) * 100f) + "%";
+        }
+
+        static string Multiplier(float value)
+        {
+            return value.ToString("0.0") + "x";
+        }
+
+        static string GraphicsQualityName(int quality)
+        {
+            switch (quality)
+            {
+                case 0: return "Low";
+                case 1: return "Medium";
+                case 2: return "High";
+                default: return "Ultra";
+            }
         }
 
         static void ShowTrackSelect()
