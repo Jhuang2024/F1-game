@@ -228,15 +228,14 @@ namespace LocalFormulaRacing
         float ResolveAiStartReactionDelay(DriverData driver)
         {
             AiDifficultyProfile profile = GetAiDifficultyProfile();
-            float skillBlend = driver == null ? 0.5f : Mathf.Clamp01((driver.awareness + driver.consistency) / 200f);
-            // Start-reaction fix (per "AI still slow off the line"): the old
-            // 1.3-0.75 * reactionTime range left even mid-field cars sitting
-            // stationary for the better part of a second after lights-out while the
-            // player - who reacts instantly - simply drove away. Halved to
-            // 0.7-0.35 so a competent AI is off the line almost as promptly as the
-            // player, then the physics launch boost does the rest.
-            float baseDelay = profile.reactionTimeSeconds * Mathf.Lerp(0.7f, 0.35f, skillBlend);
-            float variance = Mathf.Lerp(0.14f, 0.03f, skillBlend);
+            // Skill blend + the 0.7-0.35 base-delay scale and 0.14-0.03 variance band
+            // live in the engine-free StartProcedureRules (halved from the old
+            // 1.3-0.75 so a competent AI is off the line almost as promptly as the
+            // player, then the physics launch boost does the rest). The null-driver
+            // default and the Random.Range that samples the variance stay here.
+            float skillBlend = driver == null ? 0.5f : StartProcedureRules.AiReactionSkillBlend(driver.awareness, driver.consistency);
+            float baseDelay = StartProcedureRules.AiReactionBaseDelaySeconds(profile.reactionTimeSeconds, skillBlend);
+            float variance = StartProcedureRules.AiReactionVarianceSeconds(skillBlend);
             return Mathf.Max(0f, baseDelay + Random.Range(-variance, variance));
         }
 

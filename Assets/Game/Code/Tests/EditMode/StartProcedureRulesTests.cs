@@ -82,5 +82,31 @@ namespace F1Game.Tests
             // An elected pit-lane start wins over weather.
             Assert.AreEqual(StartType.PitLaneStart, StartProcedureRules.ResolveStartType(true, true, true));
         }
+
+        [Test]
+        public void AiReactionSkillBlendAveragesAwarenessAndConsistency()
+        {
+            Assert.AreEqual(1f, StartProcedureRules.AiReactionSkillBlend(100f, 100f), 0.0001f);
+            Assert.AreEqual(0f, StartProcedureRules.AiReactionSkillBlend(0f, 0f), 0.0001f);
+            Assert.AreEqual(0.8f, StartProcedureRules.AiReactionSkillBlend(80f, 80f), 0.0001f);
+            // Out-of-range stats clamp to 0-1.
+            Assert.AreEqual(1f, StartProcedureRules.AiReactionSkillBlend(150f, 150f), 0.0001f);
+        }
+
+        [Test]
+        public void AiReactionDelayAndVarianceShrinkWithSkill()
+        {
+            // Base delay: tier reaction time scaled 0.7x (low skill) to 0.35x (high).
+            Assert.AreEqual(0.7f, StartProcedureRules.AiReactionBaseDelaySeconds(1f, 0f), 0.0001f);
+            Assert.AreEqual(0.35f, StartProcedureRules.AiReactionBaseDelaySeconds(1f, 1f), 0.0001f);
+            Assert.AreEqual(0.525f, StartProcedureRules.AiReactionBaseDelaySeconds(1f, 0.5f), 0.0001f);
+            Assert.Greater(StartProcedureRules.AiReactionBaseDelaySeconds(1f, 0.2f),
+                           StartProcedureRules.AiReactionBaseDelaySeconds(1f, 0.9f));
+
+            // Variance: 0.14 s wide at low skill, narrowing to 0.03 s at high skill.
+            Assert.AreEqual(0.14f, StartProcedureRules.AiReactionVarianceSeconds(0f), 0.0001f);
+            Assert.AreEqual(0.03f, StartProcedureRules.AiReactionVarianceSeconds(1f), 0.0001f);
+            Assert.AreEqual(0.085f, StartProcedureRules.AiReactionVarianceSeconds(0.5f), 0.0001f);
+        }
     }
 }

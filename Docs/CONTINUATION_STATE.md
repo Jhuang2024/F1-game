@@ -1210,6 +1210,18 @@ deferred, not claimed complete.
         preserved, relocation not retune). SafetyCarPacingTests added (gap/speed/
         target caps, pedal deadband + clamps, lookahead, red-flag brake scaling).
         Unity/runtime validation PENDING (SC convoy feel needs an in-editor run).
+    E10. AI start-reaction delay -> engine-free StartProcedureRules. The launch
+        reaction in RaceManager.ResolveAiStartReactionDelay (Grid) had its pure maths
+        inline: the awareness+consistency skill blend, the 0.7x-0.35x base-delay
+        scale on the tier reaction time, and the 0.14-0.03 s variance band.
+        Extracted verbatim into StartProcedureRules.AiReactionSkillBlend(awareness,
+        consistency), AiReactionBaseDelaySeconds(reactionTimeSeconds, skillBlend01)
+        and AiReactionVarianceSeconds(skillBlend01) - the natural home (this class
+        already owns light timing and jump/false-start judgement). The null-driver
+        default and the Random.Range that samples the variance stay in RaceManager -
+        byte-identical, one live path. StartProcedureRulesTests extended (skill-blend
+        average/clamp, base-delay scale + monotonic, variance band). Unity/runtime
+        validation PENDING (AI launch feel needs an in-editor run).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

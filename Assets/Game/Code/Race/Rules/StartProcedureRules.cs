@@ -128,5 +128,41 @@ namespace F1Game.Race.Rules
 
             return StartType.Standing;
         }
+
+        // AI launch reaction off the line, extracted verbatim from
+        // RaceManager.ResolveAiStartReactionDelay: a car's skill blend (awareness +
+        // consistency) shortens both the base delay and its variance, so an
+        // Expert-tier driver launches sharp and consistent while a low-skill one
+        // launches later and more erratically. The RNG that samples the variance
+        // stays in the caller.
+
+        /// <summary>Skill blend (0-1) from awareness+consistency (each 0-100), the
+        /// average of the two on a 0-1 scale.</summary>
+        public static float AiReactionSkillBlend(float awareness, float consistency)
+        {
+            float blend = (awareness + consistency) / 200f;
+            return blend < 0f ? 0f : (blend > 1f ? 1f : blend);
+        }
+
+        /// <summary>Deterministic reaction delay (s) before the variance is added:
+        /// the tier's reaction time scaled 0.7x (low skill) down to 0.35x (high).</summary>
+        public static float AiReactionBaseDelaySeconds(float reactionTimeSeconds, float skillBlend01)
+        {
+            return reactionTimeSeconds * Lerp(0.7f, 0.35f, skillBlend01);
+        }
+
+        /// <summary>The +/- variance magnitude (s) around the base delay: wider for
+        /// low skill (0.14) narrowing to 0.03 for high skill.</summary>
+        public static float AiReactionVarianceSeconds(float skillBlend01)
+        {
+            return Lerp(0.14f, 0.03f, skillBlend01);
+        }
+
+        // Engine-free UnityEngine.Mathf.Lerp equivalent (clamps t to 0-1).
+        static float Lerp(float a, float b, float t)
+        {
+            float clamped = t < 0f ? 0f : (t > 1f ? 1f : t);
+            return a + (b - a) * clamped;
+        }
     }
 }
