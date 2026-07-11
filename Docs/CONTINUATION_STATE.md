@@ -1360,6 +1360,20 @@ deferred, not claimed complete.
         (record/sample/transport/persist/direct/export); only the camera + scrub UI
         (Unity scene) is editor-gated.
 
+    F6. Replay camera controller -> ReplayCameraController (Assembly-CSharp
+        MonoBehaviour, LocalFormulaRacing). The first Unity-facing replay binding:
+        drives the tested engine-free transport (ReplayPlaybackController), on each
+        LateUpdate advances the playhead, repositions every car GameObject to its
+        recorded transform via ReplayPlayback.SampleCar + SetPositionAndRotation,
+        then chases the ReplayDirector-chosen focus car with a frame-rate-independent
+        damped chase pose. Default-off feature switch `f1game_replay_camera`
+        (PlayerPrefs, default 0); inert until Configure()+Activate(); never touches
+        the live race loop or the in-car camera, so the live path is unchanged.
+        Exposes a Transport property + Play/Pause/TogglePlay/SetSpeed/SeekNormalized
+        passthroughs for a scrubber UI to drive. Cannot be unit-tested from
+        F1Game.Tests.EditMode (Assembly-CSharp is not referenceable there), so this
+        is structural-only. VISUAL/RUNTIME VALIDATION PENDING (in-editor replay run).
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
