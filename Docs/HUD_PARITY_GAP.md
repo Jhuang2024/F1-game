@@ -26,7 +26,7 @@ pit-request/radio events).
 - [x] Pit stop progress meter (2210): `PitStopProgress01`. (PitStrategy tranche 1)
 - [x] SC window "BOX NOW?" prompt (2416). (tranche 3)
 - [x] Fuel pill states STARVATION/LOW/CRITICAL (1593). (tranche 1)
-- [ ] Slipstream/TOW pill (1562): strength/bonus/source.
+- [x] Slipstream/TOW pill (1562): strength/bonus/source. (SlipstreamModule, tranche 8)
 
 ## Tier 3 — Race-control safety states (snapshot fields)
 - [x] Race-control banner with reasons + restart countdown (1634).
@@ -59,8 +59,8 @@ pit-request/radio events).
       GREEN FLAG/FINAL LAP/VICTORY (1667/2566/2955/3030).
 
 ## Tier 7 — Session-specific
-- [ ] Qualifying/ghost delta card (2442) - snapshot has unused
-      `DeltaSeconds/HasDelta`.
+- [x] Qualifying/ghost delta card (2442). (DeltaModule, tranche 8; numeric
+      core TryGetQualifyingDelta/TryGetGhostDelta now shared with legacy text)
 - [ ] Qualifying feedback panel (1415); quali tower BEST/GAP layout (2873);
       TT single-row + checkpoint counter (1981); TT track record (1962).
 

@@ -5860,25 +5860,38 @@ namespace LocalFormulaRacing
         // HUD delta readout for Time Trial, parallel to QualifyingDeltaText -
         // RaceHud's qualifying-card slot shows whichever of the two applies
         // (see RaceHud.UpdateTimingCard).
-        public string GhostDeltaText(RaceParticipant participant)
+        // Numeric time-trial ghost delta (+ slower); the single source both the
+        // legacy text readout and the production HUD delta module read.
+        public bool TryGetGhostDelta(RaceParticipant participant, out float delta)
         {
+            delta = 0f;
             if (!IsTimeTrial || ghostController == null || !ghostController.HasLap || participant == null || participant.lapTracker == null)
             {
-                return "--";
+                return false;
             }
 
             if (participant.lapTracker.OutLapActive)
             {
-                return "--";
+                return false;
             }
 
             float ghostTime = ghostController.GhostTimeAtDistance(participant.lapTracker.CurrentProgress.normalized);
             if (ghostTime < 0f)
             {
+                return false;
+            }
+
+            delta = participant.lapTracker.CurrentLapTime - ghostTime;
+            return true;
+        }
+
+        public string GhostDeltaText(RaceParticipant participant)
+        {
+            if (!TryGetGhostDelta(participant, out float delta))
+            {
                 return "--";
             }
 
-            float delta = participant.lapTracker.CurrentLapTime - ghostTime;
             string color = delta <= 0f ? "#6CFF8D" : "#FF6C6C";
             return "<color=" + color + ">" + (delta >= 0f ? "+" : "") + delta.ToString("0.000") + "</color>";
         }
@@ -7460,23 +7473,36 @@ namespace LocalFormulaRacing
             }
         }
 
-        public string QualifyingDeltaText(RaceParticipant participant)
+        // Numeric qualifying delta vs the pole reference (+ slower); the single
+        // source both the legacy text readout and the production HUD read.
+        public bool TryGetQualifyingDelta(RaceParticipant participant, out float delta)
         {
+            delta = 0f;
             if (CurrentSession != RaceWeekendSession.Qualifying || participant == null || participant.lapTracker == null)
             {
-                return "--";
+                return false;
             }
 
             float pole = GetQualifyingPoleReferenceTime();
             if (pole <= 0f || participant.lapTracker.OutLapActive)
             {
-                return "--";
+                return false;
             }
 
             TrackProgress currentProgress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
             float progress = Mathf.Clamp(currentProgress.normalized, 0.02f, 0.995f);
             float reference = pole * progress;
-            float delta = participant.lapTracker.CurrentLapTime - reference;
+            delta = participant.lapTracker.CurrentLapTime - reference;
+            return true;
+        }
+
+        public string QualifyingDeltaText(RaceParticipant participant)
+        {
+            if (!TryGetQualifyingDelta(participant, out float delta))
+            {
+                return "--";
+            }
+
             string color = delta <= 0f ? "#6CFF8D" : "#FF6C6C";
             return "<color=" + color + ">" + (delta >= 0f ? "+" : "") + delta.ToString("0.000") + "</color>";
         }

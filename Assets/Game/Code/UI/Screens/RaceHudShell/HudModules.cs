@@ -211,6 +211,61 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
+    /// <summary>
+    /// Delta to the reference lap (qualifying pole or time-trial ghost),
+    /// green when up, red when down. Hidden when no reference applies.
+    /// </summary>
+    public sealed class DeltaModule : HudModule
+    {
+        [SerializeField] TMP_Text value;
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            bool show = t.Valid && t.HasDelta;
+            if (value.gameObject.activeSelf != show)
+            {
+                value.gameObject.SetActive(show);
+            }
+
+            if (!show)
+            {
+                return;
+            }
+
+            string color = ColorUtility.ToHtmlStringRGB(
+                t.DeltaSeconds <= 0f ? UiTheme.Active.palette.positive : UiTheme.Active.palette.danger);
+            value.text = $"DELTA <color=#{color}>{(t.DeltaSeconds >= 0f ? "+" : "")}{t.DeltaSeconds:0.000}</color>";
+        }
+    }
+
+    /// <summary>Slipstream tow pill: strength + the code of the car being followed.</summary>
+    public sealed class SlipstreamModule : HudModule
+    {
+        [SerializeField] TMP_Text value;
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            bool show = t.Valid && t.SlipstreamStrength > 0.05f;
+            if (value.gameObject.activeSelf != show)
+            {
+                value.gameObject.SetActive(show);
+            }
+
+            if (!show)
+            {
+                return;
+            }
+
+            string source = string.IsNullOrEmpty(t.SlipstreamSourceCode) ? "" : " " + t.SlipstreamSourceCode;
+            string color = ColorUtility.ToHtmlStringRGB(UiTheme.Active.palette.accent);
+            value.text = $"<color=#{color}>TOW +{t.SlipstreamBonusKph:0}</color><size=75%>{source}</size>";
+        }
+    }
+
     /// <summary>Throttle / brake pedal bars.</summary>
     public sealed class InputTelemetryModule : HudModule
     {

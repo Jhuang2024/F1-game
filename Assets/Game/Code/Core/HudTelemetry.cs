@@ -37,8 +37,14 @@ namespace F1Game.Core
         public float Throttle01;
         public float Brake01;
 
-        public float DeltaSeconds; // to reference lap (+ slower)
+        public float DeltaSeconds; // to reference lap / ghost (+ slower)
         public bool HasDelta;
+
+        // Slipstream tow (Tier 2 parity): strength drives the pill; the source
+        // code names the car being followed.
+        public float SlipstreamStrength;   // 0 = clear air
+        public float SlipstreamBonusKph;
+        public string SlipstreamSourceCode;
 
         // Relative gaps to the cars immediately around the player (seconds).
         public float GapAheadSeconds;

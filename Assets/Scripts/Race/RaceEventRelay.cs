@@ -157,6 +157,12 @@ namespace LocalFormulaRacing
             RaceParticipant behind = race.FindCarBehind(player, 220f);
             float gapBehind = behind == null ? 999f : race.GetGapBetweenSeconds(player, behind);
 
+            // Session delta: the ghost delta in time trial, else the pole delta
+            // in qualifying (both from the same numeric source the legacy text
+            // readouts now use).
+            bool hasSessionDelta = race.TryGetGhostDelta(player, out float sessionDelta) ||
+                                   race.TryGetQualifyingDelta(player, out sessionDelta);
+
             var snapshot = new F1Game.Core.HudTelemetrySnapshot
             {
                 Valid = true,
@@ -180,8 +186,11 @@ namespace LocalFormulaRacing
                 LockupSeverity = vehicle.Tyres != null ? vehicle.Tyres.LockupSeverity : 0f,
                 Throttle01 = Mathf.Clamp01(vehicle.EffectiveThrottle),
                 Brake01 = Mathf.Clamp01(vehicle.EffectiveBrake),
-                DeltaSeconds = 0f,
-                HasDelta = false,
+                DeltaSeconds = sessionDelta,
+                HasDelta = hasSessionDelta,
+                SlipstreamStrength = vehicle.SlipstreamStrength,
+                SlipstreamBonusKph = vehicle.SlipstreamBonusKph,
+                SlipstreamSourceCode = vehicle.SlipstreamSourceCode ?? "",
                 GapAheadSeconds = gapAhead,
                 HasGapAhead = gapAhead < 900f,
                 GapBehindSeconds = gapBehind,
