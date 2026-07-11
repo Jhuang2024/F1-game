@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using F1Game.Core.Diagnostics;
 using F1Game.Race.Rules;
 using F1Game.UI;
 using F1Game.UI.Screens;
@@ -539,7 +540,7 @@ namespace LocalFormulaRacing
                 shell.SetShellVisible(false);
             }
 
-            Debug.LogError("[ProductionUI] Failed in " + where + ", falling back to legacy UI for this session: " + exception);
+            Debug.LogError(DiagnosticLog.FormatError(DiagnosticCode.HudBindFailed, "Production UI failed in " + where + ", falling back to legacy UI for this session: " + exception));
         }
     }
 }

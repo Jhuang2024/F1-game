@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using F1Game.Core.Diagnostics;
 using F1Game.Core.Events;
 using UnityEngine;
 
@@ -81,7 +82,7 @@ namespace F1Game.UI.Navigation
         {
             if (!factories.ContainsKey(screenId))
             {
-                Debug.LogError("[UI] Unknown screen id: " + screenId);
+                Debug.LogError(DiagnosticLog.FormatError(DiagnosticCode.UiScreenMissing, "Unknown screen id: " + screenId));
                 return;
             }
 

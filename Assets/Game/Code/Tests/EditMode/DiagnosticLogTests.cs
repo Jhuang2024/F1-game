@@ -50,6 +50,19 @@ namespace F1Game.Tests
             StringAssert.Contains("[TRACK]", DiagnosticLog.FormatError(DiagnosticCode.TrackBuildFailed, "x"));
             StringAssert.Contains("[RACE]", DiagnosticLog.FormatError(DiagnosticCode.RaceStartFailed, "x"));
             StringAssert.Contains("[UI]", DiagnosticLog.FormatError(DiagnosticCode.HudBindFailed, "x"));
+            StringAssert.Contains("[UI]", DiagnosticLog.FormatError(DiagnosticCode.UiScreenMissing, "x"));
+            StringAssert.Contains("[AUDIO]", DiagnosticLog.FormatError(DiagnosticCode.AudioBankMissing, "x"));
+            StringAssert.Contains("[INPUT]", DiagnosticLog.FormatError(DiagnosticCode.InputActionsMissing, "x"));
+            StringAssert.StartsWith("[ERR:4002]", DiagnosticLog.FormatError(DiagnosticCode.UiScreenMissing, "x"));
+            StringAssert.StartsWith("[ERR:6001]", DiagnosticLog.FormatError(DiagnosticCode.InputActionsMissing, "x"));
+        }
+
+        [Test]
+        public void InputCategoryTagAndGating()
+        {
+            Assert.AreEqual("[INPUT] rebind saved", DiagnosticLog.Format(LogCategory.Input, "rebind saved"));
+            Assert.IsFalse(DiagnosticLog.IsEnabled(LogCategory.Input, globalVerbose: false));
+            Assert.IsTrue(DiagnosticLog.IsEnabled(LogCategory.Input, globalVerbose: true));
         }
     }
 }

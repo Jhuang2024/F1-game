@@ -1,3 +1,4 @@
+using F1Game.Core.Diagnostics;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
@@ -33,7 +34,7 @@ namespace F1Game.Input
             Asset = Resources.Load<InputActionAsset>(AssetResourcePath);
             if (Asset == null)
             {
-                UnityEngine.Debug.LogError("[Input] F1Controls.inputactions missing from Resources/Input.");
+                UnityEngine.Debug.LogError(DiagnosticLog.FormatError(DiagnosticCode.InputActionsMissing, "F1Controls.inputactions missing from Resources/Input."));
                 Asset = ScriptableObject.CreateInstance<InputActionAsset>();
             }
 

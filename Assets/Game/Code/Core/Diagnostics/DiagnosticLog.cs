@@ -13,6 +13,7 @@ namespace F1Game.Core.Diagnostics
         Track,
         Ui,
         Audio,
+        Input,
         Network,
     }
 
@@ -30,7 +31,9 @@ namespace F1Game.Core.Diagnostics
         TrackDefinitionUnusable = 2002,
         RaceStartFailed = 3001,
         HudBindFailed = 4001,
+        UiScreenMissing = 4002,
         AudioBankMissing = 5001,
+        InputActionsMissing = 6001,
     }
 
     /// <summary>
@@ -83,6 +86,7 @@ namespace F1Game.Core.Diagnostics
                 case LogCategory.Track: return "[TRACK]";
                 case LogCategory.Ui: return "[UI]";
                 case LogCategory.Audio: return "[AUDIO]";
+                case LogCategory.Input: return "[INPUT]";
                 case LogCategory.Network: return "[NET]";
                 default: return "[GAME]";
             }
@@ -113,9 +117,12 @@ namespace F1Game.Core.Diagnostics
                 case DiagnosticCode.RaceStartFailed:
                     return LogCategory.Race;
                 case DiagnosticCode.HudBindFailed:
+                case DiagnosticCode.UiScreenMissing:
                     return LogCategory.Ui;
                 case DiagnosticCode.AudioBankMissing:
                     return LogCategory.Audio;
+                case DiagnosticCode.InputActionsMissing:
+                    return LogCategory.Input;
                 default:
                     return LogCategory.General;
             }
