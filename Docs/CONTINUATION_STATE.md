@@ -595,6 +595,11 @@ deferred, not claimed complete.
     Qualifying partial too; the QualifyingSimEntry/QualifyingLapBreakdown/
     SectorSnapshot nested types stay in main (still RaceManager.-nested, reachable
     from the partial). RaceManager.cs → 10536 lines (1131 out over 6 slices).
+    Slice 7: the race-end debrief logging (LogTelemetryDebrief, LogReplaySummary
+    + their opt-in CSV-export prefs) moved to RaceManager.Debrief.cs; the
+    FinishRace callers resolve in-class. RaceManager.cs → 10456 lines (1211 out
+    over 7 slices, ~10.4%). Full multi-partial review clean: all 6 files declare
+    partial, braces balanced, metas present, only PostEngineerMessage overloads.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
