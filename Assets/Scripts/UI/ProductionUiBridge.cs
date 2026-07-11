@@ -254,6 +254,21 @@ namespace LocalFormulaRacing
                 model.continueLabel = SessionFlow.NextCareerStep(career.HasQualifyingForCurrentRound()) == WeekendSession.Qualifying
                     ? "Continue: Qualifying"
                     : "Continue: Race";
+
+                // Player's championship position for the hub's context line.
+                if (career.Save.driverStandings != null)
+                {
+                    for (int i = 0; i < career.Save.driverStandings.Count; i++)
+                    {
+                        StandingEntry entry = career.Save.driverStandings[i];
+                        if (entry.displayName == career.Save.playerDriverName)
+                        {
+                            model.standingLine = string.Format("P{0} · {1} pts{2}",
+                                i + 1, entry.points, entry.wins > 0 ? " · " + entry.wins + " wins" : "");
+                            break;
+                        }
+                    }
+                }
             }
 
             shell.Router.Show(CareerHubView.Id);

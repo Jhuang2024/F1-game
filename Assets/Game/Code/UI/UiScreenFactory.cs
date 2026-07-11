@@ -229,6 +229,7 @@ namespace F1Game.UI
 
             TMP_Text season = CreateText(content, "SeasonLabel", TextStyle.H3, "");
             season.color = theme.palette.textMuted;
+            TMP_Text standing = CreateText(content, "StandingLine", TextStyle.Body, "");
 
             var card = CreatePanel(content, "NextEventCard", theme.palette.surfaceRaised);
             var cardLayout = card.gameObject.AddComponent<VerticalLayoutGroup>();
@@ -252,7 +253,7 @@ namespace F1Game.UI
             SetUpDownNavigation(new[] { continueBtn, standings, legacyMenu, back });
 
             var view = content.parent.gameObject.AddComponent<Screens.CareerHub.CareerHubView>();
-            view.Bind(header, eventTitle, eventDetail, continueBtn, standings, legacyMenu, back);
+            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, legacyMenu, back);
             return view;
         }
 

@@ -15,6 +15,7 @@ namespace F1Game.UI.Screens.CareerHub
         public const string Id = "career-hub";
 
         [SerializeField] TMP_Text seasonLabel;
+        [SerializeField] TMP_Text standingLine;
         [SerializeField] TMP_Text nextEventTitle;
         [SerializeField] TMP_Text nextEventDetail;
         [SerializeField] ThemedButton continueButton;
@@ -27,10 +28,11 @@ namespace F1Game.UI.Screens.CareerHub
         public ThemedButton LegacyMenuButton => legacyMenuButton;
         public ThemedButton BackButton => backButton;
 
-        public void Bind(TMP_Text season, TMP_Text eventTitle, TMP_Text eventDetail,
+        public void Bind(TMP_Text season, TMP_Text standing, TMP_Text eventTitle, TMP_Text eventDetail,
             ThemedButton continueBtn, ThemedButton standings, ThemedButton legacyMenu, ThemedButton back)
         {
             seasonLabel = season;
+            standingLine = standing;
             nextEventTitle = eventTitle;
             nextEventDetail = eventDetail;
             continueButton = continueBtn;
@@ -46,6 +48,11 @@ namespace F1Game.UI.Screens.CareerHub
             if (seasonLabel != null)
             {
                 seasonLabel.text = model.seasonLabel ?? "";
+            }
+
+            if (standingLine != null)
+            {
+                standingLine.text = model.standingLine ?? "";
             }
 
             if (nextEventTitle != null)

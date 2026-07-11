@@ -91,6 +91,7 @@ namespace F1Game.UI.Screens
         public string nextEventName;    // "Italian Grand Prix"
         public string nextEventDetail;  // "Italy · 24 laps · Variable"
         public string continueLabel;    // "Continue: Qualifying" / "Continue: Race"
+        public string standingLine;     // "P3 · 86 pts · 2 wins" (empty pre-season)
     }
 
     public static class CompoundPalette
