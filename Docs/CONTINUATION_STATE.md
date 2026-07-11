@@ -374,6 +374,15 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+64. Engineer debrief surfaced on the production RESULTS screen (exact-next-task
+    item "placing the debrief summary on the results screen"): RaceManager.
+    TelemetryDebriefLine() formats a compact one-liner (top speed, full-throttle/
+    braking %, DRS %, tyre-wear delta) from the live telemetry capture;
+    FinishRace passes it through ProductionSessionUi/ProductionUiBridge.
+    TryShowResults (new optional debriefLine param, back-compatible), which
+    appends it as a smaller second subtitle line. No new layout element (reuses
+    the results subtitle), empty/no-op when capture is off. The telemetry capture
+    now has a player-facing consumer, not just the diagnostics log.
 63. Production settings screen gains INLINE editing for the accessibility
     subset (switch-ownership step for that slice): a "Quick Accessibility
     Toggles" row (Units KPH↔MPH, Camera Shake, Compact HUD, UI Animations) whose

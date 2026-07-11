@@ -430,6 +430,25 @@ namespace LocalFormulaRacing
         public string ExportTelemetryCsv(string fileName) => telemetryCapture.ExportCsv(fileName);
         /// <summary>Build an engineer debrief (speed/throttle/brake/DRS/tyre summary) from the captured telemetry.</summary>
         public TelemetryDebrief.Summary BuildTelemetryDebrief() => TelemetryDebrief.Build(telemetryCapture.Recorder);
+
+        /// <summary>
+        /// Compact one-line engineer debrief for the results screen subtitle
+        /// (empty when telemetry capture is off / produced no samples).
+        /// </summary>
+        public string TelemetryDebriefLine()
+        {
+            TelemetryDebrief.Summary d = BuildTelemetryDebrief();
+            if (!d.HasData)
+            {
+                return "";
+            }
+
+            return "Top " + d.TopSpeedKph.ToString("0") + "kph · " +
+                   d.FullThrottlePercent.ToString("0") + "% full throttle · " +
+                   d.BrakingPercent.ToString("0") + "% braking · DRS " +
+                   d.DrsPercent.ToString("0") + "% · tyre wear " +
+                   (d.TyreWearDelta01 * 100f).ToString("0") + "%";
+        }
         readonly HashSet<RaceParticipant> aheadOfSafetyCarLastTick = new HashSet<RaceParticipant>();
         // Blocks a NEW VSC/SC escalation for a while after the field returns to
         // Green, so one incident's aftermath can't chain into a second SC/VSC the
@@ -10247,7 +10266,7 @@ namespace LocalFormulaRacing
             {
                 // Production results screen when the production UI owns the
                 // frontend; the legacy screen is the compatibility fallback.
-                if (!ProductionSessionUi.TryShowResults(results, IsCareerRace))
+                if (!ProductionSessionUi.TryShowResults(results, IsCareerRace, TelemetryDebriefLine()))
                 {
                     ProductionSessionUi.BeginResults();
                     ui.ShowResults(this, results, IsCareerRace);
@@ -10420,7 +10439,7 @@ namespace LocalFormulaRacing
             }
 
             // Same production-first results path as the non-cinematic branch.
-            if (!ProductionSessionUi.TryShowResults(results, IsCareerRace))
+            if (!ProductionSessionUi.TryShowResults(results, IsCareerRace, TelemetryDebriefLine()))
             {
                 ProductionSessionUi.BeginResults();
                 ui.ShowResults(this, results, IsCareerRace);

@@ -80,7 +80,7 @@ namespace LocalFormulaRacing
         /// legacy results path); false leaves the legacy results screen as the
         /// compatibility fallback. Never throws into the race loop.
         /// </summary>
-        public static bool TryShowResults(System.Collections.Generic.List<RaceResultEntry> results, bool careerRace)
+        public static bool TryShowResults(System.Collections.Generic.List<RaceResultEntry> results, bool careerRace, string debriefLine = null)
         {
             if (!ProductionUiReadiness.Enabled)
             {
@@ -89,7 +89,7 @@ namespace LocalFormulaRacing
 
             try
             {
-                return ProductionUiBridge.TryShowResults(results, careerRace);
+                return ProductionUiBridge.TryShowResults(results, careerRace, debriefLine);
             }
             catch (System.Exception exception)
             {

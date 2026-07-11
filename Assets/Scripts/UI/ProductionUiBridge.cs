@@ -318,7 +318,7 @@ namespace LocalFormulaRacing
         /// results screen remains the compatibility fallback. The action buttons
         /// reuse the exact bootstrap hooks the legacy results screen used.
         /// </summary>
-        public static bool TryShowResults(List<RaceResultEntry> results, bool careerRace)
+        public static bool TryShowResults(List<RaceResultEntry> results, bool careerRace, string debriefLine = null)
         {
             // Uses the bridge state adopted when the frontend/race was started;
             // no fresh owner args (RaceManager does not hold GameBootstrap).
@@ -329,10 +329,18 @@ namespace LocalFormulaRacing
 
             try
             {
+                // Append the engineer debrief (from the live telemetry capture) as
+                // a second, smaller subtitle line when the race supplied one.
+                string subtitle = ResultsSubtitle();
+                if (!string.IsNullOrEmpty(debriefLine))
+                {
+                    subtitle = (string.IsNullOrEmpty(subtitle) ? "" : subtitle + "\n") + "<size=80%>" + debriefLine + "</size>";
+                }
+
                 var model = new ResultsModel
                 {
                     title = "RACE RESULT",
-                    subtitle = ResultsSubtitle(),
+                    subtitle = subtitle,
                     isCareer = careerRace,
                     primaryActionLabel = careerRace ? "Continue Career" : "Race Again",
                 };
