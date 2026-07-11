@@ -106,11 +106,25 @@ guarantees exactly one live HUD.
     (BuildAuthoredLayout(definition)) with emergency procedural fallback;
     forced-authored validation path reads the catalog.
 
-Exact next task: convert the remaining calendar circuits to the catalog in
-batches (mechanical now: move each Build*Layout's anchors/width/DRS into a
-Generate<Name> entry using the same scale-to-target conversion, retire the
-legacy method; batch ~6 circuits per commit). Then per-point camber in the
-legacy road-mesh pass; then career save-slot/driver-profile screens. All
+22. `4a81af3` Spec-based conversion infra (LegacyCircuitSpec; style/kerb/
+    elevation fidelity; TrackDefinitionAsset environmentStyle +
+    kerbStartOffset + anchorSubdivisions fields).
+23. `ef6f84c` ENTIRE CALENDAR converted to the authored pipeline (scripted
+    extraction, 24 specs incl. Bahrain + reference circuit); all 22
+    remaining Build*Layout methods and the dispatch chain retired; Bahrain
+    template kept as the single emergency fallback world. Procedural track
+    ownership is out of the ordinary path (Phase C milestone) - runtime
+    validation of the converted calendar is REQUIRED in-editor before this
+    can be called complete.
+
+Matrix note: "Authored tracks default / every track migrated" is now
+implemented-but-runtime-unverified; "procedural track removed" holds except
+the deliberate Bahrain emergency template.
+
+Exact next task: per-point camber support in the legacy road-mesh pass
+(BuildRoadMesh reading an authored camber profile like the width profile);
+then career save-slot/driver-profile screens; then Docs/TRACK_PIPELINE.md +
+KNOWN_ISSUES.md updates to reflect the authored-calendar reality. All
 runtime-unverified; in-editor pass pending (Docs/EDITOR_BRINGUP.md).
 
 ## Environment reality
