@@ -940,6 +940,13 @@ deferred, not claimed complete.
     resolve in-class.
     RaceManager.cs -> 1826 lines: 9841 out over 46 slices (~84.3%).
     RaceManager is now spread across 43 focused partials (main + 42).
+    Slice 47: race-control history - LogRaceControlHistory (records each event into
+    the rolling history, emits a replay-timeline flag marker and prunes to the cap)
+    and CountRaceControlHistoryLabel - 25 lines - moved to
+    RaceManager.RaceControlHistory.cs. Cap and marker hook unchanged; the history
+    list and RaceControlHistoryEntry nested type stay in main and resolve in-class.
+    RaceManager.cs -> 1800 lines: 9867 out over 47 slices (~84.6%).
+    RaceManager is now spread across 44 focused partials (main + 43).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

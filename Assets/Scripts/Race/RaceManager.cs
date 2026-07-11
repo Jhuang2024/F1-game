@@ -255,32 +255,6 @@ namespace LocalFormulaRacing
             return -1;
         }
 
-        void LogRaceControlHistory(string label, string detail)
-        {
-            int lap = PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.DisplayLap : 0;
-            raceControlHistory.Add(new RaceControlHistoryEntry { label = label, detail = detail, raceTimeSeconds = RaceElapsed, lap = lap });
-            // Every race-control event is a replay timeline marker (single hook).
-            replayCapture.AddFlagMarker(RaceElapsed, label);
-            if (raceControlHistory.Count > MaxRaceControlHistoryEntries)
-            {
-                raceControlHistory.RemoveAt(0);
-            }
-        }
-
-        int CountRaceControlHistoryLabel(string label)
-        {
-            int count = 0;
-            for (int i = 0; i < raceControlHistory.Count; i++)
-            {
-                if (raceControlHistory[i].label == label)
-                {
-                    count++;
-                }
-            }
-
-            return count;
-        }
-
         float redFlagTimer;
         // Distinct participants behind a genuinely catastrophic incident within
         // a short rolling window AND clustered at the same point on track -
