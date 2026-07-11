@@ -312,6 +312,7 @@ namespace LocalFormulaRacing
                     GapToLeaderSeconds = p == null || p == leader ? 0f : Mathf.Max(0f, race.GetGapBetweenSeconds(leader, p)),
                     IntervalSeconds = p == null || ahead == null ? 0f : Mathf.Max(0f, race.GetGapBetweenSeconds(ahead, p)),
                     Compound = p != null && p.vehicle != null && p.vehicle.Tyres != null ? (int)p.vehicle.Tyres.Compound : 1,
+                    DrsActive = p != null && p.vehicle != null && p.vehicle.DrsActive,
                     IsPlayer = p != null && p.isPlayer,
                     InPit = p != null && (p.isPitting || p.pitPhase != PitPhase.None),
                     Retired = p != null && p.retired,

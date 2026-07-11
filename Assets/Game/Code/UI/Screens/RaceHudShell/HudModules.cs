@@ -796,6 +796,12 @@ namespace F1Game.UI.Screens.RaceHudShell
             sb.Append(" <color=#").Append(ColorUtility.ToHtmlStringRGB(CompoundPalette.For(compound)))
               .Append(">").Append(CompoundLetters[compound]).Append("</color>");
 
+            // Broadcast DRS dot when the wing is open.
+            if (e.DrsActive)
+            {
+                sb.Append(" <color=#").Append(accent).Append(">•</color>");
+            }
+
             if (e.Retired)
             {
                 sb.Append("  <color=#").Append(muted).Append(">OUT</color>");

@@ -137,6 +137,7 @@ namespace F1Game.Core
         public float GapToLeaderSeconds;
         public float IntervalSeconds;   // gap to the car one place ahead
         public int Compound;            // 0 soft .. 4 wet
+        public bool DrsActive;          // wing currently open
         public bool IsPlayer;
         public bool InPit;
         public bool Retired;

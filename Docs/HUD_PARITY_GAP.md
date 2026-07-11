@@ -46,7 +46,8 @@ pit-request/radio events).
 
 ## Tier 5 — Spatial/order widgets
 - [x] Tower per-row tyre compound + interval column. (tranche 1)
-- [ ] Tower per-row DRS dot + PIT tag in interval slot + 22-row depth.
+- [x] Tower per-row DRS dot + PIT tag. (tranche 9; 22-row depth still
+      capped at top-10 + player)
 - [ ] Track map minimap (497) + progress strip (2664): needs a per-car
       position stream (heaviest new plumbing; no channel exists).
 
