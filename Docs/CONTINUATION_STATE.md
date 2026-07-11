@@ -1194,6 +1194,22 @@ deferred, not claimed complete.
         The partial reads live Track.weather and delegates - byte-identical, one live
         path. QualifyingModelTests extended (heavy/light rain + dry rows, incl. the
         cloudy->dry-else path). Unity/runtime validation PENDING.
+    E9. Safety-car convoy control-law -> engine-free SafetyCarPacing. The autopilot
+        that paces cars behind the safety car (and holds them under a red flag) had
+        its numeric control-law inline in RaceManager.SafetyCar.cs: gap-per-car (pace
+        scaled), the proportional speed correction toward each car's queue slot (with
+        the -45/+25 asymmetric cap), the convoy speed target, the brake/throttle
+        mapping (with the -3 km/h deadband), the steering lookahead, and the red-flag
+        hold braking. Extracted verbatim into SafetyCarPacing.GapPerCarMeters /
+        SpeedAdjustKph / TargetSpeedKph / BrakeThrottle(out brake, out throttle) /
+        LookAheadMeters / RedFlagHoldBrake, with engine-free Clamp/Clamp01/Lerp
+        mirroring Mathf. RaceManager keeps every live read (queue index, slot distance
+        via Track.WrapDistance, own speed/position, the Track.SampleAtDistance
+        steering) and the VehicleCommand mutation, and delegates only the formulas -
+        byte-identical, one live path (this is the AI's live SC behaviour, feel
+        preserved, relocation not retune). SafetyCarPacingTests added (gap/speed/
+        target caps, pedal deadband + clamps, lookahead, red-flag brake scaling).
+        Unity/runtime validation PENDING (SC convoy feel needs an in-editor run).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

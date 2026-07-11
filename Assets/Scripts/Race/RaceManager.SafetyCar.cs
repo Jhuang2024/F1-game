@@ -623,9 +623,9 @@ namespace LocalFormulaRacing
             }
 
             float scSpeedKph = raceControlReferenceSpeedKph;
-            // Gap scales slightly with pace: a faster-moving queue needs a
-            // little more following distance per car than a crawling one.
-            float gapPerCar = Mathf.Lerp(14f, 22f, Mathf.Clamp01(scSpeedKph / 160f));
+            // Gap/speed/pedal control-law lives in the engine-free SafetyCarPacing;
+            // the live queue/slot/track reads and command mutation stay here.
+            float gapPerCar = SafetyCarPacing.GapPerCarMeters(scSpeedKph);
             int queueIndex = Mathf.Max(0, participant.safetyCarQueueIndex);
             float targetDistance = Track.WrapDistance(raceControlReferenceDistance - queueIndex * gapPerCar);
             participant.safetyCarTargetDistance = targetDistance;
@@ -638,30 +638,18 @@ namespace LocalFormulaRacing
             float signedSlotError = rawGap > Track.length * 0.5f ? rawGap - Track.length : rawGap;
 
             float mySpeedKph = Mathf.Abs(participant.vehicle.CurrentSpeedKph);
-            // Proportional speed target around the safety car's own pace: ahead
-            // of slot -> brake back toward it, behind -> close in gently. Capped
-            // well short of racing pace so a car that fell a long way back
-            // during the deployment doesn't come storming up on the queue.
-            float speedAdjustKph = Mathf.Clamp(signedSlotError * 1.2f, -45f, 25f);
-            float targetSpeedKph = Mathf.Clamp(scSpeedKph + speedAdjustKph, 0f, scSpeedKph + 25f);
-
-            float speedGapKph = targetSpeedKph - mySpeedKph;
-            if (speedGapKph < -3f)
-            {
-                command.brake = Mathf.Clamp01(-speedGapKph / 40f);
-                command.throttle = 0f;
-            }
-            else
-            {
-                command.brake = 0f;
-                command.throttle = Mathf.Clamp01(0.15f + speedGapKph / 40f);
-            }
+            // Proportional speed target around the safety car's own pace (ahead of
+            // slot brakes back, behind closes in gently, capped short of racing
+            // pace) and the pedal mapping toward it - both in SafetyCarPacing.
+            float speedAdjustKph = SafetyCarPacing.SpeedAdjustKph(signedSlotError);
+            float targetSpeedKph = SafetyCarPacing.TargetSpeedKph(scSpeedKph, speedAdjustKph);
+            SafetyCarPacing.BrakeThrottle(targetSpeedKph, mySpeedKph, out command.brake, out command.throttle);
 
             // Steering: same lookahead-sample-and-steer-toward-it pattern the AI's
             // own normal driving uses, just always aimed at the centerline (no
             // racing-line offset - a convoy holds station, it doesn't need to
             // find the fastest line through a corner).
-            float lookAhead = Mathf.Lerp(14f, 38f, Mathf.Clamp01(mySpeedKph / 150f));
+            float lookAhead = SafetyCarPacing.LookAheadMeters(mySpeedKph);
             Vector3 point;
             Vector3 forward;
             Vector3 right;
@@ -683,7 +671,7 @@ namespace LocalFormulaRacing
             VehicleCommand command = new VehicleCommand();
             float speedKph = Mathf.Abs(participant.vehicle.CurrentSpeedKph);
             command.throttle = 0f;
-            command.brake = speedKph > 3f ? Mathf.Lerp(0.22f, 0.5f, Mathf.Clamp01(speedKph / 140f)) : 0.35f;
+            command.brake = SafetyCarPacing.RedFlagHoldBrake(speedKph);
 
             TrackProgress progress = State.GetCurrentProgress(participant);
             Vector3 point;
