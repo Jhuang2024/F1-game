@@ -91,11 +91,17 @@ guarantees exactly one live HUD.
     synthesized event. World+queries share one parameterization; first drive
     needs the in-editor pass.
 
-Exact next task: honor authored per-point width in the legacy build
-(HalfWidthAt reading a per-point width table when the layout is authored -
-the seam helpers already route every consumer), then per-point camber in the
-road mesh. After that: career screens (save-slot info, driver profile) in
-the CareerHub pattern; then next authored circuit conversions.
+19. `385ff98` Authored per-point width honored: TrackRuntime carries an
+    authored half-width profile interpolated by HalfWidthAt (single width
+    source), so world build + all gameplay width checks follow it. Aurora
+    Park fills it from the definition; procedural layouts unchanged.
+
+Exact next task: career screens (save-slot info, driver profile) in the
+CareerHub pattern; then per-point camber in the road mesh (TrackMeshBuilder
+honors it in the authored pipeline; legacy BuildRoadMesh does not - check
+whether a camber pass is worth adding before more circuits convert); then
+convert a second circuit to an authored definition to prove the pipeline
+generalizes. All runtime-unverified; in-editor pass pending.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
