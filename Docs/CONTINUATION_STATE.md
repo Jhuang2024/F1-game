@@ -1388,6 +1388,27 @@ deferred, not claimed complete.
         on the live path. Runtime wiring into a replay-watch screen and visual
         layout are editor-gated. VISUAL/RUNTIME VALIDATION PENDING.
 
+    F8. Presentation cameras -> BroadcastCameraSelector (engine-free, F1Game.Race,
+        UNIT-TESTED) + three Unity-facing controllers (Assembly-CSharp,
+        LocalFormulaRacing). BroadcastCameraSelector is the pure decision a TV
+        director uses: given a ring of fixed trackside camera points and the covered
+        car's position, it keeps only cameras inside a distance band, prefers the one
+        nearest an ideal framing distance, and holds the current camera within a
+        hysteresis margin so cuts stay TV-like (BroadcastCameraSelectorTests: empty,
+        ideal-distance pick, range-band cull, hysteresis hold, clear-rival switch,
+        out-of-range hold). BroadcastCameraController binds it + ReplayDirector to
+        cut/aim the output camera, building a clearly-labelled placeholder trackside
+        ring when no cameras are authored. SpectatorCameraController is a free
+        orbit/free-fly spectator camera (focus cycling, mouse orbit, WASD fly).
+        PhotoModeController freezes the sim (time scale 0), hides the HUD via a
+        callback, free-flies with FOV control, and captures a screenshot to the
+        persistent path - fully reversible (restores time scale/FOV/HUD on exit).
+        All three are default-off (f1game_broadcast_camera / f1game_spectator_camera
+        / f1game_photo_mode), inert until Configure(), and only move their own output
+        camera - the live race loop and in-car camera are untouched. The MonoBehaviours
+        can't be unit-tested from F1Game.Tests.EditMode; only the selector is covered.
+        VISUAL/RUNTIME VALIDATION PENDING (in-editor broadcast/spectator/photo run).
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
