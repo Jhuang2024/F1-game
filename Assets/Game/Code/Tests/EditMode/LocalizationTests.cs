@@ -49,5 +49,48 @@ namespace F1Game.Tests
             Assert.AreEqual("english", Localization.Get("k", "english"));
             Assert.AreEqual("", Localization.Language);
         }
+
+        [Test]
+        public void ParseReadsKeyValueLinesAndSkipsCommentsAndBlanks()
+        {
+            string doc = "# a comment\n\nsettings.title = Réglages \n button.back=Retour\nmalformed line\n=novalue\n";
+            Dictionary<string, string> table = Localization.Parse(doc);
+            Assert.AreEqual(2, table.Count);
+            Assert.AreEqual("Réglages", table["settings.title"]);   // trimmed
+            Assert.AreEqual("Retour", table["button.back"]);
+            Assert.IsFalse(table.ContainsKey("malformed line"));
+            Assert.IsFalse(table.ContainsKey(""));
+        }
+
+        [Test]
+        public void ParseKeepsInnerSpacesAndLaterDuplicatesWin()
+        {
+            Dictionary<string, string> table = Localization.Parse("k=first value\nk=second value");
+            Assert.AreEqual("second value", table["k"]);
+        }
+
+        [Test]
+        public void LoadFromTextMakesEntriesLive()
+        {
+            Localization.LoadFromText("de", "hud.lap=RUNDE");
+            Assert.AreEqual("RUNDE", Localization.Get("hud.lap", "LAP"));
+            Assert.AreEqual("de", Localization.Language);
+        }
+
+        [Test]
+        public void MissingKeysReportsUncoveredRequiredKeys()
+        {
+            Localization.Load("fr", new Dictionary<string, string> { { "a", "A" }, { "b", "" } });
+            var missing = Localization.MissingKeys(new[] { "a", "b", "c" });
+            // "a" is covered; "b" is blank; "c" is absent.
+            CollectionAssert.AreEquivalent(new[] { "b", "c" }, missing);
+        }
+
+        [Test]
+        public void MissingKeysReportsAllWhenNoTableLoaded()
+        {
+            var missing = Localization.MissingKeys(new[] { "a", "b" });
+            CollectionAssert.AreEquivalent(new[] { "a", "b" }, missing);
+        }
     }
 }

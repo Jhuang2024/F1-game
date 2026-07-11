@@ -399,8 +399,17 @@ deferred, not claimed complete.
     label (QUALIFYING / TIME TRIAL / PRACTICE / RACE) and the LAP prefix. Net:
     the localization seam now covers the production frontend chrome (all screen
     titles, headings, settings rows, every button) and the prominent HUD strings,
-    all with English fallbacks - a broad, safe foundation. Loading an actual
-    translation table remains a content/wiring step (no translation data ships).
+    all with English fallbacks - a broad, safe foundation.
+75. LOCALIZATION loading + validation infrastructure (ledger next-safe task):
+    Localization.Parse (pure, testable) reads a key=value document (# comments,
+    blank/malformed lines skipped, later duplicates win); LoadFromText loads it;
+    MissingKeys(required) reports uncovered/blank keys for validation tooling.
+    LocalizationLoader (engine side, kept separate so Localization stays pure)
+    loads Resources/Localization/<lang>.txt, clearing to English on an empty/"en"
+    language or a missing file. GameBootstrap.Awake loads the language from the
+    f1game_language pref (default "en" → no-op), so the whole path is live end to
+    end: pick a language + drop a translation file and it applies, with nothing
+    breaking out of the box. LocalizationTests cover parse/load/validation.
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks

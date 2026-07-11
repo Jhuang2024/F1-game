@@ -27,10 +27,92 @@ namespace F1Game.Core
             Language = translations == null ? "" : (language ?? "");
         }
 
+        /// <summary>
+        /// Parses and loads a translation table from a simple <c>key=value</c> text
+        /// document (one entry per line; blank lines and <c>#</c> comments ignored).
+        /// A loader (e.g. a Resources TextAsset reader) hands the raw text here.
+        /// </summary>
+        public static void LoadFromText(string language, string content)
+        {
+            Load(language, Parse(content));
+        }
+
         public static void Clear()
         {
             table = null;
             Language = "";
+        }
+
+        /// <summary>
+        /// Parses a <c>key=value</c> document into a table. Lines are trimmed;
+        /// blank lines and lines beginning with <c>#</c> are skipped; the key is
+        /// everything before the first <c>=</c> (trimmed), the value everything
+        /// after (leading/trailing space trimmed, inner spaces kept); malformed
+        /// lines (no <c>=</c> or empty key) are ignored. Later duplicate keys win.
+        /// </summary>
+        public static Dictionary<string, string> Parse(string content)
+        {
+            var result = new Dictionary<string, string>();
+            if (string.IsNullOrEmpty(content))
+            {
+                return result;
+            }
+
+            string[] lines = content.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            for (int i = 0; i < lines.Length; i++)
+            {
+                string line = lines[i].Trim();
+                if (line.Length == 0 || line[0] == '#')
+                {
+                    continue;
+                }
+
+                int eq = line.IndexOf('=');
+                if (eq <= 0)
+                {
+                    continue;
+                }
+
+                string key = line.Substring(0, eq).Trim();
+                if (key.Length == 0)
+                {
+                    continue;
+                }
+
+                result[key] = line.Substring(eq + 1).Trim();
+            }
+
+            return result;
+        }
+
+        /// <summary>
+        /// Validation helper for tooling: returns the required keys that the
+        /// currently loaded table is missing or maps to a blank value. An empty
+        /// result means full coverage of the required set. With no table loaded,
+        /// every required key is reported missing.
+        /// </summary>
+        public static List<string> MissingKeys(IEnumerable<string> requiredKeys)
+        {
+            var missing = new List<string>();
+            if (requiredKeys == null)
+            {
+                return missing;
+            }
+
+            foreach (string key in requiredKeys)
+            {
+                if (string.IsNullOrEmpty(key))
+                {
+                    continue;
+                }
+
+                if (table == null || !table.TryGetValue(key, out string value) || string.IsNullOrEmpty(value))
+                {
+                    missing.Add(key);
+                }
+            }
+
+            return missing;
         }
 
         /// <summary>

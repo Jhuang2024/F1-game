@@ -51,6 +51,9 @@ namespace LocalFormulaRacing
             // weather, radio). Empty bank slots defer to the generated cues.
             F1Game.Audio.RaceAudioDirector.Create(transform);
             UiFactory.AnimationsEnabled = settings.Current.uiAnimations;
+            // Load a translation table if one is selected and present; defaults to
+            // "en" (English source text, no table) so this is a no-op out of the box.
+            F1Game.Core.LocalizationLoader.LoadLanguage(PlayerPrefs.GetString("f1game_language", "en"));
         }
 
         void Start()
