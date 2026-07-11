@@ -100,9 +100,55 @@ namespace LocalFormulaRacing
         // targeting and the physical enforcement backstop agree on the same
         // number, the same way the full Safety Car branch already clamps to
         // SafetyCarTargetSpeedKph rather than scaling it.
-        public const float VirtualSafetyCarSpeedCapKph = 190f;
+        public const float VirtualSafetyCarSpeedCapKph = FlagRules.VirtualSafetyCarSpeedCapKph;
         public bool IsPitLaneOpen { get; private set; } = true;
-        public bool IsOvertakingAllowed { get; private set; } = true;
+
+        // Single mapping from the live race-control state machine to the
+        // extracted flag rulebook (FlagRules). Every policy consumer -
+        // overtaking, DRS, pace caps - derives from this, so the consequence
+        // of each flag is stated exactly once, in FlagRules.
+        public RaceFlag GlobalRaceFlag
+        {
+            get
+            {
+                switch (CurrentRaceControlState)
+                {
+                    case RaceControlState.RedFlagged:
+                        return RaceFlag.Red;
+                    case RaceControlState.VirtualSafetyCar:
+                        return RaceFlag.VirtualSafetyCar;
+                    case RaceControlState.SafetyCarDeploying:
+                    case RaceControlState.SafetyCarActive:
+                    case RaceControlState.SafetyCarInThisLap:
+                    // The field is still under race control between the safety
+                    // car peeling in and the actual green flag.
+                    case RaceControlState.Restart:
+                        return RaceFlag.SafetyCar;
+                    default:
+                        // A sector-local yellow is scoped per participant (see
+                        // FlagForParticipant); the global flag stays green.
+                        return RaceFlag.Green;
+                }
+            }
+        }
+
+        // The flag THIS car is currently shown: the global flag, plus the
+        // sector-scoped local yellow with its near-incident fallback window.
+        public RaceFlag FlagForParticipant(RaceParticipant participant)
+        {
+            RaceFlag flag = GlobalRaceFlag;
+            if (flag == RaceFlag.Green && IsNearLocalYellowIncident(participant))
+            {
+                return RaceFlag.LocalYellow;
+            }
+
+            return flag;
+        }
+
+        // Derived from the state machine through FlagRules rather than kept as
+        // a separately-written bool, so it can never fall out of step with the
+        // race-control state it reports on.
+        public bool IsOvertakingAllowed { get { return FlagRules.OvertakingAllowed(GlobalRaceFlag); } }
         // -1 when no sector-local yellow is active; otherwise the 1-3 sector index
         // overtaking is currently banned in, independent of the full SC/VSC ban above.
         public int YellowFlagSector { get; private set; } = -1;
@@ -1671,7 +1717,6 @@ namespace LocalFormulaRacing
             CurrentRaceControlState = RaceControlState.Green;
             SafetyCarTargetSpeedKph = 150f;
             IsPitLaneOpen = true;
-            IsOvertakingAllowed = true;
             YellowFlagSector = -1;
             IncidentCount = 0;
             CarContactIncidentCount = 0;
@@ -2341,7 +2386,6 @@ namespace LocalFormulaRacing
             // below) - never a random long "repair window" and never the
             // original race-start grid.
             redFlagTimer = RedFlagHoldSeconds;
-            IsOvertakingAllowed = false;
             IsPitLaneOpen = true;
             recentCatastrophicIncidents.Clear();
             recentCatastrophicIncidentTimes.Clear();
@@ -2671,7 +2715,6 @@ namespace LocalFormulaRacing
         {
             CurrentRaceControlState = RaceControlState.VirtualSafetyCar;
             safetyCarTimer = Random.Range(14f, 24f);
-            IsOvertakingAllowed = false;
             playerScPitPromptSent = false;
             // Radio clarity: declares who caused it and where instead of a
             // bare "virtual safety car deployed".
@@ -2688,7 +2731,6 @@ namespace LocalFormulaRacing
         {
             CurrentRaceControlState = RaceControlState.SafetyCarDeploying;
             safetyCarTimer = Random.Range(6f, 10f);
-            IsOvertakingAllowed = false;
             SafetyCarDeploymentCount++;
             playerScPitPromptSent = false;
             playerScQueueWarningSent = false;
@@ -3464,7 +3506,6 @@ namespace LocalFormulaRacing
             {
                 case RaceControlState.Green:
                 case RaceControlState.YellowSector:
-                    IsOvertakingAllowed = true;
                     IsPitLaneOpen = true;
                     // Green-flag ramp tail: for a short window after a safety-car
                     // restart, cars are still held under race-control autopilot
@@ -3492,7 +3533,6 @@ namespace LocalFormulaRacing
                     if (safetyCarTimer <= 0f)
                     {
                         CurrentRaceControlState = RaceControlState.Green;
-                        IsOvertakingAllowed = true;
                         postEscalationCooldownTimer = PostEscalationCooldownSeconds;
                         GameLog.Info("[RaceControl] VSC ending, green flag.");
                         if (Settings != null && Settings.Current.raceControlMessages)
@@ -3597,7 +3637,6 @@ namespace LocalFormulaRacing
                     if (restartControlTimer <= 0f)
                     {
                         CurrentRaceControlState = RaceControlState.Green;
-                        IsOvertakingAllowed = true;
                         drsRestartCooldownTimer = 45f;
                         postEscalationCooldownTimer = PostEscalationCooldownSeconds;
                         playerScPitPromptSent = false;
@@ -3646,7 +3685,6 @@ namespace LocalFormulaRacing
                     break;
 
                 case RaceControlState.RedFlagged:
-                    IsOvertakingAllowed = false;
                     // Pit lane stays open through a red flag (real F1 uses it as
                     // the "return to the pits" option this simplified model
                     // deliberately leans on instead of a full grid-lane
@@ -3957,14 +3995,21 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            if (!IsOvertakingAllowed)
+            // Field-wide caution (SC/VSC/red/restart): FlagRules owns the
+            // consequence of the global flag.
+            if (!FlagRules.OvertakingAllowed(GlobalRaceFlag))
             {
                 return true;
             }
 
-            if (YellowFlagSector >= 0 && State != null && participant != null)
+            // A local yellow bans passing sector-wide - deliberately wider
+            // than the near-incident speed-cap window (you must not pass near
+            // a hazard you might not see yet), so this stays a sector test
+            // rather than reading FlagForParticipant.
+            if (YellowFlagSector >= 0 && State != null && participant != null &&
+                State.GetCurrentProgress(participant).sector == YellowFlagSector)
             {
-                return State.GetCurrentProgress(participant).sector == YellowFlagSector;
+                return !FlagRules.OvertakingAllowed(RaceFlag.LocalYellow);
             }
 
             return false;
@@ -6198,11 +6243,7 @@ namespace LocalFormulaRacing
         // The limiter must never end before the period it enforces does.
         public bool IsRaceControlPaceLimited
         {
-            get
-            {
-                return IsVirtualSafetyCarActive || IsFullSafetyCarPeriod ||
-                       CurrentRaceControlState == RaceControlState.Restart;
-            }
+            get { return FlagRules.RequiresPaceControl(GlobalRaceFlag); }
         }
 
         // Part 2: a local yellow only limits speed for cars actually near the
@@ -6211,7 +6252,7 @@ namespace LocalFormulaRacing
         // sector-wide overtake ban above (which deliberately stays sector-wide,
         // since that's about not passing near a hazard you might not see yet).
         const float LocalYellowSpeedCapWindowMeters = 180f;
-        const float LocalYellowSpeedCapKph = 210f;
+        const float LocalYellowSpeedCapKph = FlagRules.LocalYellowSpeedCapKph;
 
         public bool IsNearLocalYellowIncident(RaceParticipant participant)
         {
@@ -6612,26 +6653,15 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            // DRS is off under any safety-car period and for a short cooldown after
-            // the restart - real F1 rule, and the simplest correct place to gate it.
-            if (drsRestartCooldownTimer > 0f ||
-                CurrentRaceControlState == RaceControlState.VirtualSafetyCar ||
-                CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
-                CurrentRaceControlState == RaceControlState.SafetyCarActive ||
-                CurrentRaceControlState == RaceControlState.SafetyCarInThisLap ||
-                CurrentRaceControlState == RaceControlState.RedFlagged ||
-                CurrentRaceControlState == RaceControlState.Restart)
-            {
-                return false;
-            }
-
-            // A local yellow disables DRS for any car in the flagged sector (the
-            // same scope as the overtaking ban - DRS exists purely to overtake),
-            // plus the tighter near-incident window used by the speed cap. Checked
-            // continuously (every frame, not just at the detection point) so a
-            // yellow that comes out AFTER a car already earned zone eligibility
-            // still shuts DRS off immediately, matching the real rule.
-            if (IsNearLocalYellowIncident(participant) || IsOvertakingRestrictedForParticipant(participant))
+            // DRS permission under flags is FlagRules' call. FlagForParticipant
+            // folds the sector-local yellow (and its near-incident fallback
+            // window) into the global flag, and this is checked continuously
+            // (every frame, not just at the detection point) so a yellow that
+            // comes out AFTER a car already earned zone eligibility still shuts
+            // DRS off immediately, matching the real rule. The restart cooldown
+            // is race-layer state (real F1 rule: no DRS for a spell after a
+            // restart) layered on top.
+            if (drsRestartCooldownTimer > 0f || !FlagRules.DrsAllowed(FlagForParticipant(participant)))
             {
                 return false;
             }
@@ -6697,15 +6727,12 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            // ERS deployment is disabled through the safety-car/VSC period itself -
+            // ERS deployment is disabled while this car runs under any caution -
             // nobody is racing for position, so there is nothing to spend it on -
-            // but it comes back at the restart where a strong launch matters.
-            if (CurrentRaceControlState == RaceControlState.VirtualSafetyCar ||
-                CurrentRaceControlState == RaceControlState.SafetyCarDeploying ||
-                CurrentRaceControlState == RaceControlState.SafetyCarActive ||
-                CurrentRaceControlState == RaceControlState.SafetyCarInThisLap ||
-                CurrentRaceControlState == RaceControlState.RedFlagged ||
-                IsNearLocalYellowIncident(participant) ||
+            // and it comes back the moment the green flag flies, where a strong
+            // launch matters. FlagRules owns the flag consequence; the second
+            // test adds the sector-wide local-yellow scope the passing ban uses.
+            if (!FlagRules.OvertakingAllowed(FlagForParticipant(participant)) ||
                 IsOvertakingRestrictedForParticipant(participant))
             {
                 return false;

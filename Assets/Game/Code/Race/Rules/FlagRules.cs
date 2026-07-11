@@ -26,6 +26,12 @@ namespace F1Game.Race.Rules
 
     public static class FlagRules
     {
+        // Numeric authority for the fixed caution speed caps (kph). The race
+        // layer owns the safety-car target speed (it varies with the queue);
+        // these two are constants of the rulebook.
+        public const float VirtualSafetyCarSpeedCapKph = 190f;
+        public const float LocalYellowSpeedCapKph = 210f;
+
         /// <summary>Overtaking permitted under this flag (for cars not being lapped).</summary>
         public static bool OvertakingAllowed(RaceFlag flag)
         {
