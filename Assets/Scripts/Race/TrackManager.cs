@@ -4623,14 +4623,29 @@ namespace LocalFormulaRacing
             Vector3 mid;
             Vector3 forward;
             Vector3 right;
+            Vector3 rightA;
+            Vector3 rightB;
             Vector3 discard;
-            Runtime.SampleAtDistance(distance, out a, out discard, out right);
-            Runtime.SampleAtDistance(distance + step, out b, out discard, out right);
+            Runtime.SampleAtDistance(distance, out a, out discard, out rightA);
+            Runtime.SampleAtDistance(distance + step, out b, out discard, out rightB);
             Runtime.SampleAtDistance(distance + step * 0.5f, out mid, out forward, out right);
 
-            Vector3 chord = b - a;
-            Vector3 chordForward = chord.sqrMagnitude > 0.01f ? chord.normalized : forward;
+            // Hairpin outside-line gap fix: size and orient each barrier box off the
+            // OUTER-EDGE chord, not the centerline chord. Every box is shifted outward
+            // by `lateral`; on the outside of a tight corner that offset edge traces a
+            // longer arc than the centerline, so consecutive boxes cut at a fixed
+            // centerline length spread apart and miter open (the missing barrier on the
+            // hairpin's outside line). Spanning the real offset edge closes that gap on
+            // any tight corner. The length only ever grows (Max), so the inside of
+            // corners and straights - where the offset chord is equal or shorter - keep
+            // their existing overlap and are unchanged.
+            Vector3 aEdge = a + rightA * side * lateral;
+            Vector3 bEdge = b + rightB * side * lateral;
+            Vector3 edgeChord = bEdge - aEdge;
+            Vector3 chordForward = edgeChord.sqrMagnitude > 0.01f ? edgeChord.normalized : forward;
             Vector3 basePosition = mid + right * side * lateral;
+            float overlapBudget = Mathf.Max(0f, segmentLength - step);
+            segmentLength = Mathf.Max(segmentLength, edgeChord.magnitude + overlapBudget);
 
             switch (style)
             {
