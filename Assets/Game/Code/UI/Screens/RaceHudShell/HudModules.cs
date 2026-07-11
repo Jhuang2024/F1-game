@@ -392,6 +392,54 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
+    /// <summary>
+    /// Pit strategy line: the plan (next stop lap + compound), escalating to
+    /// BOX THIS LAP, an SC-window prompt, or the live request state. Hidden
+    /// when no plan or request exists.
+    /// </summary>
+    public sealed class PitStrategyModule : HudModule
+    {
+        static readonly string[] CompoundLabels = { "Soft", "Medium", "Hard", "Inter", "Wet" };
+        [SerializeField] TMP_Text value;
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            bool show = t.Valid && !t.IsPitting &&
+                (t.PitRequested || t.NextPlannedPitLap > 0 || t.ScPitWindowOpen);
+            if (value.gameObject.activeSelf != show)
+            {
+                value.gameObject.SetActive(show);
+            }
+
+            if (!show)
+            {
+                return;
+            }
+
+            int compound = Mathf.Clamp(t.NextPlannedPitCompound, 0, CompoundLabels.Length - 1);
+            string compoundLabel = CompoundLabels[compound];
+            string warning = ColorUtility.ToHtmlStringRGB(UiTheme.Active.palette.warning);
+            if (t.ScPitWindowOpen)
+            {
+                value.text = $"<color=#{warning}>SC WINDOW - BOX NOW?</color> <size=80%>{compoundLabel} ready</size>";
+            }
+            else if (t.PitRequested)
+            {
+                value.text = $"<color=#{warning}>BOX CONFIRMED</color> <size=80%>{compoundLabel} ready</size>";
+            }
+            else if (t.BoxThisLap)
+            {
+                value.text = $"<color=#{warning}>BOX THIS LAP</color> <size=80%>{compoundLabel}</size>";
+            }
+            else
+            {
+                value.text = $"PIT PLAN <size=80%>lap {t.NextPlannedPitLap} · {compoundLabel}</size>";
+            }
+        }
+    }
+
     /// <summary>Sector times, tinted green when matching the session's best sector.</summary>
     public sealed class SectorsModule : HudModule
     {

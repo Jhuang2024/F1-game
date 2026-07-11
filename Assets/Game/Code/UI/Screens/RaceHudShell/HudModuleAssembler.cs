@@ -60,6 +60,9 @@ namespace F1Game.UI.Screens.RaceHudShell
             var sectorsText = Numeric(hud.TopLeftDock, "Sectors", 18f);
             hud.gameObject.AddComponent<SectorsModule>().Bind(sectorsText);
 
+            var pitPlanText = Numeric(hud.TopLeftDock, "PitPlan", 18f);
+            hud.gameObject.AddComponent<PitStrategyModule>().Bind(pitPlanText);
+
             // Flag + pit/penalty chips live with the other status chips.
             var flagChip = Chip(hud.TopRightDock, "Flag");
             hud.gameObject.AddComponent<FlagModule>().Bind(flagChip);

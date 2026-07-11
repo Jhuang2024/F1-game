@@ -17,12 +17,13 @@ pit-request/radio events).
       (`CanCancelManualPitRequest`).
 
 ## Tier 2 — Pit/strategy surface (snapshot fields)
-- [ ] Pit phase pill incl. "BOX THIS LAP" (2265): `pitPhase`,
-      `nextPlannedPitLap`, `pitAutoTriggered`.
-- [ ] Pit plan line (2387): planned lap/compound + AUTO/LATE.
+- [x] Pit phase pill incl. "BOX THIS LAP" (2265). (PitStrategyModule,
+      tranche 3; approach/exit sub-phases still legacy-only)
+- [x] Pit plan line (2387): planned lap/compound. (tranche 3; AUTO/LATE
+      tags still legacy-only)
 - [ ] Pit status line (2164): box number / limiter detail.
 - [x] Pit stop progress meter (2210): `PitStopProgress01`. (PitStrategy tranche 1)
-- [ ] SC window "BOX NOW?" prompt (2416): `RecommendedPitUnderSafetyCar`.
+- [x] SC window "BOX NOW?" prompt (2416). (tranche 3)
 - [x] Fuel pill states STARVATION/LOW/CRITICAL (1593). (tranche 1)
 - [ ] Slipstream/TOW pill (1562): strength/bonus/source.
 

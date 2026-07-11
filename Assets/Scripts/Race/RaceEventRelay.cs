@@ -197,6 +197,12 @@ namespace LocalFormulaRacing
                 PaceCapKph = race.RaceControlSpeedCapKphFor(player),
                 RestartCountdownSeconds = race.RestartCountdownSeconds,
                 RaceControlDetail = BuildRaceControlDetail(),
+                PitRequested = vehicle.PitRequested,
+                NextPlannedPitLap = race.NextPlannedPitLapFor(player),
+                NextPlannedPitCompound = (int)race.NextPlannedPitCompoundFor(player),
+                BoxThisLap = race.NextPlannedPitLapFor(player) > 0 && player.lapTracker != null &&
+                             player.lapTracker.CompletedLaps + 1 >= race.NextPlannedPitLapFor(player),
+                ScPitWindowOpen = race.RecommendedPitUnderSafetyCar(player),
             };
 
             if (race.State != null)

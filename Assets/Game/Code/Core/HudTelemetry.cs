@@ -75,6 +75,13 @@ namespace F1Game.Core
         public bool FuelStarved;
         public float PitStopProgress01;   // 0 outside service, else 0..1
 
+        // Pit strategy surface (Tier 2 parity).
+        public bool PitRequested;         // team has been asked to box
+        public int NextPlannedPitLap;     // 0 = no remaining planned stop
+        public int NextPlannedPitCompound; // 0 soft .. 4 wet
+        public bool BoxThisLap;           // planned lap is the one being driven
+        public bool ScPitWindowOpen;      // race control recommends boxing under SC/VSC
+
         // Last completed sector times this lap (0 = not set yet) and the
         // session-wide best per sector for purple/green comparison.
         public float Sector1Seconds;
