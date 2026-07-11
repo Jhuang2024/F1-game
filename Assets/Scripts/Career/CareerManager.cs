@@ -1504,22 +1504,7 @@ namespace LocalFormulaRacing
 
         int ComputeProjectWeeksForLevel(UpgradeData upgrade, int riskMode, int level)
         {
-            int weeks = Mathf.Max(1, Mathf.CeilToInt(upgrade.developmentDays / 10f));
-            if (level > 1)
-            {
-                weeks = Mathf.Max(1, Mathf.CeilToInt(weeks * (1f - 0.1f * (level - 1))));
-            }
-
-            if (riskMode == RiskConservative)
-            {
-                weeks = Mathf.CeilToInt(weeks * 1.25f);
-            }
-            else if (riskMode == RiskRush)
-            {
-                weeks = Mathf.Max(1, Mathf.RoundToInt(weeks * 0.65f));
-            }
-
-            return weeks;
+            return F1Game.Core.CarDevelopmentRules.DevelopmentWeeks(upgrade.developmentDays, level, riskMode);
         }
 
         public float ComputeProjectSuccessChance(UpgradeData upgrade, int riskMode)
@@ -1529,37 +1514,14 @@ namespace LocalFormulaRacing
 
         float ComputeProjectSuccessChanceForLevel(UpgradeData upgrade, int riskMode, int level)
         {
-            float chance = upgrade.successChance;
-            chance += 0.04f * (level - 1);
-            if (riskMode == RiskConservative)
-            {
-                chance = Mathf.Min(0.97f, chance + 0.10f);
-            }
-            else
-            {
-                if (riskMode == RiskRush)
-                {
-                    chance -= 0.15f;
-                }
-                else if (riskMode == RiskExperimental)
-                {
-                    chance -= 0.12f;
-                }
-
-                chance = Mathf.Min(0.95f, chance);
-            }
-
-            return Mathf.Max(0.05f, chance);
+            // Maths live in the engine-free CarDevelopmentRules (testable); this
+            // layer supplies the upgrade's base chance and the resolved level.
+            return F1Game.Core.CarDevelopmentRules.SuccessChance(upgrade.successChance, level, riskMode);
         }
 
         public int ComputeProjectCost(UpgradeData upgrade, int riskMode)
         {
-            if (riskMode == RiskConservative)
-            {
-                return Mathf.RoundToInt(upgrade.cost * 1.15f);
-            }
-
-            return upgrade.cost;
+            return F1Game.Core.CarDevelopmentRules.Cost(upgrade.cost, riskMode);
         }
 
         public void AdvanceUpgradeProjects()
