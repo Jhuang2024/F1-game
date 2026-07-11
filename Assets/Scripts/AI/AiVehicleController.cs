@@ -253,11 +253,32 @@ namespace LocalFormulaRacing
         // as a genuine hairpin but should never read as one here.
         float MeasureHairpinTurnAngle(float apexDistance)
         {
-            Vector3 pointBefore, forwardBefore, rightBefore;
-            Vector3 pointAfter, forwardAfter, rightAfter;
-            track.SampleAtDistance(apexDistance - 55f, out pointBefore, out forwardBefore, out rightBefore);
-            track.SampleAtDistance(apexDistance + 55f, out pointAfter, out forwardAfter, out rightAfter);
-            return Vector3.Angle(forwardBefore, forwardAfter);
+            // EstimateCornerSeverity samples forward only (+14/+46/+82m), so
+            // FindUpcomingApex's argmax sits ~60-80m SHORT of a long-arc hairpin's
+            // true apex. Probing the +/-55m baseline symmetrically about that short
+            // point put BOTH samples on the entry leg - the Italy/Monza 177-degree
+            // switchback measured ~0 degrees at the argmax (vs ~176 at the real tip),
+            // failed the >=150 hairpin test, and was classified VeryTight. That gave
+            // it a ~302kph floor (which pins to straight-line speed), so the AI took a
+            // 177-degree hairpin flat out into the wall - the crash reported ONLY at
+            // this corner. Take the max angle over a small forward window so the probe
+            // reaches the real apex. Because ahead=0 is included, the result is always
+            // >= the old single-probe value: this can only PROMOTE a genuine long-arc
+            // hairpin, never demote a corner that already classified correctly, and it
+            // is only consulted when apexSeverity has already saturated (line 329), so
+            // ordinary tight corners (e.g. Suzuka) that never reach 150 degrees at any
+            // offset stay VeryTight. Net effect is local to the Italy hairpin.
+            float best = 0f;
+            for (float ahead = 0f; ahead <= 60f; ahead += 20f)
+            {
+                Vector3 pointBefore, forwardBefore, rightBefore;
+                Vector3 pointAfter, forwardAfter, rightAfter;
+                track.SampleAtDistance(apexDistance + ahead - 55f, out pointBefore, out forwardBefore, out rightBefore);
+                track.SampleAtDistance(apexDistance + ahead + 55f, out pointAfter, out forwardAfter, out rightAfter);
+                best = Mathf.Max(best, Vector3.Angle(forwardBefore, forwardAfter));
+            }
+
+            return best;
         }
 
         // Part A.5: higher-skill tiers get wider HighSpeed/Medium buckets so they
