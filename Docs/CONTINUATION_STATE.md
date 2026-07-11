@@ -1495,6 +1495,17 @@ deferred, not claimed complete.
         DamagePerformanceTests pin the full curve (undamaged=full, per-component
         falloff, floors, averaging/clamp, destroyed threshold).
 
+    F15. VFX trigger thresholds -> engine-free VfxTriggerRules (F1Game.Race.Rules,
+        UNIT-TESTED), extracted VERBATIM from VehicleVfxDriver. Behavior-preserving:
+        the normalized speed (|kph|/300), slip signal (oversteer + half understeer),
+        and the lockup/wheelspin/off-track-dust/kerb-sparks gates plus the fresh-
+        damage-jump test (>0.04 since last frame, with a prior reading) now live in
+        pure predicates with the same thresholds; the driver keeps owning cooldown
+        timers and spawn positions and delegates the decisions. VfxTriggerRulesTests
+        pin each gate at its threshold boundary. Cosmetic VFX only, no gameplay feel;
+        (VehicleVfxDriver is not the live VFX path - VehicleEffects is - so this is
+        pure additive coverage.)
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

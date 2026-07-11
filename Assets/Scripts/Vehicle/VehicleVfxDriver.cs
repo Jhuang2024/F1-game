@@ -72,34 +72,36 @@ namespace LocalFormulaRacing
             smokeCooldown -= dt;
             dustCooldown -= dt;
 
-            float speed01 = Mathf.Clamp01(Mathf.Abs(vehicle.CurrentSpeedKph) / 300f);
+            // Trigger thresholds live in the engine-free VfxTriggerRules (same
+            // numbers, now unit-tested); this driver owns the cooldowns and spawns.
+            float speed01 = F1Game.Race.Rules.VfxTriggerRules.Speed01(vehicle.CurrentSpeedKph);
             Vector3 rear = transform.position - transform.forward * 1.6f + Vector3.up * 0.15f;
 
             // Lockup smoke under braking (tyre locked at speed).
             bool locked = vehicle.Tyres != null && vehicle.Tyres.IsLocked;
-            if (locked && speed01 > 0.15f && smokeCooldown <= 0f)
+            if (F1Game.Race.Rules.VfxTriggerRules.ShouldLockup(locked, speed01, smokeCooldown))
             {
                 Controller.Spawn(RaceVfxController.VfxKind.Lockup, FrontContact(), transform.rotation);
                 smokeCooldown = 0.06f;
             }
 
             // Wheelspin / power smoke: high slip while accelerating out of low speed.
-            float slip = Mathf.Clamp01(vehicle.OversteerAmount + vehicle.UndersteerAmount * 0.5f);
-            if (slip > 0.4f && speed01 > 0.05f && smokeCooldown <= 0f)
+            float slip = F1Game.Race.Rules.VfxTriggerRules.Slip(vehicle.OversteerAmount, vehicle.UndersteerAmount);
+            if (F1Game.Race.Rules.VfxTriggerRules.ShouldWheelspin(slip, speed01, smokeCooldown))
             {
                 Controller.Spawn(RaceVfxController.VfxKind.TyreSmoke, rear, transform.rotation);
                 smokeCooldown = 0.08f;
             }
 
             // Off-track dust/gravel/grass.
-            if (vehicle.IsOffTrackSlowdown && speed01 > 0.08f && dustCooldown <= 0f)
+            if (F1Game.Race.Rules.VfxTriggerRules.ShouldOffTrackDust(vehicle.IsOffTrackSlowdown, speed01, dustCooldown))
             {
                 Controller.Spawn(RaceVfxController.VfxKind.Gravel, rear, transform.rotation);
                 dustCooldown = 0.1f;
             }
 
             // Kerb sparks.
-            if (vehicle.IsOnKerb && speed01 > 0.25f && dustCooldown <= 0f)
+            if (F1Game.Race.Rules.VfxTriggerRules.ShouldKerbSparks(vehicle.IsOnKerb, speed01, dustCooldown))
             {
                 Controller.Spawn(RaceVfxController.VfxKind.Sparks, FrontContact(), transform.rotation);
                 dustCooldown = 0.12f;
@@ -109,7 +111,7 @@ namespace LocalFormulaRacing
             if (vehicle.Damage != null)
             {
                 float dmg = vehicle.Damage.OverallPercent;
-                if (lastDamagePercent >= 0f && dmg > lastDamagePercent + 0.04f)
+                if (F1Game.Race.Rules.VfxTriggerRules.IsFreshDamageJump(dmg, lastDamagePercent))
                 {
                     Controller.Spawn(RaceVfxController.VfxKind.Impact, transform.position + Vector3.up * 0.4f, transform.rotation);
                     Controller.Spawn(RaceVfxController.VfxKind.Debris, transform.position + Vector3.up * 0.3f, transform.rotation);
