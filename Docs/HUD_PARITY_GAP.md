@@ -83,3 +83,7 @@ Unity), so RaceHud stays the live default until that validation lands.
       overlay (2708).
 
 Production-only additions (not gaps): weather chip, session clock.
+
+Settings-consumer parity: the production speed readout now honours the
+useMphUnits setting (mph/kph), matching RaceHud's own unit conversion, via a
+new snapshot UseMphUnits field populated from race settings.

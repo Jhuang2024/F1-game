@@ -17,6 +17,7 @@ namespace F1Game.Core
         public float SessionClockSeconds;
 
         public float SpeedKph;
+        public bool UseMphUnits;  // display speeds/gaps in mph (accessibility/units setting)
         public int Gear;          // -1 reverse, 0 neutral, 1..8
         public float Rpm01;
 

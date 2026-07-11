@@ -125,7 +125,13 @@ namespace F1Game.UI.Screens.RaceHudShell
         {
             if (!t.Valid) return;
             if (gear != null) gear.text = t.Gear < 0 ? "R" : (t.Gear == 0 ? "N" : t.Gear.ToString());
-            if (speed != null) speed.text = $"{Mathf.RoundToInt(t.SpeedKph)}<size=45%> KPH</size>";
+            if (speed != null)
+            {
+                // Honour the units setting, matching the legacy HUD's mph readout.
+                float displaySpeed = t.UseMphUnits ? t.SpeedKph * 0.621371f : t.SpeedKph;
+                string unit = t.UseMphUnits ? "MPH" : "KPH";
+                speed.text = $"{Mathf.RoundToInt(displaySpeed)}<size=45%> {unit}</size>";
+            }
             if (rpm != null)
             {
                 // Redline tint as RPM approaches the limit.

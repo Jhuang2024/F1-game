@@ -374,6 +374,12 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+62. Production HUD honours the units setting (settings-consumer parity +
+    accessibility): SpeedGearModule now converts to mph and shows the MPH/KPH
+    unit when useMphUnits is set, matching RaceHud's own conversion (0.621371).
+    New snapshot UseMphUnits populated by RaceEventRelay from race settings. A
+    concrete example of a settings value having live effect in the production UI.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
