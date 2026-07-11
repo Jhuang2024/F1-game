@@ -810,6 +810,14 @@ deferred, not claimed complete.
     in-class.
     RaceManager.cs -> 3083 lines: 8584 out over 30 slices (~73.6%).
     RaceManager is now spread across 29 focused partials (main + 28).
+    Slice 31: tyre-compound selection - StartingTyreForParticipant (player
+    selection or time-trial soft; AI weather-appropriate wets/inters or a random
+    dry pick) and NextPitCompound (weather override, then the short-stint
+    faster-compound reach, then the Soft->Medium->Hard ladder) - 65 lines - moved
+    to RaceManager.TyreStrategy.cs. RNG call order and the aggression/stint-length
+    heuristics unchanged; callers resolve in-class.
+    RaceManager.cs -> 3017 lines: 8650 out over 31 slices (~74.1%).
+    RaceManager is now spread across 30 focused partials (main + 29).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
