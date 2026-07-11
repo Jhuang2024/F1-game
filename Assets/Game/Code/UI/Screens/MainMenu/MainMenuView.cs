@@ -19,6 +19,7 @@ namespace F1Game.UI.Screens.MainMenu
         [SerializeField] ThemedButton continueCareerButton;
         [SerializeField] ThemedButton quickRaceButton;
         [SerializeField] ThemedButton timeTrialButton;
+        [SerializeField] ThemedButton standingsButton;
         [SerializeField] ThemedButton settingsButton;
 
         public TMP_Text HeroTitle => heroTitle;
@@ -27,11 +28,12 @@ namespace F1Game.UI.Screens.MainMenu
         public ThemedButton ContinueCareerButton => continueCareerButton;
         public ThemedButton QuickRaceButton => quickRaceButton;
         public ThemedButton TimeTrialButton => timeTrialButton;
+        public ThemedButton StandingsButton => standingsButton;
         public ThemedButton SettingsButton => settingsButton;
 
         public void Bind(
             TMP_Text hero, TMP_Text context, TMP_Text version,
-            ThemedButton continueCareer, ThemedButton quickRace, ThemedButton timeTrial, ThemedButton settings)
+            ThemedButton continueCareer, ThemedButton quickRace, ThemedButton timeTrial, ThemedButton standings, ThemedButton settings)
         {
             heroTitle = hero;
             careerContext = context;
@@ -39,6 +41,7 @@ namespace F1Game.UI.Screens.MainMenu
             continueCareerButton = continueCareer;
             quickRaceButton = quickRace;
             timeTrialButton = timeTrial;
+            standingsButton = standings;
             settingsButton = settings;
             SetScreenId(Id);
             SetDefaultSelection(continueCareer != null ? continueCareer.gameObject : quickRace.gameObject);
@@ -59,6 +62,12 @@ namespace F1Game.UI.Screens.MainMenu
             if (continueCareerButton != null)
             {
                 continueCareerButton.SetText(model.hasCareer ? "Continue Career" : "Start Career");
+            }
+
+            // Standings only mean something once a career exists.
+            if (standingsButton != null && standingsButton.gameObject.activeSelf != model.hasCareer)
+            {
+                standingsButton.gameObject.SetActive(model.hasCareer);
             }
         }
     }

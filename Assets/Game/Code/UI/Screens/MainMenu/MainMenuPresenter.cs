@@ -13,6 +13,7 @@ namespace F1Game.UI.Screens.MainMenu
         public Action OnCareer;
         public Action OnQuickRace;
         public Action OnTimeTrial;
+        public Action OnStandings;
         public Action OnSettings;
 
         public MainMenuPresenter(MainMenuView view)
@@ -21,6 +22,7 @@ namespace F1Game.UI.Screens.MainMenu
             view.ContinueCareerButton.Clicked += () => OnCareer?.Invoke();
             view.QuickRaceButton.Clicked += () => OnQuickRace?.Invoke();
             view.TimeTrialButton.Clicked += () => OnTimeTrial?.Invoke();
+            view.StandingsButton.Clicked += () => OnStandings?.Invoke();
             view.SettingsButton.Clicked += () => OnSettings?.Invoke();
         }
 

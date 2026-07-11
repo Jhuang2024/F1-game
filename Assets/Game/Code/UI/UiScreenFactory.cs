@@ -192,14 +192,15 @@ namespace F1Game.UI
             ThemedButton career = CreateButton(actions, "Btn_Career", ThemedButton.Variant.Primary, "Continue Career");
             ThemedButton quickRace = CreateButton(actions, "Btn_QuickRace", ThemedButton.Variant.Secondary, "Quick Race");
             ThemedButton timeTrial = CreateButton(actions, "Btn_TimeTrial", ThemedButton.Variant.Secondary, "Time Trial");
+            ThemedButton standings = CreateButton(actions, "Btn_Standings", ThemedButton.Variant.Secondary, "Standings");
             ThemedButton settings = CreateButton(actions, "Btn_Settings", ThemedButton.Variant.Tertiary, "Settings");
 
             TMP_Text version = CreateText(content, "Version", TextStyle.Caption, "");
 
-            SetUpDownNavigation(new[] { career, quickRace, timeTrial, settings });
+            SetUpDownNavigation(new[] { career, quickRace, timeTrial, standings, settings });
 
             var view = content.parent.gameObject.AddComponent<MainMenuView>();
-            view.Bind(hero, context, version, career, quickRace, timeTrial, settings);
+            view.Bind(hero, context, version, career, quickRace, timeTrial, standings, settings);
             return view;
         }
 
@@ -218,6 +219,39 @@ namespace F1Game.UI
 
             var view = content.parent.gameObject.AddComponent<TrackSelectView>();
             view.Bind(header, listColumn, rowTemplate, back);
+            return view;
+        }
+
+        public static Screens.CareerStandings.CareerStandingsView BuildCareerStandings(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_CareerStandings", "CHAMPIONSHIP STANDINGS", out TMP_Text header);
+
+            TMP_Text season = CreateText(content, "SeasonLabel", TextStyle.H3, "");
+            season.color = theme.palette.textMuted;
+
+            var tabRowGo = new GameObject("TabRow", typeof(RectTransform));
+            tabRowGo.transform.SetParent(content, false);
+            var tabLayout = tabRowGo.AddComponent<HorizontalLayoutGroup>();
+            tabLayout.spacing = theme.spacing.small;
+            tabLayout.childForceExpandWidth = true;
+            tabLayout.childControlWidth = true;
+            tabLayout.childControlHeight = true;
+            ThemedButton driversTab = CreateButton(tabRowGo.transform, "Tab_Drivers", ThemedButton.Variant.Secondary, "Drivers",
+                theme.components.buttonHeightCompact);
+            ThemedButton teamsTab = CreateButton(tabRowGo.transform, "Tab_Teams", ThemedButton.Variant.Secondary, "Teams",
+                theme.components.buttonHeightCompact);
+            var tabs = tabRowGo.AddComponent<TabBar>();
+            tabs.Bind(new List<ThemedButton> { driversTab, teamsTab });
+
+            RectTransform rowsColumn = CreateLayoutColumn(content, "StandingsRows", theme.spacing.micro);
+            TMP_Text rowTemplate = CreateText(rowsColumn, "Row_Template", TextStyle.Body, "");
+            rowTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 10f;
+
+            ThemedButton back = CreateButton(content, "Btn_Back", ThemedButton.Variant.Tertiary, "Back");
+
+            var view = content.parent.gameObject.AddComponent<Screens.CareerStandings.CareerStandingsView>();
+            view.Bind(header, season, tabs, rowsColumn, rowTemplate, back);
             return view;
         }
 

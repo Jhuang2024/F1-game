@@ -53,6 +53,25 @@ namespace F1Game.UI.Screens
         public int StopTwoCompoundIndex;
     }
 
+    [Serializable]
+    public class StandingsRowModel
+    {
+        public int position;
+        public string name;
+        public string detail;    // team for a driver row; empty for a team row
+        public int points;
+        public int wins;
+        public bool isPlayer;
+    }
+
+    [Serializable]
+    public class CareerStandingsModel
+    {
+        public string seasonLabel;  // e.g. "Season 2 · Round 5/22"
+        public List<StandingsRowModel> drivers = new List<StandingsRowModel>();
+        public List<StandingsRowModel> teams = new List<StandingsRowModel>();
+    }
+
     public static class CompoundPalette
     {
         /// <summary>Data-identity colours for tyre compounds (soft/medium/hard/inter/wet).</summary>

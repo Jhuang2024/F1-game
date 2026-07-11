@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using F1Game.UI;
 using F1Game.UI.Screens;
+using F1Game.UI.Screens.CareerStandings;
 using F1Game.UI.Screens.MainMenu;
 using F1Game.UI.Screens.PreRaceStrategy;
 using F1Game.UI.Screens.TrackSelect;
@@ -42,6 +43,7 @@ namespace LocalFormulaRacing
         static MainMenuPresenter mainMenuPresenter;
         static TrackSelectPresenter trackSelectPresenter;
         static PreRaceStrategyPresenter strategyPresenter;
+        static CareerStandingsPresenter standingsPresenter;
         static bool failedThisSession;
         static CalendarEventData selectedEvent;
 
@@ -140,6 +142,7 @@ namespace LocalFormulaRacing
                 OnCareer = () => LeaveToLegacy(() => bootstrap.ShowCareer()),
                 OnQuickRace = ShowTrackSelect,
                 OnTimeTrial = () => LeaveToLegacy(() => bootstrap.ShowTimeTrialSetup()),
+                OnStandings = ShowCareerStandings,
                 OnSettings = () => LeaveToLegacy(() => bootstrap.Ui.ShowSettings(data, career, settings)),
             };
 
@@ -154,6 +157,12 @@ namespace LocalFormulaRacing
             strategyPresenter = new PreRaceStrategyPresenter(strategyView)
             {
                 OnStartRace = OnStrategyConfirmed,
+                OnBack = () => shell.Router.Back(),
+            };
+
+            var standingsView = (CareerStandingsView)ShowAndGet(CareerStandingsView.Id);
+            standingsPresenter = new CareerStandingsPresenter(standingsView)
+            {
                 OnBack = () => shell.Router.Back(),
             };
 
@@ -190,6 +199,57 @@ namespace LocalFormulaRacing
                 playerName = hasCareer ? career.Save.playerDriverName : "",
                 versionLabel = "v" + Application.version + " · production migration slice",
             };
+        }
+
+        static void ShowCareerStandings()
+        {
+            var model = new CareerStandingsModel();
+            if (career != null && career.Save != null)
+            {
+                int rounds = data != null && data.Calendar != null ? data.Calendar.events.Count : 0;
+                model.seasonLabel = string.Format("Season {0} · Round {1}{2}",
+                    career.Save.currentSeason,
+                    career.Save.currentRound + 1,
+                    rounds > 0 ? "/" + rounds : "");
+
+                if (career.Save.driverStandings != null)
+                {
+                    for (int i = 0; i < career.Save.driverStandings.Count; i++)
+                    {
+                        StandingEntry entry = career.Save.driverStandings[i];
+                        TeamData team = data != null ? data.FindTeam(entry.teamId) : null;
+                        model.drivers.Add(new StandingsRowModel
+                        {
+                            position = i + 1,
+                            name = entry.displayName,
+                            detail = team != null ? team.name : "",
+                            points = entry.points,
+                            wins = entry.wins,
+                            isPlayer = entry.displayName == career.Save.playerDriverName,
+                        });
+                    }
+                }
+
+                if (career.Save.constructorStandings != null)
+                {
+                    for (int i = 0; i < career.Save.constructorStandings.Count; i++)
+                    {
+                        StandingEntry entry = career.Save.constructorStandings[i];
+                        model.teams.Add(new StandingsRowModel
+                        {
+                            position = i + 1,
+                            name = entry.displayName,
+                            detail = "",
+                            points = entry.points,
+                            wins = entry.wins,
+                            isPlayer = entry.id == career.Save.playerTeamId,
+                        });
+                    }
+                }
+            }
+
+            shell.Router.Show(CareerStandingsView.Id);
+            standingsPresenter.Present(model);
         }
 
         static void ShowTrackSelect()
