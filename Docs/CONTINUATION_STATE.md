@@ -835,6 +835,13 @@ deferred, not claimed complete.
     public entry points stay public so external callers resolve in-class.
     RaceManager.cs -> 2831 lines: 8836 out over 33 slices (~75.7%).
     RaceManager is now spread across 32 focused partials (main + 31).
+    Slice 34: race-start launch - ReportJumpStartIntent and RecordPlayerLaunchInput
+    (track the player's launch input during the start countdown and apply the
+    false-start penalty when a car moves before lights-out) - 45 lines - moved to
+    RaceManager.JumpStart.cs. Penalty tariff and call order unchanged; the public
+    entry points stay public so input callers resolve in-class.
+    RaceManager.cs -> 2785 lines: 8882 out over 34 slices (~76.1%).
+    RaceManager is now spread across 33 focused partials (main + 32).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
