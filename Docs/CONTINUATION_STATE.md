@@ -374,6 +374,14 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+70. Time-trial ENTRY migrated to the production frontend: OnTimeTrial now routes
+    through the shared production TrackSelect screen (a timeTrialFlow flag makes
+    OnTrackChosen skip the pit-strategy step) and hands off to the proven legacy
+    BeginTimeTrial(event) for the actual session start - production-first for the
+    track picker, legacy for the delicate start transition (not reimplemented).
+    Quick race sets the flag false. When production UI is off the legacy menu
+    owns time-trial entry unchanged. Together with #69 the whole time-trial loop
+    (entry → drive → result) is now production-first with legacy fallbacks.
 69. PRODUCTION TIME-TRIAL RESULT screen (ledger candidate a, the last remaining
     production session-end screen): TryShowTimeTrialResult(race) reuses the
     compact ResultsView (like qualifying) to show the player's session best lap,

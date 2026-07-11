@@ -58,6 +58,9 @@ namespace LocalFormulaRacing
         static PauseOverlay pauseOverlay;
         static bool failedThisSession;
         static CalendarEventData selectedEvent;
+        // True while the shared track-select screen is being used to pick a time
+        // trial (vs a quick race), so OnTrackChosen skips the strategy step.
+        static bool timeTrialFlow;
 
         static GameBootstrap bootstrap;
         static GameDataRepository data;
@@ -165,8 +168,10 @@ namespace LocalFormulaRacing
                         LeaveToLegacy(() => bootstrap.ShowCareer());
                     }
                 },
-                OnQuickRace = ShowTrackSelect,
-                OnTimeTrial = () => LeaveToLegacy(() => bootstrap.ShowTimeTrialSetup()),
+                OnQuickRace = () => { timeTrialFlow = false; ShowTrackSelect(); },
+                // Time trial now uses the production track-select screen too, then
+                // hands off to the proven legacy BeginTimeTrial for the start.
+                OnTimeTrial = () => { timeTrialFlow = true; ShowTrackSelect(); },
                 OnStandings = ShowCareerStandings,
                 OnSettings = ShowSettings,
             };
@@ -933,6 +938,16 @@ namespace LocalFormulaRacing
                     laps25Percent = 12,
                     weatherProfile = "mixed",
                 };
+            }
+
+            // Time trial skips the pit-strategy step (auto-tyres, no stops) and
+            // hands straight off to the legacy BeginTimeTrial with the chosen
+            // event, which owns the session-start transition.
+            if (timeTrialFlow)
+            {
+                CalendarEventData ttEvent = selectedEvent;
+                LeaveToLegacy(() => bootstrap.BeginTimeTrial(ttEvent));
+                return;
             }
 
             var strategyModel = new StrategyModel
