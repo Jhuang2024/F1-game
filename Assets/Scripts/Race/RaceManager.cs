@@ -6837,17 +6837,16 @@ namespace LocalFormulaRacing
         // available with no car-ahead requirement.
         bool EvaluateDrsDetectionGap(RaceParticipant participant)
         {
+            // Qualifying/time trial earn every zone with no gap requirement, so the
+            // heavier interval scan is only run on the race path (matching the
+            // original short-circuit exactly).
             if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
             {
-                return true;
+                return DrsRules.EarnsDetectionEligibility(true, participant.lapTracker.CompletedLaps, 0f);
             }
 
-            if (participant.lapTracker.CompletedLaps < 2)
-            {
-                return false;
-            }
-
-            return GetIntervalToAheadSeconds(participant) <= 1f;
+            return DrsRules.EarnsDetectionEligibility(
+                false, participant.lapTracker.CompletedLaps, GetIntervalToAheadSeconds(participant));
         }
 
         public bool IsDrsAvailable(RaceParticipant participant)
@@ -6857,7 +6856,7 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            if (!CanDrive || Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain)
+            if (!CanDrive)
             {
                 return false;
             }
@@ -6869,34 +6868,24 @@ namespace LocalFormulaRacing
             // comes out AFTER a car already earned zone eligibility still shuts
             // DRS off immediately, matching the real rule. The restart cooldown
             // is race-layer state (real F1 rule: no DRS for a spell after a
-            // restart) layered on top.
-            if (drsRestartCooldownTimer > 0f || !FlagRules.DrsAllowed(FlagForParticipant(participant)))
-            {
-                return false;
-            }
-
+            // restart) layered on top. The zone-eligibility ordering (wet/
+            // cooldown/flag → in-zone → session → laps → earned) lives in
+            // DrsRules; RaceManager resolves the live state here. The earned gap
+            // itself is NOT re-checked against the live gap - once earned at the
+            // detection point it holds for the whole zone.
+            bool isWet = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
             TrackProgress progress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
             int zoneIndex = DrsZoneIndexAt(progress);
-            if (zoneIndex == 0)
-            {
-                return false;
-            }
-
-            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
-            {
-                return true;
-            }
-
-            if (participant.lapTracker.CompletedLaps < 2)
-            {
-                return false;
-            }
-
-            // The gap requirement itself was already decided at this zone's
-            // detection point (UpdateDrsEligibility) and is NOT re-checked here -
-            // that is the whole point of the fix. A car that qualified within 1s at
-            // the line keeps DRS for the entire zone even if the gap opens back up.
-            return zoneIndex == 1 ? participant.drsEligibleZoneOne : participant.drsEligibleZoneTwo;
+            bool qualiOrTt = CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial;
+            return DrsRules.IsAvailable(
+                isWet,
+                drsRestartCooldownTimer > 0f,
+                FlagRules.DrsAllowed(FlagForParticipant(participant)),
+                zoneIndex,
+                qualiOrTt,
+                participant.lapTracker.CompletedLaps,
+                participant.drsEligibleZoneOne,
+                participant.drsEligibleZoneTwo);
         }
 
         public string DrsStateText(RaceParticipant participant)

@@ -307,6 +307,15 @@ intact - production-first with legacy fallback, never both).
     per-check roll test. RaceManager's race-control tick delegates to it; the RNG
     call (Random.value) and retire/incident wiring stay in RaceManager, so it is
     behavior-identical and deterministic. ReliabilityRulesTests added.
+57. DRS availability consolidated into engine-free DrsRules (directive §12 item
+    4 "full rules integration"): DrsRules owns the detection-point gap decision
+    (quali/TT earn every zone; a race needs 2 completed laps + a ≤1s gap to the
+    car ahead) AND the availability ordering (wet/restart-cooldown/flag → in a
+    DRS zone → session → laps → earned zone eligibility, which is not re-checked
+    against the live gap). RaceManager.EvaluateDrsDetectionGap and IsDrsAvailable
+    resolve the live state and delegate; the race path still only runs the
+    heavier interval scan when a gap is actually required. Behavior-identical.
+    DrsRulesTests added.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
