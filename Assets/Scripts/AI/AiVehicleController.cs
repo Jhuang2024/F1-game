@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using F1Game.Race.Rules;
 using UnityEngine;
 
 namespace LocalFormulaRacing
@@ -129,6 +130,30 @@ namespace LocalFormulaRacing
         // activation as a whole zone decision, not a mid-zone flicker.
         bool drsCommittedThisZone;
         bool wasDrsLegalLastFrame;
+
+        // Weather-crossover watch: how long this car has been on the wrong
+        // class of rubber for the track state (AiPitStrategyRules decides when
+        // that persistence commits the car to the box).
+        float weatherMismatchSeconds;
+
+        // Boundary mapping into the strategy rulebook's compound mirror, the
+        // same pattern RaceManager uses for PitRequestRules' origin enum.
+        static StintCompound MapStintCompound(TyreCompound compound)
+        {
+            switch (compound)
+            {
+                case TyreCompound.Soft:
+                    return StintCompound.Soft;
+                case TyreCompound.Hard:
+                    return StintCompound.Hard;
+                case TyreCompound.Intermediate:
+                    return StintCompound.Intermediate;
+                case TyreCompound.Wet:
+                    return StintCompound.Wet;
+                default:
+                    return StintCompound.Medium;
+            }
+        }
 
         enum OvertakeState { Following, PreparingAttack, AttackingInside, AttackingOutside, SideBySide, CompletingPass, BackingOut }
         OvertakeState overtakeState = OvertakeState.Following;
@@ -1631,24 +1656,15 @@ namespace LocalFormulaRacing
             // tyres to ~60% wear before the routine stop, instead of pitting while
             // there's still plenty of life left. The destroyed-tyre safety nets
             // below (0.12 wear, 0.5 grip) still force a stop before tyres are gone.
-            float tyrePitThreshold = Mathf.Lerp(0.42f, 0.38f, tyreManagement / 100f) + profile.tyreSavingBias * 0.03f;
-            // Tyre-overextension fix (compound life): the threshold above was a flat
-            // wear NUMBER applied identically to every compound. Wear itself already
-            // decays faster on a Soft than a Hard (TyreState.baseWear), so a flat
-            // number does track compound life somewhat - but a Soft genuinely falls
-            // off a cliff once it crosses this zone and needs to come off sooner in
-            // wear-number terms too, while a Hard can be run leaner without the same
-            // cliff risk. Wets/Intermediates get the same early-side nudge as Softs -
-            // they degrade unpredictably once badly worn and a mismatch (dried track,
-            // rain fading) compounds fast.
+            // Threshold ownership moved to AiPitStrategyRules.RoutinePitThreshold:
+            // centred on 0.40 remaining with a small skill spread, shifted per
+            // compound (a Soft falls off a cliff and comes off earlier, a Hard
+            // runs leaner, wet rubber degrades unpredictably once badly worn).
             TyreCompound currentCompound = vehicle.Tyres.Compound;
-            float compoundThresholdShift = currentCompound == TyreCompound.Soft ? 0.06f
-                : currentCompound == TyreCompound.Hard ? -0.05f
-                : (currentCompound == TyreCompound.Wet || currentCompound == TyreCompound.Intermediate) ? 0.04f
-                : 0f;
-            tyrePitThreshold = Mathf.Clamp(tyrePitThreshold + compoundThresholdShift, 0.2f, 0.8f);
+            float tyrePitThreshold = AiPitStrategyRules.RoutinePitThreshold(
+                tyreManagement / 100f, profile.tyreSavingBias, MapStintCompound(currentCompound));
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
-                vehicle.Tyres.Wear < tyrePitThreshold &&
+                AiPitStrategyRules.ShouldPitRoutine(vehicle.Tyres.Wear, tyrePitThreshold) &&
                 participant.lapTracker.CompletedLaps > 0)
             {
                 command.pitRequest = true;
@@ -1657,7 +1673,8 @@ namespace LocalFormulaRacing
             // Part A.9: never stay out on destroyed/near-destroyed tyres regardless of
             // planned lap or the threshold above - strategy timing should never keep a
             // car circulating on tyres that are essentially gone.
-            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && vehicle.Tyres.Wear < 0.12f)
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
+                AiPitStrategyRules.TyresEffectivelyGone(vehicle.Tyres.Wear))
             {
                 command.pitRequest = true;
             }
@@ -1670,7 +1687,7 @@ namespace LocalFormulaRacing
             // roadblock no matter what the pre-race strategy said.
             WeatherState currentWeather = raceManager.Track == null ? WeatherState.Clear : raceManager.Track.weather;
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
-                vehicle.Tyres.GripMultiplier(currentWeather) < 0.5f &&
+                AiPitStrategyRules.GripCollapsed(vehicle.Tyres.GripMultiplier(currentWeather)) &&
                 participant.lapTracker.CompletedLaps > 0)
             {
                 command.pitRequest = true;
@@ -1689,7 +1706,7 @@ namespace LocalFormulaRacing
             // remaining, a hair before the 0.40 routine point so a well-timed plan
             // can still fire slightly ahead of pure wear). Destroyed-tyre/grip
             // safety nets above are unaffected and still force a stop when needed.
-            if (raceManager.ShouldAiPitByStrategyLap(participant) && vehicle.Tyres.Wear < 0.45f)
+            if (raceManager.ShouldAiPitByStrategyLap(participant) && AiPitStrategyRules.StrategyLapMayFire(vehicle.Tyres.Wear))
             {
                 command.pitRequest = true;
                 participant.pitRequestLapNumber = participant.lapTracker.CompletedLaps + 1;
@@ -1711,6 +1728,32 @@ namespace LocalFormulaRacing
                 command.pitRequest = true;
             }
 
+            // Weather crossover under green: the safety-car window already reacts
+            // to a wet/dry mismatch, but with no caution out a mismatched car used
+            // to stay on the wrong rubber until wear or outright grip collapse
+            // forced the call. Watch the mismatch and commit once it has persisted
+            // past this driver's reaction window (sharper awareness reacts sooner;
+            // crossing TO wets is more urgent than coming back to slicks). The
+            // stop itself picks the weather-correct compound, same as any stop.
+            bool trackWet = currentWeather == WeatherState.LightRain || currentWeather == WeatherState.HeavyRain;
+            bool onWetCompound = AiPitStrategyRules.IsWetCompound(MapStintCompound(currentCompound));
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
+                participant.lapTracker.CompletedLaps > 0 &&
+                AiPitStrategyRules.WantsWeatherCrossover(trackWet, onWetCompound))
+            {
+                weatherMismatchSeconds += Time.deltaTime;
+                float awareness01 = participant.driverData == null ? 0.78f : participant.driverData.awareness / 100f;
+                float reaction = AiPitStrategyRules.CrossoverReactionSeconds(trackWet, awareness01);
+                if (AiPitStrategyRules.ShouldCrossover(trackWet, onWetCompound, weatherMismatchSeconds, reaction))
+                {
+                    command.pitRequest = true;
+                }
+            }
+            else
+            {
+                weatherMismatchSeconds = 0f;
+            }
+
             // Never pit on the final lap (per request), whatever the tyre wear:
             // a stop here only throws away track position the car can't win
             // back before the flag, and the mandatory stop is always taken well
@@ -1719,8 +1762,8 @@ namespace LocalFormulaRacing
             // suppresses a NEW request. Uses CompletedLaps + 1 (the lap being
             // driven) vs RaceLaps so it engages the moment the last lap starts.
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
-                raceManager.RaceLaps > 0 && participant.lapTracker != null &&
-                participant.lapTracker.CompletedLaps + 1 >= raceManager.RaceLaps)
+                participant.lapTracker != null &&
+                AiPitStrategyRules.FinalLapSuppressesNewRequest(participant.lapTracker.CompletedLaps, raceManager.RaceLaps))
             {
                 command.pitRequest = false;
             }
