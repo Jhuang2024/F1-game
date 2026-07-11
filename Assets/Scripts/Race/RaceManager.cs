@@ -10505,7 +10505,23 @@ namespace LocalFormulaRacing
                 " coasting=" + debrief.CoastingPercent.ToString("0") + "%" +
                 " drs=" + debrief.DrsPercent.ToString("0") + "%" +
                 " tyreWear=" + (debrief.TyreWearDelta01 * 100f).ToString("0") + "%");
+
+            // Opt-in CSV export of the full player trace (engineer analysis).
+            // Off by default so an ordinary race never writes to disk; enabled
+            // via the f1game_telemetry_csv_export pref. Filenamed by track so
+            // repeated runs on a circuit overwrite rather than pile up.
+            if (PlayerPrefs.GetInt(TelemetryCsvExportKey, 0) == 1)
+            {
+                string trackId = EventData != null ? EventData.trackId : "session";
+                string path = ExportTelemetryCsv("telemetry_" + trackId + ".csv");
+                if (!string.IsNullOrEmpty(path))
+                {
+                    GameLog.Info(LogCategory.Race, "[Debrief] telemetry CSV exported: " + path);
+                }
+            }
         }
+
+        const string TelemetryCsvExportKey = "f1game_telemetry_csv_export";
 
         // Race-end summary from the live replay capture: the highlight-marker
         // tally (flags/overtakes/pit stops/incidents/laps) and recorded window

@@ -374,6 +374,13 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+71. Telemetry CSV export now has a live trigger (completes the built-but-uncalled
+    TelemetryRecorder.ExportCsv → RaceManager.ExportTelemetryCsv path): FinishRace
+    writes the full player trace to persistentDataPath at race end, gated by the
+    opt-in f1game_telemetry_csv_export pref (default OFF, so an ordinary race
+    never touches disk), track-named so reruns overwrite. Logs the path. The
+    telemetry capture now has three consumers: race-end debrief log, results-
+    screen line, and the opt-in CSV for offline engineer analysis.
 70. Time-trial ENTRY migrated to the production frontend: OnTimeTrial now routes
     through the shared production TrackSelect screen (a timeTrialFlow flag makes
     OnTrackChosen skip the pit-strategy step) and hands off to the proven legacy
