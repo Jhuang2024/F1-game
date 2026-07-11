@@ -417,6 +417,11 @@ deferred, not claimed complete.
     safe (activeInputHandler=Both). The percentile statistic is extracted to a
     static, pure PerformanceCapture.Percentile(sorted, p) and unit-tested
     (nearest-rank, empty/null, clamp). PerformanceCaptureTests added.
+77. Test coverage for the GameObjectPool utility (backs pooled VFX + HUD rows,
+    previously untested): GameObjectPoolTests pin prewarm, take/return recycling
+    (reuse the same instance, active-state toggling), grow-on-demand beyond the
+    prewarm count, ReturnAll, and the no-op on returning a foreign object.
+    Instances are created/destroyed within the test.
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks
