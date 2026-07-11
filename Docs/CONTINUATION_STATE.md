@@ -1569,6 +1569,18 @@ deferred, not claimed complete.
         exit-path + session-integration seam (one-line host hookup remains, editor-
         gated). VISUAL VALIDATION PENDING.
 
+    F20. Procedural livery content + grid validation -> engine-free LiveryGenerator
+        (F1Game.Core, UNIT-TESTED). Completes the livery content/validation/fallback
+        path: FromHsv converts HSV->24-bit LiveryColor (deterministic), Generate(index,
+        total) makes a clearly-placeholder livery at an evenly-spaced hue (saturated
+        primary, dark secondary, light accent), and AssignDistinctGrid keeps each
+        requested team livery when present and distinct while filling gaps/collisions
+        with generated placeholders - guaranteeing a pairwise-distinct (readable) grid
+        by CarLivery.AreDistinct. LiveryGeneratorTests pin the HSV primaries + greyscale,
+        a 20-car pairwise-distinct grid, gap-fill preserving distinct requests, and
+        collision replacement. Placeholder content is procedurally generated (no
+        external assets); the Unity paint layer (LiveryPaint, F11) consumes the result.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
