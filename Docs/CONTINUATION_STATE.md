@@ -1023,6 +1023,16 @@ deferred, not claimed complete.
     calls are unaffected).
     RaceManager.cs -> 1009 lines: 10658 out over 56 slices (~91.4%).
     RaceManager is now spread across 49 focused partials (main + 48).
+    Slice 57: spatial helpers - IsNearLocalYellowIncident (whether a car is within
+    the flagged local-yellow sector / incident-proximity window, with its speed-cap
+    consts) and LocalHalfWidthAt (the shared local track half-width lookup consumed
+    across the pit/grid/geometry code) - 37 lines - moved to
+    RaceManager.SpatialHelpers.cs. Sector test and geometry unchanged; the public
+    entry points stay public so callers (the Pit/RaceControl/TrackLimits/Recovery/
+    StackResolve/PitEntryAssist partials, FlagForParticipant, SpeedCaps) resolve
+    in-class.
+    RaceManager.cs -> 971 lines: 10696 out over 57 slices (~91.7%).
+    RaceManager is now spread across 50 focused partials (main + 49).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
