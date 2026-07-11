@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using F1Game.Core.Diagnostics;
 using F1Game.Core.Events;
 using UnityEngine;
 
@@ -71,7 +72,7 @@ namespace F1Game.Core.Persistence
             }
             catch (Exception exception)
             {
-                Debug.LogWarning("Could not save " + fileName + ": " + exception.Message);
+                Debug.LogError(DiagnosticLog.FormatError(DiagnosticCode.SaveWriteFailed, "Could not save " + fileName + ": " + exception.Message));
                 GameEvents.Publish(new SaveCompletedEvent(fileName, false, exception.Message));
                 return false;
             }
@@ -110,7 +111,9 @@ namespace F1Game.Core.Persistence
             }
             catch (Exception exception)
             {
-                Debug.LogWarning("Could not load " + path + ": " + exception.Message);
+                // A parse/read failure on an existing file reads as corruption -
+                // the fallback path (defaults / backup) handles recovery.
+                Debug.LogError(DiagnosticLog.FormatError(DiagnosticCode.SaveCorrupt, "Could not load " + path + ": " + exception.Message));
                 return false;
             }
         }
