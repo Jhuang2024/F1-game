@@ -1,3 +1,4 @@
+using F1Game.Race.Rules;
 using UnityEngine;
 
 namespace LocalFormulaRacing
@@ -269,7 +270,10 @@ namespace LocalFormulaRacing
 
         public void StartCareerRace()
         {
-            if (!career.HasQualifyingForCurrentRound())
+            // Weekend routing lives in the extracted rulebook: no stored
+            // qualifying result for the round means the weekend goes to
+            // qualifying first, otherwise straight to the race.
+            if (SessionFlow.NextCareerStep(career.HasQualifyingForCurrentRound()) == WeekendSession.Qualifying)
             {
                 StartCareerQualifying();
                 return;

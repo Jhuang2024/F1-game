@@ -1097,7 +1097,16 @@ namespace LocalFormulaRacing
                     }
                     else
                     {
-                        qualifyingPhase++;
+                        // Phase progression is the rulebook's call (Q1->Q2->Q3);
+                        // reaching here with no next phase would be a logic bug
+                        // upstream (BeginQualifyingFeedback decides finish), so
+                        // the false case deliberately leaves the phase alone.
+                        int nextQualifyingPhase;
+                        if (SessionFlow.TryAdvanceQualifyingPhase(qualifyingPhase, out nextQualifyingPhase))
+                        {
+                            qualifyingPhase = nextQualifyingPhase;
+                        }
+
                         preserveQualifyingState = true;
                         CleanupRaceWorld();
                         ui.ShowQualifyingTyreSelect(Data, Career, Settings, qualifyingPhase);
@@ -10400,7 +10409,8 @@ namespace LocalFormulaRacing
         {
             RecordQualifyingPhase();
             QualifyingSimEntry playerEntry = qualifyingEntries.Find(item => item.isPlayer);
-            bool advances = playerEntry != null && string.IsNullOrEmpty(playerEntry.eliminatedIn) && qualifyingPhase < 3;
+            bool advances = playerEntry != null && string.IsNullOrEmpty(playerEntry.eliminatedIn) &&
+                            !QualifyingProgression.IsFinalPhase(qualifyingPhase);
             BeginQualifyingFeedback(BuildQualifyingSegmentFeedback(playerEntry, qualifyingPhase, advances), advances);
         }
 
