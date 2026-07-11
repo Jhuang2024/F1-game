@@ -10,6 +10,7 @@ namespace F1Game.UI.Screens.CareerHub
         public Action OnContinue;
         public Action OnStandings;
         public Action OnProfile;
+        public Action OnStats;
         public Action OnLegacyMenu;
         public Action OnBack;
 
@@ -19,6 +20,11 @@ namespace F1Game.UI.Screens.CareerHub
             view.ContinueButton.Clicked += () => OnContinue?.Invoke();
             view.StandingsButton.Clicked += () => OnStandings?.Invoke();
             view.ProfileButton.Clicked += () => OnProfile?.Invoke();
+            if (view.StatsButton != null)
+            {
+                view.StatsButton.Clicked += () => OnStats?.Invoke();
+            }
+
             view.LegacyMenuButton.Clicked += () => OnLegacyMenu?.Invoke();
             view.BackButton.Clicked += () => OnBack?.Invoke();
         }

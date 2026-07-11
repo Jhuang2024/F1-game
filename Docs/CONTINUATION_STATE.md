@@ -1629,6 +1629,21 @@ deferred, not claimed complete.
         default-off intentionally - the full production frontend/HUD/race-flow is not
         yet at parity, so flipping that stays gated on its own validation.
 
+    F25. Career migration: production Career Stats screen. First career sub-system
+        moved off legacy UI. New CareerStatsModel + CareerStatCell + TrackRecordRow
+        (F1Game.UI); CareerStatsView (pooled StatTile grid + pooled record rows +
+        Back) + CareerStatsPresenter; UiScreenFactory.BuildCareerStats (builds a
+        GridLayoutGroup stat grid + a hidden StatTile template + a record-row list) +
+        BuildStatTileTemplate; UiShell registers "career-stats". CareerHubView/
+        Presenter gain a Stats button (Bind signature + BuildCareerHub + nav updated
+        in lockstep). ProductionUiBridge: careerStatsPresenter built in EnsureShell,
+        CareerHub OnStats -> ShowCareerStats, which binds PlayerRecordsStore.Data
+        (races/wins/podiums/poles/fastest-laps/points/clean-races/best-qualifying/
+        track-limit-warnings + local track records, track names resolved via the
+        calendar). Read-only, navigates via the router with a Back path; the legacy
+        Career Stats (reached through the Full Career Menu) remains as the emergency
+        fallback. Runtime-built (no baked prefab); VISUAL VALIDATION PENDING.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

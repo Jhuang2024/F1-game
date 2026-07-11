@@ -255,13 +255,14 @@ namespace F1Game.UI
             ThemedButton continueBtn = CreateButton(actions, "Btn_Continue", ThemedButton.Variant.Primary, "Continue");
             ThemedButton standings = CreateButton(actions, "Btn_Standings", ThemedButton.Variant.Secondary, "Standings & Calendar");
             ThemedButton profile = CreateButton(actions, "Btn_Profile", ThemedButton.Variant.Secondary, "Driver Profile");
+            ThemedButton stats = CreateButton(actions, "Btn_Stats", ThemedButton.Variant.Secondary, "Career Stats");
             ThemedButton legacyMenu = CreateButton(actions, "Btn_FullMenu", ThemedButton.Variant.Secondary, "Full Career Menu");
             ThemedButton back = CreateButton(actions, "Btn_Back", ThemedButton.Variant.Tertiary, "Back");
 
-            SetUpDownNavigation(new[] { continueBtn, standings, profile, legacyMenu, back });
+            SetUpDownNavigation(new[] { continueBtn, standings, profile, stats, legacyMenu, back });
 
             var view = content.parent.gameObject.AddComponent<Screens.CareerHub.CareerHubView>();
-            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, profile, legacyMenu, back);
+            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, profile, stats, legacyMenu, back);
             return view;
         }
 
@@ -418,6 +419,57 @@ namespace F1Game.UI
                 unitsButton, cameraShakeButton, compactHudButton, uiAnimationsButton, classic, back);
             view.BindEditor(editorSection.gameObject, editorColumn, editorTemplate);
             return view;
+        }
+
+        public static Screens.CareerStats.CareerStatsView BuildCareerStats(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_CareerStats", "CAREER STATS", out TMP_Text header);
+
+            // Stat-tile grid.
+            RectTransform statGrid = CreateLayoutColumn(content, "StatGrid", theme.spacing.small);
+            var grid = statGrid.gameObject.AddComponent<GridLayoutGroup>();
+            grid.cellSize = new Vector2(184f, 90f);
+            grid.spacing = new Vector2(theme.spacing.small, theme.spacing.small);
+            StatTile statTemplate = BuildStatTileTemplate(statGrid, theme);
+
+            // Track-records list.
+            CreateText(content, "RecordsLabel", TextStyle.Label, "LOCAL TRACK RECORDS");
+            RectTransform recordColumn = CreateLayoutColumn(content, "TrackRecords", theme.spacing.micro);
+            TMP_Text recordTemplate = CreateText(recordColumn, "Record_Template", TextStyle.Body, "");
+            recordTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 8f;
+
+            ThemedButton back = CreateButton(content, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
+                theme.components.buttonHeightCompact);
+
+            var view = content.parent.gameObject.AddComponent<Screens.CareerStats.CareerStatsView>();
+            view.Bind(statGrid, statTemplate, recordColumn, recordTemplate, back);
+            return view;
+        }
+
+        // Hidden StatTile template: a raised card with a big value over a label.
+        static StatTile BuildStatTileTemplate(Transform parent, UiTheme theme)
+        {
+            var tileGo = new GameObject("StatTile_Template", typeof(RectTransform));
+            tileGo.transform.SetParent(parent, false);
+            var bg = tileGo.AddComponent<Image>();
+            bg.color = theme.palette.surfaceRaised;
+            var col = tileGo.AddComponent<VerticalLayoutGroup>();
+            col.spacing = 2f;
+            col.padding = new RectOffset(12, 12, 10, 10);
+            col.childControlWidth = true;
+            col.childControlHeight = true;
+            col.childForceExpandHeight = false;
+
+            TMP_Text value = CreateText(tileGo.transform, "Value", TextStyle.H2, "");
+            TMP_Text label = CreateText(tileGo.transform, "Label", TextStyle.Label, "");
+            label.color = theme.palette.textMuted;
+            TMP_Text caption = CreateText(tileGo.transform, "Caption", TextStyle.Caption, "");
+
+            var tile = tileGo.AddComponent<StatTile>();
+            tile.Bind(label, value, caption);
+            tileGo.SetActive(false);
+            return tile;
         }
 
         public static Screens.CareerCreation.CareerCreationView BuildCareerCreation(Transform root)

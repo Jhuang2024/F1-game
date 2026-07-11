@@ -6,6 +6,7 @@ using F1Game.UI;
 using F1Game.UI.Screens;
 using F1Game.UI.Screens.CareerCreation;
 using F1Game.UI.Screens.CareerHub;
+using F1Game.UI.Screens.CareerStats;
 using F1Game.UI.Screens.CareerStandings;
 using F1Game.UI.Screens.DriverProfile;
 using F1Game.UI.Screens.MainMenu;
@@ -54,6 +55,7 @@ namespace LocalFormulaRacing
         static CareerStandingsPresenter standingsPresenter;
         static CareerHubPresenter careerHubPresenter;
         static CareerCreationPresenter careerCreationPresenter;
+        static CareerStatsPresenter careerStatsPresenter;
         static DriverProfilePresenter profilePresenter;
         static SettingsPresenter settingsPresenter;
         static ResultsPresenter resultsPresenter;
@@ -212,6 +214,7 @@ namespace LocalFormulaRacing
                 OnContinue = () => LeaveToLegacy(() => bootstrap.StartCareerRace()),
                 OnStandings = ShowCareerStandings,
                 OnProfile = ShowDriverProfile,
+                OnStats = ShowCareerStats,
                 OnLegacyMenu = () => LeaveToLegacy(() => bootstrap.ShowCareer()),
                 OnBack = () => shell.Router.Back(),
             };
@@ -220,6 +223,12 @@ namespace LocalFormulaRacing
             careerCreationPresenter = new CareerCreationPresenter(careerCreationView)
             {
                 OnStart = StartProductionCareer,
+                OnBack = () => shell.Router.Back(),
+            };
+
+            var careerStatsView = (CareerStatsView)ShowAndGet(CareerStatsView.Id);
+            careerStatsPresenter = new CareerStatsPresenter(careerStatsView)
+            {
                 OnBack = () => shell.Router.Back(),
             };
 
@@ -406,6 +415,61 @@ namespace LocalFormulaRacing
 
             career.StartNewCareer(driverName, teamId);
             ShowCareerHub();
+        }
+
+        // Production career-stats screen: read-only career records + local lap records.
+        static void ShowCareerStats()
+        {
+            var model = new CareerStatsModel();
+            PlayerRecordsData records = PlayerRecordsStore.Data;
+            if (records != null)
+            {
+                Stat(model, "Races", records.racesFinished.ToString());
+                Stat(model, "Wins", records.raceWins.ToString());
+                Stat(model, "Podiums", records.podiums.ToString());
+                Stat(model, "Poles", records.polePositions.ToString());
+                Stat(model, "Fastest Laps", records.fastestLaps.ToString());
+                Stat(model, "Points", records.totalPoints.ToString());
+                Stat(model, "Clean Races", records.cleanRaces.ToString());
+                Stat(model, "Best Qualifying", records.bestQualifyingPosition > 0 ? "P" + records.bestQualifyingPosition : "--");
+                Stat(model, "Track Limit Warnings", records.trackLimitWarningsTotal.ToString());
+
+                for (int i = 0; i < records.trackRecords.Count; i++)
+                {
+                    TrackRecordEntry entry = records.trackRecords[i];
+                    model.records.Add(new TrackRecordRow
+                    {
+                        track = ResolveTrackName(entry.trackId),
+                        time = UiFactory.FormatTime(entry.bestLapTime),
+                        context = string.IsNullOrEmpty(entry.context) ? "" : entry.context.ToUpperInvariant(),
+                    });
+                }
+            }
+
+            model.emptyRecordsMessage = "No lap records yet. Run a time trial to set benchmarks.";
+            shell.Router.Show(CareerStatsView.Id);
+            careerStatsPresenter.Present(model);
+        }
+
+        static void Stat(CareerStatsModel model, string label, string value)
+        {
+            model.stats.Add(new CareerStatCell { label = label, value = value });
+        }
+
+        static string ResolveTrackName(string trackId)
+        {
+            if (data != null && data.Calendar != null)
+            {
+                for (int e = 0; e < data.Calendar.events.Count; e++)
+                {
+                    if (data.Calendar.events[e].trackId == trackId)
+                    {
+                        return data.Calendar.events[e].displayName;
+                    }
+                }
+            }
+
+            return trackId;
         }
 
         /// <summary>
