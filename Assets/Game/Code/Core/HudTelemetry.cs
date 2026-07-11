@@ -67,6 +67,10 @@ namespace F1Game.Core
         public Events.SessionKind Session;
         public string EventName;
 
+        // Rolling session message (race layer's one-line status: "Lights
+        // out", pit calls, reaction time...). Empty when nothing current.
+        public string SessionMessage;
+
         // Race-control surface (Tier 3 parity): pace enforcement and restart
         // context beyond the one-word flag.
         public bool PaceLimited;

@@ -39,7 +39,7 @@ pit-request/radio events).
 - [ ] Tyre corner grid + temps + lockup/flat-spot (2001/2009): temp status,
       lockup severity.
 - [x] Session label + event name (1919/1922). (SessionLabelModule, tranche 4)
-- [ ] Session message line (1929).
+- [x] Session message line (1929). (SessionMessageModule, tranche 5)
 - [ ] Input telemetry bars (627): effective throttle/brake.
 - [ ] Track-limit warning flash (2469): warning count.
 

@@ -60,6 +60,28 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
+    /// <summary>The race layer's rolling one-line status message.</summary>
+    public sealed class SessionMessageModule : HudModule
+    {
+        [SerializeField] TMP_Text value;
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            bool show = t.Valid && !string.IsNullOrEmpty(t.SessionMessage);
+            if (value.gameObject.activeSelf != show)
+            {
+                value.gameObject.SetActive(show);
+            }
+
+            if (show)
+            {
+                value.text = t.SessionMessage;
+            }
+        }
+    }
+
     /// <summary>Position "P3 / 22".</summary>
     public sealed class PositionModule : HudModule
     {

@@ -65,6 +65,9 @@ namespace F1Game.UI.Screens.RaceHudShell
             var pitPlanText = Numeric(hud.TopLeftDock, "PitPlan", 18f);
             hud.gameObject.AddComponent<PitStrategyModule>().Bind(pitPlanText);
 
+            var sessionMessageText = Text(hud.TopLeftDock, "SessionMessage", 16f, TextAlignmentOptions.Left);
+            hud.gameObject.AddComponent<SessionMessageModule>().Bind(sessionMessageText);
+
             // Flag + pit/penalty chips live with the other status chips.
             var flagChip = Chip(hud.TopRightDock, "Flag");
             hud.gameObject.AddComponent<FlagModule>().Bind(flagChip);
