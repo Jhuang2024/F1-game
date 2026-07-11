@@ -91,6 +91,79 @@ namespace F1Game.Race.Rules
             return raceLaps > 0 && completedLaps + 1 >= raceLaps;
         }
 
+        // ---- Routine window planning -------------------------------------------
+
+        /// <summary>
+        /// Recommended (1-based display) pit lap for the routine stop: a
+        /// fraction of race distance - earlier in the wet - shifted by tyre
+        /// management and a per-driver-stable jitter so a midfield with similar
+        /// stats doesn't converge on one lap. Rounding is ties-to-even to match
+        /// the monolith's Mathf.RoundToInt exactly.
+        /// </summary>
+        public static int RecommendedPitLap(int raceLaps, bool wetRace, float tyreManagement01, float driverJitter01)
+        {
+            if (raceLaps <= 3)
+            {
+                return 1;
+            }
+
+            int maxPitLap = raceLaps - 1;
+            float baseWindow = wetRace ? 0.46f : 0.55f;
+            float managementShift = -0.08f + 0.16f * Clamp01(tyreManagement01);
+            float jitter = (Clamp01(driverJitter01) - 0.5f) * 0.1f;
+            int recommended = (int)System.Math.Round((double)(raceLaps * (baseWindow + managementShift + jitter)));
+            return recommended < 1 ? 1 : (recommended > maxPitLap ? maxPitLap : recommended);
+        }
+
+        // ---- Undercut ------------------------------------------------------------
+
+        public const int UndercutWindowLapsBeforeRecommended = 2;
+        public const float UndercutMaxWear = 0.68f;
+        public const float UndercutMaxGapSeconds = 2.2f;
+
+        /// <summary>
+        /// First-stint tactical call: only inside the last two laps of this
+        /// car's OWN window (never before it opens - this jumps a rival, it
+        /// doesn't skip tyre-life planning), on tyres already carrying real
+        /// wear, with an unstopped rival hanging just ahead.
+        /// </summary>
+        public static bool ShouldPitForUndercut(int completedLaps, int recommendedPitLap, float wearRemaining, bool rivalAheadUnstopped, float gapToRivalSeconds)
+        {
+            if (completedLaps < recommendedPitLap - UndercutWindowLapsBeforeRecommended || completedLaps >= recommendedPitLap)
+            {
+                return false;
+            }
+
+            if (wearRemaining > UndercutMaxWear)
+            {
+                return false;
+            }
+
+            return rivalAheadUnstopped && gapToRivalSeconds > 0f && gapToRivalSeconds < UndercutMaxGapSeconds;
+        }
+
+        // ---- Safety-car / VSC window ----------------------------------------------
+
+        public const float SafetyCarWornTyreWear = 0.55f;
+        public const float SafetyCarFreshTyreWear = 0.85f;
+        public const int SafetyCarWindowCloseLaps = 3;
+
+        /// <summary>
+        /// The cheap-stop decision once a caution is out and the car is
+        /// eligible: a car still owing its mandatory stop takes the free stop
+        /// on any real excuse; a car already stopped only for a weather
+        /// mismatch or when genuinely worn inside its next window.
+        /// </summary>
+        public static bool ShouldPitUnderSafetyCar(bool mandatoryStopOwed, bool tyresWorn, bool windowClose, bool weatherMismatch)
+        {
+            if (mandatoryStopOwed)
+            {
+                return tyresWorn || windowClose || weatherMismatch;
+            }
+
+            return weatherMismatch || (tyresWorn && windowClose);
+        }
+
         // ---- Weather crossover -------------------------------------------------
 
         public static bool IsWetCompound(StintCompound compound)

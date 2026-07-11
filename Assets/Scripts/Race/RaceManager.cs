@@ -1537,27 +1537,16 @@ namespace LocalFormulaRacing
 
         public int RecommendedPitLap(RaceParticipant participant)
         {
-            if (RaceLaps <= 3)
-            {
-                return 1;
-            }
-
-            int maxPitLap = Mathf.Max(1, RaceLaps - 1);
-            float baseWindow = Track != null && (Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain) ? 0.46f : 0.55f;
+            // Boundary only: the window math (wet shift, management shift, and
+            // the per-driver-stable jitter that keeps a midfield with similar
+            // stats from converging on one lap) lives in AiPitStrategyRules.
+            bool wetRace = Track != null && (Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain);
             float tyreManagement = participant == null || participant.driverData == null ? 78f : participant.driverData.tyreManagement;
-            float managementShift = Mathf.Lerp(-0.08f, 0.08f, Mathf.Clamp01(tyreManagement / 100f));
-            // Pit-strategy variety fix: every AI with similar tyre management used to
-            // converge on nearly the same recommended lap, since managementShift is a
-            // smooth function of one stat - a whole midfield pitting within a lap or
-            // two of each other, with no room for a natural undercut/overcut. A small,
-            // per-driver-stable offset (hashed from driverId, so it's the same every
-            // time this is called for a given driver this race, never re-rolled)
-            // spreads real strategy windows out without touching the tyre-wear-driven
-            // triggers that still make the ACTUAL stop lap adaptive.
-            float driverJitter = participant == null || string.IsNullOrEmpty(participant.driverId) ? 0f
-                : (StableUnitInterval(participant.driverId) - 0.5f) * 0.1f;
-            int recommended = Mathf.RoundToInt(RaceLaps * (baseWindow + managementShift + driverJitter));
-            return Mathf.Clamp(recommended, 1, maxPitLap);
+            // 0.5 = no jitter (hashed from driverId, so it's the same every
+            // time this is called for a given driver this race, never re-rolled).
+            float driverJitter01 = participant == null || string.IsNullOrEmpty(participant.driverId) ? 0.5f
+                : StableUnitInterval(participant.driverId);
+            return AiPitStrategyRules.RecommendedPitLap(RaceLaps, wetRace, tyreManagement / 100f, driverJitter01);
         }
 
         // Off-by-one fix: RecommendedPitLap returns a 1-based DISPLAY lap number
@@ -4308,7 +4297,7 @@ namespace LocalFormulaRacing
             }
 
             float wear = participant.vehicle.Tyres.Wear;
-            bool freshTyres = participant.pitStops > 0 && wear > 0.85f;
+            bool freshTyres = participant.pitStops > 0 && wear > AiPitStrategyRules.SafetyCarFreshTyreWear;
             if (freshTyres)
             {
                 return false;
@@ -4334,11 +4323,13 @@ namespace LocalFormulaRacing
                 }
             }
 
+            // Decision core lives in AiPitStrategyRules; this method supplies
+            // the live inputs.
             bool mandatoryStopOwed = participant.pitStops == 0;
-            bool tyresWorn = wear < 0.55f;
+            bool tyresWorn = wear < AiPitStrategyRules.SafetyCarWornTyreWear;
 
             int windowLap = NextPlannedPitLapFor(participant);
-            bool windowClose = windowLap > 0 && completedLaps >= windowLap - 3;
+            bool windowClose = windowLap > 0 && completedLaps >= windowLap - AiPitStrategyRules.SafetyCarWindowCloseLaps;
 
             WeatherState currentWeather = Track == null ? WeatherState.Clear : Track.weather;
             bool wetNow = currentWeather == WeatherState.LightRain || currentWeather == WeatherState.HeavyRain;
@@ -4346,17 +4337,7 @@ namespace LocalFormulaRacing
             bool onWetTyre = currentCompound == TyreCompound.Intermediate || currentCompound == TyreCompound.Wet;
             bool weatherMismatch = wetNow != onWetTyre;
 
-            if (mandatoryStopOwed && (tyresWorn || windowClose || weatherMismatch))
-            {
-                return true;
-            }
-
-            if (!mandatoryStopOwed && (weatherMismatch || (tyresWorn && windowClose)))
-            {
-                return true;
-            }
-
-            return false;
+            return AiPitStrategyRules.ShouldPitUnderSafetyCar(mandatoryStopOwed, tyresWorn, windowClose, weatherMismatch);
         }
 
         // Smarter AI strategy: undercut awareness. NextPitCompound/RecommendedPitLap
@@ -4381,31 +4362,16 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            int completedLaps = participant.lapTracker.CompletedLaps;
-            int recommendedLap = RecommendedPitLap(participant);
-            // Only inside the last 2 laps of this car's OWN window, never before it
-            // opens - this is a tactical nudge to jump a rival, not a way to skip the
-            // tyre-life planning RecommendedPitLap already does.
-            if (completedLaps < recommendedLap - 2 || completedLaps >= recommendedLap)
-            {
-                return false;
-            }
-
-            // Only worth undercutting off tyres that are already carrying real wear -
-            // a car on a very fresh set has nothing to gain from stopping early.
-            if (participant.vehicle.Tyres.Wear > 0.68f)
-            {
-                return false;
-            }
-
+            // Decision core lives in AiPitStrategyRules; this method supplies
+            // the live inputs (window, wear, who is actually ahead and how far).
             RaceParticipant ahead = FindCarAhead(participant, 40f);
-            if (ahead == null || ahead.pitStops != 0 || ahead.retired || ahead.finished)
-            {
-                return false;
-            }
-
-            float gapSeconds = GetIntervalToAheadSeconds(participant);
-            return gapSeconds > 0f && gapSeconds < 2.2f;
+            bool rivalAheadUnstopped = ahead != null && ahead.pitStops == 0 && !ahead.retired && !ahead.finished;
+            return AiPitStrategyRules.ShouldPitForUndercut(
+                participant.lapTracker.CompletedLaps,
+                RecommendedPitLap(participant),
+                participant.vehicle.Tyres.Wear,
+                rivalAheadUnstopped,
+                GetIntervalToAheadSeconds(participant));
         }
 
         // Player-facing counterpart for a parallel HUD pass: identical logic, named

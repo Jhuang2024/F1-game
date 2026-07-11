@@ -86,6 +86,64 @@ namespace F1Game.Tests
         }
 
         [Test]
+        public void RecommendedPitLapWindowing()
+        {
+            // Sprint-length races pit immediately if at all.
+            Assert.AreEqual(1, AiPitStrategyRules.RecommendedPitLap(3, false, 0.5f, 0.5f));
+
+            // Dry mid-skill no-jitter: 55% distance. 20 laps -> lap 11.
+            Assert.AreEqual(11, AiPitStrategyRules.RecommendedPitLap(20, false, 0.5f, 0.5f));
+
+            // Wet pulls the window earlier.
+            Assert.Less(
+                AiPitStrategyRules.RecommendedPitLap(20, true, 0.5f, 0.5f),
+                AiPitStrategyRules.RecommendedPitLap(20, false, 0.5f, 0.5f));
+
+            // Better management stretches the stint; jitter spreads drivers.
+            Assert.GreaterOrEqual(
+                AiPitStrategyRules.RecommendedPitLap(30, false, 1f, 0.5f),
+                AiPitStrategyRules.RecommendedPitLap(30, false, 0f, 0.5f));
+            Assert.GreaterOrEqual(
+                AiPitStrategyRules.RecommendedPitLap(30, false, 0.5f, 1f),
+                AiPitStrategyRules.RecommendedPitLap(30, false, 0.5f, 0f));
+
+            // Never later than the penultimate lap.
+            Assert.LessOrEqual(AiPitStrategyRules.RecommendedPitLap(5, false, 1f, 1f), 4);
+        }
+
+        [Test]
+        public void UndercutOnlyInsideOwnWindowAgainstALiveRival()
+        {
+            // In-window, worn tyres, rival unstopped, close: go.
+            Assert.IsTrue(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.6f, true, 1.5f));
+
+            // Before the window opens, or at/after the recommended lap: never.
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(7, 10, 0.6f, true, 1.5f));
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(10, 10, 0.6f, true, 1.5f));
+
+            // Fresh tyres, no rival, or the gap too big: never.
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.8f, true, 1.5f));
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.6f, false, 1.5f));
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.6f, true, 2.3f));
+        }
+
+        [Test]
+        public void SafetyCarWindowDecision()
+        {
+            // Owing the mandatory stop: any real excuse takes the cheap stop.
+            Assert.IsTrue(AiPitStrategyRules.ShouldPitUnderSafetyCar(true, true, false, false));
+            Assert.IsTrue(AiPitStrategyRules.ShouldPitUnderSafetyCar(true, false, true, false));
+            Assert.IsTrue(AiPitStrategyRules.ShouldPitUnderSafetyCar(true, false, false, true));
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitUnderSafetyCar(true, false, false, false));
+
+            // Already stopped: only weather, or genuinely worn inside the window.
+            Assert.IsTrue(AiPitStrategyRules.ShouldPitUnderSafetyCar(false, false, false, true));
+            Assert.IsTrue(AiPitStrategyRules.ShouldPitUnderSafetyCar(false, true, true, false));
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitUnderSafetyCar(false, true, false, false));
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitUnderSafetyCar(false, false, true, false));
+        }
+
+        [Test]
         public void CompoundClassing()
         {
             Assert.IsTrue(AiPitStrategyRules.IsWetCompound(StintCompound.Wet));
