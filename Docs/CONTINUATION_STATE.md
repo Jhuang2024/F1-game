@@ -742,6 +742,15 @@ deferred, not claimed complete.
     callers resolve in-class.
     RaceManager.cs -> 4005 lines: 7662 out over 22 slices (~65.7%).
     RaceManager is now spread across 21 focused partials (main + 20).
+    Slice 23: fuel system - the distance-scaled start-fuel per session type
+    (ComputeRaceStartFuelKg/ComputeQualifyingFuelKg/ComputeTimeTrialFuelKg/
+    ComputePracticeFuelKg), EstimateFuelPerLapKg, FuelLoadChoiceLapDelta and
+    ResolveAiFuelChoice (plus the Min/Max/Reserve fuel consts) - 120 lines - moved
+    to RaceManager.Fuel.cs. Fuel constants, RNG call order and tuned values
+    unchanged; the public/static entry points stay public so VehicleController,
+    RaceParticipant and DataModels callers resolve in-class.
+    RaceManager.cs -> 3884 lines: 7783 out over 23 slices (~66.7%).
+    RaceManager is now spread across 22 focused partials (main + 21).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
