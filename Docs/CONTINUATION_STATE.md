@@ -914,6 +914,14 @@ deferred, not claimed complete.
     call order unchanged; callers resolve in-class. No new partial - still 40.
     RaceManager.cs -> 1997 lines: 9670 out over 43 slices (~82.9%).
     RaceManager is now spread across 40 focused partials (main + 39).
+    Slice 44: retirement + fuel state - RetireParticipant (reason, event publish,
+    timeline, HUD) and UpdateFuelState (the per-frame tank drain that triggers a
+    fuel-starvation retirement once the grace timer elapses) - 72 lines - moved to
+    RaceManager.RetireFuel.cs. Drain/grace timing and call order unchanged; the
+    public RetireParticipant stays public so AiVehicleController and the RaceControl
+    partial resolve in-class.
+    RaceManager.cs -> 1924 lines: 9743 out over 44 slices (~83.5%).
+    RaceManager is now spread across 41 focused partials (main + 40).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
