@@ -826,6 +826,83 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
+    /// <summary>
+    /// Big-moment centre flash: LIGHTS OUT, GREEN FLAG, FINAL LAP. Purely
+    /// UI-side edge detection over the telemetry snapshot it already reads -
+    /// no new events, no race-layer change. Fades out over a short window.
+    /// </summary>
+    public sealed class BigMomentModule : HudModule
+    {
+        const float FlashSeconds = 2f;
+
+        [SerializeField] TMP_Text value;
+        bool prevLightsVisible;
+        bool prevValid;
+        int prevLap = -1;
+        F1Game.Core.Events.FlagState prevFlag = F1Game.Core.Events.FlagState.Green;
+        float flashTimer;
+
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+
+            if (t.Valid)
+            {
+                // Lights out: the start gantry was showing and just went dark.
+                if (prevValid && prevLightsVisible && !t.StartLightsVisible &&
+                    t.Session == F1Game.Core.Events.SessionKind.Race)
+                {
+                    Trigger("LIGHTS OUT", UiTheme.Active.palette.positive);
+                }
+                // Green flag: a caution just cleared.
+                else if (prevValid && prevFlag != F1Game.Core.Events.FlagState.Green &&
+                         t.Flag == F1Game.Core.Events.FlagState.Green &&
+                         prevFlag != F1Game.Core.Events.FlagState.Chequered)
+                {
+                    Trigger("GREEN FLAG", UiTheme.Active.palette.positive);
+                }
+                // Final lap: entering the last lap of a race.
+                else if (prevValid && t.TotalLaps > 0 && t.Lap == t.TotalLaps && prevLap == t.TotalLaps - 1 &&
+                         t.Session == F1Game.Core.Events.SessionKind.Race)
+                {
+                    Trigger("FINAL LAP", UiTheme.Active.palette.warning);
+                }
+
+                prevLightsVisible = t.StartLightsVisible;
+                prevFlag = t.Flag;
+                prevLap = t.Lap;
+            }
+
+            prevValid = t.Valid;
+
+            if (flashTimer > 0f)
+            {
+                flashTimer -= Time.deltaTime;
+                Color c = value.color;
+                c.a = Mathf.Clamp01(flashTimer / FlashSeconds);
+                value.color = c;
+                if (flashTimer <= 0f && value.gameObject.activeSelf)
+                {
+                    value.gameObject.SetActive(false);
+                }
+            }
+        }
+
+        void Trigger(string text, Color color)
+        {
+            value.text = text;
+            color.a = 1f;
+            value.color = color;
+            flashTimer = FlashSeconds;
+            if (!value.gameObject.activeSelf)
+            {
+                value.gameObject.SetActive(true);
+            }
+        }
+    }
+
     /// <summary>The five start lights, drawn as filled/hollow dots during the sequence.</summary>
     public sealed class StartLightsModule : HudModule
     {

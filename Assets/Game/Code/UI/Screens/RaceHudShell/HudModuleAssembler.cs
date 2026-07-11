@@ -100,6 +100,11 @@ namespace F1Game.UI.Screens.RaceHudShell
             var weatherChip = Chip(hud.TopRightDock, "Weather");
             hud.gameObject.AddComponent<WeatherModule>().Bind(weatherChip);
 
+            // Big-moment centre flash (lights out / green flag / final lap).
+            var bigMomentText = Text(hud.BottomCenterDock, "BigMoment", 40f, TextAlignmentOptions.Center);
+            bigMomentText.GetComponent<LayoutElement>().preferredHeight = 60f;
+            hud.gameObject.AddComponent<BigMomentModule>().Bind(bigMomentText);
+
             // Race-control banner sits above the tower in the top-center dock;
             // it hides itself under ordinary green-flag running.
             var raceControlText = Text(hud.TimingTowerDock, "RaceControl", 22f, TextAlignmentOptions.Center);

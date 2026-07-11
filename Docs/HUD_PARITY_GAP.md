@@ -57,8 +57,9 @@ pit-request/radio events).
       publishes a HudToastEvent at the source (queue preserved for legacy);
       NotificationFeed subscribes. All existing toasts flow to production.
       (tranche 10)
-- [ ] DRS-available flash + audio (1419); big-moment flashes LIGHTS OUT/
-      GREEN FLAG/FINAL LAP/VICTORY (1667/2566/2955/3030).
+- [x] Big-moment flashes LIGHTS OUT/GREEN FLAG/FINAL LAP (1667/2566/2955):
+      BigMomentModule, UI-side edge detection over the snapshot. (tranche 11;
+      DRS-available flash + audio and VICTORY flash still legacy-only)
 
 ## Tier 7 — Session-specific
 - [x] Qualifying/ghost delta card (2442). (DeltaModule, tranche 8; numeric
