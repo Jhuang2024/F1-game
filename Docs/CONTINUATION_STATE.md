@@ -374,6 +374,13 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+68. Replay capture gains a player-facing consumer on the RESULTS screen
+    (symmetric with #64's telemetry): RaceManager.ReplayHighlightLine() summarises
+    the race events (overtakes / incidents / pit stops) from BuildReplayTimeline;
+    RaceDebriefLine() stacks it over the telemetry driving summary (either half
+    omitted when empty), and FinishRace now passes the combined line to
+    TryShowResults. Both capture models now feed a player-facing surface and the
+    diagnostics log. No new layout (still the results subtitle).
 67. Production HUD honours the Compact HUD setting (closes the last inline-
     toggle consumer gap): new snapshot CompactHud flag (from settings) hides the
     secondary readouts - the slipstream/TOW pill and the throttle/brake pedal

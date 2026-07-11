@@ -449,6 +449,40 @@ namespace LocalFormulaRacing
                    d.DrsPercent.ToString("0") + "% · tyre wear " +
                    (d.TyreWearDelta01 * 100f).ToString("0") + "%";
         }
+
+        /// <summary>
+        /// Race-events summary from the live replay capture (overtakes / incidents
+        /// / pit stops), for the results screen. Empty when nothing to report.
+        /// </summary>
+        public string ReplayHighlightLine()
+        {
+            F1Game.Race.ReplayTimeline.Summary t = BuildReplayTimeline();
+            if (!t.HasData)
+            {
+                return "";
+            }
+
+            return t.OvertakeCount + " overtakes · " +
+                   t.IncidentCount + " incidents · " +
+                   t.PitStopCount + " pit stops";
+        }
+
+        /// <summary>
+        /// Combined results-screen debrief: race-events summary (replay) over the
+        /// player's driving summary (telemetry). Either half is omitted when its
+        /// capture produced nothing; returns empty when both are empty.
+        /// </summary>
+        public string RaceDebriefLine()
+        {
+            string events = ReplayHighlightLine();
+            string driving = TelemetryDebriefLine();
+            if (string.IsNullOrEmpty(events))
+            {
+                return driving;
+            }
+
+            return string.IsNullOrEmpty(driving) ? events : events + "\n" + driving;
+        }
         readonly HashSet<RaceParticipant> aheadOfSafetyCarLastTick = new HashSet<RaceParticipant>();
         // Blocks a NEW VSC/SC escalation for a while after the field returns to
         // Green, so one incident's aftermath can't chain into a second SC/VSC the
@@ -10266,7 +10300,7 @@ namespace LocalFormulaRacing
             {
                 // Production results screen when the production UI owns the
                 // frontend; the legacy screen is the compatibility fallback.
-                if (!ProductionSessionUi.TryShowResults(results, IsCareerRace, TelemetryDebriefLine()))
+                if (!ProductionSessionUi.TryShowResults(results, IsCareerRace, RaceDebriefLine()))
                 {
                     ProductionSessionUi.BeginResults();
                     ui.ShowResults(this, results, IsCareerRace);
@@ -10439,7 +10473,7 @@ namespace LocalFormulaRacing
             }
 
             // Same production-first results path as the non-cinematic branch.
-            if (!ProductionSessionUi.TryShowResults(results, IsCareerRace, TelemetryDebriefLine()))
+            if (!ProductionSessionUi.TryShowResults(results, IsCareerRace, RaceDebriefLine()))
             {
                 ProductionSessionUi.BeginResults();
                 ui.ShowResults(this, results, IsCareerRace);
