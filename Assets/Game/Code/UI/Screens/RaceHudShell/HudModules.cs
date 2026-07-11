@@ -276,6 +276,48 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
+    /// <summary>Sector times, tinted green when matching the session's best sector.</summary>
+    public sealed class SectorsModule : HudModule
+    {
+        [SerializeField] TMP_Text value;
+        readonly System.Text.StringBuilder sb = new System.Text.StringBuilder(128);
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            if (!t.Valid)
+            {
+                value.text = "--";
+                return;
+            }
+
+            string best = ColorUtility.ToHtmlStringRGB(UiTheme.Active.palette.positive);
+            sb.Length = 0;
+            Append("S1", t.Sector1Seconds, t.BestSector1Seconds, best);
+            sb.Append("  ");
+            Append("S2", t.Sector2Seconds, t.BestSector2Seconds, best);
+            sb.Append("  ");
+            Append("S3", t.Sector3Seconds, t.BestSector3Seconds, best);
+            value.text = sb.ToString();
+        }
+
+        void Append(string label, float seconds, float bestSeconds, string bestColor)
+        {
+            sb.Append("<size=75%>").Append(label).Append("</size> ");
+            if (seconds <= 0f)
+            {
+                sb.Append("--.-");
+                return;
+            }
+
+            bool isBest = bestSeconds > 0f && seconds <= bestSeconds + 0.001f;
+            if (isBest) sb.Append("<color=#").Append(bestColor).Append(">");
+            sb.Append("<mspace=0.62em>").Append(seconds.ToString("0.0")).Append("</mspace>");
+            if (isBest) sb.Append("</color>");
+        }
+    }
+
     /// <summary>Live weather conditions chip.</summary>
     public sealed class WeatherModule : HudModule
     {

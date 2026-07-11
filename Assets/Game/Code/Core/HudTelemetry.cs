@@ -62,6 +62,15 @@ namespace F1Game.Core
 
         // Live weather for the conditions chip.
         public Events.WeatherKind Weather;
+
+        // Last completed sector times this lap (0 = not set yet) and the
+        // session-wide best per sector for purple/green comparison.
+        public float Sector1Seconds;
+        public float Sector2Seconds;
+        public float Sector3Seconds;
+        public float BestSector1Seconds;
+        public float BestSector2Seconds;
+        public float BestSector3Seconds;
     }
 
     /// <summary>Latest telemetry snapshot (single-player, main car).</summary>

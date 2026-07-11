@@ -192,6 +192,18 @@ namespace LocalFormulaRacing
                 Weather = MapWeather(race.Track != null ? race.Track.weather : WeatherState.Clear),
             };
 
+            if (race.State != null)
+            {
+                float s1, s2, s3;
+                race.State.GetSectorTimes(player, out s1, out s2, out s3);
+                snapshot.Sector1Seconds = s1;
+                snapshot.Sector2Seconds = s2;
+                snapshot.Sector3Seconds = s3;
+                snapshot.BestSector1Seconds = race.State.GetOverallBestSector(1);
+                snapshot.BestSector2Seconds = race.State.GetOverallBestSector(2);
+                snapshot.BestSector3Seconds = race.State.GetOverallBestSector(3);
+            }
+
             F1Game.Core.HudTelemetry.Publish(snapshot);
 
             raceOrderRefreshTimer -= Time.deltaTime;

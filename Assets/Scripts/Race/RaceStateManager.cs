@@ -176,6 +176,27 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Last completed sector times for a car (0 = not set this lap yet) and
+        // the session-wide bests, exposed as plain floats for the HUD relay.
+        public void GetSectorTimes(RaceParticipant participant, out float s1, out float s2, out float s3)
+        {
+            SectorSnapshot snapshot;
+            if (participant == null || !sectorSnapshots.TryGetValue(participant, out snapshot))
+            {
+                s1 = 0f; s2 = 0f; s3 = 0f;
+                return;
+            }
+
+            s1 = snapshot.s1;
+            s2 = snapshot.s2;
+            s3 = snapshot.s3;
+        }
+
+        public float GetOverallBestSector(int sector)
+        {
+            return sector < 1 || sector > 3 ? 0f : overallBestSectors[sector - 1];
+        }
+
         public void OnParticipantFinished(RaceParticipant participant, float raceElapsed)
         {
             if (participant.finished) return;
