@@ -136,6 +136,16 @@ namespace LocalFormulaRacing
         // that persistence commits the car to the box).
         float weatherMismatchSeconds;
 
+        // Track-query seam (Phase C): drivable half-width reads the active
+        // ITrackQuery so an authored backend drops in per circuit; identical
+        // to the direct hairpin-aware TrackRuntime.HalfWidthAt today, with a
+        // null-safe fallback before the provider is selected.
+        float LocalHalfWidthAt(float distance)
+        {
+            F1Game.Track.ITrackQuery query = TrackQueryProvider.Active;
+            return query != null ? query.WidthAt(distance) * 0.5f : track.HalfWidthAt(distance);
+        }
+
         // Boundary mapping into the strategy rulebook's compound mirror, the
         // same pattern RaceManager uses for PitRequestRules' origin enum.
         static StintCompound MapStintCompound(TyreCompound compound)
@@ -768,7 +778,7 @@ namespace LocalFormulaRacing
                     // overrides the heading-based preference; a car stuck well
                     // clear of either edge (e.g. wedged against another car)
                     // keeps the original heading-based choice.
-                    float localHalfWidth = track.HalfWidthAt(progress.distance);
+                    float localHalfWidth = LocalHalfWidthAt(progress.distance);
                     if (localHalfWidth > 0.1f)
                     {
                         float edgeFraction = Mathf.Clamp01(Mathf.Abs(progress.lateralDistance) / localHalfWidth);
@@ -1106,7 +1116,7 @@ namespace LocalFormulaRacing
             // point on track, not the flat field - otherwise AI would treat the extra
             // tarmac at a widened hairpin as off-track and brake/recover exactly where
             // the widening was meant to give it more room to work with.
-            bool offTrack = !suppressOffTrackRecovery && Mathf.Abs(progress.lateralDistance) > track.HalfWidthAt(progress.distance) + 0.6f;
+            bool offTrack = !suppressOffTrackRecovery && Mathf.Abs(progress.lateralDistance) > LocalHalfWidthAt(progress.distance) + 0.6f;
             if (offTrack)
             {
                 cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, 118f);
@@ -1267,7 +1277,7 @@ namespace LocalFormulaRacing
                 float distanceThisFrame = Mathf.Max(0f, vehicle.CurrentSpeedKph) / 3.6f * Time.deltaTime;
                 participant.pitExitLaneHoldDistanceRemaining = Mathf.Max(0f, participant.pitExitLaneHoldDistanceRemaining - distanceThisFrame);
 
-                float postMergeHalfWidth = track.HalfWidthAt(progress.distance);
+                float postMergeHalfWidth = LocalHalfWidthAt(progress.distance);
                 float safeExitOffset = postMergeHalfWidth - 1.4f;
                 requestedOffset = Mathf.Lerp(requestedOffset, safeExitOffset, 0.85f);
             }
@@ -1397,7 +1407,7 @@ namespace LocalFormulaRacing
             // trimmed slightly here (not redesigned) to stop it overcorrecting now
             // that there's more room to work with.
             float edgeMarginDistance = Mathf.Lerp(5.5f, 9.5f, Mathf.Clamp01(speedKph / 340f));
-            float edgeMargin = track.HalfWidthAt(progress.distance) - edgeMarginDistance;
+            float edgeMargin = LocalHalfWidthAt(progress.distance) - edgeMarginDistance;
             float edgeOvershoot = !suppressOffTrackRecovery ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
             float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);
             float edgeRecovery = edgeOvershoot > 0f
@@ -1630,7 +1640,7 @@ namespace LocalFormulaRacing
                 GameLog.Info("[PitEntrySteer] " + participant.driverName +
                              " normalized=" + progress.normalized.ToString("0.000") +
                              " lateral=" + progress.lateralDistance.ToString("0.00") +
-                             " halfWidth=" + track.HalfWidthAt(progress.distance).ToString("0.00") +
+                             " halfWidth=" + LocalHalfWidthAt(progress.distance).ToString("0.00") +
                              " preEntryStage=" + preEntryRampStage +
                              " onRampStage=" + onEntryRampStage +
                              " onPitEntryRamp=" + onPitEntryRamp +
@@ -2267,8 +2277,8 @@ namespace LocalFormulaRacing
                         // wall side instead of away from it - the exact pile-up
                         // mechanism reported. Now picks whichever side has more
                         // real room between the car and the track edge.
-                        float roomRight = track.HalfWidthAt(progress.distance) - progress.lateralDistance;
-                        float roomLeft = track.HalfWidthAt(progress.distance) + progress.lateralDistance;
+                        float roomRight = LocalHalfWidthAt(progress.distance) - progress.lateralDistance;
+                        float roomLeft = LocalHalfWidthAt(progress.distance) + progress.lateralDistance;
                         float roomBasedSide = roomRight > roomLeft ? 1f : -1f;
                         float rawDodgeSide = Mathf.Abs(local.x) < 0.4f ? roomBasedSide : -Mathf.Sign(local.x);
                         if (dodgeMemoryTimer <= 0f)
@@ -2903,7 +2913,7 @@ namespace LocalFormulaRacing
             // so a car on the computed line is never touched but one genuinely
             // drifting toward the barrier gets pulled back while there is still a
             // full metre of room - part of the "AI crash into the barriers" fix.
-            if (Mathf.Abs(progress.lateralDistance) > track.HalfWidthAt(progress.distance) - 0.8f)
+            if (Mathf.Abs(progress.lateralDistance) > LocalHalfWidthAt(progress.distance) - 0.8f)
             {
                 desired = Mathf.MoveTowards(desired, 0f, Mathf.Lerp(3f, 6.5f, cornerSeverity));
             }
@@ -2918,7 +2928,7 @@ namespace LocalFormulaRacing
             // ceiling combined with Mathf.Min, never Max - a Max here would let
             // this runtime clamp re-permit exactly the too-close-to-the-wall
             // offset the corridor computation was just fixed to rule out.
-            float localHalfWidth = track.HalfWidthAt(distance);
+            float localHalfWidth = LocalHalfWidthAt(distance);
             float wallSafetyLimit = localHalfWidth - (track.IsNearTightFenceCorner(distance) ? 2.6f : 1.8f);
             float kerbBasedLimit = track.kerbStart > 0f ? track.kerbStart + 0.5f : wallSafetyLimit;
             return Mathf.Max(0.75f, Mathf.Min(wallSafetyLimit, kerbBasedLimit));

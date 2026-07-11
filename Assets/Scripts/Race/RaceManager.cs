@@ -1954,7 +1954,7 @@ namespace LocalFormulaRacing
                 // duration AND excluded from every legitimate reason to be slow can
                 // ever reach ActuallyStranded; everything else is Recovering/Queued/
                 // PitSequence/RaceControlPacing and never registers an incident.
-                bool offTrackNow = Mathf.Abs(progress.lateralDistance) > Track.HalfWidthAt(progress.distance) + 1.5f;
+                bool offTrackNow = Mathf.Abs(progress.lateralDistance) > LocalHalfWidthAt(progress.distance) + 1.5f;
                 // A car off track but still aimed roughly the right way (not spun
                 // fully backward) and crawling is actively working its way back,
                 // not stuck - this is the single biggest source of the old false
@@ -2063,7 +2063,7 @@ namespace LocalFormulaRacing
                 }
 
                 bool destroyed = participant.vehicle.Damage != null && participant.vehicle.Damage.IsDestroyed;
-                bool blockingLine = Mathf.Abs(progress.lateralDistance) <= Track.HalfWidthAt(progress.distance) * 0.85f;
+                bool blockingLine = Mathf.Abs(progress.lateralDistance) <= LocalHalfWidthAt(progress.distance) * 0.85f;
                 // Wall/barrier-stuck fix: a car that stalls PINNED AGAINST THE
                 // BARRIER sits right at (or just past) the true track edge, which
                 // blockingLine's 85%-of-halfwidth test was deliberately designed to
@@ -2074,7 +2074,7 @@ namespace LocalFormulaRacing
                 // car's racing line through the corner, not a safe verge. Only used
                 // to widen the ActuallyStranded hazard check below - the collision-
                 // severity thresholds above are untouched.
-                bool pinnedAtEdge = Mathf.Abs(progress.lateralDistance) >= Track.HalfWidthAt(progress.distance) * 0.92f;
+                bool pinnedAtEdge = Mathf.Abs(progress.lateralDistance) >= LocalHalfWidthAt(progress.distance) * 0.92f;
 
                 if (destroyed)
                 {
@@ -6629,7 +6629,7 @@ namespace LocalFormulaRacing
             // actually free itself, then resumes chasing the target normally.
             if (speedKph < 3f)
             {
-                bool againstWall = progress.lateralDistance > Track.HalfWidthAt(progress.distance) - 1.6f;
+                bool againstWall = progress.lateralDistance > LocalHalfWidthAt(progress.distance) - 1.6f;
                 if (againstWall)
                 {
                     steer = -0.45f;
@@ -8491,7 +8491,7 @@ namespace LocalFormulaRacing
             TrackProgress progress = Track.GetProgress(participant.transform.position);
             float heightOffset = participant.transform.position.y - progress.nearestPoint.y;
             bool stableOnRoad =
-                Mathf.Abs(progress.lateralDistance) <= Track.HalfWidthAt(progress.distance) &&
+                Mathf.Abs(progress.lateralDistance) <= LocalHalfWidthAt(progress.distance) &&
                 heightOffset >= -0.35f &&
                 heightOffset <= 2.25f;
 
@@ -9013,7 +9013,7 @@ namespace LocalFormulaRacing
                     GameLog.Info("[PitEntry] " + participant.driverName +
                                  " normalized=" + normalized.ToString("0.000") +
                                  " lateral=" + actualProgress.lateralDistance.ToString("0.00") +
-                                 " halfWidth=" + Track.HalfWidthAt(actualProgress.distance).ToString("0.00") +
+                                 " halfWidth=" + LocalHalfWidthAt(actualProgress.distance).ToString("0.00") +
                                  " onRamp=" + crossedLimiterLine +
                                  " beganEntry=" + crossedLimiterLine);
                 }
@@ -9387,7 +9387,7 @@ namespace LocalFormulaRacing
                 float mergeBlend = Track.PitExitMergeBlend(normalized);
                 float lateral = Mathf.Lerp(legalLateral, rampLateral, mergeBlend);
                 bool insideRampEnvelope = Mathf.Abs(lateral - rampLateral) <= rampHalfWidth;
-                bool insideLegalLane = Mathf.Abs(lateral) <= Track.HalfWidthAt(distance);
+                bool insideLegalLane = Mathf.Abs(lateral) <= LocalHalfWidthAt(distance);
                 return insideRampEnvelope || insideLegalLane ? lateral : legalLateral;
             }
 
@@ -10025,7 +10025,7 @@ namespace LocalFormulaRacing
             // Never push a car off the road; clamp the nudge inside the surface.
             Vector3 target = participant.transform.position + separation;
             TrackProgress targetProgress = Track.GetProgress(target);
-            if (Mathf.Abs(targetProgress.lateralDistance) > Track.HalfWidthAt(targetProgress.distance) - 1.2f)
+            if (Mathf.Abs(targetProgress.lateralDistance) > LocalHalfWidthAt(targetProgress.distance) - 1.2f)
             {
                 return;
             }
