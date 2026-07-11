@@ -121,11 +121,24 @@ Matrix note: "Authored tracks default / every track migrated" is now
 implemented-but-runtime-unverified; "procedural track removed" holds except
 the deliberate Bahrain emergency template.
 
-Exact next task: per-point camber support in the legacy road-mesh pass
-(BuildRoadMesh reading an authored camber profile like the width profile);
-then career save-slot/driver-profile screens; then Docs/TRACK_PIPELINE.md +
-KNOWN_ISSUES.md updates to reflect the authored-calendar reality. All
-runtime-unverified; in-editor pass pending (Docs/EDITOR_BRINGUP.md).
+24. `fed80ff` TRACK_PIPELINE + KNOWN_ISSUES updated to the authored-calendar
+    reality (honest scope: geometry authored; world-build passes still
+    TrackManager's; authored builder lacks kerb/barrier parity).
+
+DEFERRED with reason - per-point camber in the legacy road mesh: tilting
+only the road cross-section would vertically misalign kerbs/barriers (they
+place at centerline height with a flat cross-section assumption, mismatch
+up to ~0.4 m on Aurora Park). Doing it right needs one shared
+SurfacePointAt(distance, lateral) consumed by road mesh + kerbs + barriers
++ stripes, audited together - an in-editor-verifiable change.
+
+Exact next task: career save-slot/driver-profile production screen (data:
+PlayerRecordsStore.Data statics - championshipsWon/completedSeasons/
+trackAchievements - plus career.Save identity; CareerHub pattern: view/
+presenter/factory/UiShell registration/bridge mapping + hub button). After
+that: production results screen at race end (UiSessionCoordinator owns the
+transition), then RaceHud-retirement gap analysis (what legacy HUD still
+shows that production modules don't).
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
