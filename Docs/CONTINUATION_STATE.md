@@ -735,6 +735,13 @@ deferred, not claimed complete.
     values unchanged; the sim nested types stay main-nested and resolve in-class.
     RaceManager.cs -> 4156 lines: 7511 out over 21 slices (~64.4%).
     RaceManager is now spread across 20 focused partials (main + 19).
+    Slice 22: car recovery - HandleFallRespawn (a car fallen off/under the track)
+    and HandleStuckEscalation (the escalating response to repeated failed recovery
+    attempts, up to a last-resort force-reposition) - 150 lines - moved to
+    RaceManager.Recovery.cs. Thresholds, escalation order and call order unchanged;
+    callers resolve in-class.
+    RaceManager.cs -> 4005 lines: 7662 out over 22 slices (~65.7%).
+    RaceManager is now spread across 21 focused partials (main + 20).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
