@@ -1093,6 +1093,23 @@ deferred, not claimed complete.
         mutation). Callers unchanged (RaceManager.Grid delegates as before).
         FuelStrategyTests extended (PerLapBurn band/fallback/clamp/monotonic;
         StartFuel target/shift/clamp/lap-floor). Unity/runtime validation PENDING.
+    E2. Dry tyre-compound decision -> engine-free TyreStrategyRules. The short-stint
+        faster-compound reach and the Soft->Medium->Hard ladder (NextPitCompound's
+        dry path) and the 0-2 roll->compound start pick
+        (StartingTyreForParticipant's dry branch) were pure decisions inline in
+        RaceManager.TyreStrategy.cs. Extracted verbatim into
+        TyreStrategyRules.NextDryCompound(lapsRemainingAfterStop, aggression,
+        currentCompound) and DryStartCompoundFromRoll(roll), using int compound
+        codes that match the live TyreCompound enum ordering (Soft 0/Medium 1/Hard
+        2), so the caller casts at the boundary. RaceManager stays the owner: the
+        partial keeps the wet/inter weather override, the missing-tyre null guard,
+        the live state reads (laps remaining via lapTracker/RaceLaps, current
+        compound, driver aggression) and the Random.Range roll (RNG call order
+        unchanged), and delegates only the dry pick - identical branching, one live
+        path (pure decision, no state mutation). In-class callers (Grid/PlannedPit/
+        AiPitStrategy/PitTyreSelector) unchanged. TyreStrategyRulesTests added
+        (short-stint reach boundaries, ladder incl. inter/wet fallthrough, roll
+        pick). Unity/runtime validation PENDING.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

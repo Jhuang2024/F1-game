@@ -1,3 +1,4 @@
+using F1Game.Race.Rules;
 using UnityEngine;
 
 namespace LocalFormulaRacing
@@ -32,8 +33,10 @@ namespace LocalFormulaRacing
                 return Track.weather == WeatherState.HeavyRain ? TyreCompound.Wet : TyreCompound.Intermediate;
             }
 
+            // RNG stays here (call order unchanged); the 0-2 roll -> compound
+            // mapping is the engine-free TyreStrategyRules.DryStartCompoundFromRoll.
             int roll = Random.Range(0, 3);
-            return roll == 0 ? TyreCompound.Soft : (roll == 1 ? TyreCompound.Medium : TyreCompound.Hard);
+            return (TyreCompound)TyreStrategyRules.DryStartCompoundFromRoll(roll);
         }
 
         TyreCompound NextPitCompound(RaceParticipant participant)
@@ -55,28 +58,17 @@ namespace LocalFormulaRacing
 
             // Smarter AI strategy: a short remaining stint (late in the race) should
             // reach for a faster compound regardless of the usual Soft->Medium->Hard
-            // ladder below - there's no tyre-life reason to save rubber that will
-            // never be needed again. Aggressive drivers push this a little further
-            // than cautious ones.
+            // ladder - there's no tyre-life reason to save rubber that will never be
+            // needed again. Aggressive drivers push this a little further than
+            // cautious ones. The dry decision (short-stint reach + ladder) lives in
+            // the engine-free TyreStrategyRules; this partial owns the live state
+            // reads (laps remaining, current compound, driver aggression) and the
+            // wet/inter override above, and delegates the dry pick. The compound
+            // codes match the TyreCompound enum ordering, so the cast is exact.
             int lapsRemainingAfterStop = participant.lapTracker == null ? RaceLaps : Mathf.Max(0, RaceLaps - participant.lapTracker.CompletedLaps);
-            if (lapsRemainingAfterStop > 0 && lapsRemainingAfterStop <= 8)
-            {
-                int aggression = participant.driverData == null ? 50 : participant.driverData.aggression;
-                bool pushToSoft = aggression >= 65 || lapsRemainingAfterStop <= 4;
-                return pushToSoft ? TyreCompound.Soft : TyreCompound.Medium;
-            }
-
-            if (participant.vehicle.Tyres.Compound == TyreCompound.Soft)
-            {
-                return TyreCompound.Medium;
-            }
-
-            if (participant.vehicle.Tyres.Compound == TyreCompound.Medium)
-            {
-                return TyreCompound.Hard;
-            }
-
-            return TyreCompound.Medium;
+            int aggression = participant.driverData == null ? 50 : participant.driverData.aggression;
+            int currentCompound = (int)participant.vehicle.Tyres.Compound;
+            return (TyreCompound)TyreStrategyRules.NextDryCompound(lapsRemainingAfterStop, aggression, currentCompound);
         }
 
     }
