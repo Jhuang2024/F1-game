@@ -6591,6 +6591,20 @@ namespace LocalFormulaRacing
 
             UiFactory.CreateSecondaryButton(menu, "Main Menu", () =>
             {
+                // Ending a Time Trial from the pause menu is its natural session end
+                // (there is no lap-count finish), so surface the production
+                // personal-best / track-record result screen when the production UI
+                // owns the frontend and a clean lap was set. When it takes over
+                // (returns true) the result screen's own buttons route back through
+                // GameBootstrap, which cleans up the race world - so we skip the
+                // legacy straight-to-menu teardown here. Every other case (race,
+                // qualifying, practice, production UI off, no clean lap) is the
+                // unchanged legacy exit.
+                if (race.IsTimeTrial && ProductionSessionUi.TryShowTimeTrialResult(race))
+                {
+                    return;
+                }
+
                 race.CleanupRaceWorld();
                 bootstrap.ShowMainMenu();
             });

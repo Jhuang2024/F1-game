@@ -1272,6 +1272,27 @@ deferred, not claimed complete.
         potential-develops-faster, ceiling damping, 40-99 clamp). Unity/runtime
         validation PENDING (compile only).
 
+    Phase F progress (production single-player completion matrix, compatibility-first):
+    F1. Production time-trial result screen wired. The production personal-best /
+        track-record result view already existed in ProductionUiBridge
+        (TryShowTimeTrialResult - full ResultsModel with the session-best lap,
+        TRACK RECORD/SESSION BEST tag and the standing record row) but was never
+        exposed or invoked. Added the ProductionSessionUi.TryShowTimeTrialResult
+        wrapper (default-off via ProductionUiReadiness.Enabled, try/catch so it never
+        throws into the exit handler, legacy fallback on false) and wired it into the
+        one place a Time Trial actually ends - the pause-menu "Main Menu" button in
+        RuntimeUi.BuildPausePanel. For a Time Trial it now tries the production result
+        first; only when that takes over (production UI on AND a clean lap was set)
+        does it skip the legacy CleanupRaceWorld+ShowMainMenu, since the result
+        screen's own Try-Again/Main-Menu buttons route through
+        GameBootstrap.ShowTimeTrialSetup/ShowMainMenu (both of which CleanupRaceWorld),
+        so teardown still happens exactly once. Every other case (race/qualifying/
+        practice exit, production UI off, no clean lap) is the unchanged legacy exit.
+        Behaviour-preserving, one live path. Runtime validation dependency: needs an
+        in-editor run with ProductionUiReadiness.Enabled to confirm the TT result
+        renders and its buttons navigate/teardown correctly; until then the legacy
+        straight-to-menu exit stays authoritative (switch default-off).
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

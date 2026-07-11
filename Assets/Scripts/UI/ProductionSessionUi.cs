@@ -98,6 +98,33 @@ namespace LocalFormulaRacing
             }
         }
 
+        /// <summary>
+        /// Show the production time-trial result (personal-best / track-record
+        /// screen) when the production UI is the active frontend and the player set
+        /// a clean lap this session. Returns true when it did (caller must NOT run
+        /// the legacy straight-to-menu exit); false leaves the legacy path as the
+        /// compatibility fallback. Never throws into the exit handler. The result
+        /// screen's own buttons route back through GameBootstrap (which cleans up the
+        /// race world), so the caller skips its own teardown only when this is true.
+        /// </summary>
+        public static bool TryShowTimeTrialResult(RaceManager race)
+        {
+            if (!ProductionUiReadiness.Enabled)
+            {
+                return false;
+            }
+
+            try
+            {
+                return ProductionUiBridge.TryShowTimeTrialResult(race);
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogError(DiagnosticLog.FormatError(DiagnosticCode.HudBindFailed, "Production time-trial result show failed; legacy fallback: " + exception));
+                return false;
+            }
+        }
+
         /// <summary>Production qualifying results (career only), same fallback contract.</summary>
         public static bool TryShowQualifyingResults(System.Collections.Generic.List<QualifyingResultEntry> results, bool careerRace)
         {
