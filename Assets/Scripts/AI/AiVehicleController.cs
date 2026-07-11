@@ -253,32 +253,56 @@ namespace LocalFormulaRacing
         // as a genuine hairpin but should never read as one here.
         float MeasureHairpinTurnAngle(float apexDistance)
         {
+            // Measure the turn angle symmetrically about THIS corner's true apex.
+            //
             // EstimateCornerSeverity samples forward only (+14/+46/+82m), so
-            // FindUpcomingApex's argmax sits ~60-80m SHORT of a long-arc hairpin's
-            // true apex. Probing the +/-55m baseline symmetrically about that short
-            // point put BOTH samples on the entry leg - the Italy/Monza 177-degree
-            // switchback measured ~0 degrees at the argmax (vs ~176 at the real tip),
-            // failed the >=150 hairpin test, and was classified VeryTight. That gave
-            // it a ~302kph floor (which pins to straight-line speed), so the AI took a
-            // 177-degree hairpin flat out into the wall - the crash reported ONLY at
-            // this corner. Take the max angle over a small forward window so the probe
-            // reaches the real apex. Because ahead=0 is included, the result is always
-            // >= the old single-probe value: this can only PROMOTE a genuine long-arc
-            // hairpin, never demote a corner that already classified correctly, and it
-            // is only consulted when apexSeverity has already saturated (line 329), so
-            // ordinary tight corners (e.g. Suzuka) that never reach 150 degrees at any
-            // offset stay VeryTight. Net effect is local to the Italy hairpin.
-            float best = 0f;
-            for (float ahead = 0f; ahead <= 60f; ahead += 20f)
+            // FindUpcomingApex's argmax sits up to ~80m SHORT of a long-arc hairpin's
+            // tip. Probing the +/-55m baseline about that short point put both samples
+            // on the entry leg, so the Italy/Monza 177-degree switchback read ~0
+            // degrees, failed the >=150 hairpin test, and was taken flat out into the
+            // wall (VeryTight speed floor). An earlier fix took the max angle over a
+            // forward window, but that ~170m span accumulated heading change across
+            // ADJACENT corners on twisty tracks and falsely promoted ordinary tight
+            // corners to the hairpin crawl speed - the AI read as far too slow.
+            //
+            // Instead, walk forward to this corner's tightest point (peak local
+            // heading change) and stop the moment that curvature falls back, so the
+            // search reaches a real hairpin's tip but never crosses into the next
+            // corner. Then measure the full +/-55m angle about that apex. Ordinary and
+            // back-to-back corners are measured at their own true angle (still < 150 =
+            // VeryTight, unchanged speed); only a genuine single >=150-degree turn is
+            // promoted to Hairpin.
+            float apex = apexDistance;
+            float bestLocal = LocalHeadingChange(apexDistance);
+            for (float ahead = 14f; ahead <= 90f; ahead += 14f)
             {
-                Vector3 pointBefore, forwardBefore, rightBefore;
-                Vector3 pointAfter, forwardAfter, rightAfter;
-                track.SampleAtDistance(apexDistance + ahead - 55f, out pointBefore, out forwardBefore, out rightBefore);
-                track.SampleAtDistance(apexDistance + ahead + 55f, out pointAfter, out forwardAfter, out rightAfter);
-                best = Mathf.Max(best, Vector3.Angle(forwardBefore, forwardAfter));
+                float local = LocalHeadingChange(apexDistance + ahead);
+                if (local > bestLocal)
+                {
+                    bestLocal = local;
+                    apex = apexDistance + ahead;
+                }
+                else if (local < bestLocal - 8f)
+                {
+                    break; // past this corner's tightest point; don't cross into the next
+                }
             }
 
-            return best;
+            Vector3 pointBefore, forwardBefore, rightBefore;
+            Vector3 pointAfter, forwardAfter, rightAfter;
+            track.SampleAtDistance(apex - 55f, out pointBefore, out forwardBefore, out rightBefore);
+            track.SampleAtDistance(apex + 55f, out pointAfter, out forwardAfter, out rightAfter);
+            return Vector3.Angle(forwardBefore, forwardAfter);
+        }
+
+        // Local heading change over a short symmetric baseline - a curvature proxy
+        // used to locate a corner's tightest point.
+        float LocalHeadingChange(float distance)
+        {
+            Vector3 point, forwardBefore, right, forwardAfter;
+            track.SampleAtDistance(distance - 16f, out point, out forwardBefore, out right);
+            track.SampleAtDistance(distance + 16f, out point, out forwardAfter, out right);
+            return Vector3.Angle(forwardBefore, forwardAfter);
         }
 
         // Part A.5: higher-skill tiers get wider HighSpeed/Medium buckets so they
