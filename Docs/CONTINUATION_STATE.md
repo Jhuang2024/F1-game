@@ -283,12 +283,20 @@ intact - production-first with legacy fallback, never both).
     BuildTelemetryDebrief(). Completes the telemetry capture into a real
     in-game consumer (the CSV export remains for offline tools).
     TelemetryDebriefTests added.
+54. REPLAY TIMELINE (in-game consumer of the captured markers): ReplayTimeline
+    (F1Game.Race) turns a ReplayRecording into an ordered highlight list
+    (flags/overtakes/pit stops/incidents/laps, session framing excluded) with a
+    session-relative m:ss.t clock, per-kind counts and the recorded window
+    length. Pure over the markers/frame span, so unit-tested. RaceManager
+    exposes BuildReplayTimeline(). Both capture models (replay + telemetry) now
+    have a pure in-game consumer. ReplayTimelineTests added.
 
 Exact next task: continue live integrations via compatibility paths + feature
-switches. Replay + telemetry are now captured live AND telemetry has an in-game
-debrief consumer; the remaining surface work (a replay playback/scrub UI, and
-placing the debrief summary + CSV-export button on the results screen) needs
-Unity scenes/UI and in-editor validation, so it waits for a compiler. Phase E RaceManager service extraction is the recorded larger item
+switches. Replay + telemetry are now captured live AND each has a pure in-game
+consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
+work (a replay playback/scrub UI, and placing the debrief summary + highlight
+list + CSV-export button on the results screen) needs Unity scenes/UI and
+in-editor validation, so it waits for a compiler. Phase E RaceManager service extraction is the recorded larger item
 but the results-build loop and race-control state are tightly-coupled
 orchestration whose pure cores are already extracted (RaceClassifier,
 FlagRules...) - blind extraction of the stateful glue risks regressions the

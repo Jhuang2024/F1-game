@@ -418,6 +418,8 @@ namespace LocalFormulaRacing
         readonly ReplayCaptureService replayCapture = new ReplayCaptureService();
         /// <summary>The current session's replay recording (null when capture is off/not started).</summary>
         public F1Game.Race.ReplayRecording ReplayRecording => replayCapture.Recording;
+        /// <summary>Build a session timeline/highlights summary from the captured replay markers.</summary>
+        public F1Game.Race.ReplayTimeline.Summary BuildReplayTimeline() => F1Game.Race.ReplayTimeline.Build(replayCapture.Recording);
         // Live player telemetry capture (Phase K engineer debrief / CSV export);
         // gated by its own flag, read-only over the player car, bounded by a
         // sample cap. RaceManager drives Begin/Sample/ExportCsv.
