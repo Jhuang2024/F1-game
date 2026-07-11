@@ -165,9 +165,12 @@ namespace LocalFormulaRacing
             float avgPace;
             float avgConfidence;
             FieldAverageDriverStats(out avgQualifying, out avgPace, out avgConfidence);
-            breakdown.driverEffect = (avgQualifying - qualifying) * DriverQualifyingCoefficient +
-                                      (avgPace - pace) * DriverPaceCoefficient +
-                                      (avgConfidence - confidence) * DriverConfidenceCoefficient;
+            // The stat-gap-to-time-delta mapping (field-centered, coefficient-weighted)
+            // is the engine-free QualifyingModel.DriverEffect; the live driver/field
+            // reads and the tuned coefficients stay owned here.
+            breakdown.driverEffect = QualifyingModel.DriverEffect(
+                qualifying, pace, confidence, avgQualifying, avgPace, avgConfidence,
+                DriverQualifyingCoefficient, DriverPaceCoefficient, DriverConfidenceCoefficient);
 
             // Car effect: ONE composite, track-weighted rating (see
             // CarQualifyingPerformanceRating/CarPerformanceWeights) covering every
@@ -180,7 +183,10 @@ namespace LocalFormulaRacing
             // never applied a second time anywhere else in this model.
             float carRating = CarQualifyingPerformanceRating(car, Track);
             float fieldAverageCarRating = FieldAverageCarRating(Track);
-            breakdown.carEffect = Mathf.Clamp((fieldAverageCarRating - carRating) * CarEffectCoefficientPerPoint, -CarEffectCapSeconds, CarEffectCapSeconds);
+            // Composite-rating gap -> clamped time delta is the engine-free
+            // QualifyingModel.CarEffect; the live car/field ratings and the tuned
+            // coefficient/cap stay owned here.
+            breakdown.carEffect = QualifyingModel.CarEffect(carRating, fieldAverageCarRating, CarEffectCoefficientPerPoint, CarEffectCapSeconds);
 
             // Percentage of baseLap rather than a flat constant, so difficulty stays
             // meaningful regardless of track length: Easy is clearly the slowest,

@@ -183,6 +183,36 @@ namespace F1Game.Race.Rules
             wAero = 0.16f; wChassis = 0.12f; wEngine = 0.08f;
         }
 
+        /// <summary>
+        /// The driver-skill contribution to a qualifying lap (seconds, signed),
+        /// extracted verbatim from SimulateQualifyingRunDetailed. Each stat is
+        /// measured against the FIELD's own average of that stat (so the whole grid
+        /// isn't shifted by a strong/weak roster) and weighted by its coefficient:
+        /// qualifying ability is primary, pace and confidence smaller secondary
+        /// flavours. Positive means slower than the field average.
+        /// </summary>
+        public static float DriverEffect(float qualifying, float pace, float confidence,
+            float avgQualifying, float avgPace, float avgConfidence,
+            float qualifyingCoeff, float paceCoeff, float confidenceCoeff)
+        {
+            return (avgQualifying - qualifying) * qualifyingCoeff +
+                   (avgPace - pace) * paceCoeff +
+                   (avgConfidence - confidence) * confidenceCoeff;
+        }
+
+        /// <summary>
+        /// The car contribution to a qualifying lap (seconds, signed), extracted
+        /// verbatim from SimulateQualifyingRunDetailed: the car's composite rating
+        /// gap to the field average times the per-point coefficient, clamped so an
+        /// extreme outlier car can never dominate the result on its own. Positive
+        /// means slower than the field average.
+        /// </summary>
+        public static float CarEffect(float carRating, float fieldAverageCarRating, float coeffPerPoint, float capSeconds)
+        {
+            float raw = (fieldAverageCarRating - carRating) * coeffPerPoint;
+            return raw < -capSeconds ? -capSeconds : (raw > capSeconds ? capSeconds : raw);
+        }
+
         // Engine-free UnityEngine.Mathf equivalents (Lerp/InverseLerp clamp t to 0-1).
         static float Lerp(float a, float b, float t)
         {

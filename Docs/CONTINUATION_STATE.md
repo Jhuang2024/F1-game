@@ -1163,6 +1163,18 @@ deferred, not claimed complete.
         in-class (Qualifying partial). QualifyingModelTests extended (top-speed
         scale/clamp, reference-lap length/floor/monotonic, weight buckets + sum-to-1).
         Unity/runtime validation PENDING.
+    E6. Qualifying lap effect formulas -> QualifyingModel (extends E4/E5). The two
+        core "stat gap -> time delta" formulas from SimulateQualifyingRunDetailed -
+        driverEffect (field-centered, coefficient-weighted qualifying/pace/confidence)
+        and carEffect (clamped composite-rating gap) - were pure inline formulas.
+        Extracted verbatim into QualifyingModel.DriverEffect(...) and CarEffect(...).
+        The tuned coefficients (DriverQualifying/Pace/Confidence 0.012/0.003/0.001,
+        CarEffect 0.08/point cap 2.0s) and every live driver/car/field read stay
+        owned in RaceManager; the interleaved RNG (tyrePrep/mistake/variance) is
+        untouched and the final lap sum stays in the caller - byte-identical, one
+        live path. QualifyingModelTests extended (driver-effect field-centering +
+        secondary terms, car-effect gap + cap clamp). These are the qualifying
+        competitive-balance core, now pinned. Unity/runtime validation PENDING.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

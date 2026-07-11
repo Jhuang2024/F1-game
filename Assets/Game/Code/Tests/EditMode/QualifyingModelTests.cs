@@ -107,6 +107,43 @@ namespace F1Game.Tests
             AssertWeightsSumToOne("", "", 999f, 0.14f);
         }
 
+        [Test]
+        public void DriverEffectIsFieldCenteredAndCoefficientWeighted()
+        {
+            // Live coefficients: qualifying 0.012, pace 0.003, confidence 0.001.
+            const float qC = 0.012f, pC = 0.003f, cC = 0.001f;
+
+            // Exactly at the field average -> no effect.
+            Assert.AreEqual(0f, QualifyingModel.DriverEffect(82f, 82f, 80f, 82f, 82f, 80f, qC, pC, cC), 0.0001f);
+
+            // A driver 10 qualifying points ABOVE the field average is faster
+            // (negative time): (82-92)*0.012 = -0.12 s.
+            Assert.AreEqual(-0.12f, QualifyingModel.DriverEffect(92f, 82f, 80f, 82f, 82f, 80f, qC, pC, cC), 0.0001f);
+            // 10 points below -> slower (+0.12 s).
+            Assert.AreEqual(0.12f, QualifyingModel.DriverEffect(72f, 82f, 80f, 82f, 82f, 80f, qC, pC, cC), 0.0001f);
+
+            // Pace and confidence are smaller secondary terms and add up.
+            // qualifying +5 (-0.06), pace +10 (-0.03), confidence +10 (-0.01) = -0.10.
+            Assert.AreEqual(-0.10f, QualifyingModel.DriverEffect(87f, 92f, 90f, 82f, 82f, 80f, qC, pC, cC), 0.0001f);
+        }
+
+        [Test]
+        public void CarEffectIsClampedRatingGap()
+        {
+            // Live coefficient 0.08/point, cap 2.0 s.
+            const float coeff = 0.08f, cap = 2.0f;
+
+            // At the field average -> no effect.
+            Assert.AreEqual(0f, QualifyingModel.CarEffect(84f, 84f, coeff, cap), 0.0001f);
+            // 10 rating points above average -> faster: (84-94)*0.08 = -0.8 s.
+            Assert.AreEqual(-0.8f, QualifyingModel.CarEffect(94f, 84f, coeff, cap), 0.0001f);
+            // 10 below -> slower: +0.8 s.
+            Assert.AreEqual(0.8f, QualifyingModel.CarEffect(74f, 84f, coeff, cap), 0.0001f);
+            // An extreme outlier clamps to +/- the cap.
+            Assert.AreEqual(-2.0f, QualifyingModel.CarEffect(200f, 84f, coeff, cap), 0.0001f);
+            Assert.AreEqual(2.0f, QualifyingModel.CarEffect(0f, 84f, coeff, cap), 0.0001f);
+        }
+
         static void AssertWeightsSumToOne(string id, string style, float roadHalfWidth, float expectedTopSpeed)
         {
             QualifyingModel.CarPerformanceWeights(id, style, roadHalfWidth,
