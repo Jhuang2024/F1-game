@@ -436,6 +436,14 @@ deferred, not claimed complete.
     writes localization_template.txt next to the saves. The template round-trips
     through Parse (load-ready). Default off, zero hot-path cost when idle.
     LocalizationTests cover recording/export/round-trip.
+80. REPLAY timeline CSV export (ledger task "replay data integration behind a
+    compatibility switch"; symmetric with the telemetry CSV): ReplayExport
+    (F1Game.Race, pure) serializes a recording's highlight markers to CSV -
+    time, session-relative clock, kind, car index, comma/quote-safe label -
+    header-only when empty. RaceManager writes it at race end behind the
+    default-off f1game_replay_export pref, track-named. Only markers (not every
+    per-frame transform) are written, keeping the file small. ReplayExportTests
+    cover header-only, per-marker rows + relative clock, and label quoting.
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks

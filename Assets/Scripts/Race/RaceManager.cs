@@ -10564,7 +10564,21 @@ namespace LocalFormulaRacing
                 " pits=" + timeline.PitStopCount +
                 " incidents=" + timeline.IncidentCount +
                 " highlights=" + timeline.Highlights.Count);
+
+            // Opt-in CSV export of the highlight timeline (symmetric with the
+            // telemetry CSV): off by default so a race never writes to disk,
+            // track-named so reruns overwrite.
+            if (PlayerPrefs.GetInt(ReplayCsvExportKey, 0) == 1)
+            {
+                string trackId = EventData != null ? EventData.trackId : "session";
+                string csv = F1Game.Race.ReplayExport.MarkersToCsv(ReplayRecording);
+                string path = System.IO.Path.Combine(Application.persistentDataPath, "replay_" + trackId + ".csv");
+                System.IO.File.WriteAllText(path, csv);
+                GameLog.Info(LogCategory.Race, "[Replay] timeline CSV exported: " + path);
+            }
         }
+
+        const string ReplayCsvExportKey = "f1game_replay_export";
 
         void LogAiDiagnostics(List<RaceResultEntry> results)
         {
