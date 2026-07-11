@@ -787,6 +787,12 @@ deferred, not claimed complete.
     in-class.
     RaceManager.cs -> 3407 lines: 8260 out over 27 slices (~70.8%).
     RaceManager is now spread across 26 focused partials (main + 25).
+    Slice 28: lighting - CreateLighting (the per-track sun/key light, ambient and
+    fog mood by track and weather, and the night-track floodlights with the
+    vertex-lit fill optimisation) - 174 lines - moved to RaceManager.Lighting.cs.
+    Light colours, intensities and render modes unchanged; callers resolve in-class.
+    RaceManager.cs -> 3232 lines: 8435 out over 28 slices (~72.3%).
+    RaceManager is now spread across 27 focused partials (main + 26).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
