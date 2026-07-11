@@ -98,6 +98,25 @@ namespace LocalFormulaRacing
             }
         }
 
+        /// <summary>Production qualifying results (career only), same fallback contract.</summary>
+        public static bool TryShowQualifyingResults(System.Collections.Generic.List<QualifyingResultEntry> results, bool careerRace)
+        {
+            if (!ProductionUiReadiness.Enabled)
+            {
+                return false;
+            }
+
+            try
+            {
+                return ProductionUiBridge.TryShowQualifyingResults(results, careerRace);
+            }
+            catch (System.Exception exception)
+            {
+                Debug.LogError(DiagnosticLog.FormatError(DiagnosticCode.HudBindFailed, "Production qualifying results show failed; legacy fallback: " + exception));
+                return false;
+            }
+        }
+
         /// <summary>Pause: reveal the legacy pause panel by hiding the production HUD overlay.</summary>
         public static void SetPaused(bool paused)
         {

@@ -942,8 +942,11 @@ namespace LocalFormulaRacing
                 Career.ApplyQualifyingResults(EventData, results);
             }
 
-            ProductionSessionUi.BeginResults();
-            ui.ShowQualifyingResults(this, results, IsCareerRace);
+            if (!ProductionSessionUi.TryShowQualifyingResults(results, IsCareerRace))
+            {
+                ProductionSessionUi.BeginResults();
+                ui.ShowQualifyingResults(this, results, IsCareerRace);
+            }
         }
 
         // Full transparency for the simulated player lap: every contribution to the
@@ -10591,8 +10594,11 @@ namespace LocalFormulaRacing
             }
 
             LogAiQualifyingDiagnostics(results, playerQualifying);
-            ProductionSessionUi.BeginResults();
-            ui.ShowQualifyingResults(this, results, IsCareerRace);
+            if (!ProductionSessionUi.TryShowQualifyingResults(results, IsCareerRace))
+            {
+                ProductionSessionUi.BeginResults();
+                ui.ShowQualifyingResults(this, results, IsCareerRace);
+            }
         }
 
         // Qualifying-side counterpart to LogAiDiagnostics: a one-shot internal log

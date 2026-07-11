@@ -131,6 +131,9 @@ namespace F1Game.UI.Screens
         public string subtitle;     // event / lap context
         public bool isCareer;
         public string primaryActionLabel;  // "Continue Career" / "Race Again"
+        // Race classification shows pit/points columns; the qualifying variant
+        // drops them (gapText carries the best lap, penaltyText the elim tag).
+        public bool showRaceColumns = true;
         public List<ResultRowModel> rows = new List<ResultRowModel>();
     }
 

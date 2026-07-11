@@ -379,6 +379,65 @@ namespace LocalFormulaRacing
             return minutes + ":" + rest.ToString("00.000");
         }
 
+        /// <summary>
+        /// Production qualifying classification (career only; quick-race
+        /// qualifying stays legacy). Same TryShow/legacy-fallback contract as
+        /// TryShowResults, reusing the Results screen in its compact variant.
+        /// </summary>
+        public static bool TryShowQualifyingResults(List<QualifyingResultEntry> results, bool careerRace)
+        {
+            if (!Enabled || !careerRace || results == null || shell == null || bootstrap == null || resultsPresenter == null)
+            {
+                return false;
+            }
+
+            try
+            {
+                var model = new ResultsModel
+                {
+                    title = "QUALIFYING RESULT",
+                    isCareer = true,
+                    showRaceColumns = false,
+                    primaryActionLabel = "Continue to Race",
+                };
+
+                for (int i = 0; i < results.Count; i++)
+                {
+                    QualifyingResultEntry e = results[i];
+                    TeamData team = data != null ? data.FindTeam(e.teamId) : null;
+                    string tag = !string.IsNullOrEmpty(e.eliminatedIn) ? "OUT " + e.eliminatedIn
+                        : (e.invalidated ? "LAP DELETED" : "--");
+                    model.rows.Add(new ResultRowModel
+                    {
+                        position = e.position > 0 ? e.position : i + 1,
+                        code = string.IsNullOrEmpty(e.driverName) ? "---" : e.driverName,
+                        team = team != null ? team.name : "",
+                        gapText = FormatLapTime(e.bestLapTime),
+                        penaltyText = tag,
+                        isPlayer = e.isPlayer,
+                        dnf = !string.IsNullOrEmpty(e.eliminatedIn),
+                    });
+                }
+
+                resultsPresenter.OnPrimary = () => LeaveToLegacy(() => bootstrap.StartCareerRace());
+                resultsPresenter.OnMenu = () => LeaveToLegacy(() => bootstrap.ShowMainMenu());
+
+                UiShell.NavigationLocked = false;
+                shell.SetShellVisible(true);
+                shell.Modals.CloseAll();
+                shell.Router.ResetStack();
+                shell.Router.Show(ResultsView.Id);
+                resultsPresenter.Present(model);
+                UiSessionCoordinator.EnterResults();
+                return true;
+            }
+            catch (Exception exception)
+            {
+                Fail("qualifying results", exception);
+                return false;
+            }
+        }
+
         static void ShowDriverProfile()
         {
             var model = new DriverProfileModel();

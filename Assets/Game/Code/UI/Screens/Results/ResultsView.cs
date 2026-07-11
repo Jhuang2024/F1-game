@@ -59,14 +59,27 @@ namespace F1Game.UI.Screens.Results
                 string open = r.isPlayer ? "<color=#" + accent + ">" : "";
                 string close = r.isPlayer ? "</color>" : "";
                 string gapColour = r.dnf ? accent : muted;
-                row.text = string.Format(
-                    "{0}<mspace=0.62em>{1:00}</mspace>  {2}{3}   <color=#{4}>{5}</color>" +
-                    "   <color=#{6}>{7}</color>   <color=#{4}>{8} stop{9}</color>   <align=right>{10} pts</align>{11}",
-                    open, r.position, r.code, string.IsNullOrEmpty(r.team) ? "" : "  ",
-                    muted, string.IsNullOrEmpty(r.team) ? "" : r.team,
-                    gapColour, r.gapText,
-                    r.pitStops, r.pitStops == 1 ? "" : "s",
-                    r.points, close);
+                string teamCell = string.IsNullOrEmpty(r.team) ? "" : "  <color=#" + muted + ">" + r.team + "</color>";
+
+                if (model.showRaceColumns)
+                {
+                    row.text = string.Format(
+                        "{0}<mspace=0.62em>{1:00}</mspace>  {2}{3}   <color=#{4}>{5}</color>" +
+                        "   <color=#{6}>{7} stop{8}</color>   <align=right>{9} pts</align>{10}",
+                        open, r.position, r.code, teamCell,
+                        gapColour, r.gapText,
+                        muted, r.pitStops, r.pitStops == 1 ? "" : "s",
+                        r.points, close);
+                }
+                else
+                {
+                    // Qualifying: best-lap time and elimination/invalid tag.
+                    string tag = string.IsNullOrEmpty(r.penaltyText) || r.penaltyText == "--"
+                        ? "" : "   <color=#" + gapColour + ">" + r.penaltyText + "</color>";
+                    row.text = string.Format(
+                        "{0}<mspace=0.62em>{1:00}</mspace>  {2}{3}   <align=right><mspace=0.62em>{4}</mspace></align>{5}{6}",
+                        open, r.position, r.code, teamCell, r.gapText, tag, close);
+                }
             }
 
             for (int i = model.rows.Count; i < rows.Count; i++)
