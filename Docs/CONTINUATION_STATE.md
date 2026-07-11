@@ -72,12 +72,21 @@ guarantees exactly one live HUD.
     CareerHubView when a save exists (next-event card, Continue labelled by
     SessionFlow, Standings & Calendar, Full Career Menu legacy fallback).
 
-Exact next task: authored-track consumer migration (Phase C) - route more
-RaceManager/AI consumers through ITrackQuery (TrackQueryProvider) instead of
-direct TrackRuntime calls, starting with read-only queries (DRS zones,
-sector lookup, half-width). Alternatively: next career screens (save-slot
-info, driver profile) in the CareerHub pattern. HUD delta/minimap and
-career-creation migration deferred to an in-editor pass.
+16. `5a382e2` Track-query seam live: RaceManager DRS-zone permission +
+    track-limits width read ITrackQuery (null-safe). COHERENCE FIX: authored
+    adapter no longer auto-selected for the reference circuit (world is
+    legacy-built on every circuit, so authored distances don't share the live
+    parameterization); authored stays behind f1game_authored_track until
+    track construction itself is authored.
+
+Exact next task: continue ITrackQuery consumer migration (remaining
+RaceManager HalfWidthAt sites at incident/blocking/pit checks, then
+AiVehicleController's edge checks - mechanical, use the same
+LocalHalfWidthAt pattern; add an equivalent helper on the AI side). Then:
+authored track construction (TrackRuntimeBuilder building the physical
+world from a TrackDefinitionAsset for one circuit) so the authored backend
+can become selectable for real. Career screens continue in the CareerHub
+pattern (save-slot info, driver profile).
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
