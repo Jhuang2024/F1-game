@@ -1679,7 +1679,8 @@ namespace LocalFormulaRacing
             // decides its own visibility every frame, so the settings toggle folds
             // into that condition instead of a one-time Build-time gate.
             bool bannerEnabled = race.Settings == null || race.Settings.Current.hudShowRaceControlBanner;
-            bool visible = bannerEnabled && (state != RaceManager.RaceControlState.Green || playerAutopilotNow);
+            bool playerBlueFlagged = race.IsShownBlueFlag(race.PlayerParticipant);
+            bool visible = bannerEnabled && (state != RaceManager.RaceControlState.Green || playerAutopilotNow || playerBlueFlagged);
             if (raceControlBanner.gameObject.activeSelf != visible)
             {
                 raceControlBanner.gameObject.SetActive(visible);
@@ -1707,12 +1708,20 @@ namespace LocalFormulaRacing
             switch (state)
             {
                 case RaceManager.RaceControlState.Green:
-                    // Only reached while visible is true, i.e. the ramp tail
-                    // after a safety-car restart: state already flipped to
-                    // Green but the player's car is still race-control driven
-                    // for a couple more seconds.
-                    UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
-                        "GREEN FLAG - POWER BUILDING", "Race control still has the car - full control in a moment", UiFactory.AccentCyan);
+                    // Only reached while visible is true: either the ramp tail
+                    // after a safety-car restart (state already Green but the
+                    // player's car is still race-control driven for a couple
+                    // more seconds), or the player being shown a blue flag.
+                    if (playerAutopilotNow)
+                    {
+                        UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                            "GREEN FLAG - POWER BUILDING", "Race control still has the car - full control in a moment", UiFactory.AccentCyan);
+                    }
+                    else
+                    {
+                        UiFactory.SetStatusBannerState(raceControlBannerAccent, raceControlBannerDot, raceControlBannerTitle, raceControlBannerSubtitle,
+                            "BLUE FLAG", "Lapping car behind - let them through", UiFactory.AccentCyan);
+                    }
                     break;
                 case RaceManager.RaceControlState.YellowSector:
                     // Only reads "slow" for the car actually near the incident -

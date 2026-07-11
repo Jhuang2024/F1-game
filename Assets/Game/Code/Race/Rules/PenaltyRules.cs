@@ -28,6 +28,18 @@ namespace F1Game.Race.Rules
         public const float TrackLimitsPenaltySeconds = 5f;
         public const string TrackLimitsReason = "Track limits";
 
+        // --- Blue flags (RaceManager.UpdateBlueFlags) ---
+
+        /// <summary>Seconds a car may hold up a lapping car before being penalised.</summary>
+        public const float BlueFlagComplianceSeconds = 20f;
+        public const float IgnoredBlueFlagPenaltySeconds = 5f;
+        public const string IgnoredBlueFlagReason = "Ignoring blue flags";
+
+        public static bool ShouldPenaliseIgnoredBlueFlag(float heldSeconds, bool alreadyPenalisedThisEpisode)
+        {
+            return !alreadyPenalisedThisEpisode && heldSeconds >= BlueFlagComplianceSeconds;
+        }
+
         // --- Mandatory pit stop (ApplyMandatoryPitPenalty) ---
 
         public const float MandatoryPitPenaltySeconds = 10f;

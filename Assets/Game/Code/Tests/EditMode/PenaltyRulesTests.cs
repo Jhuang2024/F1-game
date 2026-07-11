@@ -28,6 +28,14 @@ namespace F1Game.Tests
         }
 
         [Test]
+        public void IgnoredBlueFlagPenalisedOncePerEpisode()
+        {
+            Assert.IsFalse(PenaltyRules.ShouldPenaliseIgnoredBlueFlag(PenaltyRules.BlueFlagComplianceSeconds - 0.1f, false));
+            Assert.IsTrue(PenaltyRules.ShouldPenaliseIgnoredBlueFlag(PenaltyRules.BlueFlagComplianceSeconds, false));
+            Assert.IsFalse(PenaltyRules.ShouldPenaliseIgnoredBlueFlag(999f, true));
+        }
+
+        [Test]
         public void TrackLimitThresholdsMatchDetection()
         {
             float halfWidth = 6f;

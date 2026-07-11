@@ -91,6 +91,13 @@ namespace LocalFormulaRacing
         public float LastTelemetryCornerDistance { get { return lastTelemetryCornerDistance; } set { lastTelemetryCornerDistance = value; } }
         public float startReactionDelay;
         public bool jumpStartPenaltyApplied;
+        // Blue-flag state (RaceManager.UpdateBlueFlags): shown while a lapping
+        // car is close behind; held-seconds accumulate toward the compliance
+        // penalty and reset once the episode clears.
+        public bool blueFlagShown;
+        public float blueFlagHeldSeconds;
+        public float blueFlagLingerTimer;
+        public bool blueFlagPenaltyApplied;
         public bool isPitting;
         public PitPhase pitPhase;
         // Pit-lane architecture fix: separates "the team wants to box"

@@ -32,6 +32,12 @@ namespace F1Game.Race.Rules
         public const float VirtualSafetyCarSpeedCapKph = 190f;
         public const float LocalYellowSpeedCapKph = 210f;
 
+        // Blue-flag detection: shown to a car about to be lapped once the
+        // lapping car closes within this time gap behind it. A car a full lap
+        // (or more) of total progress ahead counts as lapping.
+        public const float BlueFlagGapSeconds = 2f;
+        public const float BlueFlagLapProgressFraction = 0.98f;
+
         /// <summary>Overtaking permitted under this flag (for cars not being lapped).</summary>
         public static bool OvertakingAllowed(RaceFlag flag)
         {

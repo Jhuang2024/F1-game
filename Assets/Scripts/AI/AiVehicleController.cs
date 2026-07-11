@@ -1783,6 +1783,15 @@ namespace LocalFormulaRacing
                 command.pitRequest = false;
             }
 
+            // Blue flag: concede pace on the straights while being lapped so the
+            // leader gets by quickly - a small lift, never a mid-corner one (a
+            // lift at the apex is how accidents happen), and never below the
+            // race-control caps already applied above.
+            if (raceManager.IsShownBlueFlag(participant) && severityHere < 0.12f)
+            {
+                command.throttle = Mathf.Min(command.throttle, 0.88f);
+            }
+
             command.ers = raceManager.ShouldAiUseErs(participant, severityHere);
 
             // DRS legality is decided entirely by RaceManager; drsUsageQuality only
@@ -2618,7 +2627,9 @@ namespace LocalFormulaRacing
             bool pitZoneNearby = track.IsInPitApproach(progress.normalized) || track.IsInPitExitLimiterZone(progress.normalized) ||
                                   participant.pitExitLaneHoldTimer > 0f || participant.pitExitLaneHoldDistanceRemaining > 0f;
             bool eitherUnderPitLimiter = vehicle.PitLimiterActive || (ahead != null && ahead.vehicle != null && ahead.vehicle.PitLimiterActive);
-            bool suppressAttackManeuvers = pitZoneNearby || eitherUnderPitLimiter;
+            // Blue flag: a car being lapped must not fight the traffic lapping
+            // it (FlagRules.MustYield) - no new attacks while the flag is shown.
+            bool suppressAttackManeuvers = pitZoneNearby || eitherUnderPitLimiter || raceManager.IsShownBlueFlag(participant);
             if (suppressAttackManeuvers && overtakeState != OvertakeState.Following && overtakeState != OvertakeState.BackingOut && overtakeState != OvertakeState.CompletingPass)
             {
                 overtakeState = OvertakeState.BackingOut;
