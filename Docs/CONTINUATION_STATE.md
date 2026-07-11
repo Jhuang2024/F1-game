@@ -884,6 +884,13 @@ deferred, not claimed complete.
     and tuned values unchanged; callers resolve in-class. No new partial - still 37.
     RaceManager.cs -> 2303 lines: 9364 out over 39 slices (~80.3%).
     RaceManager is now spread across 37 focused partials (main + 36).
+    Slice 40: track limits - HandleTrackLimits (detects repeated off-track
+    excursions, logs each sector event, escalates the warning count and applies the
+    deletion/penalty tariff, surfacing the "n/3" status to the HUD) - 84 lines -
+    moved to RaceManager.TrackLimits.cs. Thresholds and call order unchanged;
+    callers resolve in-class.
+    RaceManager.cs -> 2218 lines: 9449 out over 40 slices (~81.0%).
+    RaceManager is now spread across 38 focused partials (main + 37).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
