@@ -906,6 +906,14 @@ deferred, not claimed complete.
     in-class.
     RaceManager.cs -> 2068 lines: 9599 out over 42 slices (~82.3%).
     RaceManager is now spread across 40 focused partials (main + 39).
+    Slice 43: AI pit-lap strategy - RecommendedPitLap, ShouldAiPitByStrategyLap and
+    the StableUnitInterval per-driver-stable jitter helper - 70 lines - consolidated
+    into the existing RaceManager.AiPitStrategy.cs partial (which already owns the
+    pit-under-SC/undercut decisions), keeping AI pit-strategy in one place. The
+    window maths already live in AiPitStrategyRules; RNG-free jitter, thresholds and
+    call order unchanged; callers resolve in-class. No new partial - still 40.
+    RaceManager.cs -> 1997 lines: 9670 out over 43 slices (~82.9%).
+    RaceManager is now spread across 40 focused partials (main + 39).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

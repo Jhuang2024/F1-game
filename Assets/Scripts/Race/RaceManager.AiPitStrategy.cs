@@ -138,5 +138,76 @@ namespace LocalFormulaRacing
             return ShouldAiPitUnderSafetyCar(participant);
         }
 
+        public int RecommendedPitLap(RaceParticipant participant)
+        {
+            // Boundary only: the window math (wet shift, management shift, and
+            // the per-driver-stable jitter that keeps a midfield with similar
+            // stats from converging on one lap) lives in AiPitStrategyRules.
+            bool wetRace = Track != null && (Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain);
+            float tyreManagement = participant == null || participant.driverData == null ? 78f : participant.driverData.tyreManagement;
+            // 0.5 = no jitter (hashed from driverId, so it's the same every
+            // time this is called for a given driver this race, never re-rolled).
+            float driverJitter01 = participant == null || string.IsNullOrEmpty(participant.driverId) ? 0.5f
+                : StableUnitInterval(participant.driverId);
+            return AiPitStrategyRules.RecommendedPitLap(RaceLaps, wetRace, tyreManagement / 100f, driverJitter01);
+        }
+
+        // Off-by-one fix: RecommendedPitLap returns a 1-based DISPLAY lap number
+        // ("pit on lap 3") - CompletedLaps only reaches that number once lap 3 has
+        // already been fully driven (i.e. the car is already on lap 4), so
+        // comparing raw CompletedLaps against it fires a whole lap late. The
+        // player's own auto-pit path already made this exact correction
+        // (UpdatePlayerAutoPitStrategy's currentLapNumber = completedLaps + 1);
+        // this is the single shared version AiVehicleController now calls instead
+        // of re-deriving (and previously getting wrong) the same comparison.
+        public bool ShouldAiPitByStrategyLap(RaceParticipant participant)
+        {
+            if (participant == null || participant.lapTracker == null)
+            {
+                return false;
+            }
+
+            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
+            {
+                return false;
+            }
+
+            if (participant.pitStops > 0 || participant.isPitting || participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit)
+            {
+                return false;
+            }
+
+            int targetLap = RecommendedPitLap(participant);
+            int currentLapNumber = participant.lapTracker.CompletedLaps + 1;
+
+            // Pit-timing fix (per request: AI was pitting a lap early): hold the
+            // stop until the car has fully COMPLETED the recommended lap and is
+            // running the one after it, rather than triggering the instant it
+            // starts the recommended lap. Tyre-wear / SC / undercut triggers
+            // elsewhere can still bring a stop forward when the situation
+            // genuinely calls for it - this only shifts the routine strategy
+            // stop one lap later.
+            return currentLapNumber >= targetLap + 1;
+        }
+
+        // Deterministic, race-independent value in the 0-1 range derived from a
+        // string - used to
+        // give each driver a small, stable personality offset (pit-window jitter,
+        // etc.) without a persistent per-driver RNG state and without ever changing
+        // between calls for the same driver within a race.
+        static float StableUnitInterval(string key)
+        {
+            unchecked
+            {
+                int hash = 17;
+                for (int i = 0; i < key.Length; i++)
+                {
+                    hash = hash * 31 + key[i];
+                }
+
+                return (hash & 0x7fffffff) / (float)int.MaxValue;
+            }
+        }
+
     }
 }
