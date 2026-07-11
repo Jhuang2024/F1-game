@@ -727,6 +727,14 @@ deferred, not claimed complete.
     handlers (HandleFallRespawn/HandleStuckEscalation) remain separate.
     RaceManager.cs -> 4411 lines: 7256 out over 20 slices (~62.2%).
     RaceManager is now spread across 19 focused partials (main + 18).
+    Slice 21: qualifying-field composition - BuildQualifyingField,
+    BuildSimulatedQualifyingField, ResolvePlayerQualifyingDriverData,
+    ReplacedDriverIdForPlayerTeam, GetDefensiveAiRoster and
+    PrepareAiQualifyingTargetsForPhase - 254 lines - moved to
+    RaceManager.QualifyingField.cs. Field composition, RNG call order and tuned
+    values unchanged; the sim nested types stay main-nested and resolve in-class.
+    RaceManager.cs -> 4156 lines: 7511 out over 21 slices (~64.4%).
+    RaceManager is now spread across 20 focused partials (main + 19).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
