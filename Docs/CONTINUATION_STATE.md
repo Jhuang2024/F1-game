@@ -684,6 +684,17 @@ deferred, not claimed complete.
     RaceHud and RaceEventRelay callers resolve in-class.
     RaceManager.cs -> 5434 lines: 6233 out over 16 slices (~53.4%).
     RaceManager is now spread across 15 focused partials (main + 14).
+    Slice 17: race-control speed enforcement - RaceControlSpeedCapKphFor (the
+    per-car allowed cap: pit lane excluded, VSC/SC field-wide, local yellow only
+    near the incident), ApplyRaceControlSpeedCaps (the field-wide physical cap on
+    every car alike) and ApplyPlayerRaceControlLimiter (the player overspeed
+    warning + pace penalty) - 159 lines - moved to RaceManager.SpeedCaps.cs. Caps,
+    warning/penalty thresholds and call order unchanged; the overspeed-timer /
+    warning state stays main-nested and resolves in-class, and
+    RaceControlSpeedCapKphFor stays public so the AI, RaceHud and RaceEventRelay
+    callers resolve in-class.
+    RaceManager.cs -> 5274 lines: 6393 out over 17 slices (~54.8%).
+    RaceManager is now spread across 16 focused partials (main + 15).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
