@@ -96,12 +96,17 @@ guarantees exactly one live HUD.
     source), so world build + all gameplay width checks follow it. Aurora
     Park fills it from the definition; procedural layouts unchanged.
 
-Exact next task: career screens (save-slot info, driver profile) in the
-CareerHub pattern; then per-point camber in the road mesh (TrackMeshBuilder
-honors it in the authored pipeline; legacy BuildRoadMesh does not - check
-whether a camber pass is worth adding before more circuits convert); then
-convert a second circuit to an authored definition to prove the pipeline
-generalizes. All runtime-unverified; in-editor pass pending.
+20. `1388b98` Career hub shows the player's championship line (P/pts/wins);
+    fixed the hub's season-label binding (scaffold header had been bound as
+    the season text).
+
+Exact next task: convert a second circuit to an authored definition (add a
+generator or asset for one existing calendar circuit reproducing its layout
+via authored spline points, route its trackId through the authored branch)
+to prove the Phase C pipeline generalizes; then per-point camber in the
+legacy road-mesh pass. Career: next screens are save-slot info + driver
+profile in the CareerHub pattern. All runtime-unverified; in-editor pass
+pending (Docs/EDITOR_BRINGUP.md).
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
