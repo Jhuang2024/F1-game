@@ -418,6 +418,14 @@ namespace LocalFormulaRacing
         readonly ReplayCaptureService replayCapture = new ReplayCaptureService();
         /// <summary>The current session's replay recording (null when capture is off/not started).</summary>
         public F1Game.Race.ReplayRecording ReplayRecording => replayCapture.Recording;
+        // Live player telemetry capture (Phase K engineer debrief / CSV export);
+        // gated by its own flag, read-only over the player car, bounded by a
+        // sample cap. RaceManager drives Begin/Sample/ExportCsv.
+        readonly TelemetryCaptureService telemetryCapture = new TelemetryCaptureService();
+        /// <summary>Samples captured in the current player telemetry trace (0 when off/not started).</summary>
+        public int TelemetrySampleCount => telemetryCapture.SampleCount;
+        /// <summary>Export the current session's player telemetry to a CSV; returns the path or null.</summary>
+        public string ExportTelemetryCsv(string fileName) => telemetryCapture.ExportCsv(fileName);
         readonly HashSet<RaceParticipant> aheadOfSafetyCarLastTick = new HashSet<RaceParticipant>();
         // Blocks a NEW VSC/SC escalation for a while after the field returns to
         // Green, so one incident's aftermath can't chain into a second SC/VSC the
@@ -867,6 +875,7 @@ namespace LocalFormulaRacing
 
             SpawnRaceGrid(playerName, playerTeamId, careerRace);
             replayCapture.Begin(Participants, RaceElapsed);
+            telemetryCapture.Begin();
             SpawnGhostIfAvailable();
             PostEngineerMessage(OpeningEngineerMessage(), true);
             engineerWeatherSent = true;
@@ -1224,6 +1233,16 @@ namespace LocalFormulaRacing
 
             UpdateSlipstreamEffects();
             replayCapture.Tick(Participants, RaceElapsed);
+            if (telemetryCapture.IsCapturing && PlayerParticipant != null)
+            {
+                float telemetryDelta = 0f;
+                if (!TryGetQualifyingDelta(PlayerParticipant, out telemetryDelta))
+                {
+                    TryGetGhostDelta(PlayerParticipant, out telemetryDelta);
+                }
+
+                telemetryCapture.Sample(PlayerParticipant, RaceElapsed, telemetryDelta);
+            }
 
             if (IsTimeTrial)
             {

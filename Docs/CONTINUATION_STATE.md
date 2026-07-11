@@ -257,8 +257,29 @@ accessibility/settings overlays, replay/spectator/photo controls.
 clean, all metas present, no dup GUIDs, braces balanced, duplicate-HUD guard
 intact - production-first with legacy fallback, never both).
 
+51. `14dd343`/`4839b07` REPLAY CAPTURE made live (was built-not-live):
+    ReplayCaptureService owns the ReplayRecording ring buffer, records all
+    cars' transforms/speed at 20Hz into a 6000-frame bounded window, gated by
+    `f1game_replay_capture`. RaceManager drives Begin/Tick/End and pushes
+    timeline markers (session start/end, flags via LogRaceControlHistory,
+    pit stops via BeginPitStop, incidents via RegisterIncident); exposes
+    ReplayRecording. Read-only over cars, bounded memory, off-path when
+    disabled. ReplayRecordingTests added.
+52. TELEMETRY CAPTURE made live (was built-not-live): TelemetryCaptureService
+    owns a TelemetryRecorder, samples the player car's channels (speed,
+    throttle/brake/steer, gear, rpm proxy = speed/top-speed, ERS, DRS, tyre
+    wear, live qualifying/ghost delta) at 20Hz into an 18000-sample cap, gated
+    by `f1game_telemetry_capture`. RaceManager drives Begin at grid spawn and
+    Sample each racing tick; exposes TelemetrySampleCount + ExportTelemetryCsv
+    (writes persistentDataPath CSV for engineer debrief). Added
+    VehicleController.LastSteerInput accessor for the steer channel.
+    TelemetryRecorderTests added.
+
 Exact next task: continue live integrations via compatibility paths + feature
-switches. Phase E RaceManager service extraction is the recorded larger item
+switches. Replay + telemetry are now captured live; the remaining consumer
+work (a replay playback/scrub UI, a debrief CSV-export button surfaced on the
+results screen) needs Unity scenes/UI and in-editor validation, so it waits for
+a compiler. Phase E RaceManager service extraction is the recorded larger item
 but the results-build loop and race-control state are tightly-coupled
 orchestration whose pure cores are already extracted (RaceClassifier,
 FlagRules...) - blind extraction of the stateful glue risks regressions the

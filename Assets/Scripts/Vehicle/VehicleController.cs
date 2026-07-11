@@ -113,6 +113,8 @@ namespace LocalFormulaRacing
         public float FuelStarvedTimer { get { return fuelStarvedTimer; } }
         public float UndersteerAmount { get; private set; }
         public float OversteerAmount { get; private set; }
+        /// <summary>Last applied steering command (-1..1); read by telemetry capture.</summary>
+        public float LastSteerInput { get; private set; }
         public float EffectiveThrottle { get; private set; }
         public float EffectiveBrake { get; private set; }
         public float LastTyreGripMultiplier { get; private set; }
@@ -858,6 +860,7 @@ namespace LocalFormulaRacing
 
         void ApplyForces(VehicleCommand activeCommand, float absoluteSpeedKph, TrackProgress progress, float dt)
         {
+            LastSteerInput = activeCommand.steer;
             float speedMps = body.velocity.magnitude;
             float forwardSpeed = Vector3.Dot(body.velocity, transform.forward);
 
