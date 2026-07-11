@@ -891,6 +891,14 @@ deferred, not claimed complete.
     callers resolve in-class.
     RaceManager.cs -> 2218 lines: 9449 out over 40 slices (~81.0%).
     RaceManager is now spread across 38 focused partials (main + 37).
+    Slice 41: pit-status display - PitStatusText (the player's live pit-status line:
+    approach/queue/service/exit phrasing) and PitStopProgress01 (the 0-1
+    service-progress value for the HUD gauge) - 102 lines - moved to
+    RaceManager.PitStatus.cs. Phrasing and progress maths unchanged; the local-yellow
+    speed-cap consts stay in main; the public entry points stay public so HUD callers
+    resolve in-class.
+    RaceManager.cs -> 2115 lines: 9552 out over 41 slices (~81.9%).
+    RaceManager is now spread across 39 focused partials (main + 38).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
