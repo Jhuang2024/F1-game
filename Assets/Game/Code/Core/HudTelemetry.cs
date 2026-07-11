@@ -63,6 +63,10 @@ namespace F1Game.Core
         // Live weather for the conditions chip.
         public Events.WeatherKind Weather;
 
+        // Session identity (Tier 4 parity): kind + event display name.
+        public Events.SessionKind Session;
+        public string EventName;
+
         // Race-control surface (Tier 3 parity): pace enforcement and restart
         // context beyond the one-word flag.
         public bool PaceLimited;

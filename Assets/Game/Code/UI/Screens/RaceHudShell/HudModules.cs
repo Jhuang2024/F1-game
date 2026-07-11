@@ -24,6 +24,42 @@ namespace F1Game.UI.Screens.RaceHudShell
         protected abstract void Render(in HudTelemetrySnapshot t);
     }
 
+    /// <summary>Session identity: "RACE · Italy-style Speed GP".</summary>
+    public sealed class SessionLabelModule : HudModule
+    {
+        [SerializeField] TMP_Text value;
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            if (!t.Valid)
+            {
+                value.text = "";
+                return;
+            }
+
+            string kind;
+            switch (t.Session)
+            {
+                case F1Game.Core.Events.SessionKind.Qualifying:
+                    kind = "QUALIFYING";
+                    break;
+                case F1Game.Core.Events.SessionKind.TimeTrial:
+                    kind = "TIME TRIAL";
+                    break;
+                case F1Game.Core.Events.SessionKind.Practice:
+                    kind = "PRACTICE";
+                    break;
+                default:
+                    kind = "RACE";
+                    break;
+            }
+
+            value.text = string.IsNullOrEmpty(t.EventName) ? kind : kind + " <size=75%>· " + t.EventName + "</size>";
+        }
+    }
+
     /// <summary>Position "P3 / 22".</summary>
     public sealed class PositionModule : HudModule
     {
@@ -88,7 +124,14 @@ namespace F1Game.UI.Screens.RaceHudShell
         protected override void Render(in HudTelemetrySnapshot t)
         {
             if (!t.Valid) return;
-            if (ers != null) ers.SetValue(t.Ers01, UiTheme.Active.palette.accent);
+            if (ers != null)
+            {
+                // Race-control lockout: deployment is disabled under any
+                // caution (FlagRules), so the meter dims to say why the
+                // button does nothing.
+                bool locked = t.PaceLimited || t.Flag == F1Game.Core.Events.FlagState.Yellow;
+                ers.SetValue(t.Ers01, locked ? UiTheme.Active.palette.textMuted : UiTheme.Active.palette.accent);
+            }
             if (drs != null)
             {
                 if (t.DrsActive) drs.Set("DRS", StatusChip.Tone.Positive);

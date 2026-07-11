@@ -32,13 +32,13 @@ pit-request/radio events).
       (RaceControlModule, tranche 2; autopilot-ramp wording not yet shown)
 - [x] Pace cap surface (1859): live KEEP UNDER n KPH + SC queue slot.
       (tranche 2; SLOW DOWN over-cap warning not yet shown)
-- [ ] ERS DISABLED lockout state (3107).
+- [x] ERS lockout state (3107): meter dims under caution. (tranche 4)
 
 ## Tier 4 — Core telemetry (snapshot fields)
 - [x] Damage meter (2106): `Damage01`. (tranche 1)
 - [ ] Tyre corner grid + temps + lockup/flat-spot (2001/2009): temp status,
       lockup severity.
-- [ ] Session label + event name (1919/1922): `SessionKind`, `EventName`.
+- [x] Session label + event name (1919/1922). (SessionLabelModule, tranche 4)
 - [ ] Session message line (1929).
 - [ ] Input telemetry bars (627): effective throttle/brake.
 - [ ] Track-limit warning flash (2469): warning count.

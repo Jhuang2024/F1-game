@@ -20,7 +20,9 @@ namespace F1Game.UI.Screens.RaceHudShell
                 return;
             }
 
-            // Top-left: position + lap/clock.
+            // Top-left: session identity, then position + lap/clock.
+            var sessionText = Text(hud.TopLeftDock, "Session", 16f, TextAlignmentOptions.Left);
+            hud.gameObject.AddComponent<SessionLabelModule>().Bind(sessionText);
             var posValue = Text(hud.TopLeftDock, "Position", 44f, TextAlignmentOptions.Left);
             hud.gameObject.AddComponent<PositionModule>().Bind(posValue);
             var lapText = Text(hud.TopLeftDock, "Lap", 20f, TextAlignmentOptions.Left);

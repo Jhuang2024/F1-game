@@ -190,6 +190,8 @@ namespace LocalFormulaRacing
                 BestLapSeconds = player.lapTracker != null ? player.lapTracker.BestLapTime : 0f,
                 SessionBestSeconds = race.SessionFastestLap,
                 Weather = MapWeather(race.Track != null ? race.Track.weather : WeatherState.Clear),
+                Session = MapSession(),
+                EventName = race.EventData != null ? race.EventData.displayName : "",
                 Damage01 = vehicle.Damage != null ? Mathf.Clamp01(vehicle.Damage.OverallPercent / 100f) : 0f,
                 FuelStarved = vehicle.FuelStarved,
                 PitStopProgress01 = race.PitStopProgress01(player),
