@@ -316,6 +316,13 @@ intact - production-first with legacy fallback, never both).
     resolve the live state and delegate; the race path still only runs the
     heavier interval scan when a gap is actually required. Behavior-identical.
     DrsRulesTests added.
+58. Telemetry debrief now has a LIVE runtime consumer: FinishRace logs a
+    compact one-line engineer debrief (samples, top/avg speed, full-throttle/
+    braking/coasting %, DRS %, tyre-wear delta) via GameLog(LogCategory.Race)
+    from the captured player telemetry. Behavior-changing (the capture now
+    visibly produces a race-end artifact) but low-risk: read-only over the
+    debrief, no UI/GPU, no-op when capture is off/empty. A future debrief panel
+    reads the same TelemetryDebrief.Summary via BuildTelemetryDebrief().
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

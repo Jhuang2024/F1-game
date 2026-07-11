@@ -10228,6 +10228,7 @@ namespace LocalFormulaRacing
 
             RecordPlayerRaceStats(results);
             LogAiDiagnostics(results);
+            LogTelemetryDebrief();
             SimpleAudioManager.SetRaceAmbience(false);
             SimpleAudioManager.PlayResultsFlourish();
 
@@ -10427,6 +10428,31 @@ namespace LocalFormulaRacing
 
         // One-shot post-race summary so an Expert AI balance pass can be checked
         // from the log instead of only from playtesting feel.
+        // Race-end engineer debrief from the live telemetry capture: a compact
+        // one-line summary of the player's session (speed, pedal-time share, DRS,
+        // tyre wear) into the diagnostics log. This is the runtime consumer that
+        // makes the telemetry capture visibly useful without any UI - a future
+        // debrief panel reads the same TelemetryDebrief.Summary via
+        // BuildTelemetryDebrief(). No-op when capture is off or empty.
+        void LogTelemetryDebrief()
+        {
+            TelemetryDebrief.Summary debrief = BuildTelemetryDebrief();
+            if (!debrief.HasData)
+            {
+                return;
+            }
+
+            GameLog.Info(LogCategory.Race,
+                "[Debrief] samples=" + debrief.SampleCount +
+                " top=" + debrief.TopSpeedKph.ToString("0") + "kph" +
+                " avg=" + debrief.AverageSpeedKph.ToString("0") + "kph" +
+                " fullThrottle=" + debrief.FullThrottlePercent.ToString("0") + "%" +
+                " braking=" + debrief.BrakingPercent.ToString("0") + "%" +
+                " coasting=" + debrief.CoastingPercent.ToString("0") + "%" +
+                " drs=" + debrief.DrsPercent.ToString("0") + "%" +
+                " tyreWear=" + (debrief.TyreWearDelta01 * 100f).ToString("0") + "%");
+        }
+
         void LogAiDiagnostics(List<RaceResultEntry> results)
         {
             if (PlayerParticipant == null || results == null || results.Count == 0)
