@@ -1346,6 +1346,19 @@ deferred, not claimed complete.
         (ReplayPlaybackController) -> persist (ReplaySerialization) -> export/highlights
         (ReplayExport/ReplayTimeline), all engine-free and unit-tested. The replay
         camera + scrub-bar UI (Unity scene) is the only editor-gated remainder.
+    F5. Replay/broadcast auto-director -> engine-free ReplayDirector (F1Game.Race).
+        The pure decision a replay or broadcast camera uses to pick which car to
+        focus: given the recording's marker track and the playhead, a car-tagged
+        marker within a time window (default 2.5s) pulls focus, chosen by priority
+        (incident > overtake > pit > lap/flag) then nearest-in-time; field-wide (-1)
+        and out-of-range markers are ignored; with nothing nearby it returns the
+        supplied default car (player/leader). The camera transform/cut stays in the
+        engine layer and just follows this index. ReplayDirectorTests added
+        (default fallback, nearby-marker focus, priority beats proximity, proximity
+        tie-break within a priority, field-wide/out-of-range ignored, window bound).
+        The non-visual replay+broadcast engine is now complete
+        (record/sample/transport/persist/direct/export); only the camera + scrub UI
+        (Unity scene) is editor-gated.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
