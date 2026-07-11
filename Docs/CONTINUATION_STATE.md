@@ -695,6 +695,18 @@ deferred, not claimed complete.
     callers resolve in-class.
     RaceManager.cs -> 5274 lines: 6393 out over 17 slices (~54.8%).
     RaceManager is now spread across 16 focused partials (main + 15).
+    Slice 18: DRS eligibility - UpdateDrsEligibility (the detection-point gap
+    check, evaluated once as a car crosses the line then held for the whole zone),
+    DrsZoneIndexAt, EvaluateDrsDetectionGap, IsDrsAvailable and DrsStateText -
+    ~163 lines across two ranges - moved to RaceManager.Drs.cs. The pure
+    eligibility policy stays in the engine-free DrsRules; detection cadence, the
+    hold-for-the-zone behaviour and call order unchanged. Public IsDrsAvailable /
+    DrsStateText stay public so PlayerVehicleInput, the AI, RaceHud, RaceParticipant
+    and RaceEventRelay callers resolve in-class. The LocalHalfWidthAt geometry
+    helper (shared by pit/grid/stack code well beyond DRS) deliberately stays in
+    the main partial, so this was a two-range slice around it.
+    RaceManager.cs -> 5106 lines: 6561 out over 18 slices (~56.2%).
+    RaceManager is now spread across 17 focused partials (main + 16).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
