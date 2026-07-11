@@ -931,6 +931,15 @@ deferred, not claimed complete.
     accessors stay in main.
     RaceManager.cs -> 1872 lines: 9795 out over 45 slices (~84.0%).
     RaceManager is now spread across 42 focused partials (main + 41).
+    Slice 46: HUD toasts - the HudToast struct, the toast queue + cap, the
+    UI-agnostic ToastColor* colour-kind consts, QueueHudToast (which also publishes
+    a HudToastEvent for the production notification feed) and TryDequeueHudToast -
+    46 lines - moved to RaceManager.HudToast.cs. Queue cap and tone mapping
+    unchanged; the HudToast struct and the public colour consts stay nested
+    (RaceManager.ToastColor*) so RaceHud and the Engineer/TrackLimits partials
+    resolve in-class.
+    RaceManager.cs -> 1826 lines: 9841 out over 46 slices (~84.3%).
+    RaceManager is now spread across 43 focused partials (main + 42).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
