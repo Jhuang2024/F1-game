@@ -800,14 +800,14 @@ namespace LocalFormulaRacing
                 return model;
             }
 
-            Heading(model, "GAMEPLAY");
+            Heading(model, F1Game.Core.Localization.Get("settings.heading.gameplay", "GAMEPLAY"));
             Row(model, "Race Laps", s.laps.ToString());
             Row(model, "Difficulty", Pick(DifficultyNames, s.difficultyIndex));
             Row(model, "AI Opponents", s.aiOpponentCount.ToString());
             Row(model, "Default Tyre", string.IsNullOrEmpty(s.tyreCompound) ? "Medium" : s.tyreCompound);
             Row(model, "ERS Strategy", Pick(ErsModeNames, s.ersMode));
 
-            Heading(model, "DRIVING");
+            Heading(model, F1Game.Core.Localization.Get("settings.heading.driving", "DRIVING"));
             Row(model, "Manual Gears", OnOff(s.manualGears));
             Row(model, "ABS", OnOff(s.absAssist));
             Row(model, "Traction Control", OnOff(s.tractionControl));
@@ -815,13 +815,13 @@ namespace LocalFormulaRacing
             Row(model, "Auto Brake Assist", OnOff(s.autoBrakeAssist));
             Row(model, "Steering Sensitivity", Multiplier(s.steeringSensitivity));
 
-            Heading(model, "AUDIO");
+            Heading(model, F1Game.Core.Localization.Get("settings.heading.audio", "AUDIO"));
             Row(model, "Sound Effects", OnOff(s.audioEnabled));
             Row(model, "Master Volume", Percent(s.masterVolume));
             Row(model, "Engine Volume", Percent(s.engineVolume));
             Row(model, "Radio Volume", Percent(s.radioVolume));
 
-            Heading(model, "DISPLAY & ACCESSIBILITY");
+            Heading(model, F1Game.Core.Localization.Get("settings.heading.display", "DISPLAY & ACCESSIBILITY"));
             Row(model, "HUD Scale", Multiplier(s.hudScale));
             Row(model, "Compact HUD", OnOff(s.compactHud));
             Row(model, "UI Animations", OnOff(s.uiAnimations));

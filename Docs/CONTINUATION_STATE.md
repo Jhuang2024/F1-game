@@ -374,6 +374,14 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+74. LOCALIZATION foundation (matrix item "localization runtime", not previously
+    started): Localization (F1Game.Core) - a key→string table with an English
+    fallback baked in at every call site, so the game reads identically until a
+    translation table is loaded (identity default = zero behaviour change).
+    Unknown/blank keys degrade to the fallback (partial translations are safe).
+    Demonstrated end-to-end by routing the production settings category headings
+    through Localization.Get; expanding coverage is now mechanical.
+    LocalizationTests added. This is the seam/foundation, not full coverage.
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks
