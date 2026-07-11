@@ -760,6 +760,14 @@ deferred, not claimed complete.
     and resolves in-class, and the public entry points stay public.
     RaceManager.cs -> 3726 lines: 7941 out over 24 slices (~68.1%).
     RaceManager is now spread across 23 focused partials (main + 22).
+    Slice 25: AI pit strategy - ShouldAiPitUnderSafetyCar (the pit-under-SC
+    decision), ShouldAiPitForUndercut and the player-facing HUD counterpart
+    RecommendedPitUnderSafetyCar - 123 lines - moved to
+    RaceManager.AiPitStrategy.cs. Thresholds and call order unchanged; the pure
+    decision maths already live in AiPitStrategyRules, and the public entry points
+    stay public so AI/HUD callers resolve in-class.
+    RaceManager.cs -> 3602 lines: 8065 out over 25 slices (~69.1%).
+    RaceManager is now spread across 24 focused partials (main + 23).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
