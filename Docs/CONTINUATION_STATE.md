@@ -444,6 +444,12 @@ deferred, not claimed complete.
     default-off f1game_replay_export pref, track-named. Only markers (not every
     per-frame transform) are written, keeping the file small. ReplayExportTests
     cover header-only, per-marker rows + relative clock, and label quoting.
+81. Physics-model test coverage completed: PhysicsModelsTests now also pin
+    TyreModel.LongitudinalGrip (zero at no slip, rises with slip), LoadSensitivity
+    (unity at reference load, falls under more), WearPerLap (aggression/compound
+    scaling), and AeroModel Downforce (speed² law), Drag (DRS cut) and
+    SlipstreamDragFactor (clamped tow) - the formulas that back the live aero/ERS
+    authority and the built tyre model.
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks

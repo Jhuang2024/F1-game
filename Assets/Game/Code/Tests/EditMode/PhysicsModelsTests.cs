@@ -85,6 +85,36 @@ namespace F1Game.Tests
         }
 
         [Test]
+        public void TyreModelSecondaryCurves()
+        {
+            // Longitudinal grip is zero at no slip and rises with slip.
+            Assert.AreEqual(0f, TyreModel.LongitudinalGrip(0f, 1f), 0.0001f);
+            Assert.Greater(TyreModel.LongitudinalGrip(0.1f, 1f), 0f);
+
+            // Load sensitivity: unity at the reference load, falls under more load.
+            Assert.AreEqual(1f, TyreModel.LoadSensitivity(100f, 100f), 0.0001f);
+            Assert.Less(TyreModel.LoadSensitivity(200f, 100f), 1f);
+
+            // Wear rises with aggression and softer compounds.
+            Assert.AreEqual(0.02f, TyreModel.WearPerLap(0f, 0f), 0.0001f);
+            Assert.AreEqual(0.08f, TyreModel.WearPerLap(1f, 1f), 0.0001f);
+        }
+
+        [Test]
+        public void AeroModelDownforceDragAndSlipstream()
+        {
+            // Downforce ∝ speed²; quadruples when speed doubles; zero at rest.
+            Assert.AreEqual(0.22f, AeroModel.Downforce(10f, 0.0022f), 0.0001f);
+            Assert.AreEqual(0.88f, AeroModel.Downforce(20f, 0.0022f), 0.0001f);
+            Assert.AreEqual(0f, AeroModel.Downforce(0f, 0.0022f), 0.0001f);
+
+            // DRS open cuts drag; slipstream shaves a smaller amount, clamped.
+            Assert.Less(AeroModel.Drag(10f, 0.001f, true, 0.25f), AeroModel.Drag(10f, 0.001f, false));
+            Assert.AreEqual(1f, AeroModel.SlipstreamDragFactor(0f), 0.0001f);
+            Assert.AreEqual(1f - AeroModel.SlipstreamDragReduction, AeroModel.SlipstreamDragFactor(2f), 0.0001f); // clamps
+        }
+
+        [Test]
         public void DirtyAirLossDecaysWithGap()
         {
             // Maximum loss right on the gearbox of the car ahead, decaying to
