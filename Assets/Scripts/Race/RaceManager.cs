@@ -1,5 +1,6 @@
 using System.Collections;
 using System.Collections.Generic;
+using F1Game.Core.Diagnostics;
 using F1Game.Core.Events;
 using F1Game.Race.Rules;
 using UnityEngine;
@@ -833,7 +834,7 @@ namespace LocalFormulaRacing
                 // for the legacy race path (nothing on the live legacy loop reads
                 // it yet). A failure selecting it must never abort race start or
                 // leave the frontend stuck.
-                GameLog.Warn("[TrackQuery] Select failed; continuing without it: " + trackQueryException);
+                GameLog.Warn(LogCategory.Track, "TrackQuery select failed; continuing without it: " + trackQueryException);
             }
 
             SpawnRaceGrid(playerName, playerTeamId, careerRace);

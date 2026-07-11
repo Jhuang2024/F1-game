@@ -1,3 +1,4 @@
+using F1Game.Core.Diagnostics;
 using F1Game.UI;
 using F1Game.UI.Screens.RaceHudShell;
 using UnityEngine;
@@ -40,7 +41,7 @@ namespace LocalFormulaRacing
             }
             catch (System.Exception exception)
             {
-                Debug.LogError("[ProductionSessionUi] HUD show failed; falling back to legacy HUD: " + exception);
+                Debug.LogError(DiagnosticLog.FormatError(DiagnosticCode.HudBindFailed, "Production HUD show failed; falling back to legacy HUD: " + exception));
                 return false;
             }
         }
