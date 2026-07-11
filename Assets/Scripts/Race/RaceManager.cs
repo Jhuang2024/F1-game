@@ -10229,6 +10229,7 @@ namespace LocalFormulaRacing
             RecordPlayerRaceStats(results);
             LogAiDiagnostics(results);
             LogTelemetryDebrief();
+            LogReplaySummary();
             SimpleAudioManager.SetRaceAmbience(false);
             SimpleAudioManager.PlayResultsFlourish();
 
@@ -10451,6 +10452,31 @@ namespace LocalFormulaRacing
                 " coasting=" + debrief.CoastingPercent.ToString("0") + "%" +
                 " drs=" + debrief.DrsPercent.ToString("0") + "%" +
                 " tyreWear=" + (debrief.TyreWearDelta01 * 100f).ToString("0") + "%");
+        }
+
+        // Race-end summary from the live replay capture: the highlight-marker
+        // tally (flags/overtakes/pit stops/incidents/laps) and recorded window
+        // length into the diagnostics log. The runtime consumer that makes the
+        // replay capture visibly useful without playback UI; a future
+        // replay/highlights view reads the same ReplayTimeline.Summary via
+        // BuildReplayTimeline(). No-op when capture is off or has no markers.
+        void LogReplaySummary()
+        {
+            F1Game.Race.ReplayTimeline.Summary timeline = BuildReplayTimeline();
+            if (!timeline.HasData)
+            {
+                return;
+            }
+
+            GameLog.Info(LogCategory.Race,
+                "[Replay] frames=" + timeline.FrameCount +
+                " cars=" + timeline.CarCount +
+                " length=" + F1Game.Race.ReplayTimeline.FormatClock(timeline.DurationSeconds) +
+                " flags=" + timeline.FlagCount +
+                " overtakes=" + timeline.OvertakeCount +
+                " pits=" + timeline.PitStopCount +
+                " incidents=" + timeline.IncidentCount +
+                " highlights=" + timeline.Highlights.Count);
         }
 
         void LogAiDiagnostics(List<RaceResultEntry> results)

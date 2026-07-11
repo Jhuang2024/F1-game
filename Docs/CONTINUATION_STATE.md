@@ -323,6 +323,13 @@ intact - production-first with legacy fallback, never both).
     visibly produces a race-end artifact) but low-risk: read-only over the
     debrief, no UI/GPU, no-op when capture is off/empty. A future debrief panel
     reads the same TelemetryDebrief.Summary via BuildTelemetryDebrief().
+59. Replay timeline now has a LIVE runtime consumer too (symmetric with #58):
+    FinishRace logs a compact replay summary (frames, cars, length, flag/
+    overtake/pit/incident/highlight counts) via GameLog(LogCategory.Race) from
+    the captured markers. Same low-risk shape: read-only, no UI/GPU, no-op when
+    capture is off/empty. Both capture models now feed the live loop end-to-end
+    (capture → pure consumer → race-end log), with the richer UI surfaces (scrub
+    playback, on-screen debrief panel) still waiting for a compiler/editor.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
