@@ -850,6 +850,15 @@ deferred, not claimed complete.
     so UI/input callers resolve in-class.
     RaceManager.cs -> 2715 lines: 8952 out over 35 slices (~76.7%).
     RaceManager is now spread across 34 focused partials (main + 33).
+    Slice 36: pit-entry assist - ShouldAssistPlayerPitEntry (the opt-in-by-plan gate)
+    and BuildPitEntryAssistCommand (the steering that guides a PreRacePlan pit
+    request onto the ramp inside the approach window until BeginPitEntry takes over)
+    - 118 lines - moved to RaceManager.PitEntryAssist.cs. Gate and steering
+    behaviour unchanged; a manual or race-control-offer request never matches, so
+    manual entry is untouched. The shared LocalHalfWidthAt helper stays in main; the
+    public entry point stays public so input callers resolve in-class.
+    RaceManager.cs -> 2596 lines: 9071 out over 36 slices (~77.7%).
+    RaceManager is now spread across 35 focused partials (main + 34).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
