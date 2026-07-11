@@ -22,6 +22,12 @@ namespace LocalFormulaRacing
         public List<float> cumulativeDistances = new List<float>();
         public float length;
         public float roadHalfWidth = 7.43f;
+        // Authored circuits only: half-width samples uniform in normalized lap
+        // distance (null for procedural layouts, which use the flat scalar).
+        // HalfWidthAt interpolates this, so every road/kerb/barrier/runoff
+        // pass and every race-layer width consumer honors the authored
+        // per-point width without further changes.
+        public float[] authoredHalfWidthProfile;
         public float kerbStart = 6.77f;
         public Vector2 drsZoneOne = new Vector2(0.13f, 0.29f);
         public Vector2 drsZoneTwo = new Vector2(0.64f, 0.82f);
@@ -1287,7 +1293,17 @@ namespace LocalFormulaRacing
         // roadHalfWidth field directly.
         public float HalfWidthAt(float distance)
         {
-            return roadHalfWidth + HairpinWidthBonus(distance);
+            float baseHalfWidth = roadHalfWidth;
+            if (authoredHalfWidthProfile != null && authoredHalfWidthProfile.Length > 1 && length > 0f)
+            {
+                // Wrap-aware linear interpolation over the uniform profile.
+                float t = Mathf.Repeat(distance / length, 1f) * authoredHalfWidthProfile.Length;
+                int index = Mathf.FloorToInt(t) % authoredHalfWidthProfile.Length;
+                int next = (index + 1) % authoredHalfWidthProfile.Length;
+                baseHalfWidth = Mathf.Lerp(authoredHalfWidthProfile[index], authoredHalfWidthProfile[next], t - Mathf.Floor(t));
+            }
+
+            return baseHalfWidth + HairpinWidthBonus(distance);
         }
 
         // ---------- corner risk classification (public, UI-facing) ----------
@@ -2388,6 +2404,45 @@ namespace LocalFormulaRacing
             runtime.roadHalfWidth = Mathf.Max(6f, averageHalfWidth);
             // Same kerb inset the hand-authored layouts use relative to their width.
             runtime.kerbStart = Mathf.Max(4f, runtime.roadHalfWidth - 5.67f);
+
+            // Per-point width, resampled by authored arc length into the uniform
+            // profile HalfWidthAt interpolates (the world build and every width
+            // consumer read that one function).
+            if (definition.spline.Count > 2)
+            {
+                var pointDistances = new float[definition.spline.Count + 1];
+                for (int i = 1; i <= definition.spline.Count; i++)
+                {
+                    Vector3 previous = definition.spline[i - 1].position;
+                    Vector3 current = definition.spline[i % definition.spline.Count].position;
+                    pointDistances[i] = pointDistances[i - 1] + Vector3.Distance(previous, current);
+                }
+
+                float loopLength = pointDistances[definition.spline.Count];
+                if (loopLength > 1f)
+                {
+                    const int ProfileSamples = 96;
+                    var profile = new float[ProfileSamples];
+                    int segment = 0;
+                    for (int s = 0; s < ProfileSamples; s++)
+                    {
+                        float target = s / (float)ProfileSamples * loopLength;
+                        while (segment < definition.spline.Count - 1 && pointDistances[segment + 1] < target)
+                        {
+                            segment++;
+                        }
+
+                        float segmentStart = pointDistances[segment];
+                        float segmentLength = Mathf.Max(0.001f, pointDistances[segment + 1] - segmentStart);
+                        float frac = Mathf.Clamp01((target - segmentStart) / segmentLength);
+                        float widthA = definition.spline[segment].width;
+                        float widthB = definition.spline[(segment + 1) % definition.spline.Count].width;
+                        profile[s] = Mathf.Max(6f, Mathf.Lerp(widthA, widthB, frac) * 0.5f);
+                    }
+
+                    runtime.authoredHalfWidthProfile = profile;
+                }
+            }
 
             // Authored DRS zones carry metre distances along the spline; the
             // legacy runtime stores normalized (start, end) pairs.
