@@ -20,6 +20,7 @@ namespace LocalFormulaRacing
         int lastPlayerLaps;
         bool lastFinished;
         bool primed;
+        bool loggedFault;
 
         public void Attach(RaceManager raceManager)
         {
@@ -41,6 +42,28 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Interim per-frame observer bridge: it only reads state and publishes
+            // events, and must never throw into the game loop. A null slipping
+            // through a guard here would spam the console every frame; guard the
+            // whole body and stop after the first fault instead.
+            try
+            {
+                Observe();
+            }
+            catch (System.Exception exception)
+            {
+                if (!loggedFault)
+                {
+                    loggedFault = true;
+                    Debug.LogWarning("[RaceEventRelay] disabled after fault (event bridge only): " + exception);
+                }
+
+                enabled = false;
+            }
+        }
+
+        void Observe()
+        {
             FlagState flag = MapFlag();
             WeatherState weather = race.Track != null ? race.Track.weather : WeatherState.Clear;
             int playerLaps = race.PlayerParticipant != null && race.PlayerParticipant.lapTracker != null

@@ -16,6 +16,7 @@ namespace LocalFormulaRacing
         float lastDamagePercent = -1f;
         float smokeCooldown;
         float dustCooldown;
+        static bool loggedFault;
 
         static RaceVfxController shared;
 
@@ -46,6 +47,27 @@ namespace LocalFormulaRacing
                 }
             }
 
+            // This is a purely cosmetic, interim bridge. It must never throw into
+            // the game loop: a per-frame exception here would spam the console and
+            // could mask real issues. Guard the whole body and disable-on-fault.
+            try
+            {
+                Drive();
+            }
+            catch (System.Exception exception)
+            {
+                if (!loggedFault)
+                {
+                    loggedFault = true;
+                    Debug.LogWarning("[VehicleVfxDriver] disabled after fault (cosmetic VFX only): " + exception);
+                }
+
+                enabled = false;
+            }
+        }
+
+        void Drive()
+        {
             float dt = Time.deltaTime;
             smokeCooldown -= dt;
             dustCooldown -= dt;

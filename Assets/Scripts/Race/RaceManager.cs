@@ -718,6 +718,19 @@ namespace LocalFormulaRacing
                 : (session == RaceWeekendSession.Practice ? "Practice: drive your program laps" : "Race start"));
             Time.timeScale = 1f;
 
+            // Tear the frontend (tyre / strategy select screen) down IMMEDIATELY on
+            // race start, before any race-world construction runs. The HUD swap that
+            // normally clears it is the very last thing this method does, so if any
+            // setup step below were to throw, the strategy screen would otherwise be
+            // left mounted on top of the race with only a logged exception to show
+            // for it. Clearing here makes the transition robust: the tyre-selection
+            // screen can never survive into a live session, independent of anything
+            // that happens during spawn/track/telemetry setup.
+            if (ui != null)
+            {
+                ui.Clear();
+            }
+
             if (raceWorld != null)
             {
                 Destroy(raceWorld);
@@ -755,7 +768,19 @@ namespace LocalFormulaRacing
             // Select the active track-query backend for this race: the authored
             // adapter for the reference circuit (or when forced), else the legacy
             // TrackRuntime. This is the live call site for the authored-track path.
-            TrackQueryProvider.Select(EventData != null ? EventData.trackId : null, Track);
+            try
+            {
+                TrackQueryProvider.Select(EventData != null ? EventData.trackId : null, Track);
+            }
+            catch (System.Exception trackQueryException)
+            {
+                // The active track-query backend is an interim, non-essential seam
+                // for the legacy race path (nothing on the live legacy loop reads
+                // it yet). A failure selecting it must never abort race start or
+                // leave the frontend stuck.
+                GameLog.Warn("[TrackQuery] Select failed; continuing without it: " + trackQueryException);
+            }
+
             SpawnRaceGrid(playerName, playerTeamId, careerRace);
             SpawnGhostIfAvailable();
             PostEngineerMessage(OpeningEngineerMessage(), true);
