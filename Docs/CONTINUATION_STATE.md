@@ -637,6 +637,19 @@ deferred, not claimed complete.
     these deployers resolve in-class; the public API stays public (relay
     resolves). RaceManager.cs → 6452 lines: 5215 out over 12 slices (~44.7%).
     RaceManager is now spread across 11 focused partials (main + 10).
+    Slice 13: race-end results - FinishRace (final classification via the
+    engine-free RaceClassifier, mandatory-pit penalty pass, career results with
+    the genuine race-control incident/SC/overtake counts), RecordPlayerRaceStats,
+    LogAiDiagnostics (the Expert-balance log line) and the optional cinematic
+    PodiumPresentationSequence coroutine - 370 lines - moved to
+    RaceManager.Results.cs. Classification maths already live in RaceClassifier;
+    this partial owns the live end-of-race orchestration and the engine-side
+    podium staging. Execution order (RecordPlayerRaceStats → LogAiDiagnostics →
+    LogTelemetryDebrief → LogReplaySummary), RNG order and the production-first
+    results handoff (ProductionSessionUi.TryShowResults fallback to ui.ShowResults)
+    unchanged; FinishRace is still called from the race tick and resolves in-class.
+    RaceManager.cs → 6081 lines: 5586 out over 13 slices (~47.9%).
+    RaceManager is now spread across 12 focused partials (main + 11).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
