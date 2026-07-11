@@ -354,6 +354,23 @@ namespace F1Game.UI
             TMP_Text rowTemplate = CreateText(rowsColumn, "Row_Template", TextStyle.Body, "");
             rowTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 8f;
 
+            CreateText(content, "QuickToggleLabel", TextStyle.Label, "QUICK ACCESSIBILITY TOGGLES");
+            var toggleRowGo = new GameObject("ToggleRow", typeof(RectTransform));
+            toggleRowGo.transform.SetParent(content, false);
+            var toggleLayout = toggleRowGo.AddComponent<HorizontalLayoutGroup>();
+            toggleLayout.spacing = theme.spacing.small;
+            toggleLayout.childForceExpandWidth = true;
+            toggleLayout.childControlWidth = true;
+            toggleLayout.childControlHeight = true;
+            ThemedButton unitsButton = CreateButton(toggleRowGo.transform, "Btn_Units", ThemedButton.Variant.Secondary, "Units",
+                theme.components.buttonHeightCompact);
+            ThemedButton cameraShakeButton = CreateButton(toggleRowGo.transform, "Btn_CameraShake", ThemedButton.Variant.Secondary, "Camera Shake",
+                theme.components.buttonHeightCompact);
+            ThemedButton compactHudButton = CreateButton(toggleRowGo.transform, "Btn_CompactHud", ThemedButton.Variant.Secondary, "Compact HUD",
+                theme.components.buttonHeightCompact);
+            ThemedButton uiAnimationsButton = CreateButton(toggleRowGo.transform, "Btn_UiAnimations", ThemedButton.Variant.Secondary, "UI Animations",
+                theme.components.buttonHeightCompact);
+
             var buttonRowGo = new GameObject("ButtonRow", typeof(RectTransform));
             buttonRowGo.transform.SetParent(content, false);
             var buttonLayout = buttonRowGo.AddComponent<HorizontalLayoutGroup>();
@@ -367,7 +384,7 @@ namespace F1Game.UI
                 theme.components.buttonHeightCompact);
 
             var view = content.parent.gameObject.AddComponent<Screens.Settings.SettingsView>();
-            view.Bind(header, rowsColumn, rowTemplate, classic, back);
+            view.Bind(header, rowsColumn, rowTemplate, unitsButton, cameraShakeButton, compactHudButton, uiAnimationsButton, classic, back);
             return view;
         }
 

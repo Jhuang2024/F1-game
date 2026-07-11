@@ -13,17 +13,29 @@ namespace F1Game.UI.Screens.Settings
 
         public Action OnClassic;
         public Action OnBack;
+        // Inline accessibility quick-toggles: the bridge flips the setting,
+        // persists it, and re-presents so the labels + summary refresh.
+        public Action OnToggleUnits;
+        public Action OnToggleCameraShake;
+        public Action OnToggleCompactHud;
+        public Action OnToggleUiAnimations;
 
         public SettingsPresenter(SettingsView view)
         {
             this.view = view;
             view.ClassicButton.Clicked += () => OnClassic?.Invoke();
             view.BackButton.Clicked += () => OnBack?.Invoke();
+            view.UnitsButton.Clicked += () => OnToggleUnits?.Invoke();
+            view.CameraShakeButton.Clicked += () => OnToggleCameraShake?.Invoke();
+            view.CompactHudButton.Clicked += () => OnToggleCompactHud?.Invoke();
+            view.UiAnimationsButton.Clicked += () => OnToggleUiAnimations?.Invoke();
         }
 
         public void Present(SettingsModel model)
         {
-            view.RenderRows((model ?? new SettingsModel()).rows);
+            SettingsModel m = model ?? new SettingsModel();
+            view.RenderRows(m.rows);
+            view.RenderToggles(m.unitsToggleLabel, m.cameraShakeToggleLabel, m.compactHudToggleLabel, m.uiAnimationsToggleLabel);
         }
     }
 }

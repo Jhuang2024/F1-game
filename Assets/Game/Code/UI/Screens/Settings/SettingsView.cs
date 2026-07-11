@@ -22,25 +22,47 @@ namespace F1Game.UI.Screens.Settings
         [SerializeField] TMP_Text header;
         [SerializeField] RectTransform rowContainer;
         [SerializeField] TMP_Text rowTemplate;
+        [SerializeField] ThemedButton unitsButton;
+        [SerializeField] ThemedButton cameraShakeButton;
+        [SerializeField] ThemedButton compactHudButton;
+        [SerializeField] ThemedButton uiAnimationsButton;
         [SerializeField] ThemedButton classicButton;
         [SerializeField] ThemedButton backButton;
 
         readonly List<TMP_Text> rows = new List<TMP_Text>();
 
+        public ThemedButton UnitsButton => unitsButton;
+        public ThemedButton CameraShakeButton => cameraShakeButton;
+        public ThemedButton CompactHudButton => compactHudButton;
+        public ThemedButton UiAnimationsButton => uiAnimationsButton;
         public ThemedButton ClassicButton => classicButton;
         public ThemedButton BackButton => backButton;
 
         public void Bind(TMP_Text headerText, RectTransform container, TMP_Text template,
+            ThemedButton units, ThemedButton cameraShake, ThemedButton compactHud, ThemedButton uiAnimations,
             ThemedButton classic, ThemedButton back)
         {
             header = headerText;
             rowContainer = container;
             rowTemplate = template;
+            unitsButton = units;
+            cameraShakeButton = cameraShake;
+            compactHudButton = compactHud;
+            uiAnimationsButton = uiAnimations;
             classicButton = classic;
             backButton = back;
             rowTemplate.gameObject.SetActive(false);
             SetScreenId(Id);
             SetDefaultSelection(back != null ? back.gameObject : null);
+        }
+
+        /// <summary>Labels for the inline accessibility quick-toggle buttons.</summary>
+        public void RenderToggles(string units, string cameraShake, string compactHud, string uiAnimations)
+        {
+            if (unitsButton != null) unitsButton.SetText(units);
+            if (cameraShakeButton != null) cameraShakeButton.SetText(cameraShake);
+            if (compactHudButton != null) compactHudButton.SetText(compactHud);
+            if (uiAnimationsButton != null) uiAnimationsButton.SetText(uiAnimations);
         }
 
         public void RenderRows(IReadOnlyList<SettingsRowModel> models)

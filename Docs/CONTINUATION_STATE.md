@@ -374,6 +374,16 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+63. Production settings screen gains INLINE editing for the accessibility
+    subset (switch-ownership step for that slice): a "Quick Accessibility
+    Toggles" row (Units KPH↔MPH, Camera Shake, Compact HUD, UI Animations) whose
+    ThemedButtons flip the setting, persist via GameSettingsStore.Save(), and
+    re-present - the exact flip/Save/refresh cycle the legacy controls use.
+    Production now OWNS editing for these four; the "Classic Settings" button
+    still owns the full remainder (one editor path per setting). SettingsView/
+    Presenter/Model + BuildSettings extended; ToggleSetting helper in the bridge.
+    Thematic with #62: toggling Units here takes live effect in the production
+    HUD speed readout. Visual validation PENDING.
 62. Production HUD honours the units setting (settings-consumer parity +
     accessibility): SpeedGearModule now converts to mph and shows the MPH/KPH
     unit when useMphUnits is set, matching RaceHud's own conversion (0.621371).

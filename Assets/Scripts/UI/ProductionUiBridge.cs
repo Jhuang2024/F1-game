@@ -212,10 +212,14 @@ namespace LocalFormulaRacing
             var settingsView = (SettingsView)ShowAndGet(SettingsView.Id);
             settingsPresenter = new SettingsPresenter(settingsView)
             {
-                // Editing still routes to the legacy settings screen; production
-                // shows the live summary until the inline controls are validated.
+                // Full editing still routes to the legacy screen; production owns
+                // the live summary plus a handful of inline accessibility toggles.
                 OnClassic = () => LeaveToLegacy(() => bootstrap.Ui.ShowSettings(data, career, settings)),
                 OnBack = () => shell.Router.Back(),
+                OnToggleUnits = () => ToggleSetting(s => s.useMphUnits = !s.useMphUnits),
+                OnToggleCameraShake = () => ToggleSetting(s => s.cameraShake = !s.cameraShake),
+                OnToggleCompactHud = () => ToggleSetting(s => s.compactHud = !s.compactHud),
+                OnToggleUiAnimations = () => ToggleSetting(s => s.uiAnimations = !s.uiAnimations),
             };
 
             var resultsView = (ResultsView)ShowAndGet(ResultsView.Id);
@@ -644,6 +648,21 @@ namespace LocalFormulaRacing
             settingsPresenter.Present(BuildSettingsModel());
         }
 
+        // Flip one setting, persist it, and re-present so the summary + toggle
+        // labels refresh - the same flip/Save/refresh cycle the legacy settings
+        // controls use. No-op if the store is missing.
+        static void ToggleSetting(Action<GameSettingsData> flip)
+        {
+            if (settings == null || settings.Current == null || flip == null)
+            {
+                return;
+            }
+
+            flip(settings.Current);
+            settings.Save();
+            settingsPresenter.Present(BuildSettingsModel());
+        }
+
         static SettingsModel BuildSettingsModel()
         {
             var model = new SettingsModel();
@@ -681,6 +700,11 @@ namespace LocalFormulaRacing
             Row(model, "Camera Shake", OnOff(s.cameraShake));
             Row(model, "Speed Units", s.useMphUnits ? "MPH" : "KPH");
             Row(model, "Graphics Quality", GraphicsQualityName(s.graphicsQuality));
+
+            model.unitsToggleLabel = "Units: " + (s.useMphUnits ? "MPH" : "KPH");
+            model.cameraShakeToggleLabel = "Camera Shake: " + OnOff(s.cameraShake);
+            model.compactHudToggleLabel = "Compact HUD: " + OnOff(s.compactHud);
+            model.uiAnimationsToggleLabel = "UI Animations: " + OnOff(s.uiAnimations);
 
             return model;
         }
