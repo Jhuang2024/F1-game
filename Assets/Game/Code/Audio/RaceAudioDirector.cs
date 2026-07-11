@@ -89,18 +89,15 @@ namespace F1Game.Audio
             GameEvents.Unsubscribe<RadioMessageEvent>(OnRadio);
         }
 
-        void OnPenalty(PenaltyIssuedEvent evt) => PlaySlot(sfxSource, "race_control_penalty");
+        void OnPenalty(PenaltyIssuedEvent evt) => PlaySlot(sfxSource, F1Game.Core.RaceAudioCues.Penalty);
 
         void OnFlag(FlagChangedEvent evt)
         {
-            switch (evt.Current)
+            // Flag -> cue mapping lives in the engine-free RaceAudioCues (same keys, tested).
+            string key = F1Game.Core.RaceAudioCues.FlagCue(evt.Current);
+            if (key != null)
             {
-                case FlagState.SafetyCar: PlaySlot(sfxSource, "race_control_safety_car"); break;
-                case FlagState.VirtualSafetyCar: PlaySlot(sfxSource, "race_control_vsc"); break;
-                case FlagState.Yellow:
-                case FlagState.DoubleYellow: PlaySlot(sfxSource, "race_control_yellow"); break;
-                case FlagState.Red: PlaySlot(sfxSource, "race_control_red"); break;
-                case FlagState.Green: PlaySlot(sfxSource, "race_control_green"); break;
+                PlaySlot(sfxSource, key);
             }
         }
 
@@ -108,24 +105,25 @@ namespace F1Game.Audio
         {
             if (evt.State == PitRequestState.Requested)
             {
-                PlaySlot(sfxSource, "pit_call");
+                PlaySlot(sfxSource, F1Game.Core.RaceAudioCues.PitCall);
             }
         }
 
         void OnWeather(WeatherChangedEvent evt)
         {
-            if (evt.Current == WeatherKind.LightRain || evt.Current == WeatherKind.HeavyRain)
+            string key = F1Game.Core.RaceAudioCues.WeatherCue(evt.Current);
+            if (key != null)
             {
-                PlaySlot(sfxSource, "weather_rain_alert");
+                PlaySlot(sfxSource, key);
             }
         }
 
         void OnRadio(RadioMessageEvent evt)
         {
             // Priority queue: a lower Priority number (more critical) interrupts.
-            if (!hasPendingRadio || evt.Priority < pendingRadio.Priority || !radioSource.isPlaying)
+            if (F1Game.Core.RaceAudioCues.ShouldInterruptRadio(hasPendingRadio, pendingRadio.Priority, evt.Priority, radioSource.isPlaying))
             {
-                pendingRadio = new RadioItem { Key = "radio_beep", Priority = evt.Priority };
+                pendingRadio = new RadioItem { Key = F1Game.Core.RaceAudioCues.RadioBeep, Priority = evt.Priority };
                 hasPendingRadio = true;
                 PlaySlot(radioSource, pendingRadio.Key);
             }

@@ -1603,6 +1603,17 @@ deferred, not claimed complete.
         malformed fallbacks. Pure resolution glue; the Unity layer owns the actual
         PlayerPrefs/JSON persistence and painting (LiveryPaint).
 
+    F23. Race-audio cue mapping -> engine-free RaceAudioCues (F1Game.Core,
+        UNIT-TESTED), extracted VERBATIM from RaceAudioDirector. Behavior-preserving:
+        the flag->bank-key mapping (green/yellow/vsc/safety-car/red, null for
+        blue/chequered), the weather->rain-alert mapping, the penalty/pit-call/radio
+        key constants, and the radio-interrupt arbitration (interrupt when nothing
+        pending, more critical = lower priority number, or the channel is idle) now
+        live as pure functions with the same keys. RaceAudioDirector delegates while
+        keeping clip resolution + playback. RaceAudioCuesTests pin every flag/weather
+        cue and the radio arbitration truth table. (Cue keys placed in F1Game.Core so
+        the EditMode assembly, which doesn't reference F1Game.Audio, can test them.)
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
