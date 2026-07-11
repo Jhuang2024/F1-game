@@ -157,8 +157,9 @@ namespace LocalFormulaRacing
             var mainMenuView = (MainMenuView)ShowAndGet(MainMenuView.Id);
             mainMenuPresenter = new MainMenuPresenter(mainMenuView)
             {
-                // Production career hub when a career exists; career creation
-                // (and everything the hub doesn't cover yet) stays legacy.
+                // Production career hub when a career exists; otherwise the production
+                // creation screen (default), with the legacy career flow as the
+                // emergency fallback (kill switch or initialization failure).
                 OnCareer = () =>
                 {
                     if (career != null && career.Save != null)
@@ -335,10 +336,15 @@ namespace LocalFormulaRacing
             careerHubPresenter.Present(model);
         }
 
-        /// <summary>Default-off switch for the production career-creation screen.</summary>
+        /// <summary>
+        /// Production-first (only reachable once the production UI itself is active):
+        /// the production career-creation screen is the default; PlayerPrefs=0 is the
+        /// emergency kill switch back to the legacy career flow. ShowCareerCreation
+        /// also auto-falls-back to legacy if it throws.
+        /// </summary>
         public const string ProductionCareerCreationKey = "f1game_production_career_creation";
 
-        public static bool ProductionCareerCreationEnabled => PlayerPrefs.GetInt(ProductionCareerCreationKey, 0) == 1;
+        public static bool ProductionCareerCreationEnabled => PlayerPrefs.GetInt(ProductionCareerCreationKey, 1) != 0;
 
         // Clearly-labelled PLACEHOLDER driver names (fictional) offered on the
         // production creation screen until free-text entry is validated in-editor.
@@ -350,33 +356,42 @@ namespace LocalFormulaRacing
 
         static void ShowCareerCreation()
         {
-            var model = new CareerCreationModel();
-            for (int i = 0; i < PlaceholderDriverNames.Length; i++)
+            try
             {
-                model.driverNames.Add(PlaceholderDriverNames[i]);
-            }
-
-            if (data != null && data.Teams != null)
-            {
-                for (int i = 0; i < data.Teams.teams.Count; i++)
+                var model = new CareerCreationModel();
+                for (int i = 0; i < PlaceholderDriverNames.Length; i++)
                 {
-                    TeamData team = data.Teams.teams[i];
-                    if (team == null)
-                    {
-                        continue;
-                    }
-
-                    model.teams.Add(new CareerTeamOption
-                    {
-                        teamId = team.id,
-                        teamName = string.IsNullOrEmpty(team.name) ? team.id : team.name,
-                        detail = "Reputation " + team.reputation,
-                    });
+                    model.driverNames.Add(PlaceholderDriverNames[i]);
                 }
-            }
 
-            shell.Router.Show(CareerCreationView.Id);
-            careerCreationPresenter.Present(model);
+                if (data != null && data.Teams != null)
+                {
+                    for (int i = 0; i < data.Teams.teams.Count; i++)
+                    {
+                        TeamData team = data.Teams.teams[i];
+                        if (team == null)
+                        {
+                            continue;
+                        }
+
+                        model.teams.Add(new CareerTeamOption
+                        {
+                            teamId = team.id,
+                            teamName = string.IsNullOrEmpty(team.name) ? team.id : team.name,
+                            detail = "Reputation " + team.reputation,
+                        });
+                    }
+                }
+
+                shell.Router.Show(CareerCreationView.Id);
+                careerCreationPresenter.Present(model);
+            }
+            catch (Exception)
+            {
+                // Automatic emergency fallback: any failure hands off to the proven
+                // legacy career flow rather than stranding the player.
+                LeaveToLegacy(() => bootstrap.ShowCareer());
+            }
         }
 
         // Create the new career from the production screen's choices, then continue
@@ -914,20 +929,33 @@ namespace LocalFormulaRacing
             model.compactHudToggleLabel = "Compact HUD: " + OnOff(s.compactHud);
             model.uiAnimationsToggleLabel = "UI Animations: " + OnOff(s.uiAnimations);
 
-            // Full production editor rows (only when the editor switch is on; otherwise
-            // the summary + quick toggles + Classic Settings remain the editing path).
+            // Full production editor rows (production-first; the kill switch or a
+            // field-build failure degrades to the summary + quick toggles + Classic
+            // Settings, which stays as the emergency legacy editor).
             if (ProductionSettingsEditorEnabled)
             {
-                BuildEditorFields(model, s);
+                try
+                {
+                    BuildEditorFields(model, s);
+                }
+                catch (Exception)
+                {
+                    model.fields.Clear();
+                }
             }
 
             return model;
         }
 
-        /// <summary>Default-off switch for the complete inline production settings editor.</summary>
+        /// <summary>
+        /// Production-first (within the already-active production UI): the complete
+        /// inline settings editor is the default; PlayerPrefs=0 is the emergency kill
+        /// switch, and a field-build failure degrades to the summary + Classic (legacy)
+        /// editor automatically.
+        /// </summary>
         public const string ProductionSettingsEditorKey = "f1game_production_settings_editor";
 
-        public static bool ProductionSettingsEditorEnabled => PlayerPrefs.GetInt(ProductionSettingsEditorKey, 0) == 1;
+        public static bool ProductionSettingsEditorEnabled => PlayerPrefs.GetInt(ProductionSettingsEditorKey, 1) != 0;
 
         static readonly string[] CompoundNames = { "Soft", "Medium", "Hard", "Intermediate", "Wet" };
 

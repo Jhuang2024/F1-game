@@ -1614,6 +1614,21 @@ deferred, not claimed complete.
         cue and the radio arbitration truth table. (Cue keys placed in F1Game.Core so
         the EditMode assembly, which doesn't reference F1Game.Audio, can test them.)
 
+    F24. Production ownership activation (settings editor + career creation ->
+        production-first). Both structurally-complete replacements now DEFAULT ON
+        within the already-active production UI (they are only reachable once
+        ProductionUiReadiness.Enabled, which stays default-off during migration, so the
+        shipping legacy experience is unchanged): ProductionSettingsEditorEnabled and
+        ProductionCareerCreationEnabled read PlayerPrefs default 1 (!=0), so
+        PlayerPrefs=0 is now an explicit emergency KILL SWITCH back to legacy. Added
+        automatic fallbacks for initialization failure: BuildEditorFields is wrapped
+        (a throw clears model.fields -> summary + Classic legacy editor), and
+        ShowCareerCreation is wrapped (a throw -> LeaveToLegacy(ShowCareer)). Exactly
+        one path live at a time; the legacy editor/career flow remains only as the
+        emergency fallback. Master production-UI gate (ProductionUiReadiness) left
+        default-off intentionally - the full production frontend/HUD/race-flow is not
+        yet at parity, so flipping that stays gated on its own validation.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
