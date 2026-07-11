@@ -331,5 +331,101 @@ namespace LocalFormulaRacing
             }
         }
 
+        void SpawnRaceGrid(string playerName, string playerTeamId, bool careerRace)
+        {
+            TeamData playerTeam = Data.FindTeam(playerTeamId);
+            CarPerformanceData playerCar = ResolveTeamCarPerformance(playerTeam);
+
+            // Without a usable qualifying result (the common quick-race path, since
+            // quick race is never a career race) the player no longer defaults to
+            // pole - the fallback itself is difficulty-scaled. AI fallback slots are
+            // then built around whichever slot the player lands in so the two streams
+            // can never collide.
+            int playerGridFallback = CurrentSession == RaceWeekendSession.Qualifying ? 0 : ResolvePlayerGridFallback();
+            // Career identity fix: this used to always pass null for the player's
+            // DriverData, even when playing as a real driver (e.g. Oscar Piastri) -
+            // RaceParticipant.driverData stayed null for the whole race, so the
+            // timing tower/HUD/radio code (which all prefer driverData.abbreviation)
+            // fell back to guessing a code from the display name instead of using
+            // the real "PIA"-style abbreviation. ResolvePlayerQualifyingDriverData
+            // already resolves the actual selected DriverData when one exists
+            // (falling back to a synthesized one with a correctly-parsed
+            // last-name-based abbreviation otherwise) - reused here for the real
+            // race grid, not just the qualifying-sim path it was originally written
+            // for.
+            PlayerParticipant = SpawnParticipant(
+                "player",
+                playerName,
+                playerTeam.id,
+                playerTeam.shortName,
+                true,
+                ResolvePlayerQualifyingDriverData(playerName, playerTeamId),
+                playerTeam,
+                playerCar,
+                ResolveGridIndex("player", playerGridFallback));
+
+            if (CurrentSession == RaceWeekendSession.Qualifying)
+            {
+                BuildQualifyingField(playerTeamId);
+                PrepareAiQualifyingTargetsForPhase();
+                return;
+            }
+
+            if (IsTimeTrial)
+            {
+                return;
+            }
+
+            List<DriverData> aiDrivers = GetDefensiveAiRoster(playerTeamId, playerName);
+            int aiFallbackSlot = 0;
+            for (int i = 0; i < aiDrivers.Count; i++)
+            {
+                if (aiFallbackSlot == playerGridFallback)
+                {
+                    aiFallbackSlot++;
+                }
+
+                DriverData driver = aiDrivers[i];
+                TeamData team = ResolveDriverTeam(driver);
+                CarPerformanceData car = ResolveTeamCarPerformance(team);
+                SpawnParticipant(
+                    driver.id,
+                    driver.displayName,
+                    team.id,
+                    team.shortName,
+                    false,
+                    driver,
+                    team,
+                    car,
+                    ResolveGridIndex(driver.id, aiFallbackSlot));
+                aiFallbackSlot++;
+            }
+        }
+
+        // Difficulty-scaled starting slot used only when no real qualifying result
+        // exists for this session (quick race with no qualifying run, in practice).
+        // 0-based index; Expert lands dead last against the full 21-car AI field.
+        int ResolvePlayerGridFallback()
+        {
+            int lastIndex = Mathf.Max(0, FullWeekendAiCount);
+            RaceDifficulty difficulty = Settings.Difficulty;
+            if (difficulty == RaceDifficulty.Easy)
+            {
+                return Mathf.Clamp(Random.Range(4, 8), 0, lastIndex);
+            }
+
+            if (difficulty == RaceDifficulty.Medium)
+            {
+                return Mathf.Clamp(Random.Range(9, 14), 0, lastIndex);
+            }
+
+            if (difficulty == RaceDifficulty.Hard)
+            {
+                return Mathf.Clamp(Random.Range(15, 20), 0, lastIndex);
+            }
+
+            return lastIndex;
+        }
+
     }
 }

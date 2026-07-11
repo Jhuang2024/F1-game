@@ -876,6 +876,14 @@ deferred, not claimed complete.
     for the DRS/Engineer/AiPitStrategy/Ers partials and RaceEventRelay.
     RaceManager.cs -> 2399 lines: 9268 out over 38 slices (~79.4%).
     RaceManager is now spread across 37 focused partials (main + 36).
+    Slice 39: grid build - SpawnRaceGrid (builds the whole starting grid: player +
+    AI field, teams/cars, starting tyres and grid slots) and its ResolvePlayerGridFallback
+    helper - 95 lines - consolidated into the existing RaceManager.Grid.cs partial
+    (which already owns ResolveGridIndex/SpawnParticipant/etc.), rather than a new
+    file, to keep all grid-spawn concerns in one place. Spawn order, RNG call order
+    and tuned values unchanged; callers resolve in-class. No new partial - still 37.
+    RaceManager.cs -> 2303 lines: 9364 out over 39 slices (~80.3%).
+    RaceManager is now spread across 37 focused partials (main + 36).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
