@@ -218,17 +218,25 @@ DEFERRED and out of scope.
     save-target); VehicleController.UpdateFuelProjection delegates -
     behavior-identical, now unit-tested. Mirrors the rules-extraction pattern.
 
-Exact next task (tractable static-only work, safe to continue): more
-behavior-identical rules-core extractions of PURE inline maths (e.g. the
-DRS 1-second-gap detection numeric, tyre-wear-per-lap, stint/pit-window
-projections) into F1Game.Race.Rules with tests, wiring the live call site to
-delegate. Do NOT add new gameplay rules (not-classified, countback,
-fastest-lap point) or swap live handling math - those change results/handling
-and need an in-editor + user-validation pass per the engineering rule. The
-larger directive items (results-screen replacement, Phase E RaceManager
-service extraction, physics handling swaps, full career/settings/
-accessibility/localization depth) remain in-editor-validation-bound.
-Multiplayer (Phase N) DEFERRED, out of scope.
+45. `76ca131` extracted PitPlanRules (NextPlannedStopIndex / HasPending);
+    RaceManager.NextPlannedPitLapFor player branch delegates -
+    behavior-identical, unit-tested.
+
+F1Game.Race.Rules now: ChampionshipPoints, QualifyingProgression,
+RaceClassifier, PenaltyRules, PitRequestRules, PitServiceRules,
+AiPitStrategyRules, SessionFlow, FlagRules, StartProcedureRules, FuelStrategy,
+PitPlanRules - all with EditMode tests and live consumers.
+
+Exact next task (tractable static-only work, safe to continue): continue
+behavior-identical extractions of PURE inline maths into F1Game.Race.Rules
+with tests + live delegation (candidates: ERS deploy-budget-per-lap,
+tyre-temp window band, pit-loss/undercut-gap projection). Do NOT add new
+gameplay rules (not-classified, countback, fastest-lap point) or swap live
+handling math - those change results/handling and need an in-editor +
+user-validation pass per the engineering rule. Larger directive items
+(results-screen replacement, Phase E RaceManager service extraction, physics
+handling swaps, full career/settings/accessibility/localization depth) remain
+in-editor-validation-bound. Multiplayer (Phase N) DEFERRED, out of scope.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
