@@ -990,6 +990,13 @@ deferred, not claimed complete.
     public entry point stays public so the practice UI resolves in-class.
     RaceManager.cs -> 1251 lines: 10416 out over 52 slices (~89.3%).
     RaceManager is now spread across 48 focused partials (main + 47).
+    Slice 53: engineer resets - ResetEngineerState (clears the active radio-message
+    stack and cooldowns) and TickEngineerTimers (ages/expires the stacked messages
+    and reaction timers) - 72 lines - consolidated into the existing
+    RaceManager.Engineer.cs partial. Timing and expiry order unchanged; the message
+    stack/fields stay in main and resolve in-class. No new partial - still 48.
+    RaceManager.cs -> 1176 lines: 10491 out over 53 slices (~89.9%).
+    RaceManager is now spread across 48 focused partials (main + 47).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

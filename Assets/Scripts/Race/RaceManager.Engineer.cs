@@ -912,5 +912,78 @@ namespace LocalFormulaRacing
             return Mathf.Min(inProgress, outProgress);
         }
 
+        void ResetEngineerState()
+        {
+            activeEngineerMessages.Clear();
+            engineerCooldown = 0f;
+            lastEngineerPitLapPrompt = -1;
+            engineerWeatherSent = false;
+            engineerPitRequestConfirmed = false;
+            engineerTyreWarningSent = false;
+            engineerBatteryWarningSent = false;
+            engineerFinalLapSent = false;
+            engineerFuelWarningSent = false;
+            engineerFuelEverNegative = false;
+            engineerFuelRecoverySent = false;
+            engineerFuelSafeToPushSent = false;
+            engineerFuelStarvationSent = false;
+            engineerDamageWarningSent = false;
+            engineerRivalSent = false;
+            engineerTrackLimitsSent = false;
+            engineerExpertWarningSent = false;
+            engineerDrsWarningCooldown = 0f;
+            lastGapReportLap = -1;
+            weatherTransitionDone = false;
+            weatherSecondTransitionDone = false;
+            trackEvolutionHalfwayMessageSent = false;
+            playerLastPosition = -1;
+            overtakeCheckTimer = 0f;
+            sessionFastestLap = -1f;
+            sessionFastestLapDriverId = "";
+            engineerFlatSpotWarningSent = false;
+            engineerLockupWarningSent = false;
+            lastTeammateGapReportLap = -1;
+            engineerPodiumMessageSent = false;
+            hudToastQueue.Clear();
+            playerGapRadioPendingTimer = -1f;
+            playerGapRadioPendingLapNumber = -1;
+            playerGapRadioLastSeenCompletedLaps = -1;
+            playerPitStopsAtLastGapRadioBoundary = -1;
+            lastPlayerGapRadioLap = -1;
+            previousPlayerComparisonGap = -1f;
+            previousComparisonDriverId = "";
+            previousPlayerWasLeader = false;
+            previousPlayerGapRadioPosition = -1;
+            cachedPlannedPitLapStopOne = -1;
+            cachedPlannedPitLapStopTwo = -1;
+        }
+
+        void TickEngineerTimers()
+        {
+            engineerCooldown = Mathf.Max(0f, engineerCooldown - Time.deltaTime);
+            reactionDisplayTimer = Mathf.Max(0f, reactionDisplayTimer - Time.deltaTime);
+            playerResetCooldown = Mathf.Max(0f, playerResetCooldown - Time.deltaTime);
+            engineerDrsWarningCooldown = Mathf.Max(0f, engineerDrsWarningCooldown - Time.deltaTime);
+            playerManualPitCancelMessageTimer = Mathf.Max(0f, playerManualPitCancelMessageTimer - Time.deltaTime);
+
+            // Radio message stacking fix: every active entry ages/counts down
+            // independently and is removed the instant it expires - there is
+            // no single "current" message to advance from a queue any more,
+            // each one lives and dies entirely on its own timer.
+            for (int i = activeEngineerMessages.Count - 1; i >= 0; i--)
+            {
+                EngineerMessageEntry entry = activeEngineerMessages[i];
+                entry.age += Time.deltaTime;
+                entry.remaining -= Time.deltaTime;
+                if (entry.remaining <= 0f)
+                {
+                    activeEngineerMessages.RemoveAt(i);
+                    continue;
+                }
+
+                activeEngineerMessages[i] = entry;
+            }
+        }
+
     }
 }
