@@ -20,6 +20,9 @@ namespace F1Game.Core
         // Cost to raise a department one level scales with its current level.
         public const int DepartmentUpgradeCostPerLevel = 400;
 
+        // An experimental-breakthrough project fits with a 30% larger effect.
+        public const float ExperimentalBonusScale = 1.3f;
+
         /// <summary>
         /// Success probability for a project: the upgrade's base chance, nudged up
         /// by department level, then shifted by the risk mode (conservative is
@@ -86,6 +89,17 @@ namespace F1Game.Core
         public static int DepartmentUpgradeCost(int currentLevel)
         {
             return currentLevel * DepartmentUpgradeCostPerLevel;
+        }
+
+        /// <summary>
+        /// Applies one fitted upgrade's stat delta to a car stat: the raw delta
+        /// times its per-stat scale, boosted when the project delivered an
+        /// experimental breakthrough, rounded and added to the current value.
+        /// </summary>
+        public static int ApplyStatDelta(int currentStat, int rawDelta, float scale, bool experimentalBonus)
+        {
+            float bonus = experimentalBonus ? ExperimentalBonusScale : 1f;
+            return currentStat + Mathf.RoundToInt(rawDelta * scale * bonus);
         }
     }
 }

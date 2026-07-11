@@ -9,7 +9,6 @@ namespace LocalFormulaRacing
         // Points table moved to F1Game.Race.Rules.ChampionshipPoints (single,
         // unit-tested source of truth); this class now only applies the results.
         const float UpgradeEffectScale = 2.25f;
-        const float ExperimentalBonusScale = 1.3f;
 
         // Order matters: index into CareerSaveData.departmentLevels, names match
         // the upgrade `category` strings in upgrades.json exactly.
@@ -1634,18 +1633,21 @@ namespace LocalFormulaRacing
                 }
 
                 ActiveUpgradeProject project = projectLookup != null ? projectLookup(upgrade.id) : null;
-                float bonus = project != null && project.bonusApplied ? ExperimentalBonusScale : 1f;
+                bool bonus = project != null && project.bonusApplied;
 
-                tuned.topSpeed += Mathf.RoundToInt(upgrade.topSpeedDelta * 1.7f * bonus);
-                tuned.acceleration += Mathf.RoundToInt(upgrade.accelerationDelta * UpgradeEffectScale * bonus);
-                tuned.cornering += Mathf.RoundToInt(upgrade.corneringDelta * UpgradeEffectScale * bonus);
-                tuned.braking += Mathf.RoundToInt(upgrade.brakingDelta * UpgradeEffectScale * bonus);
-                tuned.reliability += Mathf.RoundToInt(upgrade.reliabilityDelta * 1.6f * bonus);
-                tuned.ersEfficiency += Mathf.RoundToInt(upgrade.ersDelta * UpgradeEffectScale * bonus);
-                tuned.tyreManagement += Mathf.RoundToInt(upgrade.tyreDelta * UpgradeEffectScale * bonus);
-                tuned.aeroEfficiency += Mathf.RoundToInt(upgrade.aeroDelta * UpgradeEffectScale * bonus);
-                tuned.chassisBalance += Mathf.RoundToInt(upgrade.chassisDelta * UpgradeEffectScale * bonus);
-                tuned.enginePower += Mathf.RoundToInt(upgrade.engineDelta * UpgradeEffectScale * bonus);
+                // Per-stat delta scaling + experimental boost live in
+                // CarDevelopmentRules; top speed and reliability keep their own
+                // scales, the rest share UpgradeEffectScale.
+                tuned.topSpeed = F1Game.Core.CarDevelopmentRules.ApplyStatDelta(tuned.topSpeed, upgrade.topSpeedDelta, 1.7f, bonus);
+                tuned.acceleration = F1Game.Core.CarDevelopmentRules.ApplyStatDelta(tuned.acceleration, upgrade.accelerationDelta, UpgradeEffectScale, bonus);
+                tuned.cornering = F1Game.Core.CarDevelopmentRules.ApplyStatDelta(tuned.cornering, upgrade.corneringDelta, UpgradeEffectScale, bonus);
+                tuned.braking = F1Game.Core.CarDevelopmentRules.ApplyStatDelta(tuned.braking, upgrade.brakingDelta, UpgradeEffectScale, bonus);
+                tuned.reliability = F1Game.Core.CarDevelopmentRules.ApplyStatDelta(tuned.reliability, upgrade.reliabilityDelta, 1.6f, bonus);
+                tuned.ersEfficiency = F1Game.Core.CarDevelopmentRules.ApplyStatDelta(tuned.ersEfficiency, upgrade.ersDelta, UpgradeEffectScale, bonus);
+                tuned.tyreManagement = F1Game.Core.CarDevelopmentRules.ApplyStatDelta(tuned.tyreManagement, upgrade.tyreDelta, UpgradeEffectScale, bonus);
+                tuned.aeroEfficiency = F1Game.Core.CarDevelopmentRules.ApplyStatDelta(tuned.aeroEfficiency, upgrade.aeroDelta, UpgradeEffectScale, bonus);
+                tuned.chassisBalance = F1Game.Core.CarDevelopmentRules.ApplyStatDelta(tuned.chassisBalance, upgrade.chassisDelta, UpgradeEffectScale, bonus);
+                tuned.enginePower = F1Game.Core.CarDevelopmentRules.ApplyStatDelta(tuned.enginePower, upgrade.engineDelta, UpgradeEffectScale, bonus);
             }
 
             tuned.topSpeed = Mathf.Clamp(tuned.topSpeed, 315, 360);

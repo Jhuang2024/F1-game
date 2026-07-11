@@ -384,6 +384,11 @@ deferred, not claimed complete.
     layer keeps the project state, RNG rolls and reward application. Also folds
     the department-upgrade cost (level × 400) into the same rules class
     (GetDepartmentUpgradeCost delegates). CarDevelopmentRulesTests added.
+    Follow-up: the per-stat upgrade-effect math (raw delta × per-stat scale ×
+    experimental boost, rounded) is now CarDevelopmentRules.ApplyStatDelta -
+    ApplyUpgradeSet's ten inline stat lines delegate to it (the shared path for
+    the player AND every AI team's R&D), and the duplicated ExperimentalBonusScale
+    const moved to the rules class. Tests cover the boost.
 72. DIRTY-AIR cornering model wired live behind a switch (makes the built-not-
     live AeroModel.DirtyAirLoss live; matrix "physics"): a close car ahead now
     robs front-end grip IN CORNERS only (gated on |LastSteerInput|), via

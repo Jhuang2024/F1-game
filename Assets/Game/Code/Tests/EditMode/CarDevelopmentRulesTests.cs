@@ -64,5 +64,14 @@ namespace F1Game.Tests
             Assert.AreEqual(400, CarDevelopmentRules.DepartmentUpgradeCost(1));
             Assert.AreEqual(1600, CarDevelopmentRules.DepartmentUpgradeCost(4));
         }
+
+        [Test]
+        public void ApplyStatDeltaScalesAndBoostsOnBreakthrough()
+        {
+            // 10 base + round(4 * 2 * 1) = 18 without a breakthrough.
+            Assert.AreEqual(18, CarDevelopmentRules.ApplyStatDelta(10, 4, 2f, false));
+            // Same delta, +30% on an experimental breakthrough: 10 + round(8 * 1.3) = 20.
+            Assert.AreEqual(20, CarDevelopmentRules.ApplyStatDelta(10, 4, 2f, true));
+        }
     }
 }
