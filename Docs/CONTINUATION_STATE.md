@@ -135,12 +135,24 @@ SurfacePointAt(distance, lateral) consumed by road mesh + kerbs + barriers
 25. `d52ac1d` Production driver-profile screen (records-store stats + career
     identity), live from a new Driver Profile button on the career hub.
 
-Exact next task: production results screen at race end - inspect how the
-legacy results screen is invoked (RaceManager race-finish -> RuntimeUi
-ShowResults?) and route production-first through UiSessionCoordinator with
-the legacy screen as fallback, mapping finishing order/penalties/best laps
-into view-models. After that: RaceHud-retirement gap analysis (what legacy
-HUD still shows that production modules don't cover).
+26. `8999c52` AuthoredCircuitCatalogTests: every calendar id + reference
+    circuit produce structurally sound definitions (length band, widths,
+    DRS bounds, sectors, grid/pit counts, racing-line alignment).
+
+DEFERRED with reason - production results screen: the legacy results screen
+is a rich nine-section report (podium, player summary, two telemetry cards,
+teammate, strategy, incidents, achievements, race-control timeline, full
+classification, championship impact, plus rematch/menu actions at
+RuntimeUi.ShowResults:4759). Replacing it production-first before parity
+would lose real function; it needs its own dedicated parity pass (likely
+several sessions), not a thin v1 swap.
+
+Exact next task: RaceHud-retirement gap analysis - enumerate what legacy
+RaceHud renders (~3.1k lines: radio stack, pit windows/SC prompts, tyre
+selector, damage, delta, minimap?) vs the production module set, record the
+gap list in the ledger, then implement the next tranche of missing modules.
+After that: results-screen parity pass, phase E service extractions
+(RaceSessionController/LapTimingService seams).
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
