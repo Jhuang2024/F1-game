@@ -46,15 +46,21 @@ namespace F1Game.UI.Screens.RaceHudShell
             var fuelText = Numeric(hud.TopRightDock, "Fuel", 18f);
             hud.gameObject.AddComponent<FuelModule>().Bind(fuelText);
 
-            // Top-left continues with the relative gaps under the lap/clock.
+            // Top-left continues with the relative gaps under the lap/clock,
+            // then the lap-time block (current/last/best/session best).
             var gapsText = Numeric(hud.TopLeftDock, "Gaps", 18f);
             hud.gameObject.AddComponent<GapsModule>().Bind(gapsText);
+            var timesText = Numeric(hud.TopLeftDock, "Times", 22f);
+            timesText.GetComponent<LayoutElement>().preferredHeight = 72f;
+            hud.gameObject.AddComponent<TimesModule>().Bind(timesText);
 
             // Flag + pit/penalty chips live with the other status chips.
             var flagChip = Chip(hud.TopRightDock, "Flag");
             hud.gameObject.AddComponent<FlagModule>().Bind(flagChip);
             var pitChip = Chip(hud.TopRightDock, "PitPenalty");
             hud.gameObject.AddComponent<PitPenaltyModule>().Bind(pitChip);
+            var weatherChip = Chip(hud.TopRightDock, "Weather");
+            hud.gameObject.AddComponent<WeatherModule>().Bind(weatherChip);
 
             // Start lights sit in the timing-tower dock (top-center of the
             // shell) so they read like the gantry; the module hides itself

@@ -184,6 +184,12 @@ namespace LocalFormulaRacing
                 PenaltySeconds = player.penaltiesSeconds,
                 StartLightCount = race.RaceStartLightCount,
                 StartLightsVisible = race.RaceStartLightsVisible,
+                CurrentLapSeconds = player.lapTracker != null ? player.lapTracker.CurrentLapTime : 0f,
+                LastLapSeconds = player.lapTracker != null ? player.lapTracker.LastLapTime : 0f,
+                LastLapInvalidated = player.lapTracker != null && player.lapTracker.LastLapInvalidated,
+                BestLapSeconds = player.lapTracker != null ? player.lapTracker.BestLapTime : 0f,
+                SessionBestSeconds = race.SessionFastestLap,
+                Weather = MapWeather(race.Track != null ? race.Track.weather : WeatherState.Clear),
             };
 
             F1Game.Core.HudTelemetry.Publish(snapshot);

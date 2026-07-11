@@ -52,6 +52,16 @@ namespace F1Game.Core
         // Start-light sequence (0 lights when the sequence isn't showing).
         public int StartLightCount;
         public bool StartLightsVisible;
+
+        // Lap timing (seconds; 0 / negative = not set yet).
+        public float CurrentLapSeconds;
+        public float LastLapSeconds;
+        public bool LastLapInvalidated;
+        public float BestLapSeconds;
+        public float SessionBestSeconds;
+
+        // Live weather for the conditions chip.
+        public Events.WeatherKind Weather;
     }
 
     /// <summary>Latest telemetry snapshot (single-player, main car).</summary>

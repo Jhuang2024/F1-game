@@ -236,6 +236,79 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
+    /// <summary>Lap times: current (struck when invalid last), last, best, session best.</summary>
+    public sealed class TimesModule : HudModule
+    {
+        [SerializeField] TMP_Text value;
+        public void Bind(TMP_Text v) { value = v; }
+
+        static string Format(float seconds)
+        {
+            if (seconds <= 0f)
+            {
+                return "-:--.---";
+            }
+
+            int minutes = (int)(seconds / 60f);
+            float rest = seconds - minutes * 60f;
+            return $"{minutes}:{rest:00.000}";
+        }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            if (!t.Valid)
+            {
+                value.text = "--";
+                return;
+            }
+
+            string last = Format(t.LastLapSeconds);
+            if (t.LastLapInvalidated && t.LastLapSeconds > 0f)
+            {
+                last = "<s>" + last + "</s>";
+            }
+
+            value.text = $"<mspace=0.62em>{Format(t.CurrentLapSeconds)}</mspace>\n" +
+                         $"<size=75%>LAST <mspace=0.62em>{last}</mspace>\n" +
+                         $"BEST <mspace=0.62em>{Format(t.BestLapSeconds)}</mspace>   " +
+                         $"SB <mspace=0.62em>{Format(t.SessionBestSeconds)}</mspace></size>";
+        }
+    }
+
+    /// <summary>Live weather conditions chip.</summary>
+    public sealed class WeatherModule : HudModule
+    {
+        [SerializeField] StatusChip chip;
+        public void Bind(StatusChip weatherChip) { chip = weatherChip; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (chip == null) return;
+            if (!t.Valid)
+            {
+                chip.Set("--", StatusChip.Tone.Neutral);
+                return;
+            }
+
+            switch (t.Weather)
+            {
+                case F1Game.Core.Events.WeatherKind.Overcast:
+                    chip.Set("OVERCAST", StatusChip.Tone.Neutral);
+                    break;
+                case F1Game.Core.Events.WeatherKind.LightRain:
+                    chip.Set("LIGHT RAIN", StatusChip.Tone.Accent);
+                    break;
+                case F1Game.Core.Events.WeatherKind.HeavyRain:
+                    chip.Set("HEAVY RAIN", StatusChip.Tone.Warning);
+                    break;
+                default:
+                    chip.Set("CLEAR", StatusChip.Tone.Neutral);
+                    break;
+            }
+        }
+    }
+
     /// <summary>
     /// Timing tower: the top of the running order plus the player's own row
     /// when outside it, refreshed at the cadence the race layer publishes

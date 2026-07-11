@@ -551,6 +551,8 @@ namespace LocalFormulaRacing
         float overtakeCheckTimer;
         float sessionFastestLap = -1f;
         string sessionFastestLapDriverId = "";
+        // Read by the HUD telemetry relay; -1 until anyone sets a lap.
+        public float SessionFastestLap { get { return sessionFastestLap; } }
         bool engineerFlatSpotWarningSent;
         bool engineerLockupWarningSent;
         int lastTeammateGapReportLap = -1;
