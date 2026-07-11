@@ -131,7 +131,54 @@ namespace F1Game.UI.Screens.RaceHudShell
         protected override void Render(in HudTelemetrySnapshot t)
         {
             if (value == null) return;
-            value.text = t.Valid ? $"FUEL <mspace=0.6em>{t.FuelLapsRemaining:0.0}</mspace> laps" : "--";
+            if (!t.Valid)
+            {
+                value.text = "--";
+                return;
+            }
+
+            // Emergency states outrank the plain readout (parity with the
+            // legacy fuel pill's state machine).
+            if (t.FuelStarved)
+            {
+                value.text = "<color=#E64B3C>FUEL STARVATION</color>";
+            }
+            else if (t.FuelLapsRemaining > 0f && t.FuelLapsRemaining < 1f)
+            {
+                value.text = $"<color=#E64B3C>FUEL CRITICAL <mspace=0.6em>{t.FuelLapsRemaining:0.0}</mspace></color>";
+            }
+            else if (t.FuelLapsRemaining > 0f && t.FuelLapsRemaining < 2.5f)
+            {
+                value.text = $"<color=#F2B33D>FUEL LOW <mspace=0.6em>{t.FuelLapsRemaining:0.0}</mspace></color>";
+            }
+            else
+            {
+                value.text = $"FUEL <mspace=0.6em>{t.FuelLapsRemaining:0.0}</mspace> laps";
+            }
+        }
+    }
+
+    /// <summary>Overall damage meter with the legacy thresholds' urgency tints.</summary>
+    public sealed class DamageModule : HudModule
+    {
+        [SerializeField] UiProgressBar bar;
+        [SerializeField] TMP_Text label;
+        public void Bind(UiProgressBar damageBar, TMP_Text labelText) { bar = damageBar; label = labelText; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (!t.Valid) return;
+            if (label != null)
+            {
+                label.text = t.Damage01 > 0.005f ? $"DAMAGE <mspace=0.6em>{t.Damage01 * 100f:0}</mspace>%" : "NO DAMAGE";
+            }
+
+            if (bar != null)
+            {
+                Color c = t.Damage01 > 0.6f ? UiTheme.Active.palette.danger
+                    : (t.Damage01 > 0.25f ? UiTheme.Active.palette.warning : UiTheme.Active.palette.positive);
+                bar.SetValue(t.Damage01, c);
+            }
         }
     }
 
@@ -217,7 +264,11 @@ namespace F1Game.UI.Screens.RaceHudShell
                 return;
             }
 
-            if (t.IsPitting)
+            if (t.PitStopProgress01 > 0f)
+            {
+                chip.Set($"BOX {t.PitStopProgress01 * 100f:0}%", StatusChip.Tone.Accent);
+            }
+            else if (t.IsPitting)
             {
                 chip.Set("IN PIT", StatusChip.Tone.Accent);
             }
@@ -425,6 +476,8 @@ namespace F1Game.UI.Screens.RaceHudShell
             body.text = sb.ToString();
         }
 
+        static readonly string[] CompoundLetters = { "S", "M", "H", "I", "W" };
+
         void AppendRow(in HudRaceOrderEntry e, string accent, string muted)
         {
             if (e.IsPlayer)
@@ -433,6 +486,12 @@ namespace F1Game.UI.Screens.RaceHudShell
             }
 
             sb.Append("P").Append(e.Position.ToString("00")).Append(' ').Append(e.Code);
+
+            // Per-row compound letter in its data-identity colour.
+            int compound = e.Compound < 0 ? 0 : (e.Compound >= CompoundLetters.Length ? CompoundLetters.Length - 1 : e.Compound);
+            sb.Append(" <color=#").Append(ColorUtility.ToHtmlStringRGB(CompoundPalette.For(compound)))
+              .Append(">").Append(CompoundLetters[compound]).Append("</color>");
+
             if (e.Retired)
             {
                 sb.Append("  <color=#").Append(muted).Append(">OUT</color>");
@@ -443,7 +502,9 @@ namespace F1Game.UI.Screens.RaceHudShell
             }
             else if (e.Position > 1)
             {
-                sb.Append("  +").Append(e.GapToLeaderSeconds.ToString("0.0"));
+                // Interval to the car ahead (broadcast convention), same slot
+                // the legacy tower's INT column used.
+                sb.Append("  +").Append(e.IntervalSeconds.ToString("0.0"));
             }
 
             if (e.IsPlayer)

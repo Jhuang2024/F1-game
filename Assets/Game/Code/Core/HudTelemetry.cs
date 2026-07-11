@@ -63,6 +63,11 @@ namespace F1Game.Core
         // Live weather for the conditions chip.
         public Events.WeatherKind Weather;
 
+        // Damage + fuel emergency states and pit service progress.
+        public float Damage01;            // 0 pristine .. 1 destroyed
+        public bool FuelStarved;
+        public float PitStopProgress01;   // 0 outside service, else 0..1
+
         // Last completed sector times this lap (0 = not set yet) and the
         // session-wide best per sector for purple/green comparison.
         public float Sector1Seconds;
@@ -95,6 +100,8 @@ namespace F1Game.Core
         public int Position;
         public string Code;
         public float GapToLeaderSeconds;
+        public float IntervalSeconds;   // gap to the car one place ahead
+        public int Compound;            // 0 soft .. 4 wet
         public bool IsPlayer;
         public bool InPit;
         public bool Retired;

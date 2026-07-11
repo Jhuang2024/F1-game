@@ -46,6 +46,10 @@ namespace F1Game.UI.Screens.RaceHudShell
             var fuelText = Numeric(hud.TopRightDock, "Fuel", 18f);
             hud.gameObject.AddComponent<FuelModule>().Bind(fuelText);
 
+            var damageLabel = Numeric(hud.TopRightDock, "Damage", 16f);
+            var damageBar = ProgressBar(hud.TopRightDock, "DamageBar");
+            hud.gameObject.AddComponent<DamageModule>().Bind(damageBar, damageLabel);
+
             // Top-left continues with the relative gaps under the lap/clock,
             // then the lap-time block (current/last/best/session best).
             var gapsText = Numeric(hud.TopLeftDock, "Gaps", 18f);

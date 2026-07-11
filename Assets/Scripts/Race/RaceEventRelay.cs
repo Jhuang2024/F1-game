@@ -190,6 +190,9 @@ namespace LocalFormulaRacing
                 BestLapSeconds = player.lapTracker != null ? player.lapTracker.BestLapTime : 0f,
                 SessionBestSeconds = race.SessionFastestLap,
                 Weather = MapWeather(race.Track != null ? race.Track.weather : WeatherState.Clear),
+                Damage01 = vehicle.Damage != null ? Mathf.Clamp01(vehicle.Damage.OverallPercent / 100f) : 0f,
+                FuelStarved = vehicle.FuelStarved,
+                PitStopProgress01 = race.PitStopProgress01(player),
             };
 
             if (race.State != null)
@@ -242,6 +245,7 @@ namespace LocalFormulaRacing
             for (int i = 0; i < count; i++)
             {
                 RaceParticipant p = order[i];
+                RaceParticipant ahead = i > 0 ? order[i - 1] : null;
                 string code = p == null ? "---"
                     : (p.driverData != null && !string.IsNullOrEmpty(p.driverData.abbreviation) ? p.driverData.abbreviation
                     : (string.IsNullOrEmpty(p.driverName) ? "---" : p.driverName));
@@ -250,6 +254,8 @@ namespace LocalFormulaRacing
                     Position = i + 1,
                     Code = code,
                     GapToLeaderSeconds = p == null || p == leader ? 0f : Mathf.Max(0f, race.GetGapBetweenSeconds(leader, p)),
+                    IntervalSeconds = p == null || ahead == null ? 0f : Mathf.Max(0f, race.GetGapBetweenSeconds(ahead, p)),
+                    Compound = p != null && p.vehicle != null && p.vehicle.Tyres != null ? (int)p.vehicle.Tyres.Compound : 1,
                     IsPlayer = p != null && p.isPlayer,
                     InPit = p != null && (p.isPitting || p.pitPhase != PitPhase.None),
                     Retired = p != null && p.retired,
