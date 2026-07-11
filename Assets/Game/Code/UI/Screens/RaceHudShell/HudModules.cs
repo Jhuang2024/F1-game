@@ -673,6 +673,52 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
+    /// <summary>Time-trial checkpoint progress ("CHECKPOINTS 7/16"); TT only.</summary>
+    public sealed class CheckpointsModule : HudModule
+    {
+        const int CheckpointTotal = 16;
+        [SerializeField] TMP_Text value;
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            bool show = t.Valid && t.Session == F1Game.Core.Events.SessionKind.TimeTrial;
+            if (value.gameObject.activeSelf != show)
+            {
+                value.gameObject.SetActive(show);
+            }
+
+            if (show)
+            {
+                value.text = $"CHECKPOINTS <mspace=0.62em>{t.CheckpointsPassed}/{CheckpointTotal}</mspace>";
+            }
+        }
+    }
+
+    /// <summary>Qualifying lap feedback, a centred panel shown after a Q lap.</summary>
+    public sealed class QualiFeedbackModule : HudModule
+    {
+        [SerializeField] TMP_Text value;
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            bool show = t.Valid && t.Session == F1Game.Core.Events.SessionKind.Qualifying &&
+                !string.IsNullOrEmpty(t.QualifyingFeedback);
+            if (value.gameObject.activeSelf != show)
+            {
+                value.gameObject.SetActive(show);
+            }
+
+            if (show)
+            {
+                value.text = t.QualifyingFeedback;
+            }
+        }
+    }
+
     /// <summary>Live weather conditions chip.</summary>
     public sealed class WeatherModule : HudModule
     {

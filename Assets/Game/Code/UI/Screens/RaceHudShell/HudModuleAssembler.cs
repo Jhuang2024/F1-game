@@ -64,6 +64,13 @@ namespace F1Game.UI.Screens.RaceHudShell
             // Qualifying / time-trial delta card in the top-left stack.
             var deltaText = Numeric(hud.TopLeftDock, "Delta", 20f);
             hud.gameObject.AddComponent<DeltaModule>().Bind(deltaText);
+            var checkpointsText = Numeric(hud.TopLeftDock, "Checkpoints", 16f);
+            hud.gameObject.AddComponent<CheckpointsModule>().Bind(checkpointsText);
+
+            // Qualifying lap feedback: a centred panel in the top-center dock.
+            var qualiFeedbackText = Text(hud.TimingTowerDock, "QualiFeedback", 24f, TextAlignmentOptions.Center);
+            qualiFeedbackText.GetComponent<LayoutElement>().preferredHeight = 60f;
+            hud.gameObject.AddComponent<QualiFeedbackModule>().Bind(qualiFeedbackText);
 
             // Track minimap: a fixed square panel in the bottom-right dock; the
             // module positions pooled dots within its rect.

@@ -79,6 +79,11 @@ namespace F1Game.Core
         public Events.SessionKind Session;
         public string EventName;
 
+        // Session-specific (Tier 7): qualifying lap feedback text, time-trial
+        // checkpoint progress this lap.
+        public string QualifyingFeedback;
+        public int CheckpointsPassed;
+
         // Rolling session message (race layer's one-line status: "Lights
         // out", pit calls, reaction time...). Empty when nothing current.
         public string SessionMessage;

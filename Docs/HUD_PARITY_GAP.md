@@ -64,8 +64,9 @@ pit-request/radio events).
 ## Tier 7 — Session-specific
 - [x] Qualifying/ghost delta card (2442). (DeltaModule, tranche 8; numeric
       core TryGetQualifyingDelta/TryGetGhostDelta now shared with legacy text)
-- [ ] Qualifying feedback panel (1415); quali tower BEST/GAP layout (2873);
-      TT single-row + checkpoint counter (1981); TT track record (1962).
+- [x] Qualifying feedback panel (1415) - QualiFeedbackModule; TT checkpoint
+      counter (1981) - CheckpointsModule. (tranche 12) Quali tower BEST/GAP
+      layout + TT single-row + TT track record still legacy-only.
 
 ## Tier 8 — Flourish/dev (lowest)
 - [ ] Finish flourish (3014); micro-animations; hint bar (1262); debug
