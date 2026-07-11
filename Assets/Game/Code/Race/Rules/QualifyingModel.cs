@@ -118,11 +118,89 @@ namespace F1Game.Race.Rules
             return 9998f + clamped * 0.1f;
         }
 
-        // Engine-free UnityEngine.Mathf.Lerp equivalent (clamps t to 0-1).
+        /// <summary>
+        /// topSpeed (a literal ~300-365 km/h value) mapped onto the same 45-125
+        /// rating scale every other car stat uses, extracted verbatim from
+        /// RaceManager.NormalizeTopSpeedToRating, so it can be weighted alongside
+        /// the other ratings without a unit mismatch.
+        /// </summary>
+        public static float TopSpeedRating(float topSpeedKph)
+        {
+            return Lerp(45f, 125f, InverseLerp(300f, 365f, topSpeedKph));
+        }
+
+        /// <summary>
+        /// The neutral circuit reference lap (seconds), extracted verbatim from
+        /// RaceManager.CircuitReferenceLapTime: track length over the field's shared
+        /// expected average speed (the field-average top speed x the circuit style
+        /// factor), floored at 45 s. The caller supplies the live field average, the
+        /// style factor and the (null-defaulted) track length.
+        /// </summary>
+        public static float ReferenceLapTime(float neutralTopSpeedKph, float styleFactor, float trackLengthMeters)
+        {
+            float referenceSpeedMps = (neutralTopSpeedKph / 3.6f) * styleFactor;
+            return Max(45f, trackLengthMeters / referenceSpeedMps);
+        }
+
+        /// <summary>
+        /// Per-circuit car-stat weighting (each set sums to 1.0), extracted verbatim
+        /// from RaceManager.CarPerformanceWeights: power-sensitive circuits weight
+        /// top speed/acceleration/engine, high-downforce circuits weight
+        /// aero/cornering, technical/tight circuits weight cornering/braking/chassis,
+        /// and everything else gets an even spread. The caller maps a null track to
+        /// empty descriptors and a wide road half-width (so the tight-circuit test
+        /// is false, matching the inline null short-circuit).
+        /// </summary>
+        public static void CarPerformanceWeights(string trackId, string styleName, float roadHalfWidth,
+            out float wTopSpeed, out float wAcceleration, out float wCornering, out float wBraking,
+            out float wAero, out float wChassis, out float wEngine)
+        {
+            string id = trackId ?? "";
+            string style = (styleName ?? "").ToLowerInvariant();
+
+            if (id.Contains("monza") || id.Contains("las_vegas") || id.Contains("baku") || id.Contains("jeddah"))
+            {
+                wTopSpeed = 0.28f; wAcceleration = 0.20f; wCornering = 0.10f; wBraking = 0.08f;
+                wAero = 0.07f; wChassis = 0.05f; wEngine = 0.22f;
+                return;
+            }
+
+            if (id.Contains("spa") || id.Contains("silverstone") || id.Contains("suzuka") || id.Contains("qatar"))
+            {
+                wTopSpeed = 0.10f; wAcceleration = 0.08f; wCornering = 0.26f; wBraking = 0.10f;
+                wAero = 0.26f; wChassis = 0.14f; wEngine = 0.06f;
+                return;
+            }
+
+            if (id.Contains("monaco") || id.Contains("hungary") || style.Contains("street") || roadHalfWidth < 12f)
+            {
+                wTopSpeed = 0.04f; wAcceleration = 0.14f; wCornering = 0.28f; wBraking = 0.24f;
+                wAero = 0.06f; wChassis = 0.20f; wEngine = 0.04f;
+                return;
+            }
+
+            wTopSpeed = 0.14f; wAcceleration = 0.14f; wCornering = 0.20f; wBraking = 0.16f;
+            wAero = 0.16f; wChassis = 0.12f; wEngine = 0.08f;
+        }
+
+        // Engine-free UnityEngine.Mathf equivalents (Lerp/InverseLerp clamp t to 0-1).
         static float Lerp(float a, float b, float t)
         {
             float clamped = t < 0f ? 0f : (t > 1f ? 1f : t);
             return a + (b - a) * clamped;
         }
+
+        static float InverseLerp(float a, float b, float v)
+        {
+            if (a == b)
+            {
+                return 0f;
+            }
+
+            float t = (v - a) / (b - a);
+            return t < 0f ? 0f : (t > 1f ? 1f : t);
+        }
+
+        static float Max(float a, float b) => a > b ? a : b;
     }
 }

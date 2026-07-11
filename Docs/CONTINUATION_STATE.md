@@ -1148,6 +1148,21 @@ deferred, not claimed complete.
         callers (QualifyingFlow, main) unchanged. QualifyingModelTests added (circuit
         table incl. case-sensitivity + null, weather baseline/spread, mistake-chance
         rain/consistency/Q3, invalid-time clamp). Unity/runtime validation PENDING.
+    E5. Qualifying performance maths -> QualifyingModel (extends E4). Three more
+        pure/RNG-free formulas from RaceManager.Qualifying.cs: NormalizeTopSpeedToRating
+        (km/h -> the shared 45-125 rating scale), CircuitReferenceLapTime's formula
+        core (track length / expected field speed, floored at 45 s) and
+        CarPerformanceWeights (the per-circuit stat-weighting buckets, each summing
+        to 1.0). Extracted verbatim into QualifyingModel.TopSpeedRating(topSpeedKph),
+        ReferenceLapTime(neutralTopSpeedKph, styleFactor, trackLengthMeters) and
+        CarPerformanceWeights(trackId, styleName, roadHalfWidth, out 7 weights); a
+        null track maps to empty descriptors + roadHalfWidth 999 so the tight-circuit
+        test is false exactly as the old "track != null && ..." short-circuit.
+        RaceManager keeps the live field-average/track reads and delegates the
+        formulas - byte-identical, one live path (pure calc, no RNG). All callers are
+        in-class (Qualifying partial). QualifyingModelTests extended (top-speed
+        scale/clamp, reference-lap length/floor/monotonic, weight buckets + sum-to-1).
+        Unity/runtime validation PENDING.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game

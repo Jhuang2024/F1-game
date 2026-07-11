@@ -255,11 +255,13 @@ namespace LocalFormulaRacing
         // over another the way the old per-car version did.
         float CircuitReferenceLapTime(TrackRuntime track)
         {
+            // Field-average top speed + circuit style factor are the live reads;
+            // the length/speed lap-time formula is the engine-free
+            // QualifyingModel.ReferenceLapTime.
             float neutralTopSpeedKph = FieldAverageTopSpeedKph();
             float styleFactor = TrackAverageSpeedFactor(track);
-            float referenceSpeedMps = (neutralTopSpeedKph / 3.6f) * styleFactor;
             float trackLength = track == null ? 7266f : track.length;
-            return Mathf.Max(45f, trackLength / referenceSpeedMps);
+            return QualifyingModel.ReferenceLapTime(neutralTopSpeedKph, styleFactor, trackLength);
         }
 
         float FieldAverageTopSpeedKph()
@@ -370,48 +372,23 @@ namespace LocalFormulaRacing
         // WHOLE lap, see CircuitReferenceLapTime's own history above).
         float NormalizeTopSpeedToRating(float topSpeedKph)
         {
-            return Mathf.Lerp(45f, 125f, Mathf.InverseLerp(300f, 365f, topSpeedKph));
+            return QualifyingModel.TopSpeedRating(topSpeedKph);
         }
 
         // Per-circuit car-stat weighting (must each sum to 1.0). Named-circuit
         // checks mirror TrackAverageSpeedFactor's own bucketing style.
         void CarPerformanceWeights(TrackRuntime track, out float wTopSpeed, out float wAcceleration, out float wCornering, out float wBraking, out float wAero, out float wChassis, out float wEngine)
         {
-            string id = track == null ? "" : (track.trackId ?? "");
-            string style = track == null ? "" : (track.styleName ?? "").ToLowerInvariant();
-
-            if (id.Contains("monza") || id.Contains("las_vegas") || id.Contains("baku") || id.Contains("jeddah"))
-            {
-                // Power-sensitive: long straights, low downforce - top speed,
-                // acceleration and engine power matter far more here than outright
-                // cornering grip.
-                wTopSpeed = 0.28f; wAcceleration = 0.20f; wCornering = 0.10f; wBraking = 0.08f;
-                wAero = 0.07f; wChassis = 0.05f; wEngine = 0.22f;
-                return;
-            }
-
-            if (id.Contains("spa") || id.Contains("silverstone") || id.Contains("suzuka") || id.Contains("qatar"))
-            {
-                // High-downforce, flowing high-speed corners - aero and cornering
-                // grip dominate; top speed/engine power matter far less than on a
-                // pure power circuit.
-                wTopSpeed = 0.10f; wAcceleration = 0.08f; wCornering = 0.26f; wBraking = 0.10f;
-                wAero = 0.26f; wChassis = 0.14f; wEngine = 0.06f;
-                return;
-            }
-
-            if (id.Contains("monaco") || id.Contains("hungary") || style.Contains("street") || (track != null && track.roadHalfWidth < 12f))
-            {
-                // Technical/tight: low-speed cornering, braking and traction out of
-                // slow corners matter most - top speed is nearly irrelevant.
-                wTopSpeed = 0.04f; wAcceleration = 0.14f; wCornering = 0.28f; wBraking = 0.24f;
-                wAero = 0.06f; wChassis = 0.20f; wEngine = 0.04f;
-                return;
-            }
-
-            // Balanced/standard circuit: a fairly even mixture across every stat.
-            wTopSpeed = 0.14f; wAcceleration = 0.14f; wCornering = 0.20f; wBraking = 0.16f;
-            wAero = 0.16f; wChassis = 0.12f; wEngine = 0.08f;
+            // Per-circuit stat weighting lives in the engine-free
+            // QualifyingModel.CarPerformanceWeights. A null track maps to empty
+            // descriptors and a wide road half-width (999) so the tight-circuit test
+            // is false, exactly matching the old inline "track != null && ..."
+            // short-circuit.
+            QualifyingModel.CarPerformanceWeights(
+                track == null ? "" : track.trackId,
+                track == null ? "" : track.styleName,
+                track == null ? 999f : track.roadHalfWidth,
+                out wTopSpeed, out wAcceleration, out wCornering, out wBraking, out wAero, out wChassis, out wEngine);
         }
 
         // Fraction of top speed a well-driven qualifying lap averages, by track

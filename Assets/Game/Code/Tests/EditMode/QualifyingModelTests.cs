@@ -68,5 +68,51 @@ namespace F1Game.Tests
             Assert.AreEqual(9998.1f, QualifyingModel.InvalidTime(0), 0.0001f);
             Assert.AreEqual(9998.3f, QualifyingModel.InvalidTime(9), 0.0001f);
         }
+
+        [Test]
+        public void TopSpeedRatingMapsKphOntoThe45To125Scale()
+        {
+            // 300 km/h -> bottom of the scale, 365 -> top, midpoint linear.
+            Assert.AreEqual(45f, QualifyingModel.TopSpeedRating(300f), 0.0001f);
+            Assert.AreEqual(125f, QualifyingModel.TopSpeedRating(365f), 0.0001f);
+            Assert.AreEqual(85f, QualifyingModel.TopSpeedRating(332.5f), 0.0001f);
+            // Out of band clamps rather than extrapolating.
+            Assert.AreEqual(45f, QualifyingModel.TopSpeedRating(250f), 0.0001f);
+            Assert.AreEqual(125f, QualifyingModel.TopSpeedRating(400f), 0.0001f);
+        }
+
+        [Test]
+        public void ReferenceLapTimeIsLengthOverExpectedSpeedFloored()
+        {
+            // 337 km/h field avg * 0.92 style -> ~86.12 m/s; 5000 m -> ~58.06 s.
+            Assert.AreEqual(5000f / ((337f / 3.6f) * 0.92f), QualifyingModel.ReferenceLapTime(337f, 0.92f, 5000f), 0.001f);
+            // Longer track -> longer lap.
+            Assert.Greater(QualifyingModel.ReferenceLapTime(337f, 0.92f, 7000f),
+                           QualifyingModel.ReferenceLapTime(337f, 0.92f, 5000f));
+            // A very short/fast circuit is floored at 45 s.
+            Assert.AreEqual(45f, QualifyingModel.ReferenceLapTime(400f, 1f, 1000f), 0.0001f);
+        }
+
+        [Test]
+        public void CarPerformanceWeightsPickTheRightBucketAndSumToOne()
+        {
+            AssertWeightsSumToOne("monza", "permanent", 15f, 0.28f);        // power
+            AssertWeightsSumToOne("spa", "permanent", 15f, 0.10f);         // high-downforce
+            AssertWeightsSumToOne("monaco", "street", 8f, 0.04f);          // technical
+            AssertWeightsSumToOne("generic", "permanent", 15f, 0.14f);     // balanced
+            // Street style OR narrow road both route to the technical bucket.
+            AssertWeightsSumToOne("generic", "Street Circuit", 15f, 0.04f);
+            AssertWeightsSumToOne("generic", "permanent", 11.9f, 0.04f);
+            // Null-ish descriptors (as the caller passes for a null track) -> balanced.
+            AssertWeightsSumToOne("", "", 999f, 0.14f);
+        }
+
+        static void AssertWeightsSumToOne(string id, string style, float roadHalfWidth, float expectedTopSpeed)
+        {
+            QualifyingModel.CarPerformanceWeights(id, style, roadHalfWidth,
+                out float wTop, out float wAcc, out float wCor, out float wBrk, out float wAero, out float wCha, out float wEng);
+            Assert.AreEqual(expectedTopSpeed, wTop, 0.0001f, "top-speed weight for " + id + "/" + style);
+            Assert.AreEqual(1f, wTop + wAcc + wCor + wBrk + wAero + wCha + wEng, 0.0001f, "weights must sum to 1 for " + id + "/" + style);
+        }
     }
 }
