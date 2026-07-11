@@ -18,29 +18,32 @@ namespace LocalFormulaRacing
         public float engineWear;
         public float gearboxWear;
 
+        // Pure damage->performance maths live in the engine-free DamagePerformance
+        // (same tuned coefficients/floors, now unit-tested); this class keeps owning
+        // the impact accumulation and just reads through.
         public float AeroMultiplier
         {
-            get { return Mathf.Clamp(1f - frontWing * 0.42f - floor * 0.28f, 0.18f, 1f); }
+            get { return F1Game.Race.Rules.DamagePerformance.AeroMultiplier(frontWing, floor); }
         }
 
         public float HandlingMultiplier
         {
-            get { return Mathf.Clamp(1f - frontWing * 0.38f - floor * 0.34f, 0.2f, 1f); }
+            get { return F1Game.Race.Rules.DamagePerformance.HandlingMultiplier(frontWing, floor); }
         }
 
         public float PowerMultiplier
         {
-            get { return Mathf.Clamp(1f - engineWear * 0.42f - gearboxWear * 0.22f, 0.24f, 1f); }
+            get { return F1Game.Race.Rules.DamagePerformance.PowerMultiplier(engineWear, gearboxWear); }
         }
 
         public float OverallPercent
         {
-            get { return Mathf.Clamp01((frontWing + floor + engineWear + gearboxWear) * 0.25f) * 100f; }
+            get { return F1Game.Race.Rules.DamagePerformance.OverallPercent(frontWing, floor, engineWear, gearboxWear); }
         }
 
         public bool IsDestroyed
         {
-            get { return OverallPercent >= 98f; }
+            get { return F1Game.Race.Rules.DamagePerformance.IsDestroyed(OverallPercent); }
         }
 
         public float AddImpact(float impactSpeedKph, float normalSpeedKph, Vector3 localPoint, DamageImpactType impactType, bool sustainedScrape)

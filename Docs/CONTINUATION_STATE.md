@@ -1484,6 +1484,17 @@ deferred, not claimed complete.
         wetting/drying without over/undershoot, faster line drying, equilibrium hold,
         and the monotonic grip falloff.
 
+    F14. Damage-to-performance maths -> engine-free DamagePerformance
+        (F1Game.Race.Rules, UNIT-TESTED), extracted VERBATIM from DamageState's
+        multiplier getters. Behavior-preserving (no retuning): the aero falloff
+        (front wing/floor, floor 0.18), handling falloff (floor 0.2), power falloff
+        (engine/gearbox wear, floor 0.24), the overall-damage percentage (mean of the
+        four components, clamped x100), and the >=98% destroyed threshold now live in
+        pure functions with the same tuned coefficients. DamageState keeps owning the
+        feel-critical impact accumulation (AddImpact untouched) and just reads through.
+        DamagePerformanceTests pin the full curve (undamaged=full, per-component
+        falloff, floors, averaging/clamp, destroyed threshold).
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
