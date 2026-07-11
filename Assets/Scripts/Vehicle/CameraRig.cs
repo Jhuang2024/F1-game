@@ -111,11 +111,19 @@ namespace LocalFormulaRacing
             followCamera.allowHDR = true;
             followCamera.allowMSAA = true;
             followCamera.backgroundColor = RenderSettings.fogColor;
-            // URP migration: post-processing now comes from the global race
-            // Volume (RaceVolumeService) instead of the removed CameraPostFx
-            // OnRenderImage chain; this enables pipeline post/HDR/SMAA on the
-            // runtime-created camera.
+            // Post-processing, per active pipeline: under URP the global race
+            // Volume (RaceVolumeService) provides the chain and UrpCameraSetup
+            // enables pipeline post/HDR/SMAA on the runtime-created camera; under
+            // the Built-in pipeline (the current default - see KNOWN_ISSUES.md
+            // "Render pipeline") URP Volumes never render, so the original
+            // CameraPostFx OnRenderImage chain (bloom + filmic tonemap + grade +
+            // vignette, restored from the pre-migration code) is attached instead.
+            // Exactly one backend is active for any given pipeline.
             F1Game.Rendering.UrpCameraSetup.Apply(followCamera);
+            if (!F1Game.Rendering.ShaderCompat.UrpActive && followCamera.GetComponent<CameraPostFx>() == null)
+            {
+                followCamera.gameObject.AddComponent<CameraPostFx>();
+            }
 
             AudioListener listener = followCamera.GetComponent<AudioListener>();
             if (listener == null)

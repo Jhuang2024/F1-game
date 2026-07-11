@@ -70,8 +70,14 @@ active pipeline:
 - `UrpCameraSetup` no-ops when URP is not active; `RaceVolumeService` still sets
   `RenderSettings` fog (native Built-in) and creates an inert volume — no crash.
 
-Trade-off: URP Volume post-processing (bloom/tonemap/vignette) does not apply under
-Built-in. To re-enable URP later, regenerate the URP asset **in-editor**
+Post-processing under Built-in: the original pre-migration `CameraPostFx`
+OnRenderImage chain (bloom + filmic tonemap + grade + vignette,
+`Hidden/RacePostUber`) has been **restored from git history** and is attached by
+`CameraRig` whenever no scriptable pipeline is active, driven by the same
+mood/quality calls in `RaceManager.CreateLighting`. Exactly one post backend is
+active per pipeline: CameraPostFx under Built-in, the URP Volume under URP.
+
+To re-enable URP later, regenerate the URP asset **in-editor**
 (Create ▸ Rendering ▸ URP Asset (with Universal Renderer)) so Unity populates the
 renderer shader resources + global settings, then reassign it in Graphics/Quality.
 

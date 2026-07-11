@@ -8480,8 +8480,14 @@ namespace LocalFormulaRacing
             int quality = Settings == null ? 2 : Mathf.Clamp(Settings.Current.graphicsQuality, 0, 3);
             // Premium visual pass: the post chain follows the same mood the
             // lighting uses, and quality 0 ("Low") turns it off entirely.
+            // Both post backends are configured here: the URP Volume service (only
+            // active under a scriptable pipeline) and the restored Built-in
+            // CameraPostFx OnRenderImage chain (only attached when no SRP is active,
+            // see CameraRig) - whichever matches the active pipeline takes effect.
             F1Game.Rendering.RaceVolumeService.GlobalEnabled = quality > 0;
             F1Game.Rendering.RaceVolumeService.ConfigureMood(night, rainThreat, twilight);
+            CameraPostFx.GlobalEnabled = quality > 0;
+            CameraPostFx.ConfigureMood(night, rainThreat, twilight);
             // URP migration: AA/shadow settings now come from the quality
             // level's pipeline tier asset; direct QualitySettings field writes
             // were inert under URP. The service switches the Unity quality

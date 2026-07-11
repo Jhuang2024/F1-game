@@ -111,7 +111,42 @@ compiler and no Unity. They are NOT claimed complete. See Docs/KNOWN_ISSUES.md.
 7. Replay/telemetry/broadcast/photo-mode/accessibility/localization runtime.
 8. Multiplayer architecture.
 
+## Live-playtest run (post-merge, user-verified in Unity)
+The game now compiles and runs in the user's editor. Fixed during live
+playtesting, all on `main` (verified or directly reported-back by the user):
+- Tyre-select screen surviving into a live race (frontend cleared at race start).
+- Per-frame URP `CreatePipeline` NRE: **active pipeline reverted to Built-in**
+  (hand-authored URP assets cannot carry renderer shader resources / global
+  settings; see KNOWN_ISSUES.md). URP package + scaffolding remain, flag-gated.
+- Built-in post FX **restored** (CameraPostFx/RacePostUber from pre-migration
+  history), attached only when no SRP is active; mood/quality driven from
+  CreateLighting alongside the URP Volume path.
+- Hairpin outside-line barrier gap (barrier boxes now span the offset-edge chord).
+- FPS: hard shadows, vertex fill/flood lights, removed duplicate per-car VFX
+  stack (VehicleVfxDriver no longer attached; VehicleEffects is the single VFX
+  system per car).
+- AI: Italy-hairpin crash = classification bug (turn-angle probe measured short
+  of the apex); fixed with an apex-walk probe + hairpin threshold raised to 168
+  degrees. General turning speeds preserved per user preference. AI stays on the
+  reactive line (pursuing the drawn ribbon cost corner speed via the edge-brake;
+  reverted per user report).
+- Time trial: auto-Softs, tyres preheated to their window, damage off, pit
+  request/card disabled, DRS in normal zones only (user corrected an "anywhere"
+  attempt).
+
+## Rules integration status (directive §12 item 4)
+Live: ChampionshipPoints, QualifyingProgression, RaceClassifier, PenaltyRules,
+PitRequestRules. Deliberately NOT wired: FlagRules/SessionFlow (would replace
+working, user-tuned race-control conditionals with a mapping that risks silent
+divergence for zero user-visible gain) and StartProcedureRules' false-start rule
+(would penalize the hold-throttle launch style the game currently allows - an
+unrequested gameplay change). Jump start is already live with the rulebook's 5s
+penalty, matching StartProcedureRules.PenaltySeconds.
+
 ## Exact next action
 - In-editor bring-up (Docs/EDITOR_BRINGUP.md): packages, TMP, tests, prefab
   bakes, then validate the live input/camera flags. After that, resume at
-  directive §12 item 4 (pit lane + AI + rules integration).
+  directive §12 item 4 remainder (pit-lane rework, AI racecraft depth, race
+  reliability) - each needs live playtest feedback per change; this session
+  showed autonomous rewrites of user-tuned behaviour cause regressions, so ship
+  small, verify with the user, then continue.
