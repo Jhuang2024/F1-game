@@ -410,6 +410,13 @@ deferred, not claimed complete.
     f1game_language pref (default "en" → no-op), so the whole path is live end to
     end: pick a language + drop a translation file and it applies, with nothing
     breaking out of the box. LocalizationTests cover parse/load/validation.
+76. PERFORMANCE CAPTURE diagnostics connected (was built-not-live, zero
+    consumers; ledger task "live-consumer wiring + tests for built systems"):
+    GameBootstrap.Update now triggers PerformanceCapture.Begin on F10 (labeled
+    race/frontend by CanDrive) - a dev-only no-op unless pressed; legacy Input is
+    safe (activeInputHandler=Both). The percentile statistic is extracted to a
+    static, pure PerformanceCapture.Percentile(sorted, p) and unit-tested
+    (nearest-rank, empty/null, clamp). PerformanceCaptureTests added.
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks

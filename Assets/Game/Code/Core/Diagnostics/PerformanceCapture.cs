@@ -119,13 +119,23 @@ namespace F1Game.Core.Diagnostics
 
         float Percentile(float p)
         {
-            if (frameTimes.Count == 0)
+            return Percentile(frameTimes, p);
+        }
+
+        /// <summary>
+        /// The p-th percentile (0..1) of an ascending-sorted sample list, using the
+        /// nearest-rank method; 0 for an empty list. Static + pure so the capture
+        /// tool's core statistic is unit-testable.
+        /// </summary>
+        public static float Percentile(IReadOnlyList<float> sortedAscending, float p)
+        {
+            if (sortedAscending == null || sortedAscending.Count == 0)
             {
                 return 0f;
             }
 
-            int index = Mathf.Clamp(Mathf.CeilToInt(p * frameTimes.Count) - 1, 0, frameTimes.Count - 1);
-            return frameTimes[index];
+            int index = Mathf.Clamp(Mathf.CeilToInt(p * sortedAscending.Count) - 1, 0, sortedAscending.Count - 1);
+            return sortedAscending[index];
         }
 
         static string Sanitize(string value)

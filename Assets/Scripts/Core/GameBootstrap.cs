@@ -61,6 +61,18 @@ namespace LocalFormulaRacing
             ShowMainMenu();
         }
 
+        void Update()
+        {
+            // F10 kicks off a fixed-window performance capture (frame-time
+            // percentiles + GC/memory → JSON next to the saves) for before/after
+            // pipeline comparisons. Dev diagnostics only; a no-op unless pressed.
+            if (Input.GetKeyDown(KeyCode.F10))
+            {
+                string label = raceManager != null && raceManager.CanDrive ? "race" : "frontend";
+                F1Game.Core.Diagnostics.PerformanceCapture.Begin(label, 20f);
+            }
+        }
+
         public void ShowMainMenu()
         {
             if (raceManager != null)
