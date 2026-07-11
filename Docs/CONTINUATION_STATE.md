@@ -147,12 +147,21 @@ RuntimeUi.ShowResults:4759). Replacing it production-first before parity
 would lose real function; it needs its own dedicated parity pass (likely
 several sessions), not a thin v1 swap.
 
-Exact next task: RaceHud-retirement gap analysis - enumerate what legacy
-RaceHud renders (~3.1k lines: radio stack, pit windows/SC prompts, tyre
-selector, damage, delta, minimap?) vs the production module set, record the
-gap list in the ledger, then implement the next tranche of missing modules.
-After that: results-screen parity pass, phase E service extractions
-(RaceSessionController/LapTimingService seams).
+27. `14aeab4` AI jump starts are real: rolled at spawn (consistency-scaled
+    chance in StartProcedureRules), physically released before lights-out,
+    judged by the same rulebook path as the player. Tests added.
+28. `caf86eb` HUD parity gap analysis captured in Docs/HUD_PARITY_GAP.md
+    (tiered checklist, legacy stays default until Tiers 1-4 live) +
+    tranche 1: DamageModule, fuel emergency states, live pit-box progress
+    chip, tower compound letters + interval column.
+
+Exact next task: HUD parity tranche 2 from Docs/HUD_PARITY_GAP.md -
+(a) Tier 3 race-control surface: snapshot RaceControlState/restart
+countdown/pace-cap fields + a RaceControlModule banner and pace pill;
+(b) Tier 2 pit strategy: snapshot pitPhase/nextPlannedPitLap/compound +
+PitStrategyModule; (c) Tier 1 cancel-pit button (needs the shell's input
+routing - check how ThemedButton clicks work on the HUD canvas). Then
+results-screen parity pass; then Phase E service extraction seams.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
