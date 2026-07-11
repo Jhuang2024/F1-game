@@ -203,12 +203,18 @@ live tuning, unlike the aero/ERS that were), and full career/settings/
 accessibility/localization depth (large, visual). Multiplayer (Phase N) is
 DEFERRED and out of scope.
 
-Exact next task (tractable static-only work, safe to continue): additional
-testable rules-core extractions mirroring the proven pattern (Flag/Start/
-Pit/AiPitStrategy/PitService), and additive diagnostics (structured logging
-categories / error codes, Phase M) which are static and low-risk. Avoid
-swapping live handling math or deleting working legacy paths without an
-in-editor validation pass - that is the documented, correct constraint.
+41. `652cb4c` Phase M diagnostics: DiagnosticLog (F1Game.Core.Diagnostics) -
+    log categories + per-category gating + stable DiagnosticCode error codes;
+    GameLog category/Error overloads (plain overloads untouched);
+    JsonSaveService emits coded save errors. DiagnosticLogTests added.
+
+Exact next task (tractable static-only work, safe to continue): route more
+error/warn call sites onto GameLog category overloads + DiagnosticCode
+(RaceManager track-query catch, race-start failure, audio-bank-missing) for
+a coherent diagnostics surface; then further testable rules-core extractions
+mirroring the proven pattern. Avoid swapping live handling math or deleting
+working legacy paths without an in-editor validation pass - the documented,
+correct constraint. Multiplayer (Phase N) DEFERRED, out of scope.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
