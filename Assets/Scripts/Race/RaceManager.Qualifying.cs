@@ -543,5 +543,136 @@ namespace LocalFormulaRacing
 
             return penalty;
         }
+
+        float InvalidQualifyingTime(int phase)
+        {
+            return 9998f + Mathf.Clamp(phase, 1, 3) * 0.1f;
+        }
+
+        float GetQualifyingPhaseTime(QualifyingSimEntry entry, int phase)
+        {
+            return phase == 1 ? entry.q1 : (phase == 2 ? entry.q2 : entry.q3);
+        }
+
+        void SetQualifyingPhaseTime(QualifyingSimEntry entry, int phase, float time)
+        {
+            if (phase == 1)
+            {
+                entry.q1 = time;
+            }
+            else if (phase == 2)
+            {
+                entry.q2 = time;
+            }
+            else
+            {
+                entry.q3 = time;
+            }
+
+            entry.session = "Q" + phase;
+            entry.finalTime = time;
+        }
+
+        void SetAiQualifyingPhaseTime(QualifyingSimEntry entry, int phase, float time)
+        {
+            SetQualifyingPhaseTime(entry, phase, time);
+            float s1;
+            float s2;
+            float s3;
+            SimulateQualifyingSectors(entry, phase, time, out s1, out s2, out s3);
+            SetQualifyingPhaseSectors(entry, phase, s1, s2, s3);
+            if (State != null && entry.participant != null)
+            {
+                State.OnSectorComplete(entry.participant, 1, s1, false);
+                State.OnSectorComplete(entry.participant, 2, s2, false);
+                State.OnSectorComplete(entry.participant, 3, s3, false);
+            }
+        }
+
+        void SetSimulatedPlayerQualifyingPhaseTime(QualifyingSimEntry entry, int phase, float time)
+        {
+            SetQualifyingPhaseTime(entry, phase, time);
+            entry.invalidated = false;
+            float s1;
+            float s2;
+            float s3;
+            SimulateQualifyingSectors(entry, phase, time, out s1, out s2, out s3);
+            int phaseIndex = Mathf.Clamp(phase, 1, 3) - 1;
+            playerQualifyingBestTimes[phaseIndex] = time;
+            playerQualifyingBestSectors[phaseIndex, 0] = s1;
+            playerQualifyingBestSectors[phaseIndex, 1] = s2;
+            playerQualifyingBestSectors[phaseIndex, 2] = s3;
+            SetQualifyingPhaseSectors(entry, phase, s1, s2, s3);
+            if (State != null && entry.participant != null)
+            {
+                State.OnSectorComplete(entry.participant, 1, s1, false);
+                State.OnSectorComplete(entry.participant, 2, s2, false);
+                State.OnSectorComplete(entry.participant, 3, s3, false);
+            }
+        }
+
+        void SetPlayerQualifyingSectors(QualifyingSimEntry entry, int phase, float lapTime, bool invalidated)
+        {
+            LapTracker lap = PlayerParticipant == null ? null : PlayerParticipant.lapTracker;
+            int phaseIndex = Mathf.Clamp(phase, 1, 3) - 1;
+            float s1 = invalidated ? 0f : playerQualifyingBestSectors[phaseIndex, 0];
+            float s2 = invalidated ? 0f : playerQualifyingBestSectors[phaseIndex, 1];
+            float s3 = invalidated ? 0f : playerQualifyingBestSectors[phaseIndex, 2];
+            if (s1 <= 0f || s2 <= 0f || s3 <= 0f)
+            {
+                s1 = lap == null ? 0f : lap.LastSector1Time;
+                s2 = lap == null ? 0f : lap.LastSector2Time;
+                s3 = lap == null ? 0f : lap.LastSector3Time;
+            }
+            if (s1 <= 0f || s2 <= 0f || s3 <= 0f)
+            {
+                s1 = lapTime * 0.333f;
+                s2 = lapTime * 0.334f;
+                s3 = Mathf.Max(0.001f, lapTime - s1 - s2);
+            }
+
+            SetQualifyingPhaseSectors(entry, phase, s1, s2, s3);
+            if (!invalidated && State != null && entry.participant != null)
+            {
+                State.OnSectorComplete(entry.participant, 1, s1, false);
+                State.OnSectorComplete(entry.participant, 2, s2, false);
+                State.OnSectorComplete(entry.participant, 3, s3, false);
+            }
+        }
+
+        void SimulateQualifyingSectors(QualifyingSimEntry entry, int phase, float lapTime, out float s1, out float s2, out float s3)
+        {
+            float consistency = entry.driverData == null ? 80f : entry.driverData.consistency;
+            float spread = Mathf.Lerp(0.028f, 0.008f, consistency / 100f);
+            float w1 = 0.334f + Random.Range(-spread, spread);
+            float w2 = 0.332f + Random.Range(-spread, spread);
+            float w3 = Mathf.Max(0.25f, 1f - w1 - w2);
+            float total = w1 + w2 + w3;
+            s1 = lapTime * w1 / total;
+            s2 = lapTime * w2 / total;
+            s3 = Mathf.Max(0.001f, lapTime - s1 - s2);
+        }
+
+        void SetQualifyingPhaseSectors(QualifyingSimEntry entry, int phase, float s1, float s2, float s3)
+        {
+            if (phase == 1)
+            {
+                entry.q1s1 = s1;
+                entry.q1s2 = s2;
+                entry.q1s3 = s3;
+            }
+            else if (phase == 2)
+            {
+                entry.q2s1 = s1;
+                entry.q2s2 = s2;
+                entry.q2s3 = s3;
+            }
+            else
+            {
+                entry.q3s1 = s1;
+                entry.q3s2 = s2;
+                entry.q3s3 = s3;
+            }
+        }
     }
 }

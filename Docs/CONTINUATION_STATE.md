@@ -588,6 +588,13 @@ deferred, not claimed complete.
     RaceManager.Qualifying.cs partial - RNG/values unchanged. RaceManager.cs →
     10666 lines: 1001 lines (8.6%) now peeled off across 5 partials (weather,
     slipstream, AI profiles, qualifying attempt + model). No behaviour change.
+    Slice 6: the qualifying phase-time accessors and sector helpers
+    (InvalidQualifyingTime, Get/SetQualifyingPhaseTime, SetAiQualifyingPhaseTime,
+    SetSimulatedPlayerQualifyingPhaseTime, SetPlayerQualifyingSectors,
+    SimulateQualifyingSectors, SetQualifyingPhaseSectors) moved into the
+    Qualifying partial too; the QualifyingSimEntry/QualifyingLapBreakdown/
+    SectorSnapshot nested types stay in main (still RaceManager.-nested, reachable
+    from the partial). RaceManager.cs → 10536 lines (1131 out over 6 slices).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
