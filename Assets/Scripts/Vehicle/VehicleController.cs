@@ -78,6 +78,45 @@ namespace LocalFormulaRacing
             slipstreamSourceCode = targetSlipstreamStrength > 0.05f ? sourceCode : "";
         }
 
+        // Dirty-air (turbulent-wake) cornering grip loss: the opposite of the
+        // straight-line tow, wired from AeroModel.DirtyAirLoss behind a default-off
+        // switch (f1game_dirty_air). RaceManager feeds the gap to the car ahead in
+        // car-lengths; the penalty only applies while cornering (see ApplyForces),
+        // so a following car keeps its straight-line tow but loses some front-end
+        // in the corners, as in real racing. Default off preserves the tuned feel;
+        // the on-path magnitude is scaled conservatively but remains PENDING
+        // in-editor validation. Sentinel: a large gap means clear air.
+        const string DirtyAirEnabledKey = "f1game_dirty_air";
+        const float DirtyAirMaxCarLengths = 4f;
+        const float DirtyAirClearGap = 999f;
+        // Downforce loss (AeroModel) is only part of total grip; this share keeps
+        // the max in-corner grip loss modest (~7% right behind) rather than the
+        // raw 35% downforce figure.
+        const float DirtyAirGripShare = 0.2f;
+        const float DirtyAirSteerThreshold = 0.15f;
+
+        static int dirtyAirEnabledCache = -1;
+        static bool DirtyAirEnabled
+        {
+            get
+            {
+                if (dirtyAirEnabledCache < 0)
+                {
+                    dirtyAirEnabledCache = PlayerPrefs.GetInt(DirtyAirEnabledKey, 0);
+                }
+
+                return dirtyAirEnabledCache == 1;
+            }
+        }
+
+        float dirtyAirGapCarLengths = DirtyAirClearGap;
+
+        /// <summary>Gap (car-lengths) to the car directly ahead; large = clear air.</summary>
+        public void SetDirtyAirGap(float carLengths)
+        {
+            dirtyAirGapCarLengths = carLengths <= 0f ? 0f : carLengths;
+        }
+
         public bool PitRequested { get; private set; }
         public bool IsOnRoad { get; private set; }
         public bool IsOnKerb { get; private set; }
@@ -935,6 +974,15 @@ namespace LocalFormulaRacing
             LastGearTorqueMultiplier = GearTorqueMultiplier(absoluteSpeedKph);
             float gripStat = Mathf.Lerp(0.9f, 1.28f, CarData.cornering / 100f);
             float grip = tyreGrip * gripStat * Damage.HandlingMultiplier * setupGripMultiplier;
+            // Dirty-air cornering penalty (switch-gated, default off): a close car
+            // ahead robs front-end grip in the corners only, via AeroModel's decay
+            // curve scaled to a modest share of total grip.
+            if (DirtyAirEnabled && dirtyAirGapCarLengths < DirtyAirMaxCarLengths &&
+                Mathf.Abs(LastSteerInput) > DirtyAirSteerThreshold)
+            {
+                grip *= 1f - AeroModel.DirtyAirLoss(dirtyAirGapCarLengths) * DirtyAirGripShare;
+            }
+
             ActiveSlowdownReason = "NONE";
             if (IsOffTrackSlowdown)
             {

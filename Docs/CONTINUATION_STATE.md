@@ -374,6 +374,17 @@ deferred, not claimed complete.
     ProductionUiReadiness flag as the rest of the production frontend, legacy
     RuntimeUi settings is the fallback. Visual validation PENDING (no editor).
 
+72. DIRTY-AIR cornering model wired live behind a switch (makes the built-not-
+    live AeroModel.DirtyAirLoss live; matrix "physics"): a close car ahead now
+    robs front-end grip IN CORNERS only (gated on |LastSteerInput|), via
+    AeroModel's decay curve scaled to a modest share (~7% max right behind).
+    RaceManager's slipstream loop additionally feeds the nearest-ahead gap
+    (car-lengths) to VehicleController.SetDirtyAirGap; the penalty is gated by
+    the default-OFF f1game_dirty_air pref so the tuned race feel is unchanged
+    until validated. The straight-line tow is untouched (dirty air is corner-
+    only), so following still helps on straights and hurts in corners as in real
+    racing. PhysicsModelsTests covers DirtyAirLoss. On-path magnitude PENDING
+    in-editor tuning; default path behaviour-identical.
 71. Telemetry CSV export now has a live trigger (completes the built-but-uncalled
     TelemetryRecorder.ExportCsv → RaceManager.ExportTelemetryCsv path): FinishRace
     writes the full player trace to persistentDataPath at race end, gated by the

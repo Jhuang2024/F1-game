@@ -4995,6 +4995,12 @@ namespace LocalFormulaRacing
         const float SlipstreamFullLateralWidth = 3.5f;
         const float SlipstreamMaxLateralWidth = 7.5f;
         const float SlipstreamMinSpeedKph = 130f;
+        // Dirty-air feed (consumed by VehicleController behind its default-off
+        // switch): a nominal car length, the lateral band within which a leading
+        // car's wake reaches the follower, and the "clear air" sentinel gap.
+        const float CarLengthMeters = 5f;
+        const float DirtyAirLateralMeters = 4f;
+        const float DirtyAirClearCarLengths = 999f;
 
         void UpdateSlipstreamEffects()
         {
@@ -5011,6 +5017,7 @@ namespace LocalFormulaRacing
                     if (participant != null && participant.vehicle != null)
                     {
                         participant.vehicle.SetSlipstream(0f, "");
+                        participant.vehicle.SetDirtyAirGap(DirtyAirClearCarLengths);
                     }
 
                     continue;
@@ -5019,6 +5026,9 @@ namespace LocalFormulaRacing
                 TrackProgress followerProgress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
                 float bestStrength = 0f;
                 string bestSource = "";
+                // Nearest car directly ahead (any track section), for the dirty-air
+                // cornering penalty - independent of the straight-weighted tow.
+                float nearestAheadMeters = DirtyAirClearCarLengths * CarLengthMeters;
 
                 for (int j = 0; j < Participants.Count; j++)
                 {
@@ -5029,6 +5039,13 @@ namespace LocalFormulaRacing
                     }
 
                     TrackProgress otherProgress = State == null ? other.lapTracker.CurrentProgress : State.GetCurrentProgress(other);
+                    float ahead = SlipstreamForwardDistance(followerProgress.distance, otherProgress.distance);
+                    if (ahead > 0.5f && ahead < nearestAheadMeters &&
+                        Mathf.Abs(followerProgress.lateralDistance - otherProgress.lateralDistance) < DirtyAirLateralMeters)
+                    {
+                        nearestAheadMeters = ahead;
+                    }
+
                     float strength = ComputeSlipstreamStrength(followerProgress, otherProgress);
                     if (strength > bestStrength)
                     {
@@ -5038,6 +5055,7 @@ namespace LocalFormulaRacing
                 }
 
                 participant.vehicle.SetSlipstream(bestStrength, bestSource);
+                participant.vehicle.SetDirtyAirGap(nearestAheadMeters / CarLengthMeters);
             }
         }
 

@@ -83,5 +83,16 @@ namespace F1Game.Tests
             Assert.Greater(PowertrainModel.Torque(0.5f, 100f), PowertrainModel.Torque(1f, 100f));
             Assert.GreaterOrEqual(PowertrainModel.Torque(0f, 100f), 100f * 0.15f - 0.0001f);
         }
+
+        [Test]
+        public void DirtyAirLossDecaysWithGap()
+        {
+            // Maximum loss right on the gearbox of the car ahead, decaying to
+            // negligible by a few car-lengths back (consumed live by
+            // VehicleController's dirty-air cornering penalty).
+            Assert.AreEqual(0.35f, AeroModel.DirtyAirLoss(0f), 0.0001f);
+            Assert.Greater(AeroModel.DirtyAirLoss(1f), AeroModel.DirtyAirLoss(3f));
+            Assert.Less(AeroModel.DirtyAirLoss(5f), 0.02f);
+        }
     }
 }
