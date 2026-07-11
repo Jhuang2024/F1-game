@@ -966,6 +966,15 @@ deferred, not claimed complete.
     entry points stay public so GameBootstrap resolves in-class.
     RaceManager.cs -> 1595 lines: 10072 out over 49 slices (~86.3%).
     RaceManager is now spread across 45 focused partials (main + 44).
+    Slice 50: quick-sim qualifying - SimulateQualifyingWeekend (runs a whole
+    qualifying weekend in one pass without live driving), BuildSimQualifyingExplanation
+    (the human-readable result explanation), QualifyingCutoffTime and SignedSeconds -
+    191 lines - moved to RaceManager.QualifyingSim.cs. RNG call order and the sim
+    model unchanged; the sector-colour / lap-cap consts and the sim nested types
+    stay in main; the public entry point stays public so GameBootstrap resolves
+    in-class.
+    RaceManager.cs -> 1403 lines: 10264 out over 50 slices (~88.0%).
+    RaceManager is now spread across 46 focused partials (main + 45).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
