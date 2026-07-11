@@ -382,6 +382,10 @@ deferred, not claimed complete.
     Demonstrated end-to-end by routing the production settings category headings
     through Localization.Get; expanding coverage is now mechanical.
     LocalizationTests added. This is the seam/foundation, not full coverage.
+    Coverage expansion: the six static production screen titles (SELECT CIRCUIT,
+    CAREER, DRIVER PROFILE, SETTINGS, CHAMPIONSHIP STANDINGS, RACE STRATEGY) in
+    UiScreenFactory now route through Localization.Get with English fallbacks
+    (Results/MainMenu titles are model-driven/none, left as-is).
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks

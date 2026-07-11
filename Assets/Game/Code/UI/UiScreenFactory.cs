@@ -207,7 +207,7 @@ namespace F1Game.UI
         public static TrackSelectView BuildTrackSelect(Transform root)
         {
             UiTheme theme = UiTheme.Active;
-            RectTransform content = ScreenScaffold(root, "Screen_TrackSelect", "SELECT CIRCUIT", out TMP_Text header);
+            RectTransform content = ScreenScaffold(root, "Screen_TrackSelect", F1Game.Core.Localization.Get("screen.trackselect.title", "SELECT CIRCUIT"), out TMP_Text header);
 
             RectTransform listColumn = CreateLayoutColumn(content, "TrackList", theme.spacing.micro);
             ThemedButton rowTemplate = CreateButton(listColumn, "Row_Template", ThemedButton.Variant.Secondary, "Track",
@@ -225,7 +225,7 @@ namespace F1Game.UI
         public static Screens.CareerHub.CareerHubView BuildCareerHub(Transform root)
         {
             UiTheme theme = UiTheme.Active;
-            RectTransform content = ScreenScaffold(root, "Screen_CareerHub", "CAREER", out TMP_Text header);
+            RectTransform content = ScreenScaffold(root, "Screen_CareerHub", F1Game.Core.Localization.Get("screen.careerhub.title", "CAREER"), out TMP_Text header);
 
             TMP_Text season = CreateText(content, "SeasonLabel", TextStyle.H3, "");
             season.color = theme.palette.textMuted;
@@ -328,7 +328,7 @@ namespace F1Game.UI
         public static Screens.DriverProfile.DriverProfileView BuildDriverProfile(Transform root)
         {
             UiTheme theme = UiTheme.Active;
-            RectTransform content = ScreenScaffold(root, "Screen_DriverProfile", "DRIVER PROFILE", out TMP_Text header);
+            RectTransform content = ScreenScaffold(root, "Screen_DriverProfile", F1Game.Core.Localization.Get("screen.driverprofile.title", "DRIVER PROFILE"), out TMP_Text header);
 
             TMP_Text name = CreateText(content, "DriverName", TextStyle.H2, "");
             TMP_Text team = CreateText(content, "TeamLine", TextStyle.H3, "");
@@ -348,7 +348,7 @@ namespace F1Game.UI
         public static Screens.Settings.SettingsView BuildSettings(Transform root)
         {
             UiTheme theme = UiTheme.Active;
-            RectTransform content = ScreenScaffold(root, "Screen_Settings", "SETTINGS", out TMP_Text header);
+            RectTransform content = ScreenScaffold(root, "Screen_Settings", F1Game.Core.Localization.Get("screen.settings.title", "SETTINGS"), out TMP_Text header);
 
             RectTransform rowsColumn = CreateLayoutColumn(content, "SettingsRows", theme.spacing.micro);
             TMP_Text rowTemplate = CreateText(rowsColumn, "Row_Template", TextStyle.Body, "");
@@ -407,7 +407,7 @@ namespace F1Game.UI
         public static Screens.CareerStandings.CareerStandingsView BuildCareerStandings(Transform root)
         {
             UiTheme theme = UiTheme.Active;
-            RectTransform content = ScreenScaffold(root, "Screen_CareerStandings", "CHAMPIONSHIP STANDINGS", out TMP_Text header);
+            RectTransform content = ScreenScaffold(root, "Screen_CareerStandings", F1Game.Core.Localization.Get("screen.standings.title", "CHAMPIONSHIP STANDINGS"), out TMP_Text header);
 
             TMP_Text season = CreateText(content, "SeasonLabel", TextStyle.H3, "");
             season.color = theme.palette.textMuted;
@@ -442,7 +442,7 @@ namespace F1Game.UI
         public static PreRaceStrategyView BuildStrategy(Transform root)
         {
             UiTheme theme = UiTheme.Active;
-            RectTransform content = ScreenScaffold(root, "Screen_PreRaceStrategy", "RACE STRATEGY", out TMP_Text header);
+            RectTransform content = ScreenScaffold(root, "Screen_PreRaceStrategy", F1Game.Core.Localization.Get("screen.strategy.title", "RACE STRATEGY"), out TMP_Text header);
 
             TMP_Text context = CreateText(content, "ContextLine", TextStyle.H3, "");
             context.color = theme.palette.textMuted;
