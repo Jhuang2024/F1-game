@@ -170,18 +170,33 @@ several sessions), not a thin v1 swap.
     snapshot CanCancelPit gates visibility. Tier 1 closed.
 34. `8b47cbe` HUD tranche 7: tyre temp/lockup status + pedal input bars.
 
-HUD parity progress (Docs/HUD_PARITY_GAP.md): Tier 1 done; Tier 2 mostly
-(slipstream pill + pit-status line remain); Tier 3 done (SLOW-DOWN warning
-minor); Tier 4 mostly (per-corner 2x2 grid + track-limit flash remain);
-Tiers 5-8 open (minimap = heaviest, needs per-car position stream).
+35. `1c9cb24` HUD tranche 8: quali/ghost delta (shared numeric core
+    TryGetQualifyingDelta/TryGetGhostDelta) + slipstream tow pill.
+36. `1a6c272` timing-tower per-row DRS dot.
+37. `f0920ed` track minimap: HudTrackMap channel (outline + per-frame dots) +
+    pooled-dot MinimapModule.
+38. `3c40e70` HUD tranche 10: HudToastEvent - RaceManager.QueueHudToast
+    publishes at source (legacy queue preserved), NotificationFeed subscribes;
+    all watcher/relay toasts reach production.
 
-Exact next task: HUD tranche 8 - Tier 7 quali/ghost delta card (snapshot
-already carries unused DeltaSeconds/HasDelta; wire race.QualifyingDeltaText/
-GhostDeltaText source into a QualiDeltaModule) + Tier 2 slipstream/TOW pill
-(vehicle SlipstreamStrength/BonusKph/SourceCode). Then Tier 5 tower DRS
-dots + PIT tag. Minimap deferred (per-car position stream is the heaviest
-new plumbing - needs an in-editor-verifiable channel). Then results-screen
-parity pass; then Phase E service extraction seams.
+HUD FUNCTIONAL PARITY REACHED (Docs/HUD_PARITY_GAP.md): every core telemetry,
+race-control, pit/strategy, interactive, notification, minimap and
+session-specific-delta element is live in production. REMAINING before
+RaceHud can be RETIRED as default = cosmetic/flourish tail (big-moment
+flashes, quali feedback panel, TT checkpoint counter, per-corner 2x2 tyre
+grid, progress strip) + an in-editor VISUAL validation pass (layout,
+minimap rendering, dot scaling). These are visual-verification-bound, so the
+legacy RaceHud stays the ordinary default until that pass runs.
+
+Exact next task: results-screen parity is the next big frontend gap
+(RuntimeUi.ShowResults:4759 is a nine-section report + rematch/menu actions).
+Since it is a rich screen best replaced with in-editor verification, prefer
+first the tractable static work: Phase E service-extraction seams from
+RaceManager (e.g. LapTimingService / ClassificationService pure cores with
+tests, mirroring the rules extractions), and the remaining physics model
+wiring (tyre slip curves / brake fade into VehicleController - behind static
+review only, no handling change claimed). Multiplayer (Phase N) is DEFERRED,
+out of scope - do not implement.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
