@@ -422,6 +422,11 @@ deferred, not claimed complete.
     (reuse the same instance, active-state toggling), grow-on-demand beyond the
     prewarm count, ReturnAll, and the no-op on returning a foreign object.
     Instances are created/destroyed within the test.
+78. Test coverage for TrackSplineSampler (authored-track runtime, untested):
+    TrackSplineSamplerTests pin the build invariants (samples + positive length),
+    closed-loop distance wrapping (modulo, negative → near-end, always in
+    [0,len)), open-spline clamping, and the zero cumulative distance at the
+    start line, on a simple square loop (no interpolation-value assertions).
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks
