@@ -48,13 +48,10 @@ namespace LocalFormulaRacing
                     return 0;
                 }
 
+                // Light timing is owned by the extracted rulebook so the HUD,
+                // audio and any future broadcast layer all read one sequence.
                 float elapsed = Mathf.Max(0f, raceStartSequenceDuration - StartCountdown);
-                if (elapsed < 0.55f)
-                {
-                    return 0;
-                }
-
-                return Mathf.Clamp(Mathf.FloorToInt((elapsed - 0.55f) / 0.48f) + 1, 0, 5);
+                return StartProcedureRules.LitLightCount(elapsed);
             }
         }
 
@@ -709,7 +706,9 @@ namespace LocalFormulaRacing
                 ResetPlayerQualifyingCaptures();
             }
             preserveQualifyingState = false;
-            raceStartSequenceDuration = session == RaceWeekendSession.Qualifying || IsTimeTrial ? 1.5f : Random.Range(5.4f, 6.8f);
+            raceStartSequenceDuration = session == RaceWeekendSession.Qualifying || IsTimeTrial
+                ? StartProcedureRules.NonRaceSequenceSeconds
+                : StartProcedureRules.RaceSequenceDuration(Random.value);
             StartCountdown = raceStartSequenceDuration;
             lastStartLightCountPlayed = -1;
             lastRestartLightCountPlayed = -1;
@@ -6093,9 +6092,13 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Judgement + tariff live in the extracted rulebook
+            // (StartProcedureRules); this method only supplies the detection.
+            StartInfraction infraction = StartProcedureRules.Judge(true, -1f, true);
+            float penaltySeconds = StartProcedureRules.PenaltySeconds(infraction);
             participant.jumpStartPenaltyApplied = true;
-            AddPenalty(participant, 5f, "Jump start");
-            SessionMessage = participant.isPlayer ? "Jump start: +5s" : SessionMessage;
+            AddPenalty(participant, penaltySeconds, "Jump start");
+            SessionMessage = participant.isPlayer ? "Jump start: +" + penaltySeconds.ToString("0") + "s" : SessionMessage;
         }
 
         public void RecordPlayerLaunchInput(RaceParticipant participant, float throttle)
@@ -6110,6 +6113,22 @@ namespace LocalFormulaRacing
             reactionDisplayTimer = 7f;
             SessionMessage = "Reaction " + playerReactionTime.ToString("0.000") + "s";
             PostEngineerMessage("Reaction time " + playerReactionTime.ToString("0.000") + " seconds.", true);
+
+            // Anticipation rule: a throttle already committed as the lights go
+            // out reads as a false start (StartProcedureRules judges the
+            // threshold). Skipped if the harsher jump-start penalty already hit.
+            if (!participant.jumpStartPenaltyApplied)
+            {
+                StartInfraction infraction = StartProcedureRules.Judge(false, playerReactionTime, true);
+                if (infraction == StartInfraction.FalseStart)
+                {
+                    float penaltySeconds = StartProcedureRules.PenaltySeconds(infraction);
+                    participant.jumpStartPenaltyApplied = true;
+                    AddPenalty(participant, penaltySeconds, "False start");
+                    SessionMessage = "False start: +" + penaltySeconds.ToString("0") + "s";
+                    PostEngineerMessage("That was a false start - " + penaltySeconds.ToString("0") + " second penalty.", true);
+                }
+            }
         }
 
         public void OpenPlayerPitTyreSelector(RaceParticipant participant)

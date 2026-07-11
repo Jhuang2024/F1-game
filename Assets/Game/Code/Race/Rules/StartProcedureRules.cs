@@ -17,18 +17,50 @@ namespace F1Game.Race.Rules
     }
 
     /// <summary>
-    /// Pure start-procedure rules: formation, light sequence and jump/false-start
-    /// judgement. The race layer drives the timing; this decides the outcome.
+    /// Pure start-procedure rules: light-sequence timing, jump/false-start
+    /// judgement and start-type resolution. The race layer drives the clock
+    /// (RaceManager.StartCountdown); this class owns the numbers and the
+    /// outcomes so they are testable and stated in exactly one place.
     /// </summary>
     public static class StartProcedureRules
     {
-        /// <summary>Standard 5-light sequence: lights come on at 1 s intervals, then a random hold before out.</summary>
         public const int LightCount = 5;
-        public const float LightIntervalSeconds = 1f;
-        public const float MinHoldSeconds = 0.2f;
-        public const float MaxHoldSeconds = 3f;
 
-        /// <summary>A movement before lights-out is a jump start.</summary>
+        // Race build-up: first light after a short beat, then one per step.
+        // The total duration includes a randomized hold after all five lights
+        // are lit, so a launch cannot be timed by rhythm alone.
+        public const float FirstLightDelaySeconds = 0.55f;
+        public const float LightStepSeconds = 0.48f;
+        public const float MinRaceSequenceSeconds = 5.4f;
+        public const float MaxRaceSequenceSeconds = 6.8f;
+
+        // Qualifying / time trial: a short fixed hold, no light sequence.
+        public const float NonRaceSequenceSeconds = 1.5f;
+
+        // A "reaction" faster than humanly plausible reads as anticipation:
+        // the driver was already committed before the lights went out.
+        public const float AnticipationThresholdSeconds = 0.1f;
+
+        /// <summary>Total build-up duration for a race start. unitRandom in [0,1] supplies the hold randomness.</summary>
+        public static float RaceSequenceDuration(float unitRandom)
+        {
+            float t = unitRandom < 0f ? 0f : (unitRandom > 1f ? 1f : unitRandom);
+            return MinRaceSequenceSeconds + (MaxRaceSequenceSeconds - MinRaceSequenceSeconds) * t;
+        }
+
+        /// <summary>Lit lights for a given time into the build-up sequence.</summary>
+        public static int LitLightCount(float elapsedSeconds)
+        {
+            if (elapsedSeconds < FirstLightDelaySeconds)
+            {
+                return 0;
+            }
+
+            int lit = (int)((elapsedSeconds - FirstLightDelaySeconds) / LightStepSeconds) + 1;
+            return lit > LightCount ? LightCount : lit;
+        }
+
+        /// <summary>A movement before lights-out is a jump start; a sub-threshold reaction is anticipation.</summary>
         public static StartInfraction Judge(bool movedBeforeLightsOut, float reactionSeconds, bool inGridBox)
         {
             if (movedBeforeLightsOut)
@@ -41,8 +73,7 @@ namespace F1Game.Race.Rules
                 return StartInfraction.OutOfPosition;
             }
 
-            // A "reaction" faster than humanly plausible reads as anticipation.
-            if (reactionSeconds >= 0f && reactionSeconds < 0.1f)
+            if (reactionSeconds >= 0f && reactionSeconds < AnticipationThresholdSeconds)
             {
                 return StartInfraction.FalseStart;
             }
