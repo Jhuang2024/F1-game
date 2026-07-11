@@ -1471,6 +1471,19 @@ deferred, not claimed complete.
         pin each curve at its key points. Same numbers as before; only the feel curve
         is now guarded against silent drift.
 
+    F13. Continuous track-wetness model -> engine-free TrackWetnessModel
+        (F1Game.Race.Rules, UNIT-TESTED). A structural advance over the discrete
+        Clear/Cloudy/LightRain/HeavyRain states: a single 0 (dry) .. 1 (standing
+        water) wetness that eases toward the target the rain intensity implies -
+        wetting while rain outpaces the surface, drying when it eases, the racing line
+        drying faster than off-line - plus a slick-tyre grip multiplier (1 dry ->
+        1 - MaxWetGripPenalty at full wet). NOT wired into the live grip path (the
+        tuned discrete model stays authoritative until validated), so the current feel
+        is unchanged; this is the tested model + seam for a future dynamic-wetness pass
+        behind a default-off switch. TrackWetnessModelTests pin target clamping,
+        wetting/drying without over/undershoot, faster line drying, equilibrium hold,
+        and the monotonic grip falloff.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
