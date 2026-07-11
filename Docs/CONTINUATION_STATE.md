@@ -248,16 +248,26 @@ qualifying results, and pause are now production-first with legacy fallback.
 Remaining legacy-only session UI: MFD/radio overlays, restart-confirm modal,
 accessibility/settings overlays, replay/spectator/photo controls.
 
-Exact next task: continue live integrations via compatibility paths +
-feature switches. Candidates in dependency order: (a) restart-confirmation as
-a production modal (the pause Restart currently restarts immediately -
-legacy had a confirm); (b) settings overlay reachable from the pause menu
-(production settings screen -> a first slice); (c) Phase E RaceManager
-service extraction via incremental delegation (extract one coherent service,
-route live call sites, keep the existing path until wired). Preserve the
-existing path until the replacement is structurally wired, then switch
-ownership. In-editor VISUAL validation still required for every migrated
-screen. Multiplayer (Phase N) DEFERRED, out of scope.
+49. `58fae93` Restart confirmation on the pause overlay (arm-then-confirm,
+    self-contained; ModalService is unused so a first prefab-clone usage would
+    be unverifiable here).
+50. `4d0a007` HUD tranche 12: QualiFeedbackModule + CheckpointsModule (TT).
+
+§10 static review over the full run diff: clean (no merge markers, whitespace
+clean, all metas present, no dup GUIDs, braces balanced, duplicate-HUD guard
+intact - production-first with legacy fallback, never both).
+
+Exact next task: continue live integrations via compatibility paths + feature
+switches. Phase E RaceManager service extraction is the recorded larger item
+but the results-build loop and race-control state are tightly-coupled
+orchestration whose pure cores are already extracted (RaceClassifier,
+FlagRules...) - blind extraction of the stateful glue risks regressions the
+engineering rule warns against, so it waits for a compiler. Safe next
+candidates: (a) remaining production session-end screens (time-trial PB/ghost
+result) in the proven TryShow/legacy-fallback pattern; (b) more additive HUD
+session-specific parity. In-editor VISUAL validation still required for every
+migrated screen before production UI can be the default. Multiplayer (Phase N)
+DEFERRED, out of scope.
 
 ## Environment reality
 - Unity cannot run here (no editor, no GPU, no package resolution). Everything
