@@ -66,9 +66,9 @@ namespace F1Game.Rendering
                 return;
             }
 
-            float t = Mathf.Clamp01(temperature01);
-            Color glow = Color.Lerp(Color.black, new Color(1.4f, 0.25f, 0.05f), t * t);
-            SetEmission(disc, glow);
+            // Glow ramp lives in the engine-free CarVisualCurves (same numbers, tested).
+            F1Game.Core.CarVisualCurves.BrakeGlow(temperature01, out float r, out float g, out float b);
+            SetEmission(disc, new Color(r, g, b));
         }
     }
 }

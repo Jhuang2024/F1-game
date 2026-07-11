@@ -1044,32 +1044,11 @@ namespace LocalFormulaRacing
         // apart at a glance without reproducing any official colour marking.
         static void GetTyreLook(TyreCompound compound, out Color color, out float metallic, out float smoothness)
         {
-            metallic = 0.02f;
-            if (compound == TyreCompound.Soft)
-            {
-                color = new Color(0.05f, 0.014f, 0.013f);
-                smoothness = 0.34f;
-            }
-            else if (compound == TyreCompound.Hard)
-            {
-                color = new Color(0.05f, 0.05f, 0.054f);
-                smoothness = 0.18f;
-            }
-            else if (compound == TyreCompound.Intermediate)
-            {
-                color = new Color(0.018f, 0.032f, 0.02f);
-                smoothness = 0.24f;
-            }
-            else if (compound == TyreCompound.Wet)
-            {
-                color = new Color(0.014f, 0.02f, 0.045f);
-                smoothness = 0.3f;
-            }
-            else
-            {
-                color = new Color(0.028f, 0.028f, 0.03f);
-                smoothness = 0.26f;
-            }
+            // Per-compound look lives in the engine-free CarVisualCurves (same numbers,
+            // tested); the enum maps to the project's compound code (Soft 0 .. Wet 4).
+            F1Game.Core.CarVisualCurves.TyreLook((int)compound, out float r, out float g, out float b,
+                out metallic, out smoothness);
+            color = new Color(r, g, b);
         }
 
         // Suggests circumferential tread blocks without any extra geometry - a

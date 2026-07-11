@@ -1506,6 +1506,16 @@ deferred, not claimed complete.
         (VehicleVfxDriver is not the live VFX path - VehicleEffects is - so this is
         pure additive coverage.)
 
+    F16. Car visual colour curves -> engine-free CarVisualCurves (F1Game.Core,
+        UNIT-TESTED), extracted VERBATIM from the rendering call sites. Behavior-
+        preserving: the brake-disc glow ramp (black -> hot orange (1.4,0.25,0.05) as
+        temperature squared, matching Color.Lerp) and the per-compound tyre look
+        (base colour + metallic + smoothness, compound codes Soft 0 .. Wet 4) now live
+        as pure float-channel functions with the same numbers. MaterialInstanceService.
+        SetBrakeGlow and VehicleVisuals.GetTyreLook delegate and wrap the channels in a
+        Color. Both call sites reference F1Game.Core already. CarVisualCurvesTests pin
+        the glow ramp (cold/hot/squared/clamp) and every compound's authored values.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
