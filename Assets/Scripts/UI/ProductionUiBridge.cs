@@ -346,6 +346,18 @@ namespace LocalFormulaRacing
                 }
             }
 
+            // Aurora Park: the authored-definition circuit. Quick-race only (it
+            // is not a championship round), so it lives here rather than in the
+            // calendar data.
+            models.Add(new TrackCardModel
+            {
+                eventId = F1Game.Track.ReferenceTrackGenerator.ReferenceTrackId,
+                trackName = "Aurora Park (Authored)",
+                location = "Fictional",
+                laps = settings != null ? settings.Current.laps : 5,
+                weatherHint = "Variable",
+            });
+
             shell.Router.Show(TrackSelectView.Id);
             trackSelectPresenter.Present(models);
         }
@@ -356,6 +368,23 @@ namespace LocalFormulaRacing
             if (data != null && data.Calendar != null)
             {
                 selectedEvent = data.Calendar.events.Find(evt => evt.trackId == model.eventId);
+            }
+
+            if (selectedEvent == null && model.eventId == F1Game.Track.ReferenceTrackGenerator.ReferenceTrackId)
+            {
+                // Synthesized event for the authored circuit (not a calendar
+                // round): TrackManager routes this id to the authored layout.
+                selectedEvent = new CalendarEventData
+                {
+                    round = 0,
+                    trackId = model.eventId,
+                    displayName = model.trackName,
+                    country = model.location,
+                    laps3 = 3,
+                    laps5 = 5,
+                    laps25Percent = 12,
+                    weatherProfile = "mixed",
+                };
             }
 
             var strategyModel = new StrategyModel

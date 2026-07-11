@@ -2056,6 +2056,21 @@ namespace LocalFormulaRacing
         void AddLayoutPoints(TrackRuntime runtime)
         {
             string id = string.IsNullOrEmpty(runtime.trackId) ? "bahrain_desert" : runtime.trackId;
+            if (id == F1Game.Track.ReferenceTrackGenerator.ReferenceTrackId)
+            {
+                // Authored-definition circuit: geometry comes from the generated
+                // TrackDefinitionAsset, not hand-placed anchors, so the physical
+                // world and the authored data pipeline share one source. The
+                // authored spline is already real scale (~4.6 km), so the
+                // NormalizeTrackLength pass - which exists to blow the ~200 m
+                // hand-sketched layouts up to circuit size - must NOT run here;
+                // it would distort the authored geometry it is meant to honor.
+                BuildAuroraParkLayout(runtime);
+                RepairLayout(runtime);
+                ValidateLayout(runtime);
+                return;
+            }
+
             if (id.Contains("china"))
             {
                 BuildChinaLayout(runtime);
@@ -2347,6 +2362,55 @@ namespace LocalFormulaRacing
                     break;
                 }
             }
+        }
+
+        // Aurora Park - the first circuit whose geometry comes from an authored
+        // TrackDefinitionAsset (Phase C). The legacy builder stays the mesh/
+        // kerb/barrier/pit engine; the definition supplies the centerline,
+        // width and DRS zones. Per-point width/camber collapse to the scalar
+        // width model this builder supports (lap average) until the mesh
+        // passes honor them; the authored detection points are likewise
+        // superseded by ValidateLayout's derived ones.
+        void BuildAuroraParkLayout(TrackRuntime runtime)
+        {
+            F1Game.Track.TrackDefinitionAsset definition = F1Game.Track.ReferenceTrackGenerator.Generate();
+            runtime.styleName = "Authored parkland";
+
+            var anchors = new Vector3[definition.spline.Count];
+            float widthSum = 0f;
+            for (int i = 0; i < definition.spline.Count; i++)
+            {
+                anchors[i] = definition.spline[i].position;
+                widthSum += definition.spline[i].width;
+            }
+
+            float averageHalfWidth = definition.spline.Count > 0 ? widthSum / definition.spline.Count * 0.5f : 13.82f;
+            runtime.roadHalfWidth = Mathf.Max(6f, averageHalfWidth);
+            // Same kerb inset the hand-authored layouts use relative to their width.
+            runtime.kerbStart = Mathf.Max(4f, runtime.roadHalfWidth - 5.67f);
+
+            // Authored DRS zones carry metre distances along the spline; the
+            // legacy runtime stores normalized (start, end) pairs.
+            float authoredLength = definition.ComputeLength();
+            if (authoredLength > 1f && definition.drsZones.Count > 0)
+            {
+                runtime.drsZoneOne = new Vector2(
+                    Mathf.Repeat(definition.drsZones[0].activationDistance / authoredLength, 1f),
+                    Mathf.Repeat(definition.drsZones[0].endDistance / authoredLength, 1f));
+            }
+
+            if (authoredLength > 1f && definition.drsZones.Count > 1)
+            {
+                runtime.drsZoneTwo = new Vector2(
+                    Mathf.Repeat(definition.drsZones[1].activationDistance / authoredLength, 1f),
+                    Mathf.Repeat(definition.drsZones[1].endDistance / authoredLength, 1f));
+            }
+
+            AddSmoothedAnchors(runtime, anchors, 4);
+
+            // The generated asset is a pure data carrier here; don't leak the
+            // ScriptableObject instance into the scene lifetime.
+            Destroy(definition);
         }
 
         void BuildBahrainLayout(TrackRuntime runtime)
