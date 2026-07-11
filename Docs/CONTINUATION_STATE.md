@@ -395,7 +395,12 @@ deferred, not claimed complete.
     track/strategy) are translatable at once; dynamic labels (later SetText,
     tyre names) fall through to their text. HUD moments too: the BigMomentModule
     flashes (LIGHTS OUT / GREEN FLAG / FINAL LAP) and the track-limits flash now
-    resolve via Localization.Get with English fallbacks.
+    resolve via Localization.Get with English fallbacks. Also the HUD session
+    label (QUALIFYING / TIME TRIAL / PRACTICE / RACE) and the LAP prefix. Net:
+    the localization seam now covers the production frontend chrome (all screen
+    titles, headings, settings rows, every button) and the prominent HUD strings,
+    all with English fallbacks - a broad, safe foundation. Loading an actual
+    translation table remains a content/wiring step (no translation data ships).
 73. CAR-DEVELOPMENT (R&D) maths extracted into testable CarDevelopmentRules
     (F1Game.Core; matrix "Career systems / R&D"): the pure project success-chance
     (base + department-level nudge + risk-mode shift, clamped), development-weeks

@@ -43,16 +43,16 @@ namespace F1Game.UI.Screens.RaceHudShell
             switch (t.Session)
             {
                 case F1Game.Core.Events.SessionKind.Qualifying:
-                    kind = "QUALIFYING";
+                    kind = Localization.Get("session.qualifying", "QUALIFYING");
                     break;
                 case F1Game.Core.Events.SessionKind.TimeTrial:
-                    kind = "TIME TRIAL";
+                    kind = Localization.Get("session.time_trial", "TIME TRIAL");
                     break;
                 case F1Game.Core.Events.SessionKind.Practice:
-                    kind = "PRACTICE";
+                    kind = Localization.Get("session.practice", "PRACTICE");
                     break;
                 default:
-                    kind = "RACE";
+                    kind = Localization.Get("session.race", "RACE");
                     break;
             }
 
@@ -104,7 +104,7 @@ namespace F1Game.UI.Screens.RaceHudShell
 
         protected override void Render(in HudTelemetrySnapshot t)
         {
-            if (lap != null) lap.text = t.Valid ? $"LAP {t.Lap} / {t.TotalLaps}" : "--";
+            if (lap != null) lap.text = t.Valid ? $"{Localization.Get("hud.lap", "LAP")} {t.Lap} / {t.TotalLaps}" : "--";
             if (clock != null)
             {
                 int total = Mathf.Max(0, Mathf.FloorToInt(t.SessionClockSeconds));
