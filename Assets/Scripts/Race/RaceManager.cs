@@ -1044,6 +1044,33 @@ namespace LocalFormulaRacing
             if (StartCountdown > 0f)
             {
                 HoldGridCars(true);
+
+                // Physical AI jump starts: a car whose rolled window has
+                // arrived is released by HoldGridCars above; launch it once and
+                // judge it through the same rulebook path as the player
+                // (ReportJumpStartIntent latches jumpStartPenaltyApplied).
+                if (CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial)
+                {
+                    for (int i = 0; i < Participants.Count; i++)
+                    {
+                        RaceParticipant jumper = Participants[i];
+                        if (jumper == null || jumper.isPlayer || jumper.vehicle == null ||
+                            jumper.jumpStartPenaltyApplied || jumper.aiJumpStartWindowSeconds <= 0f ||
+                            StartCountdown > jumper.aiJumpStartWindowSeconds)
+                        {
+                            continue;
+                        }
+
+                        jumper.vehicle.SetGridHold(false);
+                        jumper.vehicle.ArmRaceLaunchBoost(6f);
+                        ReportJumpStartIntent(jumper);
+                        if (Settings != null && Settings.Current.raceControlMessages)
+                        {
+                            PostEngineerMessage(jumper.driverName + " jumped the start - penalty coming.", false, RaceAudioCue.Penalty);
+                        }
+                    }
+                }
+
                 StartCountdown = Mathf.Max(0f, StartCountdown - Time.deltaTime);
                 if (CurrentSession != RaceWeekendSession.Qualifying && RaceStartLightCount >= 5)
                 {
@@ -8287,6 +8314,15 @@ namespace LocalFormulaRacing
             participant.gridPosition = gridIndex + 1;
             participant.pitBoxIndex = Mathf.Clamp(gridIndex, 0, TrackRuntime.PitBoxCount - 1);
             participant.startReactionDelay = player ? 0f : ResolveAiStartReactionDelay(driver);
+            // Rare AI jump start (StartProcedureRules): rolled once here; the
+            // countdown loop physically releases the car that early and the
+            // same rulebook judgement/penalty path as the player fires.
+            float consistency01 = driver == null ? 0.78f : driver.consistency / 100f;
+            participant.aiJumpStartWindowSeconds =
+                !player && CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial &&
+                Random.value < StartProcedureRules.AiJumpStartChance(consistency01)
+                    ? StartProcedureRules.JumpLaunchWindowSeconds(Random.value)
+                    : 0f;
             participant.hasLastSafePosition = true;
             participant.lastSafePosition = spawnPosition;
             participant.lastSafeRotation = carObject.transform.rotation;
@@ -8473,10 +8509,22 @@ namespace LocalFormulaRacing
         {
             for (int i = 0; i < Participants.Count; i++)
             {
-                if (Participants[i] != null && Participants[i].vehicle != null)
+                RaceParticipant participant = Participants[i];
+                if (participant == null || participant.vehicle == null)
                 {
-                    Participants[i].vehicle.SetGridHold(held);
+                    continue;
                 }
+
+                // A jump-starting AI car whose rolled window has arrived stays
+                // free - its physical launch and penalty are handled in the
+                // countdown tick (see the StartCountdown block in Update).
+                if (held && !participant.isPlayer && participant.aiJumpStartWindowSeconds > 0f &&
+                    StartCountdown <= participant.aiJumpStartWindowSeconds)
+                {
+                    continue;
+                }
+
+                participant.vehicle.SetGridHold(held);
             }
         }
 

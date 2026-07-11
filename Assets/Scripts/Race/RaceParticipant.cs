@@ -90,6 +90,10 @@ namespace LocalFormulaRacing
         float lastTelemetryCornerDistance = -9999f;
         public float LastTelemetryCornerDistance { get { return lastTelemetryCornerDistance; } set { lastTelemetryCornerDistance = value; } }
         public float startReactionDelay;
+        // Rolled once at spawn (StartProcedureRules.AiJumpStartChance): when
+        // > 0, this AI car physically launches this many seconds BEFORE
+        // lights-out and takes the jump-start penalty. 0 = clean start.
+        public float aiJumpStartWindowSeconds;
         public bool jumpStartPenaltyApplied;
         // Blue-flag state (RaceManager.UpdateBlueFlags): shown while a lapping
         // car is close behind; held-seconds accumulate toward the compliance

@@ -94,6 +94,25 @@ namespace F1Game.Race.Rules
             }
         }
 
+        // AI jump starts: a rare anticipation failure, physically launching the
+        // car before lights-out. Chance shrinks with driver consistency; the
+        // window is how early the launch goes.
+        public const float BaseAiJumpStartChance = 0.02f;
+        public const float MinJumpLaunchSeconds = 0.15f;
+        public const float MaxJumpLaunchSeconds = 0.45f;
+
+        public static float AiJumpStartChance(float consistency01)
+        {
+            float c = consistency01 < 0f ? 0f : (consistency01 > 1f ? 1f : consistency01);
+            return BaseAiJumpStartChance * (1f - 0.75f * c);
+        }
+
+        public static float JumpLaunchWindowSeconds(float unitRandom)
+        {
+            float t = unitRandom < 0f ? 0f : (unitRandom > 1f ? 1f : unitRandom);
+            return MinJumpLaunchSeconds + (MaxJumpLaunchSeconds - MinJumpLaunchSeconds) * t;
+        }
+
         /// <summary>A safety-car start is forced when conditions are too wet for a standing start.</summary>
         public static StartType ResolveStartType(bool heavyRain, bool lowVisibility, bool pitLaneStartElected)
         {

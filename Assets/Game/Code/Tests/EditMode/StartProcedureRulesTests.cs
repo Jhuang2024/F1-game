@@ -59,6 +59,20 @@ namespace F1Game.Tests
         }
 
         [Test]
+        public void AiJumpStartChanceAndWindow()
+        {
+            // Chance shrinks with consistency but never reaches zero.
+            Assert.AreEqual(StartProcedureRules.BaseAiJumpStartChance, StartProcedureRules.AiJumpStartChance(0f), 0.0001f);
+            Assert.Greater(StartProcedureRules.AiJumpStartChance(0f), StartProcedureRules.AiJumpStartChance(1f));
+            Assert.Greater(StartProcedureRules.AiJumpStartChance(1f), 0f);
+
+            // Launch window spans the tuned band and clamps its roll.
+            Assert.AreEqual(StartProcedureRules.MinJumpLaunchSeconds, StartProcedureRules.JumpLaunchWindowSeconds(0f), 0.0001f);
+            Assert.AreEqual(StartProcedureRules.MaxJumpLaunchSeconds, StartProcedureRules.JumpLaunchWindowSeconds(1f), 0.0001f);
+            Assert.AreEqual(StartProcedureRules.MaxJumpLaunchSeconds, StartProcedureRules.JumpLaunchWindowSeconds(5f), 0.0001f);
+        }
+
+        [Test]
         public void StartTypeResolution()
         {
             Assert.AreEqual(StartType.Standing, StartProcedureRules.ResolveStartType(false, false, false));
