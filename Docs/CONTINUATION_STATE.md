@@ -818,6 +818,16 @@ deferred, not claimed complete.
     heuristics unchanged; callers resolve in-class.
     RaceManager.cs -> 3017 lines: 8650 out over 31 slices (~74.1%).
     RaceManager is now spread across 30 focused partials (main + 29).
+    Slice 32: finish handling + penalties - HandleFinish (a car crossing the line
+    for the last time: mandatory-pit penalty, State.OnParticipantFinished, the
+    player podium radio and finish camera flourish), FinishEngineerMessage,
+    ApplyMandatoryPitPenalty (gated by the unit-tested PenaltyRules) and the shared
+    AddPenalty utility (seconds/reason, the PenaltyIssuedEvent and the player-only
+    timeline entry) - 95 lines - moved to RaceManager.FinishHandling.cs. Penalty
+    values and call order unchanged; AddPenalty's cross-partial callers (Overtaking,
+    BlueFlags, SpeedCaps, SafetyCar, main) resolve in-class.
+    RaceManager.cs -> 2921 lines: 8746 out over 32 slices (~75.0%).
+    RaceManager is now spread across 31 focused partials (main + 30).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
