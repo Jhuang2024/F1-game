@@ -134,4 +134,138 @@ namespace F1Game.UI.Screens.RaceHudShell
             value.text = t.Valid ? $"FUEL <mspace=0.6em>{t.FuelLapsRemaining:0.0}</mspace> laps" : "--";
         }
     }
+
+    /// <summary>Relative gaps to the cars immediately ahead and behind.</summary>
+    public sealed class GapsModule : HudModule
+    {
+        [SerializeField] TMP_Text value;
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            if (!t.Valid)
+            {
+                value.text = "--";
+                return;
+            }
+
+            string ahead = t.HasGapAhead ? $"+{t.GapAheadSeconds:0.0}" : "---";
+            string behind = t.HasGapBehind ? $"-{t.GapBehindSeconds:0.0}" : "---";
+            value.text = $"▲ <mspace=0.6em>{ahead}</mspace>   ▼ <mspace=0.6em>{behind}</mspace>";
+        }
+    }
+
+    /// <summary>Current flag shown to the player (blue outranks the display of green).</summary>
+    public sealed class FlagModule : HudModule
+    {
+        [SerializeField] StatusChip chip;
+        public void Bind(StatusChip flagChip) { chip = flagChip; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (chip == null) return;
+            if (!t.Valid)
+            {
+                chip.Set("--", StatusChip.Tone.Neutral);
+                return;
+            }
+
+            if (t.BlueFlag)
+            {
+                chip.Set("BLUE FLAG", StatusChip.Tone.Accent);
+                return;
+            }
+
+            switch (t.Flag)
+            {
+                case F1Game.Core.Events.FlagState.Yellow:
+                case F1Game.Core.Events.FlagState.DoubleYellow:
+                    chip.Set("YELLOW", StatusChip.Tone.Warning);
+                    break;
+                case F1Game.Core.Events.FlagState.VirtualSafetyCar:
+                    chip.Set("VSC", StatusChip.Tone.Warning);
+                    break;
+                case F1Game.Core.Events.FlagState.SafetyCar:
+                    chip.Set("SAFETY CAR", StatusChip.Tone.Warning);
+                    break;
+                case F1Game.Core.Events.FlagState.Red:
+                    chip.Set("RED FLAG", StatusChip.Tone.Danger);
+                    break;
+                case F1Game.Core.Events.FlagState.Chequered:
+                    chip.Set("FINISH", StatusChip.Tone.Positive);
+                    break;
+                default:
+                    chip.Set("GREEN", StatusChip.Tone.Positive);
+                    break;
+            }
+        }
+    }
+
+    /// <summary>Pit limiter / in-pit state and accumulated time penalties.</summary>
+    public sealed class PitPenaltyModule : HudModule
+    {
+        [SerializeField] StatusChip chip;
+        public void Bind(StatusChip statusChip) { chip = statusChip; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (chip == null) return;
+            if (!t.Valid)
+            {
+                chip.Set("--", StatusChip.Tone.Neutral);
+                return;
+            }
+
+            if (t.IsPitting)
+            {
+                chip.Set("IN PIT", StatusChip.Tone.Accent);
+            }
+            else if (t.PitLimiterActive)
+            {
+                chip.Set("LIMITER", StatusChip.Tone.Accent);
+            }
+            else if (t.PenaltySeconds > 0.01f)
+            {
+                chip.Set($"+{t.PenaltySeconds:0}s", StatusChip.Tone.Danger);
+            }
+            else
+            {
+                chip.Set("NO PEN", StatusChip.Tone.Neutral);
+            }
+        }
+    }
+
+    /// <summary>The five start lights, drawn as filled/hollow dots during the sequence.</summary>
+    public sealed class StartLightsModule : HudModule
+    {
+        [SerializeField] TMP_Text value;
+        public void Bind(TMP_Text v) { value = v; }
+
+        protected override void Render(in HudTelemetrySnapshot t)
+        {
+            if (value == null) return;
+            bool show = t.Valid && t.StartLightsVisible;
+            if (value.gameObject.activeSelf != show)
+            {
+                value.gameObject.SetActive(show);
+            }
+
+            if (!show)
+            {
+                return;
+            }
+
+            var sb = new System.Text.StringBuilder(24);
+            sb.Append("<color=#E63329>");
+            for (int i = 0; i < 5; i++)
+            {
+                sb.Append(i < t.StartLightCount ? '●' : '○');
+                if (i < 4) sb.Append(' ');
+            }
+
+            sb.Append("</color>");
+            value.text = sb.ToString();
+        }
+    }
 }

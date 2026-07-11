@@ -33,6 +33,25 @@ namespace F1Game.Core
 
         public float DeltaSeconds; // to reference lap (+ slower)
         public bool HasDelta;
+
+        // Relative gaps to the cars immediately around the player (seconds).
+        public float GapAheadSeconds;
+        public bool HasGapAhead;
+        public float GapBehindSeconds;
+        public bool HasGapBehind;
+
+        // Race-control / flag context for the flag module.
+        public Events.FlagState Flag;
+        public bool BlueFlag;
+
+        // Pit + penalty status chips.
+        public bool PitLimiterActive;
+        public bool IsPitting;
+        public float PenaltySeconds;
+
+        // Start-light sequence (0 lights when the sequence isn't showing).
+        public int StartLightCount;
+        public bool StartLightsVisible;
     }
 
     /// <summary>Latest telemetry snapshot (single-player, main car).</summary>

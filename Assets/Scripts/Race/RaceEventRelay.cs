@@ -138,14 +138,23 @@ namespace LocalFormulaRacing
             }
 
             float speed01 = Mathf.Clamp01(Mathf.Abs(vehicle.CurrentSpeedKph) / Mathf.Max(200f, vehicle.TargetTopSpeedKph));
-            float wear = vehicle.Tyres != null ? Mathf.Clamp01(vehicle.Tyres.Wear) : 0f;
+            // TyreState.Wear is REMAINING life (1 fresh); the snapshot field is
+            // the worn fraction (0 fresh .. 1 worn) - publishing the raw value
+            // rendered the production wear bar inverted.
+            float wornFraction = vehicle.Tyres != null ? 1f - Mathf.Clamp01(vehicle.Tyres.Wear) : 0f;
             int compound = vehicle.Tyres != null ? (int)vehicle.Tyres.Compound : 1;
+
+            // Relative gaps: the interval helpers report 999 when nobody is
+            // inside the search radius.
+            float gapAhead = race.GetIntervalToAheadSeconds(player);
+            RaceParticipant behind = race.FindCarBehind(player, 220f);
+            float gapBehind = behind == null ? 999f : race.GetGapBetweenSeconds(player, behind);
 
             var snapshot = new F1Game.Core.HudTelemetrySnapshot
             {
                 Valid = true,
                 Position = race.GetPosition(player),
-                FieldSize = 22,
+                FieldSize = race.Participants != null ? race.Participants.Count : 0,
                 Lap = player.lapTracker != null ? player.lapTracker.CompletedLaps + 1 : 1,
                 TotalLaps = race.RaceLaps,
                 SessionClockSeconds = race.RaceElapsed,
@@ -155,13 +164,24 @@ namespace LocalFormulaRacing
                 Ers01 = Mathf.Clamp01(ers),
                 DrsActive = vehicle.DrsActive,
                 DrsAvailable = race.IsDrsAvailable(player),
-                Fuel01 = 0f,
+                Fuel01 = vehicle.StartFuelKg > 0.01f ? Mathf.Clamp01(vehicle.FuelKg / vehicle.StartFuelKg) : 0f,
                 FuelLapsRemaining = vehicle.FuelPerLapEstimateKg > 0.01f ? vehicle.FuelKg / vehicle.FuelPerLapEstimateKg : 0f,
                 TyreCompound = compound,
-                TyreWear01 = wear,
+                TyreWear01 = wornFraction,
                 BrakeTemp01 = 0f,
                 DeltaSeconds = 0f,
                 HasDelta = false,
+                GapAheadSeconds = gapAhead,
+                HasGapAhead = gapAhead < 900f,
+                GapBehindSeconds = gapBehind,
+                HasGapBehind = gapBehind < 900f,
+                Flag = MapFlag(),
+                BlueFlag = race.IsShownBlueFlag(player),
+                PitLimiterActive = vehicle.PitLimiterActive,
+                IsPitting = player.isPitting,
+                PenaltySeconds = player.penaltiesSeconds,
+                StartLightCount = race.RaceStartLightCount,
+                StartLightsVisible = race.RaceStartLightsVisible,
             };
 
             F1Game.Core.HudTelemetry.Publish(snapshot);
