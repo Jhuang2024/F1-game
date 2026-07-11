@@ -1896,53 +1896,6 @@ namespace LocalFormulaRacing
         // decision-quality profiles) live in the RaceManager.AiProfiles.cs
         // partial (same class; the struct stays RaceManager.AiDifficultyProfile).
 
-        // Part 8: a short trait-flavored aside for the rival radio callout - only
-        // fires for the traits that actually change how to race them.
-        string RivalTraitHint(RaceParticipant rival)
-        {
-            if (rival == null || rival.driverData == null)
-            {
-                return "";
-            }
-
-            List<string> traits = DriverTraits.Compute(rival.driverData);
-            if (traits.Contains("Aggressive Overtaker"))
-            {
-                return " He attacks early, don't leave a gap.";
-            }
-
-            if (traits.Contains("Defensive Wall"))
-            {
-                return " He defends hard, get a clean run before you commit.";
-            }
-
-            if (traits.Contains("Error-Prone"))
-            {
-                return " He's error-prone under pressure, stay close.";
-            }
-
-            return "";
-        }
-
-        public RaceParticipant FindTeammate(RaceParticipant participant)
-        {
-            if (participant == null || State == null)
-            {
-                return null;
-            }
-
-            for (int i = 0; i < State.Participants.Count; i++)
-            {
-                RaceParticipant candidate = State.Participants[i];
-                if (candidate != null && candidate != participant && candidate.teamId == participant.teamId)
-                {
-                    return candidate;
-                }
-            }
-
-            return null;
-        }
-
         public List<RaceParticipant> GetRunningOrderSnapshot()
         {
             SortRunningOrder();

@@ -899,6 +899,13 @@ deferred, not claimed complete.
     resolve in-class.
     RaceManager.cs -> 2115 lines: 9552 out over 41 slices (~81.9%).
     RaceManager is now spread across 39 focused partials (main + 38).
+    Slice 42: rival/teammate hints - RivalTraitHint (a short characterising hint
+    about a rival's driving traits for radio/engineer colour) and FindTeammate (the
+    teammate lookup) - 46 lines - moved to RaceManager.RivalHints.cs. Selection
+    unchanged; the public FindTeammate stays public so external callers resolve
+    in-class.
+    RaceManager.cs -> 2068 lines: 9599 out over 42 slices (~82.3%).
+    RaceManager is now spread across 40 focused partials (main + 39).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
