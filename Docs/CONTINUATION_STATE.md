@@ -1292,6 +1292,30 @@ deferred, not claimed complete.
         in-editor run with ProductionUiReadiness.Enabled to confirm the TT result
         renders and its buttons navigate/teardown correctly; until then the legacy
         straight-to-menu exit stays authoritative (switch default-off).
+        Production-frontend audit: all ProductionUiBridge public entry points
+        (main menu, quick-race flow, race/qualifying/time-trial results, pause) are
+        now invoked; the HUD snapshot (HudTelemetrySnapshot + HudRaceOrderEntry
+        rows, populated by RaceEventRelay from RaceManager) covers every
+        session-specific channel (delta/session/qualifying-feedback, flags, pit
+        status, track limits, damage, weather, race-control detail, timing tower).
+        The remaining production frontend (career hub, race-weekend flow,
+        settings/a11y presenters - currently LeaveToLegacy) needs in-editor layout
+        build/validation: EDITOR-ONLY BOUNDARY, moved on.
+    F2. Replay playback sampling -> engine-free ReplayPlayback (F1Game.Race). The
+        recording layer (ReplayRecording) stored per-car position/rotation/speed
+        frames with a frame seek, but had no between-frames sampling - the pure
+        piece a replay camera / scrub bar needs to render smooth motion at an
+        arbitrary scrub time. Added ReplayPlayback.SampleCar(recording, time,
+        carIndex) (clamps to [StartTime,EndTime], lerps position/speed, nlerps
+        rotation along the shortest arc and renormalizes so the quaternion stays
+        unit-length, with a degenerate-cancel guard), plus NormalizedTime /
+        TimeForNormalized scrub-bar conversions. Engine-free (nlerp/sqrt on raw
+        floats, no UnityEngine), so it is unit-testable now and the eventual scrub
+        UI just renders from it. ReplayPlaybackTests added (endpoint exactness,
+        segment interpolation, clamp, empty/bad-index guards, unit-length rotation,
+        opposite-sign double-cover shortest arc, normalized round-trip). The scrub
+        UI itself (Unity scene/widgets) remains the editor-gated remainder; this is
+        its verified data foundation. Runtime validation PENDING for the UI only.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
