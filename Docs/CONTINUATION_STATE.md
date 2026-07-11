@@ -1445,6 +1445,21 @@ deferred, not claimed complete.
         colours exactly; no existing widget is recoloured yet (incremental adoption).
         Editor visual validation pending.
 
+    F11. Livery / customization model -> engine-free CarLivery + LiveryColor +
+        LiveryPresets (F1Game.Core, UNIT-TESTED) + Unity paint bridge. LiveryColor is
+        a 24-bit RGB value with hex parse ("#RRGGBB"/"RRGGBB")/format, 0..1 channel
+        access and a max-channel-delta helper. CarLivery holds primary/secondary/
+        accent, serializes to a compact "#P,#S,#A" storage string that round-trips
+        exactly, parses defensively (garbage/short/invalid -> supplied fallback, never
+        a blank car), and offers AreDistinct for grid uniqueness. LiveryPresets gives
+        a small set of clearly-labelled PLACEHOLDER schemes retrievable by id with a
+        stable Default. Tests cover hex round-trip/rejection, storage round-trip,
+        fallback-on-garbage, distinctness, and preset retrieval. LiveryPaint
+        (Assembly-CSharp) converts LiveryColor -> Color and paints a car's primary via
+        the existing MaterialInstanceService per-instance path; the secondary/accent
+        per-part re-skin needs CarVisualFactory part tagging and is editor-gated.
+        Additive - no existing spawn path changed. Editor validation pending.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
