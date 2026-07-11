@@ -117,5 +117,431 @@ namespace LocalFormulaRacing
 
             return compound == TyreCompound.Intermediate ? 1.7f : 3.1f;
         }
+
+        // ---------- Qualifying model rework ----------
+        // Full rework: the old model derived the ENTIRE base lap from a single
+        // car's own top speed (treating top speed as if it were the car's average
+        // speed around the whole circuit), so a few km/h of difference between two
+        // cars swung the WHOLE lap by whole seconds. Car performance was then also
+        // applied a second time via a separate, much smaller carEffect term using
+        // different stats - two inconsistent mechanisms for the same thing. Every
+        // driver now starts from the exact same neutral circuit reference lap
+        // (CircuitReferenceLapTime, track-only, no car parameter at all); the ONE
+        // place car performance enters the model is the composite, track-weighted
+        // carEffect term below.
+        const float DriverQualifyingCoefficient = 0.012f;
+        const float DriverPaceCoefficient = 0.003f;
+        const float DriverConfidenceCoefficient = 0.001f;
+        const float CarEffectCoefficientPerPoint = 0.08f;
+        const float CarEffectCapSeconds = 2.0f;
+
+        QualifyingLapBreakdown SimulateQualifyingRunDetailed(QualifyingSimEntry entry, int phase, bool secondRun)
+        {
+            QualifyingLapBreakdown breakdown = new QualifyingLapBreakdown { phase = phase };
+            DriverData driver = entry.driverData;
+            CarPerformanceData car = entry.carData;
+
+            // Neutral circuit reference lap: identical for every driver in the
+            // field this session - car/driver/tyre/weather/mistake effects are
+            // layered on top of this SAME starting point below, never baked into
+            // it.
+            breakdown.baseLap = CircuitReferenceLapTime(Track);
+
+            float consistency = driver == null ? 80f : driver.consistency;
+            float qualifying = driver == null ? 82f : driver.qualifying;
+            float pace = driver == null ? 82f : driver.pace;
+            float confidence = driver == null ? 80f : driver.experience;
+            float tyreManagement = driver == null ? 80f : driver.tyreManagement;
+
+            // Driver effect: qualifying ability is the PRIMARY term; pace and
+            // confidence (experience) are smaller secondary flavors, per the
+            // calibration targets (elite vs good ~0.05-0.25s, elite vs weak
+            // ~0.25-0.55s in comparable machinery). Centered on the FIELD's own
+            // average of each stat, not a fixed baseline number, so the whole grid
+            // isn't shifted just because a given season's roster skews stronger or
+            // weaker than some hardcoded expectation.
+            float avgQualifying;
+            float avgPace;
+            float avgConfidence;
+            FieldAverageDriverStats(out avgQualifying, out avgPace, out avgConfidence);
+            breakdown.driverEffect = (avgQualifying - qualifying) * DriverQualifyingCoefficient +
+                                      (avgPace - pace) * DriverPaceCoefficient +
+                                      (avgConfidence - confidence) * DriverConfidenceCoefficient;
+
+            // Car effect: ONE composite, track-weighted rating (see
+            // CarQualifyingPerformanceRating/CarPerformanceWeights) covering every
+            // relevant car stat, including top speed - now normalized onto the
+            // same 45-125 scale every other stat already uses, instead of driving
+            // the entire base lap on its own. Centered on the field's own average
+            // composite rating (same reasoning as driverEffect above) and clamped
+            // so an extreme outlier car can never dominate the result by itself.
+            // This is the ONLY place car performance affects the result - it is
+            // never applied a second time anywhere else in this model.
+            float carRating = CarQualifyingPerformanceRating(car, Track);
+            float fieldAverageCarRating = FieldAverageCarRating(Track);
+            breakdown.carEffect = Mathf.Clamp((fieldAverageCarRating - carRating) * CarEffectCoefficientPerPoint, -CarEffectCapSeconds, CarEffectCapSeconds);
+
+            // Percentage of baseLap rather than a flat constant, so difficulty stays
+            // meaningful regardless of track length: Easy is clearly the slowest,
+            // Expert clearly the fastest/most aggressive, Medium close to neutral.
+            // Shared identically by every entry in the session (the chosen AI
+            // difficulty is a session-wide setting, not a per-driver one), so this
+            // never contributes to the inter-driver spread on its own.
+            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.035f : Settings.Difficulty == RaceDifficulty.Medium ? 0.005f : Settings.Difficulty == RaceDifficulty.Hard ? -0.030f : -0.060f;
+            breakdown.difficultyEffect = breakdown.baseLap * difficultyPercent;
+
+            // Track evolution: small and gradual, shared identically by every
+            // driver in the same session phase - a later session can be marginally
+            // faster (more rubber down) without artificially exaggerating the
+            // P1-P20 spread the way large fixed per-phase bonuses (previously
+            // Q1 +0.08 / Q2 -0.18 / Q3 -0.36, a 0.44s swing across sessions on its
+            // own) used to.
+            breakdown.phaseEffect = phase == 1 ? 0.02f : (phase == 2 ? -0.02f : -0.05f);
+
+            breakdown.tyrePrep = Mathf.Lerp(0.14f, 0.0f, tyreManagement / 100f) + Random.Range(0f, 0.04f);
+            breakdown.weatherPenalty = WeatherQualifyingPenalty(driver);
+            breakdown.mistakePenalty = QualifyingMistakePenalty(driver, phase, out breakdown.mistakeType);
+
+            // Normal clean-lap variance only, narrowed to the calibration target
+            // (was up to 0.03s at worst, now a proper 0.03-0.12s band scaled by
+            // consistency). The extra second-run-specific noise this used to add
+            // here is gone - second-run improvement is now its own explicit,
+            // reasoned term (see SimulateBestOfTwoQualifyingAttempt).
+            float variance = Mathf.Lerp(0.12f, 0.03f, consistency / 100f);
+            breakdown.variance = Random.Range(-variance, variance);
+
+            breakdown.finalTime = breakdown.baseLap + breakdown.driverEffect + breakdown.carEffect +
+                                  breakdown.difficultyEffect + breakdown.phaseEffect + breakdown.tyrePrep +
+                                  breakdown.weatherPenalty + breakdown.mistakePenalty + breakdown.variance;
+            // P19/P22-diagnosis log: the whole per-term breakdown for the
+            // player's OWN simulated lap, every phase, unconditionally to the
+            // console (Debug.Log, not GameLog.Info - GameLog.Info is silently
+            // dropped unless verbose/F3 logging is on, which is exactly why an
+            // earlier version of this same diagnostic never actually reached
+            // the console on a real play session). Placed here rather than at
+            // field-build time so avgQualifying/fieldAverageCarRating are the
+            // REAL field averages (qualifyingEntries is empty earlier in
+            // BuildSimulatedQualifyingField, before the AI grid is added) - a
+            // "qualifying at the back despite good stats" report can now be
+            // pinned to a specific term (driver stats vs. field average, car
+            // rating vs. field average, a harsh mistake penalty, unlucky
+            // variance) instead of guessing.
+            if (entry.isPlayer)
+            {
+                Debug.Log("[QualiSim] phase " + phase + " driver(qualifying=" + qualifying + " pace=" + pace +
+                          " consistency=" + consistency + " experience=" + confidence + ") vs field avg(qualifying=" +
+                          avgQualifying.ToString("0.0") + " pace=" + avgPace.ToString("0.0") + " confidence=" +
+                          avgConfidence.ToString("0.0") + ") -> driverEffect=" + breakdown.driverEffect.ToString("0.000") +
+                          " || car=" + (car == null ? "null" : car.id) + " carRating=" + carRating.ToString("0.0") +
+                          " vs fieldAvgCarRating=" + fieldAverageCarRating.ToString("0.0") + " -> carEffect=" +
+                          breakdown.carEffect.ToString("0.000") + " || baseLap=" + breakdown.baseLap.ToString("0.000") +
+                          " difficultyEffect=" + breakdown.difficultyEffect.ToString("0.000") + " phaseEffect=" +
+                          breakdown.phaseEffect.ToString("0.000") + " tyrePrep=" + breakdown.tyrePrep.ToString("0.000") +
+                          " weatherPenalty=" + breakdown.weatherPenalty.ToString("0.000") + " mistakePenalty=" +
+                          breakdown.mistakePenalty.ToString("0.000") + " (" + breakdown.mistakeType + ") variance=" +
+                          breakdown.variance.ToString("0.000") + " -> finalTime=" + breakdown.finalTime.ToString("0.000"));
+            }
+
+            return breakdown;
+        }
+
+        // Neutral circuit reference lap: track length and character only, no car
+        // parameter at all - every driver's simulated lap begins from this exact
+        // same number. The "neutral expected average speed" is the CURRENT
+        // field's own average top speed (a genuine km/h value, unlike every other
+        // car stat which is a 0-125ish rating) rather than any one competitor's -
+        // shared by the whole field, so it can never by itself favor one driver
+        // over another the way the old per-car version did.
+        float CircuitReferenceLapTime(TrackRuntime track)
+        {
+            float neutralTopSpeedKph = FieldAverageTopSpeedKph();
+            float styleFactor = TrackAverageSpeedFactor(track);
+            float referenceSpeedMps = (neutralTopSpeedKph / 3.6f) * styleFactor;
+            float trackLength = track == null ? 7266f : track.length;
+            return Mathf.Max(45f, trackLength / referenceSpeedMps);
+        }
+
+        float FieldAverageTopSpeedKph()
+        {
+            if (qualifyingEntries.Count == 0)
+            {
+                return 337f;
+            }
+
+            float sum = 0f;
+            int count = 0;
+            for (int i = 0; i < qualifyingEntries.Count; i++)
+            {
+                CarPerformanceData car = qualifyingEntries[i].carData;
+                sum += car == null || car.topSpeed <= 0 ? 337f : car.topSpeed;
+                count++;
+            }
+
+            return count > 0 ? sum / count : 337f;
+        }
+
+        void FieldAverageDriverStats(out float avgQualifying, out float avgPace, out float avgConfidence)
+        {
+            avgQualifying = 82f;
+            avgPace = 82f;
+            avgConfidence = 80f;
+            if (qualifyingEntries.Count == 0)
+            {
+                return;
+            }
+
+            float sumQualifying = 0f;
+            float sumPace = 0f;
+            float sumConfidence = 0f;
+            int count = 0;
+            for (int i = 0; i < qualifyingEntries.Count; i++)
+            {
+                DriverData d = qualifyingEntries[i].driverData;
+                sumQualifying += d == null ? 82f : d.qualifying;
+                sumPace += d == null ? 82f : d.pace;
+                sumConfidence += d == null ? 80f : d.experience;
+                count++;
+            }
+
+            if (count > 0)
+            {
+                avgQualifying = sumQualifying / count;
+                avgPace = sumPace / count;
+                avgConfidence = sumConfidence / count;
+            }
+        }
+
+        float FieldAverageCarRating(TrackRuntime track)
+        {
+            if (qualifyingEntries.Count == 0)
+            {
+                return 84f;
+            }
+
+            float sum = 0f;
+            int count = 0;
+            for (int i = 0; i < qualifyingEntries.Count; i++)
+            {
+                sum += CarQualifyingPerformanceRating(qualifyingEntries[i].carData, track);
+                count++;
+            }
+
+            return count > 0 ? sum / count : 84f;
+        }
+
+        // Composite qualifying car-performance rating: every relevant car stat,
+        // weighted by what actually matters on THIS circuit (see
+        // CarPerformanceWeights) - a power-sensitive circuit weights top
+        // speed/acceleration/engine power heavily, a high-downforce circuit
+        // weights aero/cornering, a technical circuit weights cornering/braking/
+        // chassis, and a balanced circuit spreads the weight evenly. topSpeed is
+        // stored as a literal km/h value (roughly 310-362), not a 0-125 rating
+        // like every other stat - normalized onto that same scale first
+        // (NormalizeTopSpeedToRating) so it contributes proportionally instead of
+        // dominating or being dwarfed by unit mismatch.
+        float CarQualifyingPerformanceRating(CarPerformanceData car, TrackRuntime track)
+        {
+            if (car == null)
+            {
+                return 84f;
+            }
+
+            float wTopSpeed;
+            float wAcceleration;
+            float wCornering;
+            float wBraking;
+            float wAero;
+            float wChassis;
+            float wEngine;
+            CarPerformanceWeights(track, out wTopSpeed, out wAcceleration, out wCornering, out wBraking, out wAero, out wChassis, out wEngine);
+
+            float topSpeedRating = NormalizeTopSpeedToRating(car.topSpeed);
+            return topSpeedRating * wTopSpeed + car.acceleration * wAcceleration + car.cornering * wCornering +
+                   car.braking * wBraking + car.aeroEfficiency * wAero + car.chassisBalance * wChassis +
+                   car.enginePower * wEngine;
+        }
+
+        // Same 45-125 scale every other car stat uses (CareerManager's own clamp
+        // range for cornering/braking/aero/etc.) so topSpeed can be weighted-
+        // averaged alongside them without a unit mismatch - this is exactly what
+        // let a few km/h of difference swing the entire old lap-time formula by
+        // whole seconds (topSpeed used to be a literal speed divisor for the
+        // WHOLE lap, see CircuitReferenceLapTime's own history above).
+        float NormalizeTopSpeedToRating(float topSpeedKph)
+        {
+            return Mathf.Lerp(45f, 125f, Mathf.InverseLerp(300f, 365f, topSpeedKph));
+        }
+
+        // Per-circuit car-stat weighting (must each sum to 1.0). Named-circuit
+        // checks mirror TrackAverageSpeedFactor's own bucketing style.
+        void CarPerformanceWeights(TrackRuntime track, out float wTopSpeed, out float wAcceleration, out float wCornering, out float wBraking, out float wAero, out float wChassis, out float wEngine)
+        {
+            string id = track == null ? "" : (track.trackId ?? "");
+            string style = track == null ? "" : (track.styleName ?? "").ToLowerInvariant();
+
+            if (id.Contains("monza") || id.Contains("las_vegas") || id.Contains("baku") || id.Contains("jeddah"))
+            {
+                // Power-sensitive: long straights, low downforce - top speed,
+                // acceleration and engine power matter far more here than outright
+                // cornering grip.
+                wTopSpeed = 0.28f; wAcceleration = 0.20f; wCornering = 0.10f; wBraking = 0.08f;
+                wAero = 0.07f; wChassis = 0.05f; wEngine = 0.22f;
+                return;
+            }
+
+            if (id.Contains("spa") || id.Contains("silverstone") || id.Contains("suzuka") || id.Contains("qatar"))
+            {
+                // High-downforce, flowing high-speed corners - aero and cornering
+                // grip dominate; top speed/engine power matter far less than on a
+                // pure power circuit.
+                wTopSpeed = 0.10f; wAcceleration = 0.08f; wCornering = 0.26f; wBraking = 0.10f;
+                wAero = 0.26f; wChassis = 0.14f; wEngine = 0.06f;
+                return;
+            }
+
+            if (id.Contains("monaco") || id.Contains("hungary") || style.Contains("street") || (track != null && track.roadHalfWidth < 12f))
+            {
+                // Technical/tight: low-speed cornering, braking and traction out of
+                // slow corners matter most - top speed is nearly irrelevant.
+                wTopSpeed = 0.04f; wAcceleration = 0.14f; wCornering = 0.28f; wBraking = 0.24f;
+                wAero = 0.06f; wChassis = 0.20f; wEngine = 0.04f;
+                return;
+            }
+
+            // Balanced/standard circuit: a fairly even mixture across every stat.
+            wTopSpeed = 0.14f; wAcceleration = 0.14f; wCornering = 0.20f; wBraking = 0.16f;
+            wAero = 0.16f; wChassis = 0.12f; wEngine = 0.08f;
+        }
+
+        // Fraction of top speed a well-driven qualifying lap averages, by track
+        // character. Tight/low-speed circuits (Monaco, street layouts) average much
+        // lower than top speed; flowing high-speed circuits average much closer to
+        // it. Named-circuit checks run before the generic street check since several
+        // real high-speed circuits (Jeddah, Baku, Las Vegas) are technically street
+        // layouts but should not be bucketed with tight street pace.
+        //
+        // Qualifying-vs-race calibration fix round 2: this is the ONLY place AI
+        // qualifying times come from - RecordQualifyingPhase falls back to
+        // SimulateAiQualifyingTime for every AI entry even in the live/driven
+        // qualifying session, so AI never actually banks a real physics-driven lap
+        // time for qualifying purposes, live or simulated. Round 1's ~1.2x bump
+        // still undershot actual race pace: AiVehicleController's corner-speed
+        // model now keeps HighSpeed/Medium corners near 97-100% of straight-line
+        // pace and Slow (tight) corners at a flat ~300-310kph (itself often
+        // 90%+ of a car's real top speed) - only the narrow VeryTight/Hairpin
+        // bands meaningfully cut into a lap's average anymore, so a track's real
+        // achieved average speed fraction is far closer to its top speed than
+        // these factors assumed even after round 1. Pushed further here so the
+        // simulated qualifying baseline is genuinely faster than what the
+        // buffed race physics produce, matching a real low-fuel flying lap.
+        //
+        // Round 3: the race-fastest-lap-beats-qualifying bug came back after this
+        // session's slipstream buff (SlipstreamTopSpeedBonusKph/slipstreamBoost in
+        // VehicleController doubled) - a genuine tow gives race laps a real speed
+        // source this formula never modeled (no drafting in a simulated/solo
+        // flying lap), so real race pace on drafting-heavy circuits pulled back
+        // ahead of the quali baseline even with the earlier AI straight-line-speed
+        // nerfs. Every factor nudged up again to buy back that headroom.
+        float TrackAverageSpeedFactor(TrackRuntime track)
+        {
+            if (track == null)
+            {
+                return 0.83f;
+            }
+
+            string id = track.trackId ?? "";
+            string style = (track.styleName ?? "").ToLowerInvariant();
+            if (id.Contains("monaco"))
+            {
+                return 0.65f;
+            }
+
+            if (id.Contains("spa") || id.Contains("monza") || id.Contains("silverstone") ||
+                id.Contains("baku") || id.Contains("jeddah") || id.Contains("las_vegas") ||
+                id.Contains("suzuka") || id.Contains("qatar"))
+            {
+                return 1.02f;
+            }
+
+            if (id.Contains("hungary"))
+            {
+                return 0.71f;
+            }
+
+            if (style.Contains("street") || track.roadHalfWidth < 12f)
+            {
+                return 0.76f;
+            }
+
+            return 0.92f;
+        }
+
+        // All drivers under the same conditions share the same weather baseline
+        // (Track.weather, clear/cloudy penalty) - wetSkill only creates a
+        // controlled difference AROUND that shared baseline, narrowed here so wet
+        // conditions can't stack into an extreme, barely-explainable gap on their
+        // own (was 1.18-0.42, roughly a 2s spread between best/worst wet driver in
+        // heavy rain).
+        float WeatherQualifyingPenalty(DriverData driver)
+        {
+            if (Track.weather == WeatherState.Clear)
+            {
+                return 0f;
+            }
+
+            if (Track.weather == WeatherState.Cloudy)
+            {
+                return 0.04f;
+            }
+
+            float wetSkill = driver == null ? 80f : driver.wetSkill;
+            float basePenalty = Track.weather == WeatherState.HeavyRain ? 2.65f : 1.25f;
+            return basePenalty * Mathf.Lerp(1.1f, 0.6f, wetSkill / 100f);
+        }
+
+        // Mistakes are modeled explicitly and kept separate from ordinary
+        // clean-lap variance (see SimulateQualifyingRunDetailed's own variance
+        // term) - minor mistakes cost roughly 0.1-0.4s, a rare major mistake adds
+        // substantially more on top. mistakeType names what happened so it's
+        // visible in the qualifying breakdown instead of hidden inside a single
+        // opaque number.
+        float QualifyingMistakePenalty(DriverData driver, int phase, out string mistakeType)
+        {
+            mistakeType = "";
+            float consistency = driver == null ? 80f : driver.consistency;
+            float awareness = driver == null ? 80f : driver.awareness;
+            float chance = Mathf.Lerp(0.075f, 0.012f, consistency / 100f);
+            if (Track.weather == WeatherState.LightRain)
+            {
+                chance += 0.025f;
+            }
+            else if (Track.weather == WeatherState.HeavyRain)
+            {
+                chance += 0.045f;
+            }
+
+            if (phase == 3)
+            {
+                chance += 0.008f;
+            }
+
+            if (Random.value > chance)
+            {
+                return 0f;
+            }
+
+            string[] minorMistakeTypes = { "small lock-up", "poor corner exit", "traffic", "track limits" };
+            mistakeType = minorMistakeTypes[Random.Range(0, minorMistakeTypes.Length)];
+            float penalty = Random.Range(0.1f, 0.4f) * Mathf.Lerp(1.25f, 0.75f, awareness / 100f);
+            if (Random.value < 0.1f)
+            {
+                // Rare, uncommon major mistake on top of the minor one - clearly
+                // identifiable via mistakeType rather than a hidden random tail.
+                mistakeType = "major mistake";
+                penalty += Random.Range(0.8f, 2.0f);
+            }
+
+            return penalty;
+        }
     }
 }

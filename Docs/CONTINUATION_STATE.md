@@ -582,6 +582,12 @@ deferred, not claimed complete.
     RaceManager.Qualifying.cs verbatim - RNG order and every tuned value
     unchanged; the deeper lap-time model stays in main for a later slice.
     Callers resolve in-class. RaceManager.cs → 11088 lines (579 out over 4 slices).
+    Slice 5: the qualifying lap-time model (SimulateQualifyingRunDetailed, the
+    circuit reference lap, the field-average driver/car/speed helpers, weather +
+    mistake penalties and the model constants) moved verbatim into the same
+    RaceManager.Qualifying.cs partial - RNG/values unchanged. RaceManager.cs →
+    10666 lines: 1001 lines (8.6%) now peeled off across 5 partials (weather,
+    slipstream, AI profiles, qualifying attempt + model). No behaviour change.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
