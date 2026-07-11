@@ -1718,32 +1718,24 @@ namespace LocalFormulaRacing
             }
 
             int completedLaps = PlayerParticipant.lapTracker.CompletedLaps;
-            bool wantSecondSwing = variability >= 3 && weatherTransitionDone && !weatherSecondTransitionDone;
-            if (!weatherTransitionDone)
-            {
-                if (completedLaps < Mathf.Max(1, RaceLaps / 2))
-                {
-                    return;
-                }
-
-                weatherTransitionDone = true;
-            }
-            else if (wantSecondSwing)
-            {
-                if (completedLaps < Mathf.Max(1, (RaceLaps * 3) / 4))
-                {
-                    return;
-                }
-
-                weatherSecondTransitionDone = true;
-            }
-            else
+            WeatherRules.TransitionPhase phase = WeatherRules.EvaluateTransition(
+                variability, completedLaps, RaceLaps, weatherTransitionDone, weatherSecondTransitionDone);
+            if (phase == WeatherRules.TransitionPhase.None)
             {
                 return;
             }
 
+            if (phase == WeatherRules.TransitionPhase.First)
+            {
+                weatherTransitionDone = true;
+            }
+            else
+            {
+                weatherSecondTransitionDone = true;
+            }
+
             bool wasRaining = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
-            WeatherState next = wasRaining ? WeatherState.Cloudy : WeatherState.LightRain;
+            WeatherState next = WeatherRules.NextIsRaining(wasRaining) ? WeatherState.LightRain : WeatherState.Cloudy;
             Track.weather = next;
             for (int i = 0; i < Participants.Count; i++)
             {
@@ -1771,8 +1763,8 @@ namespace LocalFormulaRacing
         // small multiplicative bonus applied identically to every car via
         // VehicleController.SetTrackGripMultiplier (read inside
         // TyreState.GripMultiplier), plus a subtle darkening tween on the shared
-        // road material for visual feedback.
-        const float TrackEvolutionMaxGripBonus = 0.05f;
+        // road material for visual feedback. The ramp/grip maths live in
+        // WeatherRules (engine-free, testable); RaceManager owns the live state.
 
         void UpdateTrackEvolution()
         {
@@ -1782,11 +1774,9 @@ namespace LocalFormulaRacing
             }
 
             bool washedByRain = Track.weather == WeatherState.HeavyRain;
-            float target = washedByRain ? 0f : 1f;
-            float rampSpeed = washedByRain ? 0.3f : 0.012f;
-            Track.RubberLevel = Mathf.MoveTowards(Track.RubberLevel, target, Time.deltaTime * rampSpeed);
+            Track.RubberLevel = WeatherRules.RampRubberLevel(Track.RubberLevel, washedByRain, Time.deltaTime);
 
-            float gripMultiplier = 1f + Track.RubberLevel * TrackEvolutionMaxGripBonus;
+            float gripMultiplier = WeatherRules.GripMultiplier(Track.RubberLevel);
             for (int i = 0; i < Participants.Count; i++)
             {
                 if (Participants[i] != null && Participants[i].vehicle != null)

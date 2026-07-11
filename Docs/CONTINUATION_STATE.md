@@ -290,6 +290,15 @@ intact - production-first with legacy fallback, never both).
     length. Pure over the markers/frame span, so unit-tested. RaceManager
     exposes BuildReplayTimeline(). Both capture models (replay + telemetry) now
     have a pure in-game consumer. ReplayTimelineTests added.
+55. WEATHER/TRACK-STATE rules extracted (directive §12 item 5 "weather/track-
+    state depth"): WeatherRules (F1Game.Race.Rules, engine-free) now owns the
+    mixed-forecast swing gating (half-distance first swing, High-variability
+    three-quarter second swing, short-race clamp), the wet↔dry toggle, and the
+    track-evolution rubber ramp + grip multiplier (build-in slow / rain-wash
+    fast, +5% max grip). RaceManager.UpdateWeatherTransition/UpdateTrackEvolution
+    delegate to it and keep the live state/engine calls; algebraically identical,
+    authority moved. Local TrackEvolutionMaxGripBonus const removed (now in
+    WeatherRules). WeatherRulesTests added.
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
