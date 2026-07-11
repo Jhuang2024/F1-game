@@ -1581,6 +1581,17 @@ deferred, not claimed complete.
         collision replacement. Placeholder content is procedurally generated (no
         external assets); the Unity paint layer (LiveryPaint, F11) consumes the result.
 
+    F21. CinematicHud -> runtime control surface for the CinematicDirector
+        (Assembly-CSharp, LocalFormulaRacing, UiFactory idiom). A compact top-centre
+        button bar (Live/Replay/Spectator/Broadcast/Photo) + a current-mode label:
+        pressing a mode calls director.SetMode (the director owns the camera lifecycle
+        and single-active-mode guarantee); the label reflects the resulting mode each
+        frame (so a director-driven change like photo-exit stays in sync). Static
+        Create(parent, director) returns null unless the cinematic feature is on, so
+        the live HUD is unchanged; CinematicDirector.Configure now auto-builds it when
+        a HUD canvas is supplied. This adds the HUD-controls + mode-transition surface
+        the replay/spectator/broadcast/photo runtime needed. VISUAL VALIDATION PENDING.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

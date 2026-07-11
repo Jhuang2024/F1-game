@@ -44,6 +44,7 @@ namespace LocalFormulaRacing
         BroadcastCameraController broadcast;
         PhotoModeController photo;
         ReplayScrubberUi scrubber;
+        CinematicHud hud;
 
         Transform hudCanvas;
         Action<bool> liveCameraEnabledSink;
@@ -87,6 +88,13 @@ namespace LocalFormulaRacing
 
             current = Mode.Live;
             configured = true;
+
+            // The always-on control bar (mode buttons). Null when no HUD canvas or the
+            // feature is off, in which case modes are driven programmatically only.
+            if (hud == null && hudCanvas != null)
+            {
+                hud = CinematicHud.Create(hudCanvas, this);
+            }
         }
 
         T GetOrAdd<T>(ref T field) where T : Component
