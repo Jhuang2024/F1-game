@@ -768,6 +768,16 @@ deferred, not claimed complete.
     stay public so AI/HUD callers resolve in-class.
     RaceManager.cs -> 3602 lines: 8065 out over 25 slices (~69.1%).
     RaceManager is now spread across 24 focused partials (main + 23).
+    Slice 26: manual pit request - CanCancelManualPitRequest, MapPitRequestOrigin,
+    CancelManualPitRequest and ClearManualPitRequestTracking (the single shared
+    validation/cancellation path for a temporary manual pit override, UI button and
+    keyboard shortcut alike) - 102 lines - moved to RaceManager.ManualPit.cs. The
+    activePitRequestSource/manualPitRequested/manualPitCommitted clear-together
+    contract and call order unchanged; the pre-race planned stop stays a separate
+    concept and is untouched. Public entry points stay public so PlayerVehicleInput,
+    RaceHud, RaceParticipant and RaceEventRelay callers resolve in-class.
+    RaceManager.cs -> 3497 lines: 8170 out over 26 slices (~70.0%).
+    RaceManager is now spread across 25 focused partials (main + 24).
 
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
