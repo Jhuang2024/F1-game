@@ -234,6 +234,27 @@ namespace LocalFormulaRacing
         const int MaxRaceControlHistoryEntries = 60;
         public IReadOnlyList<RaceControlHistoryEntry> RaceControlHistory { get { return raceControlHistory; } }
 
+        // A participant's index in the Participants list, i.e. its car index in
+        // the replay frame's car order. -1 for a field-wide (no-car) marker.
+        int ReplayCarIndex(RaceParticipant participant)
+        {
+            if (participant == null)
+            {
+                return -1;
+            }
+
+            IReadOnlyList<RaceParticipant> cars = Participants;
+            for (int i = 0; i < cars.Count; i++)
+            {
+                if (cars[i] == participant)
+                {
+                    return i;
+                }
+            }
+
+            return -1;
+        }
+
         void LogRaceControlHistory(string label, string detail)
         {
             int lap = PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.DisplayLap : 0;
@@ -2279,6 +2300,8 @@ namespace LocalFormulaRacing
         void RegisterIncident(RaceParticipant participant, IncidentSeverity severity, TrackProgress progress, float freqScale, bool escalationAllowed, string cause, bool forceEscalate = false, bool yellowJustified = false)
         {
             IncidentCount++;
+            replayCapture.AddIncidentMarker(RaceElapsed, ReplayCarIndex(participant),
+                string.IsNullOrEmpty(cause) ? "Incident" : cause);
             // Part 4 retune: tightened from 6s/40m - with ~20 cars on track,
             // two genuinely unrelated minor incidents landing within a loose
             // 6s/40m window purely by chance was common enough to keep
@@ -9747,6 +9770,8 @@ namespace LocalFormulaRacing
             participant.pitPhase = PitPhase.Service;
             participant.isPitting = true;
             participant.pitAwaitingRelease = false;
+            replayCapture.AddPitMarker(RaceElapsed, ReplayCarIndex(participant),
+                participant.driverName + " pit stop");
             // Stop duration is owned by the extracted rulebook: the tyre change
             // (matched to the visible wheel-off/wheel-on animation below, so the
             // timer and the animation always finish together), plus repair time
