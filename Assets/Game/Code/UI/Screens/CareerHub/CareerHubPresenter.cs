@@ -13,6 +13,7 @@ namespace F1Game.UI.Screens.CareerHub
         public Action OnStats;
         public Action OnRatings;
         public Action OnRnd;
+        public Action OnPractice;
         public Action OnLegacyMenu;
         public Action OnBack;
 
@@ -35,6 +36,11 @@ namespace F1Game.UI.Screens.CareerHub
             if (view.RndButton != null)
             {
                 view.RndButton.Clicked += () => OnRnd?.Invoke();
+            }
+
+            if (view.PracticeButton != null)
+            {
+                view.PracticeButton.Clicked += () => OnPractice?.Invoke();
             }
 
             view.LegacyMenuButton.Clicked += () => OnLegacyMenu?.Invoke();

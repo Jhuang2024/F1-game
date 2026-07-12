@@ -258,13 +258,14 @@ namespace F1Game.UI
             ThemedButton stats = CreateButton(actions, "Btn_Stats", ThemedButton.Variant.Secondary, "Career Stats");
             ThemedButton ratings = CreateButton(actions, "Btn_Ratings", ThemedButton.Variant.Secondary, "Driver Ratings");
             ThemedButton rnd = CreateButton(actions, "Btn_Rnd", ThemedButton.Variant.Secondary, "R&D Centre");
+            ThemedButton practice = CreateButton(actions, "Btn_Practice", ThemedButton.Variant.Secondary, "Practice Programs");
             ThemedButton legacyMenu = CreateButton(actions, "Btn_FullMenu", ThemedButton.Variant.Secondary, "Full Career Menu");
             ThemedButton back = CreateButton(actions, "Btn_Back", ThemedButton.Variant.Tertiary, "Back");
 
-            SetUpDownNavigation(new[] { continueBtn, standings, profile, stats, ratings, rnd, legacyMenu, back });
+            SetUpDownNavigation(new[] { continueBtn, standings, profile, stats, ratings, rnd, practice, legacyMenu, back });
 
             var view = content.parent.gameObject.AddComponent<Screens.CareerHub.CareerHubView>();
-            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, profile, stats, ratings, rnd, legacyMenu, back);
+            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, profile, stats, ratings, rnd, practice, legacyMenu, back);
             return view;
         }
 
@@ -420,6 +421,23 @@ namespace F1Game.UI
             view.Bind(header, rowsColumn, rowTemplate, difficultyButton, ersButton, manualGearsButton,
                 unitsButton, cameraShakeButton, compactHudButton, uiAnimationsButton, classic, back);
             view.BindEditor(editorSection.gameObject, editorColumn, editorTemplate);
+            return view;
+        }
+
+        public static Screens.PracticePrograms.PracticeProgramsView BuildPracticePrograms(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_PracticePrograms", "PRACTICE PROGRAMS", out TMP_Text header);
+
+            TMP_Text summary = CreateText(content, "Summary", TextStyle.H3, "");
+            RectTransform rowColumn = CreateLayoutColumn(content, "Programs", theme.spacing.micro);
+            CareerActionRow rowTemplate = BuildCareerActionRowTemplate(rowColumn, theme, hasSecondary: false);
+
+            ThemedButton back = CreateButton(content, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
+                theme.components.buttonHeightCompact);
+
+            var view = content.parent.gameObject.AddComponent<Screens.PracticePrograms.PracticeProgramsView>();
+            view.Bind(summary, rowColumn, rowTemplate, back);
             return view;
         }
 

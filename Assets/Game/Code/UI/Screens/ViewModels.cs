@@ -242,6 +242,18 @@ namespace F1Game.UI.Screens
         public string emptyProjectsMessage = "";
     }
 
+    /// <summary>
+    /// Practice-programs list. Rows reuse the generic RndRow action-row DTO; running a
+    /// program launches a gameplay session (the reward is applied by the session, not
+    /// the UI), so there is no UI-owned save mutation here.
+    /// </summary>
+    [Serializable]
+    public class PracticeProgramsModel
+    {
+        public string summaryLine = "";
+        public List<RndRow> programs = new List<RndRow>();
+    }
+
     [Serializable]
     public class CareerHubModel
     {

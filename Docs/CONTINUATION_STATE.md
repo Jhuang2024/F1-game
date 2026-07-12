@@ -1719,6 +1719,22 @@ deferred, not claimed complete.
         mutation order unchanged. Legacy R&D remains the emergency fallback (reachable
         via Full Career Menu). Runtime-built; COMPILER/RUNTIME VALIDATION PENDING.
 
+    F31. Career migration: production Practice Programs. Reuses the CareerActionRow
+        widget. New PracticeProgramsModel (F1Game.UI, rows reuse the generic RndRow);
+        PracticeProgramsView (summary + pooled program rows + Back) +
+        PracticeProgramsPresenter; UiScreenFactory.BuildPracticePrograms; UiShell
+        registers "practice-programs"; CareerHubView/Presenter gain a Practice Programs
+        button (Bind + factory + nav in lockstep). ProductionUiBridge.ShowPracticePrograms
+        projects the round's five programs (acclimatisation/tyre/ERS/qualifying/race
+        pace) with their RP/REP reward and per-round completed state (key
+        s{season}_r{round}_{id} vs Save.completedPracticePrograms); the Run button is
+        hidden once complete. Running a program is a GAMEPLAY hand-off, not a UI-owned
+        save mutation - RunPracticeProgram calls LeaveToLegacy(bootstrap.
+        StartCareerPractice(id)), so the practice session (RaceManager.
+        EvaluatePracticeSession) owns applying the reward + marking completion; the UI
+        writes nothing to the save. Legacy Practice Programs remains the emergency
+        fallback. Runtime-built; VISUAL VALIDATION PENDING.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

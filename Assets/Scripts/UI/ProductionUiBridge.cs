@@ -8,6 +8,7 @@ using F1Game.UI.Screens.CareerCreation;
 using F1Game.UI.Screens.CareerHub;
 using F1Game.UI.Screens.CareerStats;
 using F1Game.UI.Screens.DriverRatings;
+using F1Game.UI.Screens.PracticePrograms;
 using F1Game.UI.Screens.Rnd;
 using F1Game.UI.Screens.TeamRatings;
 using F1Game.UI.Screens.CareerStandings;
@@ -63,6 +64,7 @@ namespace LocalFormulaRacing
         static DriverRatingsPresenter driverRatingsPresenter;
         static TeamRatingsPresenter teamRatingsPresenter;
         static RndPresenter rndPresenter;
+        static PracticeProgramsPresenter practiceProgramsPresenter;
         static DriverProfilePresenter profilePresenter;
         static SettingsPresenter settingsPresenter;
         static ResultsPresenter resultsPresenter;
@@ -224,6 +226,7 @@ namespace LocalFormulaRacing
                 OnStats = ShowCareerStats,
                 OnRatings = () => ShowDriverRatings("overall"),
                 OnRnd = ShowRnd,
+                OnPractice = ShowPracticePrograms,
                 OnLegacyMenu = () => LeaveToLegacy(() => bootstrap.ShowCareer()),
                 OnBack = () => shell.Router.Back(),
             };
@@ -271,6 +274,13 @@ namespace LocalFormulaRacing
                 OnStartUpgrade = RndStartUpgrade,
                 OnReworkProject = RndReworkProject,
                 OnAbandonProject = RndAbandonProject,
+                OnBack = () => shell.Router.Back(),
+            };
+
+            var practiceView = (PracticeProgramsView)ShowAndGet(PracticeProgramsView.Id);
+            practiceProgramsPresenter = new PracticeProgramsPresenter(practiceView)
+            {
+                OnRun = RunPracticeProgram,
                 OnBack = () => shell.Router.Back(),
             };
 
@@ -841,6 +851,57 @@ namespace LocalFormulaRacing
             }
 
             ShowRnd();
+        }
+
+        // The round's practice programs (id, title, description, RP reward, REP reward) -
+        // the same set the legacy screen offers.
+        static readonly string[][] PracticeProgramDefs =
+        {
+            new[] { "acclimatisation", "Track Acclimatisation", "Learn the braking points and kerbs. Steady laps, no risks.", "22", "1" },
+            new[] { "tyreManagement", "Tyre Management", "Long-run stint watching temperatures and wear windows.", "20", "0" },
+            new[] { "ersManagement", "ERS Management", "Deployment mapping over a full lap for better battery use.", "18", "0" },
+            new[] { "qualifyingPace", "Qualifying Pace", "Low fuel, maximum attack simulation runs.", "24", "1" },
+            new[] { "racePace", "Race Pace", "Heavy fuel race simulation with pit stop rehearsal.", "26", "1" },
+        };
+
+        static void ShowPracticePrograms()
+        {
+            var model = new PracticeProgramsModel();
+            if (career != null && career.Save != null)
+            {
+                CalendarEventData current = career.CurrentEvent();
+                model.summaryLine = "Round " + career.Save.currentRound
+                    + (current != null ? " · " + current.displayName : "")
+                    + " · Each program can be run once per round.";
+
+                for (int i = 0; i < PracticeProgramDefs.Length; i++)
+                {
+                    string[] def = PracticeProgramDefs[i];
+                    string key = "s" + career.Save.currentSeason + "_r" + career.Save.currentRound + "_" + def[0];
+                    bool done = career.Save.completedPracticePrograms != null && career.Save.completedPracticePrograms.Contains(key);
+                    string reward = "+" + def[3] + " RP" + (def[4] != "0" ? " +" + def[4] + " REP" : "");
+                    model.programs.Add(new RndRow
+                    {
+                        id = def[0],
+                        label = def[1],
+                        detail = done ? ("COMPLETE · " + def[2]) : (reward + " · " + def[2]),
+                        primaryLabel = "Run",
+                        primaryShown = !done,
+                        primaryEnabled = !done,
+                    });
+                }
+            }
+
+            shell.Router.Show(PracticeProgramsView.Id);
+            practiceProgramsPresenter.Present(model);
+        }
+
+        // Running a program launches the gameplay practice session (which applies the
+        // reward + marks it complete); hide the production shell exactly as the other
+        // gameplay hand-offs do.
+        static void RunPracticeProgram(string programId)
+        {
+            LeaveToLegacy(() => bootstrap.StartCareerPractice(programId));
         }
 
         static string ResolveTrackName(string trackId)
