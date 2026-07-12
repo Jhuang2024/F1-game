@@ -1735,6 +1735,20 @@ deferred, not claimed complete.
         writes nothing to the save. Legacy Practice Programs remains the emergency
         fallback. Runtime-built; VISUAL VALIDATION PENDING.
 
+    F32. Championship chart geometry (engine-free, UNIT-TESTED) - first piece of the
+        championship-graphs migration. ChampionshipChart (F1Game.Core): NormalizeX
+        (round index -> [0,1], lone round pins left, out-of-range clamps), NormalizeY
+        (points/axisMax clamped, zero-axis safe), AxisMax (largest cumulative points
+        rounded up to a magnitude-appropriate nice step, min 1), AxisTicks (evenly
+        spaced 0..max), NormalizeSeries (whole cumulative-points series -> plot
+        points; null/empty -> none). Pure geometry with no engine/career types, so
+        the degenerate cases (no rounds, single round, all-zero, empty board) can't
+        divide by zero. ChampionshipChartTests pin every branch. Next: the production
+        chart view/presenter binding CareerManager.GetDriver/ConstructorChampionship-
+        Progression, with driver/constructor toggle, wired into the career hub.
+        (Career mutation migration: R&D F30 + Practice Programs F31 done; Career
+        Setup/Driver Market == StartNewCareer, already covered by career creation F18.)
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
