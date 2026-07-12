@@ -662,10 +662,17 @@ namespace F1Game.UI
             UiTheme theme = UiTheme.Active;
             RectTransform content = ScreenScaffold(root, name, title, out TMP_Text header);
 
-            RectTransform statGrid = CreateLayoutColumn(content, "StatGrid", theme.spacing.small);
-            var grid = statGrid.gameObject.AddComponent<GridLayoutGroup>();
+            var statGridGo = new GameObject("StatGrid", typeof(RectTransform));
+statGridGo.transform.SetParent(content, false);
+
+            RectTransform statGrid = (RectTransform)statGridGo.transform;
+            var grid = statGridGo.AddComponent<GridLayoutGroup>();
+
             grid.cellSize = new Vector2(184f, 90f);
             grid.spacing = new Vector2(theme.spacing.small, theme.spacing.small);
+            grid.constraint = GridLayoutGroup.Constraint.FixedColumnCount;
+            grid.constraintCount = 3;
+            grid.childAlignment = TextAnchor.UpperLeft;
             StatTile statTemplate = BuildStatTileTemplate(statGrid, theme);
 
             CreateText(content, "RecordsLabel", TextStyle.Label, recordsHeading);
