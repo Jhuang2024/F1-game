@@ -2345,6 +2345,53 @@ claude/read-and-complete-ipelrl.
     the prerequisite for a rev-limiter audio cue; engine "rpm" is currently speed-
     derived, so the cue is deferred rather than faked on feel-sensitive audio.
 
+## FINAL CLOSURE LIST (implementation closure pass)
+# Three categories only. "Live" = wired + reached, verified by static reasoning
+# (no compiler here); runtime confirmation is the pending in-editor step.
+
+[1] COMPLETE AND LIVE
+  - Rev-limiter cue via engine-free AudioRpmModel (per-gear RPM from the authoritative
+    shift schedule) + RevLimiterGate, wired player-only in RaceHud (C6).
+  - Brake-disc-temperature telemetry channel via BrakeThermalModel, stepped in
+    TelemetryCaptureService and exported to CSV (C7) - the model now has a real consumer.
+  - ERS-deploy cue (C3); language selector -> LocalizationLoader (C1); procedural
+    surface textures for all 21 MaterialLibrary slots (C2).
+  - All prior live systems: production UI frontend/HUD (default), cinematic director,
+    engine-free rules/geometry/eligibility with consumers, live replay/telemetry capture,
+    per-car VFX (VehicleVisuals), distinct per-team liveries, all 24 procedural circuits.
+
+[2] COMPLETE WITH WORKING FALLBACK + OPTIONAL BESPOKE REPLACEMENT
+  - All audio: synthetic generators (28 cues incl. rev limiter) with an authored-bank
+    supersede path; recorded audio is the optional replacement.
+  - All surfaces/liveries/track meshes/car model/UI sprites: procedural/project-owned;
+    hand-authored art is the optional replacement.
+  - Localization: English source + 5 provisional machine tables; human review is the
+    optional replacement (structure + values are live).
+  - TrackWetnessModel: complete engine-free model; its live fallback is the existing
+    discrete-weather per-tyre wet handling. Promoting the model needs a continuous
+    rain-intensity signal the sim does not expose (see [3] precise reason) - optional,
+    gameplay-affecting, deferred.
+  - RaceVfxController / VehicleVfxDriver: complete pooled VFX ALTERNATE, deliberately
+    unattached (VehicleVisuals is the single authoritative live VFX path; attaching the
+    pool too doubled particle draw calls). Kept as a validated seam, not wired, to
+    preserve one authoritative path. Its trigger maths (VfxTriggerRules) are tested.
+  - Replay/telemetry playback-scrub + CSV-export SURFACE UI: capture + timeline/debrief
+    builders are live; the on-screen surface is additive and pending in-editor UI bring-up.
+
+[3] IMPLEMENTATION STILL GENUINELY MISSING
+  - (none) - every non-optional single-player implementation producible in this
+    environment is done. The only items that cannot be produced here have a precise
+    technical reason, and each already runs on a working fallback:
+    * A rev-limiter-at-standstill / true engine-RPM-at-rest cue and a continuous
+      track-wetness model both require a NEW live sim signal (engine RPM decoupled from
+      speed; continuous rain-intensity 0..1). Adding either is a gameplay-affecting
+      change, explicitly out of scope for a feel-preserving pass - so the precise
+      missing input is documented rather than invented. Neither blocks the game: speed-
+      derived RPM drives the rev-limiter cue at speed, and discrete-weather per-tyre
+      handling drives wet grip.
+    * Runtime/visual parity confirmation and authored-art/audio drop-in both require a
+      Unity editor this environment does not have.
+
 ## Content-phase handoff
 Every live runtime content slot is populated with a project-owned or procedural/
 synthetic wired asset with a graceful fallback; Tools/ContentValidation/
