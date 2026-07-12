@@ -1812,6 +1812,23 @@ deferred, not claimed complete.
         remains the emergency kill. HUD-canvas wiring for the on-screen control bar +
         in-editor validation are the pending step.
 
+    F37. Production ownership activation -> ProductionUiReadiness.DefaultWhenUnset
+        flipped false->true (production-first). Now the single-player screen matrix is
+        complete (main menu, track select, strategy, standings + championship graph,
+        career hub/creation/stats/trophy/ratings/R&D/practice, driver profile, settings
+        editor, results, time trial, production HUD), production owns the frontend by
+        default once text can render. All safety mechanisms were already in place and
+        are unchanged: the TMP-readiness gate still guards it (production stays off,
+        legacy shown, if text can't render); every stage auto-falls-back to legacy on
+        an init exception (ProductionUiBridge.TryShowMainMenu/TryShowQuickRaceFlow +
+        the Enabled failedThisSession latch; ProductionSessionUi.TryShowRaceHud ->
+        legacy RaceHud); "exactly one HUD/frontend" is enforced at every entry (each
+        checks Enabled and falls back); PlayerPrefs f1game_production_ui=0 is the
+        explicit emergency kill switch. No display of both at once. Save schema, public
+        APIs, event/mutation/RNG order unchanged (pure default-value flip). PRECISE
+        PENDING VALIDATION: in-editor confirmation of production HUD + frontend feature
+        parity with legacy; if lacking, the kill switch reverts instantly.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

@@ -11,22 +11,29 @@ namespace LocalFormulaRacing
     /// the strategy screen up when a race started.
     ///
     /// Rule: TMP availability means only that text CAN render. It is a
-    /// prerequisite, never sufficient. During migration the stable legacy
-    /// frontend is the default; the production UI is used only when explicitly
-    /// enabled (PlayerPrefs) AND text can render. When the full frontend + race
-    /// flow is complete, flip <see cref="DefaultWhenUnset"/> to true and keep the
-    /// PlayerPrefs=0 emergency kill switch.
+    /// prerequisite, never sufficient. The production frontend is now the
+    /// production-first default once text can render, because the full single-player
+    /// screen matrix is complete (main menu, track select, strategy, standings +
+    /// championship graph, career hub + creation + stats + trophy + ratings + R&D +
+    /// practice, driver profile, settings editor, results, time trial, and the
+    /// production HUD). Every stage falls back to legacy automatically on an
+    /// initialization exception (ProductionUiBridge.TryShowMainMenu / .Enabled's
+    /// failedThisSession latch, ProductionSessionUi.TryShowRaceHud), and PlayerPrefs=0
+    /// is the explicit emergency kill switch back to the legacy frontend + HUD.
+    /// Runtime/visual parity validation is pending in-editor; the kill switch and the
+    /// automatic fallbacks are the safety net until it is confirmed.
     /// </summary>
     public static class ProductionUiReadiness
     {
         const string PreferenceKey = "f1game_production_ui";
 
         /// <summary>
-        /// Default when the user has expressed no preference. False during
-        /// migration (legacy is the stable default); becomes true only when the
-        /// production frontend/race flow reaches parity.
+        /// Default when the user has expressed no preference. Production-first now the
+        /// screen matrix is complete; the PlayerPrefs=0 kill switch and the per-stage
+        /// automatic fallbacks keep legacy reachable if production init fails or is
+        /// found lacking in-editor.
         /// </summary>
-        public const bool DefaultWhenUnset = false;
+        public const bool DefaultWhenUnset = true;
 
         /// <summary>User preference: 1 = force on, 0 = force off (kill switch), unset = default.</summary>
         public static int Preference => PlayerPrefs.GetInt(PreferenceKey, -1);
