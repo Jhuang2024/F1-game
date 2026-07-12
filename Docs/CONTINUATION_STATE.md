@@ -1850,9 +1850,11 @@ DEFERRED, out of scope.
   below is **static-only / unverified**: not compiled, not tested, not run.
 - No claim of compilation, runtime, visual, test, or performance success is made.
 
-## Completion matrix (honest — unchecked = NOT the live path)
+## Completion matrix (historical — SUPERSEDED by the FINAL COMPLETION MATRIX
+## (F38) at the end of this file for the single-player scope)
 - [x] TMP import cannot activate incomplete UI
-- [ ] Production UI is default (intentionally opt-in until full parity)
+- [~] Production UI is default (F37 flipped DefaultWhenUnset=true; Unity-validation
+      pending, kill switch + auto-fallback retained)
 - [ ] Full frontend migrated / [ ] career UI / [ ] race-weekend UI / [ ] settings+a11y UI
 - [ ] Production HUD parity / [ ] legacy HUD removed
 - [ ] Authored tracks default / [ ] every track migrated / [ ] procedural track removed
@@ -1993,3 +1995,167 @@ penalty, matching StartProcedureRules.PenaltySeconds.
   reliability) - each needs live playtest feedback per change; this session
   showed autonomous rewrites of user-tuned behaviour cause regressions, so ship
   small, verify with the user, then continue.
+
+# ============================================================
+# FINAL SINGLE-PLAYER COMPLETION PASS (F38) - authoritative close
+# ============================================================
+# This section supersedes the older checkbox matrices above for the
+# single-player scope. It is the end deliverable of the final repository-wide
+# completion directive: a completion matrix with ONLY three statuses, plus the
+# external-asset manifest for content code cannot generate. The environment is
+# static-review-only (no compiler, no editor, no GPU) - "LIVE" below means the
+# code path is wired and reached, verified by static reasoning, NOT that it has
+# been compiled or run. Runtime/visual confirmation is the pending in-editor step
+# for everything in the second bucket.
+
+## F38. Final audit result: NO remaining environment-producible code gap.
+Exhaustive sweep for the directive's audit list found nothing left to safely
+implement by static reasoning:
+- Feature switches: all classified (see table below). No default-off switch
+  guards a completed-and-superseded path that should flip.
+- LeaveToLegacy routes: every one is a legitimate emergency fallback for a now-
+  default-on production path (career-creation/settings) or a gameplay/setup
+  handoff - none is a dead route.
+- Presenters/screens: all 15 production presenters are BOTH built (ShowAndGet in
+  ProductionUiBridge.EnsureShell) AND reached (Router.Show + CareerHub buttons).
+  No unreached screen, no consumer-less service.
+- Save-mutating UI: NONE bypass CareerManager. Every career.* call in the bridge
+  is a READ; all mutations route to the existing CareerManager.Try*/Start/Abandon
+  authority (command-adapter pattern). No duplicate live mutation owner.
+- Asset loading: every Resources.Load path has a graceful runtime fallback
+  (MaterialLibrary->runtime material, RaceVolumeService->runtime profile,
+  UiTheme->CreateInstance default, AudioBankService->legacy generated cue,
+  LocalizationLoader->English, UiShell->UiScreenFactory runtime build). None
+  aborts a flow on a missing asset.
+- Capture services: ReplayCaptureService.Begin / TelemetryCaptureService.Begin
+  both reset internal state before reallocation - no stale-state leak across
+  repeated sessions.
+- TODO/FIXME/stub/empty-handler/NotImplemented sweep: exactly ONE TODO remains
+  (RuntimeUi.cs:4503, a documented barrier-fix deferral awaiting a
+  TrackManager/RaceManager accessor - not an implementation gap), zero stubs,
+  zero empty handlers, zero NotImplementedException.
+Tree clean, all pushed. This is therefore the closing documentation deliverable,
+not a substitute for available implementation work - there is none left that is
+safe to do without a compiler.
+
+## Feature-switch classification (every single-player switch)
+- f1game_production_ui        PRODUCTION DEFAULT (DefaultWhenUnset=true) +
+                              emergency kill switch (=0). TMP-gated, auto-fallback.
+- f1game_production_career_creation  PRODUCTION DEFAULT (=1). Kill switch (=0)->legacy.
+- f1game_production_settings_editor  PRODUCTION DEFAULT (=1). Kill switch (=0)->legacy.
+- f1game_cinemachine / f1game_input_system   LIVE BACKENDS default-on. Kill switches.
+- f1game_cinematic_director   VALIDATION-GATED alternate (default off): camera-only
+                              cinematic modes, wired + reachable, awaiting in-editor
+                              validation of the on-screen control bar. Kill switch.
+- f1game_replay_camera / _broadcast_camera / _spectator_camera / _photo_mode
+                              VESTIGIAL under the CinematicDirector umbrella but
+                              HARMLESS - left in place (removing them is cosmetic
+                              churn with no live benefit and small regression risk
+                              pre-validation). Classified obsolete-but-retained.
+- f1game_authored_track / f1game_dirty_air   VALIDATION-GATED alternates (default
+                              off): live select call exists, awaiting in-editor A/B.
+- f1game_replay_capture / _telemetry_capture / _replay_export / _telemetry_csv_export
+                              LIVE capture default-on; export UI is Unity-pending.
+- f1game_language (string)    LIVE: loaded at startup, default "en".
+
+## FINAL COMPLETION MATRIX (three statuses only)
+
+### [A] COMPLETE AND LIVE (wired, reached, engine-free where testable)
+- Engine-free rule/geometry/eligibility cores WITH live consumers:
+  ChampionshipPoints, QualifyingProgression, RaceClassifier, PenaltyRules,
+  PitRequestRules (live in race control); ChampionshipChart geometry (live in the
+  championship chart presenter); RndEligibility (live for R&D button state);
+  CarDevelopmentRules (live in CareerManager R&D); AccessibilityPalette,
+  LiveryGenerator, CarVisualCurves, EngineAudioMix, RaceAudioCues (live in the
+  respective render/audio/customization seams).
+- Localization: file-load path live at startup (en default; zz QA locale exercises
+  the non-fallback path).
+- Live capture: replay + telemetry captured every session, each with a pure
+  in-game consumer (BuildReplayTimeline / BuildTelemetryDebrief).
+- Live physics/AI rule wiring done this run: FlagRules, StartProcedureRules,
+  PitLaneRules/PitCoordinator, AI strategy rules, PhysicsModels aero/ERS (tasks
+  #1-#6, all committed).
+- Command-adapter career mutations: all production career screens issue commands
+  to the sole CareerManager authority.
+
+### [B] COMPLETE BUT UNITY-VALIDATION PENDING (code wired; needs in-editor confirm)
+- Production UI frontend + HUD as the production-first default (F37): full screen
+  matrix built at runtime via UiScreenFactory; needs visual/feature parity check
+  vs legacy. Kill switch + per-stage auto-fallback are the safety net until then.
+- CinematicDirector session integration (F36): camera-only modes wired into the
+  live lifecycle, single-camera-writer guarantee, deterministic teardown; needs
+  in-editor validation + HUD control-bar canvas.
+- Structural models with a documented validation-gated activation path but no live
+  consumer yet (intentionally NOT competing with the tuned live seam):
+  BrakeThermalModel, TrackWetnessModel (F34 and earlier) - complete, tested,
+  engine-free; live brake-glow/wetness feel stays authoritative until an in-editor
+  A/B says otherwise.
+- Authored-track adapter + dirty-air (validation-gated alternates): live select
+  call exists; needs in-editor A/B before default-on.
+- Replay/telemetry SURFACE (playback-scrub UI, debrief panel, CSV-export button):
+  cores + capture are live; the on-screen UI needs Unity scenes/prefabs.
+
+### [C] BLOCKED ON EXTERNAL ASSET / CONTENT (code path ready, real content absent)
+See the manifest below. In every case the runtime slot has a project-owned,
+procedural, synthetic or clearly-fictional fallback, so the game runs; shipping
+quality needs the authored asset dropped at the stated path.
+
+## EXTERNAL-ASSET MANIFEST (content code cannot generate)
+Every entry: the code path + fallback already exist; only the authored file is
+missing. Paths are relative to Assets/.
+
+1. Real translation tables (ship a language)
+   Path:     Resources/Localization/<lang>.txt  (e.g. fr.txt, de.txt, es.txt)
+   Format:   UTF-8 key=value lines, one per line; {0}/{1} format placeholders
+             preserved (same schema as Resources/Localization/en.txt).
+   Import:   TextScriptImporter (default .txt). No special settings.
+   Consumer: LocalizationLoader.LoadLanguage(PlayerPrefs "f1game_language").
+   Fallback: en.txt template + guillemet-wrapped zz.txt QA locale (fictional).
+
+2. Authored engine/tyre/ambience audio (final race soundscape)
+   Path:     Resources/Audio/Banks/<bank>.asset (AudioBank ScriptableObject) +
+             the referenced AudioClip .wav/.ogg files under Assets/Audio/.
+   Format:   16-bit PCM WAV or Vorbis OGG; looped engine layers per RPM band as
+             defined by EngineAudioMix; one-shots per RaceAudioCues cue id.
+   Import:   AudioImporter - engine loops: Decompress On Load / Loop=true / Mono
+             or Stereo per layer; one-shots: Compressed In Memory. Preload as the
+             bank is loaded at session start.
+   Consumer: AudioBankService.Bank -> SimpleAudioManager.
+   Fallback: runtime-generated procedural cue (playable, obviously synthetic).
+
+3. Final car livery / bodywork art + materials
+   Path:     Materials/Liveries/<team>.mat + car body textures under
+             Textures/Car/ (albedo/normal/metallic-smoothness).
+   Format:   URP Lit materials; textures PNG/TGA, power-of-two, sRGB albedo /
+             linear normal+mask.
+   Import:   TextureImporter - albedo sRGB on, normal map type for the normal,
+             mask map linear; mipmaps on.
+   Consumer: MaterialLibrary.Get(team) / LiverySelection; livery colours already
+             drive from LiveryGenerator.
+   Fallback: procedural LiveryGenerator material (per-team hue, runtime).
+
+4. Authored track meshes / environment art (per circuit)
+   Path:     Prefabs/Tracks/<trackId>.prefab + meshes under Models/Tracks/.
+   Format:   FBX meshes with a drivable road collider layer, kerbs, run-off,
+             scenery LODs; ITrackQuery-compatible layout data.
+   Import:   ModelImporter - Read/Write as needed for the collider, generate
+             lightmap UVs off (runtime lit), scale 1.
+   Consumer: authored TrackQueryProvider path (f1game_authored_track); default
+             is the procedural TrackManager.Build.
+   Fallback: procedural TrackManager (all 24 calendar layouts generated).
+
+5. Baked UI screen prefabs (optional performance/art pass)
+   Path:     Resources/UI/Screens/<ScreenName>.prefab
+   Format:   uGUI prefab matching each ScreenView's expected child hierarchy.
+   Import:   default prefab import.
+   Consumer: UiShell.RegisterScreen prefers a baked Resources prefab if present.
+   Fallback: UiScreenFactory.Build* constructs every screen at runtime (LIVE now -
+             no baked prefab exists, so the runtime build is the active path).
+
+## Handoff
+The single-player codebase is, by static reasoning, complete for this
+environment. The remaining work is (1) in-editor validation of bucket [B] and
+(2) dropping the authored assets of bucket [C] at the stated paths - both require
+a Unity editor this environment does not have. Multiplayer (Phase N) remains
+deferred and out of scope. main untouched; all work on
+claude/read-and-complete-ipelrl.
