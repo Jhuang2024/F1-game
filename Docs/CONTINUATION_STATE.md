@@ -2345,6 +2345,32 @@ claude/read-and-complete-ipelrl.
     the prerequisite for a rev-limiter audio cue; engine "rpm" is currently speed-
     derived, so the cue is deferred rather than faked on feel-sensitive audio.
 
+    C8. Second closure sweep - remaining zero-consumer classes resolved. A
+        repository-wide scan for public model/rules classes with no external consumer
+        (beyond own file + tests) found three: TrackWetnessModel (already handled, C7),
+        ReplaySerialization, and LiverySelection.
+        - ReplaySerialization -> WIRED to a real consumer. The replay-export feature
+          (f1game_replay_export, default off) previously wrote only the marker-summary
+          CSV (ReplayExport.MarkersToCsv) - the actual captured recording (per-frame car
+          poses) was never persisted. RaceManager.Debrief.LogReplaySummary now also
+          writes the full replay via ReplaySerialization.ToText to
+          replay_<track>.replay.txt alongside the CSV, under the SAME opt-in switch.
+          This completes the export feature (the export now contains the replay, not
+          just a summary) and the file round-trips (ReplaySerialization.FromText, covered
+          by the existing ReplaySerializationTests) for a future load/viewer. One
+          authoritative path, opt-in, no new surface, no save-schema/API/RNG change.
+        - LiverySelection -> PRECISE REASON documented (optional-feature infra, not a
+          non-optional gap). It resolves a STORED custom-livery selection
+          (preset/custom/generated) to a CarLivery. There is no customization/garage/
+          create-a-team surface anywhere, and the player's car authentically uses the
+          TEAM livery (team.PrimaryUnityColor/SecondaryUnityColor at RaceManager.Grid) -
+          already distinct and never blank. Wiring LiverySelection into the spawn would
+          require either a new custom-livery UI + persisted selection key (a new optional
+          feature, out of scope) or defaulting the player car to a GENERATED livery,
+          which would REGRESS the correct team colours. So it stays complete, tested
+          (CarLiveryTests) engine-free infra for an optional create-a-team feature whose
+          surface is deliberately not built. Not a required single-player gap.
+
 ## FINAL CLOSURE LIST (implementation closure pass)
 # Three categories only. "Live" = wired + reached, verified by static reasoning
 # (no compiler here); runtime confirmation is the pending in-editor step.
@@ -2354,6 +2380,8 @@ claude/read-and-complete-ipelrl.
     shift schedule) + RevLimiterGate, wired player-only in RaceHud (C6).
   - Brake-disc-temperature telemetry channel via BrakeThermalModel, stepped in
     TelemetryCaptureService and exported to CSV (C7) - the model now has a real consumer.
+  - Full-replay text export via ReplaySerialization.ToText, wired into the existing
+    replay-export feature so the export contains the actual recording (C8).
   - ERS-deploy cue (C3); language selector -> LocalizationLoader (C1); procedural
     surface textures for all 21 MaterialLibrary slots (C2).
   - All prior live systems: production UI frontend/HUD (default), cinematic director,
@@ -2375,6 +2403,12 @@ claude/read-and-complete-ipelrl.
     unattached (VehicleVisuals is the single authoritative live VFX path; attaching the
     pool too doubled particle draw calls). Kept as a validated seam, not wired, to
     preserve one authoritative path. Its trigger maths (VfxTriggerRules) are tested.
+  - LiverySelection: complete engine-free custom-livery resolver, tested, for an
+    optional create-a-team/customization feature with no built surface. Not wired
+    because the player authentically uses the (distinct, non-blank) TEAM livery;
+    defaulting to it would regress team colours (C8). Ready for a future customization UI.
+  - ReplaySerialization.FromText (replay load): tested round-trip, ready for a future
+    replay-load/viewer surface (Unity-pending UI); the ToText export half is live (C8).
   - Replay/telemetry playback-scrub + CSV-export SURFACE UI: capture + timeline/debrief
     builders are live; the on-screen surface is additive and pending in-editor UI bring-up.
 

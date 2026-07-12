@@ -87,6 +87,15 @@ namespace LocalFormulaRacing
                 string path = System.IO.Path.Combine(Application.persistentDataPath, "replay_" + trackId + ".csv");
                 System.IO.File.WriteAllText(path, csv);
                 GameLog.Info(LogCategory.Race, "[Replay] timeline CSV exported: " + path);
+
+                // Also persist the FULL replay (per-frame car poses) in the round-trip
+                // text format, so the export contains the actual recording - not just the
+                // marker summary - and can be reloaded later (ReplaySerialization.FromText).
+                // Same opt-in switch, track-named so reruns overwrite.
+                string replayText = F1Game.Race.ReplaySerialization.ToText(ReplayRecording);
+                string replayPath = System.IO.Path.Combine(Application.persistentDataPath, "replay_" + trackId + ".replay.txt");
+                System.IO.File.WriteAllText(replayPath, replayText);
+                GameLog.Info(LogCategory.Race, "[Replay] full replay exported: " + replayPath);
             }
         }
 
