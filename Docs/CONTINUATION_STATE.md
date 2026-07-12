@@ -2189,3 +2189,31 @@ claude/read-and-complete-ipelrl.
         is non-fatal (pref persisted, English fallbacks render). The runtime load
         path (GameBootstrap -> LoadLanguage at boot) already existed and is
         unchanged. Every shipped table now has a real runtime loading path.
+
+    C2. Materials/textures: project-owned procedural source textures for every
+        MaterialLibrary slot, wired through the existing registry. The 21
+        BaseMaterials placeholder .mat files were flat URP/Lit colours with no
+        maps (m_TexEnvs: []); now MaterialLibrary.Get() enriches each slot's shared
+        material with a category-appropriate procedural albedo texture + metallic/
+        smoothness/emission. New engine-light deterministic pattern maths
+        (F1Game.Core.ProceduralPatterns: hash/value-noise/fbm/stripes/weave/
+        panel-seam/chain-link, pure functions, no Random/time, all [0,1]) +
+        F1Game.Rendering.ProceduralSurfaceTextures (per-slot Profile -> 128x128
+        RGBA Texture2D, cached; Enrich(material, slot)). Categories covered: car
+        paint (near-white base so per-instance livery tint multiplies true),
+        carbon-fibre twill weave, rubber, brushed metal, glass, decal, emissive,
+        asphalt/wet-asphalt/rubbered-line, painted line, red/white kerb stripes,
+        concrete/pit-concrete/garage-floor panels, gravel, grass, artificial turf,
+        corrugated metal barrier, tyre-wall bands, chain-link fencing. Single
+        authoritative path: Enrich is a no-op once a slot's .mat carries a real
+        mainTexture (authored set supersedes procedural) and once-per-slot guarded;
+        any failure leaves the flat placeholder. Real live consumer: TrackMeshBuilder
+        -> Asphalt (authored-track path) + editor CarPrefabBuilder; the runtime
+        fallback path (missing slot) now also renders as its surface category.
+        Documented shader/texture inputs in the file header (URP/Lit or Standard via
+        ShaderCompat: _MainTex, _BaseColor, _Metallic, _Smoothness/_Glossiness,
+        _EmissionColor). Engine-free tests: ProceduralPatternsTests (determinism,
+        range bounds, shape invariants, degenerate-count safety). The live legacy
+        car/track builders (CarVisualFactory, TrackManager) already generate their
+        own procedural textures and are left as the authoritative live path there -
+        no competing/parallel system introduced.

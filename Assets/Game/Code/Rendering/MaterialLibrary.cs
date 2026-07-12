@@ -41,6 +41,11 @@ namespace F1Game.Rendering
                 material.name = "M_" + slot + "_RuntimeFallback";
             }
 
+            // Give the flat placeholder (or runtime fallback) a project-owned procedural
+            // albedo + PBR values so every slot renders as its real surface category, not
+            // untextured colour. No-op once a real authored texture set is dropped in.
+            ProceduralSurfaceTextures.Enrich(material, slot);
+
             cache[slot] = material;
             return material;
         }
