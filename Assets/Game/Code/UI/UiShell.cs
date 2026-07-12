@@ -56,12 +56,26 @@ namespace F1Game.UI
         /// </summary>
         public static bool TextPipelineReady()
         {
-            if (UiTheme.Active.typography.regular != null)
+            // This is the gate that keeps the production UI off until text can render.
+            // It must NEVER throw: TMP_Settings.defaultFontAsset throws a
+            // NullReferenceException (rather than returning null) when TMP Essentials
+            // have not been imported, and UiTheme/typography may be a bare default. Any
+            // failure here means text cannot render yet, so we report not-ready and the
+            // legacy frontend is shown instead of crashing bootstrap.
+            try
             {
-                return true;
-            }
+                UiTheme theme = UiTheme.Active;
+                if (theme != null && theme.typography != null && theme.typography.regular != null)
+                {
+                    return true;
+                }
 
-            return TMP_Settings.defaultFontAsset != null;
+                return TMP_Settings.defaultFontAsset != null;
+            }
+            catch (System.Exception)
+            {
+                return false;
+            }
         }
 
         public static UiShell Create()
