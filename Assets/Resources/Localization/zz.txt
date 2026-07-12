@@ -1,0 +1,33 @@
+# F1 Game - "zz" QA / test locale (CLEARLY FICTIONAL PLACEHOLDER, not a real language).
+#
+# Purpose: exercise the real translation-file load path end-to-end
+# (PlayerPrefs "f1game_language" = "zz" -> LocalizationLoader.LoadLanguage("zz")
+# -> Resources.Load<TextAsset>("Localization/zz") -> Localization.LoadFromText),
+# which the English source (call-site fallbacks) and the runtime-generated
+# pseudo-locale never touch. Every value is the English text wrapped in guillemets
+# so a loaded, non-fallback table is obviously in effect on screen and any missing
+# key is equally obvious (it falls back to plain English). Format placeholders
+# ({0}, {1}) are preserved so GetFormat still fills them.
+#
+# Replace this file with a real translation to ship a language; keep the same keys.
+
+hud.lap=«LAP»
+hud.moment.final_lap=«FINAL LAP»
+hud.moment.green_flag=«GREEN FLAG»
+hud.moment.lights_out=«LIGHTS OUT»
+hud.moment.track_limits=«TRACK LIMITS»
+lap.counter=«LAP {0}/{1}»
+screen.careerhub.title=«CAREER»
+screen.driverprofile.title=«DRIVER PROFILE»
+screen.settings.title=«SETTINGS»
+screen.standings.title=«CHAMPIONSHIP STANDINGS»
+screen.strategy.title=«RACE STRATEGY»
+screen.trackselect.title=«SELECT CIRCUIT»
+session.practice=«PRACTICE»
+session.qualifying=«QUALIFYING»
+session.race=«RACE»
+session.time_trial=«TIME TRIAL»
+settings.heading.audio=«AUDIO»
+settings.heading.display=«DISPLAY & ACCESSIBILITY»
+settings.heading.driving=«DRIVING»
+settings.heading.gameplay=«GAMEPLAY»

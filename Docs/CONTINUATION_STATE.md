@@ -1780,6 +1780,17 @@ deferred, not claimed complete.
         heating, airflow cooling, the ambient floor, the max clamp, the zero-dt no-op,
         and the glow ramp.
 
+    F35. Localization content: clearly-fictional "zz" QA/test locale file
+        (Resources/Localization/zz.txt). Exercises the real translation-FILE load
+        path end-to-end (PlayerPrefs f1game_language="zz" -> LoadLanguage("zz") ->
+        Resources.Load<TextAsset> -> LoadFromText) which the English source fallbacks
+        and the runtime-generated pseudo-locale never touch. Every value is the English
+        wrapped in guillemets so a loaded non-fallback table is obviously in effect and
+        a missing key is equally obvious ({0}/{1} placeholders preserved for GetFormat).
+        Clearly labelled placeholder - swap for a real translation to ship a language.
+        Localization was already wired at startup (GameBootstrap loads f1game_language,
+        default en); this just gives the file path real content to load.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
