@@ -2235,3 +2235,21 @@ claude/read-and-complete-ipelrl.
         fallback (SimpleAudioManager CreateTone/Sweep/Chord/Noise), each of which
         first checks the audio bank (AudioBankService.Resolve) so an authored clip
         transparently supersedes - complete + wired, no consumer-less slots.
+
+    C4. Content validation tool (Tools/ContentValidation/validate_content.py):
+        a standalone, re-runnable static validator (no Unity needed) that reports the
+        directive's checklist and exits non-zero on hard errors. Covers: localization
+        (every table has all en keys, no dup/empty, placeholder parity, untranslated-
+        value count), materials (every MaterialLibrary.Slot has a procedural profile +
+        a placeholder .mat), audio (inventory of synthetic cue generators; confirms
+        each cue id resolves to a generator fallback), liveries (every team in
+        teams.json has a valid, distinct primary/secondary colour + readable id/name),
+        and asset integrity (duplicate GUIDs = hard fail; missing SCRIPT .meta = hard
+        fail since script GUIDs must be stable; non-script path-loaded assets without a
+        committed meta = warn; folder-metas for git-dropped empty dirs are not
+        orphans). Current run: RESULT PASS, 0 FAIL, 1 WARN (Fonts/OFL.txt license text
+        is path-adjacent, not loaded - the whole Fonts folder is committed without
+        metas by existing convention and works via Resources path loading). The tool
+        validated all of C1-C3: 7 locale tables x 87 keys, 21 material slots, 27 audio
+        cue generators incl. the new "ers deploy", 11 distinct team liveries, 510
+        metas with no duplicate GUIDs.
