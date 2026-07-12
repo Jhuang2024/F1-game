@@ -1,3 +1,5 @@
+using F1Game.Core.Diagnostics;
+
 namespace LocalFormulaRacing
 {
     /// <summary>

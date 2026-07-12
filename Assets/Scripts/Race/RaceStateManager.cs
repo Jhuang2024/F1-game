@@ -239,12 +239,6 @@ namespace LocalFormulaRacing
             SortRunningOrder();
         }
 
-        public float GetOverallBestSector(int sector)
-        {
-            if (sector < 1 || sector > 3) return 0f;
-            return overallBestSectors[sector - 1];
-        }
-
         public bool IsPurpleSector(int sector, float time)
         {
             if (sector < 1 || sector > 3 || time <= 0f) return false;

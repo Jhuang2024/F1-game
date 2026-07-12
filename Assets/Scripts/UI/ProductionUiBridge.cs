@@ -1580,8 +1580,6 @@ namespace LocalFormulaRacing
 
         public static bool ProductionSettingsEditorEnabled => PlayerPrefs.GetInt(ProductionSettingsEditorKey, 1) != 0;
 
-        static readonly string[] CompoundNames = { "Soft", "Medium", "Hard", "Intermediate", "Wet" };
-
         // Every editable setting as an interactive field: id, label, value, and whether
         // each adjust control applies. Ids are matched in AdjustSettingField.
         static void BuildEditorFields(SettingsModel model, GameSettingsData s)

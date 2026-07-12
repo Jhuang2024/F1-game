@@ -93,6 +93,19 @@ namespace F1Game.UI
             return (RectTransform)go.transform;
         }
 
+        static RectTransform CreateRect(Transform parent, string name, Vector2 anchorMin, Vector2 anchorMax,
+            Vector2 offsetMin, Vector2 offsetMax)
+        {
+            var go = new GameObject(name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var rect = (RectTransform)go.transform;
+            rect.anchorMin = anchorMin;
+            rect.anchorMax = anchorMax;
+            rect.offsetMin = offsetMin;
+            rect.offsetMax = offsetMax;
+            return rect;
+        }
+
         public static ThemedButton CreateButton(Transform parent, string name, ThemedButton.Variant variant, string text, float height = 0f)
         {
             UiTheme theme = UiTheme.Active;
