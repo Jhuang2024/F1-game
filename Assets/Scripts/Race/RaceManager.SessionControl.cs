@@ -47,6 +47,9 @@ namespace LocalFormulaRacing
 
         public void CleanupRaceWorld()
         {
+            // Restore the gameplay camera + any frozen time BEFORE the world is torn
+            // down (the director is a child of raceWorld and is destroyed with it).
+            TeardownCinematicDirector();
             TrackQueryProvider.Clear();
             Time.timeScale = 1f;
             IsPaused = false;

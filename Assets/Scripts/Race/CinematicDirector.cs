@@ -51,9 +51,28 @@ namespace LocalFormulaRacing
 
         Mode current = Mode.Live;
         bool configured;
+        // Replay repositions the car transforms to recorded poses, which would corrupt
+        // an actively-simulating race - so a live-race host disables it and only the
+        // camera-only modes (spectator/broadcast/photo) are reachable. Default on for
+        // dedicated replay-viewing hosts.
+        bool replayAllowed = true;
+
+        // Keys that cycle modes / return to live when no HUD bar is present.
+        [SerializeField] KeyCode cycleKey = KeyCode.F8;
+        [SerializeField] KeyCode liveKey = KeyCode.F7;
 
         public Mode CurrentMode => current;
         public bool IsCinematic => current != Mode.Live;
+
+        /// <summary>Allow/forbid replay mode. A live race forbids it (replay moves cars).</summary>
+        public void SetReplayAllowed(bool allowed)
+        {
+            replayAllowed = allowed;
+            if (!allowed && current == Mode.Replay)
+            {
+                ReturnToLive();
+            }
+        }
 
         /// <summary>
         /// Wire the director to a session. <paramref name="cars"/> are the per-index car
@@ -115,12 +134,61 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Replay is refused while disallowed (live race) so it can never reposition
+            // simulating cars.
+            if (mode == Mode.Replay && !replayAllowed)
+            {
+                return;
+            }
+
             Exit(current);
             current = mode;
             Enter(mode);
         }
 
         public void ReturnToLive() => SetMode(Mode.Live);
+
+        /// <summary>Advance to the next available mode (skips replay when it is disallowed).</summary>
+        public void CycleMode()
+        {
+            if (!configured)
+            {
+                return;
+            }
+
+            int next = (int)current;
+            for (int step = 0; step < 5; step++)
+            {
+                next = (next + 1) % 5;
+                var candidate = (Mode)next;
+                if (candidate == Mode.Replay && !replayAllowed)
+                {
+                    continue;
+                }
+
+                SetMode(candidate);
+                return;
+            }
+        }
+
+        void Update()
+        {
+            // Keyboard entry when no HUD control bar is wired. Only switches the camera
+            // owner - it never touches race state.
+            if (!configured)
+            {
+                return;
+            }
+
+            if (Input.GetKeyDown(cycleKey))
+            {
+                CycleMode();
+            }
+            else if (Input.GetKeyDown(liveKey))
+            {
+                ReturnToLive();
+            }
+        }
 
         void Enter(Mode mode)
         {

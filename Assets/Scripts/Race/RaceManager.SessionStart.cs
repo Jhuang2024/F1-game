@@ -190,6 +190,11 @@ namespace LocalFormulaRacing
             }
 
             LogPlayerSpawnPhysics();
+
+            // Cinematic camera integration (default-off; camera-only modes during a
+            // live race). Created last so the grid + player camera already exist, and
+            // parented to raceWorld so it tears down with the session.
+            SetupCinematicDirector();
         }
 
     }

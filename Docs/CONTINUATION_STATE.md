@@ -1791,6 +1791,27 @@ deferred, not claimed complete.
         Localization was already wired at startup (GameBootstrap loads f1game_language,
         default en); this just gives the file path real content to load.
 
+    F36. Cinematic session integration -> CinematicDirector wired into the live
+        RaceManager lifecycle (default-off, camera-only during a live race). New
+        RaceManager.Cinematic.cs partial: SetupCinematicDirector() runs at the end of
+        StartSession (after the grid + player camera exist), creates the director as a
+        CHILD of raceWorld (so it is destroyed with the world on CleanupRaceWorld - no
+        camera/listener/state/UI leak across repeated sessions), and Configures it with
+        the live car transforms, the player camera (new CameraRig.Camera accessor), the
+        live ReplayRecording, and a liveCameraSink that toggles playerCameraRig.enabled
+        so exactly ONE camera writer is active (the rig in Live, one sub-controller
+        otherwise). SetReplayAllowed(false) FORBIDS replay during a live race (replay
+        repositions simulating cars) - only the camera-only spectator/broadcast/photo
+        modes are reachable; SetMode/CycleMode refuse replay while disallowed.
+        CinematicDirector gains CycleMode + keyboard entry (F8 cycle / F7 live) so it is
+        usable without a HUD bar; the mode switch only moves the camera, never race
+        state. CleanupRaceWorld calls TeardownCinematicDirector() first
+        (ReturnToLive restores the rig + any frozen time deterministically) before the
+        world is destroyed; setup is try/guarded so any failure leaves the gameplay
+        camera untouched (automatic fallback). Feature switch f1game_cinematic_director
+        remains the emergency kill. HUD-canvas wiring for the on-screen control bar +
+        in-editor validation are the pending step.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

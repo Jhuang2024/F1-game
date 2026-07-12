@@ -32,6 +32,9 @@ namespace LocalFormulaRacing
         Camera followCamera;
         Rigidbody targetBody;
         VehicleController targetVehicle;
+
+        /// <summary>The gameplay camera this rig drives (null until Initialize). Read-only accessor.</summary>
+        public Camera Camera => followCamera;
         // When the Cinemachine backend is live, this director drives the camera
         // and CameraRig becomes a thin compatibility wrapper: it stops moving the
         // transform and forwards mode-cycling, impulses, shake scale and look-back.
