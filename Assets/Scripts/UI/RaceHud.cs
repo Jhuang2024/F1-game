@@ -209,6 +209,7 @@ namespace LocalFormulaRacing
         UiBigFlash bigFlash;
         bool lightsWereVisible;
         string previousDrsState = "";
+        bool previousErsDeploying;
         float drsFlashTimer;
         float slowUpdateTimer;
         Text hint;
@@ -1533,6 +1534,16 @@ namespace LocalFormulaRacing
             }
 
             previousDrsState = drsState;
+
+            // ERS deploy stinger: play once on the rising edge of the player's
+            // deployment (car is the player HUD subject). Non-spammy - one cue per
+            // deploy start, not per frame while deploying.
+            if (car != null && car.ErsDeploying && !previousErsDeploying)
+            {
+                SimpleAudioManager.PlayErsDeploy();
+            }
+
+            previousErsDeploying = car != null && car.ErsDeploying;
             drsFlashTimer = Mathf.Max(0f, drsFlashTimer - Time.deltaTime);
 
             if (drsState == "ACTIVE")

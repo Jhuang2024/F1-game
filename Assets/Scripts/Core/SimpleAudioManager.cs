@@ -47,6 +47,11 @@ namespace LocalFormulaRacing
         AudioClip collisionCarClip;
         AudioClip collisionWallClip;
         AudioClip drsClip;
+        // ERS deployment: a short rising electric whine played once when the player's
+        // battery starts deploying (edge-triggered in the HUD, player-only so a 22-car
+        // grid does not stack the cue). Synthetic placeholder; an authored clip in the
+        // bank (slot "ers deploy") supersedes it via CreateSweep's Resolve.
+        AudioClip ersDeployClip;
         // Pit-stop tyre-change cues: a rattling "wheel gun" burst per corner,
         // a lower thud for the car dropping off the jacks, and a rising sweep
         // for the release/limiter-still-on departure.
@@ -219,6 +224,15 @@ namespace LocalFormulaRacing
             }
         }
 
+        // One-shot when the player's ERS begins deploying (edge-triggered by the HUD).
+        public static void PlayErsDeploy()
+        {
+            if (instance != null && instance.enabledAudio && instance.ersDeployClip != null)
+            {
+                instance.oneShotSource.PlayOneShot(instance.ersDeployClip, 0.14f * instance.EngineVolume);
+            }
+        }
+
         // Every race-control text callout that matters for atmosphere routes
         // through here via PostEngineerMessage's cue parameter. Throttled by a
         // single shared cooldown so a burst of several messages firing in the
@@ -353,6 +367,7 @@ namespace LocalFormulaRacing
             resultsFlourishClip = CreateChord("results flourish", new[] { 523.25f, 659.25f, 783.99f }, 0.6f);
             shiftClip = CreateTone("gear shift", 520f, 0.07f, 0.6f);
             drsClip = CreateTone("drs available", 1320f, 0.08f, 0.55f);
+            ersDeployClip = CreateSweep("ers deploy", 320f, 1500f, 0.32f);
             collisionCarClip = CreateNoise("car contact", 0.1f, 1600f);
             collisionWallClip = CreateNoise("wall contact", 0.16f, 340f);
             pitGunClip = CreateNoise("pit wheel gun", 0.22f, 2400f);

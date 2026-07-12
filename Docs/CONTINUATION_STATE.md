@@ -2217,3 +2217,21 @@ claude/read-and-complete-ipelrl.
         car/track builders (CarVisualFactory, TrackManager) already generate their
         own procedural textures and are left as the authoritative live path there -
         no competing/parallel system introduced.
+
+    C3. Audio: added the missing ERS-deploy cue (synthetic, wired live). The audio
+        map found rev-limiter and ERS were the only intended cues with no sound
+        anywhere. ERS now has one: SimpleAudioManager.PlayErsDeploy() plays a short
+        synthetic rising electric whine (CreateSweep "ers deploy" 320->1500 Hz;
+        an authored bank clip at slot "ers deploy" supersedes it), edge-triggered
+        in RaceHud.UpdateStatePills on the rising edge of the PLAYER's
+        VehicleController.ErsDeploying (player-only + one-shot-per-deploy, so a
+        22-car grid never stacks the cue). This mirrors the existing DRS-available
+        one-shot pattern and is purely additive - it does not touch the engine
+        loop or any feel-tuned value. Rev-limiter is deliberately NOT faked: the
+        engine "rpm" is derived from speed (there is no per-gear RPM/limiter model),
+        so a limiter cue would invent behaviour on feel-sensitive engine audio;
+        it is classified as needing a structural RPM model, not a content asset.
+        Every other runtime cue id already resolves to a synthetic generator
+        fallback (SimpleAudioManager CreateTone/Sweep/Chord/Noise), each of which
+        first checks the audio bank (AudioBankService.Resolve) so an authored clip
+        transparently supersedes - complete + wired, no consumer-less slots.
