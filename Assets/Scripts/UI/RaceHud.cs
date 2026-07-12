@@ -210,6 +210,7 @@ namespace LocalFormulaRacing
         bool lightsWereVisible;
         string previousDrsState = "";
         bool previousErsDeploying;
+        readonly F1Game.Race.Physics.RevLimiterGate revLimiterGate = new F1Game.Race.Physics.RevLimiterGate();
         float drsFlashTimer;
         float slowUpdateTimer;
         Text hint;
@@ -1544,6 +1545,22 @@ namespace LocalFormulaRacing
             }
 
             previousErsDeploying = car != null && car.ErsDeploying;
+
+            // Rev-limiter stinger: reconstruct an audio-only normalized RPM from the
+            // player's live speed + gear against the authoritative shift schedule, then
+            // let the hysteresis+dwell gate fire the cue once per sustained engagement
+            // (a momentary upshift touch never fires). Presentation-only - reads speed
+            // and gear, changes nothing about the car.
+            if (car != null)
+            {
+                float rpm01 = F1Game.Race.Physics.AudioRpmModel.NormalizedRpm(
+                    car.CurrentSpeedKph, car.CurrentGear, VehicleController.AutoShiftUpSchedule);
+                if (revLimiterGate.Update(rpm01, Time.deltaTime))
+                {
+                    SimpleAudioManager.PlayRevLimiter();
+                }
+            }
+
             drsFlashTimer = Mathf.Max(0f, drsFlashTimer - Time.deltaTime);
 
             if (drsState == "ACTIVE")

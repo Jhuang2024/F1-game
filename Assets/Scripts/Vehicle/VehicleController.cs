@@ -254,6 +254,12 @@ namespace LocalFormulaRacing
         // reach it.
         const float ErsTopSpeedBonusKph = 30f;
         static readonly float[] AutoShiftUpKph = { 0f, 62f, 102f, 142f, 186f, 232f, 282f, 322f };
+
+        // Read-only view of the authoritative auto-shift speed schedule (index g = the
+        // speed at which gear g upshifts). Exposed for the presentation-only audio RPM
+        // reconstruction (F1Game.Race.Physics.AudioRpmModel); the array is never mutated
+        // through this and gear/physics behaviour is unaffected.
+        public static System.Collections.Generic.IReadOnlyList<float> AutoShiftUpSchedule => AutoShiftUpKph;
         static readonly float[] GearTorqueMultipliers = { 1.72f, 1.52f, 1.34f, 1.18f, 1.05f, 0.94f, 0.84f, 0.76f };
 
         public void Initialize(CarPerformanceData carData, TrackRuntime track, TyreCompound compound, bool useManualGears, GameSettingsData gameSettings, bool playerControlled)

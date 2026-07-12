@@ -2254,6 +2254,29 @@ claude/read-and-complete-ipelrl.
         cue generators incl. the new "ers deploy", 11 distinct team liveries, 510
         metas with no duplicate GUIDs.
 
+    C6. Rev-limiter audio cue via an audio-only RPM model (closes the C3 structural
+        gap WITHOUT touching physics). New engine-free F1Game.Race.Physics.AudioRpmModel
+        reconstructs a normalized RPM in [0,1] from the car's live speed + gear against
+        the AUTHORITATIVE auto-shift schedule (VehicleController.AutoShiftUpKph, now
+        exposed read-only as AutoShiftUpSchedule): gear g spans [schedule[g-1],
+        schedule[g]], so RPM is ~0 just after an upshift and ~1 at the top just before
+        the next; the top gear extrapolates one band. Purely presentation-only - the
+        schedule is READ, never written; no powertrain/acceleration/gear/top-speed/race/
+        RNG state changes, tuned feel untouched. RevLimiterGate (engine-free, edge +
+        hysteresis + dwell: enter 0.97, exit 0.90, dwell 0.35s) fires the cue exactly
+        once per sustained engagement, so a momentary upshift touch never spams it -
+        only genuinely sitting on the limiter (held gear / true top speed) fires. Wired
+        player-only in RaceHud.UpdateStatePills (next to the DRS/ERS one-shots, so a
+        22-car grid never stacks it) -> SimpleAudioManager.PlayRevLimiter(), a synthetic
+        low buzzy tone routed through the audio bank + fallback (slot "rev limiter",
+        CreateTone checks AudioBankService.Resolve first). Engine-free tests
+        (AudioRpmModelTests): band-bottom=0/top=1, clamping, top-gear extrapolation,
+        degenerate-schedule safety, gear<1 clamp, and the gate's fire-once/no-spam/
+        re-arm behaviour. Standstill has speed 0 -> RPM 0 -> no false cue (a start-line
+        limiter would need a standalone engine-RPM-at-rest signal the runtime lacks;
+        documented, not invented). Content validation: PASS, "rev limiter" now in the
+        cue inventory.
+
 ## CONTENT MANIFEST - reclassified three ways (supersedes F38 bucket [C])
 # Rule applied: an item is only "externally bespoke" when NO legal procedural,
 # synthetic or fictional fallback can be produced here. After C1-C4 every live
