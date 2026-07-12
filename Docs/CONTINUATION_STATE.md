@@ -1686,6 +1686,18 @@ deferred, not claimed complete.
         emergency fallback. Runtime-built; VISUAL VALIDATION PENDING. (Driver/Team
         ratings migration now complete.)
 
+    F29. R&D eligibility core (engine-free, UNIT-TESTED) - first piece of the R&D
+        mutation migration. RndEligibility (F1Game.Core) mirrors the exact
+        preconditions CareerManager's authoritative Try* methods check before
+        deducting resource points + writing the save: CanUpgradeDepartment (max +
+        affordability via CarDevelopmentRules.DepartmentUpgradeCost), MeetsTier,
+        HasFreeSlot, CanStartProject (ownership/prereq/tier/slot/cost) and CanRework
+        (state/slot/ReworkCost). It exists ONLY to drive production-UI button state +
+        no-op prevention; it duplicates no mutation/deduction/save logic - the
+        CareerManager stays the sole authority and re-validates. RndEligibilityTests
+        pin every branch against the real cost formulas. Next: the production R&D view
+        that issues commands to CareerManager.Try* and refreshes from saved state.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
