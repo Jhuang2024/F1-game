@@ -1,0 +1,95 @@
+# Localization table: German / Deutsch (provisional)
+# Format: key=value, one per line. '#' starts a comment. First '=' splits.
+# {0}/{1} are string.Format arguments and MUST be preserved verbatim.
+# Loaded by LocalizationLoader.LoadLanguage("de") ->
+#   Resources.Load<TextAsset>("Localization/de") -> Localization.LoadFromText.
+# PROVISIONAL machine-produced translation pending human review. Values are
+# translated (not left English); replace with reviewed strings before release.
+
+button.abandon=Aufgeben
+button.back=Zurück
+button.balanced=Ausgewogen
+button.begin_pre-season_testing=Wintertests beginnen
+button.brake_bias=Bremsbalance
+button.cancel=Abbrechen
+button.cancel_pit_request=Boxenstopp abbrechen
+button.car_setup=Fahrzeug-Setup
+button.career=Karriere
+button.career_stats=Karrierestatistik
+button.championship_graphs=Meisterschaftsgrafik
+button.continue_career=Karriere fortsetzen
+button.continue_to_offseason=Weiter zur Winterpause
+button.continue_to_race=Weiter zum Rennen
+button.drive=Fahren
+button.driver_ratings=Fahrerwertungen
+button.end_practice_session=Training beenden
+button.front_wing=Frontflügel
+button.high_downforce=Hoher Anpressdruck
+button.kerb_friendly=Randstein-freundlich
+button.low_drag=Geringer Luftwiderstand
+button.main_menu=Hauptmenü
+button.pause=Pause
+button.practice_programs=Trainingsprogramme
+button.quit_game=Spiel beenden
+button.race_again=Erneut fahren
+button.race_weekend=Rennwochenende
+button.rear_wing=Heckflügel
+button.restart_session=Session neu starten
+button.resume=Fortsetzen
+button.ride_height=Bodenfreiheit
+button.rivalry=Rivalität
+button.season_archive=Saison-Archiv
+button.select=Auswählen
+button.settings=Einstellungen
+button.start_new_career=Neue Karriere
+button.start_race=Rennen starten
+button.suspension=Aufhängung
+button.team_ratings=Teamwertungen
+button.time_trial=Zeitfahren
+button.track_info=Streckeninfo
+button.trophy_cabinet=Trophäenschrank
+button.view_season_review=Saisonrückblick ansehen
+button.wet=Nass
+hud.lap=RUNDE
+hud.moment.final_lap=LETZTE RUNDE
+hud.moment.green_flag=GRÜNE FLAGGE
+hud.moment.lights_out=LICHTER AUS
+hud.moment.track_limits=STRECKENLIMITS
+lap.counter=RUNDE {0}/{1}
+screen.careerhub.title=KARRIERE
+screen.driverprofile.title=FAHRERPROFIL
+screen.settings.title=EINSTELLUNGEN
+screen.standings.title=MEISTERSCHAFTSWERTUNG
+screen.strategy.title=RENNSTRATEGIE
+screen.trackselect.title=STRECKE WÄHLEN
+session.practice=TRAINING
+session.qualifying=QUALIFYING
+session.race=RENNEN
+session.time_trial=ZEITFAHREN
+settings.heading.audio=AUDIO
+settings.heading.display=ANZEIGE & BARRIEREFREIHEIT
+settings.heading.driving=FAHRVERHALTEN
+settings.heading.gameplay=GAMEPLAY
+settings.row.abs=ABS
+settings.row.ai_opponents=KI-Gegner
+settings.row.auto_brake_assist=Bremshilfe
+settings.row.camera_shake=Kamerawackeln
+settings.row.colour-vision_mode=Farbsehmodus
+settings.row.compact_hud=Kompaktes HUD
+settings.row.default_tyre=Standardreifen
+settings.row.difficulty=Schwierigkeit
+settings.row.engine_volume=Motorlautstärke
+settings.row.ers_strategy=ERS-Strategie
+settings.row.graphics_quality=Grafikqualität
+settings.row.hud_scale=HUD-Skalierung
+settings.row.language=Sprache
+settings.row.manual_gears=Manuelle Gänge
+settings.row.master_volume=Gesamtlautstärke
+settings.row.race_laps=Rennrunden
+settings.row.racing_line=Ideallinie
+settings.row.radio_volume=Funklautstärke
+settings.row.sound_effects=Soundeffekte
+settings.row.speed_units=Geschwindigkeitseinheiten
+settings.row.steering_sensitivity=Lenkempfindlichkeit
+settings.row.traction_control=Traktionskontrolle
+settings.row.ui_animations=UI-Animationen

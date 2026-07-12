@@ -1,16 +1,55 @@
-# F1 Game - English source-of-truth localization template.
-#
-# The game's on-screen strings carry their English text as a call-site fallback
-# (Localization.Get(key, "ENGLISH")), so English needs no table to render. This
-# file is the authoring template: the canonical list of externalized keys with
-# their English source, the starting point a translator copies to <lang>.txt and
-# fills in. It is also the source the pseudo-locale (qps-ploc) is generated from
-# for localization QA. Keep keys sorted; keep values in sync with the call sites.
-#
-# Format: key=value, one per line. Blank lines and '#' comments are ignored.
-# {0}, {1}, ... are format placeholders (see Localization.GetFormat) and must be
-# preserved verbatim in every translation.
+# Localization table: English (source template)
+# Format: key=value, one per line. '#' starts a comment. First '=' splits.
+# {0}/{1} are string.Format arguments and MUST be preserved verbatim.
+# Loaded by LocalizationLoader.LoadLanguage("en") ->
+#   Resources.Load<TextAsset>("Localization/en") -> Localization.LoadFromText.
+# en is the SOURCE: loading it clears the table so call-site English
+# fallbacks are used. This file is the translator/validation template.
 
+button.abandon=Abandon
+button.back=Back
+button.balanced=Balanced
+button.begin_pre-season_testing=Begin Pre-Season Testing
+button.brake_bias=Brake Bias
+button.cancel=Cancel
+button.cancel_pit_request=Cancel Pit Request
+button.car_setup=Car Setup
+button.career=Career
+button.career_stats=Career Stats
+button.championship_graphs=Championship Graphs
+button.continue_career=Continue Career
+button.continue_to_offseason=Continue to Offseason
+button.continue_to_race=Continue to Race
+button.drive=Drive
+button.driver_ratings=Driver Ratings
+button.end_practice_session=End Practice Session
+button.front_wing=Front Wing
+button.high_downforce=High Downforce
+button.kerb_friendly=Kerb Friendly
+button.low_drag=Low Drag
+button.main_menu=Main Menu
+button.pause=Pause
+button.practice_programs=Practice Programs
+button.quit_game=Quit Game
+button.race_again=Race Again
+button.race_weekend=Race Weekend
+button.rear_wing=Rear Wing
+button.restart_session=Restart Session
+button.resume=Resume
+button.ride_height=Ride Height
+button.rivalry=Rivalry
+button.season_archive=Season Archive
+button.select=Select
+button.settings=Settings
+button.start_new_career=Start New Career
+button.start_race=Start Race
+button.suspension=Suspension
+button.team_ratings=Team Ratings
+button.time_trial=Time Trial
+button.track_info=Track Info
+button.trophy_cabinet=Trophy Cabinet
+button.view_season_review=View Season Review
+button.wet=Wet
 hud.lap=LAP
 hud.moment.final_lap=FINAL LAP
 hud.moment.green_flag=GREEN FLAG
@@ -31,3 +70,26 @@ settings.heading.audio=AUDIO
 settings.heading.display=DISPLAY & ACCESSIBILITY
 settings.heading.driving=DRIVING
 settings.heading.gameplay=GAMEPLAY
+settings.row.abs=ABS
+settings.row.ai_opponents=AI Opponents
+settings.row.auto_brake_assist=Auto Brake Assist
+settings.row.camera_shake=Camera Shake
+settings.row.colour-vision_mode=Colour-Vision Mode
+settings.row.compact_hud=Compact HUD
+settings.row.default_tyre=Default Tyre
+settings.row.difficulty=Difficulty
+settings.row.engine_volume=Engine Volume
+settings.row.ers_strategy=ERS Strategy
+settings.row.graphics_quality=Graphics Quality
+settings.row.hud_scale=HUD Scale
+settings.row.language=Language
+settings.row.manual_gears=Manual Gears
+settings.row.master_volume=Master Volume
+settings.row.race_laps=Race Laps
+settings.row.racing_line=Racing Line
+settings.row.radio_volume=Radio Volume
+settings.row.sound_effects=Sound Effects
+settings.row.speed_units=Speed Units
+settings.row.steering_sensitivity=Steering Sensitivity
+settings.row.traction_control=Traction Control
+settings.row.ui_animations=UI Animations

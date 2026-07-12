@@ -1,0 +1,95 @@
+# Localization table: French / Français (provisional)
+# Format: key=value, one per line. '#' starts a comment. First '=' splits.
+# {0}/{1} are string.Format arguments and MUST be preserved verbatim.
+# Loaded by LocalizationLoader.LoadLanguage("fr") ->
+#   Resources.Load<TextAsset>("Localization/fr") -> Localization.LoadFromText.
+# PROVISIONAL machine-produced translation pending human review. Values are
+# translated (not left English); replace with reviewed strings before release.
+
+button.abandon=Abandonner
+button.back=Retour
+button.balanced=Équilibré
+button.begin_pre-season_testing=Débuter les essais hivernaux
+button.brake_bias=Répartition freinage
+button.cancel=Annuler
+button.cancel_pit_request=Annuler l'arrêt
+button.car_setup=Réglages de la voiture
+button.career=Carrière
+button.career_stats=Statistiques carrière
+button.championship_graphs=Graphiques du championnat
+button.continue_career=Continuer la carrière
+button.continue_to_offseason=Passer à l'intersaison
+button.continue_to_race=Passer à la course
+button.drive=Conduire
+button.driver_ratings=Notes des pilotes
+button.end_practice_session=Terminer les essais
+button.front_wing=Aileron avant
+button.high_downforce=Appui élevé
+button.kerb_friendly=Adapté aux vibreurs
+button.low_drag=Traînée réduite
+button.main_menu=Menu principal
+button.pause=Pause
+button.practice_programs=Programmes d'essais
+button.quit_game=Quitter le jeu
+button.race_again=Rejouer la course
+button.race_weekend=Week-end de course
+button.rear_wing=Aileron arrière
+button.restart_session=Recommencer la séance
+button.resume=Reprendre
+button.ride_height=Hauteur de caisse
+button.rivalry=Rivalité
+button.season_archive=Archives de la saison
+button.select=Sélectionner
+button.settings=Paramètres
+button.start_new_career=Nouvelle carrière
+button.start_race=Démarrer la course
+button.suspension=Suspension
+button.team_ratings=Notes des équipes
+button.time_trial=Contre-la-montre
+button.track_info=Infos circuit
+button.trophy_cabinet=Vitrine des trophées
+button.view_season_review=Voir le bilan de saison
+button.wet=Pluie
+hud.lap=TOUR
+hud.moment.final_lap=DERNIER TOUR
+hud.moment.green_flag=DRAPEAU VERT
+hud.moment.lights_out=EXTINCTION DES FEUX
+hud.moment.track_limits=LIMITES DE PISTE
+lap.counter=TOUR {0}/{1}
+screen.careerhub.title=CARRIÈRE
+screen.driverprofile.title=PROFIL DU PILOTE
+screen.settings.title=PARAMÈTRES
+screen.standings.title=CLASSEMENT DU CHAMPIONNAT
+screen.strategy.title=STRATÉGIE DE COURSE
+screen.trackselect.title=CHOISIR LE CIRCUIT
+session.practice=ESSAIS LIBRES
+session.qualifying=QUALIFICATIONS
+session.race=COURSE
+session.time_trial=CONTRE-LA-MONTRE
+settings.heading.audio=AUDIO
+settings.heading.display=AFFICHAGE ET ACCESSIBILITÉ
+settings.heading.driving=CONDUITE
+settings.heading.gameplay=JEU
+settings.row.abs=ABS
+settings.row.ai_opponents=Adversaires IA
+settings.row.auto_brake_assist=Aide au freinage
+settings.row.camera_shake=Tremblement caméra
+settings.row.colour-vision_mode=Mode daltonisme
+settings.row.compact_hud=ATH compact
+settings.row.default_tyre=Pneu par défaut
+settings.row.difficulty=Difficulté
+settings.row.engine_volume=Volume moteur
+settings.row.ers_strategy=Stratégie ERS
+settings.row.graphics_quality=Qualité graphique
+settings.row.hud_scale=Échelle de l'ATH
+settings.row.language=Langue
+settings.row.manual_gears=Boîte manuelle
+settings.row.master_volume=Volume général
+settings.row.race_laps=Tours de course
+settings.row.racing_line=Trajectoire
+settings.row.radio_volume=Volume radio
+settings.row.sound_effects=Effets sonores
+settings.row.speed_units=Unités de vitesse
+settings.row.steering_sensitivity=Sensibilité direction
+settings.row.traction_control=Antipatinage
+settings.row.ui_animations=Animations d'interface

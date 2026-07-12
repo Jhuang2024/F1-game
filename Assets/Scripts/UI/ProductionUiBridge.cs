@@ -1542,6 +1542,7 @@ namespace LocalFormulaRacing
             Row(model, "Speed Units", s.useMphUnits ? "MPH" : "KPH");
             Row(model, "Graphics Quality", GraphicsQualityName(s.graphicsQuality));
             Row(model, "Colour-Vision Mode", Pick(ColorBlindNames, s.colorBlindMode));
+            Row(model, "Language", CurrentLanguageDisplay());
 
             model.difficultyToggleLabel = "Difficulty: " + Pick(DifficultyNames, s.difficultyIndex);
             model.ersToggleLabel = "ERS: " + Pick(ErsModeNames, s.ersMode);
@@ -1609,6 +1610,56 @@ namespace LocalFormulaRacing
             Toggle(model, "units", "Speed Units", s.useMphUnits ? "MPH" : "KPH");
             Cycle(model, "graphics", "Graphics Quality", GraphicsQualityName(s.graphicsQuality));
             Cycle(model, "colorBlind", "Colour-Vision Mode", Pick(ColorBlindNames, s.colorBlindMode));
+            // Language selection is a PlayerPref (f1game_language), not a GameSettingsData
+            // field, so AdjustSettingField intercepts "language" before the settings-store
+            // write path and drives the runtime LocalizationLoader instead.
+            Cycle(model, "language", "Language", CurrentLanguageDisplay());
+        }
+
+        // The player-facing language set wired to the runtime loader. Codes map 1:1 to
+        // Assets/Resources/Localization/<code>.txt; names are endonyms (shown in-script).
+        // "en" is the source (loading it clears the table -> English call-site fallbacks);
+        // the QA "zz"/pseudo locales are intentionally excluded from the player selector.
+        public const string LanguageKey = "f1game_language";
+        static readonly string[] LanguageCodes = { "en", "fr", "es", "de", "ja", "zh-Hans" };
+        static readonly string[] LanguageNames = { "English", "Français", "Español", "Deutsch", "日本語", "简体中文" };
+
+        static int CurrentLanguageIndex()
+        {
+            string code = PlayerPrefs.GetString(LanguageKey, "en");
+            for (int i = 0; i < LanguageCodes.Length; i++)
+            {
+                if (LanguageCodes[i] == code)
+                {
+                    return i;
+                }
+            }
+
+            return 0;
+        }
+
+        static string CurrentLanguageDisplay() => LanguageNames[CurrentLanguageIndex()];
+
+        // Cycle the language, persist the preference, load the new table through the
+        // existing runtime loader, and rebuild the settings screen so every freshly
+        // built label resolves against the new table. A load failure leaves the
+        // preference set (next boot retries) and the English fallbacks in effect.
+        static void CycleLanguage(int direction)
+        {
+            int idx = Wrap(CurrentLanguageIndex() + direction, LanguageCodes.Length);
+            string code = LanguageCodes[idx];
+            PlayerPrefs.SetString(LanguageKey, code);
+            PlayerPrefs.Save();
+            try
+            {
+                F1Game.Core.LocalizationLoader.LoadLanguage(code);
+            }
+            catch (Exception)
+            {
+                // Non-fatal: the preference is persisted and English fallbacks render.
+            }
+
+            ShowSettings();
         }
 
         static void Field(SettingsModel model, string id, string label, string value, bool canDec, bool canInc)
@@ -1643,6 +1694,13 @@ namespace LocalFormulaRacing
         // then persist + re-present via ToggleSetting (the single settings-write path).
         static void AdjustSettingField(string id, int direction)
         {
+            // Language is a runtime-loader preference, not a settings-store field.
+            if (id == "language")
+            {
+                CycleLanguage(direction);
+                return;
+            }
+
             ToggleSetting(s =>
             {
                 switch (id)

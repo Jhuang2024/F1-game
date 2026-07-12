@@ -1,0 +1,95 @@
+# Localization table: Simplified Chinese / 简体中文 (provisional)
+# Format: key=value, one per line. '#' starts a comment. First '=' splits.
+# {0}/{1} are string.Format arguments and MUST be preserved verbatim.
+# Loaded by LocalizationLoader.LoadLanguage("zh-Hans") ->
+#   Resources.Load<TextAsset>("Localization/zh-Hans") -> Localization.LoadFromText.
+# PROVISIONAL machine-produced translation pending human review. Values are
+# translated (not left English); replace with reviewed strings before release.
+
+button.abandon=放弃
+button.back=返回
+button.balanced=均衡
+button.begin_pre-season_testing=开始季前测试
+button.brake_bias=刹车偏置
+button.cancel=取消
+button.cancel_pit_request=取消进站
+button.car_setup=赛车调校
+button.career=生涯模式
+button.career_stats=生涯统计
+button.championship_graphs=锦标赛图表
+button.continue_career=继续生涯
+button.continue_to_offseason=进入休赛期
+button.continue_to_race=进入比赛
+button.drive=驾驶
+button.driver_ratings=车手评分
+button.end_practice_session=结束练习
+button.front_wing=前翼
+button.high_downforce=高下压力
+button.kerb_friendly=适应路肩
+button.low_drag=低阻力
+button.main_menu=主菜单
+button.pause=暂停
+button.practice_programs=练习项目
+button.quit_game=退出游戏
+button.race_again=再赛一场
+button.race_weekend=比赛周末
+button.rear_wing=后翼
+button.restart_session=重启赛段
+button.resume=继续
+button.ride_height=车身高度
+button.rivalry=对手关系
+button.season_archive=赛季存档
+button.select=选择
+button.settings=设置
+button.start_new_career=开始新生涯
+button.start_race=开始比赛
+button.suspension=悬挂
+button.team_ratings=车队评分
+button.time_trial=计时赛
+button.track_info=赛道信息
+button.trophy_cabinet=奖杯陈列
+button.view_season_review=查看赛季回顾
+button.wet=湿地
+hud.lap=圈
+hud.moment.final_lap=最后一圈
+hud.moment.green_flag=绿旗
+hud.moment.lights_out=起步
+hud.moment.track_limits=赛道界限
+lap.counter=第 {0}/{1} 圈
+screen.careerhub.title=生涯模式
+screen.driverprofile.title=车手资料
+screen.settings.title=设置
+screen.standings.title=锦标赛积分榜
+screen.strategy.title=比赛策略
+screen.trackselect.title=选择赛道
+session.practice=练习赛
+session.qualifying=排位赛
+session.race=正赛
+session.time_trial=计时赛
+settings.heading.audio=音频
+settings.heading.display=显示与无障碍
+settings.heading.driving=驾驶
+settings.heading.gameplay=游戏玩法
+settings.row.abs=防抱死
+settings.row.ai_opponents=AI 对手
+settings.row.auto_brake_assist=自动刹车辅助
+settings.row.camera_shake=镜头震动
+settings.row.colour-vision_mode=色觉模式
+settings.row.compact_hud=紧凑 HUD
+settings.row.default_tyre=默认轮胎
+settings.row.difficulty=难度
+settings.row.engine_volume=引擎音量
+settings.row.ers_strategy=ERS 策略
+settings.row.graphics_quality=画质
+settings.row.hud_scale=HUD 缩放
+settings.row.language=语言
+settings.row.manual_gears=手动挡
+settings.row.master_volume=主音量
+settings.row.race_laps=比赛圈数
+settings.row.racing_line=赛车线
+settings.row.radio_volume=无线电音量
+settings.row.sound_effects=音效
+settings.row.speed_units=速度单位
+settings.row.steering_sensitivity=转向灵敏度
+settings.row.traction_control=牵引力控制
+settings.row.ui_animations=界面动画

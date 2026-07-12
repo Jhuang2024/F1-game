@@ -1,16 +1,55 @@
-# F1 Game - "zz" QA / test locale (CLEARLY FICTIONAL PLACEHOLDER, not a real language).
-#
-# Purpose: exercise the real translation-file load path end-to-end
-# (PlayerPrefs "f1game_language" = "zz" -> LocalizationLoader.LoadLanguage("zz")
-# -> Resources.Load<TextAsset>("Localization/zz") -> Localization.LoadFromText),
-# which the English source (call-site fallbacks) and the runtime-generated
-# pseudo-locale never touch. Every value is the English text wrapped in guillemets
-# so a loaded, non-fallback table is obviously in effect on screen and any missing
-# key is equally obvious (it falls back to plain English). Format placeholders
-# ({0}, {1}) are preserved so GetFormat still fills them.
-#
-# Replace this file with a real translation to ship a language; keep the same keys.
+# Localization table: QA test locale (guillemet-wrapped English)
+# Format: key=value, one per line. '#' starts a comment. First '=' splits.
+# {0}/{1} are string.Format arguments and MUST be preserved verbatim.
+# Loaded by LocalizationLoader.LoadLanguage("zz") ->
+#   Resources.Load<TextAsset>("Localization/zz") -> Localization.LoadFromText.
+# Deliberately-visible QA placeholder: every value is English wrapped in
+# guillemets so a loaded non-fallback table (and any missing key) is obvious.
 
+button.abandon=«Abandon»
+button.back=«Back»
+button.balanced=«Balanced»
+button.begin_pre-season_testing=«Begin Pre-Season Testing»
+button.brake_bias=«Brake Bias»
+button.cancel=«Cancel»
+button.cancel_pit_request=«Cancel Pit Request»
+button.car_setup=«Car Setup»
+button.career=«Career»
+button.career_stats=«Career Stats»
+button.championship_graphs=«Championship Graphs»
+button.continue_career=«Continue Career»
+button.continue_to_offseason=«Continue to Offseason»
+button.continue_to_race=«Continue to Race»
+button.drive=«Drive»
+button.driver_ratings=«Driver Ratings»
+button.end_practice_session=«End Practice Session»
+button.front_wing=«Front Wing»
+button.high_downforce=«High Downforce»
+button.kerb_friendly=«Kerb Friendly»
+button.low_drag=«Low Drag»
+button.main_menu=«Main Menu»
+button.pause=«Pause»
+button.practice_programs=«Practice Programs»
+button.quit_game=«Quit Game»
+button.race_again=«Race Again»
+button.race_weekend=«Race Weekend»
+button.rear_wing=«Rear Wing»
+button.restart_session=«Restart Session»
+button.resume=«Resume»
+button.ride_height=«Ride Height»
+button.rivalry=«Rivalry»
+button.season_archive=«Season Archive»
+button.select=«Select»
+button.settings=«Settings»
+button.start_new_career=«Start New Career»
+button.start_race=«Start Race»
+button.suspension=«Suspension»
+button.team_ratings=«Team Ratings»
+button.time_trial=«Time Trial»
+button.track_info=«Track Info»
+button.trophy_cabinet=«Trophy Cabinet»
+button.view_season_review=«View Season Review»
+button.wet=«Wet»
 hud.lap=«LAP»
 hud.moment.final_lap=«FINAL LAP»
 hud.moment.green_flag=«GREEN FLAG»
@@ -31,3 +70,26 @@ settings.heading.audio=«AUDIO»
 settings.heading.display=«DISPLAY & ACCESSIBILITY»
 settings.heading.driving=«DRIVING»
 settings.heading.gameplay=«GAMEPLAY»
+settings.row.abs=«ABS»
+settings.row.ai_opponents=«AI Opponents»
+settings.row.auto_brake_assist=«Auto Brake Assist»
+settings.row.camera_shake=«Camera Shake»
+settings.row.colour-vision_mode=«Colour-Vision Mode»
+settings.row.compact_hud=«Compact HUD»
+settings.row.default_tyre=«Default Tyre»
+settings.row.difficulty=«Difficulty»
+settings.row.engine_volume=«Engine Volume»
+settings.row.ers_strategy=«ERS Strategy»
+settings.row.graphics_quality=«Graphics Quality»
+settings.row.hud_scale=«HUD Scale»
+settings.row.language=«Language»
+settings.row.manual_gears=«Manual Gears»
+settings.row.master_volume=«Master Volume»
+settings.row.race_laps=«Race Laps»
+settings.row.racing_line=«Racing Line»
+settings.row.radio_volume=«Radio Volume»
+settings.row.sound_effects=«Sound Effects»
+settings.row.speed_units=«Speed Units»
+settings.row.steering_sensitivity=«Steering Sensitivity»
+settings.row.traction_control=«Traction Control»
+settings.row.ui_animations=«UI Animations»

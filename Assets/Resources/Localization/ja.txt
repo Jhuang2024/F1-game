@@ -1,0 +1,95 @@
+# Localization table: Japanese / 日本語 (provisional)
+# Format: key=value, one per line. '#' starts a comment. First '=' splits.
+# {0}/{1} are string.Format arguments and MUST be preserved verbatim.
+# Loaded by LocalizationLoader.LoadLanguage("ja") ->
+#   Resources.Load<TextAsset>("Localization/ja") -> Localization.LoadFromText.
+# PROVISIONAL machine-produced translation pending human review. Values are
+# translated (not left English); replace with reviewed strings before release.
+
+button.abandon=リタイア
+button.back=戻る
+button.balanced=バランス
+button.begin_pre-season_testing=プレシーズンテスト開始
+button.brake_bias=ブレーキバイアス
+button.cancel=キャンセル
+button.cancel_pit_request=ピット要求取消
+button.car_setup=車両セットアップ
+button.career=キャリア
+button.career_stats=キャリア成績
+button.championship_graphs=選手権グラフ
+button.continue_career=キャリアを続ける
+button.continue_to_offseason=オフシーズンへ
+button.continue_to_race=レースへ進む
+button.drive=走行
+button.driver_ratings=ドライバー評価
+button.end_practice_session=練習を終える
+button.front_wing=フロントウイング
+button.high_downforce=ハイダウンフォース
+button.kerb_friendly=カーブに強い
+button.low_drag=ロードラッグ
+button.main_menu=メインメニュー
+button.pause=一時停止
+button.practice_programs=練習プログラム
+button.quit_game=ゲーム終了
+button.race_again=もう一度レース
+button.race_weekend=レースウィークエンド
+button.rear_wing=リアウイング
+button.restart_session=セッション再開
+button.resume=再開
+button.ride_height=車高
+button.rivalry=ライバル関係
+button.season_archive=シーズン記録
+button.select=選択
+button.settings=設定
+button.start_new_career=新規キャリア
+button.start_race=レース開始
+button.suspension=サスペンション
+button.team_ratings=チーム評価
+button.time_trial=タイムトライアル
+button.track_info=コース情報
+button.trophy_cabinet=トロフィー棚
+button.view_season_review=シーズン総括を見る
+button.wet=ウェット
+hud.lap=ラップ
+hud.moment.final_lap=ファイナルラップ
+hud.moment.green_flag=グリーンフラッグ
+hud.moment.lights_out=スタート
+hud.moment.track_limits=トラックリミット
+lap.counter=ラップ {0}/{1}
+screen.careerhub.title=キャリア
+screen.driverprofile.title=ドライバープロフィール
+screen.settings.title=設定
+screen.standings.title=選手権順位
+screen.strategy.title=レース戦略
+screen.trackselect.title=サーキット選択
+session.practice=フリー走行
+session.qualifying=予選
+session.race=レース
+session.time_trial=タイムトライアル
+settings.heading.audio=オーディオ
+settings.heading.display=表示とアクセシビリティ
+settings.heading.driving=ドライビング
+settings.heading.gameplay=ゲームプレイ
+settings.row.abs=ABS
+settings.row.ai_opponents=AI対戦相手
+settings.row.auto_brake_assist=オートブレーキ支援
+settings.row.camera_shake=カメラ振動
+settings.row.colour-vision_mode=色覚モード
+settings.row.compact_hud=コンパクトHUD
+settings.row.default_tyre=デフォルトタイヤ
+settings.row.difficulty=難易度
+settings.row.engine_volume=エンジン音量
+settings.row.ers_strategy=ERS戦略
+settings.row.graphics_quality=グラフィック品質
+settings.row.hud_scale=HUDスケール
+settings.row.language=言語
+settings.row.manual_gears=マニュアルギア
+settings.row.master_volume=マスター音量
+settings.row.race_laps=レース周回数
+settings.row.racing_line=レーシングライン
+settings.row.radio_volume=無線音量
+settings.row.sound_effects=効果音
+settings.row.speed_units=速度単位
+settings.row.steering_sensitivity=ステアリング感度
+settings.row.traction_control=トラクションコントロール
+settings.row.ui_animations=UIアニメーション

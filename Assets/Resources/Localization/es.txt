@@ -1,0 +1,95 @@
+# Localization table: Spanish / Español (provisional)
+# Format: key=value, one per line. '#' starts a comment. First '=' splits.
+# {0}/{1} are string.Format arguments and MUST be preserved verbatim.
+# Loaded by LocalizationLoader.LoadLanguage("es") ->
+#   Resources.Load<TextAsset>("Localization/es") -> Localization.LoadFromText.
+# PROVISIONAL machine-produced translation pending human review. Values are
+# translated (not left English); replace with reviewed strings before release.
+
+button.abandon=Abandonar
+button.back=Atrás
+button.balanced=Equilibrado
+button.begin_pre-season_testing=Iniciar test pretemporada
+button.brake_bias=Balance de frenos
+button.cancel=Cancelar
+button.cancel_pit_request=Cancelar parada
+button.car_setup=Config. del coche
+button.career=Carrera
+button.career_stats=Estad. de carrera
+button.championship_graphs=Gráficos del campeonato
+button.continue_career=Continuar carrera
+button.continue_to_offseason=Ir a la pretemporada
+button.continue_to_race=Ir a la carrera
+button.drive=Conducir
+button.driver_ratings=Valorac. de pilotos
+button.end_practice_session=Terminar práctica
+button.front_wing=Alerón delantero
+button.high_downforce=Alta carga aero.
+button.kerb_friendly=Apto para pianos
+button.low_drag=Baja resistencia
+button.main_menu=Menú principal
+button.pause=Pausa
+button.practice_programs=Programas de práctica
+button.quit_game=Salir del juego
+button.race_again=Correr de nuevo
+button.race_weekend=Fin de semana de carrera
+button.rear_wing=Alerón trasero
+button.restart_session=Reiniciar sesión
+button.resume=Reanudar
+button.ride_height=Altura libre
+button.rivalry=Rivalidad
+button.season_archive=Archivo de temporada
+button.select=Seleccionar
+button.settings=Ajustes
+button.start_new_career=Nueva carrera
+button.start_race=Iniciar carrera
+button.suspension=Suspensión
+button.team_ratings=Valorac. de equipos
+button.time_trial=Contrarreloj
+button.track_info=Info del circuito
+button.trophy_cabinet=Vitrina de trofeos
+button.view_season_review=Ver resumen de temporada
+button.wet=Lluvia
+hud.lap=VUELTA
+hud.moment.final_lap=ÚLTIMA VUELTA
+hud.moment.green_flag=BANDERA VERDE
+hud.moment.lights_out=¡SEMÁFORO APAGADO!
+hud.moment.track_limits=LÍMITES DE PISTA
+lap.counter=VUELTA {0}/{1}
+screen.careerhub.title=CARRERA PROFESIONAL
+screen.driverprofile.title=PERFIL DEL PILOTO
+screen.settings.title=AJUSTES
+screen.standings.title=CLASIFICACIÓN DEL CAMPEONATO
+screen.strategy.title=ESTRATEGIA DE CARRERA
+screen.trackselect.title=SELECCIONAR CIRCUITO
+session.practice=ENTRENAMIENTOS
+session.qualifying=CLASIFICACIÓN
+session.race=CARRERA
+session.time_trial=CONTRARRELOJ
+settings.heading.audio=AUDIO
+settings.heading.display=PANTALLA Y ACCESIBILIDAD
+settings.heading.driving=CONDUCCIÓN
+settings.heading.gameplay=JUEGO
+settings.row.abs=ABS
+settings.row.ai_opponents=Rivales de IA
+settings.row.auto_brake_assist=Asist. de frenado
+settings.row.camera_shake=Vibración de cámara
+settings.row.colour-vision_mode=Modo daltonismo
+settings.row.compact_hud=HUD compacto
+settings.row.default_tyre=Neumático predet.
+settings.row.difficulty=Dificultad
+settings.row.engine_volume=Volumen del motor
+settings.row.ers_strategy=Estrategia ERS
+settings.row.graphics_quality=Calidad gráfica
+settings.row.hud_scale=Escala del HUD
+settings.row.language=Idioma
+settings.row.manual_gears=Cambio manual
+settings.row.master_volume=Volumen general
+settings.row.race_laps=Vueltas de carrera
+settings.row.racing_line=Trazada
+settings.row.radio_volume=Volumen de radio
+settings.row.sound_effects=Efectos de sonido
+settings.row.speed_units=Unidades de velocidad
+settings.row.steering_sensitivity=Sensib. de dirección
+settings.row.traction_control=Control de tracción
+settings.row.ui_animations=Animaciones de IU

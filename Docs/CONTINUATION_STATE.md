@@ -2159,3 +2159,33 @@ environment. The remaining work is (1) in-editor validation of bucket [B] and
 a Unity editor this environment does not have. Multiplayer (Phase N) remains
 deferred and out of scope. main untouched; all work on
 claude/read-and-complete-ipelrl.
+
+# ============================================================
+# CONTENT-COMPLETION PHASE (populate every runtime content slot)
+# ============================================================
+# Manifest bucket [C] items are not "externally blocked" where a legal
+# procedural/synthetic/fictional fallback can be produced here. This phase
+# populates each live runtime content slot with project-owned content and wires
+# it to its real consumer, then re-classifies the manifest three ways: complete
+# project-owned / complete synthetic-placeholder pending art / genuinely-bespoke.
+
+    C1. Localization: complete provisional tables for a launch language set.
+        Harvested the full key set statically (static Localization.Get/GetFormat
+        literals + settings.row.<slug> + button.<slug> nav/menu labels) = 87 keys.
+        Expanded Assets/Resources/Localization/en.txt (source template) and
+        zz.txt (guillemet QA locale) from 20 -> 87 keys, and ADDED complete
+        provisional machine translations: fr, es, de, ja, zh-Hans (each 87 keys,
+        + .meta TextScriptImporter with unique GUIDs). Every value is translated
+        (not left English); each non-en/zz file is header-marked PROVISIONAL
+        (pending human review). {0}/{1} format args preserved verbatim.
+        Validation (scratchpad gen_locale.py, re-runnable): every table parses,
+        has all 87 keys, zero duplicates, zero empty values, placeholder parity
+        with en. Wiring: added a "Language" selector to the production settings
+        editor (ProductionUiBridge Cycle field id "language") that persists the
+        existing f1game_language PlayerPref and calls the existing runtime loader
+        F1Game.Core.LocalizationLoader.LoadLanguage(code), then rebuilds the
+        settings screen so freshly-built labels use the new table; player set =
+        en/fr/es/de/ja/zh-Hans (endonym names), QA locales excluded. Load failure
+        is non-fatal (pref persisted, English fallbacks render). The runtime load
+        path (GameBootstrap -> LoadLanguage at boot) already existed and is
+        unchanged. Every shipped table now has a real runtime loading path.
