@@ -22,6 +22,7 @@ namespace F1Game.UI.Screens.CareerHub
         [SerializeField] ThemedButton standingsButton;
         [SerializeField] ThemedButton profileButton;
         [SerializeField] ThemedButton statsButton;
+        [SerializeField] ThemedButton ratingsButton;
         [SerializeField] ThemedButton legacyMenuButton;
         [SerializeField] ThemedButton backButton;
 
@@ -29,12 +30,13 @@ namespace F1Game.UI.Screens.CareerHub
         public ThemedButton StandingsButton => standingsButton;
         public ThemedButton ProfileButton => profileButton;
         public ThemedButton StatsButton => statsButton;
+        public ThemedButton RatingsButton => ratingsButton;
         public ThemedButton LegacyMenuButton => legacyMenuButton;
         public ThemedButton BackButton => backButton;
 
         public void Bind(TMP_Text season, TMP_Text standing, TMP_Text eventTitle, TMP_Text eventDetail,
             ThemedButton continueBtn, ThemedButton standings, ThemedButton profile, ThemedButton stats,
-            ThemedButton legacyMenu, ThemedButton back)
+            ThemedButton ratings, ThemedButton legacyMenu, ThemedButton back)
         {
             seasonLabel = season;
             standingLine = standing;
@@ -44,6 +46,7 @@ namespace F1Game.UI.Screens.CareerHub
             standingsButton = standings;
             profileButton = profile;
             statsButton = stats;
+            ratingsButton = ratings;
             legacyMenuButton = legacyMenu;
             backButton = back;
             SetScreenId(Id);

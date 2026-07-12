@@ -7,6 +7,7 @@ using F1Game.UI.Screens;
 using F1Game.UI.Screens.CareerCreation;
 using F1Game.UI.Screens.CareerHub;
 using F1Game.UI.Screens.CareerStats;
+using F1Game.UI.Screens.DriverRatings;
 using F1Game.UI.Screens.CareerStandings;
 using F1Game.UI.Screens.DriverProfile;
 using F1Game.UI.Screens.MainMenu;
@@ -57,6 +58,7 @@ namespace LocalFormulaRacing
         static CareerCreationPresenter careerCreationPresenter;
         static CareerStatsPresenter careerStatsPresenter;
         static CareerStatsPresenter trophyCabinetPresenter;
+        static DriverRatingsPresenter driverRatingsPresenter;
         static DriverProfilePresenter profilePresenter;
         static SettingsPresenter settingsPresenter;
         static ResultsPresenter resultsPresenter;
@@ -216,6 +218,7 @@ namespace LocalFormulaRacing
                 OnStandings = ShowCareerStandings,
                 OnProfile = ShowDriverProfile,
                 OnStats = ShowCareerStats,
+                OnRatings = () => ShowDriverRatings("overall"),
                 OnLegacyMenu = () => LeaveToLegacy(() => bootstrap.ShowCareer()),
                 OnBack = () => shell.Router.Back(),
             };
@@ -239,6 +242,13 @@ namespace LocalFormulaRacing
             {
                 OnBack = () => shell.Router.Back(),
                 OnSecondary = ShowCareerStats,
+            };
+
+            var driverRatingsView = (DriverRatingsView)ShowAndGet(DriverRatingsView.Id);
+            driverRatingsPresenter = new DriverRatingsPresenter(driverRatingsView)
+            {
+                OnSort = ShowDriverRatings,
+                OnBack = () => shell.Router.Back(),
             };
 
             var profileView = (DriverProfileView)ShowAndGet(DriverProfileView.Id);
@@ -505,6 +515,116 @@ namespace LocalFormulaRacing
         static void Stat(CareerStatsModel model, string label, string value)
         {
             model.stats.Add(new CareerStatCell { label = label, value = value });
+        }
+
+        // Production driver ratings: read-only, sortable. Sorting re-enters here.
+        static void ShowDriverRatings(string sortKey)
+        {
+            string key = string.IsNullOrEmpty(sortKey) ? "overall" : sortKey;
+            var model = new DriverRatingsModel { sortKey = key };
+            if (data != null && data.Drivers != null)
+            {
+                var drivers = new List<DriverData>(data.Drivers.drivers);
+                if (career != null && career.Save != null)
+                {
+                    for (int i = 0; i < drivers.Count; i++)
+                    {
+                        drivers[i] = career.GetEffectiveDriver(drivers[i]);
+                    }
+                }
+
+                SortDriverList(drivers, key);
+                string playerId = ResolveRatingsPlayerId();
+                string teammateId = ResolveRatingsTeammateId(playerId);
+
+                for (int i = 0; i < drivers.Count; i++)
+                {
+                    DriverData d = drivers[i];
+                    TeamData t = data.FindTeam(d.teamId);
+                    int highlight = !string.IsNullOrEmpty(playerId) && d.id == playerId ? 1
+                        : (!string.IsNullOrEmpty(teammateId) && d.id == teammateId ? 2 : 0);
+                    model.rows.Add(new DriverRatingRow
+                    {
+                        name = d.displayName,
+                        team = t == null ? d.teamId : t.name,
+                        overall = d.OverallRating.ToString(),
+                        pace = d.pace.ToString(),
+                        qualifying = d.qualifying.ToString(),
+                        racecraft = d.racecraft.ToString(),
+                        potential = d.developmentPotential.ToString(),
+                        highlight = highlight,
+                    });
+                }
+            }
+
+            shell.Router.Show(DriverRatingsView.Id);
+            driverRatingsPresenter.Present(model);
+        }
+
+        // Faithful copy of the legacy driver sort (pure; safe to duplicate).
+        static void SortDriverList(List<DriverData> drivers, string sortKey)
+        {
+            drivers.Sort((a, b) =>
+            {
+                int primary;
+                switch (sortKey)
+                {
+                    case "pace": primary = b.pace.CompareTo(a.pace); break;
+                    case "qualifying": primary = b.qualifying.CompareTo(a.qualifying); break;
+                    case "racecraft": primary = b.racecraft.CompareTo(a.racecraft); break;
+                    case "potential": primary = b.developmentPotential.CompareTo(a.developmentPotential); break;
+                    default: primary = b.OverallRating.CompareTo(a.OverallRating); break;
+                }
+
+                return primary != 0 ? primary : b.pace.CompareTo(a.pace);
+            });
+        }
+
+        // Read-only player/team-mate detection (no write-back, unlike the legacy
+        // ratings screen which repairs selectedDriverId as a side effect).
+        static string ResolveRatingsPlayerId()
+        {
+            if (career == null || career.Save == null || data == null)
+            {
+                return "";
+            }
+
+            List<DriverData> teamDrivers = data.GetDriversForTeam(career.Save.playerTeamId, career.Save.driverTransferRecords);
+            if (career.Save.useExistingDriver && !string.IsNullOrEmpty(career.Save.selectedDriverId) &&
+                teamDrivers.Exists(d => d.id == career.Save.selectedDriverId))
+            {
+                return career.Save.selectedDriverId;
+            }
+
+            if (!string.IsNullOrEmpty(career.Save.playerDriverName))
+            {
+                DriverData byName = teamDrivers.Find(d => string.Equals(d.displayName, career.Save.playerDriverName, StringComparison.OrdinalIgnoreCase));
+                if (byName != null)
+                {
+                    return byName.id;
+                }
+            }
+
+            return teamDrivers.Count > 0 ? teamDrivers[0].id : "";
+        }
+
+        static string ResolveRatingsTeammateId(string playerId)
+        {
+            if (career == null || career.Save == null || data == null || string.IsNullOrEmpty(playerId))
+            {
+                return "";
+            }
+
+            List<DriverData> teamDrivers = data.GetDriversForTeam(career.Save.playerTeamId, career.Save.driverTransferRecords);
+            for (int i = 0; i < teamDrivers.Count; i++)
+            {
+                if (teamDrivers[i].id != playerId)
+                {
+                    return teamDrivers[i].id;
+                }
+            }
+
+            return "";
         }
 
         static string ResolveTrackName(string trackId)

@@ -1658,6 +1658,20 @@ deferred, not claimed complete.
         from the career hub Stats button. Legacy Trophy Cabinet remains the emergency
         fallback. Runtime-built (no baked prefab); VISUAL VALIDATION PENDING.
 
+    F27. Career migration: production Driver Ratings (sortable, read-only). New
+        DriverRatingsModel + DriverRatingRow (F1Game.UI); DriverRatingsView (5 sort
+        tabs Overall/Pace/Qualifying/Racecraft/Potential + pooled ranked rows with
+        player/team-mate highlight + Back) + DriverRatingsPresenter (OnSort/OnBack);
+        UiScreenFactory.BuildDriverRatings; UiShell registers "driver-ratings".
+        CareerHubView/Presenter gain a Driver Ratings button (Bind signature +
+        BuildCareerHub + nav in lockstep). ProductionUiBridge: driverRatingsPresenter
+        built in EnsureShell, CareerHub OnRatings + tab OnSort both call
+        ShowDriverRatings(key), which reads data.Drivers, applies
+        career.GetEffectiveDriver, sorts with a faithful copy of the legacy comparator
+        (pure), and highlights the player/team-mate via a READ-ONLY detection (no
+        write-back to selectedDriverId, unlike the legacy screen). Legacy Driver
+        Ratings remains the emergency fallback. Runtime-built; VISUAL VALIDATION PENDING.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

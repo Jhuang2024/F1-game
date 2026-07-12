@@ -140,6 +140,7 @@ namespace F1Game.UI
             RegisterScreen(F1Game.UI.Screens.CareerCreation.CareerCreationView.Id, "UI/Screens/CareerCreation", root => UiScreenFactory.BuildCareerCreation(root));
             RegisterScreen(F1Game.UI.Screens.CareerStats.CareerStatsView.Id, "UI/Screens/CareerStats", root => UiScreenFactory.BuildCareerStats(root));
             RegisterScreen(F1Game.UI.Screens.CareerStats.CareerStatsView.TrophyId, "UI/Screens/TrophyCabinet", root => UiScreenFactory.BuildTrophyCabinet(root));
+            RegisterScreen(F1Game.UI.Screens.DriverRatings.DriverRatingsView.Id, "UI/Screens/DriverRatings", root => UiScreenFactory.BuildDriverRatings(root));
             RegisterScreen(F1Game.UI.Screens.Settings.SettingsView.Id, "UI/Screens/Settings", root => UiScreenFactory.BuildSettings(root));
             RegisterScreen(ResultsView.Id, "UI/Screens/Results", root => UiScreenFactory.BuildResults(root));
         }

@@ -256,13 +256,14 @@ namespace F1Game.UI
             ThemedButton standings = CreateButton(actions, "Btn_Standings", ThemedButton.Variant.Secondary, "Standings & Calendar");
             ThemedButton profile = CreateButton(actions, "Btn_Profile", ThemedButton.Variant.Secondary, "Driver Profile");
             ThemedButton stats = CreateButton(actions, "Btn_Stats", ThemedButton.Variant.Secondary, "Career Stats");
+            ThemedButton ratings = CreateButton(actions, "Btn_Ratings", ThemedButton.Variant.Secondary, "Driver Ratings");
             ThemedButton legacyMenu = CreateButton(actions, "Btn_FullMenu", ThemedButton.Variant.Secondary, "Full Career Menu");
             ThemedButton back = CreateButton(actions, "Btn_Back", ThemedButton.Variant.Tertiary, "Back");
 
-            SetUpDownNavigation(new[] { continueBtn, standings, profile, stats, legacyMenu, back });
+            SetUpDownNavigation(new[] { continueBtn, standings, profile, stats, ratings, legacyMenu, back });
 
             var view = content.parent.gameObject.AddComponent<Screens.CareerHub.CareerHubView>();
-            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, profile, stats, legacyMenu, back);
+            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, profile, stats, ratings, legacyMenu, back);
             return view;
         }
 
@@ -418,6 +419,49 @@ namespace F1Game.UI
             view.Bind(header, rowsColumn, rowTemplate, difficultyButton, ersButton, manualGearsButton,
                 unitsButton, cameraShakeButton, compactHudButton, uiAnimationsButton, classic, back);
             view.BindEditor(editorSection.gameObject, editorColumn, editorTemplate);
+            return view;
+        }
+
+        public static Screens.DriverRatings.DriverRatingsView BuildDriverRatings(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_DriverRatings", "DRIVER RATINGS", out TMP_Text header);
+
+            // Sort tabs.
+            var tabRowGo = new GameObject("SortTabs", typeof(RectTransform));
+            tabRowGo.transform.SetParent(content, false);
+            var tabLayout = tabRowGo.AddComponent<HorizontalLayoutGroup>();
+            tabLayout.spacing = theme.spacing.small;
+            tabLayout.childForceExpandWidth = true;
+            tabLayout.childControlWidth = true;
+            tabLayout.childControlHeight = true;
+            var sortDefs = new (string label, string key)[]
+            {
+                ("Overall", "overall"), ("Pace", "pace"), ("Qualifying", "qualifying"),
+                ("Racecraft", "racecraft"), ("Potential", "potential"),
+            };
+            var tabs = new List<(ThemedButton btn, string key)>();
+            foreach ((string label, string key) in sortDefs)
+            {
+                ThemedButton tab = CreateButton(tabRowGo.transform, "Tab_" + key, ThemedButton.Variant.Secondary, label,
+                    theme.components.buttonHeightCompact);
+                tabs.Add((tab, key));
+            }
+
+            RectTransform rowColumn = CreateLayoutColumn(content, "RatingRows", theme.spacing.micro);
+            TMP_Text rowTemplate = CreateText(rowColumn, "Rating_Template", TextStyle.Body, "");
+            rowTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 8f;
+
+            ThemedButton back = CreateButton(content, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
+                theme.components.buttonHeightCompact);
+
+            var view = content.parent.gameObject.AddComponent<Screens.DriverRatings.DriverRatingsView>();
+            view.Bind(rowColumn, rowTemplate, back);
+            foreach ((ThemedButton btn, string key) in tabs)
+            {
+                view.AddSortTab(btn, key);
+            }
+
             return view;
         }
 

@@ -175,6 +175,27 @@ namespace F1Game.UI.Screens
     }
 
     [Serializable]
+    public class DriverRatingRow
+    {
+        public string name;
+        public string team;
+        public string overall;
+        public string pace;
+        public string qualifying;
+        public string racecraft;
+        public string potential;
+        public int highlight; // 0 none, 1 player, 2 teammate
+    }
+
+    /// <summary>Read-only driver ratings table with a selectable sort column.</summary>
+    [Serializable]
+    public class DriverRatingsModel
+    {
+        public List<DriverRatingRow> rows = new List<DriverRatingRow>();
+        public string sortKey = "overall";
+    }
+
+    [Serializable]
     public class CareerHubModel
     {
         public string seasonLabel;      // "Season 2 · Round 5/22"
