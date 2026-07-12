@@ -18,7 +18,7 @@ namespace F1Game.Race.Rules
         /// </summary>
         public static bool IsLapDownGap(float deltaMeters, float trackLength)
         {
-            return deltaMeters >= trackLength * 0.92f;
+            return (double)deltaMeters >= (double)trackLength * 0.92d;
         }
 
         /// <summary>

@@ -1,8 +1,10 @@
 using System;
 using System.IO;
+using System.Text.RegularExpressions;
 using F1Game.Core.Persistence;
 using NUnit.Framework;
 using UnityEngine;
+using UnityEngine.TestTools;
 
 namespace F1Game.Tests
 {
@@ -80,7 +82,9 @@ namespace F1Game.Tests
             string primaryPath = Path.Combine(Application.persistentDataPath, fileName);
             File.WriteAllText(primaryPath, "{\"playerName\":\"good");
 
+            LogAssert.Expect(LogType.Error, new Regex("\\[ERR:1003\\].*Could not load"));
             FakeSave loaded = JsonSaveService.Load(fileName, new FakeSave { playerName = "fallback" });
+            LogAssert.Expect(LogType.Warning, new Regex("recovered from backup"));
             Assert.AreEqual("good", loaded.playerName, "Backup content should be recovered");
         }
 

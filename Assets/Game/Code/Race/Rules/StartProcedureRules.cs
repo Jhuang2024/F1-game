@@ -56,7 +56,10 @@ namespace F1Game.Race.Rules
                 return 0;
             }
 
-            int lit = (int)((elapsedSeconds - FirstLightDelaySeconds) / LightStepSeconds) + 1;
+            // Promote the boundary calculation so values assembled from the same
+            // public timing constants do not fall one light short through float
+            // cancellation at an exact step boundary.
+            int lit = (int)(((double)elapsedSeconds - FirstLightDelaySeconds) / LightStepSeconds + 1e-6d) + 1;
             return lit > LightCount ? LightCount : lit;
         }
 

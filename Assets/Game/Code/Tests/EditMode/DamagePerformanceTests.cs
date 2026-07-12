@@ -36,10 +36,11 @@ namespace F1Game.Tests
         [Test]
         public void MultipliersRespectTheirFloors()
         {
-            // Fully damaged inputs bottom out at the tuned floors, never below.
-            Assert.AreEqual(0.18f, DamagePerformance.AeroMultiplier(1f, 1f), 1e-6f);
-            Assert.AreEqual(0.2f, DamagePerformance.HandlingMultiplier(1f, 1f), 1e-6f);
-            Assert.AreEqual(0.24f, DamagePerformance.PowerMultiplier(1f, 1f), 1e-6f);
+            // Values beyond the normalised live range still cannot cross the
+            // tuned defensive floors.
+            Assert.AreEqual(0.18f, DamagePerformance.AeroMultiplier(10f, 10f), 1e-6f);
+            Assert.AreEqual(0.2f, DamagePerformance.HandlingMultiplier(10f, 10f), 1e-6f);
+            Assert.AreEqual(0.24f, DamagePerformance.PowerMultiplier(10f, 10f), 1e-6f);
         }
 
         [Test]

@@ -20,7 +20,13 @@ namespace F1Game.Core
         {
             int count = total < 1 ? 1 : total;
             float hue = ((index % count) + count) % count / (float)count;
-            LiveryColor primary = FromHsv(hue, 0.85f, 0.90f);
+            // Alternate two value bands as hues advance. Around yellow/cyan the
+            // RGB channel delta between adjacent evenly-spaced hues can otherwise
+            // fall below the grid's distinctness threshold even with high
+            // saturation; the value band keeps neighbours readable while leaving
+            // the deterministic hue order intact.
+            float primaryValue = (index & 1) == 0 ? 0.90f : 0.70f;
+            LiveryColor primary = FromHsv(hue, 0.85f, primaryValue);
             LiveryColor secondary = FromHsv(hue, 0.35f, 0.12f);
             LiveryColor accent = FromHsv(hue, 0.15f, 0.96f);
             return new CarLivery(primary, secondary, accent);
