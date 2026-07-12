@@ -21,6 +21,63 @@ namespace F1Game.Editor
     {
         const string ScreenPrefabFolder = "Assets/Game/Resources/UI/Screens";
         const string FontFolder = "Assets/Game/Art/Fonts";
+        const string TmpEssentialsPackage = "Packages/com.unity.textmeshpro/Package Resources/TMP Essential Resources.unitypackage";
+        const string PendingTmpImportKey = "F1Game.PendingTmpEssentialsImport";
+
+        [InitializeOnLoadMethod]
+        static void ResumePendingTmpImport()
+        {
+            if (SessionState.GetBool(PendingTmpImportKey, false))
+            {
+                EditorApplication.delayCall += ImportTmpEssentialsWhenReady;
+            }
+        }
+
+        /// <summary>
+        /// AssetDatabase.ImportPackage is rejected while the editor is playing. This
+        /// wrapper exits Play Mode first and uses SessionState so the pending import
+        /// survives the domain reload caused by returning to Edit Mode.
+        /// </summary>
+        [MenuItem("F1 Game/UI/0. Import TMP Essentials Safely")]
+        public static void ImportTmpEssentialsSafely()
+        {
+            SessionState.SetBool(PendingTmpImportKey, true);
+
+            if (EditorApplication.isPlaying || EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                Debug.Log("[UI Setup] Exiting Play Mode before importing TMP Essentials.");
+                EditorApplication.isPlaying = false;
+            }
+
+            EditorApplication.delayCall -= ImportTmpEssentialsWhenReady;
+            EditorApplication.delayCall += ImportTmpEssentialsWhenReady;
+        }
+
+        static void ImportTmpEssentialsWhenReady()
+        {
+            if (!SessionState.GetBool(PendingTmpImportKey, false))
+            {
+                return;
+            }
+
+            if (EditorApplication.isPlaying || EditorApplication.isPlayingOrWillChangePlaymode ||
+                EditorApplication.isCompiling || EditorApplication.isUpdating)
+            {
+                EditorApplication.delayCall += ImportTmpEssentialsWhenReady;
+                return;
+            }
+
+            string packagePath = Path.GetFullPath(TmpEssentialsPackage);
+            if (!File.Exists(packagePath))
+            {
+                SessionState.EraseBool(PendingTmpImportKey);
+                Debug.LogError("[UI Setup] TMP Essentials package not found: " + packagePath);
+                return;
+            }
+
+            SessionState.EraseBool(PendingTmpImportKey);
+            AssetDatabase.ImportPackage(packagePath, true);
+        }
 
         [MenuItem("F1 Game/UI/1. Create TMP Font Assets")]
         public static void CreateTmpFontAssets()
@@ -46,6 +103,12 @@ namespace F1Game.Editor
             {
                 Debug.LogError("[UI Setup] UiTheme_Default.asset not found under Assets/Game/Resources/UI.");
             }
+        }
+
+        [MenuItem("F1 Game/UI/1. Create TMP Font Assets", true)]
+        static bool CanCreateTmpFontAssets()
+        {
+            return !EditorApplication.isPlayingOrWillChangePlaymode;
         }
 
         static TMP_FontAsset BuildFont(string sourcePath, string assetName)
@@ -100,6 +163,12 @@ namespace F1Game.Editor
             {
                 Object.DestroyImmediate(stagingRoot.gameObject);
             }
+        }
+
+        [MenuItem("F1 Game/UI/2. Bake Screen Prefabs", true)]
+        static bool CanBakeScreenPrefabs()
+        {
+            return !EditorApplication.isPlayingOrWillChangePlaymode;
         }
 
         static void Bake(GameObject built, string name)
