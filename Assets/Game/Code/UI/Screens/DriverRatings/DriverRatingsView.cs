@@ -20,6 +20,7 @@ namespace F1Game.UI.Screens.DriverRatings
 
         [SerializeField] RectTransform rowContainer;
         [SerializeField] TMP_Text rowTemplate;
+        [SerializeField] ThemedButton teamsButton;
         [SerializeField] ThemedButton backButton;
 
         readonly List<TMP_Text> rows = new List<TMP_Text>();
@@ -27,16 +28,23 @@ namespace F1Game.UI.Screens.DriverRatings
         readonly List<string> sortKeys = new List<string>();
 
         public event Action<string> SortSelected;
+        public event Action TeamsClicked;
         public event Action BackClicked;
 
-        public void Bind(RectTransform container, TMP_Text template, ThemedButton back)
+        public void Bind(RectTransform container, TMP_Text template, ThemedButton teams, ThemedButton back)
         {
             rowContainer = container;
             rowTemplate = template;
+            teamsButton = teams;
             backButton = back;
             if (rowTemplate != null)
             {
                 rowTemplate.gameObject.SetActive(false);
+            }
+
+            if (teamsButton != null)
+            {
+                teamsButton.Clicked += () => TeamsClicked?.Invoke();
             }
 
             if (backButton != null)

@@ -8,6 +8,7 @@ using F1Game.UI.Screens.CareerCreation;
 using F1Game.UI.Screens.CareerHub;
 using F1Game.UI.Screens.CareerStats;
 using F1Game.UI.Screens.DriverRatings;
+using F1Game.UI.Screens.TeamRatings;
 using F1Game.UI.Screens.CareerStandings;
 using F1Game.UI.Screens.DriverProfile;
 using F1Game.UI.Screens.MainMenu;
@@ -59,6 +60,7 @@ namespace LocalFormulaRacing
         static CareerStatsPresenter careerStatsPresenter;
         static CareerStatsPresenter trophyCabinetPresenter;
         static DriverRatingsPresenter driverRatingsPresenter;
+        static TeamRatingsPresenter teamRatingsPresenter;
         static DriverProfilePresenter profilePresenter;
         static SettingsPresenter settingsPresenter;
         static ResultsPresenter resultsPresenter;
@@ -248,6 +250,14 @@ namespace LocalFormulaRacing
             driverRatingsPresenter = new DriverRatingsPresenter(driverRatingsView)
             {
                 OnSort = ShowDriverRatings,
+                OnTeams = ShowTeamRatings,
+                OnBack = () => shell.Router.Back(),
+            };
+
+            var teamRatingsView = (TeamRatingsView)ShowAndGet(TeamRatingsView.Id);
+            teamRatingsPresenter = new TeamRatingsPresenter(teamRatingsView)
+            {
+                OnDrivers = () => ShowDriverRatings("overall"),
                 OnBack = () => shell.Router.Back(),
             };
 
@@ -625,6 +635,52 @@ namespace LocalFormulaRacing
             }
 
             return "";
+        }
+
+        // Production team ratings: read-only, sorted by effective car overall.
+        static void ShowTeamRatings()
+        {
+            var model = new TeamRatingsModel();
+            if (data != null && data.Teams != null)
+            {
+                var teams = new List<TeamData>(data.Teams.teams);
+                teams.Sort((a, b) => CarOverallFor(b).CompareTo(CarOverallFor(a)));
+
+                for (int i = 0; i < teams.Count; i++)
+                {
+                    TeamData team = teams[i];
+                    if (team == null)
+                    {
+                        continue;
+                    }
+
+                    CarPerformanceData car = EffectiveCarFor(team);
+                    bool isPlayerTeam = career != null && career.Save != null && team.id == career.Save.playerTeamId;
+                    model.rows.Add(new TeamRatingRow
+                    {
+                        name = string.IsNullOrEmpty(team.name) ? team.id : team.name,
+                        carOverall = (car == null ? 0 : RatingCalculator.GetCarOverall(car)).ToString(),
+                        reliability = (car == null ? team.reliability : car.reliability).ToString(),
+                        reputation = team.reputation.ToString(),
+                        isPlayerTeam = isPlayerTeam,
+                    });
+                }
+            }
+
+            shell.Router.Show(TeamRatingsView.Id);
+            teamRatingsPresenter.Present(model);
+        }
+
+        static CarPerformanceData EffectiveCarFor(TeamData team)
+        {
+            CarPerformanceData baseCar = data != null ? data.FindCar(team.carPerformanceId) : null;
+            return career != null && career.Save != null ? career.GetEffectiveTeamCar(team, baseCar) : baseCar;
+        }
+
+        static int CarOverallFor(TeamData team)
+        {
+            CarPerformanceData car = EffectiveCarFor(team);
+            return car == null ? 0 : RatingCalculator.GetCarOverall(car);
         }
 
         static string ResolveTrackName(string trackId)

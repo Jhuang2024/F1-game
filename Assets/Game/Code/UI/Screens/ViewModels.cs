@@ -196,6 +196,23 @@ namespace F1Game.UI.Screens
     }
 
     [Serializable]
+    public class TeamRatingRow
+    {
+        public string name;
+        public string carOverall;
+        public string reliability;
+        public string reputation;
+        public bool isPlayerTeam;
+    }
+
+    /// <summary>Read-only team/car ratings, sorted by car overall.</summary>
+    [Serializable]
+    public class TeamRatingsModel
+    {
+        public List<TeamRatingRow> rows = new List<TeamRatingRow>();
+    }
+
+    [Serializable]
     public class CareerHubModel
     {
         public string seasonLabel;      // "Season 2 · Round 5/22"

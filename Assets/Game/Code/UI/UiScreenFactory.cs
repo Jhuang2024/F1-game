@@ -452,16 +452,51 @@ namespace F1Game.UI
             TMP_Text rowTemplate = CreateText(rowColumn, "Rating_Template", TextStyle.Body, "");
             rowTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 8f;
 
-            ThemedButton back = CreateButton(content, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
+            var navRowGo = new GameObject("NavRow", typeof(RectTransform));
+            navRowGo.transform.SetParent(content, false);
+            var navLayout = navRowGo.AddComponent<HorizontalLayoutGroup>();
+            navLayout.spacing = theme.spacing.small;
+            navLayout.childForceExpandWidth = true;
+            navLayout.childControlWidth = true;
+            navLayout.childControlHeight = true;
+            ThemedButton teams = CreateButton(navRowGo.transform, "Btn_Teams", ThemedButton.Variant.Secondary, "Team Ratings",
+                theme.components.buttonHeightCompact);
+            ThemedButton back = CreateButton(navRowGo.transform, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
                 theme.components.buttonHeightCompact);
 
             var view = content.parent.gameObject.AddComponent<Screens.DriverRatings.DriverRatingsView>();
-            view.Bind(rowColumn, rowTemplate, back);
+            view.Bind(rowColumn, rowTemplate, teams, back);
             foreach ((ThemedButton btn, string key) in tabs)
             {
                 view.AddSortTab(btn, key);
             }
 
+            return view;
+        }
+
+        public static Screens.TeamRatings.TeamRatingsView BuildTeamRatings(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_TeamRatings", "TEAM RATINGS", out TMP_Text header);
+
+            RectTransform rowColumn = CreateLayoutColumn(content, "TeamRatingRows", theme.spacing.micro);
+            TMP_Text rowTemplate = CreateText(rowColumn, "TeamRating_Template", TextStyle.Body, "");
+            rowTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 8f;
+
+            var navRowGo = new GameObject("NavRow", typeof(RectTransform));
+            navRowGo.transform.SetParent(content, false);
+            var navLayout = navRowGo.AddComponent<HorizontalLayoutGroup>();
+            navLayout.spacing = theme.spacing.small;
+            navLayout.childForceExpandWidth = true;
+            navLayout.childControlWidth = true;
+            navLayout.childControlHeight = true;
+            ThemedButton drivers = CreateButton(navRowGo.transform, "Btn_Drivers", ThemedButton.Variant.Secondary, "Driver Ratings",
+                theme.components.buttonHeightCompact);
+            ThemedButton back = CreateButton(navRowGo.transform, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
+                theme.components.buttonHeightCompact);
+
+            var view = content.parent.gameObject.AddComponent<Screens.TeamRatings.TeamRatingsView>();
+            view.Bind(rowColumn, rowTemplate, drivers, back);
             return view;
         }
 

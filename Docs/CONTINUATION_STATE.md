@@ -1672,6 +1672,20 @@ deferred, not claimed complete.
         write-back to selectedDriverId, unlike the legacy screen). Legacy Driver
         Ratings remains the emergency fallback. Runtime-built; VISUAL VALIDATION PENDING.
 
+    F28. Career migration: production Team Ratings (completes the ratings pair). New
+        TeamRatingsModel + TeamRatingRow (F1Game.UI); TeamRatingsView (ranked read-only
+        team list with car overall / reliability / reputation, player's team
+        highlighted, + Driver Ratings cross-nav + Back) + TeamRatingsPresenter;
+        UiScreenFactory.BuildTeamRatings; UiShell registers "team-ratings".
+        DriverRatingsView/Presenter gained a Team Ratings cross-nav button (Bind +
+        factory + OnTeams). ProductionUiBridge: teamRatingsPresenter built, Driver <->
+        Team ratings cross-navigate; ShowTeamRatings sorts teams by effective car
+        overall (career.GetEffectiveTeamCar + RatingCalculator.GetCarOverall, the same
+        public formula the legacy ComputeCarOverall delegates to) and binds car
+        overall / reliability / team reputation. Legacy Team Ratings remains the
+        emergency fallback. Runtime-built; VISUAL VALIDATION PENDING. (Driver/Team
+        ratings migration now complete.)
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
