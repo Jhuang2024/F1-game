@@ -8,6 +8,7 @@ using F1Game.UI.Screens.CareerCreation;
 using F1Game.UI.Screens.CareerHub;
 using F1Game.UI.Screens.CareerStats;
 using F1Game.UI.Screens.DriverRatings;
+using F1Game.UI.Screens.Rnd;
 using F1Game.UI.Screens.TeamRatings;
 using F1Game.UI.Screens.CareerStandings;
 using F1Game.UI.Screens.DriverProfile;
@@ -61,6 +62,7 @@ namespace LocalFormulaRacing
         static CareerStatsPresenter trophyCabinetPresenter;
         static DriverRatingsPresenter driverRatingsPresenter;
         static TeamRatingsPresenter teamRatingsPresenter;
+        static RndPresenter rndPresenter;
         static DriverProfilePresenter profilePresenter;
         static SettingsPresenter settingsPresenter;
         static ResultsPresenter resultsPresenter;
@@ -221,6 +223,7 @@ namespace LocalFormulaRacing
                 OnProfile = ShowDriverProfile,
                 OnStats = ShowCareerStats,
                 OnRatings = () => ShowDriverRatings("overall"),
+                OnRnd = ShowRnd,
                 OnLegacyMenu = () => LeaveToLegacy(() => bootstrap.ShowCareer()),
                 OnBack = () => shell.Router.Back(),
             };
@@ -258,6 +261,16 @@ namespace LocalFormulaRacing
             teamRatingsPresenter = new TeamRatingsPresenter(teamRatingsView)
             {
                 OnDrivers = () => ShowDriverRatings("overall"),
+                OnBack = () => shell.Router.Back(),
+            };
+
+            var rndView = (RndView)ShowAndGet(RndView.Id);
+            rndPresenter = new RndPresenter(rndView)
+            {
+                OnUpgradeDepartment = RndUpgradeDepartment,
+                OnStartUpgrade = RndStartUpgrade,
+                OnReworkProject = RndReworkProject,
+                OnAbandonProject = RndAbandonProject,
                 OnBack = () => shell.Router.Back(),
             };
 
@@ -681,6 +694,153 @@ namespace LocalFormulaRacing
         {
             CarPerformanceData car = EffectiveCarFor(team);
             return car == null ? 0 : RatingCalculator.GetCarOverall(car);
+        }
+
+        // Production R&D centre: presentation projected from authoritative saved state.
+        static void ShowRnd()
+        {
+            var model = new RndModel();
+            if (career != null && career.Save != null && data != null && data.Upgrades != null)
+            {
+                int rp = career.Save.resourcePoints;
+                int active = career.ActiveProjectCount();
+                int maxActive = career.MaxActiveProjects();
+                model.summaryLine = rp + " RP · Slots " + active + "/" + maxActive + " · Season " + career.Save.currentSeason;
+
+                for (int i = 0; i < CareerManager.DepartmentNames.Length; i++)
+                {
+                    int level = career.GetDepartmentLevel(i);
+                    bool maxed = level >= CareerManager.MaxDepartmentLevel;
+                    int cost = career.GetDepartmentUpgradeCost(i);
+                    model.departments.Add(new RndRow
+                    {
+                        id = i.ToString(),
+                        label = CareerManager.DepartmentNames[i],
+                        detail = maxed ? ("Level " + level + " · MAX") : ("Level " + level + " · Upgrade " + cost + " RP"),
+                        primaryLabel = "Upgrade",
+                        primaryShown = true,
+                        primaryEnabled = F1Game.Core.RndEligibility.CanUpgradeDepartment(level, CareerManager.MaxDepartmentLevel, rp),
+                    });
+                }
+
+                for (int i = 0; i < career.Save.activeUpgradeProjects.Count; i++)
+                {
+                    ActiveUpgradeProject p = career.Save.activeUpgradeProjects[i];
+                    if (p.status == CareerManager.ProjectInDevelopment)
+                    {
+                        model.projects.Add(new RndRow
+                        {
+                            id = p.upgradeId,
+                            label = UpgradeName(p.upgradeId),
+                            detail = p.remainingRaceWeeks + " weeks left · " + Mathf.RoundToInt(p.successChance * 100f) + "% success",
+                        });
+                    }
+                    else if (p.status == CareerManager.ProjectReworkAvailable)
+                    {
+                        int reworkCost = career.GetReworkCost(p);
+                        model.projects.Add(new RndRow
+                        {
+                            id = p.upgradeId,
+                            label = UpgradeName(p.upgradeId),
+                            detail = "Failed · rework " + reworkCost + " RP",
+                            primaryLabel = "Rework",
+                            primaryShown = true,
+                            primaryEnabled = F1Game.Core.RndEligibility.CanRework(rp, p.cost, active, maxActive, true),
+                            secondaryLabel = "Abandon",
+                            secondaryShown = true,
+                            secondaryEnabled = true,
+                        });
+                    }
+                }
+
+                model.emptyProjectsMessage = "No projects in development. Start one from the upgrade tree.";
+
+                for (int i = 0; i < data.Upgrades.upgrades.Count; i++)
+                {
+                    UpgradeData u = data.Upgrades.upgrades[i];
+                    bool owned = career.Save.completedUpgradeIds.Contains(u.id)
+                        || career.Save.failedUpgradeIds.Contains(u.id)
+                        || career.FindProject(u.id) != null;
+                    if (owned)
+                    {
+                        continue;
+                    }
+
+                    int deptLevel = career.GetDepartmentLevel(career.GetDepartmentIndex(u.category));
+                    int cost = career.ComputeProjectCost(u, CareerManager.RiskStandard);
+                    bool prereqMet = string.IsNullOrEmpty(u.requiredUpgradeId) || career.Save.completedUpgradeIds.Contains(u.requiredUpgradeId);
+                    model.upgrades.Add(new RndRow
+                    {
+                        id = u.id,
+                        label = string.IsNullOrEmpty(u.displayName) ? u.id : u.displayName,
+                        detail = u.category + " · Tier " + u.tier + " · " + cost + " RP",
+                        primaryLabel = "Start",
+                        primaryShown = true,
+                        primaryEnabled = F1Game.Core.RndEligibility.CanStartProject(rp, cost, deptLevel, u.tier, active, maxActive, false, prereqMet),
+                    });
+                }
+            }
+
+            shell.Router.Show(RndView.Id);
+            rndPresenter.Present(model);
+        }
+
+        static string UpgradeName(string upgradeId)
+        {
+            if (data != null && data.Upgrades != null)
+            {
+                UpgradeData u = data.Upgrades.upgrades.Find(x => x.id == upgradeId);
+                if (u != null)
+                {
+                    return string.IsNullOrEmpty(u.displayName) ? u.id : u.displayName;
+                }
+            }
+
+            return upgradeId;
+        }
+
+        // Command adapters: issue the authoritative CareerManager mutation, then
+        // re-present from saved state (which also disables now-ineligible buttons,
+        // so the same mutation can't be submitted twice). The Try* methods
+        // re-validate and own all deduction/save writes.
+        static void RndUpgradeDepartment(string idText)
+        {
+            if (career != null && int.TryParse(idText, out int index))
+            {
+                career.TryUpgradeDepartment(index);
+            }
+
+            ShowRnd();
+        }
+
+        static void RndStartUpgrade(string upgradeId)
+        {
+            if (career != null)
+            {
+                career.TryStartUpgradeProject(upgradeId, CareerManager.RiskStandard);
+            }
+
+            ShowRnd();
+        }
+
+        static void RndReworkProject(string upgradeId)
+        {
+            if (career != null)
+            {
+                career.TryReworkProject(upgradeId);
+            }
+
+            ShowRnd();
+        }
+
+        static void RndAbandonProject(string upgradeId)
+        {
+            if (career != null)
+            {
+                career.AbandonProject(upgradeId);
+            }
+
+            ShowRnd();
         }
 
         static string ResolveTrackName(string trackId)

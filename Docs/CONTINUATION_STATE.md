@@ -1698,6 +1698,27 @@ deferred, not claimed complete.
         pin every branch against the real cost formulas. Next: the production R&D view
         that issues commands to CareerManager.Try* and refreshes from saved state.
 
+    F30. Career migration: production R&D CENTRE (first save-MUTATING screen).
+        Presentation-only production UI over the AUTHORITATIVE CareerManager mutation
+        methods - no deduction/validation/save logic is duplicated. New RndModel +
+        RndRow (F1Game.UI); reusable CareerActionRow widget (label + detail + up to two
+        action buttons, per-row shown/enabled so an ineligible action is a visible
+        no-op); RndView (summary + 3 pooled sections: departments/projects/upgrades) +
+        RndPresenter; UiScreenFactory.BuildRnd + BuildCareerActionRowTemplate; UiShell
+        registers "rnd-center"; CareerHubView/Presenter gain an R&D Centre button
+        (Bind + factory + nav in lockstep). ProductionUiBridge.ShowRnd projects the
+        model from saved state (RP/slots/season summary; department level+cost+upgrade;
+        in-dev projects weeks/success; reworkable projects rework/abandon; start-able
+        upgrades tier/cost) with button-enabled state from the engine-free
+        RndEligibility (F29). The command adapters (RndUpgradeDepartment/StartUpgrade/
+        ReworkProject/AbandonProject) call career.TryUpgradeDepartment /
+        TryStartUpgradeProject / TryReworkProject / AbandonProject respectively and
+        immediately re-present from saved state - which disables now-ineligible buttons,
+        so a mutation can't be submitted twice, and the Try* methods re-validate + own
+        all deduction/writes. Exactly one authoritative mutation path; save schema/RNG/
+        mutation order unchanged. Legacy R&D remains the emergency fallback (reachable
+        via Full Career Menu). Runtime-built; COMPILER/RUNTIME VALIDATION PENDING.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

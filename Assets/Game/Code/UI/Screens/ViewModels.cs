@@ -212,6 +212,36 @@ namespace F1Game.UI.Screens
         public List<TeamRatingRow> rows = new List<TeamRatingRow>();
     }
 
+    /// <summary>One R&D list row (department / active project / available upgrade).</summary>
+    [Serializable]
+    public class RndRow
+    {
+        public string id;
+        public string label;
+        public string detail;
+        public string primaryLabel;
+        public bool primaryShown;
+        public bool primaryEnabled;
+        public string secondaryLabel;
+        public bool secondaryShown;
+        public bool secondaryEnabled;
+    }
+
+    /// <summary>
+    /// R&D command centre view state. All rows are display projections of authoritative
+    /// saved state; the presenter issues CareerManager commands and the bridge rebuilds
+    /// this model from the save after each successful mutation.
+    /// </summary>
+    [Serializable]
+    public class RndModel
+    {
+        public string summaryLine = "";
+        public List<RndRow> departments = new List<RndRow>();
+        public List<RndRow> projects = new List<RndRow>();
+        public List<RndRow> upgrades = new List<RndRow>();
+        public string emptyProjectsMessage = "";
+    }
+
     [Serializable]
     public class CareerHubModel
     {

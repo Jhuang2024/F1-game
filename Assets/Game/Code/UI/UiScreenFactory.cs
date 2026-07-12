@@ -257,13 +257,14 @@ namespace F1Game.UI
             ThemedButton profile = CreateButton(actions, "Btn_Profile", ThemedButton.Variant.Secondary, "Driver Profile");
             ThemedButton stats = CreateButton(actions, "Btn_Stats", ThemedButton.Variant.Secondary, "Career Stats");
             ThemedButton ratings = CreateButton(actions, "Btn_Ratings", ThemedButton.Variant.Secondary, "Driver Ratings");
+            ThemedButton rnd = CreateButton(actions, "Btn_Rnd", ThemedButton.Variant.Secondary, "R&D Centre");
             ThemedButton legacyMenu = CreateButton(actions, "Btn_FullMenu", ThemedButton.Variant.Secondary, "Full Career Menu");
             ThemedButton back = CreateButton(actions, "Btn_Back", ThemedButton.Variant.Tertiary, "Back");
 
-            SetUpDownNavigation(new[] { continueBtn, standings, profile, stats, ratings, legacyMenu, back });
+            SetUpDownNavigation(new[] { continueBtn, standings, profile, stats, ratings, rnd, legacyMenu, back });
 
             var view = content.parent.gameObject.AddComponent<Screens.CareerHub.CareerHubView>();
-            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, profile, stats, ratings, legacyMenu, back);
+            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, profile, stats, ratings, rnd, legacyMenu, back);
             return view;
         }
 
@@ -420,6 +421,73 @@ namespace F1Game.UI
                 unitsButton, cameraShakeButton, compactHudButton, uiAnimationsButton, classic, back);
             view.BindEditor(editorSection.gameObject, editorColumn, editorTemplate);
             return view;
+        }
+
+        public static Screens.Rnd.RndView BuildRnd(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_Rnd", "R&D CENTRE", out TMP_Text header);
+
+            TMP_Text summary = CreateText(content, "Summary", TextStyle.H3, "");
+
+            CreateText(content, "DeptLabel", TextStyle.Label, "DEPARTMENTS");
+            RectTransform deptColumn = CreateLayoutColumn(content, "Departments", theme.spacing.micro);
+            CareerActionRow deptTemplate = BuildCareerActionRowTemplate(deptColumn, theme, hasSecondary: false);
+
+            CreateText(content, "ProjectsLabel", TextStyle.Label, "ACTIVE PROJECTS");
+            RectTransform projectColumn = CreateLayoutColumn(content, "Projects", theme.spacing.micro);
+            CareerActionRow projectTemplate = BuildCareerActionRowTemplate(projectColumn, theme, hasSecondary: true);
+            TMP_Text emptyProjects = CreateText(projectColumn, "NoProjects", TextStyle.Body, "");
+            emptyProjects.color = theme.palette.textMuted;
+
+            CreateText(content, "UpgradesLabel", TextStyle.Label, "UPGRADE TREE");
+            RectTransform upgradeColumn = CreateLayoutColumn(content, "Upgrades", theme.spacing.micro);
+            CareerActionRow upgradeTemplate = BuildCareerActionRowTemplate(upgradeColumn, theme, hasSecondary: false);
+
+            ThemedButton back = CreateButton(content, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
+                theme.components.buttonHeightCompact);
+
+            var view = content.parent.gameObject.AddComponent<Screens.Rnd.RndView>();
+            view.Bind(summary, deptColumn, deptTemplate, projectColumn, projectTemplate, emptyProjects,
+                upgradeColumn, upgradeTemplate, back);
+            return view;
+        }
+
+        // Hidden CareerActionRow template: [ label / detail .... primary (secondary) ].
+        static CareerActionRow BuildCareerActionRowTemplate(Transform parent, UiTheme theme, bool hasSecondary)
+        {
+            var rowGo = new GameObject("ActionRow_Template", typeof(RectTransform));
+            rowGo.transform.SetParent(parent, false);
+            var layout = rowGo.AddComponent<HorizontalLayoutGroup>();
+            layout.spacing = theme.spacing.small;
+            layout.childForceExpandWidth = false;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childAlignment = TextAnchor.MiddleLeft;
+            rowGo.AddComponent<LayoutElement>().preferredHeight = theme.components.buttonHeightCompact + 12f;
+
+            RectTransform textCol = CreateLayoutColumn(rowGo.transform, "Text", 0f);
+            textCol.gameObject.AddComponent<LayoutElement>().flexibleWidth = 1f;
+            TMP_Text label = CreateText(textCol, "Label", TextStyle.Body, "");
+            TMP_Text detail = CreateText(textCol, "Detail", TextStyle.Caption, "");
+            detail.color = theme.palette.textMuted;
+
+            ThemedButton primary = CreateButton(rowGo.transform, "Btn_Primary", ThemedButton.Variant.Secondary, "Action",
+                theme.components.buttonHeightCompact);
+            primary.GetComponent<LayoutElement>().preferredWidth = 150f;
+
+            ThemedButton secondary = null;
+            if (hasSecondary)
+            {
+                secondary = CreateButton(rowGo.transform, "Btn_Secondary", ThemedButton.Variant.Tertiary, "Alt",
+                    theme.components.buttonHeightCompact);
+                secondary.GetComponent<LayoutElement>().preferredWidth = 120f;
+            }
+
+            var row = rowGo.AddComponent<CareerActionRow>();
+            row.Bind(label, detail, primary, secondary);
+            rowGo.SetActive(false);
+            return row;
         }
 
         public static Screens.DriverRatings.DriverRatingsView BuildDriverRatings(Transform root)
