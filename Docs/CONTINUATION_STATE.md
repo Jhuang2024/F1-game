@@ -2371,6 +2371,35 @@ claude/read-and-complete-ipelrl.
           (CarLiveryTests) engine-free infra for an optional create-a-team feature whose
           surface is deliberately not built. Not a required single-player gap.
 
+    C9. Repository-wide zero-consumer sweep (ALL production assemblies) - final
+        classification. Beyond the classes already resolved (BrakeThermalModel C7,
+        ReplaySerialization C8), the remaining zero-external-reference classes are all
+        either editor tools or complete infra with a precise reason they are not a
+        non-optional gap (none is required-and-broken):
+        - Editor tools (RenderPipelineValidator, TrackAuthoringTools, TrackDataExporter,
+          UiSetupTools, CarPrefabBuilder): invoked from Unity Editor menus ([MenuItem]),
+          so zero RUNTIME references is expected - not gaps.
+        - LightingMoodApplier: would source scene sun/ambient/fog from an authored
+          LightingMoodProfile, but the live CreateLighting is a hand-TUNED per-track
+          lighting path (night/twilight/desert/coastal/mountain/park constants). Wiring
+          it - even validation-gated - adds a SECOND writer of the same RenderSettings/
+          sun and would regress the tuned per-track look. The authored-mood post/grade
+          half IS live (RaceVolumeService); the environment half stays a superseded
+          alternate by design (changing tuned visuals is out of scope). Precise reason.
+        - LiveryPaint: Unity bridge that paints a CarLivery via MaterialInstanceService.
+          The live spawn already calls MaterialInstanceService.ApplyLivery DIRECTLY, so
+          LiveryPaint is a superseded wrapper; it is also part of the surface-less
+          custom-livery feature (see LiverySelection C8). Optional infra, one live path.
+        - ControllerPrompt: controller-glyph hint widget (DevicePromptService). No screen
+          adopts it; adding on-screen button prompts is an optional UX layer, not a
+          required feature. Complete widget, ready for a future prompts pass.
+        - DataRow: generic table/standings row widget. The live screens build their rows
+          with their own row code (e.g. CareerActionRow / inline), so this reusable
+          widget is unadopted - a duplicate-avoidance choice, not a broken feature.
+        No production class is left model-only-with-no-consumer AND non-optional AND
+        safely wireable. The genuinely-wireable one found in this sweep (ReplaySerialization)
+        was wired in C8.
+
 ## FINAL CLOSURE LIST (implementation closure pass)
 # Three categories only. "Live" = wired + reached, verified by static reasoning
 # (no compiler here); runtime confirmation is the pending in-editor step.
