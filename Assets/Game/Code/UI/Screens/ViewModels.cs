@@ -255,6 +255,34 @@ namespace F1Game.UI.Screens
     }
 
     [Serializable]
+    public class ChampionshipSeriesModel
+    {
+        public string label;
+        public bool isPlayer;
+        public Color color = Color.white;
+        // Normalized [0,1] chart coordinates (from ChampionshipChart geometry).
+        public List<Vector2> points = new List<Vector2>();
+        public string finalValue = "";  // e.g. "P1 · 254 pts"
+    }
+
+    /// <summary>
+    /// Championship-graph view state: normalized series lines + axis ticks + round
+    /// labels for the production chart. The bridge builds this from CareerManager's
+    /// authoritative championship progression using the engine-free ChampionshipChart
+    /// geometry; no standings are recomputed here.
+    /// </summary>
+    [Serializable]
+    public class ChampionshipChartModel
+    {
+        public string title = "";
+        public bool constructorsMode;
+        public List<ChampionshipSeriesModel> series = new List<ChampionshipSeriesModel>();
+        public List<int> yTicks = new List<int>();
+        public List<string> roundLabels = new List<string>();
+        public string emptyMessage = "";
+    }
+
+    [Serializable]
     public class CareerHubModel
     {
         public string seasonLabel;      // "Season 2 · Round 5/22"

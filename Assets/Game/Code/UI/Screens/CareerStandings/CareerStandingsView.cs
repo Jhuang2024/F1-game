@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using F1Game.UI.Navigation;
 using F1Game.UI.Theme;
@@ -21,6 +22,7 @@ namespace F1Game.UI.Screens.CareerStandings
         [SerializeField] TabBar tabs;
         [SerializeField] RectTransform rowContainer;
         [SerializeField] TMP_Text rowTemplate;
+        [SerializeField] ThemedButton graphButton;
         [SerializeField] ThemedButton backButton;
 
         readonly List<TMP_Text> rows = new List<TMP_Text>();
@@ -28,16 +30,24 @@ namespace F1Game.UI.Screens.CareerStandings
         public TabBar Tabs => tabs;
         public ThemedButton BackButton => backButton;
 
+        public event Action GraphClicked;
+
         public void Bind(TMP_Text headerText, TMP_Text season, TabBar tabBar,
-            RectTransform container, TMP_Text template, ThemedButton back)
+            RectTransform container, TMP_Text template, ThemedButton graph, ThemedButton back)
         {
             header = headerText;
             seasonLabel = season;
             tabs = tabBar;
             rowContainer = container;
             rowTemplate = template;
+            graphButton = graph;
             backButton = back;
             rowTemplate.gameObject.SetActive(false);
+            if (graphButton != null)
+            {
+                graphButton.Clicked += () => GraphClicked?.Invoke();
+            }
+
             SetScreenId(Id);
             SetDefaultSelection(back != null ? back.gameObject : null);
         }

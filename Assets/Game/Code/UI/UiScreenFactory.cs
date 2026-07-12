@@ -424,6 +424,54 @@ namespace F1Game.UI
             return view;
         }
 
+        public static Screens.Championship.ChampionshipChartView BuildChampionshipChart(Transform root)
+        {
+            UiTheme theme = UiTheme.Active;
+            RectTransform content = ScreenScaffold(root, "Screen_Championship", "CHAMPIONSHIP", out TMP_Text header);
+
+            TMP_Text title = CreateText(content, "ChartTitle", TextStyle.H3, "");
+
+            // Drivers / Constructors toggle.
+            var tabRowGo = new GameObject("ModeTabs", typeof(RectTransform));
+            tabRowGo.transform.SetParent(content, false);
+            var tabLayout = tabRowGo.AddComponent<HorizontalLayoutGroup>();
+            tabLayout.spacing = theme.spacing.small;
+            tabLayout.childForceExpandWidth = false;
+            tabLayout.childControlWidth = true;
+            tabLayout.childControlHeight = true;
+            ThemedButton drivers = CreateButton(tabRowGo.transform, "Tab_Drivers", ThemedButton.Variant.Secondary, "Drivers",
+                theme.components.buttonHeightCompact);
+            drivers.GetComponent<LayoutElement>().preferredWidth = 160f;
+            ThemedButton constructors = CreateButton(tabRowGo.transform, "Tab_Constructors", ThemedButton.Variant.Secondary, "Constructors",
+                theme.components.buttonHeightCompact);
+            constructors.GetComponent<LayoutElement>().preferredWidth = 160f;
+
+            // Fixed-size chart area (left margin for y labels, bottom margin for x labels).
+            var chartHost = new GameObject("ChartHost", typeof(RectTransform));
+            chartHost.transform.SetParent(content, false);
+            var hostLayout = chartHost.AddComponent<LayoutElement>();
+            hostLayout.preferredHeight = 372f;
+            hostLayout.preferredWidth = 964f;
+            RectTransform chartArea = CreateRect((RectTransform)chartHost.transform, "ChartArea",
+                new Vector2(0f, 0f), new Vector2(0f, 0f), new Vector2(52f, 26f), new Vector2(952f, 356f));
+
+            TMP_Text empty = CreateText(chartArea, "Empty", TextStyle.Body, "");
+            empty.color = theme.palette.textMuted;
+
+            CreateText(content, "LegendLabel", TextStyle.Label, "LEGEND");
+            RectTransform legend = CreateLayoutColumn(content, "Legend", theme.spacing.micro);
+            TMP_Text legendTemplate = CreateText(legend, "Legend_Template", TextStyle.BodySmall, "");
+            legendTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.bodySmall + 6f;
+
+            ThemedButton back = CreateButton(content, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
+                theme.components.buttonHeightCompact);
+
+            var view = content.parent.gameObject.AddComponent<Screens.Championship.ChampionshipChartView>();
+            // Plot + both label layers share the same origin rect so their coordinates align.
+            view.Bind(title, drivers, constructors, chartArea, chartArea, chartArea, legend, empty, legendTemplate, back);
+            return view;
+        }
+
         public static Screens.PracticePrograms.PracticeProgramsView BuildPracticePrograms(Transform root)
         {
             UiTheme theme = UiTheme.Active;
@@ -754,10 +802,20 @@ namespace F1Game.UI
             TMP_Text rowTemplate = CreateText(rowsColumn, "Row_Template", TextStyle.Body, "");
             rowTemplate.gameObject.AddComponent<LayoutElement>().preferredHeight = theme.typography.body + 10f;
 
-            ThemedButton back = CreateButton(content, "Btn_Back", ThemedButton.Variant.Tertiary, "Back");
+            var navRowGo = new GameObject("NavRow", typeof(RectTransform));
+            navRowGo.transform.SetParent(content, false);
+            var navLayout = navRowGo.AddComponent<HorizontalLayoutGroup>();
+            navLayout.spacing = theme.spacing.small;
+            navLayout.childForceExpandWidth = true;
+            navLayout.childControlWidth = true;
+            navLayout.childControlHeight = true;
+            ThemedButton graph = CreateButton(navRowGo.transform, "Btn_Graph", ThemedButton.Variant.Secondary, "Championship Graph",
+                theme.components.buttonHeightCompact);
+            ThemedButton back = CreateButton(navRowGo.transform, "Btn_Back", ThemedButton.Variant.Tertiary, "Back",
+                theme.components.buttonHeightCompact);
 
             var view = content.parent.gameObject.AddComponent<Screens.CareerStandings.CareerStandingsView>();
-            view.Bind(header, season, tabs, rowsColumn, rowTemplate, back);
+            view.Bind(header, season, tabs, rowsColumn, rowTemplate, graph, back);
             return view;
         }
 

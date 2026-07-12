@@ -12,6 +12,7 @@ using F1Game.UI.Screens.PracticePrograms;
 using F1Game.UI.Screens.Rnd;
 using F1Game.UI.Screens.TeamRatings;
 using F1Game.UI.Screens.CareerStandings;
+using F1Game.UI.Screens.Championship;
 using F1Game.UI.Screens.DriverProfile;
 using F1Game.UI.Screens.MainMenu;
 using F1Game.UI.Screens.RaceHudShell;
@@ -57,6 +58,7 @@ namespace LocalFormulaRacing
         static TrackSelectPresenter trackSelectPresenter;
         static PreRaceStrategyPresenter strategyPresenter;
         static CareerStandingsPresenter standingsPresenter;
+        static ChampionshipChartPresenter championshipChartPresenter;
         static CareerHubPresenter careerHubPresenter;
         static CareerCreationPresenter careerCreationPresenter;
         static CareerStatsPresenter careerStatsPresenter;
@@ -211,6 +213,14 @@ namespace LocalFormulaRacing
             var standingsView = (CareerStandingsView)ShowAndGet(CareerStandingsView.Id);
             standingsPresenter = new CareerStandingsPresenter(standingsView)
             {
+                OnBack = () => shell.Router.Back(),
+                OnGraph = () => ShowChampionshipChart(false),
+            };
+
+            var championshipView = (ChampionshipChartView)ShowAndGet(ChampionshipChartView.Id);
+            championshipChartPresenter = new ChampionshipChartPresenter(championshipView)
+            {
+                OnModeSelected = ShowChampionshipChart,
                 OnBack = () => shell.Router.Back(),
             };
 
@@ -902,6 +912,106 @@ namespace LocalFormulaRacing
         static void RunPracticeProgram(string programId)
         {
             LeaveToLegacy(() => bootstrap.StartCareerPractice(programId));
+        }
+
+        // Production championship graph. Built from the AUTHORITATIVE career
+        // progression via the engine-free ChampionshipChart geometry - no standings
+        // are recomputed here.
+        static void ShowChampionshipChart(bool constructors)
+        {
+            var model = new ChampionshipChartModel
+            {
+                constructorsMode = constructors,
+                title = constructors ? "CONSTRUCTORS' CHAMPIONSHIP" : "DRIVERS' CHAMPIONSHIP",
+                emptyMessage = "No completed rounds this season yet. Finish a race to build the graph.",
+            };
+
+            if (career != null && career.Save != null)
+            {
+                CareerManager.ChampionshipProgression prog = constructors
+                    ? career.GetConstructorChampionshipProgression()
+                    : career.GetDriverChampionshipProgression();
+
+                if (prog != null)
+                {
+                    if (prog.roundLabels != null)
+                    {
+                        model.roundLabels.AddRange(prog.roundLabels);
+                    }
+
+                    int maxPoints = 0;
+                    for (int s = 0; s < prog.series.Count; s++)
+                    {
+                        List<int> cp = prog.series[s].cumulativePoints;
+                        if (cp != null && cp.Count > 0)
+                        {
+                            maxPoints = Mathf.Max(maxPoints, cp[cp.Count - 1]);
+                        }
+                    }
+
+                    int axisMax = F1Game.Core.ChampionshipChart.AxisMax(maxPoints);
+                    model.yTicks = F1Game.Core.ChampionshipChart.AxisTicks(axisMax, 4);
+                    int roundCount = prog.rounds != null ? prog.rounds.Count : 0;
+
+                    for (int s = 0; s < prog.series.Count; s++)
+                    {
+                        CareerManager.ChampionshipSeries cs = prog.series[s];
+                        var sm = new ChampionshipSeriesModel
+                        {
+                            label = cs.label,
+                            isPlayer = cs.isPlayer || cs.isPlayerTeam,
+                            color = ResolveSeriesColor(cs, s),
+                        };
+
+                        List<F1Game.Core.ChampionshipChart.Point> norm =
+                            F1Game.Core.ChampionshipChart.NormalizeSeries(cs.cumulativePoints, roundCount, axisMax);
+                        for (int i = 0; i < norm.Count; i++)
+                        {
+                            sm.points.Add(new Vector2(norm[i].X, norm[i].Y));
+                        }
+
+                        int finalPts = cs.cumulativePoints != null && cs.cumulativePoints.Count > 0
+                            ? cs.cumulativePoints[cs.cumulativePoints.Count - 1] : 0;
+                        sm.finalValue = finalPts + " pts";
+                        model.series.Add(sm);
+                    }
+                }
+            }
+
+            shell.Router.Show(ChampionshipChartView.Id);
+            championshipChartPresenter.Present(model);
+        }
+
+        static Color ResolveSeriesColor(CareerManager.ChampionshipSeries cs, int index)
+        {
+            TeamData team = FindTeamStrict(cs.id);
+            if (team == null && data != null && data.Drivers != null)
+            {
+                DriverData driver = data.Drivers.drivers.Find(x => x.id == cs.id);
+                if (driver != null)
+                {
+                    team = FindTeamStrict(driver.teamId);
+                }
+            }
+
+            if (team != null)
+            {
+                return team.PrimaryUnityColor;
+            }
+
+            // Fallback: a distinct generated hue so no two lines coincide.
+            F1Game.Core.LiveryColor lc = F1Game.Core.LiveryGenerator.Generate(index, 20).Primary;
+            return new Color(lc.R01, lc.G01, lc.B01, 1f);
+        }
+
+        static TeamData FindTeamStrict(string id)
+        {
+            if (data == null || data.Teams == null || string.IsNullOrEmpty(id))
+            {
+                return null;
+            }
+
+            return data.Teams.teams.Find(t => t != null && t.id == id);
         }
 
         static string ResolveTrackName(string trackId)

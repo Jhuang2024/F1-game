@@ -1749,6 +1749,25 @@ deferred, not claimed complete.
         (Career mutation migration: R&D F30 + Practice Programs F31 done; Career
         Setup/Driver Market == StartNewCareer, already covered by career creation F18.)
 
+    F33. Career migration: production Championship graph (uses F32 geometry).
+        ChampionshipSeriesModel + ChampionshipChartModel (F1Game.UI); ChampionshipChart
+        View renders each series as a polyline of rotated segment images (normalized
+        [0,1] -> pixels in a fixed 900x330 plot), draws y-tick gridlines+labels, x
+        round labels and a colour-coded legend, and toggles drivers/constructors;
+        ChampionshipChartPresenter; UiScreenFactory.BuildChampionshipChart (shared
+        origin rect for plot + both label layers). UiShell registers
+        "championship-chart". Reached from the production Standings screen via a new
+        Championship Graph button (CareerStandingsView/Presenter/factory updated in
+        lockstep). ProductionUiBridge.ShowChampionshipChart(bool) builds the model from
+        the AUTHORITATIVE career.GetDriver/ConstructorChampionshipProgression using the
+        engine-free ChampionshipChart geometry (F32) - no standings recomputed; series
+        colours resolve to team primary (strict lookup, driver->team fallback, else a
+        distinct LiveryGenerator hue); empty/partial-season handled (no series -> empty
+        message, single round -> pinned left). Legacy championship graphs remain the
+        emergency fallback. Runtime-built; VISUAL VALIDATION PENDING. (This completes
+        the career-screen migration set: hub, stats, trophy, driver/team ratings, R&D,
+        practice programs, championship graph; career creation + settings editor done.)
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface

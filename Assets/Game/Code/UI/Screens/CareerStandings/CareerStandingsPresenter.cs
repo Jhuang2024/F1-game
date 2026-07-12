@@ -15,11 +15,13 @@ namespace F1Game.UI.Screens.CareerStandings
         CareerStandingsModel model = new CareerStandingsModel();
 
         public Action OnBack;
+        public Action OnGraph;
 
         public CareerStandingsPresenter(CareerStandingsView view)
         {
             this.view = view;
             view.BackButton.Clicked += () => OnBack?.Invoke();
+            view.GraphClicked += () => OnGraph?.Invoke();
             view.Tabs.SelectionChanged += RenderTab;
         }
 
