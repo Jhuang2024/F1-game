@@ -2253,3 +2253,50 @@ claude/read-and-complete-ipelrl.
         validated all of C1-C3: 7 locale tables x 87 keys, 21 material slots, 27 audio
         cue generators incl. the new "ers deploy", 11 distinct team liveries, 510
         metas with no duplicate GUIDs.
+
+## CONTENT MANIFEST - reclassified three ways (supersedes F38 bucket [C])
+# Rule applied: an item is only "externally bespoke" when NO legal procedural,
+# synthetic or fictional fallback can be produced here. After C1-C4 every live
+# runtime content slot has a project-owned or procedural/synthetic wired fallback,
+# so nothing is truly "blocked" - the bespoke column is a QUALITY replacement of a
+# live fallback, not a gap that stops the game running.
+
+[1] COMPLETE PROJECT-OWNED CONTENT (final, project-authored, no replacement needed)
+  - Team liveries: distinct primary/secondary hex per team (teams.json), applied
+    live per car (MaterialInstanceService) + across the HUD/standings UI. Fictional.
+  - Driver/team identifiers: names + 3-letter abbreviations (drivers.json/teams.json).
+  - Gameplay data: calendar (24 events), cars, car performance, upgrades, drivers.
+  - Localization framework + English source template + 5 provisional launch tables
+    (fr/es/de/ja/zh-Hans) + zz QA locale, all 87 keys, validated. (Project-owned
+    text; the machine translations are provisional pending REVIEW, not missing.)
+  - UI: procedural rounded-panel/dot/bar sprites (UiFactory Sprite.Create) + the
+    Rajdhani font (OFL-licensed, bundled). Text-first HUD - no missing-icon slot.
+
+[2] COMPLETE SYNTHETIC / PROCEDURAL PLACEHOLDER (live + wired; optional art upgrade)
+  - Surface textures for all 21 MaterialLibrary slots (C2, ProceduralSurfaceTextures).
+  - All audio cues: SimpleAudioManager procedural synthesis (27 generators) + the
+    new ers-deploy cue; synthetic engine/scrub loops (VehicleAudio).
+  - Track meshes + trackside props/barriers/kerbs/fencing/grandstands: TrackManager
+    procedural generation for every calendar circuit.
+  - Car model: CarVisualFactory placeholder open-wheel primitive (PlaceholderArtMarker).
+  - VFX: soft-dot particle sprite + material on the live per-car systems (VehicleVisuals);
+    pooled RaceVfxController placeholder set (validation-gated, not live).
+
+[3] GENUINELY EXTERNAL BESPOKE (needs a human artist/engineer; [2] fallback ships now)
+  - Professionally recorded engine/tyre/impact/ambience audio -> AudioBank .asset +
+    WAV/OGG set (paths/formats/import settings in the F38 manifest above). Every slot
+    already resolves to a synthetic fallback (AudioBankService.Resolve then generate).
+  - Hand-authored hero car + circuit 3D art and PBR texture sets (drop into the
+    authored prefab/BaseMaterials paths; the procedural versions are the live fallback).
+  - Human-reviewed final translations (replace the provisional machine tables in place).
+  - STRUCTURAL (not a content asset): a per-gear RPM / rev-limiter physics model is
+    the prerequisite for a rev-limiter audio cue; engine "rpm" is currently speed-
+    derived, so the cue is deferred rather than faked on feel-sensitive audio.
+
+## Content-phase handoff
+Every live runtime content slot is populated with a project-owned or procedural/
+synthetic wired asset with a graceful fallback; Tools/ContentValidation/
+validate_content.py verifies this and passes. The remaining work is optional art/
+audio fidelity replacement (column [3]) and human translation review - each a
+drop-in over a working live fallback, none blocking. main untouched; all work on
+claude/read-and-complete-ipelrl. Multiplayer deferred, out of scope.
