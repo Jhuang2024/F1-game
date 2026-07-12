@@ -1768,6 +1768,18 @@ deferred, not claimed complete.
         the career-screen migration set: hub, stats, trophy, driver/team ratings, R&D,
         practice programs, championship graph; career creation + settings editor done.)
 
+    F34. Structural physics: brake-disc thermal model -> engine-free BrakeThermalModel
+        (F1Game.Race.Physics, UNIT-TESTED). The missing evolution piece next to
+        BrakeModel (which already fades torque by temperature): a disc heats with
+        braking energy (brake input x normalized speed) and cools toward ambient at a
+        rate that grows with airflow (speed), clamped [ambient 80C, max 1000C];
+        GlowFromTemp maps temperature to the 0..1 input CarVisualCurves.BrakeGlow
+        already consumes. NOT wired into the live loop (tuned feel unchanged) - it is
+        the structural model + seam for a later default-off brake-thermal pass;
+        constants are placeholders (tuning pending). BrakeThermalModelTests pin
+        heating, airflow cooling, the ambient floor, the max clamp, the zero-dt no-op,
+        and the glow ramp.
+
 Exact next task: continue live integrations via compatibility paths + feature
 switches. Replay + telemetry are now captured live AND each has a pure in-game
 consumer (BuildReplayTimeline / BuildTelemetryDebrief); the remaining surface
