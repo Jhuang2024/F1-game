@@ -24,6 +24,10 @@ namespace LocalFormulaRacing
 
         TelemetryRecorder recorder;
         float nextCaptureTime;
+        // Running brake-disc temperature estimate (structural BrakeThermalModel),
+        // stepped at each capture. Diagnostic/telemetry channel only - it is never read
+        // back into the live brake torque or glow, so tuned feel is untouched.
+        float brakeDiscTempC;
 
         public TelemetryRecorder Recorder => recorder;
         public bool IsCapturing => recorder != null;
@@ -42,6 +46,7 @@ namespace LocalFormulaRacing
         {
             recorder = null;
             nextCaptureTime = 0f;
+            brakeDiscTempC = F1Game.Race.Physics.BrakeThermalModel.AmbientC;
 
             if (!CaptureEnabled)
             {
@@ -76,6 +81,13 @@ namespace LocalFormulaRacing
             float rpm01 = topSpeed > 1f ? Mathf.Clamp01(speedKph / topSpeed) : 0f;
             float tyreWear01 = vehicle.Tyres != null ? Mathf.Clamp01(1f - vehicle.Tyres.Wear) : 0f;
 
+            // Advance the structural brake-thermal estimate at the fixed capture interval
+            // (the per-frame brake trace isn't captured, so the capture rate is the model
+            // dt). Presentation/diagnostic only - the result is recorded, never fed back
+            // into the live brake model or glow.
+            brakeDiscTempC = F1Game.Race.Physics.BrakeThermalModel.Step(
+                brakeDiscTempC, vehicle.EffectiveBrake, speedKph, CaptureInterval);
+
             var sample = new TelemetryRecorder.Sample
             {
                 Time = raceElapsed,
@@ -90,6 +102,7 @@ namespace LocalFormulaRacing
                 Drs = vehicle.DrsActive,
                 TyreWear01 = tyreWear01,
                 DeltaSeconds = deltaSeconds,
+                BrakeDiscTempC = brakeDiscTempC,
             };
 
             recorder.Record(in sample);

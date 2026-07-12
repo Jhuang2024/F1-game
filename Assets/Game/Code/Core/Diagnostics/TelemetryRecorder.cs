@@ -26,6 +26,10 @@ namespace F1Game.Core.Diagnostics
             public bool Drs;
             public float TyreWear01;
             public float DeltaSeconds;
+            // Estimated brake-disc temperature (deg C) from the structural
+            // BrakeThermalModel, stepped at the capture rate. Diagnostic channel only -
+            // it never feeds the live, tuned brake feel or glow.
+            public float BrakeDiscTempC;
         }
 
         readonly List<Sample> samples = new List<Sample>();
@@ -59,7 +63,7 @@ namespace F1Game.Core.Diagnostics
         public string ExportCsv(string fileName)
         {
             var sb = new StringBuilder(samples.Count * 64 + 128);
-            sb.AppendLine("time,distance,speed_kph,throttle,brake,steer,gear,rpm01,ers01,drs,tyre_wear01,delta_s");
+            sb.AppendLine("time,distance,speed_kph,throttle,brake,steer,gear,rpm01,ers01,drs,tyre_wear01,delta_s,brake_disc_c");
             for (int i = 0; i < samples.Count; i++)
             {
                 Sample s = samples[i];
@@ -74,7 +78,8 @@ namespace F1Game.Core.Diagnostics
                   .Append(s.Ers01.ToString("0.###")).Append(',')
                   .Append(s.Drs ? '1' : '0').Append(',')
                   .Append(s.TyreWear01.ToString("0.###")).Append(',')
-                  .Append(s.DeltaSeconds.ToString("0.###"))
+                  .Append(s.DeltaSeconds.ToString("0.###")).Append(',')
+                  .Append(s.BrakeDiscTempC.ToString("0.#"))
                   .Append('\n');
             }
 

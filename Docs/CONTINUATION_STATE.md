@@ -2277,6 +2277,35 @@ claude/read-and-complete-ipelrl.
         documented, not invented). Content validation: PASS, "rev limiter" now in the
         cue inventory.
 
+    C7. Closure audit - orphaned structural models given consumers or a precise
+        blocker. Two engine-free models had ZERO consumers (not live, not validation-
+        gated): BrakeThermalModel and TrackWetnessModel.
+        - BrakeThermalModel -> WIRED to a real consumer. TelemetryCaptureService now
+          steps it each capture (from the player's EffectiveBrake + speed at the fixed
+          20 Hz capture interval) and records an estimated brake-disc temperature as a
+          new telemetry channel (TelemetryRecorder.Sample.BrakeDiscTempC + CSV column
+          "brake_disc_c"). Diagnostic/telemetry ONLY: the estimate is recorded, never
+          read back into the live brake torque (BrakeModel) or glow (VehicleVisuals),
+          so tuned brake feel is untouched and there is still exactly one authoritative
+          brake path. The model's own maths keep their engine-free BrakeThermalModelTests.
+          (Telemetry is ephemeral capture, not save schema - no save/API/RNG change.)
+        - TrackWetnessModel -> PRECISE BLOCKER documented (kept as a structural seam, not
+          an unexplained orphan). It models continuous wetness accumulation/drying from a
+          continuous rainIntensity01 + per-segment racing-line drying. The live weather
+          system is DISCRETE (WeatherState Dry/LightRain/HeavyRain) with no continuous
+          rain-intensity signal anywhere and no track-wetness scalar - wet effects are
+          applied directly per tyre from the discrete state (TyreState). So there is no
+          live producer for the model's input and no live value for it to shadow; a
+          validation-gated consumer would be a consumer-less log. Wiring it needs a new
+          continuous weather-intensity signal in the live sim - a gameplay-affecting
+          change out of scope for this feel-preserving pass. Precise missing input:
+          continuous rain-intensity (0..1) + a track-wetness state variable in the
+          weather model. Deferred by design, not missing implementation.
+        AudioRpmModel (C6) already has a live consumer (the HUD rev-limiter cue), so it
+        is not orphaned; the telemetry/HUD flat-RPM readouts were left unchanged (that
+        would be optional fidelity, out of scope). No other F1Game.Race model is
+        consumer-less.
+
 ## CONTENT MANIFEST - reclassified three ways (supersedes F38 bucket [C])
 # Rule applied: an item is only "externally bespoke" when NO legal procedural,
 # synthetic or fictional fallback can be produced here. After C1-C4 every live
