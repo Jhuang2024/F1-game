@@ -64,6 +64,18 @@ namespace F1Game.UI
             // legacy frontend is shown instead of crashing bootstrap.
             try
             {
+                // TMP components cannot initialize at all without the TMP Settings
+                // resource (imported with TMP Essentials) - a theme font alone is
+                // not sufficient, and reporting ready here would make the shell
+                // build throw and latch the legacy fallback for the session.
+                // Probed via Resources.Load rather than TMP_Settings.instance,
+                // whose getter pops the TMP importer window in the editor when
+                // the asset is missing.
+                if (Resources.Load<TMP_Settings>("TMP Settings") == null)
+                {
+                    return false;
+                }
+
                 UiTheme theme = UiTheme.Active;
                 if (theme != null && theme.typography != null && theme.typography.regular != null)
                 {

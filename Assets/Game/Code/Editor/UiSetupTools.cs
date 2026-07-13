@@ -21,8 +21,10 @@ namespace F1Game.Editor
     {
         const string ScreenPrefabFolder = "Assets/Game/Resources/UI/Screens";
         const string FontFolder = "Assets/Game/Art/Fonts";
+        const string ThemeAssetPath = "Assets/Game/Resources/UI/UiTheme_Default.asset";
         const string TmpEssentialsPackage = "Packages/com.unity.textmeshpro/Package Resources/TMP Essential Resources.unitypackage";
         const string PendingTmpImportKey = "F1Game.PendingTmpEssentialsImport";
+        const string AutoTmpImportAttemptKey = "F1Game.AutoTmpEssentialsImportAttempted";
 
         [InitializeOnLoadMethod]
         static void ResumePendingTmpImport()
@@ -30,6 +32,87 @@ namespace F1Game.Editor
             if (SessionState.GetBool(PendingTmpImportKey, false))
             {
                 EditorApplication.delayCall += ImportTmpEssentialsWhenReady;
+            }
+        }
+
+        /// <summary>
+        /// Zero-manual-step text-pipeline bring-up, mirroring the URP auto-repair:
+        /// the production UI is gated on TMP being able to render
+        /// (UiShell.TextPipelineReady), but TMP Essentials and the theme's TMP font
+        /// assets are not committed to the repo, so on a fresh clone the gate stayed
+        /// false forever and the whole production frontend/HUD silently fell back to
+        /// legacy. On editor load this (1) imports TMP Essentials when the TMP
+        /// Settings resource is missing, then (2) builds the Rajdhani TMP font
+        /// assets and assigns them into UiTheme_Default. Both steps are idempotent
+        /// and deferred until the editor is idle and out of Play Mode.
+        /// </summary>
+        [InitializeOnLoadMethod]
+        static void AutoSetupTextPipeline()
+        {
+            // TMP Essentials contain no scripts, so a non-interactive import does
+            // not cause a domain reload; re-run the setup when the import lands so
+            // the font step follows in the same editor session.
+            AssetDatabase.importPackageCompleted += packageName =>
+            {
+                EditorApplication.delayCall += AutoSetupTextPipelineWhenReady;
+            };
+
+            EditorApplication.delayCall += AutoSetupTextPipelineWhenReady;
+        }
+
+        static void AutoSetupTextPipelineWhenReady()
+        {
+            if (EditorApplication.isPlaying || EditorApplication.isPlayingOrWillChangePlaymode ||
+                EditorApplication.isCompiling || EditorApplication.isUpdating)
+            {
+                EditorApplication.delayCall += AutoSetupTextPipelineWhenReady;
+                return;
+            }
+
+            // Step 1: TMP Essentials (TMP Settings asset, default font, shaders).
+            if (!TmpSettingsAvailable())
+            {
+                if (SessionState.GetBool(AutoTmpImportAttemptKey, false))
+                {
+                    return; // Already attempted this session; don't loop on a failing import.
+                }
+
+                string packagePath = Path.GetFullPath(TmpEssentialsPackage);
+                if (!File.Exists(packagePath))
+                {
+                    Debug.LogError("[UI Setup] TMP Essentials package not found: " + packagePath);
+                    return;
+                }
+
+                SessionState.SetBool(AutoTmpImportAttemptKey, true);
+                Debug.Log("[UI Setup] TMP Essentials missing - importing automatically so the production UI can activate.");
+                AssetDatabase.ImportPackage(packagePath, false);
+                return;
+            }
+
+            // Step 2: theme fonts. CreateTmpFontAssets reuses existing font assets,
+            // so this only ever does work while the theme is unassigned.
+            UiTheme theme = AssetDatabase.LoadAssetAtPath<UiTheme>(ThemeAssetPath);
+            if (theme != null && theme.typography != null &&
+                (theme.typography.regular == null || theme.typography.semiBold == null || theme.typography.tabularNumeric == null))
+            {
+                Debug.Log("[UI Setup] UiTheme_Default has unassigned TMP fonts - creating and assigning them automatically.");
+                CreateTmpFontAssets();
+            }
+        }
+
+        static bool TmpSettingsAvailable()
+        {
+            // Probed via Resources.Load rather than TMP_Settings.instance, whose
+            // getter pops the TMP importer window while the asset is missing (and
+            // some members throw before the Essentials import).
+            try
+            {
+                return Resources.Load<TMP_Settings>("TMP Settings") != null;
+            }
+            catch (System.Exception)
+            {
+                return false;
             }
         }
 

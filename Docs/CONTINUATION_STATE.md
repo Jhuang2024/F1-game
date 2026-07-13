@@ -2462,3 +2462,46 @@ validate_content.py verifies this and passes. The remaining work is optional art
 audio fidelity replacement (column [3]) and human translation review - each a
 drop-in over a working live fallback, none blocking. main untouched; all work on
 claude/read-and-complete-ipelrl. Multiplayer deferred, out of scope.
+
+## Current run (branch `claude/new-hud-display-bug-sox574`, from main 1f96975)
+User report: "new HUD broken, new screens and tracks not showing." Root cause
+found by tracing the activation chain, not a code crash: the entire production
+frontend (HUD, all new screens, and the production track select that carries
+the authored-track cards) sits behind ProductionUiReadiness.Enabled →
+UiShell.TextPipelineReady(), which requires TMP Essentials (or assigned theme
+fonts) - and BOTH were manual editor menu steps that had never been automated
+(unlike URP, which self-repairs on load). On any machine that had not run the
+menu steps the gate silently failed closed and the game showed legacy
+everywhere, with zero logging. Fixes, all static-only (no Unity here):
+
+1. UiSetupTools.AutoSetupTextPipeline [InitializeOnLoadMethod]: zero-manual
+   bring-up - auto-imports TMP Essential Resources when the TMP Settings
+   resource is missing (non-interactive, once per session, deferred while
+   playing/compiling), then auto-creates the Rajdhani TMP font assets and
+   assigns them into UiTheme_Default (idempotent; reuses existing assets).
+   importPackageCompleted re-runs the font step in the same session (the
+   essentials package has no scripts, so no domain reload follows it).
+2. UiShell.TextPipelineReady hardened: requires the TMP Settings resource
+   before reporting ready (a theme font alone previously green-lit a shell
+   build that then threw and latched the legacy fallback). Probed via
+   Resources.Load so the TMP importer window is not popped by the getter.
+3. ProductionUiReadiness.LogInactiveReasonOnce + GameBootstrap.ShowMainMenu:
+   the legacy fallback is no longer silent - a one-time [UI] warning states
+   the exact reason (kill switch vs text pipeline) and the remedy.
+4. ProductionSessionUi.TryShowRaceHud: honours ProductionUiBridge.
+   FailedThisSession (new public latch accessor) so the production HUD can
+   never mount over a legacy-owned frontend; hides the shell in the catch so
+   a failed HUD show cannot leave the production canvas/raycaster over the
+   legacy HUD; sets UiShell.NavigationLocked at this common choke point so
+   career/practice/time-trial sessions get the same Back-lock as quick race.
+5. Track cards: TrackCardModel.lengthKm was never populated ("0.0 km" on
+   every card) - now computed once per track from the authored definition
+   (AuthoredCircuitCatalog.Generate → ComputeLength, cached, transient asset
+   destroyed) and the view omits the segment when unknown.
+6. Docs/EDITOR_BRINGUP.md updated to the automatic bring-up reality.
+
+Verified statically only (no compiler/editor in this environment): braces/
+usings reviewed, all touched APIs exist on the referenced types, no new
+assets so no .meta changes needed. First in-editor open after pulling this
+branch should show [UI Setup] auto-import lines, then Play Mode boots the
+production frontend; if it still falls back, the console now says exactly why.

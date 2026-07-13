@@ -85,6 +85,13 @@ namespace LocalFormulaRacing
         /// <summary>The production shell (exposed so the session-UI bridge can drive the HUD).</summary>
         public static UiShell Shell => shell;
 
+        /// <summary>
+        /// True when a production screen threw this session and the frontend is
+        /// latched to legacy. The session-UI bridge consults this so the HUD never
+        /// mounts over a legacy-owned frontend.
+        /// </summary>
+        public static bool FailedThisSession => failedThisSession;
+
         static bool Enabled
         {
             get
@@ -1804,6 +1811,7 @@ namespace LocalFormulaRacing
                         eventId = raceEvent.trackId,
                         trackName = raceEvent.displayName,
                         location = raceEvent.country,
+                        lengthKm = TrackLengthKm(raceEvent.trackId),
                         laps = settings != null ? settings.Current.laps : raceEvent.laps5,
                         weatherHint = string.IsNullOrEmpty(raceEvent.weatherProfile) ? "Variable" : raceEvent.weatherProfile,
                     });
@@ -1818,12 +1826,49 @@ namespace LocalFormulaRacing
                 eventId = F1Game.Track.ReferenceTrackGenerator.ReferenceTrackId,
                 trackName = "Aurora Park (Authored)",
                 location = "Fictional",
+                lengthKm = TrackLengthKm(F1Game.Track.ReferenceTrackGenerator.ReferenceTrackId),
                 laps = settings != null ? settings.Current.laps : 5,
                 weatherHint = "Variable",
             });
 
             shell.Router.Show(TrackSelectView.Id);
             trackSelectPresenter.Present(models);
+        }
+
+        // Circuit lengths for the track cards (previously never set, so every card
+        // read "0.0 km"). Computed once per track from the authored definition and
+        // cached; the transient definition asset is destroyed straight after.
+        static readonly Dictionary<string, float> trackLengthKmCache = new Dictionary<string, float>();
+
+        static float TrackLengthKm(string trackId)
+        {
+            if (string.IsNullOrEmpty(trackId))
+            {
+                return 0f;
+            }
+
+            if (trackLengthKmCache.TryGetValue(trackId, out float cached))
+            {
+                return cached;
+            }
+
+            float lengthKm = 0f;
+            try
+            {
+                F1Game.Track.TrackDefinitionAsset definition = F1Game.Track.AuthoredCircuitCatalog.Generate(trackId);
+                if (definition != null)
+                {
+                    lengthKm = definition.ComputeLength() / 1000f;
+                    UnityEngine.Object.Destroy(definition);
+                }
+            }
+            catch (Exception)
+            {
+                lengthKm = 0f; // Card still renders; the view omits an unknown length.
+            }
+
+            trackLengthKmCache[trackId] = lengthKm;
+            return lengthKm;
         }
 
         static void OnTrackChosen(TrackCardModel model)

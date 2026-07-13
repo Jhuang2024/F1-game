@@ -113,6 +113,7 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            ProductionUiReadiness.LogInactiveReasonOnce();
             ui.ShowMainMenu(data, career, settings);
         }
 

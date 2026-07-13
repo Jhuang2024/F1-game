@@ -19,7 +19,11 @@ namespace LocalFormulaRacing
         /// </summary>
         public static bool TryShowRaceHud()
         {
-            if (!ProductionUiReadiness.Enabled)
+            // Honour the bridge's failure latch too: if any production frontend
+            // screen failed this session the frontend is legacy-owned, and mounting
+            // the production HUD over it would split screen ownership (pause and
+            // results would disagree with the HUD about who is live).
+            if (!ProductionUiReadiness.Enabled || ProductionUiBridge.FailedThisSession)
             {
                 return false;
             }
@@ -36,11 +40,20 @@ namespace LocalFormulaRacing
                 shell.Modals.CloseAll();
                 shell.Router.ResetStack();
                 shell.Router.Show(HudRoot.Id);
+                // Lock frontend Back navigation for every route into a live
+                // session - career/practice/time-trial starts do not pass through
+                // the quick-race strategy screen, which is where this used to be
+                // the only lock site.
+                UiShell.NavigationLocked = true;
                 UiSessionCoordinator.EnterLiveSession();
                 return true;
             }
             catch (System.Exception exception)
             {
+                // The legacy HUD takes over: the production canvas must not stay
+                // up, or its raycaster/back handling sits over the legacy HUD
+                // (violating the exactly-one-HUD contract of this class).
+                shell.SetShellVisible(false);
                 Debug.LogError(DiagnosticLog.FormatError(DiagnosticCode.HudBindFailed, "Production HUD show failed; falling back to legacy HUD: " + exception));
                 return false;
             }

@@ -1,3 +1,4 @@
+using F1Game.Core.Diagnostics;
 using F1Game.UI;
 using UnityEngine;
 
@@ -64,6 +65,32 @@ namespace LocalFormulaRacing
                 bool wanted = ExplicitlyEnabled || DefaultWhenUnset;
                 return wanted && UiShell.TextPipelineReady();
             }
+        }
+
+        static bool loggedInactiveReason;
+
+        /// <summary>
+        /// One-time, always-printed explanation of why the legacy frontend is
+        /// showing instead of the production UI. The silent fallback was the worst
+        /// part of the old behaviour: on a machine without TMP Essentials/theme
+        /// fonts the new frontend, HUD and track select simply never appeared and
+        /// nothing said why. No-op when the production UI is in fact enabled.
+        /// </summary>
+        public static void LogInactiveReasonOnce()
+        {
+            if (loggedInactiveReason || Enabled)
+            {
+                return;
+            }
+
+            loggedInactiveReason = true;
+            string reason = ExplicitlyDisabled
+                ? "the '" + PreferenceKey + "' kill switch is set to 0 (legacy forced)"
+                : "text cannot render yet - TMP Essentials are not imported or no TMP font is available. "
+                  + "In the editor the automatic UI setup imports TMP Essentials and builds the theme fonts on load "
+                  + "(or run the 'F1 Game/UI' menu steps manually), then restart Play Mode";
+            Debug.LogWarning(DiagnosticLog.Format(LogCategory.Ui,
+                "Production UI inactive: " + reason + ". Showing the legacy frontend (new HUD/screens/track select stay hidden)."));
         }
     }
 }

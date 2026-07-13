@@ -44,9 +44,14 @@ namespace F1Game.UI.Screens.TrackSelect
                 TrackCardModel model = tracks[i];
                 ThemedButton row = rows[i];
                 row.gameObject.SetActive(true);
+                // Omit the length segment when it is unknown rather than showing
+                // a bogus "0.0 km".
+                string lengthSegment = model.lengthKm > 0f
+                    ? string.Format("{0:0.0} km · ", model.lengthKm)
+                    : "";
                 row.SetText(string.Format(
-                    "{0}   <color=#9EA2AA>{1} · {2:0.0} km · {3} laps · {4}</color>",
-                    model.trackName, model.location, model.lengthKm, model.laps, model.weatherHint));
+                    "{0}   <color=#9EA2AA>{1} · {2}{3} laps · {4}</color>",
+                    model.trackName, model.location, lengthSegment, model.laps, model.weatherHint));
             }
 
             for (int i = tracks.Count; i < rows.Count; i++)
