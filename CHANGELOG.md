@@ -25,6 +25,12 @@ compiled or run in Unity.
   qualifying progression, pit-request gates, flags, start procedures).
 
 ### Fixed
+- Small tuning pass (per request): AI wall-aversion eased back ~10% across
+  every boosted lever (margin band 8-14m -> 7.2-12.6m, tight-fence multiplier
+  1.6x -> 1.45x, recovery steering 0.65-1.6 -> 0.58-1.44, emergency-brake
+  floor/ceiling and overspeed multiplier both trimmed ~10%); ERS drain raised
+  50% on top of the previous cut (0.02875-0.04125/s -> 0.043125-0.061875/s,
+  a full deploy now empties in ~16-21s instead of ~24-32s).
 - AI grid-start deadlock fixed: the wall-aversion boost below removed the
   emergency brake's old low-speed discount (its overspeed multiplier floor
   went from 0.7x to 1.0x while its base floor was also raised), so a

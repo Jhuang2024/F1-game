@@ -196,8 +196,10 @@ namespace F1Game.Race.Physics
         // untouched, so the battery still doesn't pin at 100% (round 1's fix
         // for that stands), but a full-throttle deploy now takes ~24-32s to
         // empty a full battery instead of ~6-8s.
-        public const float MinErsDrainPerSecond = 0.02875f;
-        public const float MaxErsDrainPerSecond = 0.04125f;
+        // Round 3 (per request): raised 50% off round 2's rate - a full
+        // deploy now takes ~16-21s to empty a full battery.
+        public const float MinErsDrainPerSecond = 0.043125f;
+        public const float MaxErsDrainPerSecond = 0.061875f;
 
         /// <summary>Deploy force for a car's ERS efficiency (0-1) in the current deploy mode.</summary>
         public static float ErsBoostForce(float ersEfficiency01, float deployModeMultiplier)
