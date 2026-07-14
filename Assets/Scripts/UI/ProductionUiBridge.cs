@@ -238,6 +238,10 @@ namespace LocalFormulaRacing
                 // legacy flow; the hub hands off exactly like the legacy hub's
                 // own continue button does.
                 OnContinue = () => LeaveToLegacy(() => bootstrap.StartCareerRace()),
+                // Sim Qualifying parity: the legacy weekend hub always offered
+                // "Sim Qualifying" beside the driven session; this hands off to
+                // the same sim briefing flow (tyre choice -> simulated result).
+                OnSimQualifying = () => LeaveToLegacy(() => bootstrap.StartCareerSimQualifying()),
                 OnStandings = ShowCareerStandings,
                 OnProfile = ShowDriverProfile,
                 OnStats = ShowCareerStats,

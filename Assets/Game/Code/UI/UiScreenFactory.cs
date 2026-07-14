@@ -266,6 +266,10 @@ namespace F1Game.UI
 
             RectTransform actions = CreateLayoutColumn(content, "Actions", theme.spacing.small);
             ThemedButton continueBtn = CreateButton(actions, "Btn_Continue", ThemedButton.Variant.Primary, "Continue");
+            // Sim Qualifying (legacy weekend-hub parity): skip driving qualifying
+            // and simulate the whole session; always available, a re-run replaces
+            // the stored result exactly like the legacy hub's button did.
+            ThemedButton simQualifying = CreateButton(actions, "Btn_SimQualifying", ThemedButton.Variant.Secondary, "Sim Qualifying");
             ThemedButton standings = CreateButton(actions, "Btn_Standings", ThemedButton.Variant.Secondary, "Standings & Calendar");
             ThemedButton profile = CreateButton(actions, "Btn_Profile", ThemedButton.Variant.Secondary, "Driver Profile");
             ThemedButton stats = CreateButton(actions, "Btn_Stats", ThemedButton.Variant.Secondary, "Career Stats");
@@ -275,10 +279,10 @@ namespace F1Game.UI
             ThemedButton legacyMenu = CreateButton(actions, "Btn_FullMenu", ThemedButton.Variant.Secondary, "Full Career Menu");
             ThemedButton back = CreateButton(actions, "Btn_Back", ThemedButton.Variant.Tertiary, "Back");
 
-            SetUpDownNavigation(new[] { continueBtn, standings, profile, stats, ratings, rnd, practice, legacyMenu, back });
+            SetUpDownNavigation(new[] { continueBtn, simQualifying, standings, profile, stats, ratings, rnd, practice, legacyMenu, back });
 
             var view = content.parent.gameObject.AddComponent<Screens.CareerHub.CareerHubView>();
-            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, standings, profile, stats, ratings, rnd, practice, legacyMenu, back);
+            view.Bind(season, standing, eventTitle, eventDetail, continueBtn, simQualifying, standings, profile, stats, ratings, rnd, practice, legacyMenu, back);
             return view;
         }
 

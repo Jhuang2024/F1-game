@@ -19,6 +19,7 @@ namespace F1Game.UI.Screens.CareerHub
         [SerializeField] TMP_Text nextEventTitle;
         [SerializeField] TMP_Text nextEventDetail;
         [SerializeField] ThemedButton continueButton;
+        [SerializeField] ThemedButton simQualifyingButton;
         [SerializeField] ThemedButton standingsButton;
         [SerializeField] ThemedButton profileButton;
         [SerializeField] ThemedButton statsButton;
@@ -29,6 +30,7 @@ namespace F1Game.UI.Screens.CareerHub
         [SerializeField] ThemedButton backButton;
 
         public ThemedButton ContinueButton => continueButton;
+        public ThemedButton SimQualifyingButton => simQualifyingButton;
         public ThemedButton StandingsButton => standingsButton;
         public ThemedButton ProfileButton => profileButton;
         public ThemedButton StatsButton => statsButton;
@@ -39,14 +41,16 @@ namespace F1Game.UI.Screens.CareerHub
         public ThemedButton BackButton => backButton;
 
         public void Bind(TMP_Text season, TMP_Text standing, TMP_Text eventTitle, TMP_Text eventDetail,
-            ThemedButton continueBtn, ThemedButton standings, ThemedButton profile, ThemedButton stats,
-            ThemedButton ratings, ThemedButton rnd, ThemedButton practice, ThemedButton legacyMenu, ThemedButton back)
+            ThemedButton continueBtn, ThemedButton simQualifying, ThemedButton standings, ThemedButton profile,
+            ThemedButton stats, ThemedButton ratings, ThemedButton rnd, ThemedButton practice,
+            ThemedButton legacyMenu, ThemedButton back)
         {
             seasonLabel = season;
             standingLine = standing;
             nextEventTitle = eventTitle;
             nextEventDetail = eventDetail;
             continueButton = continueBtn;
+            simQualifyingButton = simQualifying;
             standingsButton = standings;
             profileButton = profile;
             statsButton = stats;

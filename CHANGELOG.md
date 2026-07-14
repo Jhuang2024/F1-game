@@ -72,6 +72,11 @@ compiled or run in Unity.
   battery in one hard stop (~5x the deploy drain), pinning the gauge at 100%.
   Braking harvest cut to a third and deploy drain raised ~45%, so a full
   deploy empties in ~6-8s and management is a real decision.
+- "Sim Qualifying" restored on the career path: the production Career Hub only
+  exposed "Continue" (straight into driven qualifying), losing the legacy
+  weekend hub's simulate option. The hub now has a Sim Qualifying action wired
+  to the existing sim flow (tyre briefing -> full simulated classification),
+  always available so a re-run replaces the stored result, matching legacy.
 - AI wall crashes at tight corners fixed: 18 rounds of tuning had inflated the
   Slow/VeryTight corner-speed floors to 302-522 kph - beyond top speed - so
   both buckets clamped to straight-line pace and the AI never braked for any

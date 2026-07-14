@@ -8,6 +8,7 @@ namespace F1Game.UI.Screens.CareerHub
         readonly CareerHubView view;
 
         public Action OnContinue;
+        public Action OnSimQualifying;
         public Action OnStandings;
         public Action OnProfile;
         public Action OnStats;
@@ -21,6 +22,11 @@ namespace F1Game.UI.Screens.CareerHub
         {
             this.view = view;
             view.ContinueButton.Clicked += () => OnContinue?.Invoke();
+            if (view.SimQualifyingButton != null)
+            {
+                view.SimQualifyingButton.Clicked += () => OnSimQualifying?.Invoke();
+            }
+
             view.StandingsButton.Clicked += () => OnStandings?.Invoke();
             view.ProfileButton.Clicked += () => OnProfile?.Invoke();
             if (view.StatsButton != null)
