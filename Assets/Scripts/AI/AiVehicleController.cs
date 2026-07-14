@@ -1482,13 +1482,25 @@ namespace LocalFormulaRacing
             float edgeMargin = edgeHalfWidth - edgeMarginDistance;
             float edgeOvershoot = !suppressOffTrackRecovery ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
             float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);
+            // Grid-start fix: the wall-aversion boost below removed the old
+            // emergency brake's built-in low-speed discount (0.7x floor ->
+            // 1.0x), so a stationary/launching car sitting in a grid box even
+            // slightly toward the track edge (normal with 22 staggered boxes,
+            // especially combined with the wider margin band above) now got a
+            // genuine brake demand at 0 kph - cars never left the grid. This
+            // system exists to shed speed before a wall, which is meaningless
+            // for a car that has none: fully off below 15kph, ramped in by
+            // 40kph (comfortably clear of the launch phase, still well under
+            // even the hairpin crawl speed) so it's at full strength for every
+            // situation it's actually meant to catch.
+            float wallAversionLaunchGate = Mathf.Clamp01((speedKph - 15f) / 25f);
             // Wall-aversion boost (per request): steering-correction strength
             // raised across the board (was 0.38-1.03) - the pull back toward
             // the racing surface is stronger both as soon as the band is
             // entered and at the true edge, so it can dominate over whatever
             // line-following steering put the car there.
             float edgeRecovery = edgeOvershoot > 0f
-                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.65f, 1.6f, edgeProximity)
+                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.65f, 1.6f, edgeProximity) * wallAversionLaunchGate
                 : 0f;
             // Barrier-avoidance round 6 ("AI sending it into the final corner and
             // hitting the barriers"): the emergency brake's quadratic ramp
@@ -1513,7 +1525,7 @@ namespace LocalFormulaRacing
             // lower proximity/speed than before - it engages harder and sooner.
             float edgeOverspeed = Mathf.Clamp01((speedKph - 70f) / 90f);
             float edgeEmergencyBrake = edgeOvershoot > 0f
-                ? Mathf.Clamp01(Mathf.Lerp(0.45f, 1.3f, edgeProximity) * Mathf.Lerp(1f, 2f, edgeOverspeed))
+                ? Mathf.Clamp01(Mathf.Lerp(0.45f, 1.3f, edgeProximity) * Mathf.Lerp(1f, 2f, edgeOverspeed)) * wallAversionLaunchGate
                 : 0f;
             command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
 

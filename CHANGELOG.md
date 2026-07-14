@@ -25,6 +25,17 @@ compiled or run in Unity.
   qualifying progression, pit-request gates, flags, start procedures).
 
 ### Fixed
+- AI grid-start deadlock fixed: the wall-aversion boost below removed the
+  emergency brake's old low-speed discount (its overspeed multiplier floor
+  went from 0.7x to 1.0x while its base floor was also raised), so a
+  stationary/launching car sitting in a grid box even slightly toward the
+  track edge - normal with 22 staggered boxes, more likely with the wider
+  margin band - now got a genuine brake demand at 0 kph, and cars never left
+  the grid. Both the emergency brake and the recovery steering are now gated
+  by a launch-speed factor: fully off below 15kph, ramped in by 40kph (well
+  clear of the launch phase, still comfortably under even the hairpin crawl
+  speed), so the boosted system is at full strength for every situation it's
+  actually meant to catch and inert during a standing start.
 - AI wall-aversion (reactive edge-avoidance system) significantly boosted:
   the margin band that triggers the recovery-steer/emergency-brake response
   widened (was 5.5-9.5m, now 8-14m, wider still near known tight-fence
