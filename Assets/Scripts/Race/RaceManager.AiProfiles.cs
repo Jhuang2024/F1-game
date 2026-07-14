@@ -80,7 +80,9 @@ namespace LocalFormulaRacing
                     ersDeploymentQuality = 0.40f,
                     drsUsageQuality = 0.55f,
                     mistakeChancePerLap = 0.16f,
-                    trafficAvoidanceCaution = 1.35f,
+                    // Aggression pass (per request): every tier's caution cut so AI
+                    // race for position instead of yielding it (was 1.35).
+                    trafficAvoidanceCaution = 1.1f,
                     wetWeatherCaution = 1.5f,
                     tyreSavingBias = 0.35f,
                     paceMultiplier = 0.96f,
@@ -113,7 +115,8 @@ namespace LocalFormulaRacing
                     ersDeploymentQuality = 0.65f,
                     drsUsageQuality = 0.75f,
                     mistakeChancePerLap = 0.09f,
-                    trafficAvoidanceCaution = 1.05f,
+                    // Aggression pass (per request): was 1.05.
+                    trafficAvoidanceCaution = 0.85f,
                     wetWeatherCaution = 1.2f,
                     tyreSavingBias = 0.20f,
                     paceMultiplier = 1.01f,
@@ -161,7 +164,8 @@ namespace LocalFormulaRacing
                     ersDeploymentQuality = 0.87f,
                     drsUsageQuality = 0.94f,
                     mistakeChancePerLap = 0.045f,
-                    trafficAvoidanceCaution = 0.82f,
+                    // Aggression pass (per request): was 0.82.
+                    trafficAvoidanceCaution = 0.62f,
                     wetWeatherCaution = 0.98f,
                     tyreSavingBias = 0.12f,
                     paceMultiplier = 1.08f,
@@ -202,7 +206,8 @@ namespace LocalFormulaRacing
                 ersDeploymentQuality = 0.96f,
                 drsUsageQuality = 0.98f,
                 mistakeChancePerLap = 0.0045f,
-                trafficAvoidanceCaution = 0.42f,
+                // Aggression pass (per request): was 0.42.
+                trafficAvoidanceCaution = 0.32f,
                 wetWeatherCaution = 0.88f,
                 tyreSavingBias = 0.07f,
                 paceMultiplier = 1.15f,

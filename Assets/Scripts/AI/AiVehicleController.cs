@@ -2207,6 +2207,7 @@ namespace LocalFormulaRacing
             bool blockedLeft = false;
             bool blockedRight = false;
             bool carDirectlyAhead = false;
+            float nearestInLaneAheadZ = float.MaxValue;
             // Bug fix (Part A.6): the old fixed 0.5 floor here silently clamped
             // Expert's much lower trafficAvoidanceCaution (0.22) right back up to 0.5,
             // neutering the difficulty profile's own number. Expert gets its own,
@@ -2230,11 +2231,32 @@ namespace LocalFormulaRacing
             // clean racing should allow, so the baseline caution every tier starts
             // from is genuinely higher again, not just Expert's discount being
             // smaller.
-            float cautionFloor = isExpert ? 0.4f : 0.68f;
+            // Aggression pass (per request - "prioritize overtaking rather than
+            // avoiding contact"): floors lowered (was 0.4/0.68) so the reduced
+            // per-tier trafficAvoidanceCaution values in the difficulty profiles
+            // actually take effect instead of being clamped back up.
+            float cautionFloor = isExpert ? 0.3f : 0.52f;
             float cautionFactor = Mathf.Clamp(profile.trafficAvoidanceCaution, cautionFloor, 1.4f);
             if (isExpert)
             {
                 cautionFactor *= 0.9f;
+            }
+
+            // Aggression pass: a car mid-move fights for the position instead of
+            // yielding to its own caution - while genuinely attacking/side-by-side/
+            // completing a pass, the throttle-lift and brake responses below are
+            // scaled down so the avoidance layer stops cancelling the overtake the
+            // state machine just committed to. Steering separation and the genuine
+            // collision urgency brake still apply at the reduced factor - this
+            // biases contests toward contact-tolerant hard racing, it doesn't
+            // disable protection outright.
+            bool activelyOvertaking = overtakeState == OvertakeState.AttackingInside ||
+                                      overtakeState == OvertakeState.AttackingOutside ||
+                                      overtakeState == OvertakeState.SideBySide ||
+                                      overtakeState == OvertakeState.CompletingPass;
+            if (activelyOvertaking)
+            {
+                cautionFactor *= 0.6f;
             }
 
             // Race-start pack window (THE "AI slow off the line" cause, found at
@@ -2336,6 +2358,14 @@ namespace LocalFormulaRacing
                 float overlap = Mathf.Clamp01(1f - absX / 8.5f);
                 if (local.z > 0.5f)
                 {
+                    // Feeds the low-speed anti-deadlock creep below: the nearest
+                    // car actually sharing this lane ahead, regardless of the
+                    // various response windows that follow.
+                    if (absX < 3.0f)
+                    {
+                        nearestInLaneAheadZ = Mathf.Min(nearestInLaneAheadZ, local.z);
+                    }
+
                     // Brake proportionally to how fast the gap is actually shrinking,
                     // not just distance: high closing speed means brake much earlier.
                     float otherSpeedKph = Mathf.Abs(other.vehicle.CurrentSpeedKph);
@@ -2418,7 +2448,10 @@ namespace LocalFormulaRacing
                     // or about to be let past) isn't throttle-capped for no real reason.
                     float laneOverlap = Mathf.Clamp01(1f - absX / 5.2f);
                     float proximity = Mathf.Clamp01((forwardWindow - local.z) / forwardWindow) * laneOverlap;
-                    float proximityCutback = Mathf.Lerp(1f, 0.42f, proximity * Mathf.Clamp01(closingKph / 40f));
+                    // Aggression pass: cruise cutback softened (was 0.42 at full
+                    // proximity) so a chasing car sits in the gearbox of the car
+                    // ahead and sets up a move instead of hanging back.
+                    float proximityCutback = Mathf.Lerp(1f, 0.55f, proximity * Mathf.Clamp01(closingKph / 40f));
 
                     // A legitimate DRS or slipstream tow is not traffic to avoid -
                     // lower-caution (higher-difficulty) followers commit to the draft
@@ -2519,7 +2552,10 @@ namespace LocalFormulaRacing
                     // reasoning as the urgency brake above).
                     if (!raceStartPackWindow || nearCorner)
                     {
-                        float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.5f, sideOverlap)) * cautionFactor);
+                        // Aggression pass: softened (was 0.5 at full overlap) -
+                        // holding station alongside is racing, lifting out of a
+                        // fight the driver could win is not.
+                        float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.62f, sideOverlap)) * cautionFactor);
                         throttleLimit = Mathf.Min(throttleLimit, sideCutback);
                     }
                 }
@@ -2540,8 +2576,11 @@ namespace LocalFormulaRacing
                 steerAdjust = 0f;
                 if (carDirectlyAhead && (!raceStartPackWindow || nearCorner))
                 {
-                    throttleLimit = Mathf.Min(throttleLimit, Mathf.Clamp01(1f - (1f - 0.34f) * cautionFactor));
-                    brakeDemand = Mathf.Max(brakeDemand, 0.16f * Mathf.Clamp01(cautionFactor));
+                    // Aggression pass: lift softened (was 0.34 cap / 0.16 brake) -
+                    // boxed-in should mean "hold position and wait for a gap", not
+                    // "give up the run entirely".
+                    throttleLimit = Mathf.Min(throttleLimit, Mathf.Clamp01(1f - (1f - 0.5f) * cautionFactor));
+                    brakeDemand = Mathf.Max(brakeDemand, 0.12f * Mathf.Clamp01(cautionFactor));
                 }
             }
             else if (carDirectlyAhead)
@@ -2555,6 +2594,25 @@ namespace LocalFormulaRacing
                 {
                     steerAdjust = blockedLeft ? 0f : -Mathf.Abs(steerAdjust);
                 }
+            }
+
+            // Turn-one standstill fix ("cars mysteriously pause on track during
+            // the first couple of corners"): when the field funnels into the
+            // opening corners, mid-pack cars slow each other into a standing
+            // queue - and the boxed-in brake plus the stacked throttle cutbacks
+            // above then HELD them there, every car waiting on a neighbour that
+            // was itself waiting, a mutual-yield deadlock that read as cars
+            // pausing on track for no reason. A car that is already near-stopped
+            // with genuine free space ahead in its own lane (the nearest in-lane
+            // car more than a car length plus margin away, or no car at all)
+            // never needs an avoidance brake and always gets enough throttle
+            // authority to creep forward - the queue now unwinds front-to-back
+            // instead of gridlocking. Cars genuinely nose-to-tail (gap under
+            // 4.5m) still hold their brake until the car ahead moves off.
+            if (speedKph < 30f && nearestInLaneAheadZ > 4.5f)
+            {
+                brakeDemand = 0f;
+                throttleLimit = Mathf.Max(throttleLimit, 0.4f);
             }
 
             if (brakeDemand > 0f)
