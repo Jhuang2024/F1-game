@@ -287,6 +287,9 @@ namespace LocalFormulaRacing
         public string selectedDriverId = "";
         public string rivalDriverId = "";
         public int contractTargetPosition = 8;
+        // Seasons in a row the contract target was missed; drives the escalating
+        // season-end consequences. Defaults to 0 so pre-existing saves load clean.
+        public int consecutiveContractMisses;
         public int reputation = 25;
         public int resourcePoints = 500;
         public int difficultyIndex = 1;

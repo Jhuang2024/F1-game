@@ -2756,8 +2756,26 @@ namespace LocalFormulaRacing
                 Save.rivalDriverId = PickRivalId(Save.playerTeamId, Save.selectedDriverId);
             }
 
+            // Season-end stakes: pay out the objectives and judge the contract
+            // target BEFORE GenerateSeasonObjectives/ContractTargetForTeam below
+            // replace last season's objective list and target. Without this the
+            // objectives panel and contract line were purely decorative - nothing
+            // in the game ever read them back.
+            ApplySeasonEndConsequences(completedSeason);
+
             Save.contractTargetPosition = ContractTargetForTeam(Save.playerTeamId);
             Save.preSeasonTestingSeen = false;
+
+            // New car, new attempt: a project that failed against last season's
+            // car is not un-developable forever. Leaving these latched permanently
+            // locked whole departments out of tiers 2-3 (AI teams have no rework
+            // path at all, and a player "abandon" silently walled off everything
+            // behind the upgrade's prerequisite chain for the rest of the career).
+            Save.failedUpgradeIds.Clear();
+            for (int i = 0; i < Save.teamDevelopmentStates.Count; i++)
+            {
+                Save.teamDevelopmentStates[i].failedUpgradeIds.Clear();
+            }
 
             ApplyRegulationReset();
             GenerateRegulationChanges();
@@ -2782,6 +2800,84 @@ namespace LocalFormulaRacing
             GenerateSeasonObjectives();
             GenerateOffseasonNews(completedSeason);
             Write();
+        }
+
+        // Season-end stakes: objectives pay out and the contract target is
+        // actually judged. Called from BeginNewSeason while Save.seasonObjectives
+        // still holds the COMPLETED season's list (GenerateSeasonObjectives
+        // replaces it later in the same method) and completedSeason carries the
+        // frozen final position/target for that season.
+        void ApplySeasonEndConsequences(SeasonArchive completedSeason)
+        {
+            int achievedCount = 0;
+            if (Save.seasonObjectives != null)
+            {
+                for (int i = 0; i < Save.seasonObjectives.Count; i++)
+                {
+                    if (Save.seasonObjectives[i] != null && Save.seasonObjectives[i].achieved)
+                    {
+                        achievedCount++;
+                    }
+                }
+            }
+
+            if (achievedCount > 0)
+            {
+                int objectiveBonus = Mathf.RoundToInt(achievedCount * 120f * Save.currentSeasonResourceMultiplier);
+                Save.resourcePoints += objectiveBonus;
+                Save.reputation += achievedCount * 2;
+                AddNewsArticle(
+                    Save.playerDriverName + " delivers on " + achievedCount + " season objective" + (achievedCount == 1 ? "" : "s"),
+                    "The board signs off a satisfied end-of-season review: " + achievedCount + " of the season's objectives were met, releasing a " +
+                    objectiveBonus + " RP development bonus for the new campaign.",
+                    NewsCategoryGeneral);
+            }
+
+            if (completedSeason == null || completedSeason.playerFinalPosition <= 0)
+            {
+                return;
+            }
+
+            bool metTarget = completedSeason.playerFinalPosition <= completedSeason.contractTargetThatSeason;
+            if (metTarget)
+            {
+                Save.consecutiveContractMisses = 0;
+                int contractBonus = Mathf.RoundToInt(150f * Save.currentSeasonResourceMultiplier);
+                Save.resourcePoints += contractBonus;
+                Save.reputation += 3;
+                AddNewsArticle(
+                    Save.playerDriverName + " meets contract target",
+                    "P" + completedSeason.playerFinalPosition + " against a P" + completedSeason.contractTargetThatSeason +
+                    " target keeps the team management happy - a " + contractBonus + " RP vote of confidence follows the driver into the new season.",
+                    NewsCategoryGeneral);
+                return;
+            }
+
+            Save.consecutiveContractMisses++;
+            Save.reputation = Mathf.Max(0, Save.reputation - 3);
+            if (Save.consecutiveContractMisses >= 2)
+            {
+                // Escalating squeeze rather than a hard sacking (there is no
+                // seat-change flow yet): repeated misses cost real development
+                // budget, so under-delivering seasons compound instead of being
+                // consequence-free.
+                int budgetCut = Mathf.RoundToInt(Save.resourcePoints * 0.25f);
+                Save.resourcePoints = Mathf.Max(0, Save.resourcePoints - budgetCut);
+                AddNewsArticle(
+                    Save.playerDriverName + "'s seat under real pressure",
+                    "A second straight missed contract target (P" + completedSeason.playerFinalPosition + " vs P" +
+                    completedSeason.contractTargetThatSeason + ") triggers a boardroom review - " + budgetCut +
+                    " RP is pulled from the driver's development programme and patience is now openly said to be exhausted.",
+                    NewsCategoryGeneral);
+            }
+            else
+            {
+                AddNewsArticle(
+                    Save.playerDriverName + " misses contract target",
+                    "P" + completedSeason.playerFinalPosition + " against a contracted P" + completedSeason.contractTargetThatSeason +
+                    " puts the driver on notice - management makes clear a repeat next season will have consequences.",
+                    NewsCategoryGeneral);
+            }
         }
 
         // Part 8: freezes each team's development summary for the season that
@@ -3853,6 +3949,15 @@ namespace LocalFormulaRacing
         // player's AdvanceUpgradeProjects), then may start a new project.
         void AdvanceAiTeamDevelopment()
         {
+            // Results-scaled AI income (this runs before ApplyRaceResults' own
+            // sort pass, so sort first - idempotent): the player's weekend income
+            // scales with finishing position, but AI teams earned a flat stipend
+            // regardless of results, which is a big part of why the field falls
+            // behind the player's development over a career. Front-running teams
+            // now bank up to ~180 RP a weekend and backmarkers ~80, bracketing
+            // the old flat 95.
+            SortStandings(Save.constructorStandings);
+
             for (int i = 0; i < data.Teams.teams.Count; i++)
             {
                 TeamData team = data.Teams.teams[i];
@@ -3862,12 +3967,14 @@ namespace LocalFormulaRacing
                 }
 
                 TeamDevelopmentState state = GetOrCreateTeamDevelopmentState(team.id);
-                // R&D pace buff (per request - "other teams' R&D increases their
-                // rating too slowly, I'm already at 104 and they're still at
-                // 90s"): AI teams were earning noticeably less usable R&D
-                // throughput than the player's own upgrade path. Weekly resource
-                // income raised (65 -> 95).
-                state.resourcePoints += Mathf.RoundToInt(95f * Save.currentSeasonResourceMultiplier);
+                int constructorPosition = FindStandingPosition(Save.constructorStandings, team.id);
+                if (constructorPosition <= 0)
+                {
+                    constructorPosition = 6;
+                }
+
+                float weekendIncome = 70f + Mathf.Max(0, 12 - constructorPosition) * 10f;
+                state.resourcePoints += Mathf.RoundToInt(weekendIncome * Save.currentSeasonResourceMultiplier);
 
                 for (int p = state.activeUpgradeProjects.Count - 1; p >= 0; p--)
                 {
@@ -4390,14 +4497,28 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            RaceResultEntry teammate = results.Find(entry => entry.teamId == Save.playerTeamId && entry.driverId != "player");
             bool playerDnf = !string.IsNullOrEmpty(player.penaltyReason) && player.penaltyReason.Contains("DNF");
             bool cleanRace = player.penaltiesSeconds <= 0f && !playerDnf;
+
+            // Championship-position reads below are index-based, but this runs
+            // before ApplyRaceResults' own SortStandings pass - on an unsorted
+            // list the player is always entry 0 (creation order), so position
+            // objectives latched "achieved" after round 1. Sorting is idempotent,
+            // so doing it here as well is safe.
+            SortStandings(Save.driverStandings);
+            SortStandings(Save.constructorStandings);
 
             for (int i = 0; i < Save.seasonObjectives.Count; i++)
             {
                 SeasonObjective objective = Save.seasonObjectives[i];
-                if (objective.achieved)
+                // Standings-position and head-to-head objectives can regress
+                // between rounds, so they are re-evaluated every race and only
+                // become final when the season archive freezes them; count-up
+                // objectives (podiums, points, firsts) stay latched once met.
+                bool trackedLive = objective.id == "wdc_position"
+                    || objective.id == "wcc_position"
+                    || objective.id == "beat_teammate";
+                if (objective.achieved && !trackedLive)
                 {
                     continue;
                 }
@@ -4414,11 +4535,11 @@ namespace LocalFormulaRacing
                         positionObjective = true;
                         break;
                     case "beat_teammate":
-                        if (teammate != null && player.finishingPosition < teammate.finishingPosition)
-                        {
-                            objective.currentValue = 1;
-                        }
-
+                        // "Win the head-to-head this season" means leading the
+                        // season tally, not merely beating the teammate once -
+                        // judged from the running wins/losses counters that
+                        // UpdateRaceRivalryAndForm has already advanced above.
+                        objective.currentValue = Save.teammateRaceWins > Save.teammateRaceLosses ? 1 : 0;
                         break;
                     case "podiums":
                         if (player.finishingPosition <= 3)

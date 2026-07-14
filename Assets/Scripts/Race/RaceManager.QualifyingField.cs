@@ -62,7 +62,11 @@ namespace LocalFormulaRacing
         {
             qualifyingEntries.Clear();
             TeamData playerTeam = Data.FindTeam(playerTeamId);
-            CarPerformanceData playerCar = Career == null ? null : Career.GetPlayerCar();
+            // Use the same effective-car pipeline as every AI entry so the player's
+            // R&D upgrades and season car swing count in simulated qualifying too
+            // (the raw GetPlayerCar() base car ignored both, so a fully-developed
+            // car qualified like a stock one while the teammate's did not).
+            CarPerformanceData playerCar = ResolveTeamCarPerformance(playerTeam);
             if (playerCar == null)
             {
                 playerCar = playerTeam == null ? Data.Cars.cars[0] : Data.FindCar(playerTeam.carPerformanceId);
