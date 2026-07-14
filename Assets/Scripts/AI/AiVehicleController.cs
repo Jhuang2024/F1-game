@@ -1459,7 +1459,10 @@ namespace LocalFormulaRacing
             // buying real distance to correct before the barrier regardless of
             // what's actually causing cars to arrive there in the first place.
             // Round 2 (per request, small trim): eased back ~10% (was 8-14m).
-            float edgeMarginDistance = Mathf.Lerp(7.2f, 12.6f, Mathf.Clamp01(speedKph / 340f));
+            // Round 3 (per request): increase the complete wall-aversion response
+            // by 5% without compounding separate sub-terms.
+            const float wallAversionMultiplier = 1.05f;
+            float edgeMarginDistance = Mathf.Lerp(7.2f, 12.6f, Mathf.Clamp01(speedKph / 340f)) * wallAversionMultiplier;
             // Wall-crash defence-in-depth: near a known tight-fence corner (the
             // same containment data the barrier builder uses) the reactive edge
             // band starts wider still, so the emergency response begins while a
@@ -1502,7 +1505,7 @@ namespace LocalFormulaRacing
             // line-following steering put the car there.
             // Round 2 (per request, small trim): eased back ~10% (was 0.65-1.6).
             float edgeRecovery = edgeOvershoot > 0f
-                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.58f, 1.44f, edgeProximity) * wallAversionLaunchGate
+                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.58f, 1.44f, edgeProximity) * wallAversionMultiplier * wallAversionLaunchGate
                 : 0f;
             // Barrier-avoidance round 6 ("AI sending it into the final corner and
             // hitting the barriers"): the emergency brake's quadratic ramp
@@ -1529,7 +1532,7 @@ namespace LocalFormulaRacing
             // x 1-2).
             float edgeOverspeed = Mathf.Clamp01((speedKph - 70f) / 90f);
             float edgeEmergencyBrake = edgeOvershoot > 0f
-                ? Mathf.Clamp01(Mathf.Lerp(0.4f, 1.17f, edgeProximity) * Mathf.Lerp(0.9f, 1.8f, edgeOverspeed)) * wallAversionLaunchGate
+                ? Mathf.Clamp01(Mathf.Lerp(0.4f, 1.17f, edgeProximity) * Mathf.Lerp(0.9f, 1.8f, edgeOverspeed) * wallAversionMultiplier) * wallAversionLaunchGate
                 : 0f;
             command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
 
