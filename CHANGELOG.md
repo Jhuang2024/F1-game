@@ -31,6 +31,17 @@ compiled or run in Unity.
   detach the HUD cleanly and never resurrect the strategy screen.
 - Focus-outline overlay, progress-bar fill mode, and several extraction
   correctness issues surfaced by static review.
+- Production HUD legibility pass: every meter in the top-right status column
+  now carries a caption and a numeric readout (ERS %, tyre life %, damage),
+  the duplicate flag chip is gone (the shell chip is driven solely by the
+  telemetry FlagModule), bright chip backgrounds (hard/medium compound) get a
+  contrast-aware dark label, and the DRS / pit / weather chips spell out their
+  state ("DRS READY", "NO PENALTY", "WEATHER · CLEAR").
+- Race-start gantry: the five start lights moved from the mid-left timing-tower
+  stack to a new top-center HUD dock, doubled in size, and now hold visibly
+  DARK for a beat at lights-out (with the LIGHTS OUT flash directly beneath)
+  instead of vanishing on the exact frame the race goes live. Big-moment and
+  race-control banners moved to the same centre stage.
 
 ### Known incomplete
 See `Docs/KNOWN_ISSUES.md` for the honest list of partial / not-started systems

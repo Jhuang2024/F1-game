@@ -909,12 +909,19 @@ statGridGo.transform.SetParent(content, false);
 
             // Safe-area margin baked into anchor offsets (3.5% inset).
             RectTransform topLeft = MakeDock("Dock_TopLeft", new Vector2(0.035f, 0.965f), new Vector2(0.035f, 0.965f), new Vector2(0f, 1f));
+            RectTransform topCenter = MakeDock("Dock_TopCenter", new Vector2(0.5f, 0.965f), new Vector2(0.5f, 0.965f), new Vector2(0.5f, 1f));
             RectTransform topRight = MakeDock("Dock_TopRight", new Vector2(0.965f, 0.965f), new Vector2(0.965f, 0.965f), new Vector2(1f, 1f));
             RectTransform timingTower = MakeDock("Dock_TimingTower", new Vector2(0.035f, 0.5f), new Vector2(0.035f, 0.5f), new Vector2(0f, 0.5f));
             RectTransform bottomCenter = MakeDock("Dock_BottomCenter", new Vector2(0.5f, 0.035f), new Vector2(0.5f, 0.035f), new Vector2(0.5f, 0f));
             RectTransform bottomRight = MakeDock("Dock_BottomRight", new Vector2(0.965f, 0.035f), new Vector2(0.965f, 0.035f), new Vector2(1f, 0f));
 
-            // Flag chip (event-driven).
+            // The centre stage (start lights, big-moment flashes, race-control
+            // banner) is wider than a side column and centres its children.
+            topCenter.sizeDelta = new Vector2(560f, 300f);
+            topCenter.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.UpperCenter;
+
+            // Flag chip (driven by the telemetry-polling FlagModule; created here
+            // so it sits first in the top-right stack).
             var chipGo = new GameObject("FlagChip", typeof(RectTransform));
             chipGo.transform.SetParent(topRight, false);
             Image chipBg = chipGo.AddComponent<Image>();
@@ -937,7 +944,7 @@ statGridGo.transform.SetParent(content, false);
             feed.Bind((RectTransform)feedGo.transform, feedTemplate);
 
             var hud = screenGo.AddComponent<HudRoot>();
-            hud.Bind(topLeft, topRight, timingTower, bottomCenter, bottomRight, chip, feed);
+            hud.Bind(topLeft, topCenter, topRight, timingTower, bottomCenter, bottomRight, chip, feed);
 
             // Telemetry-driven modules (position, lap/clock, speed/gear/rpm,
             // ERS/DRS, tyres, fuel) dock into the shell.

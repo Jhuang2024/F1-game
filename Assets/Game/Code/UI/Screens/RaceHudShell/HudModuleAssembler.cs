@@ -10,6 +10,8 @@ namespace F1Game.UI.Screens.RaceHudShell
     /// Assembles the telemetry-driven HUD modules into a <see cref="HudRoot"/>'s
     /// docks. Kept separate from HudRoot so the module set can grow without
     /// touching the shell. Widgets are built from theme tokens (no magic pixels).
+    /// Every meter in the status column carries a text label and a numeric value
+    /// so a bar is never an anonymous coloured stripe.
     /// </summary>
     public static class HudModuleAssembler
     {
@@ -35,23 +37,50 @@ namespace F1Game.UI.Screens.RaceHudShell
             var rpmBar = ProgressBar(hud.BottomCenterDock, "Rpm");
             hud.gameObject.AddComponent<SpeedGearModule>().Bind(gearText, speedText, rpmBar);
 
-            // Bottom-right column already hosts the notification feed; add
-            // ERS/DRS, tyres and fuel to the top-right dock.
-            var ersBar = ProgressBar(hud.TopRightDock, "Ers");
-            var drsChip = Chip(hud.TopRightDock, "Drs");
-            hud.gameObject.AddComponent<ErsDrsModule>().Bind(ersBar, drsChip);
+            // ---- Top-right status column ----
+            // The shell's flag chip already sits first in this dock; the module
+            // drives it so there is exactly ONE flag readout.
+            hud.gameObject.AddComponent<FlagModule>().Bind(hud.FlagChip);
 
-            var compoundChip = Chip(hud.TopRightDock, "Compound");
-            var wearBar = ProgressBar(hud.TopRightDock, "Wear");
+            // ERS: label + charge bar + percentage, so remaining deployment
+            // energy is always readable at a glance.
+            var ersRow = Row(hud.TopRightDock, "Ers");
+            Label(ersRow, "ERS", 52f);
+            var ersBar = ProgressBar(ersRow, "Ers");
+            StretchInRow(ersBar.gameObject);
+            var ersValue = RowValue(ersRow, "ErsValue", 64f);
+            var drsChip = Chip(hud.TopRightDock, "Drs");
+            hud.gameObject.AddComponent<ErsDrsModule>().Bind(ersBar, drsChip, ersValue);
+
+            // Tyres: compound chip + labelled wear bar + remaining-life %.
+            var tyreRow = Row(hud.TopRightDock, "Tyre");
+            var compoundChip = Chip(tyreRow, "Compound");
+            var compoundLayout = compoundChip.GetComponent<LayoutElement>();
+            compoundLayout.preferredWidth = 34f;
+            compoundLayout.minWidth = 34f;
+            Label(tyreRow, "TYRE", 52f);
+            var wearBar = ProgressBar(tyreRow, "Wear");
+            StretchInRow(wearBar.gameObject);
+            var wearValue = RowValue(tyreRow, "WearValue", 64f);
             var tyreTempText = Numeric(hud.TopRightDock, "TyreTemp", 16f);
-            hud.gameObject.AddComponent<TyresModule>().Bind(compoundChip, wearBar, tyreTempText);
+            hud.gameObject.AddComponent<TyresModule>().Bind(compoundChip, wearBar, wearValue, tyreTempText);
 
             var fuelText = Numeric(hud.TopRightDock, "Fuel", 18f);
             hud.gameObject.AddComponent<FuelModule>().Bind(fuelText);
 
-            var damageLabel = Numeric(hud.TopRightDock, "Damage", 16f);
-            var damageBar = ProgressBar(hud.TopRightDock, "DamageBar");
+            // Damage: label + meter on one line.
+            var damageRow = Row(hud.TopRightDock, "Damage");
+            var damageLabel = RowValue(damageRow, "DamageLabel", 118f);
+            damageLabel.fontSize = 16f;
+            damageLabel.alignment = TextAlignmentOptions.MidlineLeft;
+            var damageBar = ProgressBar(damageRow, "DamageBar");
+            StretchInRow(damageBar.gameObject);
             hud.gameObject.AddComponent<DamageModule>().Bind(damageBar, damageLabel);
+
+            var pitChip = Chip(hud.TopRightDock, "PitPenalty");
+            hud.gameObject.AddComponent<PitPenaltyModule>().Bind(pitChip);
+            var weatherChip = Chip(hud.TopRightDock, "Weather");
+            hud.gameObject.AddComponent<WeatherModule>().Bind(weatherChip);
 
             // Bottom-center: pedal input bars beneath the speed/gear readout,
             // then the slipstream tow pill.
@@ -66,11 +95,6 @@ namespace F1Game.UI.Screens.RaceHudShell
             hud.gameObject.AddComponent<DeltaModule>().Bind(deltaText);
             var checkpointsText = Numeric(hud.TopLeftDock, "Checkpoints", 16f);
             hud.gameObject.AddComponent<CheckpointsModule>().Bind(checkpointsText);
-
-            // Qualifying lap feedback: a centred panel in the top-center dock.
-            var qualiFeedbackText = Text(hud.TimingTowerDock, "QualiFeedback", 24f, TextAlignmentOptions.Center);
-            qualiFeedbackText.GetComponent<LayoutElement>().preferredHeight = 60f;
-            hud.gameObject.AddComponent<QualiFeedbackModule>().Bind(qualiFeedbackText);
 
             // Track minimap: a fixed square panel in the bottom-right dock; the
             // module positions pooled dots within its rect.
@@ -103,39 +127,37 @@ namespace F1Game.UI.Screens.RaceHudShell
             var sessionMessageText = Text(hud.TopLeftDock, "SessionMessage", 16f, TextAlignmentOptions.Left);
             hud.gameObject.AddComponent<SessionMessageModule>().Bind(sessionMessageText);
 
-            // Flag + pit/penalty chips live with the other status chips.
-            var flagChip = Chip(hud.TopRightDock, "Flag");
-            hud.gameObject.AddComponent<FlagModule>().Bind(flagChip);
-            var pitChip = Chip(hud.TopRightDock, "PitPenalty");
-            hud.gameObject.AddComponent<PitPenaltyModule>().Bind(pitChip);
-            var weatherChip = Chip(hud.TopRightDock, "Weather");
-            hud.gameObject.AddComponent<WeatherModule>().Bind(weatherChip);
+            // ---- Top-center stage ----
+            // Start-light gantry front and centre: five big lamps that build up
+            // red one by one, hold, then visibly go dark at lights-out.
+            var lightsText = Text(hud.TopCenterDock, "StartLights", 64f, TextAlignmentOptions.Center);
+            lightsText.GetComponent<LayoutElement>().preferredHeight = 76f;
+            hud.gameObject.AddComponent<StartLightsModule>().Bind(lightsText);
 
-            // Big-moment centre flash (lights out / green flag / final lap).
-            var bigMomentText = Text(hud.BottomCenterDock, "BigMoment", 40f, TextAlignmentOptions.Center);
+            // Big-moment flash (LIGHTS OUT / GREEN FLAG / FINAL LAP) directly
+            // beneath the gantry, so "lights out" appears where the lights died.
+            var bigMomentText = Text(hud.TopCenterDock, "BigMoment", 40f, TextAlignmentOptions.Center);
             bigMomentText.GetComponent<LayoutElement>().preferredHeight = 60f;
             hud.gameObject.AddComponent<BigMomentModule>().Bind(bigMomentText);
 
-            // Track-limit warning flash: a brief amber pulse under the big-moment
-            // line when the player collects another track-limits warning.
-            var trackLimitText = Text(hud.BottomCenterDock, "TrackLimit", 22f, TextAlignmentOptions.Center);
+            // Track-limit warning flash: a brief amber pulse under the big-moment line.
+            var trackLimitText = Text(hud.TopCenterDock, "TrackLimit", 22f, TextAlignmentOptions.Center);
             trackLimitText.GetComponent<LayoutElement>().preferredHeight = 34f;
             hud.gameObject.AddComponent<TrackLimitFlashModule>().Bind(trackLimitText);
 
-            // Race-control banner sits above the tower in the top-center dock;
-            // it hides itself under ordinary green-flag running.
-            var raceControlText = Text(hud.TimingTowerDock, "RaceControl", 22f, TextAlignmentOptions.Center);
+            // Race-control banner (safety car / restart / red flag detail); it
+            // hides itself under ordinary green-flag running.
+            var raceControlText = Text(hud.TopCenterDock, "RaceControl", 22f, TextAlignmentOptions.Center);
             raceControlText.GetComponent<LayoutElement>().preferredHeight = 52f;
             hud.gameObject.AddComponent<RaceControlModule>().Bind(raceControlText);
 
-            // Start lights sit in the timing-tower dock (top-center of the
-            // shell) so they read like the gantry; the module hides itself
-            // outside the build-up sequence.
-            var lightsText = Text(hud.TimingTowerDock, "StartLights", 34f, TextAlignmentOptions.Center);
-            hud.gameObject.AddComponent<StartLightsModule>().Bind(lightsText);
+            // Qualifying lap feedback: a centred panel on the same stage.
+            var qualiFeedbackText = Text(hud.TopCenterDock, "QualiFeedback", 24f, TextAlignmentOptions.Center);
+            qualiFeedbackText.GetComponent<LayoutElement>().preferredHeight = 60f;
+            hud.gameObject.AddComponent<QualiFeedbackModule>().Bind(qualiFeedbackText);
 
             // Timing tower body: one multi-line tabular text, refreshed at the
-            // publish cadence rather than per frame.
+            // publish cadence rather than per frame (mid-left dock).
             var towerText = Numeric(hud.TimingTowerDock, "TimingTower", 17f);
             towerText.alignment = TextAlignmentOptions.TopLeft;
             // Multi-line body: the shared Text() helper sizes for one line.
@@ -161,6 +183,55 @@ namespace F1Game.UI.Screens.RaceHudShell
             TMP_Text t = Text(parent, name, size, TextAlignmentOptions.Left);
             if (UiTheme.Active.typography.tabularNumeric != null) t.font = UiTheme.Active.typography.tabularNumeric;
             return t;
+        }
+
+        // A horizontal "label + meter + value" line for the status column.
+        static RectTransform Row(Transform parent, string name)
+        {
+            var go = new GameObject("HudRow" + name, typeof(RectTransform));
+            go.transform.SetParent(parent, false);
+            var layout = go.AddComponent<HorizontalLayoutGroup>();
+            layout.spacing = UiTheme.Active.spacing.small;
+            layout.childControlWidth = true;
+            layout.childControlHeight = true;
+            layout.childForceExpandWidth = false;
+            layout.childForceExpandHeight = false;
+            layout.childAlignment = TextAnchor.MiddleLeft;
+            go.AddComponent<LayoutElement>().preferredHeight = 30f;
+            return (RectTransform)go.transform;
+        }
+
+        // Small muted caption naming the meter beside it ("ERS", "TYRE").
+        static TMP_Text Label(Transform row, string caption, float width)
+        {
+            TMP_Text t = Text(row, "Label" + caption, 14f, TextAlignmentOptions.MidlineLeft);
+            t.text = caption;
+            t.color = UiTheme.Active.palette.textMuted;
+            var layout = t.GetComponent<LayoutElement>();
+            layout.preferredWidth = width;
+            layout.minWidth = width;
+            layout.preferredHeight = 20f;
+            return t;
+        }
+
+        // Numeric readout slot at the end of a row ("78%").
+        static TMP_Text RowValue(Transform row, string name, float width)
+        {
+            TMP_Text t = Numeric(row, name, 15f);
+            t.alignment = TextAlignmentOptions.MidlineRight;
+            var layout = t.GetComponent<LayoutElement>();
+            layout.preferredWidth = width;
+            layout.minWidth = width;
+            layout.preferredHeight = 20f;
+            return t;
+        }
+
+        // Let a row child (the meter) absorb the remaining row width.
+        static void StretchInRow(GameObject meter)
+        {
+            var layout = meter.GetComponent<LayoutElement>();
+            layout.flexibleWidth = 1f;
+            layout.minWidth = 60f;
         }
 
         static UiProgressBar ProgressBar(Transform parent, string name)

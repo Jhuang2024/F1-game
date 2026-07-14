@@ -142,50 +142,69 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
-    /// <summary>ERS battery + DRS state chips.</summary>
+    /// <summary>ERS battery (bar + percentage readout) + DRS state chip.</summary>
     public sealed class ErsDrsModule : HudModule
     {
         [SerializeField] UiProgressBar ers;
         [SerializeField] StatusChip drs;
-        public void Bind(UiProgressBar ersBar, StatusChip drsChip) { ers = ersBar; drs = drsChip; }
+        [SerializeField] TMP_Text ersValue;
+        public void Bind(UiProgressBar ersBar, StatusChip drsChip, TMP_Text ersValueText)
+        {
+            ers = ersBar;
+            drs = drsChip;
+            ersValue = ersValueText;
+        }
 
         protected override void Render(in HudTelemetrySnapshot t)
         {
             if (!t.Valid) return;
+
+            // Race-control lockout: deployment is disabled under any
+            // caution (FlagRules), so the meter dims to say why the
+            // button does nothing.
+            bool locked = t.PaceLimited || t.Flag == F1Game.Core.Events.FlagState.Yellow;
+            Color barColor = locked ? UiTheme.Active.palette.textMuted : UiTheme.Active.palette.accent;
             if (ers != null)
             {
-                // Race-control lockout: deployment is disabled under any
-                // caution (FlagRules), so the meter dims to say why the
-                // button does nothing.
-                bool locked = t.PaceLimited || t.Flag == F1Game.Core.Events.FlagState.Yellow;
-                ers.SetValue(t.Ers01, locked ? UiTheme.Active.palette.textMuted : UiTheme.Active.palette.accent);
+                ers.SetValue(t.Ers01, barColor);
             }
+
+            if (ersValue != null)
+            {
+                ersValue.text = $"<mspace=0.6em>{t.Ers01 * 100f:0}</mspace>%";
+                ersValue.color = locked ? UiTheme.Active.palette.textMuted
+                    : (t.Ers01 < 0.15f ? UiTheme.Active.palette.warning : UiTheme.Active.palette.textPrimary);
+            }
+
             if (drs != null)
             {
-                if (t.DrsActive) drs.Set("DRS", StatusChip.Tone.Positive);
-                else if (t.DrsAvailable) drs.Set("DRS", StatusChip.Tone.Accent);
+                if (t.DrsActive) drs.Set("DRS OPEN", StatusChip.Tone.Positive);
+                else if (t.DrsAvailable) drs.Set("DRS READY", StatusChip.Tone.Accent);
                 else drs.Set("DRS", StatusChip.Tone.Neutral);
             }
         }
     }
 
-    /// <summary>Tyre compound + wear meter, temperature status and lockup warning.</summary>
+    /// <summary>Tyre compound + wear meter (with remaining-life %), temperature status and lockup warning.</summary>
     public sealed class TyresModule : HudModule
     {
         static readonly string[] CompoundLabels = { "S", "M", "H", "I", "W" };
         [SerializeField] StatusChip compound;
         [SerializeField] UiProgressBar wear;
+        [SerializeField] TMP_Text wearValue;
         [SerializeField] TMP_Text temp;
-        public void Bind(StatusChip compoundChip, UiProgressBar wearBar, TMP_Text tempText)
+        public void Bind(StatusChip compoundChip, UiProgressBar wearBar, TMP_Text wearValueText, TMP_Text tempText)
         {
             compound = compoundChip;
             wear = wearBar;
+            wearValue = wearValueText;
             temp = tempText;
         }
 
         protected override void Render(in HudTelemetrySnapshot t)
         {
             if (!t.Valid) return;
+            float remaining01 = Mathf.Clamp01(1f - t.TyreWear01);
             if (compound != null)
             {
                 int i = Mathf.Clamp(t.TyreCompound, 0, CompoundLabels.Length - 1);
@@ -194,7 +213,13 @@ namespace F1Game.UI.Screens.RaceHudShell
 
             if (wear != null)
             {
-                wear.SetDepletion(1f - t.TyreWear01); // remaining life
+                wear.SetDepletion(remaining01); // remaining life
+            }
+
+            if (wearValue != null)
+            {
+                wearValue.text = $"<mspace=0.6em>{remaining01 * 100f:0}</mspace>%";
+                wearValue.color = remaining01 > 0.25f ? UiTheme.Active.palette.textPrimary : UiTheme.Active.palette.warning;
             }
 
             if (temp != null)
@@ -211,7 +236,7 @@ namespace F1Game.UI.Screens.RaceHudShell
                     Color c = status == "HOT" || status == "COLD"
                         ? UiTheme.Active.palette.warning
                         : (status == "OPT" ? UiTheme.Active.palette.positive : UiTheme.Active.palette.textMuted);
-                    temp.text = $"TYRE <color=#{ColorUtility.ToHtmlStringRGB(c)}>{status}</color>";
+                    temp.text = $"TYRE TEMP <color=#{ColorUtility.ToHtmlStringRGB(c)}>{status}</color>";
                 }
             }
         }
@@ -470,10 +495,10 @@ namespace F1Game.UI.Screens.RaceHudShell
             {
                 case F1Game.Core.Events.FlagState.Yellow:
                 case F1Game.Core.Events.FlagState.DoubleYellow:
-                    chip.Set("YELLOW", StatusChip.Tone.Warning);
+                    chip.Set("YELLOW FLAG", StatusChip.Tone.Warning);
                     break;
                 case F1Game.Core.Events.FlagState.VirtualSafetyCar:
-                    chip.Set("VSC", StatusChip.Tone.Warning);
+                    chip.Set("VIRTUAL SAFETY CAR", StatusChip.Tone.Warning);
                     break;
                 case F1Game.Core.Events.FlagState.SafetyCar:
                     chip.Set("SAFETY CAR", StatusChip.Tone.Warning);
@@ -482,10 +507,10 @@ namespace F1Game.UI.Screens.RaceHudShell
                     chip.Set("RED FLAG", StatusChip.Tone.Danger);
                     break;
                 case F1Game.Core.Events.FlagState.Chequered:
-                    chip.Set("FINISH", StatusChip.Tone.Positive);
+                    chip.Set("CHEQUERED FLAG", StatusChip.Tone.Positive);
                     break;
                 default:
-                    chip.Set("GREEN", StatusChip.Tone.Positive);
+                    chip.Set("GREEN FLAG", StatusChip.Tone.Positive);
                     break;
             }
         }
@@ -508,23 +533,23 @@ namespace F1Game.UI.Screens.RaceHudShell
 
             if (t.PitStopProgress01 > 0f)
             {
-                chip.Set($"BOX {t.PitStopProgress01 * 100f:0}%", StatusChip.Tone.Accent);
+                chip.Set($"PIT STOP {t.PitStopProgress01 * 100f:0}%", StatusChip.Tone.Accent);
             }
             else if (t.IsPitting)
             {
-                chip.Set("IN PIT", StatusChip.Tone.Accent);
+                chip.Set("IN PIT LANE", StatusChip.Tone.Accent);
             }
             else if (t.PitLimiterActive)
             {
-                chip.Set("LIMITER", StatusChip.Tone.Accent);
+                chip.Set("PIT LIMITER", StatusChip.Tone.Accent);
             }
             else if (t.PenaltySeconds > 0.01f)
             {
-                chip.Set($"+{t.PenaltySeconds:0}s", StatusChip.Tone.Danger);
+                chip.Set($"PENALTY +{t.PenaltySeconds:0}s", StatusChip.Tone.Danger);
             }
             else
             {
-                chip.Set("NO PEN", StatusChip.Tone.Neutral);
+                chip.Set("NO PENALTY", StatusChip.Tone.Neutral);
             }
         }
     }
@@ -755,16 +780,16 @@ namespace F1Game.UI.Screens.RaceHudShell
             switch (t.Weather)
             {
                 case F1Game.Core.Events.WeatherKind.Overcast:
-                    chip.Set("OVERCAST", StatusChip.Tone.Neutral);
+                    chip.Set("WEATHER · OVERCAST", StatusChip.Tone.Neutral);
                     break;
                 case F1Game.Core.Events.WeatherKind.LightRain:
-                    chip.Set("LIGHT RAIN", StatusChip.Tone.Accent);
+                    chip.Set("WEATHER · LIGHT RAIN", StatusChip.Tone.Accent);
                     break;
                 case F1Game.Core.Events.WeatherKind.HeavyRain:
-                    chip.Set("HEAVY RAIN", StatusChip.Tone.Warning);
+                    chip.Set("WEATHER · HEAVY RAIN", StatusChip.Tone.Warning);
                     break;
                 default:
-                    chip.Set("CLEAR", StatusChip.Tone.Neutral);
+                    chip.Set("WEATHER · CLEAR", StatusChip.Tone.Neutral);
                     break;
             }
         }
@@ -967,16 +992,51 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
-    /// <summary>The five start lights, drawn as filled/hollow dots during the sequence.</summary>
+    /// <summary>
+    /// The five start lights, top-center like the real gantry: lamps build up
+    /// red one by one, hold all-lit, then the whole row visibly goes DARK for a
+    /// beat at lights-out (instead of vanishing the same frame the race goes
+    /// live) so the launch moment is unmissable.
+    /// </summary>
     public sealed class StartLightsModule : HudModule
     {
+        const float LightsOutHoldSeconds = 1.4f;
+        const string LitColor = "#E63329";
+        const string UnlitColor = "#3A3F46";
+
         [SerializeField] TMP_Text value;
+        readonly System.Text.StringBuilder sb = new System.Text.StringBuilder(96);
+        bool wasShowing;
+        int shownLit = -1;   // lamps drawn last frame (-1 = nothing drawn)
+        float holdTimer;
+
         public void Bind(TMP_Text v) { value = v; }
 
         protected override void Render(in HudTelemetrySnapshot t)
         {
             if (value == null) return;
-            bool show = t.Valid && t.StartLightsVisible;
+
+            bool sequence = t.Valid && t.StartLightsVisible;
+
+            // Falling edge while the snapshot is still valid = lights out: keep
+            // the gantry up briefly, all lamps dark. (An invalid snapshot means
+            // teardown, not a start - hide immediately.)
+            if (!sequence && wasShowing && t.Valid)
+            {
+                holdTimer = LightsOutHoldSeconds;
+            }
+
+            wasShowing = sequence;
+            if (!t.Valid)
+            {
+                holdTimer = 0f;
+            }
+            else if (!sequence && holdTimer > 0f)
+            {
+                holdTimer -= Time.deltaTime;
+            }
+
+            bool show = sequence || holdTimer > 0f;
             if (value.gameObject.activeSelf != show)
             {
                 value.gameObject.SetActive(show);
@@ -984,18 +1044,24 @@ namespace F1Game.UI.Screens.RaceHudShell
 
             if (!show)
             {
+                shownLit = -1;
                 return;
             }
 
-            var sb = new System.Text.StringBuilder(24);
-            sb.Append("<color=#E63329>");
+            int lit = sequence ? Mathf.Clamp(t.StartLightCount, 0, 5) : 0;
+            if (lit == shownLit)
+            {
+                return; // string only changes when a lamp does
+            }
+
+            shownLit = lit;
+            sb.Length = 0;
             for (int i = 0; i < 5; i++)
             {
-                sb.Append(i < t.StartLightCount ? '●' : '○');
+                sb.Append("<color=").Append(i < lit ? LitColor : UnlitColor).Append(">●</color>");
                 if (i < 4) sb.Append(' ');
             }
 
-            sb.Append("</color>");
             value.text = sb.ToString();
         }
     }

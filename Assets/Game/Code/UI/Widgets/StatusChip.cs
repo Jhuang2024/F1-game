@@ -37,6 +37,7 @@ namespace F1Game.UI.Widgets
                     Tone.Danger => theme.palette.danger,
                     _ => theme.palette.surfaceRaised,
                 };
+                ApplyLabelContrast(background.color);
             }
         }
 
@@ -51,7 +52,23 @@ namespace F1Game.UI.Widgets
             if (background != null)
             {
                 background.color = color;
+                ApplyLabelContrast(color);
             }
+        }
+
+        // Bright backgrounds (hard-compound white, medium yellow...) need a dark
+        // label; the fixed light text was invisible on them.
+        void ApplyLabelContrast(Color bg)
+        {
+            if (label == null)
+            {
+                return;
+            }
+
+            float luminance = 0.299f * bg.r + 0.587f * bg.g + 0.114f * bg.b;
+            label.color = luminance > 0.6f
+                ? new Color(0.09f, 0.10f, 0.12f)
+                : UiTheme.Active.palette.textPrimary;
         }
     }
 }
