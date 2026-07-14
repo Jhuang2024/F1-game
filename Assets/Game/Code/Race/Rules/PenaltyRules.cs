@@ -42,7 +42,12 @@ namespace F1Game.Race.Rules
 
         // --- Mandatory pit stop (ApplyMandatoryPitPenalty) ---
 
-        public const float MandatoryPitPenaltySeconds = 10f;
+        // Must always exceed the real cost of actually making the stop (pit-lane
+        // transit at the limiter plus the service hold, ~20-30s on these layouts):
+        // at the old 10s, skipping the mandatory stop and eating the penalty was
+        // strictly faster than pitting - the rule punished compliance. 30s mirrors
+        // the real-sport tariff for a skipped mandatory stop.
+        public const float MandatoryPitPenaltySeconds = 30f;
         public const string MandatoryPitReason = "No mandatory stop";
 
         /// <summary>Races at or below this lap count never require a stop.</summary>

@@ -4,6 +4,75 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Game-problems review pass (design/balance/fairness, not bugs)
+
+A dedicated audit of genuine game problems — unfair or dead mechanics, balance
+collapse, degenerate strategies, punishing flows — followed by fixes. Static
+review only (no Unity here); the AI cornering/mistake changes and the quali
+difficulty rescale in particular want an in-editor drive.
+
+### AI behaviour & difficulty
+- AI brakes for corners again: the Slow/VeryTight apex-speed floors had been
+  tuned to 512/302+ kph — above every car's top speed — so tight corners were
+  taken flat out, brake demand never fired, and the cornering difficulty knobs
+  were dead (the recurring barrier-crash reports). Restored sub-top-speed bands
+  (Slow 150–200, VeryTight 110–140 kph) **and** removed the pace-multiplier
+  inflation of the braking apex target (up to ~1.35× on Expert) that had masked
+  the earlier floor-only fixes and got them reverted.
+- Racecraft desaturated: dropped the ×1.69 defending/overtaking multiply that
+  clamped all 22 drivers to identical 100-rated clones, and replaced the ×2.6
+  commitment buff (every tier saturated at 1.0 — Easy fought exactly like
+  Expert) with a 30% lean toward full commitment (Easy ~0.55 → Expert ~1.0).
+- AI mistakes are real now: a tier-scaled share of mistake rolls becomes a
+  misjudged braking point (arrive hot, run deep, lose real time) instead of a
+  sub-metre wobble clamped inside the legal-line corridor. Gated off during pit
+  approach, off-track recovery and SC/VSC caps.
+- AI qualifying difficulty now points the same way as AI race difficulty: the
+  quali difficulty term is AI-only (it previously applied to the player's
+  simulated lap too, cancelling out) and Easy/Medium are meaningfully slower
+  (8%/1.5%), so grid position roughly previews race pace.
+- Removed the hidden +3 kph AI top-speed edge over the player in identical
+  machinery (AiTopSpeedBonusKph 8 → 5, force curve matched).
+
+### Race rules
+- Skipping the mandatory pit stop is no longer strictly optimal: the penalty is
+  30s (was 10s — cheaper than the ~20–30s a real stop costs, so the rule
+  punished compliance).
+
+### Career, progression & economy
+- The player's R&D upgrades now count in simulated qualifying (the sim built
+  the player's entry from the raw base car while every AI entry — including
+  the teammate's identical car — got the effective upgraded car).
+- Season objectives fixed: standings are sorted before position objectives
+  read them (they latched "achieved" after round 1 off a creation-ordered
+  list), position/head-to-head objectives re-evaluate live instead of latching,
+  and "beat teammate" is judged on the season tally, not the first race.
+- Objectives and the contract target now have consequences: season-end RP +
+  reputation payout per achieved objective, a bonus for meeting the contract
+  target, reputation loss for missing it, and an escalating development-budget
+  cut for consecutive misses (new `consecutiveContractMisses` save field).
+- R&D no longer bricks permanently: `failedUpgradeIds` clear at season
+  rollover for the player and every AI team. One tier-1 failure used to lock
+  an AI team out of a department's tiers 2–3 for the whole career, and a
+  player "abandon" silently walled off the upgrade's prerequisite chain.
+- AI weekend R&D income scales with constructor standing (~80–180 RP,
+  bracketing the old flat 95) so the field develops with its results instead
+  of falling ever further behind the player.
+
+### UX
+- "Start New Career" over a save with real progress now requires a second
+  press ("Overwrite saved career?") instead of destroying a multi-season save
+  on one click.
+
+### Verified fine (checked, no change needed)
+- Rules symmetry: track limits, jump starts, blue flags, pit/SC/VSC speed caps
+  and overtake restrictions all apply to AI and player through the same paths.
+- No rubber-banding anywhere; AI shares the player's physics, fuel burn (mass
+  follows fuel live), tyre wear, ERS battery and DRS gap rules.
+- Championship points/tiebreaks, DNF classification, season rollover/archives,
+  driver progression, practice-reward gating, tyre-compound trade-offs and the
+  wet-tyre crossover, and README-vs-code control bindings.
+
 ## Migration — production rebuild (in progress)
 
 ### Added (live paths)

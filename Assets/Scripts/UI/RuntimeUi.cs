@@ -24,6 +24,10 @@ namespace LocalFormulaRacing
         // is now shadowed here across rebuilds instead of being lost.
         string careerSetupDraftName;
         bool careerSetupDraftNameSet;
+        // Arm-then-confirm guard for "Start New Career" when a played career
+        // already exists: the first press arms, the second actually overwrites.
+        // Without it one stray click destroyed a multi-season save silently.
+        bool careerOverwriteArmed;
 
         // Quick Race track picked on ShowQuickRaceTrackSelect, carried through to
         // GameBootstrap.BeginQuickRace instead of it silently defaulting to
@@ -1292,6 +1296,10 @@ namespace LocalFormulaRacing
         public void ShowCareerSetup(GameDataRepository data, CareerManager career, GameSettingsStore settings)
         {
             Clear();
+            // Any rebuild of this screen (driver/team pick, mode toggle, fresh
+            // entry) disarms the overwrite confirmation - the armed state is
+            // only ever meant to survive from one press directly to the next.
+            careerOverwriteArmed = false;
             if (!careerSetupDraftNameSet)
             {
                 careerSetupDraftName = career.Save.playerDriverName;
@@ -1394,8 +1402,29 @@ namespace LocalFormulaRacing
                 careerSetupDraftNameSet = false;
                 ShowCareerHub(data, career, settings);
             });
-            UiFactory.CreatePrimaryButton(footerRight, "Start New Career", () =>
+            Button startCareerButton = null;
+            startCareerButton = UiFactory.CreatePrimaryButton(footerRight, "Start New Career", () =>
             {
+                // A save with real progress (any completed session or a round/
+                // season beyond the very start) gets an explicit second press
+                // before it is destroyed; a fresh default save overwrites freely.
+                bool hasPlayedProgress = career.Save != null &&
+                    (career.Save.currentSeason > 1 || career.Save.currentRound > 1 ||
+                     (career.Save.raceResults != null && career.Save.raceResults.Count > 0) ||
+                     (career.Save.qualifyingResults != null && career.Save.qualifyingResults.Count > 0));
+                if (hasPlayedProgress && !careerOverwriteArmed)
+                {
+                    careerOverwriteArmed = true;
+                    Text startLabel = startCareerButton == null ? null : startCareerButton.GetComponentInChildren<Text>();
+                    if (startLabel != null)
+                    {
+                        startLabel.text = "Overwrite saved career?";
+                    }
+
+                    return;
+                }
+
+                careerOverwriteArmed = false;
                 careerSetupDraftNameSet = false;
                 career.StartNewCareer(nameInput.text, selectedTeamId, useExistingDriver, selectedDriverId);
                 ShowCareerHub(data, career, settings);
