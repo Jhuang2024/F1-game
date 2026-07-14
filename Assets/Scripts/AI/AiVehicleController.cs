@@ -993,7 +993,37 @@ namespace LocalFormulaRacing
             // applied uniformly across every difficulty.
             // Round 15: eased back up 0.5kph (now -92kph total), same reasoning,
             // applied uniformly across every difficulty.
-            straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - 15f - 7.5f - 10f - 10f - 7.5f - 15f - 10f + 5f - 20f - 5f - 5f + 3f + 2f + 2.5f + 0.5f);
+            // Round 16 (difficulty staircase - "way too easy, P22 to P1 in one
+            // lap on Hard"): the 15 rounds above landed on a flat -92kph applied
+            // uniformly to EVERY difficulty, leaving even Hard/Expert cruising
+            // ~90kph under the car's real physics ceiling while the player runs
+            // right at it - a straight-line gap of several seconds per lap that
+            // no decision-quality model could hide, and exactly why the whole
+            // field could be driven through in a single lap. The discount is now
+            // per-difficulty: Easy keeps the full historical -92 feel, Medium
+            // gives a chunk back, and Hard/Expert run close to the real envelope
+            // (their paceMultiplier and per-driver variance still spread the
+            // field on top, and the braking model below is kinematic - braking
+            // distance scales with the square of real speed - so the higher
+            // entry speeds still get correct brake points).
+            float straightDiscountKph;
+            RaceDifficulty straightDifficulty = raceManager.Settings == null ? RaceDifficulty.Medium : raceManager.Settings.Difficulty;
+            switch (straightDifficulty)
+            {
+                case RaceDifficulty.Easy:
+                    straightDiscountKph = 92f;
+                    break;
+                case RaceDifficulty.Medium:
+                    straightDiscountKph = 55f;
+                    break;
+                case RaceDifficulty.Hard:
+                    straightDiscountKph = 22f;
+                    break;
+                default:
+                    straightDiscountKph = 8f;
+                    break;
+            }
+            straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - straightDiscountKph);
 
             bool wet = track.weather == WeatherState.LightRain || track.weather == WeatherState.HeavyRain;
             // Tyre-difference pass: uses the compound-neutral condition multiplier
