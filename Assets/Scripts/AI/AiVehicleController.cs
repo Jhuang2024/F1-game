@@ -1017,10 +1017,13 @@ namespace LocalFormulaRacing
                     straightDiscountKph = 55f;
                     break;
                 case RaceDifficulty.Hard:
-                    straightDiscountKph = 22f;
+                    // Round 17 (still too easy - P22 to P1 in 3 laps on Hard):
+                    // Hard/Expert trimmed further (was 22/8) so the top tiers sit
+                    // essentially on the car's real envelope down a straight.
+                    straightDiscountKph = 15f;
                     break;
                 default:
-                    straightDiscountKph = 8f;
+                    straightDiscountKph = 5f;
                     break;
             }
             straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - straightDiscountKph);
@@ -1057,7 +1060,14 @@ namespace LocalFormulaRacing
             // Hairpin apex speed cut ~15% (per request, "maybe reduce hairpin
             // speed" - the Italy hairpin barrier-gap report) as extra margin on
             // top of the corner-detection/barrier-radius fixes: 50-75 -> 42-64.
-            float hairpinSpeedKph = Mathf.Lerp(42f, 64f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f));
+            // Difficulty pass ("still too easy" round 2): the flat 42-64kph crawl
+            // was identical on every difficulty and far below what the player
+            // carries through the same hairpin - each hairpin handed the player
+            // seconds for free. Skill-scaled up to ~30% for the top tiers
+            // (Easy/Medium keep most of the original crawl); the kinematic
+            // braking model plus the wall-aversion multiplier (raised again in
+            // the same pass) keep the approach safe.
+            float hairpinSpeedKph = Mathf.Lerp(42f, 64f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f)) * Mathf.Lerp(1f, 1.3f, skillTier);
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
@@ -1504,7 +1514,9 @@ namespace LocalFormulaRacing
             // Round 2 (per request, small trim): eased back ~10% (was 8-14m).
             // Round 3 (per request): increase the complete wall-aversion response
             // by 5% without compounding separate sub-terms.
-            const float wallAversionMultiplier = 1.05f;
+            // Round 4 (per request): a further 10% on top (1.05 -> 1.155), same
+            // single-multiplier approach so the sub-terms never compound.
+            const float wallAversionMultiplier = 1.155f;
             float edgeMarginDistance = Mathf.Lerp(7.2f, 12.6f, Mathf.Clamp01(speedKph / 340f)) * wallAversionMultiplier;
             // Wall-crash defence-in-depth: near a known tight-fence corner (the
             // same containment data the barrier builder uses) the reactive edge
@@ -1599,7 +1611,11 @@ namespace LocalFormulaRacing
             // capped at straight-line pace), so it doesn't reopen the overspeed/
             // wall-crash bug that cap fixed.
             float brakingStat = vehicle.CarData == null ? 78f : vehicle.CarData.braking;
-            float decelReference = Mathf.Lerp(13f, 21f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1f, 1.22f, skillTier);
+            // Difficulty pass ("still too easy" round 2): skill ceiling raised
+            // (was 1.22) - braking zones were one of the last places the player
+            // gained hand over fist on Hard/Expert, because the AI's trusted
+            // deceleration sat well below what the car can actually do.
+            float decelReference = Mathf.Lerp(13f, 21f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1f, 1.35f, skillTier);
             // brakeConfidenceMultiplier folds in on top of brakeDistanceMultiplier so
             // Hard/Expert genuinely brake later/shorter, not just via the weaker base
             // multiplier alone: >1 shortens the effective distance (brakes later),

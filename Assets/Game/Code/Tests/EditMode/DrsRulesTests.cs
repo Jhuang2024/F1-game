@@ -19,12 +19,12 @@ namespace F1Game.Tests
         }
 
         [Test]
-        public void RaceNeedsTwoLapsAndAOneSecondGap()
+        public void RaceNeedsOneLapAndAOneSecondGap()
         {
-            Assert.IsFalse(DrsRules.EarnsDetectionEligibility(false, 1, 0.5f));  // too early
+            Assert.IsFalse(DrsRules.EarnsDetectionEligibility(false, 0, 0.5f));  // too early
             Assert.IsFalse(DrsRules.EarnsDetectionEligibility(false, 3, 1.5f));  // gap too big
             Assert.IsTrue(DrsRules.EarnsDetectionEligibility(false, 3, 1.0f));   // exactly one second
-            Assert.IsTrue(DrsRules.EarnsDetectionEligibility(false, 2, 0.4f));   // within gap
+            Assert.IsTrue(DrsRules.EarnsDetectionEligibility(false, 1, 0.4f));   // within gap
         }
 
         static bool Available(bool wet = false, bool cooldown = false, bool flagAllows = true,
@@ -54,9 +54,9 @@ namespace F1Game.Tests
         }
 
         [Test]
-        public void RaceRequiresTwoLapsThenEarnedZone()
+        public void RaceRequiresOneLapThenEarnedZone()
         {
-            Assert.IsFalse(Available(laps: 1));                       // too early
+            Assert.IsFalse(Available(laps: 0));                       // too early
             Assert.IsTrue(Available(zone: 1, z1: true, z2: false));   // earned zone 1
             Assert.IsFalse(Available(zone: 1, z1: false, z2: true));  // not earned in zone 1
             Assert.IsTrue(Available(zone: 2, z1: false, z2: true));   // earned zone 2

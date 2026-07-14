@@ -69,6 +69,31 @@ namespace LocalFormulaRacing
                 participant.drsEligibilityLapZoneTwo = participant.lapTracker.CompletedLaps;
             }
 
+            // Live in-zone earning ("DRS is broken" fix): the detection-point
+            // check above is a snapshot - a car that was 3-4s back at the line
+            // but catches the car ahead mid-zone (routine here, where closing
+            // speeds are far larger than real F1's) used to get nothing for the
+            // whole zone, which in practice meant DRS almost never activated in
+            // a race at all. A car inside a zone that has NOT yet earned it now
+            // re-checks the same gap rule continuously and earns the zone the
+            // moment it comes within the activation gap. Earning stays sticky
+            // ("once earned it holds for the whole zone" is unchanged - the gap
+            // opening back up never revokes it), and the zone-exit clearing
+            // below still resets everything for the next pass.
+            if (Track.IsInDrsZone(1, currentNormalized) && !participant.drsEligibleZoneOne &&
+                EvaluateDrsDetectionGap(participant))
+            {
+                participant.drsEligibleZoneOne = true;
+                participant.drsEligibilityLapZoneOne = participant.lapTracker.CompletedLaps;
+            }
+
+            if (Track.IsInDrsZone(2, currentNormalized) && !participant.drsEligibleZoneTwo &&
+                EvaluateDrsDetectionGap(participant))
+            {
+                participant.drsEligibleZoneTwo = true;
+                participant.drsEligibilityLapZoneTwo = participant.lapTracker.CompletedLaps;
+            }
+
             // Clear a zone's own eligibility once the car has actually left it, so a
             // stale "eligible" flag can never linger into some later, unrelated pass
             // through the same normalized band (e.g. after a forced reposition).

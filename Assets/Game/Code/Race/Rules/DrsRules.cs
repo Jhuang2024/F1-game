@@ -12,10 +12,13 @@ namespace F1Game.Race.Rules
     public static class DrsRules
     {
         // A car must be within one second of the car ahead at the detection point,
-        // and DRS only arms from the third lap on (two completed), matching the
-        // real regulation. Qualifying and time trial ignore the gap entirely.
+        // and DRS arms from the second lap on (one completed). The real regulation
+        // waits two racing laps, but with this game's much shorter race lengths a
+        // two-lap lockout left DRS unavailable for most of the overtaking a race
+        // actually contains - it read as simply broken. Qualifying and time trial
+        // ignore the gap entirely.
         public const float ActivationGapSeconds = 1f;
-        public const int MinCompletedLapsForGap = 2;
+        public const int MinCompletedLapsForGap = 1;
 
         /// <summary>
         /// The detection-point decision, made once as the car crosses the point.
