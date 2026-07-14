@@ -52,7 +52,7 @@ namespace LocalFormulaRacing
             }
 
             TrackProgress progress = State.GetCurrentProgress(participant);
-            return progress.normalized > TrackRuntime.PitApproachStartNormalized && progress.normalized <= TrackRuntime.PitCorridorStartNormalized;
+            return progress.normalized > TrackRuntime.PitApproachStartNormalized && progress.normalized <= Track.PitCorridorStartNormalized;
         }
 
         const float PitEntryAssistTargetSpeedKph = 90f;

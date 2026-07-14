@@ -42,6 +42,25 @@ compiled or run in Unity.
   DARK for a beat at lights-out (with the LIGHTS OUT flash directly beneath)
   instead of vanishing on the exact frame the race goes live. Big-moment and
   race-control banners moved to the same centre stage.
+- Bottom-center HUD meters labelled (RPM / THROTTLE / BRAKE); healthy telemetry
+  meters (ERS charge, sub-redline RPM) use a new cool `energy` palette colour
+  instead of the warm accent, which was nearly identical to danger red.
+- Pit-stop duration: the pit entry ramp and service boxes were lap FRACTIONS
+  (0.85/0.885/0.9), so on realistically-scaled tracks the guided pit visit ran
+  ~1200m at 58-68 km/h ("more than half a lap", 70+ seconds). Entry/corridor/box
+  anchors are now fixed metres before the start/finish line (matching the
+  earlier fixed-metre pit-EXIT conversion) and the rail pace runs at the
+  realistic ~75-80 km/h pit-limit ballpark - a full stop is now ~20 seconds on
+  every track, for player and AI alike. Pit paint/signage and the approach/entry
+  HUD zones re-anchored to the same metre-based boundaries.
+- Street-circuit "bubbles": city/street tracks no longer spawn the rolling
+  grass hill domes or the untextured mountain-ridge sphere ring (their horizon
+  identity is the dedicated skyline/parallax building layers); the spheres read
+  as giant grey bubbles floating between the city blocks.
+- Car visibility: near-black team liveries get a luminance floor plus a subtle
+  team-colour self-illumination on body panels, and night races run brighter
+  floodlit ambient/directional lighting - car silhouettes no longer melt into
+  the equally-dark asphalt (worst on night street circuits).
 
 ### Known incomplete
 See `Docs/KNOWN_ISSUES.md` for the honest list of partial / not-started systems

@@ -714,12 +714,21 @@ namespace LocalFormulaRacing
 
         public bool IsInPitApproach(float normalizedProgress)
         {
-            return normalizedProgress > PitApproachStartNormalized && normalizedProgress < 0.955f;
+            // Ends where the enclosed pit corridor begins - past that a car is
+            // either committed to the ramp or has missed the opening, so the
+            // broad approach/HUD window no longer applies. (The old 0.955
+            // literal predates the fixed-metre entry anchors.)
+            return normalizedProgress > PitApproachStartNormalized && normalizedProgress < PitCorridorStartNormalized;
         }
 
         public bool IsInPitEntryZone(float normalizedProgress)
         {
-            return normalizedProgress > 0.865f && normalizedProgress < 0.955f;
+            // Broad approach/messaging window: opens a fixed 150m before the
+            // physical ramp (metre-based like the ramp anchors themselves, so
+            // it tracks the real geometry on every lap length) and closes at
+            // the corridor seam.
+            return normalizedProgress > NormalizedMetresBeforeLine(PitEntryRampStartLeadMetres + 150f) &&
+                   normalizedProgress < PitCorridorStartNormalized;
         }
 
         // Pit-entry timing fix: the REAL physical entry opening only exists between
@@ -914,7 +923,23 @@ namespace LocalFormulaRacing
         // so the built collision/visual surface and every path-following consumer
         // (RaceManager's guided pit phases, AiVehicleController's approach
         // steering) are reading from the exact same function.
-        public const float PitEntryRampStartNormalized = 0.85f;
+        // Fixed-metre pit-ENTRY geometry fix (completing the conversion the exit
+        // boundaries above already got): the entry ramp and the pit boxes used to
+        // be lap fractions (0.85 / 0.885 / 0.9), which on a realistically-scaled
+        // track (Silverstone here is ~8281m) put the commit point ~1240m before
+        // the start/finish line - the entire guided pit visit ran ~70+ seconds at
+        // pit-lane pace, "more than half a lap". A real pit complex is a fixed
+        // physical structure; it does not get longer because the circuit does.
+        // The entry ramp now starts a fixed number of metres before the line and
+        // the service boxes are anchored back from the release point (see
+        // PitBoxDistance below), so a full visit is ~20 seconds on every track.
+        public const float PitEntryRampStartLeadMetres = 460f;
+        public const float PitCorridorStartLeadMetres = 390f;
+
+        public float PitEntryRampStartNormalized
+        {
+            get { return NormalizedMetresBeforeLine(PitEntryRampStartLeadMetres); }
+        }
 
         // Fixed-metre pit-exit geometry fix (see PitExitReleaseLeadMetres etc.
         // above): the physical ramp taper begins PitExitRampStartLeadMetres
@@ -1046,7 +1071,10 @@ namespace LocalFormulaRacing
         // Placement anchor for the painted line/sign - the start of the window
         // HasCrossedPitEntryLimiterLine actually tests, so what's on the ground
         // matches where the limiter can first legally engage.
-        public const float PitEntryLimiterLineNormalized = PitEntryRampStartNormalized;
+        public float PitEntryLimiterLineNormalized
+        {
+            get { return PitEntryRampStartNormalized; }
+        }
 
         public bool IsOnPitExitRamp(TrackProgress progress)
         {
@@ -1106,7 +1134,7 @@ namespace LocalFormulaRacing
         // PitApproachStartNormalized and PitEntryRampStartNormalized.
         public void ComputePitEntryTargetPoint(float fromDistance, float lookAheadMeters, out Vector3 targetPoint, out Quaternion targetRotation)
         {
-            float corridorStartDistance = length * TrackRuntime.PitCorridorStartNormalized;
+            float corridorStartDistance = length * PitCorridorStartNormalized;
             float distanceToCorridor = Mathf.Max(1f, WrapDistance(corridorStartDistance - fromDistance));
             float pitLookAhead = Mathf.Min(lookAheadMeters, distanceToCorridor);
             float pitTargetDistance = WrapDistance(fromDistance + pitLookAhead);
@@ -1444,16 +1472,21 @@ namespace LocalFormulaRacing
 
         public const int PitBoxCount = 22;
         public const float PitBoxSpacing = 10.5f;
-        const float PitLaneStartNormalized = 0.9f;
+        // How far before the start/finish line the LAST service box sits; the
+        // full bay row extends (PitBoxCount-1)*PitBoxSpacing further back from
+        // here. Fixed metres, same rationale as the entry/exit boundaries.
+        public const float PitLaneEndLeadMetres = 90f;
         // Where the pit corridor's own drivable surface and outer wall begin (shared
         // with TrackManager's PitZoneEntryRampEnd/BuildPitLane so both classes agree
         // on the same seam instead of drifting apart behind two separate literals).
-        public const float PitCorridorStartNormalized = 0.885f;
+        // Fixed metres before the line (see PitEntryRampStartLeadMetres above).
+        public float PitCorridorStartNormalized
+        {
+            get { return NormalizedMetresBeforeLine(PitCorridorStartLeadMetres); }
+        }
         // A held-back queue pose must never land before the pit corridor's own
-        // surface begins - on the shortest calendar tracks PitLaneStartNormalized
-        // leaves under 60m of margin ahead of PitCorridorStartNormalized, and the
-        // caller's holdback can be that large, which used to push the queue point
-        // off the built pit lane surface entirely.
+        // surface begins - the caller's holdback can be large, which used to push
+        // the queue point off the built pit lane surface entirely.
         const float PitQueueCorridorMargin = 10f;
 
         // Speed-rebalance pass: the standoff from the track edge widened alongside
@@ -1489,8 +1522,11 @@ namespace LocalFormulaRacing
 
         public float PitBoxDistance(int pitBoxIndex)
         {
+            // Boxes are anchored back from the pit-lane END (fixed metres before
+            // the line), so the whole bay row keeps the same physical size and
+            // the box→release drive stays short on every track length.
             int index = Mathf.Clamp(pitBoxIndex, 0, PitBoxCount - 1);
-            return length * PitLaneStartNormalized + index * PitBoxSpacing;
+            return length - PitLaneEndLeadMetres - (PitBoxCount - 1 - index) * PitBoxSpacing;
         }
 
         public void GetPitServicePose(int pitBoxIndex, out Vector3 position, out Quaternion rotation)
@@ -1896,7 +1932,7 @@ namespace LocalFormulaRacing
             CreateBoundaryDebugLine(overlay.transform, "Barrier inner face (left)", Color.red, d => -(Runtime.HalfWidthAt(d) + EdgeBarrierClearance));
             CreateBoundaryDebugLine(overlay.transform, "Barrier inner face (right)", Color.red, d => Runtime.HalfWidthAt(d) + EdgeBarrierClearance);
 
-            float corridorStart = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
+            float corridorStart = Runtime.length * Runtime.PitCorridorStartNormalized;
             float corridorEnd = Runtime.length * PitZoneExitRampStart;
             CreateBoundaryDebugLine(overlay.transform, "Pit lane inner edge", Color.yellow, d => Runtime.PitLaneLateral - TrackRuntime.PitRampFullWidth * 0.5f, corridorStart, corridorEnd);
             CreateBoundaryDebugLine(overlay.transform, "Pit lane outer edge", Color.yellow, d => Runtime.PitLaneLateral + TrackRuntime.PitRampFullWidth * 0.5f, corridorStart, corridorEnd);
@@ -3196,11 +3232,17 @@ namespace LocalFormulaRacing
             // read as clear. Low, elongated ridge clusters plus the radius-aware clearance
             // helper (which skips the instance entirely if it can't be pushed clear) fix
             // that without losing the horizon detail.
-            int hillClusters = Mathf.Max(3, Mathf.RoundToInt(6f * Mathf.Clamp(sceneryDensity, 0.25f, 2f)));
-            for (int i = 0; i < hillClusters; i++)
+            // Street circuits are flat urban ground - rolling grass domes poking
+            // through the pavement read as unexplained "bubbles" next to the city
+            // blocks, so the terrain humps are countryside-only.
+            if (!streetTrack)
             {
-                Vector3 hillPos = new Vector3(center.x + Random.Range(-size.x, size.x) * 0.48f, groundTopY, center.z + Random.Range(-size.z, size.z) * 0.48f);
-                CreateDistantHillCluster(hillPos, i);
+                int hillClusters = Mathf.Max(3, Mathf.RoundToInt(6f * Mathf.Clamp(sceneryDensity, 0.25f, 2f)));
+                for (int i = 0; i < hillClusters; i++)
+                {
+                    Vector3 hillPos = new Vector3(center.x + Random.Range(-size.x, size.x) * 0.48f, groundTopY, center.z + Random.Range(-size.z, size.z) * 0.48f);
+                    CreateDistantHillCluster(hillPos, i);
+                }
             }
         }
 
@@ -4365,8 +4407,18 @@ namespace LocalFormulaRacing
         // GetPitExitRampEnvelope use the identical values) - a single canonical
         // source shared with RaceManager and AiVehicleController instead of each
         // class inventing its own copy that can drift out of sync.
-        const float PitZoneEntryRampStart = TrackRuntime.PitEntryRampStartNormalized;
-        const float PitZoneEntryRampEnd = TrackRuntime.PitCorridorStartNormalized;
+        // Fixed-metre pit-ENTRY geometry fix: same instance-property conversion
+        // as the exit pair below (the entry ramp/corridor anchors are now fixed
+        // metres before the line, so they can't be compile-time constants).
+        float PitZoneEntryRampStart
+        {
+            get { return Runtime.PitEntryRampStartNormalized; }
+        }
+
+        float PitZoneEntryRampEnd
+        {
+            get { return Runtime.PitCorridorStartNormalized; }
+        }
         // Fixed-metre pit-exit geometry fix: PitExitRampStartNormalized/
         // PitExitRampEndNormalized are now instance properties on Runtime (computed
         // from fixed metres, not a lap fraction - see TrackRuntime), so these two
@@ -4517,7 +4569,7 @@ namespace LocalFormulaRacing
             List<CornerInfo> highRiskCorners = DetectCorners(HighRiskCornerAngle);
             List<CornerInfo> tightFenceCorners = DetectCorners(TightCornerFenceAngle);
 
-            float startDistance = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
+            float startDistance = Runtime.length * Runtime.PitCorridorStartNormalized;
             float endDistance = Runtime.length * PitZoneExitRampStart;
             float span = endDistance - startDistance;
             if (span < 0f)
@@ -6116,7 +6168,7 @@ namespace LocalFormulaRacing
             int checkedPoints = 0;
             int gaps = 0;
             CheckPitSurfaceRange(Runtime.length * PitZoneEntryRampStart, Runtime.length * PitZoneEntryRampEnd, true, ref checkedPoints, ref gaps);
-            CheckPitSurfaceRange(Runtime.length * TrackRuntime.PitCorridorStartNormalized, Runtime.length * PitZoneExitRampStart, false, ref checkedPoints, ref gaps);
+            CheckPitSurfaceRange(Runtime.length * Runtime.PitCorridorStartNormalized, Runtime.length * PitZoneExitRampStart, false, ref checkedPoints, ref gaps);
             CheckPitSurfaceRange(Runtime.length * PitZoneExitRampStart, Runtime.length * PitZoneExitRampEnd, true, ref checkedPoints, ref gaps);
 
             if (LastReport != null)
@@ -6746,7 +6798,7 @@ namespace LocalFormulaRacing
             // The pit corridor follows the track from just before pit entry to the
             // release point, so surfaces, walls, boxes, and buildings are sampled
             // along the lap distance instead of assuming one straight chord.
-            float corridorStart = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
+            float corridorStart = Runtime.length * Runtime.PitCorridorStartNormalized;
             float corridorEnd = Runtime.length * 0.995f;
 
             // Drivable service road, laid in curve-following segments. Depth
@@ -7008,7 +7060,9 @@ namespace LocalFormulaRacing
             Vector3 entry;
             Vector3 entryForward;
             Vector3 entryRight;
-            Runtime.SampleAtDistance(Runtime.length * 0.865f, out entry, out entryForward, out entryRight);
+            // Anchored to the real (fixed-metre) entry ramp so the painted entry
+            // lane sits where cars actually steer in, on every track length.
+            Runtime.SampleAtDistance(Runtime.length * Runtime.PitEntryRampStartNormalized + 20f, out entry, out entryForward, out entryRight);
             CreateVisualBox("Pit entry lane paint", entry + entryRight * (Runtime.roadHalfWidth + 4.9f) + Vector3.up * 0.055f, Quaternion.LookRotation(entryForward, Vector3.up), new Vector3(5.2f, 0.055f, 34f), pitMaterial);
             CreateVisualBox("Pit entry blend line", entry + entryRight * (Runtime.roadHalfWidth + 1.2f) + Vector3.up * 0.075f, Quaternion.LookRotation(entryForward, Vector3.up), new Vector3(0.32f, 0.045f, 28f), roadEdgeMaterial);
 
@@ -7067,7 +7121,7 @@ namespace LocalFormulaRacing
         void CreatePitEntryMarkers()
         {
             CreatePitSignBoard(Runtime.length * PitZoneEntryRampStart);
-            CreateSpeedLimitLine(Runtime.length * TrackRuntime.PitEntryLimiterLineNormalized);
+            CreateSpeedLimitLine(Runtime.length * Runtime.PitEntryLimiterLineNormalized);
         }
 
         void CreatePitSignBoard(float distance)
@@ -7435,7 +7489,7 @@ namespace LocalFormulaRacing
                 float normalized = (i + 0.5f) / masts;
 
                 // The pit corridor keeps its own lighting from the pit complex.
-                if (normalized > TrackRuntime.PitCorridorStartNormalized || normalized < 0.04f)
+                if (normalized > Runtime.PitCorridorStartNormalized || normalized < 0.04f)
                 {
                     continue;
                 }
@@ -7745,7 +7799,15 @@ namespace LocalFormulaRacing
                 ridgeTint = new Color(0.34f, 0.38f, 0.46f);
             }
 
-            BuildMountainBackdrop(density, ridgeTint);
+            // Street/city circuits get no natural mountain-ridge ring: their horizon
+            // identity is the dedicated skyline (BuildCityStreetBackdrop /
+            // BuildMonacoBackdrop / the neon strip) plus the parallax building layer
+            // below. The smooth untextured ridge domes read as giant grey "bubbles"
+            // floating behind city blocks, not mountains.
+            if (!streetTrack)
+            {
+                BuildMountainBackdrop(density, ridgeTint);
+            }
 
             // Mid-distance parallax layer, closer than the mountain ridge ring above
             // and further back than BuildScenery's trackside trees/buildings, so the
@@ -8875,7 +8937,9 @@ namespace LocalFormulaRacing
             Vector3 point;
             Vector3 forward;
             Vector3 right;
-            Runtime.SampleAtDistance(Runtime.length * 0.955f, out point, out forward, out right);
+            // Beside the pit building row (fixed metres before the line, matching
+            // the metre-anchored pit boxes).
+            Runtime.SampleAtDistance(Runtime.length - TrackRuntime.PitLaneEndLeadMetres - 120f, out point, out forward, out right);
             Vector3 desired = point + right * (Runtime.PitLaneLateral + 62f);
             Vector3 basePosition;
             if (!TryGetClearScenerySpot(desired, 10f, 8f, out basePosition))
@@ -9015,7 +9079,7 @@ namespace LocalFormulaRacing
         void BuildParkingBlocks(float density)
         {
             int rows = Mathf.Max(1, Mathf.RoundToInt(3f * density));
-            float corridorStart = Runtime.length * TrackRuntime.PitCorridorStartNormalized;
+            float corridorStart = Runtime.length * Runtime.PitCorridorStartNormalized;
             float corridorEnd = Runtime.length * 0.995f;
             for (int i = 0; i < rows; i++)
             {
@@ -9862,7 +9926,7 @@ namespace LocalFormulaRacing
             const float boundaryMargin = 0.6f;
             float pitLaneHalfWidth = TrackRuntime.PitRampFullWidth * 0.5f;
 
-            if (normalized >= TrackRuntime.PitCorridorStartNormalized && normalized <= PitZoneExitRampStart)
+            if (normalized >= Runtime.PitCorridorStartNormalized && normalized <= PitZoneExitRampStart)
             {
                 float inner = Runtime.PitLaneLateral - pitLaneHalfWidth + boundaryMargin;
                 float outer = Runtime.PitLaneLateral + pitLaneHalfWidth - boundaryMargin;

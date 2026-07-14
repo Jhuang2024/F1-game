@@ -66,6 +66,8 @@ namespace F1Game.UI.Theme
             public Color positive = new Color(0.24f, 0.78f, 0.42f);
             public Color warning = new Color(0.95f, 0.72f, 0.16f);
             public Color danger = new Color(0.92f, 0.26f, 0.21f);
+            [Tooltip("Cool data colour for healthy telemetry meters (ERS charge, RPM). The warm accent is too close to danger red to double as a meter fill.")]
+            public Color energy = new Color(0.22f, 0.62f, 0.94f);
             public Color focusOutline = new Color(1f, 1f, 1f, 0.9f);
         }
 

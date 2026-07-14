@@ -134,9 +134,10 @@ namespace F1Game.UI.Screens.RaceHudShell
             }
             if (rpm != null)
             {
-                // Redline tint as RPM approaches the limit.
+                // Redline tint as RPM approaches the limit; healthy revs stay on
+                // the cool telemetry colour so red always means "shift now".
                 Color c = t.Rpm01 > 0.9f ? UiTheme.Active.palette.danger
-                    : (t.Rpm01 > 0.75f ? UiTheme.Active.palette.warning : UiTheme.Active.palette.accent);
+                    : (t.Rpm01 > 0.75f ? UiTheme.Active.palette.warning : UiTheme.Active.palette.energy);
                 rpm.SetValue(t.Rpm01, c);
             }
         }
@@ -163,7 +164,7 @@ namespace F1Game.UI.Screens.RaceHudShell
             // caution (FlagRules), so the meter dims to say why the
             // button does nothing.
             bool locked = t.PaceLimited || t.Flag == F1Game.Core.Events.FlagState.Yellow;
-            Color barColor = locked ? UiTheme.Active.palette.textMuted : UiTheme.Active.palette.accent;
+            Color barColor = locked ? UiTheme.Active.palette.textMuted : UiTheme.Active.palette.energy;
             if (ers != null)
             {
                 ers.SetValue(t.Ers01, barColor);
@@ -298,29 +299,33 @@ namespace F1Game.UI.Screens.RaceHudShell
         }
     }
 
-    /// <summary>Throttle / brake pedal bars.</summary>
+    /// <summary>Throttle / brake pedal bars (each a labelled row).</summary>
     public sealed class InputTelemetryModule : HudModule
     {
         [SerializeField] UiProgressBar throttle;
         [SerializeField] UiProgressBar brake;
-        public void Bind(UiProgressBar throttleBar, UiProgressBar brakeBar) { throttle = throttleBar; brake = brakeBar; }
+        [SerializeField] GameObject throttleRow;
+        [SerializeField] GameObject brakeRow;
+        public void Bind(UiProgressBar throttleBar, UiProgressBar brakeBar, GameObject throttleRowGo, GameObject brakeRowGo)
+        {
+            throttle = throttleBar;
+            brake = brakeBar;
+            throttleRow = throttleRowGo;
+            brakeRow = brakeRowGo;
+        }
 
         protected override void Render(in HudTelemetrySnapshot t)
         {
             if (!t.Valid) return;
             // Pedal bars are a secondary readout - hidden in compact HUD mode.
+            // The row containers carry the captions, so toggle those.
             bool show = !t.CompactHud;
-            if (throttle != null)
-            {
-                if (throttle.gameObject.activeSelf != show) throttle.gameObject.SetActive(show);
-                if (show) throttle.SetValue(t.Throttle01, UiTheme.Active.palette.positive);
-            }
+            if (throttleRow != null && throttleRow.activeSelf != show) throttleRow.SetActive(show);
+            if (brakeRow != null && brakeRow.activeSelf != show) brakeRow.SetActive(show);
+            if (!show) return;
 
-            if (brake != null)
-            {
-                if (brake.gameObject.activeSelf != show) brake.gameObject.SetActive(show);
-                if (show) brake.SetValue(t.Brake01, UiTheme.Active.palette.danger);
-            }
+            if (throttle != null) throttle.SetValue(t.Throttle01, UiTheme.Active.palette.positive);
+            if (brake != null) brake.SetValue(t.Brake01, UiTheme.Active.palette.danger);
         }
     }
 

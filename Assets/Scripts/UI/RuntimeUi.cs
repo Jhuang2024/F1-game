@@ -4509,8 +4509,12 @@ namespace LocalFormulaRacing
         // geometry analysis, just of an approximated lap rather than the true
         // one.
         const int TrackPreviewPointCount = 48;
-        const float TrackPreviewPitEntryNormalized = 0.885f; // TrackRuntime.PitCorridorStartNormalized
-        const float TrackPreviewPitExitNormalized = 0.992f; // matches TrackRuntime.GetPitReleasePose's internal constant
+        // The real pit boundaries are fixed METRES before the line now (see
+        // TrackRuntime.PitCorridorStartLeadMetres / PitExitReleaseLeadMetres),
+        // so no single lap fraction is exact for every track; these preview
+        // markers use a representative fraction for a ~7km lap.
+        const float TrackPreviewPitEntryNormalized = 0.945f;
+        const float TrackPreviewPitExitNormalized = 0.99f;
 
         // Builds the widget and returns its root RectTransform (caller
         // positions/parents it like any other element). mapSize is the

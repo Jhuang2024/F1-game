@@ -31,10 +31,13 @@ namespace F1Game.UI.Screens.RaceHudShell
             var clockText = Numeric(hud.TopLeftDock, "Clock", 22f);
             hud.gameObject.AddComponent<LapClockModule>().Bind(lapText, clockText);
 
-            // Bottom-center: speed + gear + rpm.
+            // Bottom-center: speed + gear + labelled rpm meter.
             var gearText = Text(hud.BottomCenterDock, "Gear", 64f, TextAlignmentOptions.Center);
             var speedText = Numeric(hud.BottomCenterDock, "Speed", 26f);
-            var rpmBar = ProgressBar(hud.BottomCenterDock, "Rpm");
+            var rpmRow = Row(hud.BottomCenterDock, "Rpm");
+            Label(rpmRow, "RPM", 74f);
+            var rpmBar = ProgressBar(rpmRow, "Rpm");
+            StretchInRow(rpmBar.gameObject);
             hud.gameObject.AddComponent<SpeedGearModule>().Bind(gearText, speedText, rpmBar);
 
             // ---- Top-right status column ----
@@ -82,11 +85,18 @@ namespace F1Game.UI.Screens.RaceHudShell
             var weatherChip = Chip(hud.TopRightDock, "Weather");
             hud.gameObject.AddComponent<WeatherModule>().Bind(weatherChip);
 
-            // Bottom-center: pedal input bars beneath the speed/gear readout,
-            // then the slipstream tow pill.
-            var throttleBar = ProgressBar(hud.BottomCenterDock, "Throttle");
-            var brakeBar = ProgressBar(hud.BottomCenterDock, "Brake");
-            hud.gameObject.AddComponent<InputTelemetryModule>().Bind(throttleBar, brakeBar);
+            // Bottom-center: labelled pedal input bars beneath the speed/gear
+            // readout, then the slipstream tow pill. The module toggles the whole
+            // row (label included) in compact-HUD mode.
+            var throttleRow = Row(hud.BottomCenterDock, "Throttle");
+            Label(throttleRow, "THROTTLE", 74f);
+            var throttleBar = ProgressBar(throttleRow, "Throttle");
+            StretchInRow(throttleBar.gameObject);
+            var brakeRow = Row(hud.BottomCenterDock, "Brake");
+            Label(brakeRow, "BRAKE", 74f);
+            var brakeBar = ProgressBar(brakeRow, "Brake");
+            StretchInRow(brakeBar.gameObject);
+            hud.gameObject.AddComponent<InputTelemetryModule>().Bind(throttleBar, brakeBar, throttleRow.gameObject, brakeRow.gameObject);
             var slipstreamText = Numeric(hud.BottomCenterDock, "Slipstream", 18f);
             hud.gameObject.AddComponent<SlipstreamModule>().Bind(slipstreamText);
 

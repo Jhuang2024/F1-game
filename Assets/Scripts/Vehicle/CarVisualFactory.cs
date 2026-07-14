@@ -61,8 +61,17 @@ namespace LocalFormulaRacing
             collider.center = new Vector3(0f, 0.22f, 0.08f);
             collider.sharedMaterial = GetCarBodyPhysicsMaterial();
 
-            Material primaryMaterial = CreateMaterial(driverName + " primary", primary, 0.22f, 0.86f);
-            Material secondaryMaterial = CreateMaterial(driverName + " secondary", secondary, 0.18f, 0.82f);
+            // Car-vs-track visibility fix: several team colours are nearly black
+            // (darker than the ~0.078-albedo asphalt), and at night the ambient +
+            // 0.08-intensity directional light render an unlit body at the same
+            // luminance as the road - cars disappeared into the tarmac. Body
+            // panels get (a) a floor on how dark the livery may be and (b) a
+            // subtle self-illumination in the team colour, so the silhouette
+            // reads on any surface, day or night.
+            Color bodyPrimary = EnsureVisibleBodyColor(primary);
+            Color bodySecondary = EnsureVisibleBodyColor(secondary);
+            Material primaryMaterial = CreateMaterial(driverName + " primary", bodyPrimary, 0.22f, 0.86f, bodyPrimary * 0.16f);
+            Material secondaryMaterial = CreateMaterial(driverName + " secondary", bodySecondary, 0.18f, 0.82f, bodySecondary * 0.12f);
             Material tyreMaterial = CreateMaterial(driverName + " tyre", new Color(0.008f, 0.009f, 0.011f), 0.02f, 0.28f);
             Material rimMaterial = CreateMaterial(driverName + " rim", new Color(0.76f, 0.76f, 0.74f), 0.65f, 0.82f);
             Material floorMaterial = CreateMaterial(driverName + " carbon floor", new Color(0.012f, 0.014f, 0.016f), 0.35f, 0.68f);
@@ -490,6 +499,22 @@ namespace LocalFormulaRacing
             carBodyPhysicsMaterial.frictionCombine = PhysicMaterialCombine.Minimum;
             carBodyPhysicsMaterial.bounceCombine = PhysicMaterialCombine.Minimum;
             return carBodyPhysicsMaterial;
+        }
+
+        // Lifts near-black livery colours just enough to stay distinguishable
+        // from dark asphalt; already-visible colours pass through untouched.
+        // Scoped to the car body build so UI swatches keep the true team hex.
+        static Color EnsureVisibleBodyColor(Color color)
+        {
+            const float MinLuminance = 0.14f;
+            float luminance = 0.299f * color.r + 0.587f * color.g + 0.114f * color.b;
+            if (luminance >= MinLuminance)
+            {
+                return color;
+            }
+
+            float deficit = (MinLuminance - luminance) / MinLuminance;
+            return Color.Lerp(color, Color.white, deficit * 0.45f);
         }
 
         public static Material CreateMaterial(string materialName, Color color, float metallic, float smoothness)

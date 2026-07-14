@@ -172,7 +172,7 @@ namespace LocalFormulaRacing
                                  " beganEntry=" + crossedLimiterLine);
                 }
             }
-            else if (normalized > TrackRuntime.PitCorridorStartNormalized)
+            else if (normalized > Track.PitCorridorStartNormalized)
             {
                 // Past the real physical opening without ever committing - the
                 // divider wall has already begun by here, so there is no longer a
@@ -374,8 +374,12 @@ namespace LocalFormulaRacing
         //     past the ramp end. There is no code path on which a railed car
         //     can fail to eventually leave the pit lane.
         // =====================================================================
-        const float PitEntryPaceKph = 68f;
-        const float PitLanePaceKph = 58f;
+        // Pit-duration rebalance: paired with the fixed-metre entry/box anchors
+        // (TrackRuntime.PitEntryRampStartLeadMetres etc.), the rail pace runs at
+        // the realistic 80 km/h pit-speed-limit ballpark instead of the old
+        // crawl - a full stop is now ~20s (entry+service+exit) on every track.
+        const float PitEntryPaceKph = 75f;
+        const float PitLanePaceKph = 75f;
         const float PitExitPaceKph = 106f;
         const float PitGuideLateralRateMetersPerSecond = 9f;
         const float PitGuideChaseSpeed = 45f;

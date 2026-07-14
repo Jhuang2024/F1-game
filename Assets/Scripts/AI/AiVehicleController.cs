@@ -1106,7 +1106,7 @@ namespace LocalFormulaRacing
             bool committingToPit = participant.pitPhase == PitPhase.None && vehicle.PitRequested &&
                                     !participant.missedPitEntryThisLap &&
                                     progress.normalized > TrackRuntime.PitApproachStartNormalized &&
-                                    progress.normalized <= TrackRuntime.PitCorridorStartNormalized;
+                                    progress.normalized <= track.PitCorridorStartNormalized;
             bool onPitEntryRamp = track.IsOnPitEntryRamp(progress);
             bool suppressOffTrackRecovery = committingToPit || onPitEntryRamp;
 
@@ -1255,7 +1255,7 @@ namespace LocalFormulaRacing
             // using the canonical ramp envelope/pose helpers, and this replaces
             // targetPoint directly (a real world-space target, not an offset
             // grafted onto the ordinary racing-line point) further below.
-            bool preEntryRampStage = committingToPit && progress.normalized < TrackRuntime.PitEntryRampStartNormalized;
+            bool preEntryRampStage = committingToPit && progress.normalized < track.PitEntryRampStartNormalized;
             bool onEntryRampStage = committingToPit && !preEntryRampStage;
             Vector3 pitEntryTargetPoint = committingToPit ? ComputePitEntryTargetPoint(progress) : Vector3.zero;
 

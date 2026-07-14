@@ -51,9 +51,13 @@ namespace LocalFormulaRacing
             }
             else
             {
-                RenderSettings.ambientSkyColor = night ? new Color(0.08f, 0.12f, 0.22f) : (rainThreat ? new Color(0.28f, 0.36f, 0.42f) : new Color(0.42f, 0.58f, 0.74f));
-                RenderSettings.ambientEquatorColor = night ? new Color(0.05f, 0.08f, 0.14f) : (rainThreat ? new Color(0.28f, 0.32f, 0.34f) : new Color(0.45f, 0.42f, 0.38f));
-                RenderSettings.ambientGroundColor = night ? new Color(0.01f, 0.01f, 0.02f) : (rainThreat ? new Color(0.08f, 0.09f, 0.1f) : (park ? new Color(0.12f, 0.18f, 0.12f) : new Color(0.18f, 0.16f, 0.14f)));
+                // Night readability: the old night ambient (avg ~0.05-0.14) plus a
+                // 0.08 directional rendered car bodies at the same luminance as the
+                // asphalt - silhouettes vanished. Lifted to a "floodlit circuit"
+                // level that keeps the night mood but lets shapes read.
+                RenderSettings.ambientSkyColor = night ? new Color(0.14f, 0.19f, 0.30f) : (rainThreat ? new Color(0.28f, 0.36f, 0.42f) : new Color(0.42f, 0.58f, 0.74f));
+                RenderSettings.ambientEquatorColor = night ? new Color(0.09f, 0.13f, 0.20f) : (rainThreat ? new Color(0.28f, 0.32f, 0.34f) : new Color(0.45f, 0.42f, 0.38f));
+                RenderSettings.ambientGroundColor = night ? new Color(0.025f, 0.028f, 0.045f) : (rainThreat ? new Color(0.08f, 0.09f, 0.1f) : (park ? new Color(0.12f, 0.18f, 0.12f) : new Color(0.18f, 0.16f, 0.14f)));
             }
 
             RenderSettings.reflectionIntensity = rainThreat ? 0.85f : 0.68f;
@@ -81,7 +85,9 @@ namespace LocalFormulaRacing
             lightObject.transform.rotation = Quaternion.Euler(night ? -15f : (twilight ? 12f : (desert ? 32f : (mountain ? 38f : 48f))), desert ? -42f : (coastal ? -30f : -56f), 0f);
             Light light = lightObject.AddComponent<Light>();
             light.type = LightType.Directional;
-            light.intensity = night ? 0.08f : (twilight ? 0.95f : (rainThreat ? 1.0f : (desert ? 1.7f : (coastal ? 1.55f : 1.42f))));
+            // Night: 0.28 reads as strong track floodlighting (the old 0.08 was
+            // effectively unlit and left cars indistinguishable from the road).
+            light.intensity = night ? 0.28f : (twilight ? 0.95f : (rainThreat ? 1.0f : (desert ? 1.7f : (coastal ? 1.55f : 1.42f))));
             light.color = night ? new Color(0.6f, 0.7f, 1f)
                 : (twilight ? new Color(1f, 0.62f, 0.4f)
                 : (rainThreat ? new Color(0.76f, 0.86f, 0.92f)
@@ -176,8 +182,8 @@ namespace LocalFormulaRacing
                     flood.transform.position = new Vector3(-80f + i * 58f, 18f, 30f + (i % 2) * 75f);
                     Light floodLight = flood.AddComponent<Light>();
                     floodLight.type = LightType.Point;
-                    floodLight.intensity = 1.25f;
-                    floodLight.range = 95f;
+                    floodLight.intensity = 1.8f;
+                    floodLight.range = 110f;
                     floodLight.shadows = LightShadows.None;
                     // Performance: six additive pixel point lights on a night track
                     // each add a forward pass to every object in range. Vertex lighting
