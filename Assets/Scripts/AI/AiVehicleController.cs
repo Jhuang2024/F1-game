@@ -648,7 +648,20 @@ namespace LocalFormulaRacing
             }
 
             float eased = Mathf.Pow(Mathf.Clamp01(apexSeverity), easePower);
-            return Mathf.Lerp(straightTargetSpeed, floorSpeed, eased) * gripMultiplier;
+            float apexSpeed = Mathf.Lerp(straightTargetSpeed, floorSpeed, eased);
+            // Medium-corner buff (per request): +20% on the medium-speed-corner
+            // target, applied to the final blended speed rather than the floor
+            // above - that floor's +202.5kph offset already saturates the
+            // Mathf.Min(straightTargetSpeed, ...) clamp for most cars, so a
+            // floor-side buff would silently no-op. Still hard-clamped at
+            // straightTargetSpeed so the round-8 "a corner can at best approach
+            // straight-line speed, never exceed it" invariant stays closed.
+            if (type == CornerType.Medium)
+            {
+                apexSpeed = Mathf.Min(straightTargetSpeed, apexSpeed * 1.2f);
+            }
+
+            return apexSpeed * gripMultiplier;
         }
 
         public void Initialize(RaceManager manager, RaceParticipant raceParticipant, TrackRuntime raceTrack)
@@ -2202,6 +2215,19 @@ namespace LocalFormulaRacing
 
             dodgeMemoryTimer = Mathf.Max(0f, dodgeMemoryTimer - Time.deltaTime);
 
+            // Pit-entry vs stranded-car fix (per request): a car committed to the
+            // pit entry (or already physically on the ramp) leaves the racing
+            // surface, so a car declared ActuallyStranded on or near the track
+            // must never pull it off its deterministic entry trajectory - the
+            // brake/throttle-cap/dodge responses below used to fire for a
+            // stationary wreck parked near the entrance exactly as if it were a
+            // live queue, making pit-bound cars lift, swerve and miss the opening.
+            // Only the sustained ActuallyStranded classification is skipped (a
+            // Recovering car is still moving and stays avoided like any other),
+            // and only while entering the pits - normal traffic keeps full
+            // avoidance around stranded cars.
+            bool enteringPit = committingToPit || track.IsOnPitEntryRamp(progress);
+
             // Car-avoidance fix round 3: widened again (was 30-76) - anticipation
             // now starts earlier at every speed than before, giving more real time
             // to react to a car ahead (AI or player) before it becomes an actual
@@ -2226,6 +2252,12 @@ namespace LocalFormulaRacing
                 // cars at the pit exit forever). Treat it exactly like any
                 // other slow car ahead so this car brakes/steers around it.
                 if (other.vehicle.IsPitGuided && other.pitPhase != PitPhase.ExitMerge)
+                {
+                    continue;
+                }
+
+                // See enteringPit above - stranded cars never gate a pit entry.
+                if (enteringPit && other.recoveryState == CarRecoveryState.ActuallyStranded)
                 {
                     continue;
                 }
