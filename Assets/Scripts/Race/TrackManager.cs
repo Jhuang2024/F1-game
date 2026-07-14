@@ -9797,6 +9797,49 @@ namespace LocalFormulaRacing
         const int SolidObstaclePushAttempts = 10;
         const float SolidObstaclePushStepMeters = 0.4f;
 
+        // Unfenced-section fix: wherever two parts of the lap run close together
+        // (a switchback, parallel straights - routine on these layouts), the strip
+        // between them can be too narrow for a perimeter barrier to satisfy the
+        // full EdgeBarrierClearance (0.9m) against the NEIGHBOURING section's
+        // corridor - Runtime.GetProgress resolves each footprint sample to the
+        // nearest centerline, which is the other section's. Every placement there
+        // failed, the push-out repair only moved the wall closer to that other
+        // corridor, and the segment was demoted to visual-only: a fence you can
+        // drive straight through, i.e. a functionally unfenced section, on every
+        // track with adjacent sections. For ESSENTIAL perimeter barriers a
+        // clearance shortfall is strictly better than a hole in the boundary, so
+        // when the strict test can't be satisfied anywhere, the wall is kept WITH
+        // its collider as long as no part of it sits within this hard floor of an
+        // actual paved surface (or inside the pit's own drivable surface, which
+        // stays a strict test). The reduced clearance is stored on the obstacle so
+        // ValidateNoSolidObstaclesInsideDrivingCorridors re-validates it against
+        // the same relaxed bar instead of stripping it back out post-build.
+        const float HardMinimumEdgeBarrierClearance = 0.15f;
+
+        // The last-resort acceptance test for essential perimeter barriers: never
+        // on (or hard against) a paved surface, never inside the pit's drivable
+        // surface - but tolerated inside the ordinary comfort clearance band when
+        // the alternative is no physical containment at all.
+        bool IsSolidObstaclePlacementTolerable(Vector3 position, Vector3 forward, Vector3 localScale)
+        {
+            Vector3[] samples = GetObstacleFootprintSamples(position, forward, localScale);
+            for (int i = 0; i < samples.Length; i++)
+            {
+                TrackProgress progress = Runtime.GetProgress(samples[i]);
+                if (Mathf.Abs(progress.lateralDistance) < Runtime.HalfWidthAt(progress.distance) + HardMinimumEdgeBarrierClearance)
+                {
+                    return false;
+                }
+
+                if (IsInsidePitDrivableSurface(samples[i]))
+                {
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
         bool TryPlaceSolidObstacle(GameObject obstacle, string obstacleType, Vector3 desiredBasePosition, Vector3 forward, Vector3 localScale, float verticalOffset, float minimumClearance)
         {
             Vector3 candidate = desiredBasePosition + Vector3.up * verticalOffset;
@@ -9828,6 +9871,27 @@ namespace LocalFormulaRacing
                         clear = true;
                     }
                 }
+            }
+
+            if (!clear && IsEssentialOuterEdgeBarrier(obstacleType) &&
+                IsSolidObstaclePlacementTolerable(candidate, forward, localScale))
+            {
+                // Unfenced-section fix (see HardMinimumEdgeBarrierClearance): the
+                // strict clearance is unsatisfiable here in every direction, but
+                // the wall is clear of every actual paved/pit surface - keep the
+                // collider rather than open a hole in the perimeter. Stored with
+                // the reduced clearance so the post-build corridor sweep holds it
+                // to the same bar it was accepted at.
+                obstacle.transform.position = candidate;
+                GameLog.Warn("[TrackValidation] Kept essential barrier (" + obstacleType + ") at " + candidate +
+                             " on " + Runtime.displayName + " at reduced clearance (" + HardMinimumEdgeBarrierClearance.ToString("0.00") +
+                             "m floor) - full clearance unsatisfiable between adjacent track sections.");
+                TrackSolidObstacle tolerated = obstacle.AddComponent<TrackSolidObstacle>();
+                tolerated.obstacleType = obstacleType;
+                tolerated.minimumClearance = HardMinimumEdgeBarrierClearance;
+                tolerated.localScaleAtValidation = localScale;
+                solidObstacles.Add(tolerated);
+                return true;
             }
 
             if (!clear)
@@ -10019,8 +10083,15 @@ namespace LocalFormulaRacing
                 return false;
             }
 
+            // Unfenced-section fix: the auto-fill segments ARE perimeter repairs -
+            // they only ever exist because the flush sweep found a real hole in the
+            // boundary. Leaving them out of this list meant the repair failed the
+            // exact same clearance test the original barrier failed (no push-out
+            // attempts, no reduced-clearance fallback), so a detected gap between
+            // adjacent track sections could never actually be filled.
             return obstacleType == "street-wall" || obstacleType == "armco-rail" ||
-                   obstacleType == "tyre-barrier" || obstacleType == "bridge-wall";
+                   obstacleType == "tyre-barrier" || obstacleType == "bridge-wall" ||
+                   obstacleType == "auto-fill-wall" || obstacleType == "auto-fill-rail";
         }
 
         // Track validation depth: detects a road half-width that jumps abruptly
