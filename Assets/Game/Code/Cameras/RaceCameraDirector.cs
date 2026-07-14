@@ -106,13 +106,18 @@ namespace F1Game.Cameras
             Transform mount = car != null && !string.IsNullOrEmpty(profile.mountNode)
                 ? car.Find(profile.mountNode)
                 : null;
-            Transform anchor = mount != null ? mount : car;
+
+            bool hardMounted = profile.kind == CameraProfile.Kind.Cockpit ||
+                               profile.kind == CameraProfile.Kind.Nose ||
+                               profile.kind == CameraProfile.Kind.TCam;
+            Transform anchor = mount != null
+                ? mount
+                : hardMounted ? CreateFallbackHardMount(car, profile.kind) : car;
 
             vcam.Follow = anchor;
             vcam.LookAt = car;
 
-            if (profile.kind == CameraProfile.Kind.Cockpit || profile.kind == CameraProfile.Kind.Nose ||
-                profile.kind == CameraProfile.Kind.TCam)
+            if (hardMounted)
             {
                 // Hard-mounted views: lock to the mount, inherit car motion.
                 var hardLock = vcam.AddCinemachineComponent<CinemachineHardLockToTarget>();
@@ -149,6 +154,42 @@ namespace F1Game.Cameras
             listener.m_Gain = profile.impactImpulseScale;
 
             return vcam;
+        }
+
+        static Transform CreateFallbackHardMount(Transform car, CameraProfile.Kind kind)
+        {
+            if (car == null)
+            {
+                return null;
+            }
+
+            // The live primitive/placeholder car does not contain the authored
+            // CarRigSpec camera hierarchy. Falling back to the car root put every
+            // hard-locked view at ground level inside the chassis. Recreate only
+            // the missing mount at the exact local position used by
+            // CarPrefabBuilder; authored cars continue to use their own mounts.
+            Vector3 localPosition;
+            switch (kind)
+            {
+                case CameraProfile.Kind.TCam:
+                    localPosition = new Vector3(0f, 1.05f, -0.6f);
+                    break;
+                case CameraProfile.Kind.Cockpit:
+                    localPosition = new Vector3(0f, 0.85f, 0.6f);
+                    break;
+                case CameraProfile.Kind.Nose:
+                    localPosition = new Vector3(0f, 0.35f, 2.7f);
+                    break;
+                default:
+                    return car;
+            }
+
+            var fallback = new GameObject("Runtime " + kind + " camera mount").transform;
+            fallback.SetParent(car, false);
+            fallback.localPosition = localPosition;
+            fallback.localRotation = Quaternion.identity;
+            Debug.LogWarning("[Cameras] Missing authored " + kind + " mount; using runtime fallback at " + localPosition + ".");
+            return fallback;
         }
 
         static CameraProfile[] BuildDefaultProfiles()
