@@ -1694,6 +1694,12 @@ namespace LocalFormulaRacing
         // Scenery/detail spawn multiplier, set by the race flow from graphics settings before Build.
         public float sceneryDensity = 1f;
 
+        // Set by the race flow before Build for sessions that must always run in
+        // dry conditions (time trial): overrides the event's weather profile so
+        // the built track (surface materials, wetness, scenery mood) and the
+        // session weather all agree on Clear.
+        public bool forceDryWeather;
+
         Material roadMaterial;
         Material kerbMaterial;
         Material grassMaterial;
@@ -2092,7 +2098,12 @@ namespace LocalFormulaRacing
                 // matching Build*Layout method runs.
                 roadHalfWidth = 13.82f,
                 kerbStart = 8.15f,
-                weather = DetermineWeather(eventData == null ? "clear_hot" : eventData.weatherProfile)
+                // Time trials always run dry (forceDryWeather): a hot-lap mode
+                // needs comparable, repeatable conditions, so the event's own
+                // wet/mixed forecast never applies there.
+                weather = forceDryWeather
+                    ? WeatherState.Clear
+                    : DetermineWeather(eventData == null ? "clear_hot" : eventData.weatherProfile)
             };
 
             AddLayoutPoints(runtime);

@@ -61,6 +61,9 @@ compiled or run in Unity.
   team-colour self-illumination on body panels, and night races run brighter
   floodlit ambient/directional lighting - car silhouettes no longer melt into
   the equally-dark asphalt (worst on night street circuits).
+- Time trials always run dry: the event's wet/mixed weather profile no longer
+  applies (track surface, car physics, audio and the gloomy rain lighting mood
+  all forced to Clear), so hot-lap conditions are repeatable and comparable.
 
 ### Known incomplete
 See `Docs/KNOWN_ISSUES.md` for the honest list of partial / not-started systems

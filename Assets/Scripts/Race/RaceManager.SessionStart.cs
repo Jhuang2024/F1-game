@@ -140,6 +140,9 @@ namespace LocalFormulaRacing
             TrackManager trackManager = new GameObject("Track Manager").AddComponent<TrackManager>();
             trackManager.transform.SetParent(raceWorld.transform);
             trackManager.sceneryDensity = Settings.Current.sceneryDensity;
+            // Time trials always run dry: hot-lap times only mean anything under
+            // repeatable conditions, so the event's wet/mixed forecast is ignored.
+            trackManager.forceDryWeather = IsTimeTrial;
             Track = trackManager.Build(eventData, Settings.Current.racingLineAssist);
             telemetryCorners = Track.ClassifyCorners();
             if (session == RaceWeekendSession.Qualifying)

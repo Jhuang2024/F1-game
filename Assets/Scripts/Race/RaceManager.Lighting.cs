@@ -22,7 +22,9 @@ namespace LocalFormulaRacing
             bool mountain = trackId.Contains("austria") || trackId.Contains("spa") || trackId.Contains("austin") || trackId.Contains("mexico");
             bool park = trackId.Contains("silverstone") || trackId.Contains("melbourne") || trackId.Contains("monza") || trackId.Contains("interlagos") || trackId.Contains("suzuka") || trackId.Contains("zandvoort");
             string weatherProfile = EventData == null || string.IsNullOrEmpty(EventData.weatherProfile) ? "" : EventData.weatherProfile.ToLowerInvariant();
-            bool rainThreat = weatherProfile.Contains("wet") || weatherProfile.Contains("mixed");
+            // Time trials are forced dry (see SessionStart/TrackManager
+            // forceDryWeather), so the lighting mood must not go gloomy either.
+            bool rainThreat = !IsTimeTrial && (weatherProfile.Contains("wet") || weatherProfile.Contains("mixed"));
 
             int quality = Settings == null ? 2 : Mathf.Clamp(Settings.Current.graphicsQuality, 0, 3);
             // Premium visual pass: the post chain follows the same mood the
