@@ -64,6 +64,21 @@ compiled or run in Unity.
 - Time trials always run dry: the event's wet/mixed weather profile no longer
   applies (track surface, car physics, audio and the gloomy rain lighting mood
   all forced to Clear), so hot-lap conditions are repeatable and comparable.
+- HUD meters actually move now: Unity ignores Image.fillAmount on sprite-less
+  images (falls back to a full quad), so every runtime-built bar (ERS, tyre,
+  damage, RPM, throttle, brake) rendered permanently full. UiProgressBar now
+  assigns a shared solid sprite so the Filled geometry applies.
+- ERS battery genuinely cycles: braking harvest used to bank up to a full
+  battery in one hard stop (~5x the deploy drain), pinning the gauge at 100%.
+  Braking harvest cut to a third and deploy drain raised ~45%, so a full
+  deploy empties in ~6-8s and management is a real decision.
+- AI wall crashes at tight corners fixed: 18 rounds of tuning had inflated the
+  Slow/VeryTight corner-speed floors to 302-522 kph - beyond top speed - so
+  both buckets clamped to straight-line pace and the AI never braked for any
+  tight corner that wasn't a >=168-degree U-turn. Restored real floors
+  (Slow ~115-150 kph, VeryTight ~82-110 kph), widened the hairpin gate to 140
+  degrees, and the edge emergency-brake band starts 40% wider near known
+  tight-fence corners. HighSpeed/Medium corner pace untouched.
 
 ### Known incomplete
 See `Docs/KNOWN_ISSUES.md` for the honest list of partial / not-started systems

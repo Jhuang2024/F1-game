@@ -414,7 +414,16 @@ namespace LocalFormulaRacing
             // ~176) clears 168 comfortably, so only near-180 corners are treated as
             // hairpins; everything from a merely-tight corner up to ~168 stays
             // VeryTight and keeps its faster speed.
-            return hairpinTurnAngleDegrees >= 168f ? CornerType.Hairpin : CornerType.VeryTight;
+            //
+            // Wall-crash fix: brought back down 168 -> 140. On tight street layouts
+            // the +/-55m wide-baseline probe underreads a genuine switchback whose
+            // approach/exit bend away within the probe window, so real U-turns were
+            // landing in VeryTight. The 168 threshold only made sense while
+            // VeryTight itself was (accidentally) full straight-line speed; now
+            // that VeryTight is a real ~82-110kph tier, a 140-168 degree corner
+            // classified as Hairpin costs little, while the reverse
+            // misclassification put cars in the wall.
+            return hairpinTurnAngleDegrees >= 140f ? CornerType.Hairpin : CornerType.VeryTight;
         }
 
         // Per-tier apex speed curve instead of one flat Pow(severity, 1.4) eased
@@ -547,7 +556,17 @@ namespace LocalFormulaRacing
                     // Round 18: raised another flat 10kph (502.5-512.5kph -> 512.5-522.5kph) -
                     // turning-speed pass across every non-hairpin bucket except
                     // hairpin, per request. (Restored - see HighSpeed note above.)
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(512.5f, Mathf.Lerp(517.5f, 522.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    //
+                    // Wall-crash fix (round 19): the 18 rounds above had inflated this
+                    // floor to 512-522 kph - beyond any car's top speed - so the
+                    // Mathf.Min collapsed it to straightTargetSpeed and a "slow"
+                    // corner was taken FLAT OUT. With the braking model keyed off
+                    // (speed - apex target), zero demand ever fired and the only
+                    // thing left was the last-metres edge emergency brake: cars
+                    // drove straight into the barriers at every tight non-hairpin
+                    // corner (worst on street circuits). Restored to a real slow-
+                    // corner target; HighSpeed/Medium keep their fast floors.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(115f, Mathf.Lerp(130f, 150f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -573,7 +592,14 @@ namespace LocalFormulaRacing
                     // Round 12: raised another flat 10kph (292.5-327.5kph -> 302.5-337.5kph) -
                     // turning-speed pass across every non-hairpin bucket except
                     // hairpin, per request. (Restored - see HighSpeed note above.)
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(302.5f, Mathf.Lerp(322.5f, 337.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    //
+                    // Wall-crash fix (round 13): same failure as the Slow bucket
+                    // above - 302-337 kph is at/above top speed for most cars, so
+                    // the Min collapsed to straightTargetSpeed and the very-tight
+                    // tier carried full straight-line speed into corners the
+                    // hairpin gate (>=168 degrees) didn't catch. Restored to a real
+                    // very-tight target between Slow and the hairpin crawl.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(82f, Mathf.Lerp(95f, 110f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
@@ -1407,6 +1433,16 @@ namespace LocalFormulaRacing
             // trimmed slightly here (not redesigned) to stop it overcorrecting now
             // that there's more room to work with.
             float edgeMarginDistance = Mathf.Lerp(5.5f, 9.5f, Mathf.Clamp01(speedKph / 340f));
+            // Wall-crash defence-in-depth: near a known tight-fence corner (the
+            // same containment data the barrier builder uses) the reactive edge
+            // band starts ~40% wider, so the emergency response begins while a
+            // hot car still has room to shed speed - close street barriers leave
+            // no run-off for the standard 5.5-9.5m band at speed.
+            if (track != null && track.IsNearTightFenceCorner(progress.distance))
+            {
+                edgeMarginDistance *= 1.4f;
+            }
+
             float edgeMargin = LocalHalfWidthAt(progress.distance) - edgeMarginDistance;
             float edgeOvershoot = !suppressOffTrackRecovery ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
             float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);

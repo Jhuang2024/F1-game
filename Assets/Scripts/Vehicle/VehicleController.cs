@@ -1108,11 +1108,15 @@ namespace LocalFormulaRacing
 
             bool ersEmptyCooldownActive = ersEmptyCooldownTimer > 0f;
 
-            // Braking-zone recharge fix: raised 50% (was 0.28-0.42) - a hard braking
-            // zone now banks charge noticeably faster than before.
+            // Braking-zone recharge rebalance: cut to a third (was 0.42-0.63).
+            // At the old rate a single ~2s hard stop banked 0.8-1.2 of the whole
+            // battery - harvest outran the deploy drain ~5:1, the gauge pinned
+            // at 100% and ERS management stopped being a decision at all. A hard
+            // braking zone now banks a meaningful ~0.2-0.3 charge instead of a
+            // full refill, so the battery genuinely cycles over a lap.
             if (activeCommand.brake > 0.1f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.42f, 0.63f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.14f, 0.21f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             // Non-braking recharge fix round 3: both the off-throttle coasting rate
