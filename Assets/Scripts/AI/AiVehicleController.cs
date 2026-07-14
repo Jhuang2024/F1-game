@@ -14,6 +14,12 @@ namespace LocalFormulaRacing
         TrackRuntime track;
         float mistakeTimer;
         float mistakeSteer;
+        // A "real" mistake window: while > 0 the driver has misjudged the next
+        // braking zone (see UpdateMistake / the brakingApexSpeed consumer) and
+        // will arrive at the corner genuinely hot instead of just wobbling the
+        // line inside the legal-offset corridor.
+        float mistakeBrakeErrorTimer;
+        float mistakeBrakeErrorSeverity;
         float aggressionOffset;
         float damageDecisionTimer;
         float lastProgressDistance;
@@ -578,7 +584,21 @@ namespace LocalFormulaRacing
                     // cornering pace degraded for a diagnosis that didn't hold.
                     // Restored verbatim to round 18's value. The real crash
                     // cause is still open; whatever it is, it isn't this floor.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(512.5f, Mathf.Lerp(517.5f, 522.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    //
+                    // Round 22: round 21's revert conclusion was drawn while
+                    // brakingApexSpeed was still being inflated by
+                    // driverPaceVariance * profile.paceMultiplier (up to ~1.35x
+                    // on Expert, see UpdateDriving) - so round 19/20's lower
+                    // floors alone genuinely COULDN'T restore braking on the
+                    // higher tiers, and the revert put the collapse back
+                    // everywhere. Both halves are fixed together now: with a
+                    // 512-522 kph floor every car's Mathf.Min collapsed to
+                    // straightTargetSpeed, a "slow" corner was targeted FLAT
+                    // OUT, brakeDemand (keyed off speed - apex target) never
+                    // fired, and apexConfidence/skillTier/the whole cornering
+                    // difficulty column were dead knobs. Restored to round 20's
+                    // sub-top-speed band (150-200 kph).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(150f, Mathf.Lerp(180f, 200f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -620,7 +640,18 @@ namespace LocalFormulaRacing
                     // collapse theory wasn't the actual corner-crash cause, so
                     // restored verbatim to round 12's value instead of leaving
                     // pace degraded for a fix that didn't work.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(302.5f, Mathf.Lerp(322.5f, 337.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    //
+                    // Round 16: same joint fix as the Slow bucket's round 22 -
+                    // the round-15 revert was judged while brakingApexSpeed was
+                    // still pace-multiplier inflated, so the lower floor never
+                    // got a fair test on Hard/Expert. 302-337 kph is at/above
+                    // every car's top speed (341-350 in carPerformance.json),
+                    // so this tier carried full straight-line speed into every
+                    // 90-degree street corner the >=168-degree hairpin gate
+                    // doesn't catch - the exact recurring barrier-crash report.
+                    // Restored to round 14's real very-tight band (110-140 kph),
+                    // between Slow and the hairpin crawl.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(110f, Mathf.Lerp(125f, 140f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
@@ -878,17 +909,15 @@ namespace LocalFormulaRacing
             int consistency = driver == null ? 80 : driver.consistency;
             int aggression = driver == null ? 75 : driver.aggression;
             int tyreManagement = driver == null ? 80 : driver.tyreManagement;
-            // Defence/overtaking buff (+30%, all difficulties, per request):
-            // these two feed every downstream wheel-to-wheel behaviour
-            // (UpdateOvertakeState's commit/lunge/hold decisions and the
-            // defensive-line logic), so scaling them once here - the single
-            // point both are read from - sharpens AI racecraft uniformly
-            // across every difficulty without touching pace, consistency, or
-            // the pit/qualifying paths. Clamped to a sane ceiling so a
-            // already-elite 95 defender doesn't overflow the 0-100 band the
-            // downstream math assumes.
-            int defending = driver == null ? 78 : Mathf.Clamp(Mathf.RoundToInt(driver.defending * 1.69f), 0, 100);
-            int overtaking = driver == null ? 78 : Mathf.Clamp(Mathf.RoundToInt(driver.overtaking * 1.69f), 0, 100);
+            // Raw driver stats, deliberately unscaled: the old +69% pre-clamp
+            // multiply pushed every driver on the grid (77-94 in drivers.json)
+            // past the 0-100 clamp, so all 22 drivers defended and attacked as
+            // identical 100-rated clones and the per-driver spread downstream
+            // (commit/lunge/hold decisions, defensive-line logic) was erased.
+            // Racecraft sharpness is tuned where it belongs - on the commitment
+            // blend in UpdateOvertakeState - not by flattening the stat model.
+            int defending = driver == null ? 78 : driver.defending;
+            int overtaking = driver == null ? 78 : driver.overtaking;
             int experience = driver == null ? 75 : driver.experience;
             int wetSkill = driver == null ? 75 : driver.wetSkill;
 
@@ -1096,7 +1125,20 @@ namespace LocalFormulaRacing
             // thinnest driver-stat blend found in the verification pass.
             float driverPaceVariance = Mathf.Lerp(0.89f, 1.11f, pace / 100f) * Mathf.Lerp(0.92f, 1.08f, racecraft / 100f);
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
-            float brakingApexSpeed = apexTargetSpeed * driverPaceVariance * profile.paceMultiplier;
+            // The pace variance and difficulty pace multiplier stay on the cruise
+            // target (straight-line pace differentiation) but must NOT inflate the
+            // BRAKING apex target: 1.11 pace x 1.08 racecraft x 1.15 Expert could
+            // raise even the hairpin crawl's entry target by ~35%, and pushed any
+            // already-saturated corner target past straight-line speed - at which
+            // point brakeDemand (keyed off speed - brakingApexSpeed) could never
+            // fire at all. That inflation is why the earlier corner-floor
+            // restores (Slow round 19/20, VeryTight round 13/14) "didn't fix" the
+            // corner crashes in play-testing and got reverted. Difficulty and
+            // driver skill still shape corner entry where they belong: via
+            // apexConfidence/skillTier in the apex target itself, and via
+            // decelReference/brakeDistanceMultiplier in how late and hard the
+            // brake zone is attacked.
+            float brakingApexSpeed = Mathf.Min(apexTargetSpeed, straightTargetSpeed);
 
             float damagePercent = vehicle.Damage == null ? 0f : vehicle.Damage.OverallPercent;
             float damageMultiplier = AiDamagePaceMultiplier(damagePercent);
@@ -1621,6 +1663,19 @@ namespace LocalFormulaRacing
             // multiplier alone: >1 shortens the effective distance (brakes later),
             // <1 lengthens it (brakes earlier), same as the base multiplier's own sense.
             float effectiveBrakeMultiplier = Mathf.Max(0.55f, profile.brakeDistanceMultiplier * Mathf.Lerp(0.92f, 1.05f, experience / 100f) * profile.brakeConfidenceMultiplier);
+            // Active braking-point mistake (see UpdateMistake): the driver is
+            // momentarily willing to carry more entry speed than the corner can
+            // take. The edge emergency brake below still catches the car at the
+            // limit, so this converts into a visible run-deep/run-wide moment
+            // and real time loss rather than a scripted crash. Never applied on
+            // a pit approach, during off-track recovery, or under a race-control
+            // pace cap - those targets are safety/legality clamps, not corner
+            // judgement, and inflating them would break pit entry or SC pacing.
+            if (mistakeBrakeErrorTimer > 0f && !committingToPit && !offTrack && raceControlCap >= 9000f)
+            {
+                brakingApexSpeed *= 1f + mistakeBrakeErrorSeverity;
+            }
+
             float v0 = speedKph / 3.6f;
             float v1 = Mathf.Min(speedKph, brakingApexSpeed) / 3.6f;
             float rawBrakingDistance = Mathf.Max(0f, (v0 * v0 - v1 * v1) / (2f * decelReference));
@@ -2018,6 +2073,7 @@ namespace LocalFormulaRacing
             aggressionOffset = 0f;
             mistakeSteer = 0f;
             mistakeTimer = Random.Range(3f, 8f);
+            mistakeBrakeErrorTimer = 0f;
             hasCoveredThisApex = false;
             pressureFactor = 0f;
             followingTimer = 0f;
@@ -2757,6 +2813,7 @@ namespace LocalFormulaRacing
 
         void UpdateMistake(int consistency, int aggression, RaceManager.AiDifficultyProfile profile)
         {
+            mistakeBrakeErrorTimer = Mathf.Max(0f, mistakeBrakeErrorTimer - Time.deltaTime);
             mistakeTimer -= Time.deltaTime;
             if (mistakeTimer > 0f)
             {
@@ -2776,6 +2833,25 @@ namespace LocalFormulaRacing
             {
                 mistakeSteer = Random.Range(-0.9f, 0.9f);
                 mistakeTimer = Random.Range(0.5f, 1.2f);
+
+                // Consequence pass: a steer wobble alone is clamped back inside
+                // the legal-offset corridor by ConstrainLegalLineOffset, so the
+                // worst "mistake" the AI could previously make was a sub-metre
+                // twitch with zero time loss - the player was the only driver on
+                // track who could actually throw a race away, and Easy's 35x
+                // higher mistake rate was invisible. A share of mistakes are now
+                // a genuinely misjudged braking point for the upcoming corner:
+                // the entry target is inflated for a couple of seconds, the car
+                // arrives hot, the edge emergency brake has to gather it up and
+                // the driver runs deep/wide and loses real time. Share and
+                // severity both scale with the tier's mistake quality axis, so
+                // sharper fields make rarer AND smaller braking errors.
+                float mistakeQuality = Mathf.Clamp01(1f - profile.mistakeChancePerLap / 0.16f);
+                if (Random.value < Mathf.Lerp(0.45f, 0.15f, mistakeQuality))
+                {
+                    mistakeBrakeErrorTimer = Random.Range(1.5f, 3f);
+                    mistakeBrakeErrorSeverity = Mathf.Lerp(Random.Range(0.2f, 0.35f), Random.Range(0.08f, 0.16f), mistakeQuality);
+                }
             }
             else
             {
@@ -2808,22 +2884,16 @@ namespace LocalFormulaRacing
             RaceParticipant ahead = raceManager.FindCarAhead(participant, 46f);
             RaceParticipant behind = raceManager.FindCarBehind(participant, 32f);
             float legalLimit = LegalOffsetLimit(severityHere, progress.distance);
-            // Racecraft buff (per request, cumulative +30% +30% +25% ~= x2.1,
-            // all difficulties): the earlier stat multipliers stopped mattering
-            // because the stat-based Lerp below already saturates at stat 100,
-            // so the buff now lands on the COMMITMENT values directly - how far
-            // the AI actually commits to an overtake or a defensive move. Still
-            // Clamp01'd, so it only ever raises commitment toward full, never
-            // past it.
-            // Racecraft buff (per request, another pass on top of the existing
-            // 2.1x): 2.1 already saturated commitment to 1.0 for Medium/Hard/
-            // Expert, but Easy (lower base commitment + lower stat lerp) was
-            // still landing meaningfully below 1.0 - raised further so Easy
-            // actually commits to overtakes/defends too, not just the higher
-            // tiers.
-            const float RacecraftBuff = 2.6f;
-            float commitment = Mathf.Clamp01(profile.overtakeCommitment * Mathf.Lerp(0.7f, 1.15f, (aggression + overtaking) / 200f) * RacecraftBuff);
-            float defendCommitment = Mathf.Clamp01(profile.defendCommitment * Mathf.Lerp(0.7f, 1.15f, defending / 100f) * RacecraftBuff);
+            // Racecraft sharpness: lean the tier/stat commitment TOWARD full
+            // rather than multiplying it there. The old x2.6 pre-clamp buff
+            // saturated every tier at 1.0 (Easy 0.35 x ~1.09 x 2.6 ~= 0.99), so
+            // Easy lunged and covered the line exactly like Expert and the
+            // overtakeCommitment/defendCommitment difficulty columns were dead
+            // knobs. A 30% lean keeps the ordering and the driver-stat spread:
+            // Easy lands ~0.55, Medium ~0.7, Hard ~0.9, Expert ~1.0.
+            const float RacecraftLean = 0.3f;
+            float commitment = Mathf.Lerp(Mathf.Clamp01(profile.overtakeCommitment * Mathf.Lerp(0.7f, 1.15f, (aggression + overtaking) / 200f)), 1f, RacecraftLean);
+            float defendCommitment = Mathf.Lerp(Mathf.Clamp01(profile.defendCommitment * Mathf.Lerp(0.7f, 1.15f, defending / 100f)), 1f, RacecraftLean);
 
             // Part A.3/A.4: extended state timers so Expert doesn't bail out of an
             // attack or a defend cover early. Everything else keeps the previous

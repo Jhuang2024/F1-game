@@ -149,11 +149,22 @@ namespace LocalFormulaRacing
             // Percentage of baseLap rather than a flat constant, so difficulty stays
             // meaningful regardless of track length: Easy is clearly the slowest,
             // Expert clearly the fastest/most aggressive, Medium close to neutral.
-            // Shared identically by every entry in the session (the chosen AI
-            // difficulty is a session-wide setting, not a per-driver one), so this
-            // never contributes to the inter-driver spread on its own.
-            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.035f : Settings.Difficulty == RaceDifficulty.Medium ? 0.005f : Settings.Difficulty == RaceDifficulty.Hard ? -0.030f : -0.060f;
-            breakdown.difficultyEffect = breakdown.baseLap * difficultyPercent;
+            //
+            // Quali/race coherence fix: this is now an AI-ONLY term, and Easy/
+            // Medium are pushed meaningfully slower. It used to be added to every
+            // entry alike - including the player's own simulated lap - so it never
+            // separated the player from the AI at all, and it was an order of
+            // magnitude smaller than the difficulty handicap the same AI actually
+            // races with (the -92/-55/-15/-5 kph straight-line discount in
+            // AiVehicleController): on Easy the AI qualified at near-competitive
+            // formula times and then raced 20%+ slower, so the player started
+            // P15 and drove through the whole field in a lap or two, and grid
+            // position predicted nothing. The AI quali handicap now points the
+            // same direction, at a magnitude that keeps the grid a rough preview
+            // of race pace while staying comfortably faster than the same AI's
+            // race laps (so pole laps still beat race fastest laps).
+            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.080f : Settings.Difficulty == RaceDifficulty.Medium ? 0.015f : Settings.Difficulty == RaceDifficulty.Hard ? -0.030f : -0.060f;
+            breakdown.difficultyEffect = entry.isPlayer ? 0f : breakdown.baseLap * difficultyPercent;
 
             // Track evolution: small and gradual, shared identically by every
             // driver in the same session phase - a later session can be marginally

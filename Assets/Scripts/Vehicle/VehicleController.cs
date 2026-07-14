@@ -232,9 +232,12 @@ namespace LocalFormulaRacing
         // ceiling-plus-dedicated-force pairing as PlayerTopSpeedBonusKph
         // above (see aiTopSpeedBoost in ApplyForces) - a ceiling bump alone
         // is aspirational unless something actually pushes the car up to it.
-        // Raised +5kph (per request, across every difficulty - this constant
-        // was never difficulty-scaled) on top of the existing 3, to 8.
-        const float AiTopSpeedBonusKph = 8f;
+        // Fairness: held equal to PlayerTopSpeedBonusKph. This briefly sat at
+        // 8 vs the player's 5, which handed the AI a hidden +3 kph straight-
+        // line edge in identical machinery at every difficulty - contradicting
+        // the project's own rule that AI straight-line pace never silently
+        // exceeds the player's in the same car.
+        const float AiTopSpeedBonusKph = 5f;
         // Flat DRS speed boost (replaces the old ramped/capped drsBoost model):
         // a fresh DRS activation grants +DrsBoostAmountKph, uncapped by the
         // normal top-speed ceiling, for DrsBoostDurationSeconds - but only while
@@ -1245,11 +1248,10 @@ namespace LocalFormulaRacing
 
             // AI straightline speed buff: same reasoning as playerTopSpeedBoost
             // above, mirrored for AiTopSpeedBonusKph - never applies to the
-            // player. Force scaled up alongside AiTopSpeedBonusKph's ceiling
-            // raise (3->8kph) so the extra ceiling is actually reachable, not
-            // just aspirational (was 6-10).
+            // player. Held to exactly the player's force curve so the shared
+            // ceiling is reachable for both without a hidden AI edge.
             float aiTopSpeedBoost = !IsPlayerControlled
-                ? Mathf.Lerp(11f, 17f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph))
+                ? Mathf.Lerp(10f, 16f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph))
                 : 0f;
 
             // AI launch boost: a genuine additive forward force off a standing
