@@ -25,6 +25,17 @@ compiled or run in Unity.
   qualifying progression, pit-request gates, flags, start procedures).
 
 ### Fixed
+- AI wall-aversion (reactive edge-avoidance system) significantly boosted:
+  the margin band that triggers the recovery-steer/emergency-brake response
+  widened (was 5.5-9.5m, now 8-14m, wider still near known tight-fence
+  corners), the recovery steering pull strengthened (was 0.38-1.03, now
+  0.65-1.6), and the emergency brake ramps up much earlier and harder (was an
+  overspeed ramp starting at 130kph with a 0.22-1 x 0.7-1.55 brake-demand
+  range; now starts at 70kph with a 0.45-1.3 x 1-2 range, saturating to full
+  brake at meaningfully lower proximity/speed). The margin is capped at 60%
+  of the local track half-width so the boost can't exceed narrow circuits'
+  own width and fire everywhere instead of only near a genuine edge (the
+  exact regression an earlier fix had to correct).
 - ERS drain tuning: cut 75% off the deploy drain rate introduced in the
   previous battery-cycle rebalance (0.115-0.165/s -> 0.02875-0.04125/s). That
   rebalance was aimed at stopping the gauge pinning at 100% (braking harvest

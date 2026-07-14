@@ -1453,22 +1453,42 @@ namespace LocalFormulaRacing
             // headroom back, so the margin ceiling and response strength are only
             // trimmed slightly here (not redesigned) to stop it overcorrecting now
             // that there's more room to work with.
-            float edgeMarginDistance = Mathf.Lerp(5.5f, 9.5f, Mathf.Clamp01(speedKph / 340f));
+            // Wall-aversion boost (per request): margin band widened well past
+            // the earlier tuning (was 5.5-9.5m) so the reactive recovery/brake
+            // system below starts reacting much further from the true edge,
+            // buying real distance to correct before the barrier regardless of
+            // what's actually causing cars to arrive there in the first place.
+            float edgeMarginDistance = Mathf.Lerp(8f, 14f, Mathf.Clamp01(speedKph / 340f));
             // Wall-crash defence-in-depth: near a known tight-fence corner (the
             // same containment data the barrier builder uses) the reactive edge
-            // band starts ~40% wider, so the emergency response begins while a
+            // band starts wider still, so the emergency response begins while a
             // hot car still has room to shed speed - close street barriers leave
-            // no run-off for the standard 5.5-9.5m band at speed.
+            // no run-off for the standard band at speed.
             if (track != null && track.IsNearTightFenceCorner(progress.distance))
             {
-                edgeMarginDistance *= 1.4f;
+                edgeMarginDistance *= 1.6f;
             }
 
-            float edgeMargin = LocalHalfWidthAt(progress.distance) - edgeMarginDistance;
+            // Track-width safety clamp: on the narrowest circuits (roadHalfWidth
+            // can go down to ~7m) the boosted distance above could exceed the
+            // track's own half-width, driving edgeMargin to zero or negative -
+            // exactly the earlier "Track-width fix" regression, where the
+            // correction fired almost everywhere on track instead of only near
+            // a genuine edge. Capped to a fraction of the real half-width here
+            // so the boost can never eat the whole safe corridor.
+            float localHalfWidth = LocalHalfWidthAt(progress.distance);
+            edgeMarginDistance = Mathf.Min(edgeMarginDistance, localHalfWidth * 0.6f);
+
+            float edgeMargin = localHalfWidth - edgeMarginDistance;
             float edgeOvershoot = !suppressOffTrackRecovery ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
             float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);
+            // Wall-aversion boost (per request): steering-correction strength
+            // raised across the board (was 0.38-1.03) - the pull back toward
+            // the racing surface is stronger both as soon as the band is
+            // entered and at the true edge, so it can dominate over whatever
+            // line-following steering put the car there.
             float edgeRecovery = edgeOvershoot > 0f
-                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.38f, 1.03f, edgeProximity)
+                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.65f, 1.6f, edgeProximity)
                 : 0f;
             // Barrier-avoidance round 6 ("AI sending it into the final corner and
             // hitting the barriers"): the emergency brake's quadratic ramp
@@ -1486,9 +1506,14 @@ namespace LocalFormulaRacing
             // braked harder still while there's room, rather than relying only
             // on the corner-detection fix to prevent it arriving hot in the
             // first place.
-            float edgeOverspeed = Mathf.Clamp01((speedKph - 130f) / 120f);
+            // Wall-aversion boost (per request): overspeed ramp starts much
+            // earlier (was 130-250kph) and the brake-demand floor/ceiling are
+            // both raised (was 0.22-1 x 0.7-1.55) so the emergency brake
+            // reaches full strength (the product is Clamp01'd) at meaningfully
+            // lower proximity/speed than before - it engages harder and sooner.
+            float edgeOverspeed = Mathf.Clamp01((speedKph - 70f) / 90f);
             float edgeEmergencyBrake = edgeOvershoot > 0f
-                ? Mathf.Clamp01(Mathf.Lerp(0.22f, 1f, edgeProximity) * Mathf.Lerp(0.7f, 1.55f, edgeOverspeed))
+                ? Mathf.Clamp01(Mathf.Lerp(0.45f, 1.3f, edgeProximity) * Mathf.Lerp(1f, 2f, edgeOverspeed))
                 : 0f;
             command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
 
