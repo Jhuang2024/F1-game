@@ -566,7 +566,16 @@ namespace LocalFormulaRacing
                     // drove straight into the barriers at every tight non-hairpin
                     // corner (worst on street circuits). Restored to a real slow-
                     // corner target; HighSpeed/Medium keep their fast floors.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(115f, Mathf.Lerp(130f, 150f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 20 (turning-speed restore, per request): raised the
+                    // band ~35-50kph (115-150kph -> 150-200kph) - genuinely
+                    // faster through this bucket - but deliberately NOT back to
+                    // round 18's 512-522kph. straightTargetSpeed for a typical car
+                    // is well under 250kph (see CalculateTargetTopSpeedKph's own
+                    // ~250-320kph range after its difficulty/compound cuts), so
+                    // this floor stays meaningfully below it: braking demand
+                    // still fires for a genuinely tight corner instead of
+                    // collapsing to zero the way round 18's value did.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(150f, Mathf.Lerp(175f, 200f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -597,9 +606,15 @@ namespace LocalFormulaRacing
                     // above - 302-337 kph is at/above top speed for most cars, so
                     // the Min collapsed to straightTargetSpeed and the very-tight
                     // tier carried full straight-line speed into corners the
-                    // hairpin gate (>=168 degrees) didn't catch. Restored to a real
+                    // hairpin gate (>=140 degrees) didn't catch. Restored to a real
                     // very-tight target between Slow and the hairpin crawl.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(82f, Mathf.Lerp(95f, 110f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 14 (turning-speed restore, per request): raised
+                    // ~25-30kph (82-110kph -> 110-140kph), same reasoning as the
+                    // Slow bucket's round 20 above - faster, but still clearly
+                    // below both the Slow floor above and a typical
+                    // straightTargetSpeed, so it never re-collapses to zero
+                    // braking demand.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(110f, Mathf.Lerp(125f, 140f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:

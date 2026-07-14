@@ -187,14 +187,17 @@ namespace F1Game.Race.Physics
         // numbers were arrived at).
         public const float MinErsBoostForce = 19f;
         public const float MaxErsBoostForce = 30f;
-        // Battery-cycle rebalance: raised ~45% (was 0.0805-0.1140). At the old
-        // rates a full deploy took ~9-12s to drain while a single hard braking
-        // zone could re-bank the whole battery (see the braking-harvest cut in
-        // VehicleController), so the gauge pinned at 100% and deploying felt
-        // free. Full-throttle deploy now empties a full battery in ~6-8s and
-        // the charge visibly cycles across a lap.
-        public const float MinErsDrainPerSecond = 0.115f;
-        public const float MaxErsDrainPerSecond = 0.165f;
+        // Battery-cycle rebalance round 1: raised ~45% (was 0.0805-0.1140) to
+        // stop the battery pinning at 100% once the harvest side was cut down
+        // to match (see VehicleController's braking-harvest history). That
+        // landed too far the other way - a full deploy drained in ~6-8s, far
+        // faster than the tank actually feels like it should empty.
+        // Round 2 (per request): cut 75% off round 1's rate. Harvest is
+        // untouched, so the battery still doesn't pin at 100% (round 1's fix
+        // for that stands), but a full-throttle deploy now takes ~24-32s to
+        // empty a full battery instead of ~6-8s.
+        public const float MinErsDrainPerSecond = 0.02875f;
+        public const float MaxErsDrainPerSecond = 0.04125f;
 
         /// <summary>Deploy force for a car's ERS efficiency (0-1) in the current deploy mode.</summary>
         public static float ErsBoostForce(float ersEfficiency01, float deployModeMultiplier)
