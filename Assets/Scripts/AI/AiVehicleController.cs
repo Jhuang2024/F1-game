@@ -1476,10 +1476,10 @@ namespace LocalFormulaRacing
             // correction fired almost everywhere on track instead of only near
             // a genuine edge. Capped to a fraction of the real half-width here
             // so the boost can never eat the whole safe corridor.
-            float localHalfWidth = LocalHalfWidthAt(progress.distance);
-            edgeMarginDistance = Mathf.Min(edgeMarginDistance, localHalfWidth * 0.6f);
+            float edgeHalfWidth = LocalHalfWidthAt(progress.distance);
+            edgeMarginDistance = Mathf.Min(edgeMarginDistance, edgeHalfWidth * 0.6f);
 
-            float edgeMargin = localHalfWidth - edgeMarginDistance;
+            float edgeMargin = edgeHalfWidth - edgeMarginDistance;
             float edgeOvershoot = !suppressOffTrackRecovery ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
             float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);
             // Wall-aversion boost (per request): steering-correction strength
