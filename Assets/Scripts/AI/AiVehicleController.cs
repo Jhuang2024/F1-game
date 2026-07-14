@@ -415,15 +415,15 @@ namespace LocalFormulaRacing
             // hairpins; everything from a merely-tight corner up to ~168 stays
             // VeryTight and keeps its faster speed.
             //
-            // Wall-crash fix: brought back down 168 -> 140. On tight street layouts
-            // the +/-55m wide-baseline probe underreads a genuine switchback whose
-            // approach/exit bend away within the probe window, so real U-turns were
-            // landing in VeryTight. The 168 threshold only made sense while
-            // VeryTight itself was (accidentally) full straight-line speed; now
-            // that VeryTight is a real ~82-110kph tier, a 140-168 degree corner
-            // classified as Hairpin costs little, while the reverse
-            // misclassification put cars in the wall.
-            return hairpinTurnAngleDegrees >= 140f ? CornerType.Hairpin : CornerType.VeryTight;
+            // Wall-crash fix: brought back down 168 -> 140 on the theory that the
+            // +/-55m wide-baseline probe underreads a genuine switchback on tight
+            // street layouts. Play-testing showed this wasn't the actual
+            // corner-crash cause, and VeryTight is back to a full straight-line-
+            // speed tier (see EstimateApexSpeedForCornerType's round 21/15
+            // reverts), so the original reasoning for 168 (only near-180 corners
+            // get the hairpin crawl; everything else keeps VeryTight's faster
+            // speed) applies again. Reverted to 168.
+            return hairpinTurnAngleDegrees >= 168f ? CornerType.Hairpin : CornerType.VeryTight;
         }
 
         // Per-tier apex speed curve instead of one flat Pow(severity, 1.4) eased
@@ -567,15 +567,18 @@ namespace LocalFormulaRacing
                     // corner (worst on street circuits). Restored to a real slow-
                     // corner target; HighSpeed/Medium keep their fast floors.
                     // Round 20 (turning-speed restore, per request): raised the
-                    // band ~35-50kph (115-150kph -> 150-200kph) - genuinely
-                    // faster through this bucket - but deliberately NOT back to
-                    // round 18's 512-522kph. straightTargetSpeed for a typical car
-                    // is well under 250kph (see CalculateTargetTopSpeedKph's own
-                    // ~250-320kph range after its difficulty/compound cuts), so
-                    // this floor stays meaningfully below it: braking demand
-                    // still fires for a genuinely tight corner instead of
-                    // collapsing to zero the way round 18's value did.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(150f, Mathf.Lerp(175f, 200f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // band ~35-50kph (115-150kph -> 150-200kph), staying below
+                    // straightTargetSpeed so braking demand wouldn't collapse to
+                    // zero the way round 18's value did.
+                    //
+                    // Round 21 (full revert, per request): confirmed by play-
+                    // testing that round 19's floor-collapse theory was NOT the
+                    // actual cause of the AI's corner-crashing - lowering this
+                    // floor didn't fix it - so there is no reason to leave
+                    // cornering pace degraded for a diagnosis that didn't hold.
+                    // Restored verbatim to round 18's value. The real crash
+                    // cause is still open; whatever it is, it isn't this floor.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(512.5f, Mathf.Lerp(517.5f, 522.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -610,11 +613,14 @@ namespace LocalFormulaRacing
                     // very-tight target between Slow and the hairpin crawl.
                     // Round 14 (turning-speed restore, per request): raised
                     // ~25-30kph (82-110kph -> 110-140kph), same reasoning as the
-                    // Slow bucket's round 20 above - faster, but still clearly
-                    // below both the Slow floor above and a typical
-                    // straightTargetSpeed, so it never re-collapses to zero
-                    // braking demand.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(110f, Mathf.Lerp(125f, 140f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Slow bucket's round 20 above.
+                    //
+                    // Round 15 (full revert, per request): same as the Slow
+                    // bucket's round 21 above - play-testing showed the floor-
+                    // collapse theory wasn't the actual corner-crash cause, so
+                    // restored verbatim to round 12's value instead of leaving
+                    // pace degraded for a fix that didn't work.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(302.5f, Mathf.Lerp(322.5f, 337.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:

@@ -31,12 +31,12 @@ compiled or run in Unity.
   wildly outpaced drain) but overshot the other way - a full deploy drained in
   ~6-8s. Harvest is untouched, so the battery still doesn't pin, but a full
   tank now lasts ~24-32s of deploying instead.
-- AI cornering pace restored: the wall-crash fix's Slow/VeryTight corner-speed
-  floors (115-150 / 82-110 kph) read as too cautious in general driving.
-  Raised to 150-200 / 110-140 kph - noticeably faster through these corners -
-  while deliberately staying well under a typical car's straight-line speed,
-  so the corner-speed clamp that caused the original wall-crash bug (a floor
-  at or above top speed collapsing to zero braking demand) cannot reopen.
+- AI cornering pace fully reverted to its pre-wall-crash-fix values (Slow
+  512.5-522.5 kph, VeryTight 302.5-337.5 kph, hairpin classification gate back
+  to >=168 degrees): play-testing confirmed the corner-speed-floor collapse
+  theory was NOT the actual cause of the AI's corner-crashing, so degrading
+  cornering pace for it wasn't buying anything. The real crash cause is still
+  open and needs separate investigation.
 - Critical UI transition bug: TMP import no longer auto-activates the production
   UI; `UiSessionCoordinator` is the single UI-ownership authority; strategy→race
   is atomic and single-flight; exactly one HUD renders; pause/results/menu-return
