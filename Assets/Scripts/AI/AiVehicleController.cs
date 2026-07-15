@@ -33,6 +33,10 @@ namespace LocalFormulaRacing
         // current lane). Smoothed so a neighbour blinking in and out of the
         // detection windows can never snap the steering target.
         float lineTrafficBlend;
+        // Previous-frame lateral offset, for the wall-aversion system's
+        // trajectory (time-to-edge) computation.
+        float previousEdgeLateral;
+        bool hasEdgeLateralRef;
         float aggressionOffset;
         float damageDecisionTimer;
         float lastProgressDistance;
@@ -1667,6 +1671,33 @@ namespace LocalFormulaRacing
             float edgeMargin = edgeHalfWidth - edgeMarginDistance;
             float edgeOvershoot = !suppressOffTrackRecovery ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
             float edgeProximity = Mathf.Clamp01(edgeOvershoot / edgeMarginDistance);
+
+            // TRAJECTORY-BASED urgency (the "brake wall" fix): the band above is
+            // enormous - 7.2-12.6m (x1.45 at tight fences), capped only at 60%
+            // of half-width, so on ordinary 6-7m half-width roads it starts
+            // ~2.4-2.8m from the CENTERLINE while the legal racing corridor
+            // runs out to halfWidth-1.8m. Every apex, entry sweep and
+            // overtaking swing therefore lived inside the band, and the brake
+            // below had a 0.36+ floor at band entry - a hard brake for simply
+            // BEING at a normal lateral position under full control. That was a
+            // dominant hidden braking source everywhere on track. Position
+            // says nothing about danger; TRAJECTORY does. The response is now
+            // driven by time-to-edge (how soon the car actually reaches the
+            // wall at its current lateral drift rate), with a pure-position
+            // term only inside the final ~1.2m. A controlled car on a
+            // legitimate line reads zero urgency however wide it runs; a car
+            // genuinely sliding at the wall reads urgent long before contact.
+            float edgeLateralRate = hasEdgeLateralRef
+                ? Mathf.Clamp((progress.lateralDistance - previousEdgeLateral) / Mathf.Max(Time.deltaTime, 0.0001f), -20f, 20f)
+                : 0f;
+            previousEdgeLateral = progress.lateralDistance;
+            hasEdgeLateralRef = true;
+            float towardEdgeRate = Mathf.Sign(progress.lateralDistance == 0f ? 1f : progress.lateralDistance) * edgeLateralRate;
+            float distanceToHardEdge = Mathf.Max(0.05f, edgeHalfWidth - 0.5f - Mathf.Abs(progress.lateralDistance));
+            float timeToEdge = towardEdgeRate > 0.15f ? distanceToHardEdge / towardEdgeRate : 99f;
+            float trajectoryUrgency = Mathf.Clamp01(1f - timeToEdge / 1.6f);
+            float positionUrgency = Mathf.Clamp01((Mathf.Abs(progress.lateralDistance) - (edgeHalfWidth - 1.2f)) / 1.2f);
+            float edgeUrgency = suppressOffTrackRecovery ? 0f : Mathf.Max(trajectoryUrgency, positionUrgency);
             // Grid-start fix: the wall-aversion boost below removed the old
             // emergency brake's built-in low-speed discount (0.7x floor ->
             // 1.0x), so a stationary/launching car sitting in a grid box even
@@ -1685,8 +1716,13 @@ namespace LocalFormulaRacing
             // entered and at the true edge, so it can dominate over whatever
             // line-following steering put the car there.
             // Round 2 (per request, small trim): eased back ~10% (was 0.65-1.6).
-            float edgeRecovery = edgeOvershoot > 0f
-                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Lerp(0.58f, 1.44f, edgeProximity) * wallAversionMultiplier * wallAversionLaunchGate
+            // Recovery steering keyed off the same trajectory urgency, but with
+            // a gentle position-based pre-nudge across the outer half of the
+            // old band so a drifting car is shepherded back long before the
+            // urgent response is needed.
+            float edgeSteerNudge = edgeOvershoot > 0f ? Mathf.Lerp(0.1f, 0.35f, edgeProximity) : 0f;
+            float edgeRecovery = (edgeUrgency > 0f || edgeOvershoot > 0f)
+                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Max(edgeSteerNudge, Mathf.Lerp(0.58f, 1.44f, edgeUrgency) * (edgeUrgency > 0f ? 1f : 0f)) * wallAversionMultiplier * wallAversionLaunchGate
                 : 0f;
             // Barrier-avoidance round 6 ("AI sending it into the final corner and
             // hitting the barriers"): the emergency brake's quadratic ramp
@@ -1712,8 +1748,12 @@ namespace LocalFormulaRacing
             // Round 2 (per request, small trim): eased back ~10% (was 0.45-1.3
             // x 1-2).
             float edgeOverspeed = Mathf.Clamp01((speedKph - 70f) / 90f);
-            float edgeEmergencyBrake = edgeOvershoot > 0f
-                ? Mathf.Clamp01(Mathf.Lerp(0.4f, 1.17f, edgeProximity) * Mathf.Lerp(0.9f, 1.8f, edgeOverspeed) * wallAversionMultiplier) * wallAversionLaunchGate
+            // Brake keyed off trajectory urgency, ramping from ZERO: no more
+            // 0.36+ floor for merely entering the (road-wide) band. A car
+            // genuinely running out of room still reaches the same full-force
+            // ceiling, scaled up by real speed exactly as before.
+            float edgeEmergencyBrake = edgeUrgency > 0f
+                ? Mathf.Clamp01(Mathf.Lerp(0f, 1.17f, edgeUrgency) * Mathf.Lerp(0.9f, 1.8f, edgeOverspeed) * wallAversionMultiplier) * wallAversionLaunchGate
                 : 0f;
             command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
 
@@ -2350,6 +2390,10 @@ namespace LocalFormulaRacing
             float steerAdjust = 0f;
             bool blockedLeft = false;
             bool blockedRight = false;
+            // Genuinely door-to-door occupancy (fore-aft overlap, tight lateral
+            // window) - the only thing that can justify the boxed-in lift below.
+            bool blockedLeftAlongside = false;
+            bool blockedRightAlongside = false;
             bool carDirectlyAhead = false;
             float nearestInLaneAheadZ = float.MaxValue;
             // Wider than the creep tracker below (which deliberately only counts
@@ -2732,24 +2776,46 @@ namespace LocalFormulaRacing
                         blockedRight = true;
                     }
 
-                    float sideOverlap = Mathf.Clamp01(1f - absX / 7f);
-                    // Same dodge-authority trim as the in-lane case above - the
-                    // push-apart steering, not the throttle cutback just below
-                    // (kept as-is; that's genuine collision protection).
-                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0.14f, 0.52f, sideOverlap);
+                    // Right-of-way fix (per report - "the AI ahead ALSO brakes
+                    // when someone is behind them on the line"): this window
+                    // spans 9.5m BEHIND the car too, so a follower tucked in the
+                    // leader's wake set the leader's own flank flags and made the
+                    // LEADER lift and swerve for the car chasing it. A car
+                    // clearly behind is the FOLLOWER's problem (its own
+                    // ahead-car logic above manages the gap); the leader only
+                    // responds to cars genuinely alongside. alongsideFactor
+                    // fades the leader's responses to zero once the other car
+                    // sits more than ~4.5m back; the raw blocked flags stay set
+                    // (never dodge INTO an occupied flank, wherever the occupant
+                    // sits fore-aft).
+                    float alongsideFactor = Mathf.InverseLerp(-4.5f, -1f, local.z);
+                    float sideOverlap = Mathf.Clamp01(1f - absX / 7f) * alongsideFactor;
+                    steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0f, 0.52f, sideOverlap);
                     // Side-by-side throttle cutback suppressed during the race-start
                     // pack window - see raceStartPackWindow above. Every grid car
                     // has flank neighbours by definition; lifting for them is what
                     // killed the AI launch. Steering separation above stays.
                     // nearCorner always overrides (barrier-pileup fix, same
                     // reasoning as the urgency brake above).
-                    if (!raceStartPackWindow || nearCorner)
+                    if (sideOverlap > 0f && (!raceStartPackWindow || nearCorner))
                     {
                         // Aggression pass: softened (was 0.5 at full overlap) -
                         // holding station alongside is racing, lifting out of a
                         // fight the driver could win is not.
                         float sideCutback = Mathf.Clamp01(1f - (1f - Mathf.Lerp(1f, 0.62f, sideOverlap)) * cautionFactor);
                         throttleLimit = Mathf.Min(throttleLimit, sideCutback);
+                    }
+
+                    if (alongsideFactor > 0.4f && absX < 5f)
+                    {
+                        if (local.x < 0f)
+                        {
+                            blockedLeftAlongside = true;
+                        }
+                        else
+                        {
+                            blockedRightAlongside = true;
+                        }
                     }
                 }
             }
@@ -2767,7 +2833,15 @@ namespace LocalFormulaRacing
             if (blockedLeft && blockedRight)
             {
                 steerAdjust = 0f;
-                if (carDirectlyAhead && (!raceStartPackWindow || nearCorner))
+                // Boxed-in fix (per report): the flags above can be raised by
+                // cars BEHIND, and carDirectlyAhead counts a car up to ~60m
+                // down the road - so a mid-train leader with two followers
+                // tucked diagonally behind it was reading "boxed in" and
+                // braking for the cars chasing it. The lift now needs genuine
+                // door-to-door occupancy on BOTH flanks and a real car inside
+                // 15m ahead - the actual three-wide-wedge situation it exists
+                // for.
+                if (blockedLeftAlongside && blockedRightAlongside && nearestInLaneAheadZ < 15f && (!raceStartPackWindow || nearCorner))
                 {
                     // Aggression pass: lift softened (was 0.34 cap / 0.16 brake) -
                     // boxed-in should mean "hold position and wait for a gap", not

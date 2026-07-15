@@ -4,6 +4,35 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Full deceleration-source audit: leaders, boxed-in, and the wall brake (per request)
+
+Systematic sweep of every way an AI can slow/stop, fixing three more real
+defects (the rest verified sound: corner model feasibility-matched, unstick
+universal under caution, creep, SC/blue-flag/damage/fuel slowdowns all
+legitimate and bounded):
+
+- Leaders no longer brake for their own followers: the side-by-side window
+  spans 9.5 m BEHIND the car, so a follower tucked in the wake set the
+  leader's flank flags and made the leader lift and swerve for the car
+  chasing it. Flank responses now fade to zero for cars more than ~4.5 m
+  back — a car behind is the follower's problem.
+- "Boxed in" required both flanks blocked plus a car "directly ahead" — but
+  the flags could come from cars behind and "ahead" reached ~60 m down the
+  road, so mid-train leaders read boxed-in and brake-lifted constantly. Now
+  requires genuine door-to-door occupancy on both flanks AND a car inside
+  15 m.
+- The wall-aversion emergency system was a brake wall across most of the
+  road: its band starts 7.2–12.6 m from the edge (~2.4–2.8 m from the
+  CENTERLINE on ordinary roads — inside the legal racing corridor), and the
+  brake had a 0.36+ floor at band entry, so every apex, entry sweep and
+  overtaking swing got hard braking for merely being at a normal lateral
+  position. The response is now TRAJECTORY-based (time-to-edge at the
+  current lateral drift rate, urgent inside ~1.6 s), with position-only
+  panic reserved for the final ~1.2 m and a gentle steering pre-nudge
+  across the old band. A controlled car on a legitimate line reads zero
+  urgency however wide it runs; a car genuinely sliding at the wall still
+  gets the full-force response.
+
 ## Car-aversion fix: brakes only for real same-lane blockers (per request)
 
 - Found the piece every aggression pass missed: the urgency brake and the
