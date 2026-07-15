@@ -3334,11 +3334,12 @@ namespace LocalFormulaRacing
                             overtakeState = OvertakeState.PreparingAttack;
                             overtakeStateTimer = preparingAttackTimer;
                             followingTimer = 0f;
-                            attackSide = Mathf.Sign(Vector3.Dot(transform.position - ahead.transform.position, transform.right));
-                            if (Mathf.Abs(attackSide) < 0.1f)
-                            {
-                                attackSide = preferredSide;
-                            }
+                            // Versatile side choice (per request - the AI always
+                            // took the same side): reads the corner, the
+                            // defender's actual road position and the driver's
+                            // craft instead of defaulting to the side the car
+                            // happened to lean toward.
+                            attackSide = ChooseAttackSide(ahead, apexSeverity, apexDistanceAhead, turnSign, overtaking);
                         }
                     }
                     else
@@ -3510,6 +3511,65 @@ namespace LocalFormulaRacing
                     pressureFactor = Mathf.Max(pressureFactor, Mathf.Lerp(0.3f, 0.8f, defendCommitment));
                 }
             }
+
+            // Dynamic defence, part 2 (per request): covering the inside once is
+            // not the whole art. When an attacker actually pulls ALONGSIDE -
+            // on par, slightly behind or slightly ahead - a real defender uses
+            // the road: drift toward them and make them complete the move
+            // around the long outside. Continuous positional pressure while
+            // they're alongside, hard-capped so the attacker is always left a
+            // genuine car's width of racing room (a squeeze, never a wall),
+            // and never under blue flags or race-control overtaking bans.
+            if (behind != null && behind.vehicle != null && !suppressAttackManeuvers &&
+                !behind.isPitting && raceManager.CanParticipantOvertake(behind, participant))
+            {
+                Vector3 rivalLocal = transform.InverseTransformPoint(behind.transform.position);
+                bool rivalAlongside = rivalLocal.z > -6.5f && rivalLocal.z < 4.5f &&
+                                      Mathf.Abs(rivalLocal.x) > 0.9f && Mathf.Abs(rivalLocal.x) < 5.5f;
+                if (rivalAlongside)
+                {
+                    float squeezeSide = Mathf.Sign(rivalLocal.x);
+                    float squeezeCeiling = Mathf.Max(0f, legalLimit - 2.2f);
+                    float squeezeTarget = squeezeSide * Mathf.Min(squeezeCeiling, Mathf.Lerp(1.2f, 2.4f, defendCommitment));
+                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, squeezeTarget, Time.deltaTime * Mathf.Lerp(1.6f, 3.2f, defendCommitment));
+                    pressureFactor = Mathf.Max(pressureFactor, Mathf.Lerp(0.35f, 0.9f, defendCommitment));
+                }
+            }
+        }
+
+        // Attack-side selection (versatile-overtaking pass). Priority order:
+        // momentum (already meaningfully offset to one side of the defender -
+        // finish what was started), then corner context (inside is the classic
+        // move, but a skilled overtaker reads a defender who has already
+        // covered the inside and commits around the outside instead; even an
+        // open inside gets the occasional surprise outside sweep), then on
+        // straights simply the emptier side of the road relative to where the
+        // defender actually sits.
+        float ChooseAttackSide(RaceParticipant ahead, float apexSeverity, float apexDistanceAhead, float turnSign, int overtaking)
+        {
+            float relativeLateral = Vector3.Dot(transform.position - ahead.transform.position, transform.right);
+            if (Mathf.Abs(relativeLateral) > 1.2f)
+            {
+                return Mathf.Sign(relativeLateral);
+            }
+
+            float defenderLateral = track.GetProgress(ahead.transform.position).lateralDistance;
+            bool cornerNearby = apexSeverity > 0.25f && apexDistanceAhead < 120f;
+            if (cornerNearby && Mathf.Abs(turnSign) > 0.1f)
+            {
+                bool insideCovered = Mathf.Abs(defenderLateral) > 0.9f && Mathf.Sign(defenderLateral) == Mathf.Sign(turnSign);
+                float outsideChance = insideCovered
+                    ? Mathf.Lerp(0.5f, 0.85f, overtaking / 100f)
+                    : Mathf.Lerp(0.12f, 0.3f, overtaking / 100f);
+                return Random.value < outsideChance ? -turnSign : turnSign;
+            }
+
+            if (Mathf.Abs(defenderLateral) > 0.3f)
+            {
+                return -Mathf.Sign(defenderLateral);
+            }
+
+            return preferredSide;
         }
 
         float ConstrainLegalLineOffset(TrackProgress progress, float requestedOffset, float cornerSeverity)

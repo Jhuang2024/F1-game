@@ -4,6 +4,23 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Versatile overtaking + squeeze defence (per request)
+
+- Attack side is now chosen from context instead of the side the car happened
+  to lean toward (which the follow-peek had made a per-driver constant):
+  momentum first (already offset alongside — finish the move), then corner
+  context — inside is the classic move, but a skilled overtaker reads a
+  defender who has already covered the inside and commits around the outside
+  (50–85% by overtaking stat), with occasional surprise outside sweeps even
+  when the inside is open — and on straights simply the emptier side of the
+  road relative to where the defender actually sits.
+- Defence is dynamic: the one-shot inside cover before a braking zone stays,
+  and when an attacker pulls genuinely alongside (par, slightly behind or
+  ahead), the defender now drifts toward them and forces the move around the
+  long outside — continuous positional pressure scaled by defend commitment,
+  hard-capped to always leave the attacker a full car's width of racing room,
+  and disabled under blue flags or race-control overtaking bans.
+
 ## Full deceleration-source audit: leaders, boxed-in, and the wall brake (per request)
 
 Systematic sweep of every way an AI can slow/stop, fixing three more real
