@@ -115,6 +115,9 @@ namespace LocalFormulaRacing
         // pitRequestLapNumber is the display-lap the request was raised on, kept
         // for diagnostics/future strategy logic.
         public bool pitEntryCommitted;
+        // Continuous seconds under 10 kph in green racing conditions - the
+        // blunt crawl-retirement rule (RaceManager.UpdateRaceControl).
+        public float slowCrawlRetireTimer;
         // Whether this car's colliders are currently ignoring car-to-car
         // contact (pit-sequence immunity - see RaceManager.HandlePitService).
         public bool carToCarCollisionIgnored;

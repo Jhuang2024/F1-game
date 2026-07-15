@@ -205,6 +205,22 @@ namespace LocalFormulaRacing
                 bool stoppedCandidate = nearStationary && !strandedExcluded;
                 participant.stoppedOnTrackTimer = stoppedCandidate ? participant.stoppedOnTrackTimer + RaceControlCheckInterval : 0f;
 
+                // Blunt crawl-retirement rule (per request): an AI doing under
+                // 10 kph for more than 10 continuous seconds under green racing
+                // conditions is not racing - whatever the softer stranded
+                // pipeline below thinks (it excuses traffic queues and takes
+                // 30s+), retire and despawn it so it never lingers as a mobile
+                // chicane. Excludes the player, pre-race, pit sequences, and
+                // SC/VSC/autopilot pacing (legitimately slow).
+                bool crawlCandidate = !participant.isPlayer && speedKph < 10f &&
+                    !preRace && !inPitPhaseOrPitting && !paceLimited && !participant.isRaceControlAutopilot;
+                participant.slowCrawlRetireTimer = crawlCandidate ? participant.slowCrawlRetireTimer + RaceControlCheckInterval : 0f;
+                if (participant.slowCrawlRetireTimer > 10f)
+                {
+                    RetireParticipant(participant, "Stopped on track");
+                    continue;
+                }
+
                 // Debug: a car that would have tripped the old blunt check (slow,
                 // not pre-race/pitting) but is excused by one of the new reasons -
                 // logged once per continuous slow episode, not every 0.35s tick.

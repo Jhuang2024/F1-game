@@ -4,6 +4,26 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Difficulty round 3, crawl retirement, empty-battery boost, tyre text (per request)
+
+- AI difficulty raised again, this time on driving QUALITY: every tier's
+  braking/cornering/throttle-pickup/line-precision knobs lifted roughly one
+  tier (Easy drives like the old Medium, Medium near the old Hard, Hard near
+  Expert, Expert at the ceiling: brake distance 1.10, pace 1.18, mistakes
+  0.3%/roll). Combined with the previous straight-discount cut, this is the
+  full remaining pace headroom short of breaking tier ordering.
+- Any AI under 10 kph for more than 10 continuous seconds in green racing
+  conditions is retired and despawned outright ("Stopped on track") — the
+  softer stranded pipeline (which excuses queues and takes 30 s+) remains for
+  edge cases, but nothing lingers as a mobile chicane. Pre-race, pit
+  sequences and SC/VSC pacing are excluded; never applies to the player.
+- Empty-battery ERS boost fixed: the HUD rounds charge to whole percent, so a
+  fraction of a percent displayed as 0% while the old "> 0" deploy gate still
+  boosted. Deploys now need a real 1.5% to start (then drain to true zero),
+  and the ERS top-speed ceiling bonus follows the same gate.
+- Pre-race compound card updated for the new hard-tyre wear ("~1.6x Medium's
+  life").
+
 ## AI pace up hard, hard-tyre wear up, pit-sequence collision immunity (per request)
 
 - AI difficulty raised across the board: the per-tier straight-line discount —

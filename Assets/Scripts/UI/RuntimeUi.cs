@@ -3720,7 +3720,7 @@ namespace LocalFormulaRacing
         {
             if (tyreName == "Soft") return "Fastest by far, wears ~2x Medium";
             if (tyreName == "Medium") return "Balanced grip and life";
-            if (tyreName == "Hard") return "-30 kph pace, ~2x Medium's life";
+            if (tyreName == "Hard") return "-30 kph pace, ~1.6x Medium's life";
             if (tyreName == "Intermediate") return "Damp track, light rain";
             if (tyreName == "Wet") return "Heavy rain, max clearance";
             return "";

@@ -1093,7 +1093,14 @@ namespace LocalFormulaRacing
             // above) to a true "still has any charge" floor, so a battery that
             // is genuinely being drained can reach 0% rather than asymptotically
             // stalling just above it.
-            ErsDeploying = activeCommand.ers && ErsBattery > 0f;
+            // Empty-battery boost fix (per report: with the battery reading 0%
+            // a deploy still boosted): the HUD rounds the charge to a whole
+            // percent, so a fraction of a percent displays as 0% while the
+            // old "> 0" gate happily deployed it. Starting a deploy now needs
+            // a genuinely usable 1.5% minimum; once running it drains to true
+            // zero (hysteresis), so the boost always dies before - never
+            // after - the gauge reads empty.
+            ErsDeploying = activeCommand.ers && ErsBattery > (ErsDeploying ? 0f : 0.015f);
             ErsHarvesting = false;
             if (ErsDeploying)
             {
@@ -1631,7 +1638,7 @@ namespace LocalFormulaRacing
             // ApplyForces (was 0.01f here too) so this ceiling bonus and the
             // actual deploy force it's meant to describe never disagree about
             // whether there's still charge left.
-            if (activeCommand.ers && ErsBattery > 0f)
+            if (ErsDeploying)
             {
                 target += ErsTopSpeedBonusKph;
                 ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + ErsTopSpeedBonusKph);
