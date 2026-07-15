@@ -4,6 +4,35 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Deploy flicker, real racing line, drastic fuel strategy (per request)
+
+- DRS/ERS deploy flicker killed with hysteresis, not thresholds:
+  - The DRS wing now opens at brake < 0.1 and only closes past 0.3 — a
+    hovering auto-brake trim can never flap it (any single threshold, 0.05 or
+    0.2, oscillates when the smoothed assist value sits on it).
+  - ERS auto-deploy (Attack/Balanced) read `assisted.throttle`, which the
+    assists trim every frame, hovering it around the 0.55/0.88 gates — the
+    reported ready↔deploying flashing. Now keyed off the driver's RAW throttle
+    (same fix the manual path already had) with latched keep-alive thresholds.
+- AI line v2 — pursue the precomputed racing line: the reactive heuristic
+  computed its offset at the car but applied it 22–62 m ahead (the whole line
+  ran ~1–2 s late = "not following the line"), and its entry-setup keyed off
+  the SHARPEST corner ahead, so in chicanes it swung wide for the second
+  element while ignoring the first — the reported "purposely going the
+  opposite direction of the apex". The AI now samples the drawn
+  minimum-radius line at the same lookahead the steering target uses, capped
+  at halfWidth−2.6 m (outside the edge-emergency-brake's 2.4 m ramp band —
+  the reason the original pure-pursuit was reverted), 0.94-scaled for apex
+  air, with the heuristic kept only for layouts with no computed line. Line
+  slew raised 4.5–9.5 → 6–14 m/s so the swings are actually tracked.
+- Fuel strategy is real now: the drive-force fuel penalty was RELATIVE to the
+  car's own start load (underfueled and overfueled cars started at identical
+  penalty — the underfuel speed boost literally did not exist). It is now
+  absolute (~0.2%/kg, Lerp to 0.75 at 120 kg), so light cars are visibly
+  faster and every car gains pace as the tank empties. The reserve dropped
+  1.2 → 0.4 kg and the load choices widened to ±1.5/±3 laps (was ±0.7/±1.5),
+  so underfueling is a genuine management gamble instead of free time.
+
 ## AI optimal-line pass (per request)
 
 - The AI line is now a genuine out-in-out arc with explicit safety margins.

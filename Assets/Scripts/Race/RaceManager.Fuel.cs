@@ -22,16 +22,27 @@ namespace LocalFormulaRacing
         // it's told here.
         const float MinimumRaceFuelKg = 4.5f;
         const float MaximumRaceFuelKg = 220f;
-        const float RaceFuelReserveKg = 1.2f;
+        // Fuel-strategy contrast pass (per request): the reserve was 1.2 kg
+        // (~0.8 laps) on top of a deliberately conservative per-lap estimate,
+        // which is why even an underfueled car cruised to the flag with roughly
+        // a lap of fuel left - the slack quietly swallowed the entire gamble.
+        // A thin 0.4 kg reserve keeps a fumbled last corner from stranding a
+        // correctly-fueled car, and no more.
+        const float RaceFuelReserveKg = 0.4f;
 
+        // Widened (was -1.5/-0.7/+0.7/+1.5): an underfuel choice must be a real
+        // gamble (aggressive means genuinely managing fuel or running dry) and a
+        // heavy load a real insurance premium, not rounding errors around the
+        // target. Paired with the absolute-load fuelPenalty in VehicleController
+        // so the light car is also VISIBLY faster, not just lighter on paper.
         public static float FuelLoadChoiceLapDelta(FuelLoadChoice choice)
         {
             switch (choice)
             {
-                case FuelLoadChoice.AggressiveUnderfuel: return -1.5f;
-                case FuelLoadChoice.LightUnderfuel: return -0.7f;
-                case FuelLoadChoice.Safe: return 0.7f;
-                case FuelLoadChoice.Heavy: return 1.5f;
+                case FuelLoadChoice.AggressiveUnderfuel: return -3f;
+                case FuelLoadChoice.LightUnderfuel: return -1.5f;
+                case FuelLoadChoice.Safe: return 1.5f;
+                case FuelLoadChoice.Heavy: return 3f;
                 default: return 0f;
             }
         }

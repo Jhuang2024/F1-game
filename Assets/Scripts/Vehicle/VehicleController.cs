@@ -193,6 +193,11 @@ namespace LocalFormulaRacing
         float smoothedThrottle;
         float smoothedBrake;
         bool lowBatteryForcedHarvest;
+        // Hysteresis state for the ERS auto-deploy gates in GetAssistedCommand:
+        // true while an auto deploy is running, which lowers the keep-alive
+        // thresholds so a throttle/speed value hovering at the start threshold
+        // can't flap the deploy on and off every frame.
+        bool autoDeployLatched;
         // ERS empty-recharge-delay: once the battery is fully drained, non-
         // braking recharge (the off-throttle coast rate and the passive
         // trickle) is suppressed for ErsEmptyRechargeDelaySeconds - braking-
@@ -832,15 +837,30 @@ namespace LocalFormulaRacing
             // manual override key must always be able to trigger a deploy while
             // there is meaningful charge left - the mode is a strategy default, not
             // a hard lock on the driver's own overtake button.
+            // Deploy-flicker fix: these gates used to read assisted.throttle
+            // with a single threshold - but the traction/auto-brake assists trim
+            // assisted.throttle every frame, so it hovered around the threshold
+            // and auto-deploy flapped on/off ("flashes between ready and
+            // deploying"). Same diagnosis and same two fixes as the manual path
+            // below (which was already keyed off RAW throttle for exactly this
+            // reason): the driver's raw throttle decides intent, and hysteresis
+            // (a lower keep-alive threshold once deploying, via
+            // autoDeployLatched) means a value hovering at the start threshold
+            // can never flap the deploy state.
             bool autoDeployRequested = false;
-            if (settings.ersMode == (int)ErsStrategyMode.Attack && ErsBattery > 0.06f && assisted.throttle > 0.55f)
+            if (settings.ersMode == (int)ErsStrategyMode.Attack && ErsBattery > 0.06f &&
+                raw.throttle > (autoDeployLatched ? 0.38f : 0.55f))
             {
                 autoDeployRequested = true;
             }
-            else if (settings.ersMode == (int)ErsStrategyMode.Balanced && ErsBattery > 0.24f && assisted.throttle > 0.88f && speedKph > 130f)
+            else if (settings.ersMode == (int)ErsStrategyMode.Balanced && ErsBattery > 0.24f &&
+                     raw.throttle > (autoDeployLatched ? 0.72f : 0.88f) &&
+                     speedKph > (autoDeployLatched ? 112f : 130f))
             {
                 autoDeployRequested = true;
             }
+
+            autoDeployLatched = autoDeployRequested;
 
             // The manual overtake key always wins over the strategy mode's own
             // auto-deploy logic (including Harvest, which has no auto-deploy branch
@@ -930,15 +950,19 @@ namespace LocalFormulaRacing
             // coefficient and top-speed bonus below for both the player and every AI
             // car identically - no separate logic to keep in sync.
             //
-            // Flicker fix: the close threshold was 0.05, which the auto-brake
-            // assist crosses CONSTANTLY with its small speed-trim applications
-            // ((speed - desired)/115 - barely 6 kph over the model's comfort
-            // speed already reads ~0.05) - so with the assist on, the wing
-            // slammed open/shut every trim and the HUD churned READY<->OPEN all
-            // the way down a zone. 0.2 ignores assist trims while any genuine
-            // braking application (player keyboard is 1.0, real corner braking
-            // far exceeds 0.2) still kills the wing instantly.
-            DrsActive = activeCommand.drs && absoluteSpeedKph > 90f && activeCommand.brake < 0.2f;
+            // Flicker fix round 2 - HYSTERESIS, not a single threshold: the
+            // first fix raised the close threshold 0.05 -> 0.2 because the
+            // auto-brake assist's small speed trims crossed 0.05 constantly,
+            // but ANY single threshold still oscillates when the (smoothed)
+            // assist brake value hovers around it - which is exactly the
+            // reported READY<->OPEN flashing near the end of a zone. The wing
+            // now needs brake < 0.1 to OPEN but only closes again once brake
+            // exceeds 0.3: the 0.1-0.3 dead band means a hovering assist trim
+            // can never flap the wing, while genuine braking (player keyboard
+            // is 1.0, real corner braking far exceeds 0.3) still closes it
+            // instantly.
+            bool wingRequested = activeCommand.drs && absoluteSpeedKph > 90f;
+            DrsActive = wingRequested && activeCommand.brake < (DrsActive ? 0.3f : 0.1f);
 
             // DRS boost is tied directly to the open wing (DrsActive already
             // folds in the button/latch, the >90kph gate and the brake auto-
@@ -1005,16 +1029,17 @@ namespace LocalFormulaRacing
 
             float accelerationStat = Mathf.Lerp(11.4f, 20.4f, CarData.acceleration / 100f);
             float engineStat = Mathf.Lerp(0.96f, 1.24f, CarData.enginePower / 100f);
-            // Fuel system pass: rebalanced to scale with THIS race's own start load
-            // instead of a fixed 42kg-5kg window - that window assumed the old flat
-            // 35kg start and was meaningless once a 5-lap race starts at ~9kg (the
-            // car would sit permanently at the lightest end of the old range,
-            // never actually feeling a fuel effect). fuelLoad01 is 1.0 on a full
-            // tank FOR THIS RACE and 0 on empty, so the same relative penalty
-            // (heavier = slightly slower) applies whether the race starts at 6kg or
-            // 40kg.
-            float fuelLoad01 = Mathf.Clamp01(fuelKg / Mathf.Max(1f, startFuelKg));
-            float fuelPenalty = Mathf.Lerp(1f, 0.94f, fuelLoad01);
+            // Fuel-weight fix: this was Lerp(1, 0.94, fuelKg/startFuelKg) - a
+            // penalty RELATIVE to the car's own starting load, so an underfueled
+            // and an overfueled car both started at the identical full penalty
+            // and the only strategy difference was a few kg of rigidbody mass.
+            // The "underfueled cars are faster" effect literally did not exist.
+            // The penalty is now a function of the ABSOLUTE kilograms on board
+            // (~0.2% drive force per kg, in line with the real-sport ~0.03s/lap
+            // per kg), so a light-fueled car is genuinely, visibly quicker than
+            // a heavy one all race, and every car naturally picks up pace as the
+            // tank burns down. Applies to AI and player alike (shared path).
+            float fuelPenalty = Mathf.Lerp(1f, 0.75f, Mathf.Clamp01(fuelKg / 120f));
             // Harvest mode banks charge faster at the cost of a weaker deploy punch;
             // Attack mode hits harder on deploy but recovers charge more slowly. Only
             // the human player's own strategy dial drives this - AI cars run their

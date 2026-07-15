@@ -1296,62 +1296,52 @@ namespace LocalFormulaRacing
             // still not being robotically perfect.
             float wobble = (Mathf.PerlinNoise(noiseSeed, Time.time * 0.5f) * 2f - 1f) * profile.lineOffsetNoise * 0.5f;
             float lineBias = 0f;
-            // Reactive heuristic line (restored). Making the AI pure-pursue the
-            // precomputed drawn line (RacingLineOffsetAt) rode the car out to the
-            // corridor edges on every corner (the drawn line is an out-in-out line
-            // that uses the full track width); sitting near the edge repeatedly
-            // tripped the edge-emergency-brake and scrubbed speed, so the AI turned
-            // through ordinary corners far too slowly. This version keeps the car on
-            // the SAME already-safe LegalOffsetLimit corridor but with a gentler,
-            // more central line: magnitude gated by curvature at/just ahead of the car
-            // (severityHere - zero on a straight, so no early wandering) and the side a
-            // continuous function of how close the sharpest upcoming point is
-            // (apexDistanceAhead): outside on approach, sweeping to the inside at the
-            // apex, back outside on exit. It doesn't trace the drawn ribbon exactly,
-            // but it carries proper corner speed, which matters more.
-            if (severityHere > 0.05f)
+            // Optimal-line pass v2: pursue the PRECOMPUTED racing line
+            // (TrackRuntime.ComputeRacingLine - the deterministic out-in-out
+            // construction with apexes pinned to the wall/kerb-safe corridor,
+            // validated offline). Both previous approaches were structurally
+            // wrong:
+            // - The reactive severity heuristic computed its offset from
+            //   conditions AT THE CAR but applied it at the 22-62m lookahead
+            //   target point, so the whole line ran ~1-2s late; and its
+            //   entry-setup phase keyed off FindUpcomingApex's SHARPEST corner
+            //   ahead, so through chicanes/S-complexes it set up wide for the
+            //   second element while driving straight past the first - visibly
+            //   swinging AWAY from the apex the car was actually entering.
+            // - The original pure-pursuit of the drawn line was reverted
+            //   because the line's full-outside gates sit at halfWidth-1.8m,
+            //   INSIDE the edge-emergency-brake's 2.4m ramp band, so cars
+            //   edge-rode under constant brake trims and crawled.
+            // This version samples the drawn line AT the same lookahead
+            // distance the steering target uses (no phase lag, chicanes come
+            // from real geometry, not a heuristic) and caps the offset at
+            // halfWidth-2.6m - outside the emergency-brake ramp band by
+            // construction - with a small scale-down for permanent air to the
+            // kerb at apexes. The heuristic remains only as a fallback for
+            // degenerate layouts where no line was computed.
+            float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
+            bool hasDrawnLine = track.racingLineOffsets != null && track.racingLineOffsets.Length > 0;
+            if (hasDrawnLine)
             {
-                // Optimal-line pass: the apex sweep now peaks a deliberate ~12%
-                // short of the corridor bound (ApexMarginScale) so the tightest
-                // point of the line always keeps clear air to the kerb/inside
-                // edge - "hit the apex" without parking on it - while the
-                // approach/exit side still uses the full (already wall-safe)
-                // corridor width for the widest possible arc.
-                const float ApexMarginScale = 0.88f;
+                float drawnOffset = track.RacingLineOffsetAt(progress.distance + lookAhead);
+                float edgeSafeBound = LocalHalfWidthAt(progress.distance + lookAhead) - 2.6f;
+                float bound = Mathf.Max(0.75f, Mathf.Min(edgeSafeBound, legalLimit));
+                lineBias = Mathf.Clamp(drawnOffset * 0.94f + apexMissNoise * 0.4f, -bound, bound);
+            }
+            else if (severityHere > 0.05f)
+            {
                 float biasMagnitude = Mathf.Lerp(legalLimit * 0.6f, legalLimit, severityHere);
                 float apexProximity = Mathf.Clamp01(1f - apexDistanceAhead / 50f);
                 float lineShape = apexProximity * 2f - 1f;
-                float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
                 float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 9f);
-                float shapedSide = lineShape > 0f ? lineShape * apexPrecision * ApexMarginScale : lineShape;
+                float shapedSide = lineShape > 0f ? lineShape * apexPrecision * 0.88f : lineShape;
                 lineBias = turnSign * biasMagnitude * shapedSide + (lineShape > 0f ? apexMissNoise : 0f);
             }
-            else if (apexSeverity > 0.2f && apexDistanceAhead < 140f)
-            {
-                // Optimal-line pass, entry setup: the old line only started
-                // positioning once ALREADY inside the corner (severityHere gate
-                // above - zero on the straight), so every corner was entered
-                // from wherever the car happened to be, usually mid-road, and
-                // the out-in-out arc lost its "out". While still on the straight
-                // approaching a genuine corner, drift progressively toward the
-                // OUTSIDE of the upcoming turn so entry starts wide and the
-                // in-corner sweep above inherits the full arc. Capped at 80% of
-                // the wall-safe corridor (never edge-riding - riding the
-                // corridor edge is what tripped the edge emergency brake when a
-                // pure-pursuit of the drawn line was tried and reverted), ramped
-                // smoothly by distance so there is no snap at the gate, and
-                // scaled by how sharp the corner actually is (a flat kink gets
-                // barely any setup; a hairpin gets the full wide entry). The
-                // turn direction is sampled around the APEX itself, not at the
-                // car - at 100m+ out the local road is still straight and reads
-                // a meaningless direction.
-                float upcomingTurnSign = EstimateTurnDirection(progress.distance + Mathf.Max(0f, apexDistanceAhead - 40f));
-                float setupRamp = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(1f - apexDistanceAhead / 140f));
-                float setupStrength = Mathf.Clamp01((apexSeverity - 0.2f) / 0.5f);
-                lineBias = -upcomingTurnSign * legalLimit * 0.8f * setupRamp * setupStrength;
-            }
 
-            float lineSlewRate = Mathf.Lerp(4.5f, 9.5f, Mathf.Clamp01(speedKph / 300f));
+            // Slew raised (was 4.5-9.5): the drawn line's entry-apex-exit swings
+            // need genuine lateral pace to be tracked faithfully at speed - too
+            // low a cap is exactly what read as "not following the line".
+            float lineSlewRate = Mathf.Lerp(6f, 14f, Mathf.Clamp01(speedKph / 300f));
             smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * lineSlewRate);
             lineBias = smoothedLineBias;
             previousSeverityHere = severityHere;
