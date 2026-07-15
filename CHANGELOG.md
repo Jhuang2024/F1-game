@@ -4,6 +4,14 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Hard per-race cap of 1 yellow flag (per request)
+
+- Cooldowns weren't enough with maxed aggression producing constant incidents,
+  so there's now a hard cap: at most ONE new yellow episode per race. Once
+  used, no further new yellow ever comes out (an already-active yellow can
+  still refresh in its own sector until it clears). Safety cars and VSC are
+  separate and unaffected. Resets at each session start.
+
 ## Crash-recovered cars kept their stale reverse-maneuver (the "slow from lap 2" cars) + ERS-during-DRS airtight (per request)
 
 - The remaining slow cars: a crawl/crash recovery snapped the car to the

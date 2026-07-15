@@ -841,10 +841,24 @@ namespace LocalFormulaRacing
         }
 
         int yellowSectorNumber = -1;
+        // Hard per-race cap on brand-new yellow episodes (per request: at most
+        // ~1 a race). Refreshing an already-active episode in its own sector
+        // does not count; only genuinely new yellows do. Reset at session start.
+        int yellowEpisodesThisRace;
+        const int MaxYellowEpisodesPerRace = 1;
 
         void TriggerYellowSector(int sector, RaceParticipant involved = null, string cause = null)
         {
             bool sameActiveSector = yellowSectorNumber == sector && yellowSectorClearTimer > 0f;
+
+            // Hard cap: once this race has used its allotment of new yellows,
+            // no further NEW yellow ever comes out (an active episode can still
+            // refresh via the sameActiveSector path below). Safety cars / VSC
+            // are separate and unaffected.
+            if (!sameActiveSector && yellowEpisodesThisRace >= MaxYellowEpisodesPerRace)
+            {
+                return;
+            }
 
             // Part 2: don't refresh the same persistent hazard's yellow forever -
             // once an episode has run for MaxYellowEpisodeSeconds, let it clear
@@ -882,6 +896,7 @@ namespace LocalFormulaRacing
                 }
 
                 yellowSectorEpisodeStartTime = RaceElapsed;
+                yellowEpisodesThisRace++;
             }
 
             globalYellowFlagCooldownUntil = RaceElapsed + GlobalYellowFlagCooldownSeconds;
@@ -1001,6 +1016,7 @@ namespace LocalFormulaRacing
             playerHasActiveRaceControlPitOffer = false;
             playerDeclinedRaceControlPitOfferMessageSent = false;
             yellowSectorClearTimer = 0f;
+            yellowEpisodesThisRace = 0;
             yellowSectorCooldownUntil.Clear();
             globalMinorYellowCooldownUntil = 0f;
             globalYellowFlagCooldownUntil = 0f;
