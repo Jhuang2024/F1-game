@@ -4,6 +4,13 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Tyre wear doubled (per request)
+
+- All five compounds' baseWear doubled (soft 2.2→4.4, medium 1.1→2.2, hard
+  0.55→1.1, inter 1.15→2.3, wet 1.25→2.5) — the drastic 2:1 compound ratios
+  are preserved exactly, everything just degrades twice as fast, so stints
+  genuinely end and planned pit windows actually arrive.
+
 ## Tight-corner rotation fixed with the actual geometry (per request)
 
 - "The AI literally can't turn enough in tight corners" — confirmed by the

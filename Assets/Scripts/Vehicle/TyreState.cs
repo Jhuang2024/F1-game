@@ -65,10 +65,15 @@ namespace LocalFormulaRacing
             // hard is a slow, near-indestructible one (~half of medium's wear),
             // so compound choice and stint timing are real strategic decisions
             // instead of a rounding error.
+            // Wear-rate pass (per request - "all tires degrade way too slowly"):
+            // every compound's baseWear doubled outright (the 2:1 soft/medium
+            // and medium/hard ratios above are preserved exactly), so stints
+            // genuinely end and the pit windows the AI strategy code plans
+            // around actually arrive.
             if (compound == TyreCompound.Soft)
             {
                 baseGrip = 1.16f;
-                baseWear = 2.2f;
+                baseWear = 4.4f;
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
@@ -79,7 +84,7 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Medium)
             {
                 baseGrip = 1f;
-                baseWear = 1.1f;
+                baseWear = 2.2f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
@@ -90,7 +95,7 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Hard)
             {
                 baseGrip = 0.87f;
-                baseWear = 0.55f;
+                baseWear = 1.1f;
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;
@@ -101,7 +106,7 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Intermediate)
             {
                 baseGrip = 0.9f;
-                baseWear = 1.15f;
+                baseWear = 2.3f;
                 targetMin = 58f;
                 targetMax = 82f;
                 warmup = 1.05f;
@@ -112,7 +117,7 @@ namespace LocalFormulaRacing
             else
             {
                 baseGrip = 0.78f;
-                baseWear = 1.25f;
+                baseWear = 2.5f;
                 targetMin = 45f;
                 targetMax = 70f;
                 warmup = 1.1f;
