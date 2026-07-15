@@ -4,6 +4,31 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Root-cause: why AI crawl at all (the crawl rule was masking two real bugs)
+
+Diagnosed why a car can be stuck at <=10 kph for 3s despite the 2.5s unstick,
+and fixed the causes so the crawl-rule teleport is a true last resort:
+
+- A STOPPED car ahead counted as legitimate "queuing": queuedBehindTraffic
+  was true whenever the car ahead was under 30 kph - including fully stopped.
+  A car sitting nose-to-tail behind a dead car was mislabeled Queued forever:
+  excluded from the stranded timer AND ineligible for the AI reverse-out
+  recovery maneuver (which only runs for Recovering/ActuallyStranded), so it
+  just sat there. Queuing now requires the blocker to be actually MOVING
+  (>8 kph); a stopped blocker means both cars are stuck, so this car falls
+  through to Recovering and gets the reverse maneuver.
+- The unstick could only drive FORWARD into whatever stopped it: it floored
+  the throttle straight into the back of a dead car or a barrier, so it never
+  escaped. It now reads what's ahead - with a car within ~6m directly ahead
+  or the car pinned against a track edge it REVERSES and steers toward open
+  road (the same reverseAssist the recovery maneuver uses); otherwise floors
+  forward as before. It also engages earlier (1.5s, was 2.5s) and across the
+  full <=10 kph band (was <8), so nothing falls into the gap below the crawl
+  rule's own threshold.
+
+The 3s crawl-recovery teleport stays as the ultimate backstop, but should now
+essentially never be reached.
+
 ## Crawling AI now hold-R recovers instead of retiring (per request)
 
 - The 3-second crawl rule no longer retires/despawns the car: an AI at

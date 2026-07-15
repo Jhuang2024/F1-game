@@ -188,7 +188,20 @@ namespace LocalFormulaRacing
                 // traffic, not stuck on its own - checked against on-track cars only,
                 // since a car buried in the gravel isn't "queued" behind anyone.
                 RaceParticipant blockerAhead = !offTrackNow ? FindCarAhead(participant, 9f) : null;
+                // Root-cause fix (why the 3s crawl rule can fire at all): this
+                // used to treat ANY car-ahead under 30 kph as legitimate
+                // "queuing", INCLUDING a fully stopped one. A car sitting
+                // nose-to-tail behind a genuinely dead car was therefore
+                // mislabeled Queued forever - excluded from stoppedOnTrackTimer
+                // (so never ActuallyStranded) and NOT eligible for the AI
+                // reverse-out recovery maneuver (which only fires for Recovering/
+                // ActuallyStranded) - so it just sat there crawling until the
+                // blunt crawl rule teleported it. Real queuing needs the blocker
+                // to actually be MOVING (>8 kph): a stopped blocker means both
+                // cars are stuck, not queuing, so this car falls through to the
+                // Recovering classification and gets the reverse maneuver.
                 bool queuedBehindTraffic = blockerAhead != null && blockerAhead.vehicle != null &&
+                    Mathf.Abs(blockerAhead.vehicle.CurrentSpeedKph) > 8f &&
                     Mathf.Abs(blockerAhead.vehicle.CurrentSpeedKph) < 30f && speedKph < 30f;
 
                 bool recoveryGraceActive = participant.recoveryGraceTimer > 0f;

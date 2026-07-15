@@ -2945,7 +2945,12 @@ namespace LocalFormulaRacing
             bool raceRunning = raceManager.CanDrive &&
                                raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                                raceManager.RaceElapsed > 6f;
-            if (raceRunning && !committingToPit && speedKph < 8f)
+            // Threshold aligned to the crawl rule's <=10 (was <8): the crawl
+            // rule that teleports a car fires at <=10 kph, so the unstick that
+            // is supposed to prevent it must engage across the SAME band - a
+            // car steadily at 8-10 kph used to trip the crawl rule while never
+            // accumulating any unstick time at all.
+            if (raceRunning && !committingToPit && speedKph <= 10f)
             {
                 stuckInTrafficSeconds += Time.deltaTime;
             }
@@ -2954,28 +2959,49 @@ namespace LocalFormulaRacing
                 stuckInTrafficSeconds = 0f;
             }
 
-            if (stuckInTrafficSeconds > 2.5f)
+            if (stuckInTrafficSeconds > 1.5f)
             {
+                // Root-cause fix (why cars crawl for 3s at all): flooring the
+                // throttle FORWARD drives a car straight into whatever stopped
+                // it - the back of a dead car, or a barrier - so it never
+                // escaped and only the crawl rule saved it. The unstick now
+                // reads what is actually ahead: with a car within ~6m directly
+                // ahead (nearestInLaneAheadZ) or the car pinned hard against a
+                // track edge, it REVERSES and steers toward the open side (the
+                // same reverseAssist the dedicated recovery maneuver uses);
+                // otherwise it floors forward as before. Either way it is a
+                // genuine override - any upstream brake (corner model, edge
+                // brake, handback ramp) is cleared, since the final merge is
+                // Max(command.brake, brakeDemand) / Min(command.throttle,
+                // throttleLimit) and an uncleared upstream brake was exactly
+                // what kept the "unstuck" car braked at walking pace.
                 brakeDemand = 0f;
-                throttleLimit = Mathf.Max(throttleLimit, 0.35f);
-                // 10-second-stall fix (per report - cars sitting at ~1 kph for
-                // ~10s then resuming as if nothing happened): this unstick only
-                // zeroed ITS OWN brakeDemand and raised throttleLimit - but
-                // command.brake arrives here already carrying whatever an
-                // upstream system applied (corner model, edge brake, handback
-                // ramp), and the final merge is Max(command.brake, brakeDemand)
-                // / Min(command.throttle, throttleLimit): an upstream brake was
-                // never cleared and an upstream zero throttle passed straight
-                // through the Min. The car sat "unstuck" but braked at walking
-                // pace until the slow stuck-escalation eventually repositioned
-                // it. The unstick is now a genuine override: any upstream brake
-                // is cleared and the throttle is FLOORED, so forward motion is
-                // guaranteed the moment it engages.
-                command.brake = 0f;
-                command.throttle = Mathf.Max(command.throttle, 0.35f);
                 float unstickRoomRight = LocalHalfWidthAt(progress.distance) - progress.lateralDistance;
                 float unstickRoomLeft = LocalHalfWidthAt(progress.distance) + progress.lateralDistance;
-                steerAdjust += (unstickRoomRight > unstickRoomLeft ? 1f : -1f) * 0.35f;
+                float openSide = unstickRoomRight > unstickRoomLeft ? 1f : -1f;
+
+                float localHalf = LocalHalfWidthAt(progress.distance);
+                bool pinnedToEdge = localHalf > 0.1f && Mathf.Abs(progress.lateralDistance) > localHalf - 1.2f;
+                bool blockedAhead = nearestInLaneAheadZ < 6f || pinnedToEdge;
+
+                if (blockedAhead)
+                {
+                    // Back out of the obstacle, nose swinging toward open road.
+                    // steerAdjust is zeroed so the leftover dodge/side-by-side
+                    // steering (merged in at the end of this method) can't fight
+                    // the reverse-out line.
+                    command.throttle = 0f;
+                    command.brake = 0f;
+                    command.reverseAssist = true;
+                    command.steer = Mathf.Clamp(-openSide, -1f, 1f);
+                    steerAdjust = 0f;
+                }
+                else
+                {
+                    command.brake = 0f;
+                    command.throttle = Mathf.Max(command.throttle, 0.4f);
+                    steerAdjust += openSide * 0.35f;
+                }
             }
 
             if (brakeDemand > 0f)
