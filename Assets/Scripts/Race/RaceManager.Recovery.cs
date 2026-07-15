@@ -176,18 +176,39 @@ namespace LocalFormulaRacing
             }
 
             playerResetCooldown = 5f;
+            ResetParticipantToTrackCenter(participant);
+
+            if (CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial)
+            {
+                AddPenalty(participant, 5f, "Car recovery");
+                SessionMessage = "Car recovered: +5s";
+                PostEngineerMessage("Car recovered to the track. Five second penalty added.", true);
+            }
+            else
+            {
+                SessionMessage = "Car recovered: lap invalidated";
+                PostEngineerMessage("Car recovered. This lap will not count.", true);
+            }
+        }
+
+        // The shared recovery action (the hold-R behaviour): place the car at
+        // the MIDDLE of the road at its current lap distance, facing down the
+        // track - the one spot guaranteed to be solid, drivable tarmac on
+        // every layout (lastSafePosition was routinely right at the track
+        // edge, or past it on layouts with boundary defects). Used by the
+        // player's hold-R reset above and by the AI crawl-recovery rule in
+        // UpdateRaceControl.
+        public void ResetParticipantToTrackCenter(RaceParticipant participant)
+        {
+            if (participant == null || Track == null)
+            {
+                return;
+            }
+
             TrackProgress progress = participant.lapTracker != null
                 ? participant.lapTracker.CurrentProgress
                 : Track.GetProgress(participant.transform.position);
 
-            // Recovery-placement fix (per request): this used to prefer
-            // lastSafePosition - wherever the car was last classified safe,
-            // which is routinely right at the track edge (and on layouts with
-            // boundary defects, effectively past it), so holding R put the car
-            // straight back into the trouble it was escaping. The player
-            // recovery now ALWAYS re-enters at the middle of the road at the
-            // car's current lap distance, facing down the track - the one spot
-            // guaranteed to be on solid, drivable tarmac on every layout.
             Vector3 centerPoint;
             Vector3 centerForward;
             Vector3 centerRight;
@@ -211,18 +232,6 @@ namespace LocalFormulaRacing
             if (participant.lapTracker != null)
             {
                 participant.lapTracker.InvalidateCurrentLap();
-            }
-
-            if (CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial)
-            {
-                AddPenalty(participant, 5f, "Car recovery");
-                SessionMessage = "Car recovered: +5s";
-                PostEngineerMessage("Car recovered to the track. Five second penalty added.", true);
-            }
-            else
-            {
-                SessionMessage = "Car recovered: lap invalidated";
-                PostEngineerMessage("Car recovered. This lap will not count.", true);
             }
         }
 

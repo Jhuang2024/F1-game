@@ -4,6 +4,16 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Crawling AI now hold-R recovers instead of retiring (per request)
+
+- The 3-second crawl rule no longer retires/despawns the car: an AI at
+  ≤10 kph for 3+ seconds under green racing now gets exactly the player's
+  hold-R action — snapped to the middle of the road at its current distance,
+  facing down the track, lap invalidated — and resumes racing. The recovery
+  core is now a shared method (ResetParticipantToTrackCenter) used by both
+  the R key and the crawl rule; exclusions (launch window, pits, SC/VSC)
+  unchanged.
+
 ## Difficulty round 5: explicit AI machinery advantage; yellows halved again (per request)
 
 - With the fair tuning levers exhausted over rounds 2–4, the top difficulty
