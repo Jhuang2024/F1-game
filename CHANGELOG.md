@@ -4,6 +4,20 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## The real slow-AI cause: corner target had DOUBLE confidence conservatism (per request)
+
+- Damage ruled out (AI take none now) and cars were still slow, so I traced
+  the actual corner-speed pipeline: apexConfidence was applied TWICE - once
+  shaping the floor speed inside the corner model, and again as
+  Lerp(trueApexSpeed * 0.5, trueApexSpeed, apexConfidence). That 0.5 floor let
+  the AI target as little as HALF the corner speed the car could physically
+  hold, while the player drives near the real grip limit - so the AI was
+  structurally slow through every corner regardless of tuning. Floor raised to
+  0.9: the AI now targets 90-100% of the achievable corner speed. It cannot
+  overshoot - the corner floors are the geometric max the steering can rotate,
+  trueApexSpeed never exceeds that, and the x1.12 braking-entry feasibility cap
+  still guards corner entry.
+
 ## AI take no damage at all (per request)
 
 - AI cars no longer accumulate any damage from contact - the collision physics

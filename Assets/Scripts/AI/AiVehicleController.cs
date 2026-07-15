@@ -1161,7 +1161,17 @@ namespace LocalFormulaRacing
             // curvature (see the HighSpeed/Medium cap in EstimateApexSpeedForCornerType).
             // skillTier alone now drives corner-speed difficulty scaling, in one
             // place, with a hard ceiling that can never exceed straightTargetSpeed.
-            float apexTargetSpeed = Mathf.Lerp(trueApexSpeed * 0.5f, trueApexSpeed, apexConfidence);
+            // Corner-pace fix (per report - AI still corners too slowly): the
+            // 0.5 floor here was a SECOND confidence penalty (apexConfidence
+            // already shapes floorSpeed inside EstimateApexSpeedForCornerType),
+            // so a low-confidence tier targeted as little as half the corner
+            // speed the car could actually hold while the player drives near
+            // the real limit. Raised to 0.9 - the AI now targets 90-100% of the
+            // achievable corner speed. This can never exceed the geometry: the
+            // floors are the geometric max the steering can rotate, trueApexSpeed
+            // <= that, and the brakingApexSpeed feasibility cap (x1.12) still
+            // guards entry, so cars carry the speed without overshooting.
+            float apexTargetSpeed = Mathf.Lerp(trueApexSpeed * 0.9f, trueApexSpeed, apexConfidence);
 
             // Driver-quality variance is the per-driver pace differentiator, independent
             // of difficulty; profile.paceMultiplier is the difficulty-tier pace scaler
@@ -1247,7 +1257,7 @@ namespace LocalFormulaRacing
                 float paceCap = raceControlCap;
 
                 float trueApexSpeedUnderCap = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, paceCap, hairpinSpeedKph, gripMultiplier, apexConfidence, skillTier, compoundSpeedOffsetKph);
-                float apexTargetSpeedUnderCap = Mathf.Lerp(trueApexSpeedUnderCap * 0.5f, trueApexSpeedUnderCap, apexConfidence);
+                float apexTargetSpeedUnderCap = Mathf.Lerp(trueApexSpeedUnderCap * 0.9f, trueApexSpeedUnderCap, apexConfidence);
 
                 straightTargetSpeed = paceCap;
                 float cappedApexTargetSpeed = Mathf.Min(apexTargetSpeedUnderCap, paceCap);
