@@ -72,19 +72,23 @@ namespace F1Game.Race.Rules
                 return 2.75f;
             }
 
+            // Compound-contrast pass: the dry slick ladder is widened alongside
+            // TyreState's baseGrip/CompoundSpeedOffsetKph spread so a simulated
+            // qualifying lap reflects the same drastic compound gap the driven
+            // car feels (soft ~1s/lap quicker than hard instead of ~0.5s).
             if (compoundCode == Compound.Soft)
             {
-                return -0.18f;
+                return -0.35f;
             }
 
             if (compoundCode == Compound.Medium)
             {
-                return 0.08f;
+                return 0.15f;
             }
 
             if (compoundCode == Compound.Hard)
             {
-                return 0.34f;
+                return 0.65f;
             }
 
             return compoundCode == Compound.Intermediate ? 1.7f : 3.1f;

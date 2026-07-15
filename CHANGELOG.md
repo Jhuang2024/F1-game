@@ -4,6 +4,25 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Tyres/DRS/start-reaction pass (per request)
+
+- Tyre compounds are drastically differentiated (they previously differed by a
+  rounding error): dry wear spread widened from 1.5/1.08/0.74 to 2.2/1.1/0.55
+  (a soft now wears ~2x a medium, a medium ~2x a hard), grip spread widened
+  from 1.11/1.00/0.93 to 1.16/1.00/0.87, flat compound speed offsets doubled
+  (medium 7.5→15 kph, hard 15→30 kph slower than soft), and the simulated-
+  qualifying dry tyre ladder widened to match (soft ~1s/lap quicker than hard).
+- DRS fixed: the boost was a 15-second window armed by a single activation
+  that kept delivering +30 kph and its push force after the wing closed —
+  through braking zones, corners, and the whole next sector. The boost now
+  lives and dies with the wing actually being open (brake/zone-exit/
+  availability-loss all end it instantly); the HUD ACTIVE state follows the
+  wing. `DrsBoostSecondsRemaining` and the timer plumbing removed.
+- AI start reaction times are human again: the base-delay scale (0.7–0.35×)
+  put Expert AI at 0.08–0.16s off the line — below the ~0.2s floor of human
+  reaction. Rescaled to 1.4–0.9×, spanning ~0.2s (Expert, top driver, real
+  F1-grade) to ~0.7s (Easy, poor driver). Tests updated.
+
 ## Game-problems review pass (design/balance/fairness, not bugs)
 
 A dedicated audit of genuine game problems — unfair or dead mechanics, balance

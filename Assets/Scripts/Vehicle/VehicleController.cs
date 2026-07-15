@@ -24,17 +24,14 @@ namespace LocalFormulaRacing
         public bool ErsDeploying { get; private set; }
         public bool ErsHarvesting { get; private set; }
         public bool DrsActive { get; private set; }
-        // Flat-rate DRS speed boost: separate from DrsActive (which only governs
-        // the wing-open visual and the drag-coefficient cut). Once triggered by a
-        // fresh DRS activation, this runs for DrsBoostDurationSeconds of real time
-        // regardless of what the wing does afterward (braking, toggling closed),
-        // and grants DrsBoostAmountKph on top of the car's normal target speed
-        // whenever it's actually above DrsBoostThresholdKph - with no ceiling
-        // clamp applied to this component, unlike every other speed bonus.
+        // DRS speed boost, live only while the wing is genuinely open (DrsActive)
+        // and the car is above DrsBoostThresholdKph. DRS fix: this used to be a
+        // 15-second timer armed by a single activation that kept granting the
+        // full +kph bonus and its push force after the wing closed - through the
+        // braking zone, the following corners, and far beyond the DRS zone
+        // itself (one tap at the end of a zone bought a boosted next sector).
+        // The boost now lives and dies with the wing, like real DRS.
         public bool DrsBoostActive { get; private set; }
-        public float DrsBoostSecondsRemaining { get; private set; }
-        bool drsCommandPrevious;
-        float drsBoostTimer;
         // One-shot flag for the [LaunchBoost] diagnostic log below - logs only the
         // first frame the AI launch boost lands on this car per race session.
         bool launchBoostLoggedThisRace;
@@ -238,12 +235,10 @@ namespace LocalFormulaRacing
         // the project's own rule that AI straight-line pace never silently
         // exceeds the player's in the same car.
         const float AiTopSpeedBonusKph = 5f;
-        // Flat DRS speed boost (replaces the old ramped/capped drsBoost model):
-        // a fresh DRS activation grants +DrsBoostAmountKph, uncapped by the
-        // normal top-speed ceiling, for DrsBoostDurationSeconds - but only while
-        // actually above DrsBoostThresholdKph, so it never does anything at pit-
-        // lane/low-corner speed.
-        const float DrsBoostDurationSeconds = 15f;
+        // Flat DRS speed boost: +DrsBoostAmountKph, uncapped by the normal
+        // top-speed ceiling, while the wing is open above DrsBoostThresholdKph -
+        // so it never does anything at pit-lane/low-corner speed and ends the
+        // instant the wing closes (brake, zone exit, availability lost).
         const float DrsBoostThresholdKph = 150f;
         const float DrsBoostAmountKph = 30f;
         // Dedicated additive force (same reasoning as playerTopSpeedBoost/
@@ -936,22 +931,10 @@ namespace LocalFormulaRacing
             // car identically - no separate logic to keep in sync.
             DrsActive = activeCommand.drs && absoluteSpeedKph > 90f && activeCommand.brake < 0.05f;
 
-            // Flat DRS speed-boost timer: a fresh activation (command.drs rising
-            // from false to true) arms a DrsBoostDurationSeconds window that
-            // counts down in real time regardless of subsequent braking/wing
-            // toggling - unlike DrsActive above, closing the wing mid-window does
-            // not cancel it. The actual bonus only applies while both the window
-            // is still open AND current speed is above DrsBoostThresholdKph (see
-            // CalculateTargetTopSpeedKph/drsBoostForce below).
-            if (activeCommand.drs && !drsCommandPrevious)
-            {
-                drsBoostTimer = DrsBoostDurationSeconds;
-            }
-
-            drsCommandPrevious = activeCommand.drs;
-            drsBoostTimer = Mathf.Max(0f, drsBoostTimer - dt);
-            DrsBoostSecondsRemaining = drsBoostTimer;
-            DrsBoostActive = drsBoostTimer > 0f && absoluteSpeedKph > DrsBoostThresholdKph;
+            // DRS boost is tied directly to the open wing (DrsActive already
+            // folds in the button/latch, the >90kph gate and the brake auto-
+            // close): no arming timer, no persistence after the wing closes.
+            DrsBoostActive = DrsActive && absoluteSpeedKph > DrsBoostThresholdKph;
 
             TargetTopSpeedKph = CalculateTargetTopSpeedKph(activeCommand);
             if (PitLimiterActive)

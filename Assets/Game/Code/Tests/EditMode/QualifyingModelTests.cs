@@ -141,13 +141,13 @@ namespace F1Game.Tests
             Assert.AreEqual(2.75f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.LightRain, QualifyingModel.Compound.Medium), 0.0001f);
 
             // Dry: soft fastest, then medium, then hard; rain tyres are penalised.
-            Assert.AreEqual(-0.18f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Soft), 0.0001f);
-            Assert.AreEqual(0.08f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Medium), 0.0001f);
-            Assert.AreEqual(0.34f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Hard), 0.0001f);
+            Assert.AreEqual(-0.35f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Soft), 0.0001f);
+            Assert.AreEqual(0.15f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Medium), 0.0001f);
+            Assert.AreEqual(0.65f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Hard), 0.0001f);
             Assert.AreEqual(1.7f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Intermediate), 0.0001f);
             Assert.AreEqual(3.1f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Clear, QualifyingModel.Compound.Wet), 0.0001f);
             // Cloudy behaves like dry here (only Clear is checked implicitly by the else path).
-            Assert.AreEqual(-0.18f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Cloudy, QualifyingModel.Compound.Soft), 0.0001f);
+            Assert.AreEqual(-0.35f, QualifyingModel.TyreWeatherPenalty(QualifyingModel.Weather.Cloudy, QualifyingModel.Compound.Soft), 0.0001f);
         }
 
         [Test]

@@ -96,10 +96,11 @@ namespace F1Game.Tests
         [Test]
         public void AiReactionDelayAndVarianceShrinkWithSkill()
         {
-            // Base delay: tier reaction time scaled 0.7x (low skill) to 0.35x (high).
-            Assert.AreEqual(0.7f, StartProcedureRules.AiReactionBaseDelaySeconds(1f, 0f), 0.0001f);
-            Assert.AreEqual(0.35f, StartProcedureRules.AiReactionBaseDelaySeconds(1f, 1f), 0.0001f);
-            Assert.AreEqual(0.525f, StartProcedureRules.AiReactionBaseDelaySeconds(1f, 0.5f), 0.0001f);
+            // Base delay: tier reaction time scaled 1.4x (low skill) to 0.9x (high) -
+            // the human-plausible band (Expert top driver ~0.2s, Easy poor ~0.7s).
+            Assert.AreEqual(1.4f, StartProcedureRules.AiReactionBaseDelaySeconds(1f, 0f), 0.0001f);
+            Assert.AreEqual(0.9f, StartProcedureRules.AiReactionBaseDelaySeconds(1f, 1f), 0.0001f);
+            Assert.AreEqual(1.15f, StartProcedureRules.AiReactionBaseDelaySeconds(1f, 0.5f), 0.0001f);
             Assert.Greater(StartProcedureRules.AiReactionBaseDelaySeconds(1f, 0.2f),
                            StartProcedureRules.AiReactionBaseDelaySeconds(1f, 0.9f));
 

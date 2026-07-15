@@ -148,10 +148,16 @@ namespace F1Game.Race.Rules
         }
 
         /// <summary>Deterministic reaction delay (s) before the variance is added:
-        /// the tier's reaction time scaled 0.7x (low skill) down to 0.35x (high).</summary>
+        /// the tier's reaction time scaled 1.4x (low skill) down to 0.9x (high).
+        /// Reaction-time fix: the previous 0.7-0.35 scale put Expert AI at
+        /// 0.08-0.16s off the line - well under the ~0.2s floor of human reaction
+        /// (elite F1 drivers sit around 0.2-0.3s), so the whole field launched
+        /// inhumanly early every start. The band now spans ~0.2s (Expert, top
+        /// driver) to ~0.7s (Easy, poor driver): genuinely human numbers that
+        /// still order correctly by tier and driver skill.</summary>
         public static float AiReactionBaseDelaySeconds(float reactionTimeSeconds, float skillBlend01)
         {
-            return reactionTimeSeconds * Lerp(0.7f, 0.35f, skillBlend01);
+            return reactionTimeSeconds * Lerp(1.4f, 0.9f, skillBlend01);
         }
 
         /// <summary>The +/- variance magnitude (s) around the base delay: wider for

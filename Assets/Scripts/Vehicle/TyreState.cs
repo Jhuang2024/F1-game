@@ -57,19 +57,18 @@ namespace LocalFormulaRacing
             LastLockupSeverity = 0f;
             ResetFlatSpots();
 
-            // Tyre-difference pass: dry baseGrip left at its original spacing
-            // (1.11/1.00/0.93) deliberately - this multiplicative ratio is what
-            // differentiates the PLAYER's own physics-driven cornering by compound,
-            // and it already stacks with the new flat CompoundSpeedOffsetKph
-            // straight-line/AI-cornering penalty below. Widening both would have
-            // compounded into a much bigger gap than the requested "5-10kph slower"
-            // for AI cars specifically (which read both this ratio AND the flat
-            // kph penalty), so only the new, precisely-tunable flat-kph system
-            // was added rather than also widening this ratio.
+            // Compound-contrast pass (per request - "tires should actually
+            // matter"): both the grip ratio (player cornering feel) and the flat
+            // CompoundSpeedOffsetKph below are deliberately widened together, and
+            // the wear spread is now drastic rather than incremental - a soft is
+            // a genuinely fast, genuinely fragile tyre (~2x medium's wear) and a
+            // hard is a slow, near-indestructible one (~half of medium's wear),
+            // so compound choice and stint timing are real strategic decisions
+            // instead of a rounding error.
             if (compound == TyreCompound.Soft)
             {
-                baseGrip = 1.11f;
-                baseWear = 1.5f;
+                baseGrip = 1.16f;
+                baseWear = 2.2f;
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
@@ -80,7 +79,7 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Medium)
             {
                 baseGrip = 1f;
-                baseWear = 1.08f;
+                baseWear = 1.1f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
@@ -90,8 +89,8 @@ namespace LocalFormulaRacing
             }
             else if (compound == TyreCompound.Hard)
             {
-                baseGrip = 0.93f;
-                baseWear = 0.74f;
+                baseGrip = 0.87f;
+                baseWear = 0.55f;
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;
@@ -155,8 +154,8 @@ namespace LocalFormulaRacing
             // Intermediate/Wet in the dry are already handled by their much lower
             // baseGrip alone, no additional flat penalty needed there.
             if (Compound == TyreCompound.Soft) return 0f;
-            if (Compound == TyreCompound.Medium) return 7.5f;
-            if (Compound == TyreCompound.Hard) return 15f;
+            if (Compound == TyreCompound.Medium) return 15f;
+            if (Compound == TyreCompound.Hard) return 30f;
             return 0f;
         }
 
