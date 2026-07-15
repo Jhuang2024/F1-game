@@ -4,6 +4,21 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Followers race instead of braking forever (per request)
+
+- The all-race "AI just brakes behind the car ahead" behaviour was a genuine
+  catch-22: the attack trigger needed a corner, DRS, or a LIVE measured speed
+  advantage — but the follower's own traffic-avoidance braking equalises the
+  two cars' speeds before it gets close, so `clearlySlower` always read false
+  and on a plain straight a faster car could never qualify to attack. Holding
+  inside 1.8s for 3.5s is itself proof of pace, so sustained pressure is now
+  its own attack qualifier.
+- Part 2: `PreparingAttack` (the 2.2–3.2s line-up phase) ran at full traffic
+  caution, so the avoidance braking re-opened the exact gap the driver was
+  closing, the `stillThere` check failed, and the move aborted in a loop.
+  Prep now runs at the same reduced caution as the attack states (steering
+  separation and genuine collision braking stay fully active).
+
 ## Start-pack collisions: actual root cause found and fixed (per request)
 
 - The bunching was never a braking problem — it was a lateral MERGE order.

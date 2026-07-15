@@ -2364,7 +2364,15 @@ namespace LocalFormulaRacing
             // collision urgency brake still apply at the reduced factor - this
             // biases contests toward contact-tolerant hard racing, it doesn't
             // disable protection outright.
-            bool activelyOvertaking = overtakeState == OvertakeState.AttackingInside ||
+            // PreparingAttack included ("they just brake" fix, part 2): the prep
+            // phase lasts 2.2-3.2s and used to run at FULL traffic caution - the
+            // avoidance braking re-opened the gap the driver was trying to close,
+            // PreparingAttack's stillThere check (<1.4s) then failed, and the move
+            // aborted to BackingOut in a loop. A driver lining up a pass is
+            // already committed to running close; the reduced factor still keeps
+            // steering separation and genuine collision braking active.
+            bool activelyOvertaking = overtakeState == OvertakeState.PreparingAttack ||
+                                      overtakeState == OvertakeState.AttackingInside ||
                                       overtakeState == OvertakeState.AttackingOutside ||
                                       overtakeState == OvertakeState.SideBySide ||
                                       overtakeState == OvertakeState.CompletingPass;
@@ -3121,6 +3129,20 @@ namespace LocalFormulaRacing
                         followingTimer = gapSeconds < 1.8f ? followingTimer + Time.deltaTime : 0f;
                         float patienceBonus = Mathf.Clamp01(followingTimer / 10f) * Mathf.Lerp(2f, 9f, commitment);
 
+                        // THE "they just brake forever" fix: every qualifier below
+                        // except this one needs either a corner, DRS, or a LIVE
+                        // measured speed advantage - but by the time a genuinely
+                        // faster car is close enough to attack, its own traffic-
+                        // avoidance braking has already equalised the two cars'
+                        // speeds, so clearlySlower reads false and on a plain
+                        // straight the attack never qualifies at all. The car
+                        // orbits in the leader's wake, braking every time it
+                        // closes, for the whole stint. Sitting inside 1.8s for
+                        // several seconds IS proof of pace (you cannot hold that
+                        // gap without it), so sustained pressure becomes its own
+                        // attack qualifier.
+                        bool sustainedPressure = followingTimer > 3.5f;
+
                         // DRS conversion: a real advantage should turn into real
                         // attacks, scaled by commitment so Expert converts a tow far
                         // more often than a tentative Easy/Medium driver does.
@@ -3137,7 +3159,7 @@ namespace LocalFormulaRacing
                         // was the real ceiling on how often Easy/Medium/Hard even
                         // considered an attack).
                         float attackGapThreshold = isExpert ? (aheadIsBackmarker ? 2.6f : 1.6f) : 1.5f;
-                        bool attackTrigger = gapSeconds < attackGapThreshold && (approachingBrakeZone || drsHelp || clearlySlower || positiveSpeedDeltaExpert) && hasPace;
+                        bool attackTrigger = gapSeconds < attackGapThreshold && (approachingBrakeZone || drsHelp || clearlySlower || positiveSpeedDeltaExpert || sustainedPressure) && hasPace;
 
                         // Part A.2: Expert is fully deterministic once attackTrigger is
                         // true - no dice roll for permission to attack.
