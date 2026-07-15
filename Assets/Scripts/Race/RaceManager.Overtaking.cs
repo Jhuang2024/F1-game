@@ -101,6 +101,9 @@ namespace LocalFormulaRacing
         // isn't an allowed order correction - is penalized exactly once per
         // pair per cooldown window, player and AI identically.
         readonly List<RaceParticipant> raceControlOrderSnapshot = new List<RaceParticipant>();
+        // Sector each snapshotted car was in at snapshot time, parallel to
+        // raceControlOrderSnapshot - see the sector-escape fix below.
+        readonly List<int> raceControlSectorSnapshot = new List<int>();
         readonly Dictionary<string, float> illegalOvertakePairCooldowns = new Dictionary<string, float>();
         readonly List<string> expiredPairCooldownKeys = new List<string>();
         float orderSnapshotTimer;
@@ -113,6 +116,7 @@ namespace LocalFormulaRacing
             if (State == null || CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial || StartCountdown > 0f)
             {
                 raceControlOrderSnapshot.Clear();
+                raceControlSectorSnapshot.Clear();
                 restrictionActiveAtLastSnapshot = false;
                 return;
             }
@@ -139,6 +143,7 @@ namespace LocalFormulaRacing
             }
 
             List<RaceParticipant> currentOrder = new List<RaceParticipant>();
+            List<int> currentSectors = new List<int>();
             List<RaceParticipant> running = GetRunningOrderSnapshot();
             for (int i = 0; i < running.Count; i++)
             {
@@ -155,6 +160,7 @@ namespace LocalFormulaRacing
                 }
 
                 currentOrder.Add(candidate);
+                currentSectors.Add(State.GetCurrentProgress(candidate).sector);
             }
 
             bool restrictionActiveNow = !IsOvertakingAllowed || YellowFlagSector >= 0;
@@ -186,7 +192,25 @@ namespace LocalFormulaRacing
 
                         // mover was behind `passed` last snapshot and is ahead
                         // now - a completed pass during the restricted window.
-                        bool restrictedPair = IsOvertakingRestrictedForParticipant(mover) || IsOvertakingRestrictedForParticipant(passed);
+                        // Sector-escape fix (per report: yellow-flag overtake
+                        // penalties never landed on the player): the local-
+                        // yellow restriction is a sector test evaluated at THIS
+                        // snapshot only, so a pass begun inside the yellow
+                        // sector but completed just past the sector boundary
+                        // read both cars in the next sector and went unpunished.
+                        // The AI never exploits this (it suppresses attacks in
+                        // yellow sectors); the player did, unknowingly, every
+                        // time. The pair is now also restricted if EITHER car
+                        // was in the yellow sector at the PREVIOUS snapshot.
+                        bool previousSectorRestricted = false;
+                        if (YellowFlagSector >= 0 && raceControlSectorSnapshot.Count == raceControlOrderSnapshot.Count)
+                        {
+                            previousSectorRestricted =
+                                raceControlSectorSnapshot[moverPreviousIndex] == YellowFlagSector ||
+                                raceControlSectorSnapshot[passedPreviousIndex] == YellowFlagSector;
+                        }
+
+                        bool restrictedPair = previousSectorRestricted || IsOvertakingRestrictedForParticipant(mover) || IsOvertakingRestrictedForParticipant(passed);
                         if (!restrictedPair || IsPositionCorrectionAllowed(mover, passed))
                         {
                             continue;
@@ -223,6 +247,8 @@ namespace LocalFormulaRacing
 
             raceControlOrderSnapshot.Clear();
             raceControlOrderSnapshot.AddRange(currentOrder);
+            raceControlSectorSnapshot.Clear();
+            raceControlSectorSnapshot.AddRange(currentSectors);
             restrictionActiveAtLastSnapshot = restrictionActiveNow;
         }
 

@@ -3330,25 +3330,43 @@ namespace LocalFormulaRacing
         {
             Mesh mesh = new Mesh();
             mesh.name = "Procedural Road Mesh";
-            int count = Runtime.centerLine.Count;
+            // Boundary-truth fix (per report: "the track doesn't extend to the
+            // barriers" on some layouts, cars falling off while pitting): the
+            // mesh used to place one vertex pair per CENTERLINE point - a
+            // sparse ~130m polyline on these layouts - and lerp the width
+            // linearly across each long quad. But HalfWidthAt (the width
+            // authority every other system uses: barriers, track limits, pit
+            // laterals, the AI corridor) interpolates the authored per-point
+            // width profile at full resolution, so wherever the authored width
+            // changes between two sparse vertices the PHYSICAL tarmac was
+            // narrower than every consumer believed - barriers stood beyond
+            // the mesh edge with void between, and the pit approach steered
+            // cars onto air. The mesh is now sampled densely (every 8m) from
+            // the same SampleAtDistance/HalfWidthAt pair, so the physical
+            // surface finally IS the boundary the rest of the game reasons
+            // about.
+            const float RoadMeshStepMeters = 8f;
+            int count = Mathf.Max(Runtime.centerLine.Count, Mathf.CeilToInt(Runtime.length / RoadMeshStepMeters));
+            float step = Runtime.length / count;
             Vector3[] vertices = new Vector3[count * 2];
             Vector2[] uvs = new Vector2[count * 2];
             int[] triangles = new int[count * 6];
 
             for (int i = 0; i < count; i++)
             {
+                float distance = i * step;
                 Vector3 point;
                 Vector3 forward;
                 Vector3 right;
-                Runtime.SampleAtDistance(Runtime.cumulativeDistances[i], out point, out forward, out right);
+                Runtime.SampleAtDistance(distance, out point, out forward, out right);
                 // The physical drivable surface (and its MeshCollider) is the ultimate
                 // ground truth for how wide the track actually is, so it must sample the
                 // same widened HalfWidthAt used by kerbs/barriers - otherwise a hairpin
                 // could paint/fence wider than the tarmac cars can actually drive on.
-                float localHalfWidth = Runtime.HalfWidthAt(Runtime.cumulativeDistances[i]);
+                float localHalfWidth = Runtime.HalfWidthAt(distance);
                 vertices[i * 2] = point - right * localHalfWidth + Vector3.up * 0.015f;
                 vertices[i * 2 + 1] = point + right * localHalfWidth + Vector3.up * 0.015f;
-                float v = Runtime.cumulativeDistances[i] / 12f; // Tiled UV for asphalt detail
+                float v = distance / 12f; // Tiled UV for asphalt detail
                 uvs[i * 2] = new Vector2(0f, v);
                 uvs[i * 2 + 1] = new Vector2(localHalfWidth * 0.5f, v);
 

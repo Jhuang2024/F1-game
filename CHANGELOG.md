@@ -4,6 +4,29 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Road mesh IS the boundary now; yellow-overtake sector escape; half the yellows (per request)
+
+- The real boundary defect found: the road mesh placed one vertex pair per
+  CENTERLINE point (~130 m apart on these layouts) and lerped width across
+  each long quad — while HalfWidthAt (the width authority used by barriers,
+  track limits, pit laterals and the AI corridor) interpolates the authored
+  per-point width profile at full resolution. Wherever authored width changes
+  between two sparse vertices, the physical tarmac was narrower than every
+  system believed: barriers stood beyond the mesh edge with void between, and
+  the pit approach steered cars onto air. The mesh is now sampled densely
+  (every 8 m) from the same SampleAtDistance/HalfWidthAt pair — the physical
+  surface finally IS the boundary the rest of the game reasons about. The pit
+  safety apron stays as defence in depth.
+- Yellow-flag overtake penalties now land on the player: the local-yellow
+  restriction was a sector test evaluated only at the current half-second
+  snapshot, so a pass begun in the yellow sector but completed just past the
+  sector boundary went unpunished — an escape the AI never uses (it
+  suppresses attacks in yellow sectors) but the player hit constantly. The
+  pair snapshot now remembers each car's sector, and a pass is restricted if
+  either car was in the yellow sector at either snapshot.
+- Yellow flags halved: both minor/medium-incident cooldowns doubled
+  (per-sector 65→130 s, global 60→120 s); major incidents still always flag.
+
 ## Pit-zone fall-through fixed with a safety apron (per request)
 
 - On some layouts (e.g. the United States-style circuit) the road surface
