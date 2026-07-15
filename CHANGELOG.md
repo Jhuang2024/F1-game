@@ -4,6 +4,24 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Collision camera reinvestigated: black frame + FOV pump fixed, spin damping reverted (per request)
+
+- The "camera goes weird" is the view going BLACK for ~a second on impacts —
+  the previous spin-damping guess is fully reverted. Real cause: the chase
+  camera's obstacle-avoidance collider had a zero minimum-occlusion-time, and
+  during any contact geometry flickers through the camera-to-car line (the
+  other car, the barrier being hit) — the collider yanked the camera forward
+  instantly, frequently inside geometry (near-plane inside a mesh = black
+  screen), and held it there through the contact plus smoothing. It now waits
+  out momentary flickers (0.25 s), resolves gently instead of teleporting,
+  and keeps a 0.45 m camera radius so it can never sit flush inside a
+  surface.
+- The on-hit FOV lurch: both camera paths normalised speed against the LIVE
+  target top speed, which collapses on damage (and halves on punctures) — an
+  impact made speed01 jump and the speed-widen FOV pump while actual speed
+  barely changed. Both now normalise against the car's stable base top speed.
+- The 4th-camera default stays.
+
 ## Hold-R recovery re-enters at the middle of the road (per request)
 
 - The player recovery used to prefer the last "safe" position — routinely

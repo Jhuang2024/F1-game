@@ -144,11 +144,18 @@ namespace LocalFormulaRacing
             if (CameraConfig.UseCinemachine && target != null)
             {
                 VehicleController vehicle = targetVehicle;
+                // FOV-pump fix (per report - a hit "fucks up the FOV"): this
+                // normalised speed against the LIVE TargetTopSpeedKph, which
+                // collapses the moment the car takes damage (and halves on a
+                // puncture) - so an impact made speed01 jump and the
+                // speed-widen FOV lurch while the actual speed barely changed.
+                // Normalised against the car's stable base top speed instead,
+                // so only genuine speed changes move the lens.
                 director = F1Game.Cameras.RaceCameraDirector.Attach(
                     followCamera,
                     target,
                     () => vehicle != null
-                        ? Mathf.Clamp01(Mathf.Abs(vehicle.CurrentSpeedKph) / Mathf.Max(200f, vehicle.TargetTopSpeedKph))
+                        ? Mathf.Clamp01(Mathf.Abs(vehicle.CurrentSpeedKph) / Mathf.Max(200f, vehicle.CarData != null ? vehicle.CarData.topSpeed : 316f))
                         : 0f);
                 directorActive = director != null;
                 if (directorActive)
@@ -251,7 +258,9 @@ namespace LocalFormulaRacing
             // lags the car settling into the corner.
             float speedSmoothRate = rawSpeedKph < smoothedSpeedKph ? 7.5f : 4.5f;
             smoothedSpeedKph = Mathf.Lerp(smoothedSpeedKph, rawSpeedKph, dt * speedSmoothRate);
-            float topSpeedKph = targetVehicle != null ? Mathf.Max(200f, targetVehicle.TargetTopSpeedKph) : 316f;
+            // Same FOV-pump fix as the director path: stable base top speed,
+            // not the damage/puncture-sensitive live target.
+            float topSpeedKph = targetVehicle != null && targetVehicle.CarData != null ? Mathf.Max(200f, targetVehicle.CarData.topSpeed) : 316f;
             float speed01 = Mathf.Clamp01(smoothedSpeedKph / topSpeedKph);
 
             // Self-contained impact detection: a big instantaneous speed loss

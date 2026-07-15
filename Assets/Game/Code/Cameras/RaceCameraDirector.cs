@@ -47,50 +47,6 @@ namespace F1Game.Cameras
         public void SetLookBack(bool active) => lookBack = active;
 
         public int ActiveIndex => activeIndex;
-
-        // Collision-camera fix (per report - "the camera goes weird if a
-        // collision happens"): the chase transposer follows the car's yaw, so
-        // an impact spin (or the capped-but-real post-contact rotation) whips
-        // the camera around the car at spin speed. The car's yaw rate is
-        // tracked here, and while it exceeds a genuine-spin threshold the
-        // active chase camera's yaw damping is raised hard, easing back over a
-        // second once the car settles - the broadcast-camera behaviour the
-        // legacy rig already had (spinRecoveryAmount), ported to Cinemachine.
-        const float SpinBaseYawDamping = 0.6f;
-        const float SpinMaxYawDamping = 7f;
-        const float SpinYawRateThresholdDegPerSec = 140f;
-        float previousTargetYaw;
-        bool hasPreviousTargetYaw;
-        float spinDampingBlend;
-
-        void UpdateSpinDamping()
-        {
-            if (followTarget == null)
-            {
-                return;
-            }
-
-            float yaw = followTarget.eulerAngles.y;
-            if (!hasPreviousTargetYaw)
-            {
-                previousTargetYaw = yaw;
-                hasPreviousTargetYaw = true;
-                return;
-            }
-
-            float dt = Mathf.Max(Time.deltaTime, 0.0001f);
-            float yawRate = Mathf.Abs(Mathf.DeltaAngle(previousTargetYaw, yaw)) / dt;
-            previousTargetYaw = yaw;
-
-            bool spinning = yawRate > SpinYawRateThresholdDegPerSec;
-            spinDampingBlend = Mathf.MoveTowards(spinDampingBlend, spinning ? 1f : 0f, dt * (spinning ? 6f : 1.2f));
-
-            CinemachineTransposer activeTransposer = activeIndex < transposers.Count ? transposers[activeIndex] : null;
-            if (activeTransposer != null)
-            {
-                activeTransposer.m_YawDamping = Mathf.Lerp(SpinBaseYawDamping, SpinMaxYawDamping, spinDampingBlend);
-            }
-        }
         public CameraProfile ActiveProfile => profiles.Count > 0 ? profiles[Mathf.Clamp(activeIndex, 0, profiles.Count - 1)] : null;
 
         /// <summary>Creates the director on the main camera and builds the vcam set.</summary>
@@ -182,11 +138,6 @@ namespace F1Game.Cameras
                 transposer.m_BindingMode = profile.horizonStability > 0.5f
                     ? CinemachineTransposer.BindingMode.LockToTargetWithWorldUp
                     : CinemachineTransposer.BindingMode.LockToTarget;
-                // Collision-camera fix: an explicit yaw-damping base, raised
-                // dynamically while the car is spinning (see LateUpdate) so an
-                // impact spin doesn't whip the orbiting chase camera around
-                // with the car.
-                transposer.m_YawDamping = SpinBaseYawDamping;
 
                 var composer = vcam.AddCinemachineComponent<CinemachineComposer>();
                 composer.m_HorizontalDamping = profile.rotationDamping;
@@ -196,8 +147,25 @@ namespace F1Game.Cameras
 
             if (profile.cameraCollision)
             {
+                // Black-frame-on-impact fix (reinvestigated per report: the
+                // "camera goes weird" is the view going BLACK for about a
+                // second on collisions): during any contact there is always
+                // geometry flickering through the camera-to-car line - the
+                // other car, the barrier being hit - and with the collider's
+                // default zero minimum-occlusion-time it yanked the camera
+                // forward INSTANTLY, frequently inside the car or the barrier
+                // box (near-plane inside geometry = black screen), holding it
+                // there through the contact plus smoothing time. It now waits
+                // out momentary flickers (0.25s - a real wall between camera
+                // and car persists far longer), resolves gently instead of
+                // teleporting, and keeps a camera radius so the resolved
+                // position can never sit flush inside a surface.
                 var collider = go.AddComponent<CinemachineCollider>();
                 collider.m_AvoidObstacles = true;
+                collider.m_MinimumOcclusionTime = 0.25f;
+                collider.m_CameraRadius = 0.45f;
+                collider.m_Damping = 0.35f;
+                collider.m_DampingWhenOccluded = 0.3f;
                 collider.m_SmoothingTime = 0.2f;
             }
 
@@ -300,8 +268,6 @@ namespace F1Game.Cameras
 
         void LateUpdate()
         {
-            UpdateSpinDamping();
-
             CameraProfile profile = ActiveProfile;
             if (profile == null || cameras.Count == 0 || speed01Provider == null)
             {
