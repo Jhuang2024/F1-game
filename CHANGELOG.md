@@ -4,6 +4,28 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## 3-second crawl despawn, DRS pedal sensor, difficulty round 4 (per request)
+
+- Crawl retirement tightened: AI at ≤10 kph for more than 3 continuous
+  seconds (was 10) under green racing is retired and despawned. The unstick
+  guarantee floors a wedged car's throttle within 2.5 s, so anything still
+  crawling at 3 s is genuinely done; the launch window (first 10 s), pits and
+  SC/VSC pacing stay excluded.
+- DRS root cause, finally: every previous threshold round gated the wing on
+  the ASSISTED brake value — and the auto-brake assist legitimately trims
+  0.2–0.5 through the back half of every DRS straight (it's already braking
+  for the corner at the end of the zone), so with assists on Space frequently
+  did nothing regardless of the threshold. The wing now keys off the driver's
+  raw brake pedal (like real DRS's brake-pressure sensor): assist trims can
+  neither block an open nor close the wing; your actual pedal still closes it
+  instantly (open < 0.15, close > 0.3 hysteresis on the raw pedal).
+- Difficulty round 4 — the AI's own envelope pushed: trusted deceleration
+  skill ceiling 1.35→1.55 (later, harder braking), corner-speed bands raised
+  into the understeer headroom (Slow 310–350, VeryTight 225–285, hairpins
+  85–110 ×1.35), braking-target driver spread cap 1.08→1.12, and the quali
+  difficulty re-anchored to the faster race pace (Easy +5%, Medium +0.5%,
+  Hard −4%, Expert −7%) so the grid keeps predicting the race.
+
 ## Difficulty round 3, crawl retirement, empty-battery boost, tyre text (per request)
 
 - AI difficulty raised again, this time on driving QUALITY: every tier's

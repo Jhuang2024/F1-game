@@ -163,7 +163,10 @@ namespace LocalFormulaRacing
             // same direction, at a magnitude that keeps the grid a rough preview
             // of race pace while staying comfortably faster than the same AI's
             // race laps (so pole laps still beat race fastest laps).
-            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.080f : Settings.Difficulty == RaceDifficulty.Medium ? 0.015f : Settings.Difficulty == RaceDifficulty.Hard ? -0.030f : -0.060f;
+            // Difficulty round 4: re-anchored to the much faster race pace so
+            // the grid keeps predicting the race (Easy 8->5%, Medium 1.5->0.5%,
+            // Hard -3->-4%, Expert -6->-7%).
+            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.050f : Settings.Difficulty == RaceDifficulty.Medium ? 0.005f : Settings.Difficulty == RaceDifficulty.Hard ? -0.040f : -0.070f;
             breakdown.difficultyEffect = entry.isPlayer ? 0f : breakdown.baseLap * difficultyPercent;
 
             // Track evolution: small and gradual, shared identically by every

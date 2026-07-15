@@ -196,6 +196,9 @@ namespace LocalFormulaRacing
         // Velocity at the top of the current physics tick (see ApplyForces /
         // SoftenCarContact) - the baseline for clamping car-car impulses.
         Vector3 lastPrePhysicsVelocity;
+        // The driver's raw brake pedal this tick, pre-assist (see
+        // GetAssistedCommand) - the DRS wing's brake sensor.
+        float lastDriverBrakeInput;
         // Hysteresis state for the ERS auto-deploy gates in GetAssistedCommand:
         // true while an auto deploy is running, which lowers the keep-alive
         // thresholds so a throttle/speed value hovering at the start threshold
@@ -800,6 +803,11 @@ namespace LocalFormulaRacing
 
         VehicleCommand GetAssistedCommand(VehicleCommand raw, float speedKph, TrackProgress progress)
         {
+            // The driver's ACTUAL brake pedal this tick, before any assist trims
+            // - the DRS wing gate reads this (see ApplyForces): an auto-brake
+            // speed trim is not the driver braking.
+            lastDriverBrakeInput = raw.brake;
+
             VehicleCommand assisted = raw;
             if (!IsPlayerControlled || settings == null)
             {
@@ -966,21 +974,20 @@ namespace LocalFormulaRacing
             // coefficient and top-speed bonus below for both the player and every AI
             // car identically - no separate logic to keep in sync.
             //
-            // Flicker fix round 3 - the hysteresis thresholds themselves: round
-            // 2's dead band (open < 0.1, close > 0.3) stopped the flapping but
-            // reintroduced the ORIGINAL bug on the open side - the auto-brake
-            // assist's routine speed trims ((speed - desired)/115) sit above
-            // 0.1 much of the time at speed, so the wing frequently could not
-            // OPEN at all: the pill showed READY, Space latched the request,
-            // and nothing happened. The open gate must sit ABOVE normal assist
-            // trims (that was the whole original 0.05 -> 0.2 fix), with the
-            // close gate higher still: open < 0.25 (trims up to ~29 kph of
-            // overspeed correction don't block it), close only past 0.5 -
-            // genuine braking (ABS floor 0.68, keyboard 1.0, real corner
-            // braking) still slams it shut instantly, and the wide 0.25-0.5
-            // dead band cannot flap.
+            // Flicker fix round 4 - THE root cause, finally: every prior round
+            // tuned thresholds against activeCommand.brake, the ASSISTED value
+            // - but the auto-brake assist legitimately trims 0.2-0.5 through
+            // the back half of every DRS straight (it is already braking for
+            // the corner at the end of the zone), so with assists on the wing
+            // kept refusing to open regardless of where the threshold sat.
+            // Real DRS keys off the driver's brake PEDAL, and so does this
+            // now: lastDriverBrakeInput is the raw pre-assist pedal (for AI,
+            // its commanded brake). Assist trims can neither block an open nor
+            // slam the wing shut; the driver touching the brakes still closes
+            // it instantly, with hysteresis so an analog pedal resting on the
+            // threshold cannot flap.
             bool wingRequested = activeCommand.drs && absoluteSpeedKph > 90f;
-            DrsActive = wingRequested && activeCommand.brake < (DrsActive ? 0.5f : 0.25f);
+            DrsActive = wingRequested && lastDriverBrakeInput < (DrsActive ? 0.3f : 0.15f);
 
             // DRS boost is tied directly to the open wing (DrsActive already
             // folds in the button/latch, the >90kph gate and the brake auto-

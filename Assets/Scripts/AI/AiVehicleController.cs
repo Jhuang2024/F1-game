@@ -625,7 +625,10 @@ namespace LocalFormulaRacing
                     // authority (300 kph now holds ~43m - this bucket's radius
                     // class floor), per the "way too slow through all corners"
                     // report.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(295f, Mathf.Lerp(315f, 335f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Difficulty round 4: ceilings pushed into the envelope
+                    // headroom (the geometry numbers assumed worst-case
+                    // understeer; a smooth AI mid-corner usually has more).
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(310f, Mathf.Lerp(330f, 350f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -681,7 +684,8 @@ namespace LocalFormulaRacing
                     // authority (200 kph holds ~24m, 250 ~33m - the whole
                     // 25-44m VeryTight radius class), per the "way too slow
                     // through all corners" report.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(210f, Mathf.Lerp(240f, 265f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Difficulty round 4: same headroom push as the Slow bucket.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(225f, Mathf.Lerp(255f, 285f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
@@ -1134,7 +1138,9 @@ namespace LocalFormulaRacing
             // Raised alongside the round-2 rotation-authority boost (the yaw
             // model now rotates a hairpin's ~8-15m radius at 90-120 kph, so the
             // old 42-83 crawl was far under the car's real capability).
-            float hairpinSpeedKph = Mathf.Lerp(75f, 100f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f)) * Mathf.Lerp(1f, 1.3f, skillTier);
+            // Difficulty round 4: hairpin band up again (75-100 -> 85-110,
+            // skill mult 1.3 -> 1.35).
+            float hairpinSpeedKph = Mathf.Lerp(85f, 110f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f)) * Mathf.Lerp(1f, 1.35f, skillTier);
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
@@ -1172,7 +1178,7 @@ namespace LocalFormulaRacing
             // floors were matched to.
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
-                apexTargetSpeed * 1.08f);
+                apexTargetSpeed * 1.12f);
 
             float damagePercent = vehicle.Damage == null ? 0f : vehicle.Damage.OverallPercent;
             float damageMultiplier = AiDamagePaceMultiplier(damagePercent);
@@ -1802,7 +1808,10 @@ namespace LocalFormulaRacing
             // (was 1.22) - braking zones were one of the last places the player
             // gained hand over fist on Hard/Expert, because the AI's trusted
             // deceleration sat well below what the car can actually do.
-            float decelReference = Mathf.Lerp(13f, 21f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1f, 1.35f, skillTier);
+            // Difficulty round 4 (per request): trusted deceleration ceiling
+            // raised again (1.35 -> 1.55 skill scale) - higher tiers brake
+            // later and harder than any assist-aided player line.
+            float decelReference = Mathf.Lerp(13f, 21f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1f, 1.55f, skillTier);
             // brakeConfidenceMultiplier folds in on top of brakeDistanceMultiplier so
             // Hard/Expert genuinely brake later/shorter, not just via the weaker base
             // multiplier alone: >1 shortens the effective distance (brakes later),
