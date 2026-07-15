@@ -167,6 +167,17 @@ namespace LocalFormulaRacing
         // A fresh tyre sheds any accumulated flat-spotting/lockup history from the
         // previous stint. Folded into Reset(), but exposed on its own in case a
         // future caller wants to clear flat spots without a full compound reset.
+        // Puncture (per request): a tyre run to 0% remaining life is not just
+        // slow, it is destroyed - the carcass lets go. Consumed by
+        // VehicleController (top speed halved + HUD reason) and by the AI's
+        // destroyed-tyre pit trigger, which fires well before this in normal
+        // play; reaching a genuine puncture means someone gambled way past the
+        // 80%-worn pit policy.
+        public bool Punctured
+        {
+            get { return Wear <= 0.0001f; }
+        }
+
         public void ResetFlatSpots()
         {
             FlatSpotLevel = 0f;

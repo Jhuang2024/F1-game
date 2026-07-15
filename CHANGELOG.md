@@ -4,6 +4,25 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Manual pits work, in-race tyre choice reachable, punctures at 0% (per request)
+
+- Manual pit stops actually happen now: the pit-entry approach assist was
+  deliberately PreRacePlan-only, so a P-key (or accepted safety-car offer)
+  request left you to hit the narrow physical ramp opening yourself — miss it
+  and the stop silently slipped a lap, which read as manual pits simply not
+  working. Every latched player pit request now gets the same approach
+  guidance as planned stops; cancelling (O key / HUD button) before the
+  limiter line still opts out.
+- With manual stops functioning, the in-race compound picker is finally
+  reachable in practice: press P, then 1–5 (Soft/Medium/Hard/Inter/Wet) any
+  time before the box — the service fits the requested compound over the
+  pre-race plan's default, exactly as the plumbing always intended.
+- Punctures: a tyre at 0% remaining life is now flagged Punctured — the car's
+  achievable speed is halved outright (base pace, tow, ERS ceiling, even an
+  open DRS wing) until it reaches the pits, and the HUD slowdown reason shows
+  PUNCTURE. Applies to player and AI alike; the AI's destroyed-tyre pit
+  trigger still fires well before this in normal play.
+
 ## Slow-cornering fix: wall brake no longer fires on intentional sweeps (per request)
 
 - The trajectory wall-brake introduced in the deceleration audit was

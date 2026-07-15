@@ -45,8 +45,17 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            if (!participant.vehicle.PitRequested || participant.activePitRequestSource != PitRequestSource.PreRacePlan ||
-                participant.missedPitEntryThisLap)
+            // Manual-pit fix (per request - "manual pits don't send me into the
+            // pit lane like automatic ones do"): the assist was deliberately
+            // PreRacePlan-only, leaving a P-key (or accepted SC-offer) request
+            // fully manual - but the physical ramp opening is a narrow window
+            // and missing it silently pushed the stop a lap later, which read
+            // as manual pits simply not working. Every latched player pit
+            // request now gets the same approach guidance; cancelling the
+            // request (O key / HUD button) before the limiter line remains the
+            // way to opt back out.
+            if (!participant.vehicle.PitRequested || participant.missedPitEntryThisLap ||
+                participant.activePitRequestSource == PitRequestSource.None)
             {
                 return false;
             }

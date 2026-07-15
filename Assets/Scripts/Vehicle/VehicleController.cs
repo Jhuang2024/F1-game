@@ -1009,6 +1009,14 @@ namespace LocalFormulaRacing
             }
 
             ActiveSlowdownReason = "NONE";
+            if (Tyres.Punctured)
+            {
+                // Puncture (per request): the wear-grip curve already bottoms
+                // out, and CalculateTargetTopSpeedKph halves the achievable
+                // speed outright - this labels the state for the HUD.
+                ActiveSlowdownReason = "PUNCTURE";
+            }
+
             if (IsOffTrackSlowdown)
             {
                 grip *= 0.58f;
@@ -1647,6 +1655,14 @@ namespace LocalFormulaRacing
             if (DrsBoostActive)
             {
                 cappedTarget += DrsBoostAmountKph;
+            }
+
+            // Puncture (per request): a tyre at 0% remaining is gone - every
+            // speed source above (base pace, tow, ERS ceiling, even an open
+            // DRS wing) is halved outright until the car reaches the pits.
+            if (Tyres != null && Tyres.Punctured)
+            {
+                cappedTarget *= 0.5f;
             }
 
             return cappedTarget;
