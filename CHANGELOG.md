@@ -4,6 +4,23 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Car-aversion fix: brakes only for real same-lane blockers (per request)
+
+- Found the piece every aggression pass missed: the urgency brake and the
+  hard throttle cut were the ONE pair of aversion responses never scaled by
+  caution or by a genuine lane check — they fired at full force for any car
+  within 4.6 m laterally, so a follower that had already swung 2.5–3 m off
+  line to pass still got braked to the leader's pace with a clear lane
+  alongside. Both now scale by true same-lane overlap (zero from ~2.6 m
+  offset) and committed overtakers brake at half force; genuinely imminent
+  contact (<0.8 s) keeps the full response. Dodge steering authority raised
+  (0.3–0.85) so a parked car in the lane produces a decisive swerve.
+- Stopped-on-track deadlock loop closed: the low-speed unstick was disabled
+  under any race-control speed cap — but a stopped clump raises a local
+  yellow, whose cap disabled the unstick, keeping the clump stopped and the
+  yellow out indefinitely. The unstick now runs under caution too (the
+  physical limiter still enforces the posted cap on the crawl).
+
 ## Follower aggression WAY up + 80%-worn pit policy (per request)
 
 - Follower overtaking cranked to maximum: the out-of-tow peek engages from

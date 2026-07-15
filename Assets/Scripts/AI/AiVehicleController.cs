@@ -2513,7 +2513,6 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                float overlap = Mathf.Clamp01(1f - absX / 8.5f);
                 if (local.z > 0.5f)
                 {
                     // Feeds the low-speed anti-deadlock creep below: the nearest
@@ -2600,11 +2599,29 @@ namespace LocalFormulaRacing
                             // point model further up) always overrides the
                             // suppression, so the launch-pack easing only ever
                             // applies to genuine straight-line closing.
+                            // Aversion fix (per report - "braking when they
+                            // clearly have to swerve and overtake"): the urgency
+                            // brake and hard throttle cut were the ONE pair of
+                            // responses never scaled by caution or by a genuine
+                            // lane check - they fired at full force for any car
+                            // within 4.6m laterally, so a follower that had
+                            // already swung 2.5-3m off line to pass STILL got
+                            // braked to the leader's pace with a clear lane
+                            // alongside. Both now scale by real same-lane
+                            // overlap (zero from ~2.6m offset - a car you are
+                            // passing is not a wall) and committed overtakers
+                            // brake at half force. Genuinely imminent contact
+                            // (<0.8s) keeps the full response regardless.
+                            float laneBrakeOverlap = Mathf.Clamp01(1f - absX / 2.6f);
+                            float attackBrakeScale = activelyOvertaking && timeToContact >= 0.8f ? 0.5f : 1f;
                             if (!raceStartPackWindow || timeToContact < 0.8f || nearCorner)
                             {
-                                brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.38f, 1f, urgency * urgency) * overlap);
+                                brakeDemand = Mathf.Max(brakeDemand, Mathf.Lerp(0.38f, 1f, urgency * urgency) * laneBrakeOverlap * attackBrakeScale);
                             }
-                            throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.65f, 0.02f, urgency));
+                            if (laneBrakeOverlap > 0f)
+                            {
+                                throttleLimit = Mathf.Min(throttleLimit, Mathf.Lerp(0.65f, 0.02f, urgency * laneBrakeOverlap * attackBrakeScale));
+                            }
                         }
                     }
                     else if (local.z < 5.5f && absX < 3.2f)
@@ -2682,7 +2699,11 @@ namespace LocalFormulaRacing
                         // 0.24-0.78 to 0.18-0.6 so the AI holds its line and
                         // fights for the corner more instead of backing out of
                         // contested space at the first overlap.
-                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.18f, 0.6f, dodgeStrength);
+                        // Swerve authority raised (0.18-0.6 -> 0.3-0.85, per
+                        // report): when a car IS parked in this lane, the
+                        // response the situation calls for is a decisive lateral
+                        // move, not a brake-and-wait.
+                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.3f, 0.85f, dodgeStrength);
                     }
                 }
 
@@ -2808,11 +2829,19 @@ namespace LocalFormulaRacing
             // (SC/VSC/yellow hold slow speeds legitimately), pre-race, or in the
             // first seconds after lights-out (launch spacing is handled by the
             // pack-window logic above).
-            bool greenRacing = raceManager.CanDrive &&
+            // Deadlock-loop fix (per report - cars still stopping on track):
+            // the unstick used to be disabled whenever a race-control speed cap
+            // was active. But a stopped clump IS an incident - it raises a
+            // local yellow, the yellow's cap disabled the unstick, the cars
+            // stayed stopped, and the yellow stayed out: a self-sustaining
+            // freeze. Being pace-CAPPED never legitimately means being
+            // STOPPED, so the unstick now runs under caution too (the physical
+            // limiter still holds the crawl under the posted cap); only the
+            // pre-race/launch window and pit entries stay excluded.
+            bool raceRunning = raceManager.CanDrive &&
                                raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
-                               raceManager.RaceElapsed > 6f &&
-                               raceManager.RaceControlSpeedCapKphFor(participant) >= 9000f;
-            if (greenRacing && !committingToPit && speedKph < 8f)
+                               raceManager.RaceElapsed > 6f;
+            if (raceRunning && !committingToPit && speedKph < 8f)
             {
                 stuckInTrafficSeconds += Time.deltaTime;
             }
