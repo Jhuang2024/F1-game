@@ -136,6 +136,11 @@ namespace LocalFormulaRacing
         // activation as a whole zone decision, not a mid-zone flicker.
         bool drsCommittedThisZone;
         bool wasDrsLegalLastFrame;
+        // How long DRS has read illegal, continuously. The commitment roll below
+        // only re-rolls on a legality rising edge after a REAL gap (a genuine new
+        // zone), so a one-frame availability blip mid-zone can't make a committed
+        // driver suddenly "forget" DRS (or an uncommitted one remember it).
+        float drsIllegalSeconds = 10f;
 
         // Weather-crossover watch: how long this car has been on the wrong
         // class of rubber for the track state (AiPitStrategyRules decides when
@@ -1994,13 +1999,16 @@ namespace LocalFormulaRacing
 
             // DRS legality is decided entirely by RaceManager; drsUsageQuality only
             // decides whether this driver reliably remembers to press it, committed
-            // once per zone so it never flickers mid-zone.
+            // once per zone so it never flickers mid-zone. The re-roll requires the
+            // preceding illegal spell to have lasted >= 0.5s (a genuine between-
+            // zones gap; blips are single frames) - see drsIllegalSeconds.
             bool drsLegal = raceManager.IsDrsAvailable(participant);
-            if (drsLegal && !wasDrsLegalLastFrame)
+            if (drsLegal && !wasDrsLegalLastFrame && drsIllegalSeconds >= 0.5f)
             {
                 // Part A.2: Expert-only, deterministic - if DRS is legal, use it.
                 drsCommittedThisZone = isExpert || Random.value < profile.drsUsageQuality;
             }
+            drsIllegalSeconds = drsLegal ? 0f : drsIllegalSeconds + Time.deltaTime;
             wasDrsLegalLastFrame = drsLegal;
             command.drs = drsLegal && drsCommittedThisZone;
 
@@ -2054,6 +2062,7 @@ namespace LocalFormulaRacing
             dodgeMemorySide = 0f;
             drsCommittedThisZone = false;
             wasDrsLegalLastFrame = false;
+            drsIllegalSeconds = 10f;
             currentThrottle = 0f;
             previousSeverityHere = 0f;
             smoothedLineBias = 0f;

@@ -21,6 +21,14 @@ namespace LocalFormulaRacing
         // so it activates the instant DRS becomes available instead of requiring a
         // second, perfectly-timed press.
         float drsQueueTimer;
+        // Debounce for the availability-driven latch clear below: how long DRS
+        // has read unavailable, continuously. A single-frame blip of
+        // IsDrsAvailable (zone-boundary queries answered from two slightly
+        // different geometry sources, a momentary flag edge) used to clear the
+        // latch instantly - the wing slammed shut and stayed shut until the
+        // driver pressed again, which read as DRS READY/OPEN flicker and a
+        // finicky button. Only a SUSTAINED unavailable read closes the wing.
+        float drsUnavailableTimer;
         float resetHoldTime;
         bool resetTriggered;
         float lastDamagePercent = -1f;
@@ -135,9 +143,13 @@ namespace LocalFormulaRacing
             command.throttle = Mathf.Clamp01(throttleValue);
             command.brake = Mathf.Clamp01(brakeValue);
             command.steer = Mathf.Clamp(steerValue, -1f, 1f);
+            // One availability read per frame, shared by the press, the queued
+            // press and the latch clear below - three separate live reads could
+            // disagree within a single frame at a zone boundary.
+            bool drsAvailableNow = raceManager.IsDrsAvailable(participant);
             if (input.DrsPressed)
             {
-                if (raceManager.IsDrsAvailable(participant))
+                if (drsAvailableNow)
                 {
                     drsLatched = !drsLatched;
                 }
@@ -150,16 +162,31 @@ namespace LocalFormulaRacing
             if (drsQueueTimer > 0f)
             {
                 drsQueueTimer = Mathf.Max(0f, drsQueueTimer - Time.deltaTime);
-                if (raceManager.IsDrsAvailable(participant))
+                if (drsAvailableNow)
                 {
                     drsLatched = true;
                     drsQueueTimer = 0f;
                 }
             }
 
-            if (!raceManager.IsDrsAvailable(participant))
+            // Debounced latch clear (see drsUnavailableTimer): the wing closes
+            // only after DRS has read unavailable for a sustained ~0.25s - a
+            // real zone exit or flag holds unavailable for far longer than
+            // that, while a one-frame boundary blip no longer costs the driver
+            // the latch (and a re-press) mid-zone. Braking still closes the
+            // wing instantly below, and race control force-closes it while
+            // pace-limited regardless of this latch.
+            if (drsAvailableNow)
             {
-                drsLatched = false;
+                drsUnavailableTimer = 0f;
+            }
+            else
+            {
+                drsUnavailableTimer += Time.deltaTime;
+                if (drsUnavailableTimer >= 0.25f)
+                {
+                    drsLatched = false;
+                }
             }
 
             // DRS deployment fix: braking auto-closes the wing (see
@@ -168,7 +195,10 @@ namespace LocalFormulaRacing
             // the button again. Without this the latch stayed true through a
             // brake application and the wing would pop back open the instant
             // the brake was released, with no second press.
-            if (command.brake > 0.05f)
+            // Threshold matched to VehicleController's wing-close level (0.2, was
+            // 0.05) so a tiny brake graze - or the smoothed tail of a released
+            // tap - doesn't eat the latch and demand a re-press mid-zone.
+            if (command.brake > 0.2f)
             {
                 drsLatched = false;
             }

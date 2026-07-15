@@ -929,7 +929,16 @@ namespace LocalFormulaRacing
             // This is the single place DrsActive is decided, so it governs the drag
             // coefficient and top-speed bonus below for both the player and every AI
             // car identically - no separate logic to keep in sync.
-            DrsActive = activeCommand.drs && absoluteSpeedKph > 90f && activeCommand.brake < 0.05f;
+            //
+            // Flicker fix: the close threshold was 0.05, which the auto-brake
+            // assist crosses CONSTANTLY with its small speed-trim applications
+            // ((speed - desired)/115 - barely 6 kph over the model's comfort
+            // speed already reads ~0.05) - so with the assist on, the wing
+            // slammed open/shut every trim and the HUD churned READY<->OPEN all
+            // the way down a zone. 0.2 ignores assist trims while any genuine
+            // braking application (player keyboard is 1.0, real corner braking
+            // far exceeds 0.2) still kills the wing instantly.
+            DrsActive = activeCommand.drs && absoluteSpeedKph > 90f && activeCommand.brake < 0.2f;
 
             // DRS boost is tied directly to the open wing (DrsActive already
             // folds in the button/latch, the >90kph gate and the brake auto-
@@ -1100,9 +1109,12 @@ namespace LocalFormulaRacing
             // at 100% and ERS management stopped being a decision at all. A hard
             // braking zone now banks a meaningful ~0.2-0.3 charge instead of a
             // full refill, so the battery genuinely cycles over a lap.
+            // Round 2 (per request): braking-zone harvest cut a further 30%
+            // (was 0.14-0.21), paired with the 10% deploy-drain raise in
+            // PowertrainModel so the battery is a genuinely scarcer resource.
             if (activeCommand.brake > 0.1f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.14f, 0.21f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.098f, 0.147f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             // Non-braking recharge fix round 3: both the off-throttle coasting rate

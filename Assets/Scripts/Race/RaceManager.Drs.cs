@@ -190,8 +190,19 @@ namespace LocalFormulaRacing
 
         public string DrsStateText(RaceParticipant participant)
         {
-            if (participant == null || participant.vehicle == null || participant.lapTracker == null || Track == null ||
-                !Track.IsInDrsZone((State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant)).normalized))
+            if (participant == null || participant.vehicle == null || participant.lapTracker == null || Track == null)
+            {
+                return "UNAVAILABLE";
+            }
+
+            // Flicker fix: this early-out used to ask Track.IsInDrsZone(normalized)
+            // while IsDrsAvailable below asks DrsZoneIndexAt (the ITrackQuery seam,
+            // distance-based). Two geometry sources answering "am I in a zone?"
+            // can disagree for a frame at zone boundaries, which read as the pill
+            // stuttering between states. One source (the same one availability
+            // uses) now answers both.
+            TrackProgress stateProgress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
+            if (DrsZoneIndexAt(stateProgress) == 0)
             {
                 return "UNAVAILABLE";
             }

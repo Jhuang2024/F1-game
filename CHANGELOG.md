@@ -4,6 +4,27 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## DRS flicker + ERS economy pass (per request)
+
+- DRS READY/OPEN flicker fixed (three cooperating causes):
+  - The wing-close brake threshold (0.05) was crossed constantly by the
+    auto-brake assist's small speed trims, slamming the wing open/shut all the
+    way down a zone. Raised to 0.2 - genuine braking still closes it instantly.
+  - A one-frame blip of IsDrsAvailable cleared the player's latch outright,
+    leaving the wing shut until a re-press. The latch clear is now debounced
+    (~0.25s of sustained unavailability); braking and race control still close
+    the wing immediately. The AI's per-zone commitment roll got the same
+    treatment (re-rolls only after a real >=0.5s between-zones gap).
+  - The HUD's "in a zone?" early-out asked a different geometry source than
+    the availability check; both now ask the same one.
+- ERS is a scarcer resource: deploy drain +10% (PowertrainModel band
+  0.0683-0.0980, tests updated) and braking-zone harvest cut 30%
+  (0.098-0.147). Both apply to AI identically (shared drain/harvest path).
+- Verified the compound/ERS/DRS systems all bind to AI cars: same
+  TyreState.Tick in the shared physics loop, same ErsBattery drain/harvest,
+  same DrsActive/boost path - the new tyre spreads, ERS rates and DRS wing
+  behaviour hit the whole field, not just the player.
+
 ## Tyres/DRS/start-reaction pass (per request)
 
 - Tyre compounds are drastically differentiated (they previously differed by a
