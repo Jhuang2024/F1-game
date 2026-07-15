@@ -4,6 +4,23 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Tight-corner rotation fixed with the actual geometry (per request)
+
+- "The AI literally can't turn enough in tight corners" — confirmed by the
+  yaw-rate math: max yaw × radius = the fastest speed a corner can physically
+  be driven. At the speeds the AI carried into VeryTight corners (straight-
+  line pace, since the old floors collapsed the clamp) the steering could
+  only hold a ~56 m radius against corners of 25–44 m — full lock, still
+  sailing wide. Fix has two matched halves: steering rotation authority
+  raised (tightCorneringBoost 1.65→1.85 low / 1.35→1.5 & 1.22→1.3 high,
+  shared by player and AI), and the AI corner-speed floors set to the
+  geometric maximum the new authority can hold (VeryTight 165–205 kph ≈ 28 m
+  at 180; Slow 250–290 kph ≈ 54 m at 280) — between the old too-fast values
+  and the reverted too-slow attempt, resolving that whole tuning
+  back-and-forth. The braking-entry target is also feasibility-capped
+  (pace multipliers can add at most +8%) so higher tiers can't inflate the
+  target back past what the steering can rotate through.
+
 ## Followers race instead of braking forever (per request)
 
 - The all-race "AI just brakes behind the car ahead" behaviour was a genuine

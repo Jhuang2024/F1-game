@@ -1478,9 +1478,18 @@ namespace LocalFormulaRacing
             // target now sits well past the old high-speed segment's own range, so
             // that segment needed real headroom above 1.08x, not just the low-speed
             // segment.
+            // Rotation-authority raise (per report: "in tight corners the AI
+            // literally can't turn enough"): the yaw-rate math bears it out -
+            // at the old authority a car at 200 kph could hold a ~32m radius
+            // and at 300 kph only ~56m, while the VeryTight corner class spans
+            // ~25-44m. Both segments raised (1.65->1.85 low, 1.35->1.5 /
+            // 1.22->1.3 high, continuous at 120 kph): 180 kph now holds ~28m
+            // and ~280 kph holds ~54m, which the AI corner-speed floors in
+            // AiVehicleController are matched against so targeted speed and
+            // achievable rotation finally agree. Shared by player and AI.
             float tightCorneringBoost = speedKph <= 120f
-                ? Mathf.Lerp(1.65f, 1.35f, Mathf.Clamp01((speedKph - 35f) / 85f))
-                : Mathf.Lerp(1.35f, 1.22f, Mathf.Clamp01((speedKph - 120f) / 160f));
+                ? Mathf.Lerp(1.85f, 1.5f, Mathf.Clamp01((speedKph - 35f) / 85f))
+                : Mathf.Lerp(1.5f, 1.3f, Mathf.Clamp01((speedKph - 120f) / 160f));
             turnRate *= tightCorneringBoost;
             turnRate *= Mathf.Lerp(1.04f, 0.72f, UndersteerAmount);
             float steerAmount = activeCommand.steer * turnRate * dt;

@@ -603,12 +603,21 @@ namespace LocalFormulaRacing
                     // Restored verbatim to round 18's value. The real crash
                     // cause is still open; whatever it is, it isn't this floor.
                     //
-                    // Round 22 (turning-speed restore, per request): a joint
-                    // floor-lowering + braking-target change was tried here and
-                    // play-testing showed the AI turning far too slowly -
-                    // reverted verbatim to round 18's value again. Round 21's
-                    // conclusion stands: keep the fast floors.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(512.5f, Mathf.Lerp(517.5f, 522.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 23 - MATCHED TO ROTATION AUTHORITY (the resolution of
+                    // rounds 19-22's back-and-forth): the steering model yields a
+                    // maximum yaw rate, and yaw rate x radius = the fastest speed
+                    // a corner of that radius can physically be driven at. The
+                    // round-18 value (512+ kph, collapsing the Min to straight-
+                    // line speed) demanded a ~56m+ radius from corners this
+                    // bucket classifies at ~45-90m - cars could not rotate
+                    // enough at that speed no matter how they braked (the
+                    // "literally can't turn" report). The round-19/22 lowering
+                    // (150-200) was the opposite error: far below the ~54m
+                    // radius the (now raised) steering authority can hold at
+                    // ~280 kph, so cars crawled. 250-290 is the band the
+                    // boosted ApplySteering authority can genuinely deliver for
+                    // this bucket's radii.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(250f, Mathf.Lerp(270f, 290f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -651,11 +660,16 @@ namespace LocalFormulaRacing
                     // restored verbatim to round 12's value instead of leaving
                     // pace degraded for a fix that didn't work.
                     //
-                    // Round 16 (turning-speed restore, per request): same as the
-                    // Slow bucket's round 22 - a joint floor-lowering +
-                    // braking-target change was tried and left the AI turning
-                    // far too slowly. Reverted verbatim to round 12's value.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(302.5f, Mathf.Lerp(322.5f, 337.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 17 - MATCHED TO ROTATION AUTHORITY (see the Slow
+                    // bucket's round 23 note for the full reasoning): VeryTight
+                    // corners span ~25-44m radius; the raised steering authority
+                    // holds ~28m at 180 kph, and nothing holds these radii at
+                    // the round-12 302-337 kph values (which the Min collapsed
+                    // to full straight-line speed anyway - the cars sailed wide
+                    // with the wheel at full lock). 165-205 is the geometric
+                    // maximum for this bucket, comfortably above the too-slow
+                    // 110-140 attempt that got round 14 reverted.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(165f, Mathf.Lerp(185f, 205f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
@@ -1129,7 +1143,16 @@ namespace LocalFormulaRacing
             // thinnest driver-stat blend found in the verification pass.
             float driverPaceVariance = Mathf.Lerp(0.89f, 1.11f, pace / 100f) * Mathf.Lerp(0.92f, 1.08f, racecraft / 100f);
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
-            float brakingApexSpeed = apexTargetSpeed * driverPaceVariance * profile.paceMultiplier;
+            // Feasibility cap on the braking target: the driver/tier pace
+            // multipliers (up to ~1.35x combined on Expert) used to inflate the
+            // corner-entry target past what the steering can physically rotate
+            // through - which is precisely why the earlier floor-only fixes
+            // never held on the higher tiers. Differentiation stays (up to
+            // +8%), but the target can never again outrun the geometry the
+            // floors were matched to.
+            float brakingApexSpeed = Mathf.Min(
+                apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
+                apexTargetSpeed * 1.08f);
 
             float damagePercent = vehicle.Damage == null ? 0f : vehicle.Damage.OverallPercent;
             float damageMultiplier = AiDamagePaceMultiplier(damagePercent);
