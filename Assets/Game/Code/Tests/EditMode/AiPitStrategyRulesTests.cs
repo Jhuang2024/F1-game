@@ -9,7 +9,7 @@ namespace F1Game.Tests
         public void RoutineThresholdCentresOnFortyPercentRemaining()
         {
             // Mid-skill, no bias, Medium: right at the 0.40 centre.
-            Assert.AreEqual(0.40f, AiPitStrategyRules.RoutinePitThreshold(0.5f, 0f, StintCompound.Medium), 0.0001f);
+            Assert.AreEqual(0.18f, AiPitStrategyRules.RoutinePitThreshold(0.5f, 0f, StintCompound.Medium), 0.0001f);
 
             // Better tyre management runs longer (lower threshold).
             Assert.Greater(
@@ -23,8 +23,8 @@ namespace F1Game.Tests
             Assert.Greater(AiPitStrategyRules.RoutinePitThreshold(0.5f, 0f, StintCompound.Wet), medium);
 
             // Whatever the inputs, the threshold stays inside the sane band.
-            Assert.GreaterOrEqual(AiPitStrategyRules.RoutinePitThreshold(5f, -9f, StintCompound.Hard), 0.2f);
-            Assert.LessOrEqual(AiPitStrategyRules.RoutinePitThreshold(-5f, 9f, StintCompound.Soft), 0.8f);
+            Assert.GreaterOrEqual(AiPitStrategyRules.RoutinePitThreshold(5f, -9f, StintCompound.Hard), 0.12f);
+            Assert.LessOrEqual(AiPitStrategyRules.RoutinePitThreshold(-5f, 9f, StintCompound.Soft), 0.2f);
         }
 
         [Test]
@@ -40,8 +40,8 @@ namespace F1Game.Tests
         [Test]
         public void StrategyLapOnlyFiresNearTheRoutinePoint()
         {
-            Assert.IsFalse(AiPitStrategyRules.StrategyLapMayFire(0.6f));
-            Assert.IsTrue(AiPitStrategyRules.StrategyLapMayFire(0.44f));
+            Assert.IsFalse(AiPitStrategyRules.StrategyLapMayFire(0.25f));
+            Assert.IsTrue(AiPitStrategyRules.StrategyLapMayFire(0.19f));
         }
 
         [Test]
@@ -115,16 +115,16 @@ namespace F1Game.Tests
         public void UndercutOnlyInsideOwnWindowAgainstALiveRival()
         {
             // In-window, worn tyres, rival unstopped, close: go.
-            Assert.IsTrue(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.6f, true, 1.5f));
+            Assert.IsTrue(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.18f, true, 1.5f));
 
             // Before the window opens, or at/after the recommended lap: never.
-            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(7, 10, 0.6f, true, 1.5f));
-            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(10, 10, 0.6f, true, 1.5f));
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(7, 10, 0.18f, true, 1.5f));
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(10, 10, 0.18f, true, 1.5f));
 
             // Fresh tyres, no rival, or the gap too big: never.
-            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.8f, true, 1.5f));
-            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.6f, false, 1.5f));
-            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.6f, true, 2.3f));
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.4f, true, 1.5f));
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.18f, false, 1.5f));
+            Assert.IsFalse(AiPitStrategyRules.ShouldPitForUndercut(9, 10, 0.18f, true, 2.3f));
         }
 
         [Test]

@@ -2412,9 +2412,9 @@ namespace LocalFormulaRacing
                                       overtakeState == OvertakeState.CompletingPass;
             if (activelyOvertaking)
             {
-                // Drastic pass: 0.6 still let the avoidance layer smother
-                // committed moves; a driver mid-attack accepts real risk.
-                cautionFactor *= 0.42f;
+                // Tuned WAY up (per request): a driver mid-attack backs itself.
+                // Steering separation and the genuine collision brake remain.
+                cautionFactor *= 0.3f;
             }
 
             // Race-start pack window (THE "AI slow off the line" cause, found at
@@ -2620,7 +2620,10 @@ namespace LocalFormulaRacing
                     // Aggression pass: cruise cutback softened (was 0.42 at full
                     // proximity) so a chasing car sits in the gearbox of the car
                     // ahead and sets up a move instead of hanging back.
-                    float proximityCutback = Mathf.Lerp(1f, 0.55f, proximity * Mathf.Clamp01(closingKph / 40f));
+                    // Follower-aggression pass: the cruise cutback floor raised
+                    // 0.55 -> 0.75 so a closing car keeps genuine pace in the
+                    // leader's gearbox instead of being throttled into orbit.
+                    float proximityCutback = Mathf.Lerp(1f, 0.75f, proximity * Mathf.Clamp01(closingKph / 40f));
 
                     // A legitimate DRS or slipstream tow is not traffic to avoid -
                     // lower-caution (higher-difficulty) followers commit to the draft
@@ -3142,14 +3145,18 @@ namespace LocalFormulaRacing
                     // preferred side, commitment-scaled), so "take a different
                     // line" happens before and during the attack decision, not
                     // after it.
+                    // Tuned WAY up (per request): the peek engages from 2.5s
+                    // back and swings a genuine car-width-plus, so a follower is
+                    // already committed to an alternative line long before the
+                    // formal attack state fires.
                     float followPeek = 0f;
                     if (ahead != null && ahead.vehicle != null && raceManager.CanParticipantOvertake(participant, ahead) &&
-                        raceManager.GetIntervalToAheadSeconds(participant) < 1.5f)
+                        raceManager.GetIntervalToAheadSeconds(participant) < 2.5f)
                     {
-                        followPeek = preferredSide * Mathf.Lerp(1.2f, 2f, commitment);
+                        followPeek = preferredSide * Mathf.Lerp(2.2f, 3.2f, commitment);
                     }
 
-                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, followPeek, Time.deltaTime * 4f);
+                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, followPeek, Time.deltaTime * 5f);
                     if (ahead != null && ahead.vehicle != null && raceManager.CanParticipantOvertake(participant, ahead))
                     {
                         float gapSeconds = raceManager.GetIntervalToAheadSeconds(participant);
@@ -3195,9 +3202,9 @@ namespace LocalFormulaRacing
                         // several seconds IS proof of pace (you cannot hold that
                         // gap without it), so sustained pressure becomes its own
                         // attack qualifier.
-                        // Drastic pass: 3.5s was still a long orbit - one second
-                        // in the wake is plenty of proof.
-                        bool sustainedPressure = followingTimer > 1.2f;
+                        // Tuned WAY up (per request): near-instant - being in
+                        // the wake at all is the trigger.
+                        bool sustainedPressure = followingTimer > 0.4f;
 
                         // DRS conversion: a real advantage should turn into real
                         // attacks, scaled by commitment so Expert converts a tow far
@@ -3214,12 +3221,12 @@ namespace LocalFormulaRacing
                         // 1.0 for most tiers - the gap threshold, not commitment,
                         // was the real ceiling on how often Easy/Medium/Hard even
                         // considered an attack).
-                        float attackGapThreshold = isExpert ? (aheadIsBackmarker ? 2.6f : 2.0f) : 1.9f;
+                        float attackGapThreshold = isExpert ? (aheadIsBackmarker ? 3.4f : 2.8f) : 2.6f;
                         bool attackTrigger = gapSeconds < attackGapThreshold && (approachingBrakeZone || drsHelp || clearlySlower || positiveSpeedDeltaExpert || sustainedPressure) && hasPace;
 
                         // Part A.2: Expert is fully deterministic once attackTrigger is
                         // true - no dice roll for permission to attack.
-                        if (attackTrigger && !suppressAttackManeuvers && !inCornerCommitmentZone && (isExpert || Random.value < commitment * Time.deltaTime * (7f + patienceBonus) * drsBonus))
+                        if (attackTrigger && !suppressAttackManeuvers && !inCornerCommitmentZone && (isExpert || Random.value < commitment * Time.deltaTime * (20f + patienceBonus) * drsBonus))
                         {
                             overtakeState = OvertakeState.PreparingAttack;
                             overtakeStateTimer = preparingAttackTimer;

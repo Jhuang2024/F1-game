@@ -4,6 +4,22 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Follower aggression WAY up + 80%-worn pit policy (per request)
+
+- Follower overtaking cranked to maximum: the out-of-tow peek engages from
+  2.5 s back (was 1.5) and swings 2.2–3.2 m (was 1.2–2.0), sustained-pressure
+  attacks arm after 0.4 s in the wake (was 1.2), the attack gap window is
+  2.6 s (Expert 2.8/3.4), the non-Expert commit roll fires ~3× faster again
+  (multiplier 20), committed moves cut traffic caution to 0.3×, and the
+  closing-car cruise throttle cutback floor is raised 0.55→0.75 so followers
+  keep real pace in the leader's gearbox.
+- AI pit policy: stops only happen at 80%+ tyre wear (0.20 remaining) —
+  routine threshold hard-capped at 0.20 (skill/compound spread only pushes
+  LATER, toward the 0.12 destroyed-tyre net), strategy-lap gate 0.45→0.20,
+  undercut wear gate 0.68→0.20, safety-car "worn" line 0.55→0.20. Mandatory-
+  stop compliance under SC and weather-crossover stops remain wear-
+  independent (rules tests updated).
+
 ## Drastic cornering pace + drastic follower aggression (per request)
 
 - Rotation authority raised drastically again (tightCorneringBoost 2.4 low /

@@ -28,21 +28,22 @@ namespace F1Game.Race.Rules
         public const float CollapsedGripMultiplier = 0.5f;
 
         // A planned strategy lap may only drag the car in once wear has
-        // genuinely arrived near the routine point (a hair before it, so a
-        // well-timed plan can fire slightly ahead of pure wear).
-        public const float StrategyLapMaxWear = 0.45f;
+        // genuinely arrived at the pit point (per request: AI pits only at 80%+
+        // worn, i.e. 0.20 remaining or less - this gate keeps a pre-planned lap
+        // from firing any earlier).
+        public const float StrategyLapMaxWear = 0.2f;
 
         /// <summary>
-        /// Routine stop threshold: centred on 0.40 remaining (~60% worn) with a
-        /// small skill spread, shifted per compound - a Soft falls off a cliff
-        /// and comes off earlier, a Hard runs leaner, wet-weather rubber
-        /// degrades unpredictably once badly worn.
+        /// Routine stop threshold, per request "AI only pits if tyre wear is 80%
+        /// or more": hard-capped at 0.20 REMAINING (= 80% worn), with the skill/
+        /// compound spread now only ever pushing the stop LATER (down toward
+        /// 0.12, where the destroyed-tyre safety net lives) - never earlier.
         /// </summary>
         public static float RoutinePitThreshold(float tyreManagement01, float tyreSavingBias, StintCompound compound)
         {
             float management = Clamp01(tyreManagement01);
-            float threshold = 0.42f + (0.38f - 0.42f) * management + tyreSavingBias * 0.03f + CompoundThresholdShift(compound);
-            return threshold < 0.2f ? 0.2f : (threshold > 0.8f ? 0.8f : threshold);
+            float threshold = 0.20f + (0.16f - 0.20f) * management + tyreSavingBias * 0.01f + CompoundThresholdShift(compound) * 0.25f;
+            return threshold < 0.12f ? 0.12f : (threshold > 0.2f ? 0.2f : threshold);
         }
 
         public static float CompoundThresholdShift(StintCompound compound)
@@ -118,7 +119,9 @@ namespace F1Game.Race.Rules
         // ---- Undercut ------------------------------------------------------------
 
         public const int UndercutWindowLapsBeforeRecommended = 2;
-        public const float UndercutMaxWear = 0.68f;
+        // 80%-worn pit policy (per request): even a tactical undercut may not
+        // fire on healthy rubber.
+        public const float UndercutMaxWear = 0.2f;
         public const float UndercutMaxGapSeconds = 2.2f;
 
         /// <summary>
@@ -144,7 +147,11 @@ namespace F1Game.Race.Rules
 
         // ---- Safety-car / VSC window ----------------------------------------------
 
-        public const float SafetyCarWornTyreWear = 0.55f;
+        // 80%-worn pit policy (per request): "worn" under a caution means the
+        // same 0.20-remaining line as everywhere else. A car still owing its
+        // MANDATORY stop keeps the window-close/weather excuses (compliance
+        // beats tyre policy), and weather crossovers stay wear-independent.
+        public const float SafetyCarWornTyreWear = 0.2f;
         public const float SafetyCarFreshTyreWear = 0.85f;
         public const int SafetyCarWindowCloseLaps = 3;
 
