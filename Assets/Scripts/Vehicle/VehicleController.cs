@@ -193,6 +193,9 @@ namespace LocalFormulaRacing
         float smoothedThrottle;
         float smoothedBrake;
         bool lowBatteryForcedHarvest;
+        // Velocity at the top of the current physics tick (see ApplyForces /
+        // SoftenCarContact) - the baseline for clamping car-car impulses.
+        Vector3 lastPrePhysicsVelocity;
         // Hysteresis state for the ERS auto-deploy gates in GetAssistedCommand:
         // true while an auto deploy is running, which lowers the keep-alive
         // thresholds so a throttle/speed value hovering at the start threshold
@@ -279,6 +282,15 @@ namespace LocalFormulaRacing
             body.angularDrag = 4.8f;
             body.centerOfMass = new Vector3(0f, -0.42f, 0.05f);
             body.interpolation = RigidbodyInterpolation.Interpolate;
+            // Collision-violence fix (per report - contacts threw cars across
+            // the track): the launch mechanism is Unity's depenetration solve -
+            // two overlapping car boxes get popped apart at up to the default
+            // depenetration velocity, which reads as an explosion rather than a
+            // nudge. Capping it (plus the spin cap below) turns overlap
+            // resolution into a firm shove; the car-car impulse clamp in
+            // ProcessDamageCollision handles the direct-hit case.
+            body.maxDepenetrationVelocity = 2.5f;
+            body.maxAngularVelocity = 3.5f;
             ApplyLowFrictionPhysicsMaterial();
             ApplyCarSetup();
             Tyres = new TyreState();
@@ -923,6 +935,10 @@ namespace LocalFormulaRacing
 
         void ApplyForces(VehicleCommand activeCommand, float absoluteSpeedKph, TrackProgress progress, float dt)
         {
+            // Reference velocity for SoftenCarContact's post-solve impulse
+            // clamp: captured at the top of the physics tick, before this
+            // tick's drive/grip forces and any collision impulses land.
+            lastPrePhysicsVelocity = body.velocity;
             LastSteerInput = activeCommand.steer;
             float speedMps = body.velocity.magnitude;
             float forwardSpeed = Vector3.Dot(body.velocity, transform.forward);
@@ -950,19 +966,21 @@ namespace LocalFormulaRacing
             // coefficient and top-speed bonus below for both the player and every AI
             // car identically - no separate logic to keep in sync.
             //
-            // Flicker fix round 2 - HYSTERESIS, not a single threshold: the
-            // first fix raised the close threshold 0.05 -> 0.2 because the
-            // auto-brake assist's small speed trims crossed 0.05 constantly,
-            // but ANY single threshold still oscillates when the (smoothed)
-            // assist brake value hovers around it - which is exactly the
-            // reported READY<->OPEN flashing near the end of a zone. The wing
-            // now needs brake < 0.1 to OPEN but only closes again once brake
-            // exceeds 0.3: the 0.1-0.3 dead band means a hovering assist trim
-            // can never flap the wing, while genuine braking (player keyboard
-            // is 1.0, real corner braking far exceeds 0.3) still closes it
-            // instantly.
+            // Flicker fix round 3 - the hysteresis thresholds themselves: round
+            // 2's dead band (open < 0.1, close > 0.3) stopped the flapping but
+            // reintroduced the ORIGINAL bug on the open side - the auto-brake
+            // assist's routine speed trims ((speed - desired)/115) sit above
+            // 0.1 much of the time at speed, so the wing frequently could not
+            // OPEN at all: the pill showed READY, Space latched the request,
+            // and nothing happened. The open gate must sit ABOVE normal assist
+            // trims (that was the whole original 0.05 -> 0.2 fix), with the
+            // close gate higher still: open < 0.25 (trims up to ~29 kph of
+            // overspeed correction don't block it), close only past 0.5 -
+            // genuine braking (ABS floor 0.68, keyboard 1.0, real corner
+            // braking) still slams it shut instantly, and the wide 0.25-0.5
+            // dead band cannot flap.
             bool wingRequested = activeCommand.drs && absoluteSpeedKph > 90f;
-            DrsActive = wingRequested && activeCommand.brake < (DrsActive ? 0.3f : 0.1f);
+            DrsActive = wingRequested && activeCommand.brake < (DrsActive ? 0.5f : 0.25f);
 
             // DRS boost is tied directly to the open wing (DrsActive already
             // folds in the button/latch, the >90kph gate and the brake auto-
@@ -1698,7 +1716,38 @@ namespace LocalFormulaRacing
 
         void OnCollisionEnter(Collision collision)
         {
+            SoftenCarContact(collision);
             ProcessDamageCollision(collision, false);
+        }
+
+        // Collision-violence fix (per report): car-vs-car contact should trade
+        // paint and cost momentum, not launch either car across the road. By
+        // the time OnCollisionEnter runs, the solver has already applied its
+        // impulse - so the velocity CHANGE this contact just caused is
+        // reconstructed against the last pre-physics velocity and clamped to a
+        // firm-shove ceiling, and any spin the impulse imparted is capped.
+        // Wall/barrier hits keep full physics (hitting a wall SHOULD be
+        // violent); only contact with another car is softened.
+        const float MaxCarContactVelocityChange = 4.5f;
+        void SoftenCarContact(Collision collision)
+        {
+            if (body == null || collision.rigidbody == null ||
+                collision.collider == null || collision.collider.GetComponentInParent<VehicleController>() == null)
+            {
+                return;
+            }
+
+            Vector3 velocityChange = body.velocity - lastPrePhysicsVelocity;
+            float changeMagnitude = velocityChange.magnitude;
+            if (changeMagnitude > MaxCarContactVelocityChange)
+            {
+                body.velocity = lastPrePhysicsVelocity + velocityChange * (MaxCarContactVelocityChange / changeMagnitude);
+            }
+
+            if (body.angularVelocity.magnitude > 1.6f)
+            {
+                body.angularVelocity = body.angularVelocity.normalized * 1.6f;
+            }
         }
 
         void OnCollisionStay(Collision collision)

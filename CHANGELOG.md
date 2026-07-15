@@ -4,6 +4,22 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## DRS opens reliably; car contact is a shove, not a launch (per request)
+
+- DRS "shows READY, press Space, nothing happens": round 2's hysteresis dead
+  band (open < 0.1) reintroduced the original bug on the open side — the
+  auto-brake assist's routine speed trims sit above 0.1 much of the time at
+  speed, so the wing frequently couldn't OPEN at all (the latch set, DrsActive
+  stayed false, the pill stayed READY). Gates re-sat: open < 0.25 (normal
+  assist trims never block it), close past 0.5 (genuine braking still slams it
+  shut instantly), with a wide un-flappable dead band between.
+- Car-vs-car contact no longer throws cars across the track: the launch was
+  Unity's depenetration solve popping overlapping car boxes apart at default
+  velocity. Depenetration is capped (2.5 m/s) and spin capped (3.5 rad/s),
+  and a post-solve clamp on car-car contacts limits the velocity change any
+  single contact can impart to a firm shove (4.5 m/s). Wall/barrier hits keep
+  full physics — hitting a wall should be violent.
+
 ## Road mesh IS the boundary now; yellow-overtake sector escape; half the yellows (per request)
 
 - The real boundary defect found: the road mesh placed one vertex pair per
