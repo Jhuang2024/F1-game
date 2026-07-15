@@ -4,6 +4,29 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Stopped-bunch round 2, rivalry coherence, tyre recommendations (per request)
+
+- Opening-corners stopped bunch, second pass (still reproducing): the creep's
+  "in-lane blocker" window was 3 m wide, so at a standstill every diagonal
+  neighbour in a clump counted as a blocker and nobody qualified to creep
+  (narrowed to 1.6 m — a real same-lane car); a hard guarantee was added — any
+  car at walking pace for 2.5 s under green racing conditions forces a crawl
+  (brake released, throttle floor, steer toward the roomier side) so a wedged
+  bunch always unwinds; and the line-tracking slew is now proportional to
+  forward speed (~0.12 m sideways per metre travelled) so slow cars no longer
+  weave near-perpendicularly chasing the drawn line's grid-area crossing —
+  the collision source that created the bunch.
+- Rivalry made legible: the initial rival is now the driver in the most
+  comparable car (closest team reputation) instead of the first roster entry
+  from another team; the pick is announced in the news at career start and on
+  the offseason re-pick; and the career hub shows a Rival stat card (name +
+  live head-to-head) so you always know who your rival is. ReevaluateRival's
+  points-based re-picking is unchanged.
+- Pre-race tyre recommendations follow the rebalanced compounds and now know
+  the race length: soft is recommended only for qualifying and short races
+  (it wears ~2x a medium), medium for mid-length, hard for long races or hot
+  weekends; compound card descriptors state the trade-offs plainly.
+
 ## First-corners stopped-bunch fix (per request)
 
 - Cars no longer freeze bunched up in the opening corners. Three cooperating

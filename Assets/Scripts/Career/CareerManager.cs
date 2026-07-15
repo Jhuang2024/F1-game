@@ -109,6 +109,20 @@ namespace LocalFormulaRacing
                 Save.driverStandings.RemoveAll(entry => entry.id == selected.id);
             }
             EnsureRndState();
+
+            // The rival exists from race one, so say who it is - without this
+            // announcement the pick was invisible until the first Rivalry-screen
+            // visit or the first head-to-head news article rounds later.
+            DriverData initialRival = string.IsNullOrEmpty(Save.rivalDriverId) ? null : data.FindDriver(Save.rivalDriverId);
+            if (initialRival != null)
+            {
+                AddNewsArticle(
+                    "Season rival: " + initialRival.displayName,
+                    "The paddock pencils in " + initialRival.displayName + " as " + Save.playerDriverName +
+                    "'s benchmark this season - the closest-matched car on the grid. Beat them on track to build reputation; the rivalry updates as the championship takes shape.",
+                    NewsCategoryRivalry);
+            }
+
             Write();
         }
 
@@ -2277,13 +2291,40 @@ namespace LocalFormulaRacing
             // PickRivalId is also called from career creation, inside the
             // Save = new CareerSaveData { ... } object initializer itself - Save
             // is still null at that point, so this must not assume it's set.
-            List<DriverData> candidates = data.GetAiRaceDrivers(teamId, 8, selectedDriverId, Save != null ? Save.driverTransferRecords : null);
+            List<DriverData> candidates = data.GetAiRaceDrivers(teamId, 22, selectedDriverId, Save != null ? Save.driverTransferRecords : null);
+
+            // Rivalry-coherence fix: this used to return the FIRST other-team
+            // driver in roster order - an arbitrary pick with no relation to the
+            // player's actual racing, which is why the early-career rival felt
+            // meaningless ("no idea who my rival is"). Before any points exist
+            // (ReevaluateRival takes over on standings after a few rounds), the
+            // most sensible rival is the driver in the most COMPARABLE car -
+            // the one the player will genuinely fight on track: pick the
+            // other-team driver whose team reputation is closest to the
+            // player's own team's.
+            TeamData playerTeam = data.FindTeam(teamId);
+            int playerTeamReputation = playerTeam != null ? playerTeam.reputation : 80;
+            DriverData bestCandidate = null;
+            int bestGap = int.MaxValue;
             for (int i = 0; i < candidates.Count; i++)
             {
-                if (candidates[i].id != selectedDriverId && candidates[i].teamId != teamId)
+                if (candidates[i].id == selectedDriverId || candidates[i].teamId == teamId)
                 {
-                    return candidates[i].id;
+                    continue;
                 }
+
+                TeamData candidateTeam = data.FindTeam(candidates[i].teamId);
+                int gap = candidateTeam == null ? int.MaxValue : Mathf.Abs(candidateTeam.reputation - playerTeamReputation);
+                if (gap < bestGap)
+                {
+                    bestGap = gap;
+                    bestCandidate = candidates[i];
+                }
+            }
+
+            if (bestCandidate != null)
+            {
+                return bestCandidate.id;
             }
 
             for (int i = 0; i < candidates.Count; i++)
@@ -2753,7 +2794,20 @@ namespace LocalFormulaRacing
             // season that a fresh rival makes more sense.
             if (Random.value < 0.25f)
             {
+                string previousRivalId = Save.rivalDriverId;
                 Save.rivalDriverId = PickRivalId(Save.playerTeamId, Save.selectedDriverId);
+                DriverData newRival = string.IsNullOrEmpty(Save.rivalDriverId) ? null : data.FindDriver(Save.rivalDriverId);
+                if (newRival != null && Save.rivalDriverId != previousRivalId)
+                {
+                    // Same visibility rule as ReevaluateRival: a rival change the
+                    // player is never told about reads as the system picking
+                    // names at random.
+                    AddNewsArticle(
+                        "New season, new rival: " + newRival.displayName,
+                        "The winter shake-up puts " + newRival.displayName + " in " + Save.playerDriverName +
+                        "'s sights as the season's benchmark rival.",
+                        NewsCategoryRivalry);
+                }
             }
 
             // Season-end stakes: pay out the objectives and judge the contract

@@ -227,6 +227,13 @@ namespace LocalFormulaRacing
             UiFactory.CreateStatCard(profile, "Contract Target", "P" + career.Save.contractTargetPosition, 190f);
             PlayerRecordsData headerRecords = PlayerRecordsStore.Data;
             UiFactory.CreateStatCard(profile, "Wins / Podiums", headerRecords.raceWins + " / " + headerRecords.podiums, 210f);
+            // Who the rival IS, always visible on the hub with the live race
+            // head-to-head - the pick was previously buried on the Rivalry
+            // screen, so the system read as opaque.
+            DriverData hubRival = string.IsNullOrEmpty(career.Save.rivalDriverId) ? null : data.FindDriver(career.Save.rivalDriverId);
+            UiFactory.CreateStatCard(profile, "Rival",
+                hubRival == null ? "TBD" : hubRival.abbreviation + "  " + career.Save.rivalRaceWins + "-" + career.Save.rivalRaceLosses,
+                190f);
 
             // Part 18: a single latest-headline teaser right under the profile
             // strip - the full feed lives on the Rivalry screen so the hub
@@ -3278,7 +3285,7 @@ namespace LocalFormulaRacing
             string conditionsBody =
                 "Track Temp   " + trackTemp.ToString("0") + "°C\n" +
                 "Air Temp     " + (trackTemp - 7f).ToString("0") + "°C\n" +
-                "Recommended  " + RecommendedTyreText(profile) + "\n\n" +
+                "Recommended  " + RecommendedTyreText(profile, Mathf.Max(3, settings.Current.laps)) + "\n\n" +
                 (hasQualifying ? "Qualifying complete. Grid is set." : "Qualifying required before the race.");
             UiFactory.CreateInfoCard(background, "Weekend conditions", new Vector2(0.05f, 0.14f), new Vector2(0.34f, 0.76f), "Track Conditions", conditionsBody,
                 hasQualifying ? UiFactory.AccentGreen : UiFactory.AccentAmber);
@@ -3441,7 +3448,7 @@ namespace LocalFormulaRacing
                 UiFactory.SetSize(warning, 520f, 24f);
             }
 
-            CreateTyreCompoundGrid(rightList, currentCompound, profile, true, tyreName =>
+            CreateTyreCompoundGrid(rightList, currentCompound, profile, true, 0, tyreName =>
             {
                 settings.Current.tyreCompound = tyreName;
                 settings.Save();
@@ -3512,7 +3519,7 @@ namespace LocalFormulaRacing
             string raceObjectiveText = !careerRace
                 ? "Post a strong, clean result."
                 : (career.Save != null && !string.IsNullOrEmpty(career.Save.rivalDriverId) ? "Beat your rival and score points." : "Score points and keep it clean.");
-            Text briefing = UiFactory.CreateText(leftList, "Race weather briefing", BuildWeatherBriefing(current, "Race", currentCompound, raceObjectiveText), 16, new Color(0.84f, 0.91f, 0.95f), TextAnchor.UpperLeft);
+            Text briefing = UiFactory.CreateText(leftList, "Race weather briefing", BuildWeatherBriefing(current, "Race", currentCompound, raceObjectiveText, Mathf.Max(3, settings.Current.laps)), 16, new Color(0.84f, 0.91f, 0.95f), TextAnchor.UpperLeft);
             briefing.verticalOverflow = VerticalWrapMode.Overflow;
             UiFactory.SetSize(briefing, 372f, 280f);
 
@@ -3529,7 +3536,7 @@ namespace LocalFormulaRacing
                 UiFactory.SetSize(warning, 500f, 24f);
             }
 
-            CreateTyreCompoundGrid(rightList, currentCompound, profile, false, tyreName =>
+            CreateTyreCompoundGrid(rightList, currentCompound, profile, false, Mathf.Max(3, settings.Current.laps), tyreName =>
             {
                 settings.Current.tyreCompound = tyreName;
                 settings.Save();
@@ -3711,15 +3718,19 @@ namespace LocalFormulaRacing
 
         string TyreShortDescriptor(string tyreName)
         {
-            if (tyreName == "Soft") return "Peak grip, fastest wear";
+            if (tyreName == "Soft") return "Fastest by far, wears ~2x Medium";
             if (tyreName == "Medium") return "Balanced grip and life";
-            if (tyreName == "Hard") return "Durable, lower grip";
+            if (tyreName == "Hard") return "-30 kph pace, ~2x Medium's life";
             if (tyreName == "Intermediate") return "Damp track, light rain";
             if (tyreName == "Wet") return "Heavy rain, max clearance";
             return "";
         }
 
-        bool IsTyreRecommended(string tyreName, string profile, bool qualifying)
+        // raceLaps <= 0 means "unknown/qualifying context" and falls back to the
+        // mid-length recommendation. Thresholds follow the rebalanced compound
+        // stats (soft wears ~2x medium, medium ~2x hard, 15/30 kph pace steps):
+        // a soft only survives a sprint, a hard only pays off over a long stint.
+        bool IsTyreRecommended(string tyreName, string profile, bool qualifying, int raceLaps)
         {
             string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
             if (normalized.Contains("wet"))
@@ -3732,12 +3743,24 @@ namespace LocalFormulaRacing
                 return tyreName == "Intermediate";
             }
 
-            if (normalized.Contains("hot"))
+            if (qualifying)
             {
-                return qualifying ? tyreName == "Soft" : tyreName == "Hard";
+                return tyreName == "Soft";
             }
 
-            return qualifying ? tyreName == "Soft" : tyreName == "Medium";
+            if (normalized.Contains("hot"))
+            {
+                // Heat piles extra wear on top of the compound spread - shift
+                // one step harder than the same race length in cool air.
+                return raceLaps > 0 && raceLaps <= 6 ? tyreName == "Medium" : tyreName == "Hard";
+            }
+
+            if (raceLaps > 0 && raceLaps <= 6)
+            {
+                return tyreName == "Soft";
+            }
+
+            return raceLaps > 14 ? tyreName == "Hard" : tyreName == "Medium";
         }
 
         // A clear mismatch: slicks on a wet/mixed session, or wet-weather tyres
@@ -3756,10 +3779,10 @@ namespace LocalFormulaRacing
         // highlight. Replaces plain "Soft"/"Medium" buttons everywhere tyres
         // are chosen. Laid out in a GridLayoutGroup by the caller so five cards
         // never depend on fragile manual width math.
-        void CreateTyreCompoundCard(RectTransform parent, string tyreName, string selectedCompound, string weatherProfile, bool qualifying, UnityEngine.Events.UnityAction onSelect)
+        void CreateTyreCompoundCard(RectTransform parent, string tyreName, string selectedCompound, string weatherProfile, bool qualifying, int raceLaps, UnityEngine.Events.UnityAction onSelect)
         {
             bool selected = selectedCompound == tyreName;
-            bool recommended = IsTyreRecommended(tyreName, weatherProfile, qualifying);
+            bool recommended = IsTyreRecommended(tyreName, weatherProfile, qualifying, raceLaps);
             bool mismatch = selected && IsTyreMismatch(tyreName, weatherProfile);
 
             RectTransform card = UiFactory.CreateRect(parent, tyreName + " compound card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
@@ -3829,7 +3852,7 @@ namespace LocalFormulaRacing
         // 3+2 grid of tyre compound cards - always sized by a GridLayoutGroup
         // (which fully owns child size/position) rather than a horizontal stack
         // of fixed-width buttons that can overflow its container.
-        void CreateTyreCompoundGrid(RectTransform parent, string selectedCompound, string weatherProfile, bool qualifying, System.Action<string> onSelect)
+        void CreateTyreCompoundGrid(RectTransform parent, string selectedCompound, string weatherProfile, bool qualifying, int raceLaps, System.Action<string> onSelect)
         {
             RectTransform grid = UiFactory.CreateRect(parent, "Tyre compound grid", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             grid.sizeDelta = new Vector2(3f * 168f + 2f * 10f, 2f * 96f + 10f);
@@ -3841,7 +3864,7 @@ namespace LocalFormulaRacing
             for (int i = 0; i < TyreCompoundOrder.Length; i++)
             {
                 string tyreName = TyreCompoundOrder[i];
-                CreateTyreCompoundCard(grid, tyreName, selectedCompound, weatherProfile, qualifying, () => onSelect(tyreName));
+                CreateTyreCompoundCard(grid, tyreName, selectedCompound, weatherProfile, qualifying, raceLaps, () => onSelect(tyreName));
             }
         }
 
@@ -6916,13 +6939,13 @@ namespace LocalFormulaRacing
 
         string BuildWeatherBriefing(CalendarEventData current, string sessionName, string selectedCompound)
         {
-            return BuildWeatherBriefing(current, sessionName, selectedCompound, "");
+            return BuildWeatherBriefing(current, sessionName, selectedCompound, "", 0);
         }
 
         // Every circuit runs exactly two DRS zones (see the drsZoneOne/drsZoneTwo
         // pair set per track in TrackManager), so that line is a constant fact
         // rather than something that needs a live TrackRuntime at menu time.
-        string BuildWeatherBriefing(CalendarEventData current, string sessionName, string selectedCompound, string objectiveText)
+        string BuildWeatherBriefing(CalendarEventData current, string sessionName, string selectedCompound, string objectiveText, int raceLaps)
         {
             string profile = current == null ? "" : current.weatherProfile;
             int air;
@@ -6936,7 +6959,7 @@ namespace LocalFormulaRacing
                 "Track condition: " + TrackConditionText(profile) + "\n" +
                 "Track temp: " + track + " C   Air temp: " + air + " C\n" +
                 "DRS zones: 2\n" +
-                "Recommended compound: " + RecommendedTyreText(profile) + "\n" +
+                "Recommended compound: " + RecommendedTyreText(profile, raceLaps) + "\n" +
                 "Selected compound: " + selectedCompound;
             if (!string.IsNullOrEmpty(objectiveText))
             {
@@ -7024,7 +7047,9 @@ namespace LocalFormulaRacing
             return "Dry";
         }
 
-        string RecommendedTyreText(string profile)
+        // Race-length-aware (see IsTyreRecommended): with the rebalanced
+        // compounds a soft is a sprint/qualifying tyre, a hard a long-haul one.
+        string RecommendedTyreText(string profile, int raceLaps)
         {
             string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
             if (normalized.Contains("wet"))
@@ -7039,10 +7064,19 @@ namespace LocalFormulaRacing
 
             if (normalized.Contains("hot"))
             {
-                return "Medium or Hard";
+                return raceLaps > 0 && raceLaps <= 6
+                    ? "Soft for qualifying, Medium for race (heat burns softs)"
+                    : "Soft for qualifying, Hard for race (heat + wear)";
             }
 
-            return "Soft for qualifying, Medium for race";
+            if (raceLaps > 0 && raceLaps <= 6)
+            {
+                return "Soft - fastest, and short enough to survive";
+            }
+
+            return raceLaps > 14
+                ? "Soft for qualifying, Hard for race (softs wear ~2x mediums)"
+                : "Soft for qualifying, Medium for race";
         }
 
         void WeatherTemperatures(string profile, out int air, out int track)

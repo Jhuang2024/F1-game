@@ -20,6 +20,10 @@ namespace LocalFormulaRacing
         // line inside the legal-offset corridor.
         float mistakeBrakeErrorTimer;
         float mistakeBrakeErrorSeverity;
+        // Continuous seconds spent at walking pace under green racing
+        // conditions - the wedged-in-traffic detector for the forced unstick
+        // crawl in ApplyTrafficAvoidance.
+        float stuckInTrafficSeconds;
         float aggressionOffset;
         float damageDecisionTimer;
         float lastProgressDistance;
@@ -1353,10 +1357,15 @@ namespace LocalFormulaRacing
                 lineBias = turnSign * biasMagnitude * shapedSide + (lineShape > 0f ? apexMissNoise : 0f);
             }
 
-            // Slew raised (was 4.5-9.5): the drawn line's entry-apex-exit swings
-            // need genuine lateral pace to be tracked faithfully at speed - too
-            // low a cap is exactly what read as "not following the line".
-            float lineSlewRate = Mathf.Lerp(6f, 14f, Mathf.Clamp01(speedKph / 300f));
+            // Slew proportional to FORWARD speed (~0.12m sideways per metre
+            // travelled, floored so a slow car still converges): a time-based
+            // slew let a slow car chase the drawn line's road-crossing moves
+            // almost perpendicularly - at race-start speeds the whole pack
+            // weaved hard across the road after the line's grid-area kink,
+            // colliding and bunching. Distance-proportional tracking keeps the
+            // crossing angle shallow at every speed (at 300 kph this is the
+            // same ~10 m/s lateral pace as before; at 60 kph it is a calm 2).
+            float lineSlewRate = Mathf.Max(2f, speedKph / 3.6f * 0.12f);
             smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * lineSlewRate);
             lineBias = smoothedLineBias;
             previousSeverityHere = severityHere;
@@ -2442,8 +2451,14 @@ namespace LocalFormulaRacing
                 {
                     // Feeds the low-speed anti-deadlock creep below: the nearest
                     // car actually sharing this lane ahead, regardless of the
-                    // various response windows that follow.
-                    if (absX < 3.0f)
+                    // various response windows that follow. Narrowed from 3.0m
+                    // (stopped-bunch fix round 2): at a standstill a car 2.5m to
+                    // the SIDE does not physically block forward motion, but the
+                    // old width counted every diagonal neighbour in a clump as
+                    // an in-lane blocker, so nobody in a 2-3 wide bunch ever
+                    // qualified to creep and the bunch froze. 1.6m is a genuine
+                    // same-lane car (about a car's width).
+                    if (absX < 1.6f)
                     {
                         nearestInLaneAheadZ = Mathf.Min(nearestInLaneAheadZ, local.z);
                     }
@@ -2705,6 +2720,39 @@ namespace LocalFormulaRacing
             {
                 brakeDemand = 0f;
                 throttleLimit = Mathf.Max(throttleLimit, 0.4f);
+            }
+
+            // Stopped-bunch fix round 2, the guarantee: whatever the pair
+            // geometry above concluded, a car that has been at walking pace for
+            // several seconds under green racing conditions is wedged in
+            // traffic, and staying wedged is the one unacceptable outcome. Force
+            // a crawl (throttle floor, traffic brake released, steer toward
+            // whichever side of the road has more room) until real speed
+            // returns; contact risk at <8 kph is trivial next to a race
+            // permanently stalled. Never fires while pitting, pace-limited
+            // (SC/VSC/yellow hold slow speeds legitimately), pre-race, or in the
+            // first seconds after lights-out (launch spacing is handled by the
+            // pack-window logic above).
+            bool greenRacing = raceManager.CanDrive &&
+                               raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
+                               raceManager.RaceElapsed > 6f &&
+                               raceManager.RaceControlSpeedCapKphFor(participant) >= 9000f;
+            if (greenRacing && !committingToPit && speedKph < 8f)
+            {
+                stuckInTrafficSeconds += Time.deltaTime;
+            }
+            else
+            {
+                stuckInTrafficSeconds = 0f;
+            }
+
+            if (stuckInTrafficSeconds > 2.5f)
+            {
+                brakeDemand = 0f;
+                throttleLimit = Mathf.Max(throttleLimit, 0.35f);
+                float unstickRoomRight = LocalHalfWidthAt(progress.distance) - progress.lateralDistance;
+                float unstickRoomLeft = LocalHalfWidthAt(progress.distance) + progress.lateralDistance;
+                steerAdjust += (unstickRoomRight > unstickRoomLeft ? 1f : -1f) * 0.35f;
             }
 
             if (brakeDemand > 0f)
