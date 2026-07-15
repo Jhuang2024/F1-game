@@ -245,7 +245,21 @@ namespace LocalFormulaRacing
         // line edge in identical machinery at every difficulty - contradicting
         // the project's own rule that AI straight-line pace never silently
         // exceeds the player's in the same car.
-        const float AiTopSpeedBonusKph = 5f;
+        // Difficulty round 5 (per request - deliberate, explicit advantage):
+        // no longer a hidden constant. RaceManager.Grid sets these per
+        // difficulty at spawn via SetAiPerformanceAssist - Easy keeps player
+        // parity, the top tiers run genuinely faster/grippier machinery as an
+        // intentional difficulty mechanism.
+        float aiTopSpeedBonusKph = 5f;
+        float aiGripAssist = 1f;
+
+        /// <summary>Difficulty-scaled AI performance advantage (AI cars only):
+        /// straight-line top-speed bonus in kph and a grip/turn multiplier.</summary>
+        public void SetAiPerformanceAssist(float topSpeedBonusKph, float gripAssist)
+        {
+            aiTopSpeedBonusKph = Mathf.Clamp(topSpeedBonusKph, 0f, 30f);
+            aiGripAssist = Mathf.Clamp(gripAssist, 1f, 1.25f);
+        }
         // Flat DRS speed boost: +DrsBoostAmountKph, uncapped by the normal
         // top-speed ceiling, while the wing is open above DrsBoostThresholdKph -
         // so it never does anything at pit-lane/low-corner speed and ends the
@@ -1023,7 +1037,7 @@ namespace LocalFormulaRacing
             LastPowerMultiplier = Damage.PowerMultiplier;
             LastGearTorqueMultiplier = GearTorqueMultiplier(absoluteSpeedKph);
             float gripStat = Mathf.Lerp(0.9f, 1.28f, CarData.cornering / 100f);
-            float grip = tyreGrip * gripStat * Damage.HandlingMultiplier * setupGripMultiplier;
+            float grip = tyreGrip * gripStat * Damage.HandlingMultiplier * setupGripMultiplier * (IsPlayerControlled ? 1f : aiGripAssist);
             // Dirty-air cornering penalty (switch-gated, default off): a close car
             // ahead robs front-end grip in the corners only, via AeroModel's decay
             // curve scaled to a modest share of total grip.
@@ -1307,11 +1321,11 @@ namespace LocalFormulaRacing
                 : 0f;
 
             // AI straightline speed buff: same reasoning as playerTopSpeedBoost
-            // above, mirrored for AiTopSpeedBonusKph - never applies to the
+            // above, mirrored for aiTopSpeedBonusKph - never applies to the
             // player. Held to exactly the player's force curve so the shared
             // ceiling is reachable for both without a hidden AI edge.
             float aiTopSpeedBoost = !IsPlayerControlled
-                ? Mathf.Lerp(10f, 16f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph))
+                ? Mathf.Lerp(10f, 16f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph)) * (aiTopSpeedBonusKph / 5f)
                 : 0f;
 
             // AI launch boost: a genuine additive forward force off a standing
@@ -1497,7 +1511,7 @@ namespace LocalFormulaRacing
             // speed again.
             float highSpeedLimit = Mathf.Lerp(1f, 0.8f, Mathf.InverseLerp(90f, 320f, speedKph));
             float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);
-            float turnRate = Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit * tyreGrip * Damage.HandlingMultiplier;
+            float turnRate = Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit * tyreGrip * Damage.HandlingMultiplier * (IsPlayerControlled ? 1f : aiGripAssist);
             // Tight-corner authority: a genuine hairpin's real turn radius needs more
             // rotational authority than cruising-speed turnRate provides even at
             // speedFactor's max (1.0 is reached by ~62kph already, well above a real
@@ -1637,8 +1651,8 @@ namespace LocalFormulaRacing
             }
             else
             {
-                target += AiTopSpeedBonusKph;
-                ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + AiTopSpeedBonusKph);
+                target += aiTopSpeedBonusKph;
+                ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + aiTopSpeedBonusKph);
             }
 
             // Battery-never-reaches-0% fix: matches ErsDeploying's own floor in

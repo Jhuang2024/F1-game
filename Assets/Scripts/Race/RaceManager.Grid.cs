@@ -132,6 +132,29 @@ namespace LocalFormulaRacing
             TyreCompound startCompound = StartingTyreForParticipant(player);
             participant.startingCompound = startCompound;
             controller.Initialize(car, Track, startCompound, Settings.Current.manualGears && player, Settings.Current, player);
+            if (!player)
+            {
+                // Difficulty round 5 (per request): explicit, difficulty-scaled
+                // AI machinery advantage - Easy stays at player parity; the top
+                // tiers run genuinely faster, grippier cars as a deliberate
+                // difficulty mechanism (this replaces the old hidden flat kph
+                // bonus with an intentional, documented knob).
+                switch (Settings.Difficulty)
+                {
+                    case RaceDifficulty.Easy:
+                        controller.SetAiPerformanceAssist(5f, 1f);
+                        break;
+                    case RaceDifficulty.Medium:
+                        controller.SetAiPerformanceAssist(9f, 1.04f);
+                        break;
+                    case RaceDifficulty.Hard:
+                        controller.SetAiPerformanceAssist(14f, 1.09f);
+                        break;
+                    default:
+                        controller.SetAiPerformanceAssist(18f, 1.15f);
+                        break;
+                }
+            }
             if (IsTimeTrial)
             {
                 // Time trial: warm the tyres to their optimal window and switch off

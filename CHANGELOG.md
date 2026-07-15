@@ -4,6 +4,18 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Difficulty round 5: explicit AI machinery advantage; yellows halved again (per request)
+
+- With the fair tuning levers exhausted over rounds 2–4, the top difficulty
+  tiers now run deliberately superior machinery — an explicit, documented
+  difficulty mechanism set per tier at spawn (SetAiPerformanceAssist): Easy
+  stays at full player parity (+5 kph legacy bonus, 1.0 grip), Medium +9 kph
+  / 1.04× grip+turn, Hard +14 kph / 1.09×, Expert +18 kph / 1.15×. The grip
+  assist raises both cornering grip and rotation authority, so the advantage
+  shows everywhere, not just on straights.
+- Yellow flags halved again (cooldowns 350 s per-sector / 320 s global);
+  major incidents still always flag.
+
 ## 3-second crawl despawn, DRS pedal sensor, difficulty round 4 (per request)
 
 - Crawl retirement tightened: AI at ≤10 kph for more than 3 continuous
