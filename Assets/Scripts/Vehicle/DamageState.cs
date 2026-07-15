@@ -46,7 +46,7 @@ namespace LocalFormulaRacing
             get { return F1Game.Race.Rules.DamagePerformance.IsDestroyed(OverallPercent); }
         }
 
-        public float AddImpact(float impactSpeedKph, float normalSpeedKph, Vector3 localPoint, DamageImpactType impactType, bool sustainedScrape)
+        public float AddImpact(float impactSpeedKph, float normalSpeedKph, Vector3 localPoint, DamageImpactType impactType, bool sustainedScrape, float externalScale = 1f)
         {
             if (impactType == DamageImpactType.None)
             {
@@ -114,7 +114,11 @@ namespace LocalFormulaRacing
             // every impact type (car/wall/barrier/solid) now registers about 25% of
             // the damage it did before any of this scaling existed.
             const float CollisionDamageScale = 0.25f;
-            energy *= CollisionDamageScale;
+            // externalScale lets the caller reduce damage intake per car - used
+            // to give AI cars a damage resistance so the maxed-aggression
+            // contact storm doesn't accumulate enough damage to slow them
+            // (see VehicleController.ProcessDamageCollision).
+            energy *= CollisionDamageScale * Mathf.Max(0f, externalScale);
 
             float before = OverallPercent;
             if (localPoint.z > 0.1f)

@@ -4,6 +4,16 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## AI damage resistance so contact doesn't slow them (per request)
+
+- AI cars now take much less damage from contact: car-to-car impacts deal
+  25% of the damage, wall/barrier hits 60% (the player still takes 100% - your
+  contact is your own doing). With aggression maxed the field is in constant
+  wheel-to-wheel contact, and even at the already-low per-hit damage it
+  accumulated into a pace-sapping amount over a race; AI cars now stay healthy
+  and fast. A genuine hard AI shunt still registers (wall damage only lightly
+  resisted). Implemented via an externalScale on DamageState.AddImpact.
+
 ## Manual pit entry: guide instead of slam you into the wall (per request)
 
 - The regression: enabling the pit-entry assist for manual (P-key) requests
