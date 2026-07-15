@@ -4,6 +4,19 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## AI-only damage double-count fixed (the ~150 kph "slow AI") (per request)
+
+- AI cars weren't crashed-slow, they were damage-slow — and only the AI. Damage
+  is penalised once in the shared physics (Damage.PowerMultiplier cuts drive
+  force, HandlingMultiplier cuts grip — for every car, player included), but
+  the AI then ALSO capped its own target speed by AiDamagePaceMultiplier (down
+  to 0.62 ≈ 186 kph, worse with worn grip). A player with the same damage only
+  feels the physics; the AI got both, so with aggression maxed (constant
+  contact → accumulated damage) AI cruised at ~150. The extra cap is now just
+  a small nudge for a genuinely wrecked car (1.0 until 45% damage, gentle to
+  0.93 at 92%) — the physics carries the real damage slowdown, applied equally
+  to everyone.
+
 ## The "3-second crawl" collapsed to ~1s crash recovery (per request)
 
 - Confirmed there is no bug zeroing a healthy car's throttle - the drive

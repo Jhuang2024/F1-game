@@ -2368,24 +2368,25 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Double-count fix (per report - "AI going slowly, ~150 kph, not
+        // crashed"): damage is ALREADY penalised in the shared physics
+        // (Damage.PowerMultiplier cuts drive force, Damage.HandlingMultiplier
+        // cuts grip/turn - for every car, the player included). This function
+        // used to ALSO cap the AI's target speed on top, down to 0.62 (~186
+        // kph, worse with worn grip) - a second penalty the player never gets,
+        // so a contact-damaged AI (routine with aggression maxed) crawled while
+        // an equally-damaged player would only feel the physics. It is now just
+        // a small extra-caution nudge for a genuinely wrecked car (harder to
+        // place accurately), never a second pace cap - the physics carries the
+        // real damage slowdown.
         float AiDamagePaceMultiplier(float damagePercent)
         {
-            if (damagePercent < 8f)
+            if (damagePercent < 45f)
             {
                 return 1f;
             }
 
-            if (damagePercent < 28f)
-            {
-                return Mathf.Lerp(0.99f, 0.94f, Mathf.InverseLerp(8f, 28f, damagePercent));
-            }
-
-            if (damagePercent < 58f)
-            {
-                return Mathf.Lerp(0.94f, 0.82f, Mathf.InverseLerp(28f, 58f, damagePercent));
-            }
-
-            return Mathf.Lerp(0.82f, 0.62f, Mathf.InverseLerp(58f, 92f, damagePercent));
+            return Mathf.Lerp(1f, 0.93f, Mathf.InverseLerp(45f, 92f, damagePercent));
         }
 
         void ApplyDamageStrategy(ref VehicleCommand command, float damagePercent)
