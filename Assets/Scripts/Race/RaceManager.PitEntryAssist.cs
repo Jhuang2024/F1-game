@@ -136,7 +136,24 @@ namespace LocalFormulaRacing
                 }
             }
 
-            command.steer = steer;
+            // Player-agency fix (per report - "pit entry slams me into the
+            // barriers and I get stuck"): a PreRacePlan auto-stop leaves the car
+            // on the racing line, so a full steering override is safe and
+            // expected. But a MANUAL (P-key) or SC-offer request can be pressed
+            // from anywhere on track, and fully overriding the wheel there drove
+            // the player across the edge barrier with no way to correct. For
+            // those sources the assist now only BLENDS with the driver's own
+            // steering (a strong guide, not a lock), so the player can always
+            // counter it away from a wall while still being pulled toward the
+            // ramp; the planned auto-stop keeps its full override.
+            if (participant.activePitRequestSource == PitRequestSource.PreRacePlan)
+            {
+                command.steer = steer;
+            }
+            else
+            {
+                command.steer = Mathf.Clamp(steer * 0.55f + fallback.steer * 0.7f, -1f, 1f);
+            }
             command.ers = false;
             command.drs = false;
             return command;

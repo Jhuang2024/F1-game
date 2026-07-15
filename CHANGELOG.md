@@ -4,6 +4,19 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Manual pit entry: guide instead of slam you into the wall (per request)
+
+- The regression: enabling the pit-entry assist for manual (P-key) requests
+  made it FULLY override your steering — fine for a planned stop (the car is
+  on the racing line), but a manual press can happen anywhere, and the hard
+  override drove you across the edge barrier with no way to correct, then you
+  wedged there. Manual/SC-offer pit requests now BLEND the assist with your
+  own steering (a strong guide toward the ramp, not a lock), so you can always
+  counter it away from a wall; the pre-race planned auto-stop keeps its full
+  override (it works there).
+- Also sank the pit-zone safety apron ~4cm below the road surface (was poking
+  ~3cm above, a lip a car could catch on).
+
 ## Recovered cars rejoin at speed; discounts cut again (the "slow by lap 2" field) (per request)
 
 - The remaining slow-field cause: with aggression maxed the first lap is a

@@ -7068,9 +7068,12 @@ namespace LocalFormulaRacing
                 float centerLateral = (innerLateral + outerLateral) * 0.5f;
                 float width = Mathf.Max(4f, outerLateral - innerLateral);
 
+                // Sunk well below the real surfaces (top ~4cm under the road)
+                // so it can NEVER form a lip a car catches on - it only exists
+                // to catch a car where the proper paving has a gap.
                 CreateCollidablePitSurface(
                     "Pit zone safety apron",
-                    point + right * centerLateral - Vector3.up * 0.05f,
+                    point + right * centerLateral - Vector3.up * 0.12f,
                     Quaternion.LookRotation(forward, Vector3.up),
                     new Vector3(width, 0.16f, segStep + 6f),
                     pitMaterial);
