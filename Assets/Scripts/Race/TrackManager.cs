@@ -6833,6 +6833,7 @@ namespace LocalFormulaRacing
             }
 
             CreatePitEntryExitSurfaces(pitMaterial);
+            BuildPitZoneApron(pitMaterial);
             CreatePitEntryExitPaint(pitMaterial);
             CreatePitLaneCones();
             CreatePitEntryMarkers();
@@ -7005,6 +7006,56 @@ namespace LocalFormulaRacing
                 float width = halfWidth * 2f;
 
                 CreateCollidablePitSurface(label, point + right * lateral + Vector3.up * 0.012f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(width, 0.16f, segStep + PitRampSurfaceOverlap), pitMaterial);
+            }
+        }
+
+        // Fall-through safety apron (per report: on some layouts - e.g. the
+        // United States-style circuit - the road surface does not reach the
+        // barriers, and cars pitting fell through the unpaved gap between the
+        // track edge and the pit complex). The corridor is assembled from
+        // several independently-bounded slab runs (service road, entry ramp,
+        // exit ramp) whose laterals derive from a mix of the authored per-point
+        // HalfWidthAt and the global roadHalfWidth - on layouts where those
+        // disagree (authored width profiles, elevation), seams open between
+        // them. Rather than chase each layout's specific seam, one continuous
+        // collidable strip is paved under the ENTIRE pit zone - overlapping the
+        // road edge on the inside, reaching past the pit lane's outer edge, and
+        // spanning from the entry ramp's first metre through the exit ramp's
+        // last (wrapping the start/finish line) - set slightly BELOW the proper
+        // surfaces so it is invisible and inert wherever the real paving is
+        // intact, and simply catches the car wherever it is not.
+        void BuildPitZoneApron(Material pitMaterial)
+        {
+            float length = Runtime.length;
+            float startDistance = length * PitZoneEntryRampStart;
+            float endNormalized = PitZoneExitRampEnd;
+            float span = (endNormalized * length) - startDistance;
+            if (span <= 0f)
+            {
+                span += length;
+            }
+
+            for (float d = 0f; d < span; d += 16f)
+            {
+                float segStep = Mathf.Min(16f, span - d);
+                float midDistance = Runtime.WrapDistance(startDistance + d + segStep * 0.5f);
+
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(midDistance, out point, out forward, out right);
+
+                float innerLateral = Runtime.HalfWidthAt(midDistance) - 2f;
+                float outerLateral = Runtime.PitLaneLateral + TrackRuntime.PitRampFullWidth * 0.5f + 4f;
+                float centerLateral = (innerLateral + outerLateral) * 0.5f;
+                float width = Mathf.Max(4f, outerLateral - innerLateral);
+
+                CreateCollidablePitSurface(
+                    "Pit zone safety apron",
+                    point + right * centerLateral - Vector3.up * 0.05f,
+                    Quaternion.LookRotation(forward, Vector3.up),
+                    new Vector3(width, 0.16f, segStep + 6f),
+                    pitMaterial);
             }
         }
 

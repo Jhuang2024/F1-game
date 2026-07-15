@@ -4,6 +4,20 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Pit-zone fall-through fixed with a safety apron (per request)
+
+- On some layouts (e.g. the United States-style circuit) the road surface
+  doesn't reach the barriers, and cars pitting fell through the unpaved gap
+  between the track edge and the pit complex. The corridor is assembled from
+  several independently-bounded slab runs (service road, entry ramp, exit
+  ramp) whose laterals mix the authored per-point width with the global base
+  width — on layouts where those disagree, seams open. One continuous
+  collidable apron is now paved under the ENTIRE pit zone (road edge overlap
+  → past the pit lane's outer edge, entry ramp start → exit ramp end,
+  wrapping the start/finish), set slightly below the proper surfaces so it's
+  invisible where the real paving is intact and catches the car wherever it
+  isn't.
+
 ## Manual pits work, in-race tyre choice reachable, punctures at 0% (per request)
 
 - Manual pit stops actually happen now: the pit-entry approach assist was
