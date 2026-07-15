@@ -585,20 +585,12 @@ namespace LocalFormulaRacing
                     // Restored verbatim to round 18's value. The real crash
                     // cause is still open; whatever it is, it isn't this floor.
                     //
-                    // Round 22: round 21's revert conclusion was drawn while
-                    // brakingApexSpeed was still being inflated by
-                    // driverPaceVariance * profile.paceMultiplier (up to ~1.35x
-                    // on Expert, see UpdateDriving) - so round 19/20's lower
-                    // floors alone genuinely COULDN'T restore braking on the
-                    // higher tiers, and the revert put the collapse back
-                    // everywhere. Both halves are fixed together now: with a
-                    // 512-522 kph floor every car's Mathf.Min collapsed to
-                    // straightTargetSpeed, a "slow" corner was targeted FLAT
-                    // OUT, brakeDemand (keyed off speed - apex target) never
-                    // fired, and apexConfidence/skillTier/the whole cornering
-                    // difficulty column were dead knobs. Restored to round 20's
-                    // sub-top-speed band (150-200 kph).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(150f, Mathf.Lerp(180f, 200f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 22 (turning-speed restore, per request): a joint
+                    // floor-lowering + braking-target change was tried here and
+                    // play-testing showed the AI turning far too slowly -
+                    // reverted verbatim to round 18's value again. Round 21's
+                    // conclusion stands: keep the fast floors.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(512.5f, Mathf.Lerp(517.5f, 522.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -641,17 +633,11 @@ namespace LocalFormulaRacing
                     // restored verbatim to round 12's value instead of leaving
                     // pace degraded for a fix that didn't work.
                     //
-                    // Round 16: same joint fix as the Slow bucket's round 22 -
-                    // the round-15 revert was judged while brakingApexSpeed was
-                    // still pace-multiplier inflated, so the lower floor never
-                    // got a fair test on Hard/Expert. 302-337 kph is at/above
-                    // every car's top speed (341-350 in carPerformance.json),
-                    // so this tier carried full straight-line speed into every
-                    // 90-degree street corner the >=168-degree hairpin gate
-                    // doesn't catch - the exact recurring barrier-crash report.
-                    // Restored to round 14's real very-tight band (110-140 kph),
-                    // between Slow and the hairpin crawl.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(110f, Mathf.Lerp(125f, 140f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 16 (turning-speed restore, per request): same as the
+                    // Slow bucket's round 22 - a joint floor-lowering +
+                    // braking-target change was tried and left the AI turning
+                    // far too slowly. Reverted verbatim to round 12's value.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(302.5f, Mathf.Lerp(322.5f, 337.5f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
@@ -1125,20 +1111,7 @@ namespace LocalFormulaRacing
             // thinnest driver-stat blend found in the verification pass.
             float driverPaceVariance = Mathf.Lerp(0.89f, 1.11f, pace / 100f) * Mathf.Lerp(0.92f, 1.08f, racecraft / 100f);
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
-            // The pace variance and difficulty pace multiplier stay on the cruise
-            // target (straight-line pace differentiation) but must NOT inflate the
-            // BRAKING apex target: 1.11 pace x 1.08 racecraft x 1.15 Expert could
-            // raise even the hairpin crawl's entry target by ~35%, and pushed any
-            // already-saturated corner target past straight-line speed - at which
-            // point brakeDemand (keyed off speed - brakingApexSpeed) could never
-            // fire at all. That inflation is why the earlier corner-floor
-            // restores (Slow round 19/20, VeryTight round 13/14) "didn't fix" the
-            // corner crashes in play-testing and got reverted. Difficulty and
-            // driver skill still shape corner entry where they belong: via
-            // apexConfidence/skillTier in the apex target itself, and via
-            // decelReference/brakeDistanceMultiplier in how late and hard the
-            // brake zone is attacked.
-            float brakingApexSpeed = Mathf.Min(apexTargetSpeed, straightTargetSpeed);
+            float brakingApexSpeed = apexTargetSpeed * driverPaceVariance * profile.paceMultiplier;
 
             float damagePercent = vehicle.Damage == null ? 0f : vehicle.Damage.OverallPercent;
             float damageMultiplier = AiDamagePaceMultiplier(damagePercent);

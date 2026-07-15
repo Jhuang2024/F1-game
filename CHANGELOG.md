@@ -12,13 +12,12 @@ review only (no Unity here); the AI cornering/mistake changes and the quali
 difficulty rescale in particular want an in-editor drive.
 
 ### AI behaviour & difficulty
-- AI brakes for corners again: the Slow/VeryTight apex-speed floors had been
-  tuned to 512/302+ kph — above every car's top speed — so tight corners were
-  taken flat out, brake demand never fired, and the cornering difficulty knobs
-  were dead (the recurring barrier-crash reports). Restored sub-top-speed bands
-  (Slow 150–200, VeryTight 110–140 kph) **and** removed the pace-multiplier
-  inflation of the braking apex target (up to ~1.35× on Expert) that had masked
-  the earlier floor-only fixes and got them reverted.
+- ~~Cornering floors/braking-target change~~ REVERTED after play-testing: the
+  joint Slow/VeryTight floor lowering + braking-apex-target de-inflation made
+  the AI turn far too slowly, and was reverted verbatim to the round-18/12
+  values (Slow bucket round 22 / VeryTight round 16 notes in
+  AiVehicleController). The saturated-floor analysis is left in the tuning
+  history for whoever next picks up the corner-crash thread.
 - Racecraft desaturated: dropped the ×1.69 defending/overtaking multiply that
   clamped all 22 drivers to identical 100-rated clones, and replaced the ×2.6
   commitment buff (every tier saturated at 1.0 — Easy fought exactly like
