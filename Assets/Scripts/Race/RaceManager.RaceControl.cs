@@ -218,26 +218,28 @@ namespace LocalFormulaRacing
                 bool stoppedCandidate = nearStationary && !strandedExcluded;
                 participant.stoppedOnTrackTimer = stoppedCandidate ? participant.stoppedOnTrackTimer + RaceControlCheckInterval : 0f;
 
-                // Crawl recovery rule (per request, revised from the retire-
-                // and-despawn version): an AI at or under 10 kph for more than
-                // 3 continuous seconds under green racing conditions gets the
-                // SAME action as the player's hold-R recovery - snapped to the
-                // middle of the road at its current distance, facing down the
-                // track, lap invalidated - and simply resumes racing. Excludes
-                // the player (they have the R key), pre-race, the launch
-                // compression window (first 10s), pit sequences, and SC/VSC/
-                // autopilot pacing (legitimately slow). The timer resets on
-                // recovery, and the freshly-placed car has open road at the
-                // centerline, so a genuinely broken car can only loop this at
-                // 3s intervals rather than blocking anyone.
-                bool crawlCandidate = !participant.isPlayer && speedKph <= 10f &&
+                // Crash recovery (per request - a car should NEVER be crawling
+                // for a sustained window; if it is, it crashed). Under green
+                // racing an AI at or under 10 kph is not slow, it is stopped -
+                // no corner on any layout is taken below ~75 kph, so this band
+                // means a wall/car impact. The reverse-out unstick
+                // (AiVehicleController) starts freeing it at 0.8s; anything
+                // still stopped at 1s the unstick could not free is genuinely
+                // wedged, so it gets the hold-R action immediately (snapped to
+                // the road centre at its current distance, facing forward, lap
+                // invalidated) rather than lingering. 1s is the minimum
+                // window that still distinguishes a crash from a hard brake
+                // into the slowest hairpin. Excludes the player (R key),
+                // pre-race, the launch window (first 10s), pit sequences and
+                // SC/VSC pacing (legitimately slow).
+                bool crashStopped = !participant.isPlayer && speedKph <= 10f &&
                     !preRace && RaceElapsed > 10f && !inPitPhaseOrPitting && !paceLimited && !participant.isRaceControlAutopilot;
-                participant.slowCrawlRetireTimer = crawlCandidate ? participant.slowCrawlRetireTimer + RaceControlCheckInterval : 0f;
-                if (participant.slowCrawlRetireTimer > 3f)
+                participant.slowCrawlRetireTimer = crashStopped ? participant.slowCrawlRetireTimer + RaceControlCheckInterval : 0f;
+                if (participant.slowCrawlRetireTimer > 1f)
                 {
                     participant.slowCrawlRetireTimer = 0f;
                     ResetParticipantToTrackCenter(participant);
-                    GameLog.Info("[RaceControl] " + participant.driverName + " crawl-recovered to the track centerline.");
+                    GameLog.Info("[RaceControl] " + participant.driverName + " crash-recovered to the track centerline.");
                 }
 
                 // Debug: a car that would have tripped the old blunt check (slow,

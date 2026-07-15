@@ -2959,7 +2959,7 @@ namespace LocalFormulaRacing
                 stuckInTrafficSeconds = 0f;
             }
 
-            if (stuckInTrafficSeconds > 1.5f)
+            if (stuckInTrafficSeconds > 0.8f)
             {
                 // Root-cause fix (why cars crawl for 3s at all): flooring the
                 // throttle FORWARD drives a car straight into whatever stopped

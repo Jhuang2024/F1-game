@@ -4,6 +4,23 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## The "3-second crawl" collapsed to ~1s crash recovery (per request)
+
+- Confirmed there is no bug zeroing a healthy car's throttle - the drive
+  force works (race starts prove it), and the long-standing
+  LogSuspiciousPowerLoss diagnostic fires precisely for a car wedged against
+  an obstacle. A car at <=10 kph under green flag is genuinely STOPPED (no
+  corner on any layout is below ~75 kph), i.e. it crashed into a wall or
+  another car - which with max aggression happens, and IS "something wrong",
+  exactly as noted.
+- So the 3-second window was the wrong design (a slow catch-all). The whole
+  detect-and-recover loop is collapsed: the reverse-out unstick starts
+  freeing a stopped car at 0.8s (was 1.5), and anything still stopped at 1s
+  (was 3) is snapped to the road centre via the hold-R action. ~1s is the
+  minimum window that still separates a crash from a hard brake into the
+  slowest hairpin - a car can't be teleported the instant it dips below
+  10 kph without also catching legitimate heavy braking.
+
 ## Root-cause: why AI crawl at all (the crawl rule was masking two real bugs)
 
 Diagnosed why a car can be stuck at <=10 kph for 3s despite the 2.5s unstick,
