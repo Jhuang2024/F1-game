@@ -40,7 +40,9 @@ namespace LocalFormulaRacing
         // transform and forwards mode-cycling, impulses, shake scale and look-back.
         F1Game.Cameras.RaceCameraDirector director;
         bool directorActive;
-        int mode;
+        // Default view is the FOURTH camera (per request); C cycles onward
+        // from there in the existing order.
+        int mode = 3;
         Vector3 velocitySmoothed;
         float smoothedSpeedKph;
         float previousRawSpeedKph = -1f;

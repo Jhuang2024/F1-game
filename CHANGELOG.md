@@ -4,6 +4,26 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## 10-second stalls, fewer yellows, collision camera, 4th camera default (per request)
+
+- The stop-for-10-seconds-then-resume stall diagnosed: the low-speed unstick
+  only zeroed its OWN traffic brake and raised the throttle CAP — but
+  command.brake arrives carrying whatever an upstream system applied (merged
+  with Max), and a zeroed upstream throttle passes straight through the Min.
+  The car sat "unstuck" but braked at walking pace until the slow
+  stuck-escalation eventually repositioned it (~10 s). The unstick is now a
+  genuine override: clears any upstream brake and FLOORS the throttle, so
+  forward motion is guaranteed the moment it engages.
+- Yellow flags reduced a further 25% (cooldowns 130→175 s / 120→160 s).
+- Collision camera fixed on the Cinemachine path: the chase transposer
+  follows the car's yaw, so an impact spin whipped the camera around the car
+  at spin speed. The director now tracks the car's yaw rate and raises the
+  active chase camera's yaw damping hard during a genuine spin, easing back
+  once the car settles — the same broadcast-camera behaviour the legacy rig
+  already had.
+- The fourth camera is now the default on both backends (Cinemachine
+  SetActive(3), legacy mode = 3); C cycles onward in the existing order.
+
 ## DRS opens reliably; car contact is a shove, not a launch (per request)
 
 - DRS "shows READY, press Space, nothing happens": round 2's hysteresis dead

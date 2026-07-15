@@ -47,6 +47,50 @@ namespace F1Game.Cameras
         public void SetLookBack(bool active) => lookBack = active;
 
         public int ActiveIndex => activeIndex;
+
+        // Collision-camera fix (per report - "the camera goes weird if a
+        // collision happens"): the chase transposer follows the car's yaw, so
+        // an impact spin (or the capped-but-real post-contact rotation) whips
+        // the camera around the car at spin speed. The car's yaw rate is
+        // tracked here, and while it exceeds a genuine-spin threshold the
+        // active chase camera's yaw damping is raised hard, easing back over a
+        // second once the car settles - the broadcast-camera behaviour the
+        // legacy rig already had (spinRecoveryAmount), ported to Cinemachine.
+        const float SpinBaseYawDamping = 0.6f;
+        const float SpinMaxYawDamping = 7f;
+        const float SpinYawRateThresholdDegPerSec = 140f;
+        float previousTargetYaw;
+        bool hasPreviousTargetYaw;
+        float spinDampingBlend;
+
+        void UpdateSpinDamping()
+        {
+            if (followTarget == null)
+            {
+                return;
+            }
+
+            float yaw = followTarget.eulerAngles.y;
+            if (!hasPreviousTargetYaw)
+            {
+                previousTargetYaw = yaw;
+                hasPreviousTargetYaw = true;
+                return;
+            }
+
+            float dt = Mathf.Max(Time.deltaTime, 0.0001f);
+            float yawRate = Mathf.Abs(Mathf.DeltaAngle(previousTargetYaw, yaw)) / dt;
+            previousTargetYaw = yaw;
+
+            bool spinning = yawRate > SpinYawRateThresholdDegPerSec;
+            spinDampingBlend = Mathf.MoveTowards(spinDampingBlend, spinning ? 1f : 0f, dt * (spinning ? 6f : 1.2f));
+
+            CinemachineTransposer activeTransposer = activeIndex < transposers.Count ? transposers[activeIndex] : null;
+            if (activeTransposer != null)
+            {
+                activeTransposer.m_YawDamping = Mathf.Lerp(SpinBaseYawDamping, SpinMaxYawDamping, spinDampingBlend);
+            }
+        }
         public CameraProfile ActiveProfile => profiles.Count > 0 ? profiles[Mathf.Clamp(activeIndex, 0, profiles.Count - 1)] : null;
 
         /// <summary>Creates the director on the main camera and builds the vcam set.</summary>
@@ -91,7 +135,9 @@ namespace F1Game.Cameras
                 baseOffsets.Add(profile.followOffset);
             }
 
-            SetActive(0);
+            // Default view is the FOURTH camera (per request); C cycles onward
+            // from there in the existing order.
+            SetActive(cameras.Count > 3 ? 3 : 0);
         }
 
         CinemachineVirtualCamera BuildVirtualCamera(Transform parent, CameraProfile profile, Transform car, out CinemachineTransposer chaseTransposer)
@@ -136,6 +182,11 @@ namespace F1Game.Cameras
                 transposer.m_BindingMode = profile.horizonStability > 0.5f
                     ? CinemachineTransposer.BindingMode.LockToTargetWithWorldUp
                     : CinemachineTransposer.BindingMode.LockToTarget;
+                // Collision-camera fix: an explicit yaw-damping base, raised
+                // dynamically while the car is spinning (see LateUpdate) so an
+                // impact spin doesn't whip the orbiting chase camera around
+                // with the car.
+                transposer.m_YawDamping = SpinBaseYawDamping;
 
                 var composer = vcam.AddCinemachineComponent<CinemachineComposer>();
                 composer.m_HorizontalDamping = profile.rotationDamping;
@@ -249,6 +300,8 @@ namespace F1Game.Cameras
 
         void LateUpdate()
         {
+            UpdateSpinDamping();
+
             CameraProfile profile = ActiveProfile;
             if (profile == null || cameras.Count == 0 || speed01Provider == null)
             {

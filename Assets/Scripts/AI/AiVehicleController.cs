@@ -2944,6 +2944,21 @@ namespace LocalFormulaRacing
             {
                 brakeDemand = 0f;
                 throttleLimit = Mathf.Max(throttleLimit, 0.35f);
+                // 10-second-stall fix (per report - cars sitting at ~1 kph for
+                // ~10s then resuming as if nothing happened): this unstick only
+                // zeroed ITS OWN brakeDemand and raised throttleLimit - but
+                // command.brake arrives here already carrying whatever an
+                // upstream system applied (corner model, edge brake, handback
+                // ramp), and the final merge is Max(command.brake, brakeDemand)
+                // / Min(command.throttle, throttleLimit): an upstream brake was
+                // never cleared and an upstream zero throttle passed straight
+                // through the Min. The car sat "unstuck" but braked at walking
+                // pace until the slow stuck-escalation eventually repositioned
+                // it. The unstick is now a genuine override: any upstream brake
+                // is cleared and the throttle is FLOORED, so forward motion is
+                // guaranteed the moment it engages.
+                command.brake = 0f;
+                command.throttle = Mathf.Max(command.throttle, 0.35f);
                 float unstickRoomRight = LocalHalfWidthAt(progress.distance) - progress.lateralDistance;
                 float unstickRoomLeft = LocalHalfWidthAt(progress.distance) + progress.lateralDistance;
                 steerAdjust += (unstickRoomRight > unstickRoomLeft ? 1f : -1f) * 0.35f;

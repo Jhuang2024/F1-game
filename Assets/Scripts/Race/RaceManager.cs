@@ -334,8 +334,10 @@ namespace LocalFormulaRacing
         // both cooldowns doubled, so minor/medium incidents raise local
         // yellows at half the old steady-state rate. Major incidents still
         // always flag - that tier is reserved for genuinely serious events.
-        const float YellowSectorCooldownAfterClearSeconds = 130f;
-        const float GlobalMinorYellowCooldownSeconds = 120f;
+        // Round 2 (per request): a further 25% fewer yellows - both cooldowns
+        // scaled by 4/3 on top of the earlier doubling.
+        const float YellowSectorCooldownAfterClearSeconds = 175f;
+        const float GlobalMinorYellowCooldownSeconds = 160f;
         const float MaxYellowEpisodeSeconds = 26f;
         // Part 4 retune: a genuinely global (cross-sector) cooldown, separate
         // from GlobalMinorYellowCooldownSeconds above (which only ever gated
