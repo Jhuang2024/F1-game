@@ -3668,18 +3668,26 @@ namespace LocalFormulaRacing
             summary.verticalOverflow = VerticalWrapMode.Overflow;
             UiFactory.SetSize(summary, 900f, 26f);
 
+            // Stop-count guide follows the calibrated stint lengths (soft ~2 laps,
+            // medium ~3, hard ~4): the longest single stint is a hard at ~4 laps,
+            // so one stop (two stints) only reaches ~6-7 laps, and races stack up
+            // stops fast from there.
             string recommendation;
             if (profileIsWet(current))
             {
                 recommendation = "Wet weather: Intermediates or Wets are the safe call.";
             }
-            else if (raceLaps <= 8)
+            else if (raceLaps <= 6)
             {
-                recommendation = "Short race: a one-stop is usually enough.";
+                recommendation = "Short race: one stop is enough (softs ~2 laps, mediums ~3, hards ~4).";
+            }
+            else if (raceLaps <= 10)
+            {
+                recommendation = "Mid race: plan two stops - no tyre lasts more than ~4 laps.";
             }
             else
             {
-                recommendation = "Longer race: a two-stop can undercut rivals on fresher tyres.";
+                recommendation = "Long race: three stops - stints run ~2-4 laps, so keep fresh rubber coming.";
             }
 
             Text recommendationText = UiFactory.CreateText(pitList, "Strategy recommendation", recommendation, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
@@ -3718,18 +3726,21 @@ namespace LocalFormulaRacing
 
         string TyreShortDescriptor(string tyreName)
         {
-            if (tyreName == "Soft") return "Fastest by far, wears ~2x Medium";
-            if (tyreName == "Medium") return "Balanced grip and life";
-            if (tyreName == "Hard") return "-30 kph pace, ~1.6x Medium's life";
-            if (tyreName == "Intermediate") return "Damp track, light rain";
-            if (tyreName == "Wet") return "Heavy rain, max clearance";
+            if (tyreName == "Soft") return "Most grip, easiest to steer - lasts ~2 laps";
+            if (tyreName == "Medium") return "Balanced grip and steering - lasts ~3 laps";
+            if (tyreName == "Hard") return "-30 kph, heaviest to steer - lasts ~4 laps";
+            if (tyreName == "Intermediate") return "Damp track, light rain - lasts ~3 laps";
+            if (tyreName == "Wet") return "Heavy rain, max clearance - lasts ~3 laps";
             return "";
         }
 
         // raceLaps <= 0 means "unknown/qualifying context" and falls back to the
-        // mid-length recommendation. Thresholds follow the rebalanced compound
-        // stats (soft wears ~2x medium, medium ~2x hard, 15/30 kph pace steps):
-        // a soft only survives a sprint, a hard only pays off over a long stint.
+        // mid-length recommendation. Thresholds follow the calibrated stint
+        // lengths (soft ~2 laps, medium ~3, hard ~4): the recommended START tyre
+        // is the one that carries a solid, fast opening stint while leaving the
+        // fewest stops to the flag. A soft only makes sense as a start tyre in a
+        // genuine sprint; anything longer wants the medium's or hard's extra
+        // durability up front.
         bool IsTyreRecommended(string tyreName, string profile, bool qualifying, int raceLaps)
         {
             string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
@@ -3752,15 +3763,19 @@ namespace LocalFormulaRacing
             {
                 // Heat piles extra wear on top of the compound spread - shift
                 // one step harder than the same race length in cool air.
-                return raceLaps > 0 && raceLaps <= 6 ? tyreName == "Medium" : tyreName == "Hard";
+                return raceLaps > 0 && raceLaps <= 3 ? tyreName == "Medium" : tyreName == "Hard";
             }
 
-            if (raceLaps > 0 && raceLaps <= 6)
+            // A true sprint (<= 2 laps) is the only race a soft should start:
+            // its ~2-lap life covers the distance and it's the fastest tyre.
+            if (raceLaps > 0 && raceLaps <= 2)
             {
                 return tyreName == "Soft";
             }
 
-            return raceLaps > 14 ? tyreName == "Hard" : tyreName == "Medium";
+            // Long races (> 6 laps) need the hard's ~4-lap stints to keep the
+            // stop count down; everything in between starts on the medium.
+            return raceLaps > 6 ? tyreName == "Hard" : tyreName == "Medium";
         }
 
         // A clear mismatch: slicks on a wet/mixed session, or wet-weather tyres
@@ -7047,8 +7062,9 @@ namespace LocalFormulaRacing
             return "Dry";
         }
 
-        // Race-length-aware (see IsTyreRecommended): with the rebalanced
-        // compounds a soft is a sprint/qualifying tyre, a hard a long-haul one.
+        // Race-length-aware (see IsTyreRecommended): calibrated stint lengths are
+        // soft ~2 laps, medium ~3, hard ~4, so the recommendation names the best
+        // START tyre and states the lifespans so the player can plan stops.
         string RecommendedTyreText(string profile, int raceLaps)
         {
             string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
@@ -7064,19 +7080,19 @@ namespace LocalFormulaRacing
 
             if (normalized.Contains("hot"))
             {
-                return raceLaps > 0 && raceLaps <= 6
-                    ? "Soft for qualifying, Medium for race (heat burns softs)"
-                    : "Soft for qualifying, Hard for race (heat + wear)";
+                return raceLaps > 0 && raceLaps <= 3
+                    ? "Soft to qualify, Medium to race (heat burns softs - they last ~2 laps)"
+                    : "Soft to qualify, Hard to race (heat + wear; hards last ~4 laps)";
             }
 
-            if (raceLaps > 0 && raceLaps <= 6)
+            if (raceLaps > 0 && raceLaps <= 2)
             {
-                return "Soft - fastest, and short enough to survive";
+                return "Soft - fastest, and its ~2-lap life covers the sprint";
             }
 
-            return raceLaps > 14
-                ? "Soft for qualifying, Hard for race (softs wear ~2x mediums)"
-                : "Soft for qualifying, Medium for race";
+            return raceLaps > 6
+                ? "Soft to qualify, Hard to race (softs ~2 laps, mediums ~3, hards ~4)"
+                : "Soft to qualify, Medium to race (softs ~2 laps, mediums ~3, hards ~4)";
         }
 
         void WeatherTemperatures(string profile, out int air, out int track)

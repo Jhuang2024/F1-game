@@ -82,9 +82,21 @@ namespace LocalFormulaRacing
             // decisions - a soft is still the fast, fragile tyre and a hard the
             // slow, durable one - they simply last the intended number of laps
             // now instead of expiring almost immediately.
+            // Dry grip spread widened (per request - "softs/mediums/hards feel
+            // like the same grip; soft should be incredibly easy to steer,
+            // medium less so, hard even less"). baseGrip drives both lateral
+            // grip and steering turn-rate (VehicleController), so a wider spread
+            // makes the soft feel planted and darty and the hard feel heavy and
+            // reluctant - a real, felt handling difference between compounds,
+            // not a rounding error. The AI's cornering TARGET-speed model reads
+            // GripConditionMultiplier (which neutralises baseGrip) plus the flat
+            // CompoundSpeedOffsetKph instead, so this spread changes the felt
+            // handling of every compound without re-tuning AI corner pace; the
+            // AI's own physics grip still gets its 1.0-1.25 grip assist on top,
+            // so a harder tyre's lower base never leaves an AI sliding off.
             if (compound == TyreCompound.Soft)
             {
-                baseGrip = 1.16f;
+                baseGrip = 1.28f;
                 // ~2 laps (4.4 / 2).
                 baseWear = 2.2f;
                 targetMin = 82f;
@@ -108,7 +120,7 @@ namespace LocalFormulaRacing
             }
             else if (compound == TyreCompound.Hard)
             {
-                baseGrip = 0.87f;
+                baseGrip = 0.76f;
                 // ~4 laps (4.4 / 4) - still clearly the endurance tyre.
                 baseWear = 1.1f;
                 targetMin = 74f;

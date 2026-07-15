@@ -15,32 +15,38 @@ namespace F1Game.Tests
         const int Soft = 0, Medium = 1, Hard = 2, Intermediate = 3;
 
         [Test]
-        public void ShortStintReachesForAFasterCompound()
+        public void PicksSoftestCompoundThatReachesTheFlag()
         {
-            // Aggressive (>=65) inside the 8-lap window pushes all the way to Soft.
-            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(6, 70, Hard));
-            // A very short stint (<=4 laps) pushes to Soft even for a cautious driver.
-            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(4, 40, Medium));
+            // Softest compound whose stint life (Soft 2, Medium 3, Hard 4) still
+            // reaches the flag, so this is the LAST stop - never a compound that
+            // guarantees another one.
+            // 1-2 laps left: a soft covers it and is fastest.
             Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(1, 50, Soft));
-            // Cautious driver, 5-8 laps left: reaches only to Medium, not Soft.
-            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(6, 50, Hard));
-            // Boundary: 8 laps is still "short"; 9 is not.
-            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(8, 50, Hard));
+            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(2, 50, Medium));
+            // 3 laps left: a soft would fall a lap short, so reach only to Medium.
+            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(3, 90, Hard));
+            // 4 laps left: only the hard reaches the flag in one stint - fitting a
+            // soft here is exactly the old soft->soft two-stopper.
+            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(4, 90, Medium));
         }
 
         [Test]
-        public void LongStintFollowsTheLadder()
+        public void LongRunFitsTheMostDurableTyre()
         {
-            // Out of the short window (or 0 remaining) -> Soft->Medium->Hard ladder,
-            // with Hard and any unexpected compound settling back to Medium.
-            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(20, 90, Soft));
-            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(20, 90, Medium));
-            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(20, 90, Hard));
-            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(20, 90, Intermediate));
-            // 9 laps: out of the reach window, so aggression is ignored.
-            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(9, 90, Medium));
-            // 0 laps remaining is not "> 0", so the ladder runs, not the reach.
-            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(0, 90, Soft));
+            // More laps left than even a hard covers: still the hard, to minimise
+            // how many further stops remain. Aggression and current compound no
+            // longer change the pick - stint length alone drives it.
+            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(8, 50, Hard));
+            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(20, 90, Soft));
+            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(20, 40, Medium));
+        }
+
+        [Test]
+        public void StintLengthsMatchTheWearCalibration()
+        {
+            Assert.AreEqual(2, TyreStrategyRules.DryStintLaps(Soft));
+            Assert.AreEqual(3, TyreStrategyRules.DryStintLaps(Medium));
+            Assert.AreEqual(4, TyreStrategyRules.DryStintLaps(Hard));
         }
 
         [Test]
