@@ -1827,16 +1827,17 @@ namespace LocalFormulaRacing
             }
 
             Vector3 localPoint = transform.InverseTransformPoint(contact.point);
-            // AI damage resistance (per request - stop damage slowing the AI):
-            // AI cars take a fraction of the damage a contact would otherwise
-            // deal, so the constant wheel-to-wheel contact under maxed
-            // aggression never accumulates into a pace-sapping amount. The
-            // player takes full damage (their contact is their own doing and
-            // they can see/avoid it). Wall/barrier hits are resisted less than
-            // car-to-car so a genuine AI shunt still matters.
-            float aiDamageResistance = IsPlayerControlled ? 1f
-                : (impactType == DamageImpactType.Car ? 0.25f : 0.6f);
-            float delta = Damage.AddImpact(impactSpeedKph, normalSpeedKph, localPoint, impactType, sustained, aiDamageResistance);
+            // AI take NO damage (per request): the collision physics response
+            // (dampening above) still applies, but AI cars never accumulate any
+            // damage, so contact can never sap their pace. The player still
+            // takes full damage - their contact is their own doing.
+            if (!IsPlayerControlled)
+            {
+                LastDamageDebug = "AI - no damage (" + objectName + ")";
+                return;
+            }
+
+            float delta = Damage.AddImpact(impactSpeedKph, normalSpeedKph, localPoint, impactType, sustained);
             LastDamageDebug = "object=" + objectName +
                               " type=" + impactType +
                               " impact=" + impactSpeedKph.ToString("0.0") +

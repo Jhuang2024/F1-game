@@ -4,6 +4,14 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## AI take no damage at all (per request)
+
+- AI cars no longer accumulate any damage from contact - the collision physics
+  response still applies (a hit still shoves them), but there is zero damage
+  buildup, so contact can never sap AI pace. The player still takes full
+  damage (their own contact to manage). Replaces the earlier per-type AI
+  damage resistance.
+
 ## AI damage resistance so contact doesn't slow them (per request)
 
 - AI cars now take much less damage from contact: car-to-car impacts deal
