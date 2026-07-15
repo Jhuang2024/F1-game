@@ -115,6 +115,9 @@ namespace LocalFormulaRacing
         // pitRequestLapNumber is the display-lap the request was raised on, kept
         // for diagnostics/future strategy logic.
         public bool pitEntryCommitted;
+        // Whether this car's colliders are currently ignoring car-to-car
+        // contact (pit-sequence immunity - see RaceManager.HandlePitService).
+        public bool carToCarCollisionIgnored;
 
         // ==== Unified pit rail (full pit-system rebuild) ====
         // One monotonic parameter drives the ENTIRE guided pit sequence from

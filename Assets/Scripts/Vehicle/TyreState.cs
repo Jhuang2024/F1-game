@@ -95,7 +95,10 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Hard)
             {
                 baseGrip = 0.87f;
-                baseWear = 1.1f;
+                // Raised from 1.1 (per request): the hard is still clearly the
+                // endurance tyre (~1.6x medium's life instead of 2x), but a
+                // hard stint now genuinely ends too.
+                baseWear = 1.4f;
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;

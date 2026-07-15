@@ -1069,20 +1069,25 @@ namespace LocalFormulaRacing
             RaceDifficulty straightDifficulty = raceManager.Settings == null ? RaceDifficulty.Medium : raceManager.Settings.Difficulty;
             switch (straightDifficulty)
             {
+                // Round 18 (per request - "the AI are still WAY too easy"):
+                // every tier's discount cut hard. The straight-line handicap is
+                // the single dominant pace lever (the round-16 note above
+                // documents why no decision-quality model can hide it), and
+                // with the cornering model now geometry-matched the AI can
+                // genuinely use the returned speed. Easy stays clearly the
+                // slowest but no longer a rolling roadblock; Expert runs the
+                // car's true envelope with zero discount.
                 case RaceDifficulty.Easy:
-                    straightDiscountKph = 92f;
-                    break;
-                case RaceDifficulty.Medium:
                     straightDiscountKph = 55f;
                     break;
+                case RaceDifficulty.Medium:
+                    straightDiscountKph = 25f;
+                    break;
                 case RaceDifficulty.Hard:
-                    // Round 17 (still too easy - P22 to P1 in 3 laps on Hard):
-                    // Hard/Expert trimmed further (was 22/8) so the top tiers sit
-                    // essentially on the car's real envelope down a straight.
-                    straightDiscountKph = 15f;
+                    straightDiscountKph = 6f;
                     break;
                 default:
-                    straightDiscountKph = 5f;
+                    straightDiscountKph = 0f;
                     break;
             }
             straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - straightDiscountKph);

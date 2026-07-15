@@ -29,6 +29,20 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Pit-sequence collision immunity (per request: a car colliding
+            // with you while pitting must never break the pit procedure - and
+            // shouldn't be able to hit you at all). Deep pit-lane phases were
+            // already immune (SetPitGuided goes kinematic with
+            // detectCollisions off), but the vulnerable windows either side -
+            // the physics-driven entry rail and the exit merge - were not: a
+            // racing car clipping a pitting one there knocked it off the rail
+            // and wrecked the whole stop. Car-to-car contact is now ignored
+            // for the ENTIRE pit sequence (pitPhase != None or isPitting) via
+            // pairwise Physics.IgnoreCollision - ground, kerbs and barriers
+            // still collide normally, and the pairs are restored the moment
+            // the car is fully back in the race.
+            SetCarToCarCollisionIgnored(participant, participant.pitPhase != PitPhase.None || participant.isPitting);
+
             UpdateMissedPitEntryReset(participant);
 
             TrackProgress currentProgress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
@@ -856,5 +870,43 @@ namespace LocalFormulaRacing
                 }
             }
         }
+        void SetCarToCarCollisionIgnored(RaceParticipant participant, bool ignored)
+        {
+            if (participant == null || participant.carToCarCollisionIgnored == ignored)
+            {
+                return;
+            }
+
+            participant.carToCarCollisionIgnored = ignored;
+            Collider[] ownColliders = participant.GetComponentsInChildren<Collider>(false);
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant other = Participants[i];
+                if (other == null || other == participant)
+                {
+                    continue;
+                }
+
+                Collider[] otherColliders = other.GetComponentsInChildren<Collider>(false);
+                for (int a = 0; a < ownColliders.Length; a++)
+                {
+                    if (ownColliders[a] == null || !ownColliders[a].enabled || ownColliders[a].isTrigger)
+                    {
+                        continue;
+                    }
+
+                    for (int b = 0; b < otherColliders.Length; b++)
+                    {
+                        if (otherColliders[b] == null || !otherColliders[b].enabled || otherColliders[b].isTrigger)
+                        {
+                            continue;
+                        }
+
+                        Physics.IgnoreCollision(ownColliders[a], otherColliders[b], ignored);
+                    }
+                }
+            }
+        }
+
     }
 }

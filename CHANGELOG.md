@@ -4,6 +4,23 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## AI pace up hard, hard-tyre wear up, pit-sequence collision immunity (per request)
+
+- AI difficulty raised across the board: the per-tier straight-line discount —
+  the single dominant pace lever — cut hard (Easy 92→55, Medium 55→25, Hard
+  15→6, Expert 5→0 kph). With the cornering model now geometry-matched the AI
+  genuinely uses the returned speed; Expert runs the car's true envelope.
+- Hard-tyre degradation raised (baseWear 1.1→1.4): still clearly the
+  endurance compound (~1.6× medium's life instead of 2×), but a hard stint
+  now genuinely ends too.
+- Pitting cars can no longer be hit by other cars, and a hit can no longer
+  wreck the stop: deep pit-lane phases were already immune (kinematic,
+  detection off), but the physics-driven entry rail and exit merge were not —
+  a racing car clipping a pitting one knocked it off the rail. Car-to-car
+  contact is now pairwise-ignored for the entire pit sequence (pitPhase
+  active or isPitting); ground/kerbs/barriers unaffected, pairs restored the
+  moment the car rejoins.
+
 ## Collision camera reinvestigated: black frame + FOV pump fixed, spin damping reverted (per request)
 
 - The "camera goes weird" is the view going BLACK for ~a second on impacts —
