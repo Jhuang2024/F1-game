@@ -198,7 +198,7 @@ namespace LocalFormulaRacing
         // edge, or past it on layouts with boundary defects). Used by the
         // player's hold-R reset above and by the AI crawl-recovery rule in
         // UpdateRaceControl.
-        public void ResetParticipantToTrackCenter(RaceParticipant participant)
+        public void ResetParticipantToTrackCenter(RaceParticipant participant, float rejoinSpeedKph = 0f)
         {
             if (participant == null || Track == null)
             {
@@ -216,10 +216,18 @@ namespace LocalFormulaRacing
             Vector3 respawnPosition = centerPoint + Vector3.up * 0.45f;
             Quaternion respawnRotation = Quaternion.LookRotation(centerForward, Vector3.up);
 
+            // Rejoin at speed, not from a standstill (per report - "a lot of
+            // cars slow by lap 2"): a car recovered mid-race used to be dropped
+            // to zero velocity and had to crawl back up from 0, which - with
+            // the first-lap contact under maxed aggression producing many
+            // recoveries - left a chunk of the field re-accelerating from
+            // standstill in the opening laps. AI recoveries now rejoin at a
+            // sensible forward speed; the player's hold-R keeps the default 0.
+            Vector3 rejoinVelocity = respawnRotation * Vector3.forward * (rejoinSpeedKph / 3.6f);
             Rigidbody body = participant.GetComponent<Rigidbody>();
             if (body != null)
             {
-                body.velocity = Vector3.zero;
+                body.velocity = rejoinVelocity;
                 body.angularVelocity = Vector3.zero;
                 body.position = respawnPosition;
                 body.rotation = respawnRotation;

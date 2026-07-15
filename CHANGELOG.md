@@ -4,6 +4,20 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Recovered cars rejoin at speed; discounts cut again (the "slow by lap 2" field) (per request)
+
+- The remaining slow-field cause: with aggression maxed the first lap is a
+  contact-heavy scrum, so many cars crash and recover - and the recovery
+  reset ZEROED velocity, dropping each recovered car to a standstill to crawl
+  back up from 0 kph. That is why "a lot of cars are slow by the start of
+  lap 2": they crashed in lap 1 and are re-accelerating from zero. AI
+  recoveries now rejoin at 130 kph (the player's hold-R keeps the default 0).
+- The reverse-out unstick is tightened to only reverse a genuinely STOPPED
+  car (<=3 kph); a car merely crawling at 4-10 kph in slow traffic keeps
+  trying forward instead of being thrown into reverse.
+- Straight-line discounts cut again (Easy 55->30, Medium 25->10, Hard 6->0,
+  Expert 0).
+
 ## AI-only damage double-count fixed (the ~150 kph "slow AI") (per request)
 
 - AI cars weren't crashed-slow, they were damage-slow — and only the AI. Damage

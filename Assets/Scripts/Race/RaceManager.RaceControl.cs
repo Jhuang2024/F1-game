@@ -238,7 +238,7 @@ namespace LocalFormulaRacing
                 if (participant.slowCrawlRetireTimer > 1f)
                 {
                     participant.slowCrawlRetireTimer = 0f;
-                    ResetParticipantToTrackCenter(participant);
+                    ResetParticipantToTrackCenter(participant, 130f);
                     GameLog.Info("[RaceControl] " + participant.driverName + " crash-recovered to the track centerline.");
                 }
 

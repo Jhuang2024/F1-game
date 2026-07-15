@@ -1081,14 +1081,15 @@ namespace LocalFormulaRacing
                 // genuinely use the returned speed. Easy stays clearly the
                 // slowest but no longer a rolling roadblock; Expert runs the
                 // car's true envelope with zero discount.
+                // Round 6 (per report - AI still too slow): discounts cut again.
                 case RaceDifficulty.Easy:
-                    straightDiscountKph = 55f;
+                    straightDiscountKph = 30f;
                     break;
                 case RaceDifficulty.Medium:
-                    straightDiscountKph = 25f;
+                    straightDiscountKph = 10f;
                     break;
                 case RaceDifficulty.Hard:
-                    straightDiscountKph = 6f;
+                    straightDiscountKph = 0f;
                     break;
                 default:
                     straightDiscountKph = 0f;
@@ -2983,7 +2984,10 @@ namespace LocalFormulaRacing
 
                 float localHalf = LocalHalfWidthAt(progress.distance);
                 bool pinnedToEdge = localHalf > 0.1f && Mathf.Abs(progress.lateralDistance) > localHalf - 1.2f;
-                bool blockedAhead = nearestInLaneAheadZ < 6f || pinnedToEdge;
+                // Reverse only for a car that is genuinely STOPPED (<=3 kph) and
+                // blocked - a car merely crawling at 4-10 kph in slow traffic
+                // must keep trying forward, never throw it into reverse.
+                bool blockedAhead = speedKph <= 3f && (nearestInLaneAheadZ < 6f || pinnedToEdge);
 
                 if (blockedAhead)
                 {
