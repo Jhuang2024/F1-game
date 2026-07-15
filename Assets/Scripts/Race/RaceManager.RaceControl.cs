@@ -767,7 +767,7 @@ namespace LocalFormulaRacing
             if (forceEscalate)
             {
                 GameLog.Info("[RaceControl] Forced escalation (catastrophic, blocking): deploying safety car.");
-                BeginSafetyCarDeployment(participant, progress.sector);
+                BeginSafetyCarDeployment(participant, progress.sector, bypassCautionCap: true);
                 return;
             }
 
@@ -841,21 +841,50 @@ namespace LocalFormulaRacing
         }
 
         int yellowSectorNumber = -1;
-        // Hard per-race cap on brand-new yellow episodes (per request: at most
-        // ~1 a race). Refreshing an already-active episode in its own sector
-        // does not count; only genuinely new yellows do. Reset at session start.
-        int yellowEpisodesThisRace;
-        const int MaxYellowEpisodesPerRace = 1;
+        // Hard per-race cap on brand-new CAUTIONS of ANY kind (local yellow,
+        // VSC, or full safety car). Per request: at most ~1 caution a race.
+        // The counter is only consumed when a caution starts from a fully green
+        // track - escalating a single incident from yellow -> VSC -> SC does NOT
+        // consume additional allotment (it's one caution, deepening), and
+        // refreshing an already-active yellow in its own sector never counts.
+        // Only genuinely catastrophic, track-blocking incidents (forceEscalate)
+        // bypass this cap. Reset once per session at session start.
+        int cautionEpisodesThisRace;
+        const int MaxCautionEpisodesPerRace = 1;
+
+        // True if a brand-new caution may begin right now. A track that is not
+        // currently green is already under a caution, so deepening it (yellow ->
+        // VSC/SC for the same incident) is always allowed and free. Passing
+        // consume=true also spends one unit of the per-race allotment.
+        bool TryBeginCaution(bool consume)
+        {
+            if (CurrentRaceControlState != RaceControlState.Green)
+            {
+                return true;
+            }
+
+            if (cautionEpisodesThisRace >= MaxCautionEpisodesPerRace)
+            {
+                return false;
+            }
+
+            if (consume)
+            {
+                cautionEpisodesThisRace++;
+            }
+
+            return true;
+        }
 
         void TriggerYellowSector(int sector, RaceParticipant involved = null, string cause = null)
         {
             bool sameActiveSector = yellowSectorNumber == sector && yellowSectorClearTimer > 0f;
 
-            // Hard cap: once this race has used its allotment of new yellows,
+            // Hard cap: once this race has used its allotment of new cautions,
             // no further NEW yellow ever comes out (an active episode can still
-            // refresh via the sameActiveSector path below). Safety cars / VSC
-            // are separate and unaffected.
-            if (!sameActiveSector && yellowEpisodesThisRace >= MaxYellowEpisodesPerRace)
+            // refresh via the sameActiveSector path below). This shares one
+            // allotment with VSC/SC so the whole race sees at most ~1 caution.
+            if (!sameActiveSector && !TryBeginCaution(false))
             {
                 return;
             }
@@ -896,7 +925,10 @@ namespace LocalFormulaRacing
                 }
 
                 yellowSectorEpisodeStartTime = RaceElapsed;
-                yellowEpisodesThisRace++;
+                // Consume one caution unit only if this yellow is actually
+                // starting from green (a yellow raised while VSC/SC is already
+                // active is just a marshalling detail, not a new caution).
+                TryBeginCaution(true);
             }
 
             globalYellowFlagCooldownUntil = RaceElapsed + GlobalYellowFlagCooldownSeconds;
@@ -1016,7 +1048,7 @@ namespace LocalFormulaRacing
             playerHasActiveRaceControlPitOffer = false;
             playerDeclinedRaceControlPitOfferMessageSent = false;
             yellowSectorClearTimer = 0f;
-            yellowEpisodesThisRace = 0;
+            cautionEpisodesThisRace = 0;
             yellowSectorCooldownUntil.Clear();
             globalMinorYellowCooldownUntil = 0f;
             globalYellowFlagCooldownUntil = 0f;

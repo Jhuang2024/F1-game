@@ -65,15 +65,28 @@ namespace LocalFormulaRacing
             // hard is a slow, near-indestructible one (~half of medium's wear),
             // so compound choice and stint timing are real strategic decisions
             // instead of a rounding error.
-            // Wear-rate pass (per request - "all tires degrade way too slowly"):
-            // every compound's baseWear doubled outright (the 2:1 soft/medium
-            // and medium/hard ratios above are preserved exactly), so stints
-            // genuinely end and the pit windows the AI strategy code plans
-            // around actually arrive.
+            // Stint-length calibration (per request - target stint lengths, not
+            // just a relative wear ratio): the previous "double every compound"
+            // pass overshot badly - a soft didn't even survive a single lap, so
+            // cars that started on softs hit a genuine 0%-life puncture (top
+            // speed halved) on lap 2 and crawled the rest of the race. baseWear
+            // is now calibrated directly to the requested stint lengths: soft
+            // ~2 laps, medium ~3, hard ~4, intermediate/wet ~3. The empirical
+            // anchor is the reported "soft (baseWear 4.4) lasts ~1 lap", and
+            // stint life is very close to inversely proportional to baseWear, so
+            // each target-lap figure is 4.4 / targetLaps (the slick compounds);
+            // the wet compounds get a small extra allowance because rain adds
+            // wear (weatherWear 1.32 vs 1.08 dry) but is largely offset by the
+            // lower rain speeds. The 2:1.5:1 soft:medium:hard life ordering is
+            // preserved, so compound choice and stint timing stay real strategic
+            // decisions - a soft is still the fast, fragile tyre and a hard the
+            // slow, durable one - they simply last the intended number of laps
+            // now instead of expiring almost immediately.
             if (compound == TyreCompound.Soft)
             {
                 baseGrip = 1.16f;
-                baseWear = 4.4f;
+                // ~2 laps (4.4 / 2).
+                baseWear = 2.2f;
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
@@ -84,7 +97,8 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Medium)
             {
                 baseGrip = 1f;
-                baseWear = 2.2f;
+                // ~3 laps (4.4 / 3).
+                baseWear = 1.47f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
@@ -95,10 +109,8 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Hard)
             {
                 baseGrip = 0.87f;
-                // Raised from 1.1 (per request): the hard is still clearly the
-                // endurance tyre (~1.6x medium's life instead of 2x), but a
-                // hard stint now genuinely ends too.
-                baseWear = 1.4f;
+                // ~4 laps (4.4 / 4) - still clearly the endurance tyre.
+                baseWear = 1.1f;
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;
@@ -109,7 +121,8 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Intermediate)
             {
                 baseGrip = 0.9f;
-                baseWear = 2.3f;
+                // ~3 laps in the rain (medium-ish rate, small rain allowance).
+                baseWear = 1.4f;
                 targetMin = 58f;
                 targetMax = 82f;
                 warmup = 1.05f;
@@ -120,7 +133,8 @@ namespace LocalFormulaRacing
             else
             {
                 baseGrip = 0.78f;
-                baseWear = 2.5f;
+                // ~3 laps in the rain (medium-ish rate, small rain allowance).
+                baseWear = 1.4f;
                 targetMin = 45f;
                 targetMax = 70f;
                 warmup = 1.1f;

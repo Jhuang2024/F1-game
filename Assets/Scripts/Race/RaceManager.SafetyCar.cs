@@ -19,6 +19,15 @@ namespace LocalFormulaRacing
     {
         void BeginVirtualSafetyCar(RaceParticipant involved = null, int sector = 0)
         {
+            // Per-race caution cap: a fresh VSC starting from a green track
+            // consumes the race's single caution allotment. Deepening an
+            // existing yellow into a VSC (state already non-green) is free.
+            if (!TryBeginCaution(true))
+            {
+                GameLog.Info("[RaceControl] Virtual safety car suppressed - per-race caution cap reached.");
+                return;
+            }
+
             CurrentRaceControlState = RaceControlState.VirtualSafetyCar;
             safetyCarTimer = Random.Range(14f, 24f);
             playerScPitPromptSent = false;
@@ -33,8 +42,18 @@ namespace LocalFormulaRacing
             }
         }
 
-        void BeginSafetyCarDeployment(RaceParticipant involved = null, int sector = 0)
+        void BeginSafetyCarDeployment(RaceParticipant involved = null, int sector = 0, bool bypassCautionCap = false)
         {
+            // Per-race caution cap: a fresh full-SC starting from green consumes
+            // the race's single caution allotment. Only genuinely catastrophic,
+            // track-blocking incidents (bypassCautionCap) may exceed the cap -
+            // everything else is suppressed once the allotment is spent.
+            if (!bypassCautionCap && !TryBeginCaution(true))
+            {
+                GameLog.Info("[RaceControl] Safety car suppressed - per-race caution cap reached.");
+                return;
+            }
+
             CurrentRaceControlState = RaceControlState.SafetyCarDeploying;
             safetyCarTimer = Random.Range(6f, 10f);
             SafetyCarDeploymentCount++;
