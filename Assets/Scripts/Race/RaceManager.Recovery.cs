@@ -180,18 +180,20 @@ namespace LocalFormulaRacing
                 ? participant.lapTracker.CurrentProgress
                 : Track.GetProgress(participant.transform.position);
 
-            Vector3 respawnPosition;
-            Quaternion respawnRotation;
-            if (participant.hasLastSafePosition)
-            {
-                respawnPosition = participant.lastSafePosition + Vector3.up * 0.35f;
-                respawnRotation = participant.lastSafeRotation;
-            }
-            else
-            {
-                respawnPosition = progress.nearestPoint + Vector3.up * 0.45f;
-                respawnRotation = Quaternion.LookRotation(progress.forward, Vector3.up);
-            }
+            // Recovery-placement fix (per request): this used to prefer
+            // lastSafePosition - wherever the car was last classified safe,
+            // which is routinely right at the track edge (and on layouts with
+            // boundary defects, effectively past it), so holding R put the car
+            // straight back into the trouble it was escaping. The player
+            // recovery now ALWAYS re-enters at the middle of the road at the
+            // car's current lap distance, facing down the track - the one spot
+            // guaranteed to be on solid, drivable tarmac on every layout.
+            Vector3 centerPoint;
+            Vector3 centerForward;
+            Vector3 centerRight;
+            Track.SampleAtDistance(progress.distance, out centerPoint, out centerForward, out centerRight);
+            Vector3 respawnPosition = centerPoint + Vector3.up * 0.45f;
+            Quaternion respawnRotation = Quaternion.LookRotation(centerForward, Vector3.up);
 
             Rigidbody body = participant.GetComponent<Rigidbody>();
             if (body != null)

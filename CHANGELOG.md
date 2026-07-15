@@ -4,6 +4,15 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Hold-R recovery re-enters at the middle of the road (per request)
+
+- The player recovery used to prefer the last "safe" position — routinely
+  right at the track edge (and on layouts with boundary defects, effectively
+  past it), so holding R put the car straight back into the trouble it was
+  escaping. Recovery now always re-enters at the centre of the road at the
+  car's current lap distance, facing down the track — guaranteed drivable
+  tarmac on every layout.
+
 ## 10-second stalls, fewer yellows, collision camera, 4th camera default (per request)
 
 - The stop-for-10-seconds-then-resume stall diagnosed: the low-speed unstick
