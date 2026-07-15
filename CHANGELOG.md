@@ -4,6 +4,23 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Start-pack collisions: actual root cause found and fixed (per request)
+
+- The bunching was never a braking problem — it was a lateral MERGE order.
+  The racing line is a single one-car-wide path, and pursuing it
+  unconditionally told every car in a dense pack to converge onto the same
+  ribbon; as the grid fan-out decayed (~4–12 s after lights out) a two-wide
+  field of 22 was forced to become single file at pack density on the start
+  straight. Cars converged into each other, spun (the backwards-facing cars
+  in both screenshots), and the wreckage then jammed into the stopped bunch —
+  which is why every braking/creep fix failed to cure it.
+- Fix: cars now only pursue the optimal line in CLEAR AIR. With a car within
+  ~18 m ahead or anyone alongside, they hold their current lane instead
+  (tactical positioning still comes from the overtake state machine), with a
+  smoothed both-ways blend so flickering neighbours can't snap the steering
+  target and cars ease onto the ideal line only as the field strings out.
+  The earlier creep/unstick guarantees remain as last-resort nets.
+
 ## Stopped-bunch round 2, rivalry coherence, tyre recommendations (per request)
 
 - Opening-corners stopped bunch, second pass (still reproducing): the creep's

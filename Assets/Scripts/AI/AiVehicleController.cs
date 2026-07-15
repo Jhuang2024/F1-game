@@ -24,6 +24,15 @@ namespace LocalFormulaRacing
         // conditions - the wedged-in-traffic detector for the forced unstick
         // crawl in ApplyTrafficAvoidance.
         float stuckInTrafficSeconds;
+        // Written by ApplyTrafficAvoidance each tick (read one frame stale by
+        // the line-pursuit code, which runs earlier in the frame): is there a
+        // car close ahead or alongside? Racing-line convergence is suspended
+        // in traffic - see the lineTrafficBlend comment at the pursuit site.
+        bool lineTrafficNearby;
+        // 0 = clear air (pursue the optimal line), 1 = in traffic (hold the
+        // current lane). Smoothed so a neighbour blinking in and out of the
+        // detection windows can never snap the steering target.
+        float lineTrafficBlend;
         float aggressionOffset;
         float damageDecisionTimer;
         float lastProgressDistance;
@@ -1330,22 +1339,32 @@ namespace LocalFormulaRacing
                 float drawnOffset = track.RacingLineOffsetAt(progress.distance + lookAhead);
                 float edgeSafeBound = LocalHalfWidthAt(progress.distance + lookAhead) - 2.6f;
                 float bound = Mathf.Max(0.75f, Mathf.Min(edgeSafeBound, legalLimit));
-                // Train stagger: every car pursuing the identical ribbon means a
-                // following car sits EXACTLY bumper-to-bumper on its leader's
-                // line, which feeds the mutual-avoidance braking that bunches
-                // (and at race start, stops) whole trains. While merely
-                // following someone close ahead - not attacking, where
-                // aggressionOffset owns the positioning - each driver holds a
-                // small stable side offset from the ribbon, so trains run
-                // slightly staggered like real racing. Clamped inside the same
-                // wall-safe bound; the line slew smooths it in and out.
-                float trafficStagger = 0f;
-                if (overtakeState == OvertakeState.Following && raceManager.FindCarAhead(participant, 16f) != null)
-                {
-                    trafficStagger = (Mathf.Sin(noiseSeed * 12.9898f) >= 0f ? 1f : -1f) * 0.55f;
-                }
-
-                lineBias = Mathf.Clamp(drawnOffset * 0.94f + apexMissNoise * 0.4f + trafficStagger, -bound, bound);
+                // THE START-PACK COLLISION FIX (root cause of the bunching):
+                // the racing line is a single one-car-wide path, and pursuing
+                // it unconditionally ordered every car in a dense pack to merge
+                // laterally onto the same ribbon - on the opening straight,
+                // as the grid fan-out decayed, a two-wide field of 22 was
+                // forced to become single file at pack density. Cars converged
+                // INTO each other, spun (the backwards-facing cars in the
+                // reports), and the wreck then jammed into the stopped bunch.
+                // No amount of braking/creep tuning could fix that, because
+                // braking was never the cause - the lateral merge order was.
+                // Real drivers only take the racing line in CLEAR AIR; in
+                // traffic they hold their lane and position tactically. So:
+                // blend between pursuing the optimal line (clear air) and
+                // holding the car's current lateral lane (traffic - the
+                // overtake state machine's aggressionOffset still layers its
+                // own tactical moves on top). The blend is smoothed both ways
+                // so a neighbour flickering at a window edge never snaps the
+                // target, and eases in traffic->clear slowly so the field
+                // strings out before anyone cuts across to the ideal line.
+                lineTrafficBlend = Mathf.MoveTowards(
+                    lineTrafficBlend,
+                    lineTrafficNearby ? 1f : 0f,
+                    Time.deltaTime * (lineTrafficNearby ? 2.5f : 0.5f));
+                float optimalPursuit = drawnOffset * 0.94f + apexMissNoise * 0.4f;
+                float laneHold = progress.lateralDistance;
+                lineBias = Mathf.Clamp(Mathf.Lerp(optimalPursuit, laneHold, lineTrafficBlend), -bound, bound);
             }
             else if (severityHere > 0.05f)
             {
@@ -2299,6 +2318,10 @@ namespace LocalFormulaRacing
             bool blockedRight = false;
             bool carDirectlyAhead = false;
             float nearestInLaneAheadZ = float.MaxValue;
+            // Wider than the creep tracker below (which deliberately only counts
+            // true same-lane blockers): anything loosely ahead that makes this
+            // "traffic" for racing-line purposes.
+            float nearestAnyAheadZ = float.MaxValue;
             // Bug fix (Part A.6): the old fixed 0.5 floor here silently clamped
             // Expert's much lower trafficAvoidanceCaution (0.22) right back up to 0.5,
             // neutering the difficulty profile's own number. Expert gets its own,
@@ -2461,6 +2484,11 @@ namespace LocalFormulaRacing
                     if (absX < 1.6f)
                     {
                         nearestInLaneAheadZ = Mathf.Min(nearestInLaneAheadZ, local.z);
+                    }
+
+                    if (absX < 4.5f)
+                    {
+                        nearestAnyAheadZ = Mathf.Min(nearestAnyAheadZ, local.z);
                     }
 
                     // Brake proportionally to how fast the gap is actually shrinking,
@@ -2761,6 +2789,12 @@ namespace LocalFormulaRacing
             }
 
             command.throttle = Mathf.Min(command.throttle, throttleLimit);
+
+            // Racing-line traffic gate (see lineTrafficNearby field): a car
+            // within ~18m ahead or anyone alongside means this car is racing in
+            // traffic and must hold its lane rather than converge on the shared
+            // optimal line.
+            lineTrafficNearby = nearestAnyAheadZ < 18f || blockedLeft || blockedRight;
 
             // Pit-entry queueing fix: while committing to a pit stop, braking/
             // throttle reduction for a car ahead (e.g. another car already queued
