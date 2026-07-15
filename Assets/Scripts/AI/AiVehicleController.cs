@@ -1695,7 +1695,19 @@ namespace LocalFormulaRacing
             float towardEdgeRate = Mathf.Sign(progress.lateralDistance == 0f ? 1f : progress.lateralDistance) * edgeLateralRate;
             float distanceToHardEdge = Mathf.Max(0.05f, edgeHalfWidth - 0.5f - Mathf.Abs(progress.lateralDistance));
             float timeToEdge = towardEdgeRate > 0.15f ? distanceToHardEdge / towardEdgeRate : 99f;
-            float trajectoryUrgency = Mathf.Clamp01(1f - timeToEdge / 1.6f);
+            // Corridor gate (the "extremely slow cornering" fix): the racing
+            // line's own entry/exit sweeps cross the road diagonally at up to
+            // ~7 m/s of perfectly intentional lateral drift, and a ballistic
+            // time-to-edge extrapolation read every one of those sweeps as
+            // "wall in <1s" and near-full-braked every corner entry and exit.
+            // A car still INSIDE its legal corridor is inside its commanded
+            // envelope - the line follower arrests the sweep at the corridor
+            // bound by construction, so trajectory urgency only counts once
+            // the car is actually BEYOND the corridor (a genuine runaway the
+            // steering did not arrest). The pure-position term for the final
+            // ~1.2m before the hard edge is unaffected.
+            bool beyondCorridor = Mathf.Abs(progress.lateralDistance) > legalLimit + 0.3f;
+            float trajectoryUrgency = beyondCorridor ? Mathf.Clamp01(1f - timeToEdge / 1.6f) : 0f;
             float positionUrgency = Mathf.Clamp01((Mathf.Abs(progress.lateralDistance) - (edgeHalfWidth - 1.2f)) / 1.2f);
             float edgeUrgency = suppressOffTrackRecovery ? 0f : Mathf.Max(trajectoryUrgency, positionUrgency);
             // Grid-start fix: the wall-aversion boost below removed the old
@@ -1720,7 +1732,11 @@ namespace LocalFormulaRacing
             // a gentle position-based pre-nudge across the outer half of the
             // old band so a drifting car is shepherded back long before the
             // urgent response is needed.
-            float edgeSteerNudge = edgeOvershoot > 0f ? Mathf.Lerp(0.1f, 0.35f, edgeProximity) : 0f;
+            // The gentle pre-nudge also only engages beyond the corridor - the
+            // old band covers most of the road width, and a constant pull
+            // toward the centreline was fighting every apex the line
+            // legitimately commanded.
+            float edgeSteerNudge = beyondCorridor && edgeOvershoot > 0f ? Mathf.Lerp(0.1f, 0.35f, edgeProximity) : 0f;
             float edgeRecovery = (edgeUrgency > 0f || edgeOvershoot > 0f)
                 ? Mathf.Sign(-progress.lateralDistance) * Mathf.Max(edgeSteerNudge, Mathf.Lerp(0.58f, 1.44f, edgeUrgency) * (edgeUrgency > 0f ? 1f : 0f)) * wallAversionMultiplier * wallAversionLaunchGate
                 : 0f;

@@ -4,6 +4,20 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Slow-cornering fix: wall brake no longer fires on intentional sweeps (per request)
+
+- The trajectory wall-brake introduced in the deceleration audit was
+  false-positiving on the racing line itself: the out-in-out line sweeps the
+  car diagonally across the road at up to ~7 m/s of intentional lateral
+  drift, and a ballistic time-to-edge extrapolation read every entry and
+  exit sweep as "wall in <1 s" — near-full braking through every corner
+  (the reported "extremely slow cornering"). Trajectory urgency (and the
+  steering pre-nudge) now only engage once the car is actually BEYOND its
+  legal corridor — inside it, the line follower arrests the sweep at the
+  bound by construction. The pure-position emergency for the final ~1.2 m
+  before the hard edge is unchanged, so genuine runaways still get the
+  full response.
+
 ## Versatile overtaking + squeeze defence (per request)
 
 - Attack side is now chosen from context instead of the side the car happened
