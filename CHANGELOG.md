@@ -4,6 +4,23 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## AI optimal-line pass (per request)
+
+- The AI line is now a genuine out-in-out arc with explicit safety margins.
+  Previously positioning only began once the car was already inside a corner
+  (severity gate — zero on the straight), so every corner was entered from
+  mid-road and the arc had no "out"; a pure-pursuit of the drawn line had been
+  tried and reverted because it rode the corridor edges and tripped the edge
+  emergency brake. Now: on the straight approaching a genuine corner the car
+  drifts smoothly to the outside of the upcoming turn (direction sampled
+  around the apex itself, ramped over 140 m, scaled by corner sharpness,
+  capped at 80% of the wall-safe corridor so it never edge-rides), then the
+  existing in-corner sweep inherits the wide entry, and the apex peak is
+  capped ~12% short of the corridor bound so the line clips the apex without
+  parking on the kerb. All offsets remain inside LegalOffsetLimit's wall/kerb
+  corridor (1.8 m wall margin, 2.6 m at tight-fence corners) and the two
+  downstream lateral clamps are untouched.
+
 ## DRS flicker + ERS economy pass (per request)
 
 - DRS READY/OPEN flicker fixed (three cooperating causes):

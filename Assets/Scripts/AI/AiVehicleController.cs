@@ -1311,13 +1311,44 @@ namespace LocalFormulaRacing
             // but it carries proper corner speed, which matters more.
             if (severityHere > 0.05f)
             {
+                // Optimal-line pass: the apex sweep now peaks a deliberate ~12%
+                // short of the corridor bound (ApexMarginScale) so the tightest
+                // point of the line always keeps clear air to the kerb/inside
+                // edge - "hit the apex" without parking on it - while the
+                // approach/exit side still uses the full (already wall-safe)
+                // corridor width for the widest possible arc.
+                const float ApexMarginScale = 0.88f;
                 float biasMagnitude = Mathf.Lerp(legalLimit * 0.6f, legalLimit, severityHere);
                 float apexProximity = Mathf.Clamp01(1f - apexDistanceAhead / 50f);
                 float lineShape = apexProximity * 2f - 1f;
                 float apexMissNoise = (Mathf.PerlinNoise(noiseSeed + 37.1f, progress.distance * 0.015f) * 2f - 1f) * perCarApexError;
                 float apexPrecision = Mathf.Clamp01(1f - perCarApexError / 9f);
-                float shapedSide = lineShape > 0f ? lineShape * apexPrecision : lineShape;
+                float shapedSide = lineShape > 0f ? lineShape * apexPrecision * ApexMarginScale : lineShape;
                 lineBias = turnSign * biasMagnitude * shapedSide + (lineShape > 0f ? apexMissNoise : 0f);
+            }
+            else if (apexSeverity > 0.2f && apexDistanceAhead < 140f)
+            {
+                // Optimal-line pass, entry setup: the old line only started
+                // positioning once ALREADY inside the corner (severityHere gate
+                // above - zero on the straight), so every corner was entered
+                // from wherever the car happened to be, usually mid-road, and
+                // the out-in-out arc lost its "out". While still on the straight
+                // approaching a genuine corner, drift progressively toward the
+                // OUTSIDE of the upcoming turn so entry starts wide and the
+                // in-corner sweep above inherits the full arc. Capped at 80% of
+                // the wall-safe corridor (never edge-riding - riding the
+                // corridor edge is what tripped the edge emergency brake when a
+                // pure-pursuit of the drawn line was tried and reverted), ramped
+                // smoothly by distance so there is no snap at the gate, and
+                // scaled by how sharp the corner actually is (a flat kink gets
+                // barely any setup; a hairpin gets the full wide entry). The
+                // turn direction is sampled around the APEX itself, not at the
+                // car - at 100m+ out the local road is still straight and reads
+                // a meaningless direction.
+                float upcomingTurnSign = EstimateTurnDirection(progress.distance + Mathf.Max(0f, apexDistanceAhead - 40f));
+                float setupRamp = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(1f - apexDistanceAhead / 140f));
+                float setupStrength = Mathf.Clamp01((apexSeverity - 0.2f) / 0.5f);
+                lineBias = -upcomingTurnSign * legalLimit * 0.8f * setupRamp * setupStrength;
             }
 
             float lineSlewRate = Mathf.Lerp(4.5f, 9.5f, Mathf.Clamp01(speedKph / 300f));
