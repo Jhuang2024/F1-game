@@ -4,6 +4,19 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## First-corners stopped-bunch fix (per request)
+
+- Cars no longer freeze bunched up in the opening corners. Three cooperating
+  causes: the opening fan-out spread was cancelled entirely in corners, which
+  snapped all 21 cars onto the identical drawn racing line at turn 1 while
+  the pack was still dense (a third of the spread now survives the opening
+  corners); trains pursuing the same ribbon sat exactly bumper-to-bumper,
+  feeding mutual avoidance braking (followers now hold a small stable
+  per-driver stagger off the ribbon while merely following); and the
+  anti-deadlock creep required a 4.5 m gap while a stopped bunch settles at
+  2-3 m, so a stopped queue could never un-stick (creep now engages from
+  2.2 m; pit queueing unchanged).
+
 ## Deploy flicker, real racing line, drastic fuel strategy (per request)
 
 - DRS/ERS deploy flicker killed with hysteresis, not thresholds:

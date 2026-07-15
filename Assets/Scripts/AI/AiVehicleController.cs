@@ -1326,7 +1326,22 @@ namespace LocalFormulaRacing
                 float drawnOffset = track.RacingLineOffsetAt(progress.distance + lookAhead);
                 float edgeSafeBound = LocalHalfWidthAt(progress.distance + lookAhead) - 2.6f;
                 float bound = Mathf.Max(0.75f, Mathf.Min(edgeSafeBound, legalLimit));
-                lineBias = Mathf.Clamp(drawnOffset * 0.94f + apexMissNoise * 0.4f, -bound, bound);
+                // Train stagger: every car pursuing the identical ribbon means a
+                // following car sits EXACTLY bumper-to-bumper on its leader's
+                // line, which feeds the mutual-avoidance braking that bunches
+                // (and at race start, stops) whole trains. While merely
+                // following someone close ahead - not attacking, where
+                // aggressionOffset owns the positioning - each driver holds a
+                // small stable side offset from the ribbon, so trains run
+                // slightly staggered like real racing. Clamped inside the same
+                // wall-safe bound; the line slew smooths it in and out.
+                float trafficStagger = 0f;
+                if (overtakeState == OvertakeState.Following && raceManager.FindCarAhead(participant, 16f) != null)
+                {
+                    trafficStagger = (Mathf.Sin(noiseSeed * 12.9898f) >= 0f ? 1f : -1f) * 0.55f;
+                }
+
+                lineBias = Mathf.Clamp(drawnOffset * 0.94f + apexMissNoise * 0.4f + trafficStagger, -bound, bound);
             }
             else if (severityHere > 0.05f)
             {
@@ -1450,7 +1465,15 @@ namespace LocalFormulaRacing
                 // instead of letting it turn in, reading as sluggish/late
                 // steering. Fades the hold out with corner severity, so a genuine
                 // corner always wins the fan-out lane hold, straights don't.
-                fanBlend *= 1f - Mathf.Clamp01(severityHere * 2.5f);
+                // Bunching fix: this used to cancel the fan-out ENTIRELY in a
+                // corner (x1-severity*2.5 -> 0), which snapped all 21 cars onto
+                // the identical drawn racing line at turn 1 while the pack was
+                // still dense - the funnel that produced the stopped bunch. 65%
+                // of the hold still releases so cars genuinely turn in (the
+                // original sluggish-steering fix is preserved), but a third of
+                // the lane spread survives through the opening corners until
+                // the window expires and the field has strung out.
+                fanBlend *= 1f - Mathf.Clamp01(severityHere * 2.5f) * 0.65f;
                 requestedOffset = Mathf.Lerp(requestedOffset, openingFanOffset, fanBlend);
             }
 
@@ -2668,7 +2691,17 @@ namespace LocalFormulaRacing
             // authority to creep forward - the queue now unwinds front-to-back
             // instead of gridlocking. Cars genuinely nose-to-tail (gap under
             // 4.5m) still hold their brake until the car ahead moves off.
-            if (speedKph < 30f && nearestInLaneAheadZ > 4.5f)
+            // Stopped-bunch deadlock fix: this creep used to require a 4.5m
+            // in-lane gap, but a pack that has braked to a stop (e.g. funnelled
+            // onto the same line into the first corners) settles at 2-3m
+            // spacing - UNDER the old threshold, so no car in the bunch could
+            // ever creep and the whole queue just sat there. The urgency brake
+            // above only fires on genuine closing speed (>0.8 m/s), so letting
+            // a near-stationary car creep from 2.2m is safe: it inches forward,
+            // the closing-speed logic resumes control, and the queue unwinds
+            // instead of freezing. Pit-committed cars keep their queueing
+            // behaviour unchanged.
+            if (speedKph < 30f && !committingToPit && nearestInLaneAheadZ > 2.2f)
             {
                 brakeDemand = 0f;
                 throttleLimit = Mathf.Max(throttleLimit, 0.4f);
