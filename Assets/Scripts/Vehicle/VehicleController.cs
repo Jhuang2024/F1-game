@@ -1487,9 +1487,15 @@ namespace LocalFormulaRacing
             // and ~280 kph holds ~54m, which the AI corner-speed floors in
             // AiVehicleController are matched against so targeted speed and
             // achievable rotation finally agree. Shared by player and AI.
+            // Round 2 (per request - cornering still far too slow): authority
+            // raised drastically again (1.85->2.4 low, 1.5->1.9 / 1.3->1.6
+            // high). The yaw math at this level: 200 kph rotates a ~24m radius,
+            // 250 kph ~33m, 300 kph ~43m - so genuinely tight street corners
+            // are drivable at 200+ and the AI corner floors are re-matched to
+            // those numbers. Shared by player and AI alike.
             float tightCorneringBoost = speedKph <= 120f
-                ? Mathf.Lerp(1.85f, 1.5f, Mathf.Clamp01((speedKph - 35f) / 85f))
-                : Mathf.Lerp(1.5f, 1.3f, Mathf.Clamp01((speedKph - 120f) / 160f));
+                ? Mathf.Lerp(2.4f, 1.9f, Mathf.Clamp01((speedKph - 35f) / 85f))
+                : Mathf.Lerp(1.9f, 1.6f, Mathf.Clamp01((speedKph - 120f) / 160f));
             turnRate *= tightCorneringBoost;
             turnRate *= Mathf.Lerp(1.04f, 0.72f, UndersteerAmount);
             float steerAmount = activeCommand.steer * turnRate * dt;

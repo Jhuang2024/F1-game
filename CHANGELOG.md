@@ -4,6 +4,21 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Drastic cornering pace + drastic follower aggression (per request)
+
+- Rotation authority raised drastically again (tightCorneringBoost 2.4 low /
+  1.9→1.6 high, shared by player and AI): 200 kph now rotates ~24 m, 250 kph
+  ~33 m, 300 kph ~43 m. AI corner floors re-matched: VeryTight 210–265 kph,
+  Slow 295–335 kph, hairpins 75–130 kph (was 42–83).
+- Followers stop parking behind the leader: the Following state used to decay
+  the aggression offset to ZERO — dead-astern was enforced until an attack
+  formally triggered, so braking was the only possible response to catching
+  someone. Followers with overtake permission now peek out of the tow the
+  moment they're within 1.5 s (commitment-scaled offset), sustained-pressure
+  attacks arm after 1.2 s (was 3.5), the attack gap window widened
+  (1.5→1.9 s, Expert 1.6→2.0), the non-Expert commit roll fires ~2× faster,
+  and committed moves cut traffic caution to 0.42× (was 0.6×).
+
 ## Tyre wear doubled (per request)
 
 - All five compounds' baseWear doubled (soft 2.2→4.4, medium 1.1→2.2, hard

@@ -617,7 +617,11 @@ namespace LocalFormulaRacing
                     // ~280 kph, so cars crawled. 250-290 is the band the
                     // boosted ApplySteering authority can genuinely deliver for
                     // this bucket's radii.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(250f, Mathf.Lerp(270f, 290f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 24: re-matched to the drastically raised rotation
+                    // authority (300 kph now holds ~43m - this bucket's radius
+                    // class floor), per the "way too slow through all corners"
+                    // report.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(295f, Mathf.Lerp(315f, 335f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
                     break;
                 case CornerType.VeryTight:
@@ -669,7 +673,11 @@ namespace LocalFormulaRacing
                     // with the wheel at full lock). 165-205 is the geometric
                     // maximum for this bucket, comfortably above the too-slow
                     // 110-140 attempt that got round 14 reverted.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(165f, Mathf.Lerp(185f, 205f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
+                    // Round 18: re-matched to the drastically raised rotation
+                    // authority (200 kph holds ~24m, 250 ~33m - the whole
+                    // 25-44m VeryTight radius class), per the "way too slow
+                    // through all corners" report.
+                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(210f, Mathf.Lerp(240f, 265f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
                     easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
                     break;
                 default:
@@ -1114,7 +1122,10 @@ namespace LocalFormulaRacing
             // (Easy/Medium keep most of the original crawl); the kinematic
             // braking model plus the wall-aversion multiplier (raised again in
             // the same pass) keep the approach safe.
-            float hairpinSpeedKph = Mathf.Lerp(42f, 64f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f)) * Mathf.Lerp(1f, 1.3f, skillTier);
+            // Raised alongside the round-2 rotation-authority boost (the yaw
+            // model now rotates a hairpin's ~8-15m radius at 90-120 kph, so the
+            // old 42-83 crawl was far under the car's real capability).
+            float hairpinSpeedKph = Mathf.Lerp(75f, 100f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f)) * Mathf.Lerp(1f, 1.3f, skillTier);
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
@@ -2401,7 +2412,9 @@ namespace LocalFormulaRacing
                                       overtakeState == OvertakeState.CompletingPass;
             if (activelyOvertaking)
             {
-                cautionFactor *= 0.6f;
+                // Drastic pass: 0.6 still let the avoidance layer smother
+                // committed moves; a driver mid-attack accepts real risk.
+                cautionFactor *= 0.42f;
             }
 
             // Race-start pack window (THE "AI slow off the line" cause, found at
@@ -3118,7 +3131,25 @@ namespace LocalFormulaRacing
             switch (overtakeState)
             {
                 case OvertakeState.Following:
-                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, 0f, Time.deltaTime * 4f);
+                {
+                    // Drastic follower pass ("they just brake" report, round 2):
+                    // Following used to decay aggressionOffset to ZERO - the car
+                    // was structurally ordered to sit dead-astern in the
+                    // leader's line until an attack formally triggered, so its
+                    // only possible response to catching someone was braking.
+                    // A follower with a live overtake permission now PEEKS out
+                    // of the tow the moment it is close (offset toward its
+                    // preferred side, commitment-scaled), so "take a different
+                    // line" happens before and during the attack decision, not
+                    // after it.
+                    float followPeek = 0f;
+                    if (ahead != null && ahead.vehicle != null && raceManager.CanParticipantOvertake(participant, ahead) &&
+                        raceManager.GetIntervalToAheadSeconds(participant) < 1.5f)
+                    {
+                        followPeek = preferredSide * Mathf.Lerp(1.2f, 2f, commitment);
+                    }
+
+                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, followPeek, Time.deltaTime * 4f);
                     if (ahead != null && ahead.vehicle != null && raceManager.CanParticipantOvertake(participant, ahead))
                     {
                         float gapSeconds = raceManager.GetIntervalToAheadSeconds(participant);
@@ -3164,7 +3195,9 @@ namespace LocalFormulaRacing
                         // several seconds IS proof of pace (you cannot hold that
                         // gap without it), so sustained pressure becomes its own
                         // attack qualifier.
-                        bool sustainedPressure = followingTimer > 3.5f;
+                        // Drastic pass: 3.5s was still a long orbit - one second
+                        // in the wake is plenty of proof.
+                        bool sustainedPressure = followingTimer > 1.2f;
 
                         // DRS conversion: a real advantage should turn into real
                         // attacks, scaled by commitment so Expert converts a tow far
@@ -3181,12 +3214,12 @@ namespace LocalFormulaRacing
                         // 1.0 for most tiers - the gap threshold, not commitment,
                         // was the real ceiling on how often Easy/Medium/Hard even
                         // considered an attack).
-                        float attackGapThreshold = isExpert ? (aheadIsBackmarker ? 2.6f : 1.6f) : 1.5f;
+                        float attackGapThreshold = isExpert ? (aheadIsBackmarker ? 2.6f : 2.0f) : 1.9f;
                         bool attackTrigger = gapSeconds < attackGapThreshold && (approachingBrakeZone || drsHelp || clearlySlower || positiveSpeedDeltaExpert || sustainedPressure) && hasPace;
 
                         // Part A.2: Expert is fully deterministic once attackTrigger is
                         // true - no dice roll for permission to attack.
-                        if (attackTrigger && !suppressAttackManeuvers && !inCornerCommitmentZone && (isExpert || Random.value < commitment * Time.deltaTime * (3f + patienceBonus) * drsBonus))
+                        if (attackTrigger && !suppressAttackManeuvers && !inCornerCommitmentZone && (isExpert || Random.value < commitment * Time.deltaTime * (7f + patienceBonus) * drsBonus))
                         {
                             overtakeState = OvertakeState.PreparingAttack;
                             overtakeStateTimer = preparingAttackTimer;
@@ -3203,6 +3236,7 @@ namespace LocalFormulaRacing
                         followingTimer = 0f;
                     }
                     break;
+                }
 
                 case OvertakeState.PreparingAttack:
                 {
