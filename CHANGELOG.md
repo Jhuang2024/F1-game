@@ -4,6 +4,24 @@ All notable changes to the production migration. Dates omitted (no reliable
 clock in the authoring environment). Static-only: nothing below has been
 compiled or run in Unity.
 
+## Crash-recovered cars kept their stale reverse-maneuver (the "slow from lap 2" cars) + ERS-during-DRS airtight (per request)
+
+- The remaining slow cars: a crawl/crash recovery snapped the car to the
+  centerline and rejoined it at speed, but never cleared the AI's transient
+  recovery state - so the car kept executing its stale reverse/reorient
+  maneuver and its "Recovering" classification after being placed, reversing/
+  crawling right after rejoining instead of racing. A car that crashed in the
+  lap-1 scrum therefore stayed slow (~150) for the rest of the race.
+  ResetParticipantToTrackCenter now clears the recovery state and calls the
+  AI's ResyncAfterForcedReposition, exactly like the last-resort reposition
+  already did.
+- ERS-during-DRS empty-battery boost fixed at the source: the ERS top-speed
+  ceiling bonus read the stale ErsDeploying field (CalculateTargetTopSpeedKph
+  runs before ErsDeploying is recomputed), so on a DRS straight where the
+  battery drained the bonus kept applying with no charge. It now uses a live
+  check (holding deploy AND battery > 1%), so a drained battery gives nothing,
+  DRS or not.
+
 ## The real slow-AI cause: corner target had DOUBLE confidence conservatism (per request)
 
 - Damage ruled out (AI take none now) and cars were still slow, so I traced

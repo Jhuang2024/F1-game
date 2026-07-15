@@ -1655,11 +1655,16 @@ namespace LocalFormulaRacing
                 ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + aiTopSpeedBonusKph);
             }
 
-            // Battery-never-reaches-0% fix: matches ErsDeploying's own floor in
-            // ApplyForces (was 0.01f here too) so this ceiling bonus and the
-            // actual deploy force it's meant to describe never disagree about
-            // whether there's still charge left.
-            if (ErsDeploying)
+            // Empty-battery ERS boost during DRS fix (per report): this used
+            // ErsDeploying, but CalculateTargetTopSpeedKph runs BEFORE
+            // ErsDeploying is recomputed each frame (see ApplyForces), so it
+            // read last frame's value - on a DRS straight where the battery
+            // drained to empty, the stale read kept adding the ERS top-speed
+            // bonus with no charge left. Now a LIVE battery check: the bonus
+            // only applies while the driver is actually holding deploy AND
+            // there is real charge (>1%), so a drained battery gives nothing,
+            // DRS or not.
+            if (activeCommand.ers && ErsBattery > 0.01f)
             {
                 target += ErsTopSpeedBonusKph;
                 ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + ErsTopSpeedBonusKph);

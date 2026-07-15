@@ -237,6 +237,23 @@ namespace LocalFormulaRacing
             participant.transform.rotation = respawnRotation;
             participant.fallRespawnCooldown = 2f;
 
+            // Clear the AI's transient recovery state (the real "slow from lap 2"
+            // bug): without this a crash-recovered car kept executing its stale
+            // reverse/reorient maneuver AND its Recovering classification after
+            // being placed, so it reversed/crawled right after rejoining at
+            // speed instead of racing - a car that crashed in the lap-1 scrum
+            // stayed slow for the rest of the race. Mirrors HandleStuckEscalation.
+            participant.recoveryState = CarRecoveryState.Normal;
+            participant.recoveryAttemptCount = 0;
+            participant.stoppedOnTrackTimer = 0f;
+            participant.wrongWayTimer = 0f;
+            participant.recoveryGraceTimer = RecoveryGraceSeconds;
+            AiVehicleController recoveredAi = participant.GetComponent<AiVehicleController>();
+            if (recoveredAi != null)
+            {
+                recoveredAi.ResyncAfterForcedReposition();
+            }
+
             if (participant.lapTracker != null)
             {
                 participant.lapTracker.InvalidateCurrentLap();
