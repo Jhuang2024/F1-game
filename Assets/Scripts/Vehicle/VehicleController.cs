@@ -1091,7 +1091,17 @@ namespace LocalFormulaRacing
             float lateralSlip = Mathf.Clamp01(lateralVelocity.magnitude / Mathf.Max(6f, speedMps * 0.38f));
             UndersteerAmount = Mathf.Clamp01(Mathf.Abs(activeCommand.steer) * Mathf.InverseLerp(120f, 310f, absoluteSpeedKph) * Mathf.Lerp(0.45f, 1.25f, lateralSlip) * (activeCommand.throttle > 0.35f ? 1.1f : 0.8f));
             OversteerAmount = Mathf.Clamp01(lateralSlip * Mathf.Lerp(0.4f, 1.2f, activeCommand.throttle) * (1f - Mathf.Clamp01(tyreGrip)));
-            float lateralGripForce = (10f + grip * 18f) * Mathf.Lerp(1.12f, 0.78f, UndersteerAmount);
+            // Compound-contrast fix (per report - "grip difference between tyre
+            // types is not nearly noticeable enough"): this used to be
+            // (10 + grip*18) - the flat 10 base meant more than a third of the
+            // car's lateral grip was identical no matter what tyre was fitted,
+            // compressing a 28% compound spread to ~19% of felt force. Weight
+            // shifted from the flat base into the grip-scaled term (5 + grip*23),
+            // tuned so a medium at neutral conditions produces the SAME total
+            // force as before - softs now gain and hards/worn/wrong-weather
+            // tyres lose proportionally more, so the compound (and rain-state)
+            // grip actually reads through to the handling.
+            float lateralGripForce = (5f + grip * 23f) * Mathf.Lerp(1.12f, 0.78f, UndersteerAmount);
             body.AddForce(-lateralVelocity * lateralGripForce, ForceMode.Acceleration);
 
             float accelerationStat = Mathf.Lerp(11.4f, 20.4f, CarData.acceleration / 100f);
