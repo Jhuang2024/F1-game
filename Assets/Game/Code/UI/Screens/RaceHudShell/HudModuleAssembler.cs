@@ -170,10 +170,10 @@ namespace F1Game.UI.Screens.RaceHudShell
             // publish cadence rather than per frame (mid-left dock).
             // Sized so the FULL 22-car field fits and stays readable (13pt read
             // too small; 15pt over a taller dock is the balance).
-            var towerText = Numeric(hud.TimingTowerDock, "TimingTower", 15f);
+            var towerText = Numeric(hud.TimingTowerDock, "TimingTower", 18f);
             towerText.alignment = TextAlignmentOptions.TopLeft;
             // Multi-line body: the shared Text() helper sizes for one line.
-            towerText.GetComponent<LayoutElement>().preferredHeight = 476f;
+            towerText.GetComponent<LayoutElement>().preferredHeight = 572f;
             hud.gameObject.AddComponent<TimingTowerModule>().Bind(towerText);
         }
 

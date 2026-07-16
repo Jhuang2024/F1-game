@@ -980,9 +980,11 @@ namespace LocalFormulaRacing
             // commit to overtakes and shut doors like elites, Easy AI are
             // passive and easy to pass.
             RaceDifficulty racecraftTier = raceManager.Settings != null ? raceManager.Settings.Difficulty : RaceDifficulty.Medium;
-            int racecraftDelta = racecraftTier == RaceDifficulty.Easy ? -14
-                : racecraftTier == RaceDifficulty.Medium ? -6
-                : racecraftTier == RaceDifficulty.Hard ? 4 : 10;
+            // Round 5: whole ladder shifted up (+6) - every tier attacks and
+            // defends harder while the tier ordering stays intact.
+            int racecraftDelta = racecraftTier == RaceDifficulty.Easy ? -8
+                : racecraftTier == RaceDifficulty.Medium ? 0
+                : racecraftTier == RaceDifficulty.Hard ? 8 : 14;
             overtaking = Mathf.Clamp(overtaking + racecraftDelta, 30, 99);
             defending = Mathf.Clamp(defending + racecraftDelta, 30, 99);
 
@@ -1209,7 +1211,13 @@ namespace LocalFormulaRacing
             // (~2.5-3s/lap between the best and worst chassis), stacked on the
             // driver spread.
             float carPaceVariance = Mathf.Lerp(0.955f, 1.035f, carNorm);
-            float driverPaceVariance = Mathf.Lerp(1.06f, 1.16f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
+            // Difficulty raise round 5 (per request - "the AI still aren't good
+            // enough; realistic, no straight-line/unfair advantage"): the whole
+            // field's corner commitment band lifted +3% (1.06-1.16 -> 1.09-1.19)
+            // - still bounded by the physical feasibility cap below and by the
+            // shared grip/turn-rate physics, so this is drivers using more of
+            // the car, not a faster car.
+            float driverPaceVariance = Mathf.Lerp(1.09f, 1.19f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
             // multipliers used to inflate the corner-entry target past what the
@@ -1220,7 +1228,11 @@ namespace LocalFormulaRacing
             // skill shows through the corners instead of everyone being flattened
             // to the same flat 1.12 ceiling. It still never runs away from the
             // geometry the way the uncapped target could.
-            float feasibilityCap = Mathf.Lerp(1.07f, 1.17f, paceNorm);
+            // Round 5: entry-speed judgment window widened slightly with the
+            // commitment lift above (1.07-1.17 -> 1.08-1.19) - still a
+            // corner-entry judgment bound, never past what steering authority
+            // can physically rotate.
+            float feasibilityCap = Mathf.Lerp(1.08f, 1.19f, paceNorm);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
                 apexTargetSpeed * feasibilityCap);

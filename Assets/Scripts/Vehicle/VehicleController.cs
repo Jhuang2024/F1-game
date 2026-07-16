@@ -1789,7 +1789,11 @@ namespace LocalFormulaRacing
             // car in front on the straights. The stat now carries through
             // honestly up to a generous hardware ceiling, so team differences
             // and upgrades are real straight-line speed.
-            float statTarget = Mathf.Clamp(carTopSpeed + 15f, 342f, StatTopSpeedCeilingKph) * setupTopSpeedMultiplier;
+            // Baseline removed (per request - "get rid of the 15 kph every car
+            // has it baseline"): the topSpeed STAT now IS the car's unassisted
+            // top speed, for player and AI alike - no hidden additive on top.
+            // Floor lowered to match (the old 342 assumed the +15).
+            float statTarget = Mathf.Clamp(carTopSpeed, 335f, StatTopSpeedCeilingKph) * setupTopSpeedMultiplier;
             float target = statTarget;
 
             // ERS needs a ceiling above the base clamp, otherwise its bonus
