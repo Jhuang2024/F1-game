@@ -281,6 +281,10 @@ namespace LocalFormulaRacing
         // live per-frame flag; this timer is RaceManager's own tracking for when to
         // actually retire the car - see UpdateFuelStarvation).
         public bool fuelStarvationRetirementApplied;
+        // AI off-track auto-recovery accumulator (RaceManager.UpdateRaceControl):
+        // seconds this AI has been continuously off the racing surface with no
+        // legitimate reason; reset triggers the player-R-equivalent recovery.
+        public float offTrackResetTimer;
         public TyreCompound nextPitCompound = TyreCompound.Medium;
         public TyreCompound requestedPitCompound = TyreCompound.Medium;
         public bool requestedPitCompoundSet;

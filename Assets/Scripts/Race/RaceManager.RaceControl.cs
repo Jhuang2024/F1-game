@@ -234,6 +234,26 @@ namespace LocalFormulaRacing
                 // SC/VSC pacing (legitimately slow).
                 bool crashStopped = !participant.isPlayer && speedKph <= 10f &&
                     !preRace && RaceElapsed > 10f && !inPitPhaseOrPitting && !paceLimited && !participant.isRaceControlAutopilot;
+                // AI off-track auto-recovery (per request - "if an AI goes off
+                // the track for whatever reason, make it automatically perform
+                // the equivalent of the player's R reset"): any AI genuinely off
+                // the racing surface for a sustained moment gets the same free
+                // snap-to-road-centre recovery instead of limping back through
+                // the grass at reduced pace. Excludes cars heading into the pits
+                // (the entry ramp is deliberately outside the racing surface)
+                // and everything the stranded classification already exempts.
+                bool pitBound = participant.vehicle.PitRequested && Track != null &&
+                    (Track.IsInPitApproach(progress.normalized) || Track.IsOnPitEntryRamp(progress));
+                bool offTrackAi = !participant.isPlayer && offTrackNow && !preRace && RaceElapsed > 10f &&
+                    !inPitPhaseOrPitting && !paceLimited && !participant.isRaceControlAutopilot && !pitBound;
+                participant.offTrackResetTimer = offTrackAi ? participant.offTrackResetTimer + RaceControlCheckInterval : 0f;
+                if (participant.offTrackResetTimer > 1.5f)
+                {
+                    participant.offTrackResetTimer = 0f;
+                    ResetParticipantToTrackCenter(participant, 120f);
+                    GameLog.Info("[RaceControl] " + participant.driverName + " auto-recovered from off-track (player-R equivalent).");
+                }
+
                 participant.slowCrawlRetireTimer = crashStopped ? participant.slowCrawlRetireTimer + RaceControlCheckInterval : 0f;
                 if (participant.slowCrawlRetireTimer > 1f)
                 {

@@ -178,11 +178,16 @@ namespace LocalFormulaRacing
             playerResetCooldown = 5f;
             ResetParticipantToTrackCenter(participant);
 
+            // Penalty removed (per request - "pressing R should not give the
+            // player a 5 second penalty"): the reset places the car at the road
+            // centre at its CURRENT distance with zero speed, so it can't gain
+            // time; the 5s reset cooldown above still prevents spamming. The AI
+            // get the identical free recovery (crash/off-track auto-reset in
+            // UpdateRaceControl), so this is symmetric.
             if (CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial)
             {
-                AddPenalty(participant, 5f, "Car recovery");
-                SessionMessage = "Car recovered: +5s";
-                PostEngineerMessage("Car recovered to the track. Five second penalty added.", true);
+                SessionMessage = "Car recovered";
+                PostEngineerMessage("Car recovered to the track.", true);
             }
             else
             {

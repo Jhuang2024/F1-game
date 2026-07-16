@@ -105,7 +105,18 @@ namespace LocalFormulaRacing
             Vector3 toTarget = targetPoint - participant.transform.position;
             float steer = Mathf.Clamp(Vector3.Dot(toTarget.normalized, participant.transform.right) * 2.2f, -1f, 1f);
 
-            float speedGapKph = PitEntryAssistTargetSpeedKph - speedKph;
+            // Alignment-scaled approach speed (per report - "pinned against the
+            // wall in pit entry again", now at the 150 kph entry pace): arriving
+            // at full entry speed while still owing metres of sideways movement
+            // is exactly what slams the car into the wall - the lateral
+            // correction can't keep up and the oscillation ends on the barrier.
+            // The assist now sheds speed in proportion to how much lateral error
+            // remains (full 150 only once lined up, down to ~95 when far off
+            // line), so the car positions first and runs the buffed speed once
+            // straight.
+            float lateralErrorMeters = Mathf.Abs(Vector3.Dot(toTarget, participant.transform.right));
+            float alignedTargetKph = Mathf.Lerp(PitEntryAssistTargetSpeedKph, 95f, Mathf.Clamp01(lateralErrorMeters / 6f));
+            float speedGapKph = alignedTargetKph - speedKph;
             if (speedGapKph < -3f)
             {
                 command.brake = Mathf.Clamp01(-speedGapKph / 35f);

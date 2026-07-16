@@ -973,6 +973,19 @@ namespace LocalFormulaRacing
                 }
             }
 
+            // Difficulty differentiates RACECRAFT, not machinery (per request):
+            // the per-tier kph/grip assists are gone (RaceManager.Grid now
+            // hands every AI identical machinery to the player) and difficulty
+            // instead shifts how well the field attacks and defends - Expert AI
+            // commit to overtakes and shut doors like elites, Easy AI are
+            // passive and easy to pass.
+            RaceDifficulty racecraftTier = raceManager.Settings != null ? raceManager.Settings.Difficulty : RaceDifficulty.Medium;
+            int racecraftDelta = racecraftTier == RaceDifficulty.Easy ? -14
+                : racecraftTier == RaceDifficulty.Medium ? -6
+                : racecraftTier == RaceDifficulty.Hard ? 4 : 10;
+            overtaking = Mathf.Clamp(overtaking + racecraftDelta, 30, 99);
+            defending = Mathf.Clamp(defending + racecraftDelta, 30, 99);
+
             RaceManager.AiDifficultyProfile profile = raceManager.GetAiDifficultyProfile();
             // Part A: the single source of truth for every Expert-only branch below -
             // corner classification, corner-speed ceilings, traffic caution floor,
@@ -1069,33 +1082,13 @@ namespace LocalFormulaRacing
             // field on top, and the braking model below is kinematic - braking
             // distance scales with the square of real speed - so the higher
             // entry speeds still get correct brake points).
-            float straightDiscountKph;
-            RaceDifficulty straightDifficulty = raceManager.Settings == null ? RaceDifficulty.Medium : raceManager.Settings.Difficulty;
-            switch (straightDifficulty)
-            {
-                // Round 18 (per request - "the AI are still WAY too easy"):
-                // every tier's discount cut hard. The straight-line handicap is
-                // the single dominant pace lever (the round-16 note above
-                // documents why no decision-quality model can hide it), and
-                // with the cornering model now geometry-matched the AI can
-                // genuinely use the returned speed. Easy stays clearly the
-                // slowest but no longer a rolling roadblock; Expert runs the
-                // car's true envelope with zero discount.
-                // Round 6 (per report - AI still too slow): discounts cut again.
-                case RaceDifficulty.Easy:
-                    straightDiscountKph = 30f;
-                    break;
-                case RaceDifficulty.Medium:
-                    straightDiscountKph = 10f;
-                    break;
-                case RaceDifficulty.Hard:
-                    straightDiscountKph = 0f;
-                    break;
-                default:
-                    straightDiscountKph = 0f;
-                    break;
-            }
-            straightTargetSpeed = Mathf.Max(15f, straightTargetSpeed - straightDiscountKph);
+            // Difficulty rework (per request - "AI straight-line speed should
+            // be the same across ALL difficulties"): the per-tier straight
+            // discount staircase (Easy -30 / Medium -10 / Hard/Expert 0) is
+            // gone - every tier now runs the identical straight-line envelope,
+            // and difficulty differentiates through racecraft (the per-tier
+            // overtaking/defending delta above) and the per-tier behaviour
+            // profiles (corner commitment, reaction, mistakes) instead.
 
             bool wet = track.weather == WeatherState.LightRain || track.weather == WeatherState.HeavyRain;
             // Tyre-difference pass: uses the compound-neutral condition multiplier

@@ -205,6 +205,7 @@ namespace LocalFormulaRacing
         float smoothedThrottle;
         float smoothedBrake;
         bool lowBatteryForcedHarvest;
+        float topSpeedLogTimer;
         // The mode the player actually had selected when the low-battery
         // failsafe forced Harvest, restored once the battery recovers (the
         // failsafe used to hard-reset to Balanced instead).
@@ -1084,6 +1085,30 @@ namespace LocalFormulaRacing
 
             float speedCapFloorKph = PitLimiterActive ? (PitExitFastLimiter ? PitExitLimiterCapKph : PitEntryLimiterCapKph) : (raceControlCapActive ? RaceControlSpeedCapKph : 0f);
             bool speedCapEngaged = PitLimiterActive || raceControlCapActive;
+
+            // Unconditional diagnostic (same pattern as [ErsDrain]/[PlayerCar])
+            // for the persistent "360-stat car maxes at 345" report: prints the
+            // full top-speed target decomposition while the player is actually
+            // at speed, so the missing kph can be pinned to a specific term
+            // (stat, setup, compound offset, an unexpected cap) from a real
+            // play session instead of another round of static guessing.
+            if (IsPlayerControlled && absoluteSpeedKph > 275f)
+            {
+                topSpeedLogTimer -= dt;
+                if (topSpeedLogTimer <= 0f)
+                {
+                    topSpeedLogTimer = 3f;
+                    Debug.Log("[TopSpeed] v=" + absoluteSpeedKph.ToString("0") +
+                              " target=" + TargetTopSpeedKph.ToString("0") +
+                              " carStat=" + (CarData != null ? CarData.topSpeed : -1) +
+                              " setupMult=" + setupTopSpeedMultiplier.ToString("0.000") +
+                              " compoundOffset=" + (Tyres != null ? Tyres.CompoundSpeedOffsetKph(Weather) : 0f).ToString("0") +
+                              " drsBoost=" + DrsBoostActive + " ers=" + ErsDeploying +
+                              " slip=" + slipstreamStrength.ToString("0.00") +
+                              " pitLim=" + PitLimiterActive + " rcCap=" + (raceControlCapActive ? RaceControlSpeedCapKph.ToString("0") : "off") +
+                              " punctured=" + (Tyres != null && Tyres.Punctured));
+                }
+            }
 
             float topSpeed = TargetTopSpeedKph / 3.6f;
             float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);

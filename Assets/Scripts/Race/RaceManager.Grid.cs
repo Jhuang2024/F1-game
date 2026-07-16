@@ -165,23 +165,16 @@ namespace LocalFormulaRacing
                 // kph bonus is cut ~3 from its pre-nerf value (4/8/13/16 ->
                 // 1/5/10/13), so the AI corner exactly as before but pull less
                 // on the straights at every skill level.
-                // Straight-line nerf round 2 (per request): another ~3 kph off
-                // every tier (1/5/10/13 -> 0/3/7/10); grip untouched.
-                switch (Settings.Difficulty)
-                {
-                    case RaceDifficulty.Easy:
-                        controller.SetAiPerformanceAssist(0f, 1f);
-                        break;
-                    case RaceDifficulty.Medium:
-                        controller.SetAiPerformanceAssist(3f, 1.04f);
-                        break;
-                    case RaceDifficulty.Hard:
-                        controller.SetAiPerformanceAssist(7f, 1.09f);
-                        break;
-                    default:
-                        controller.SetAiPerformanceAssist(10f, 1.15f);
-                        break;
-                }
+                // Difficulty rework (per request - "AI shouldn't have artificial
+                // speed increasers; straight-line speed should be the same
+                // across all difficulties; what should change is their
+                // overtaking and defensive abilities"): every tier now runs
+                // IDENTICAL machinery to the player (no kph bonus, no grip
+                // assist). Difficulty instead differentiates racecraft - a
+                // per-tier overtaking/defending delta in AiVehicleController -
+                // plus the existing per-tier behaviour profiles (corner
+                // commitment, reaction, mistakes).
+                controller.SetAiPerformanceAssist(0f, 1f);
             }
             if (IsTimeTrial)
             {
