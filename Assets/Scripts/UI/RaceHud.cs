@@ -300,7 +300,10 @@ namespace LocalFormulaRacing
             GameSettingsData settings = race != null && race.Settings != null ? race.Settings.Current : null;
             hudScale = settings != null ? Mathf.Clamp(settings.hudScale, 0.75f, 1.3f) : 1f;
             compact = settings != null && settings.compactHud;
-            visibleTowerRows = compact ? 10 : TowerRowCount;
+            // Always show the FULL field on the timing tower (per request - see all
+            // 22 cars, not just the top 10). Compact mode still trims the other HUD
+            // modules below; only the tower's row cap is decoupled from it.
+            visibleTowerRows = TowerRowCount;
 
             // Per-module HUD toggles (Display Settings): construction-time gating,
             // same pattern `compact` already uses above for the car-status card and
