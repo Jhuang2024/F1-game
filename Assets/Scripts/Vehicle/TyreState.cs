@@ -269,13 +269,30 @@ namespace LocalFormulaRacing
 
             float management = Mathf.Lerp(1.35f, 0.72f, Mathf.Clamp01(tyreManagement / 100f));
             float weatherWear = weather == WeatherState.Clear || weather == WeatherState.Cloudy ? 1.08f : 1.32f;
-            if ((weather == WeatherState.Clear || weather == WeatherState.Cloudy) && (Compound == TyreCompound.Intermediate || Compound == TyreCompound.Wet))
+            bool wetWeatherCompound = Compound == TyreCompound.Intermediate || Compound == TyreCompound.Wet;
+            if ((weather == WeatherState.Clear || weather == WeatherState.Cloudy) && wetWeatherCompound)
             {
                 weatherWear *= Compound == TyreCompound.Wet ? 1.9f : 1.55f;
             }
-            else if ((weather == WeatherState.LightRain || weather == WeatherState.HeavyRain) && Compound != TyreCompound.Intermediate && Compound != TyreCompound.Wet)
+            else if ((weather == WeatherState.LightRain || weather == WeatherState.HeavyRain) && !wetWeatherCompound)
             {
                 weatherWear *= 1.3f;
+            }
+            else if ((weather == WeatherState.LightRain || weather == WeatherState.HeavyRain) && wetWeatherCompound)
+            {
+                // Rain-service relief (per report - "inters/wets barely last 2
+                // laps where the medium curve promises 4"): the inter/wet were
+                // documented as mirroring the MEDIUM's durability, but that only
+                // covered baseWear and the temp curve - in actual rain they
+                // still paid the full 1.32 rain-wear penalty (vs the dry 1.08 a
+                // medium is judged at), AND the low rain grip makes the car
+                // slide more, which the wear model charges directly through
+                // slipEnergy. Together the correct rain tyre wore ~2x its
+                // promised medium curve. A rain tyre is built for rain: no rain
+                // penalty, plus relief sized to cancel the extra slip wear -
+                // 0.66 is calibrated to the observed 2-laps-vs-4 gap so a
+                // correctly-fitted inter/wet genuinely lives the medium curve.
+                weatherWear = 0.66f;
             }
 
             // Lockups add a little extra wear on top of the baseline model, scaled
