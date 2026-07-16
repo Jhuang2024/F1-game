@@ -28,7 +28,13 @@ namespace LocalFormulaRacing
         // a lap of fuel left - the slack quietly swallowed the entire gamble.
         // A thin 0.4 kg reserve keeps a fumbled last corner from stranding a
         // correctly-fueled car, and no more.
-        const float RaceFuelReserveKg = 0.4f;
+        // Raised 0.4 -> 1.2 (per request - "not enough fuel for all of the
+        // fueling types; increase it just a smidge"): the live burn runs above
+        // the estimate at a full-throttle duty cycle, so every load choice was
+        // arriving at the flag thinner than its label suggested. +0.8 kg
+        // (~half a lap) shifts every choice up identically - the underfuel
+        // gambles stay gambles, they just aren't rigged anymore.
+        const float RaceFuelReserveKg = 1.2f;
 
         // Widened (was -1.5/-0.7/+0.7/+1.5): an underfuel choice must be a real
         // gamble (aggressive means genuinely managing fuel or running dry) and a
