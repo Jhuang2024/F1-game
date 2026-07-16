@@ -121,15 +121,31 @@ namespace F1Game.Race.Rules
         }
 
         /// <summary>
-        /// Whole-lap stint life used for compound PLANNING, floored so the AI only
-        /// commits to a compound it can genuinely see through to the flag (never
-        /// one that would fall fractionally short and force an extra stop). Always
-        /// at least 1.
+        /// Whole-lap RAW life used for DISPLAY ("softs last ~N laps"), floored.
+        /// This is the tyre's actual life on the calibrated gradient; the strategy
+        /// below plans against PlanningStintLaps instead, which also accounts for
+        /// the once-a-lap pit window. Always at least 1.
         /// </summary>
         public static int StintLapsForPlanning(int compound, float trackTempC)
         {
             int laps = (int)System.Math.Floor(ExpectedStintLapsAtTemp(compound, trackTempC));
             return laps < 1 ? 1 : laps;
+        }
+
+        /// <summary>
+        /// USABLE whole-lap stint for strategy PLANNING. A car can only pit once a
+        /// lap (~85% of the way round), so it has to box at the last pass before
+        /// the tyre's grip collapses - which costs up to ~1 lap of the raw life.
+        /// This is the count the AI's actual stops and the strategy optimiser both
+        /// reason from, so a "3-lap" tyre is planned as ~2 usable laps and the
+        /// recommended stop count matches what really happens on track. Always at
+        /// least 1.
+        /// </summary>
+        public static int PlanningStintLaps(int compound, float trackTempC)
+        {
+            float life = ExpectedStintLapsAtTemp(compound, trackTempC);
+            int usable = (int)System.Math.Floor(0.85f * life + 0.15f);
+            return usable < 1 ? 1 : usable;
         }
 
         /// <summary>
@@ -146,17 +162,112 @@ namespace F1Game.Race.Rules
         /// </summary>
         public static int NextDryCompound(int lapsRemainingAfterStop, float trackTempC)
         {
-            if (lapsRemainingAfterStop <= StintLapsForPlanning(Compound.Soft, trackTempC))
+            if (lapsRemainingAfterStop <= PlanningStintLaps(Compound.Soft, trackTempC))
             {
                 return Compound.Soft;
             }
 
-            if (lapsRemainingAfterStop <= StintLapsForPlanning(Compound.Medium, trackTempC))
+            if (lapsRemainingAfterStop <= PlanningStintLaps(Compound.Medium, trackTempC))
             {
                 return Compound.Medium;
             }
 
             return Compound.Hard;
+        }
+
+        // Relative per-lap pace penalty by compound (seconds/lap slower than the
+        // soft) and the time lost per pit stop, used by the strategy optimiser
+        // below. Softer rubber is faster per lap but forces stops sooner.
+        static float CompoundPacePenaltySeconds(int compound)
+        {
+            switch (compound)
+            {
+                case Compound.Soft:
+                    return 0f;
+                case Compound.Medium:
+                    return 0.45f;
+                default:
+                    return 0.9f; // Hard
+            }
+        }
+
+        public const float PitStopLossSeconds = 22f;
+        // Within-stint degradation cost: a longer stint spends more of its life on
+        // worn rubber, so total time lost to wear grows faster than linearly with
+        // stint length - modelled as ~coeff * laps^2 per stint. This is what makes
+        // an extra stop worthwhile once stints get long, so the optimiser can
+        // prefer a 2-stop when it is genuinely quicker rather than always minimising
+        // stops.
+        public const float StintDegPenaltyCoeffSeconds = 0.13f;
+
+        static int CeilDivStrategy(int a, int b)
+        {
+            return b <= 0 ? a : (a + b - 1) / b;
+        }
+
+        /// <summary>
+        /// The FASTEST dry strategy (starting compound + number of stops) for a race
+        /// of raceLaps at this track temperature, weighing compound pace, in-stint
+        /// degradation and the ~22s lost per pit stop against each other. Stint
+        /// feasibility uses the same per-temperature stint lengths the AI and the
+        /// wear model use, so a hot track that forces short stints naturally comes
+        /// out as a two- or three-stopper, while a cool track can one-stop on softs.
+        /// A 4+ lap race carries the mandatory pit (min one stop).
+        /// </summary>
+        public static void FastestDryStrategy(int raceLaps, float trackTempC, out int startCompound, out int stopCount)
+        {
+            int laps = raceLaps > 0 ? raceLaps : 5;
+            int softLife = PlanningStintLaps(Compound.Soft, trackTempC);
+            int medLife = PlanningStintLaps(Compound.Medium, trackTempC);
+            int hardLife = PlanningStintLaps(Compound.Hard, trackTempC);
+
+            int minStops = laps >= 4 ? 1 : 0;
+
+            float best = float.MaxValue;
+            int bestStops = minStops;
+            int bestCompound = Compound.Hard;
+
+            for (int stops = minStops; stops <= laps; stops++)
+            {
+                int stints = stops + 1;
+                int maxStintLen = CeilDivStrategy(laps, stints);
+
+                int compound;
+                if (maxStintLen <= softLife)
+                {
+                    compound = Compound.Soft;
+                }
+                else if (maxStintLen <= medLife)
+                {
+                    compound = Compound.Medium;
+                }
+                else if (maxStintLen <= hardLife)
+                {
+                    compound = Compound.Hard;
+                }
+                else
+                {
+                    // Even the hard cannot cover a stint this long - this few stops
+                    // is physically impossible at this temperature; need more.
+                    continue;
+                }
+
+                float avgStint = (float)laps / stints;
+                float paceTime = CompoundPacePenaltySeconds(compound) * laps;
+                float degTime = StintDegPenaltyCoeffSeconds * stints * avgStint * avgStint;
+                float pitTime = stops * PitStopLossSeconds;
+                float total = paceTime + degTime + pitTime;
+
+                if (total < best)
+                {
+                    best = total;
+                    bestStops = stops;
+                    bestCompound = compound;
+                }
+            }
+
+            startCompound = bestCompound;
+            stopCount = bestStops;
         }
 
         /// <summary>
@@ -179,7 +290,7 @@ namespace F1Game.Race.Rules
         public static int DryStartCompoundFromRoll(int roll, float trackTempC)
         {
             int pick = DryStartCompoundFromRoll(roll);
-            if (pick == Compound.Soft && StintLapsForPlanning(Compound.Soft, trackTempC) < 2)
+            if (pick == Compound.Soft && PlanningStintLaps(Compound.Soft, trackTempC) < 2)
             {
                 return Compound.Medium;
             }

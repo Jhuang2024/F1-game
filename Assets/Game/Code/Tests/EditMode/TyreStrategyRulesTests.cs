@@ -46,14 +46,26 @@ namespace F1Game.Tests
         }
 
         [Test]
+        public void PlanningStintIsAboutOneLapShorterThanRawLife()
+        {
+            // A car pits once a lap, so usable planning laps trail the raw life by
+            // ~1 (raw soft 2/med 3/hard 5 at 22.5C -> usable 1/2/4).
+            Assert.AreEqual(1, TyreStrategyRules.PlanningStintLaps(Soft, Standard));
+            Assert.AreEqual(2, TyreStrategyRules.PlanningStintLaps(Medium, Standard));
+            Assert.AreEqual(4, TyreStrategyRules.PlanningStintLaps(Hard, Standard));
+            // Cool: raw 3/4/5 -> usable 2/3/4.
+            Assert.AreEqual(2, TyreStrategyRules.PlanningStintLaps(Soft, Cool));
+            Assert.AreEqual(4, TyreStrategyRules.PlanningStintLaps(Hard, Cool));
+        }
+
+        [Test]
         public void PicksSoftestCompoundThatReachesTheFlagAtStandardTemp()
         {
-            // At 22.5C stint life is soft 2 / medium 3 / hard 5.
+            // At 22.5C usable planning stint is soft 1 / medium 2 / hard 4.
             Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(1, Standard));
-            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(2, Standard));
-            // 3 laps left: a soft would fall short, reach to Medium.
-            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(3, Standard));
-            // 4 laps left: a medium falls short too - the hard is the one-stint call.
+            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(2, Standard));
+            // 3 laps left: soft and medium both fall short, so the hard.
+            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(3, Standard));
             Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(4, Standard));
             Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(5, Standard));
         }
@@ -61,14 +73,31 @@ namespace F1Game.Tests
         [Test]
         public void HotTrackPushesOntoHarderCompoundsSooner()
         {
-            // At 30C life collapses to soft 1 / medium 2 / hard 3, so the same laps-
-            // remaining reaches for a harder tyre than it would on a cool track.
+            // At 30C usable planning stint collapses to soft 1 / medium 1 / hard 2.
             Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(1, Hot));
-            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(2, Hot));
+            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(2, Hot));
             Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(3, Hot));
 
-            // The same 3 laps on a cool track (soft lasts 3) can still take a soft.
-            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(3, Cool));
+            // The same 2 laps on a cool track (usable soft 2) can still take a soft.
+            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(2, Cool));
+        }
+
+        [Test]
+        public void FastestStrategyGetsMoreStopsAsTheTrackHeats()
+        {
+            int startCompound;
+            int stops;
+            // A hot track forces short stints, so the fastest plan takes more stops
+            // than the same race on a cool track.
+            TyreStrategyRules.FastestDryStrategy(8, Cool, out startCompound, out stops);
+            int coolStops = stops;
+            TyreStrategyRules.FastestDryStrategy(8, Hot, out startCompound, out stops);
+            int hotStops = stops;
+            Assert.Greater(hotStops, coolStops);
+
+            // A 4+ lap race always carries at least the mandatory stop.
+            TyreStrategyRules.FastestDryStrategy(5, Cool, out startCompound, out stops);
+            Assert.GreaterOrEqual(stops, 1);
         }
 
         [Test]

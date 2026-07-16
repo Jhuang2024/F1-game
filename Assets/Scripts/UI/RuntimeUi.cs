@@ -3674,9 +3674,11 @@ namespace LocalFormulaRacing
             summary.verticalOverflow = VerticalWrapMode.Overflow;
             UiFactory.SetSize(summary, 900f, 26f);
 
-            // Stop-count guide is now temperature-aware: stint lengths (and so the
-            // minimum stops for the distance) shrink as the track heats, computed
-            // off the same gradient as the wear model and the AI strategy.
+            // Stop-count guide now reports the FASTEST strategy for this race length
+            // and track temperature (TyreStrategyRules.FastestDryStrategy weighs
+            // compound pace, in-stint degradation and pit-stop loss), not merely the
+            // fewest stops - so a hot track that makes a two-stop genuinely quicker
+            // recommends two, while a cool track can one-stop on softs.
             string recommendation;
             if (profileIsWet(current))
             {
@@ -3688,9 +3690,12 @@ namespace LocalFormulaRacing
                 int softL = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Soft, stratTemp);
                 int medL = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Medium, stratTemp);
                 int hardL = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Hard, stratTemp);
-                int minStops = Mathf.Max(raceLaps >= 4 ? 1 : 0, CeilDiv(Mathf.Max(1, raceLaps), hardL) - 1);
+                int startCompound;
+                int stops;
+                TyreStrategyRules.FastestDryStrategy(raceLaps, stratTemp, out startCompound, out stops);
+                string startName = StintCompoundNames[Mathf.Clamp(startCompound, 0, 2)];
                 recommendation = "At " + Mathf.RoundToInt(stratTemp) + "°C softs last ~" + softL + ", mediums ~" + medL +
-                    ", hards ~" + hardL + " laps - plan ~" + minStops + " stop" + (minStops == 1 ? "" : "s") + " minimum.";
+                    ", hards ~" + hardL + " laps. Fastest: start " + startName + ", " + stops + "-stop.";
             }
 
             Text recommendationText = UiFactory.CreateText(pitList, "Strategy recommendation", recommendation, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
@@ -3772,35 +3777,19 @@ namespace LocalFormulaRacing
             return tyreName == BestStartCompound(raceLaps, trackTempC);
         }
 
-        // Softest compound that reaches the flag in the fewest stops at this track
-        // temperature. Mirrors the AI's own pit-compound logic so the player's
-        // recommendation and the field's strategy agree. Races of 4+ laps carry a
-        // mandatory pit (PenaltyRules.MandatoryPitMinimumRaceLaps), so the stint
-        // count is floored at two there - a single no-stop run is never the plan.
+        static readonly string[] StintCompoundNames = { "Soft", "Medium", "Hard" };
+
+        // Fastest start compound for this race length and track temperature - the
+        // strategy optimiser (TyreStrategyRules.FastestDryStrategy) weighs compound
+        // pace, in-stint degradation and pit-stop time loss, so it naturally picks
+        // a harder tyre and more stops on a hot track and can one-stop on softs
+        // when it's cool. Mirrors the AI's own logic so player and field agree.
         string BestStartCompound(int raceLaps, float trackTempC)
         {
-            int laps = raceLaps > 0 ? raceLaps : 5;
-            int softLife = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Soft, trackTempC);
-            int mediumLife = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Medium, trackTempC);
-            int hardLife = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Hard, trackTempC);
-
-            int minStints = laps >= 4 ? 2 : 1;
-            int softStints = Mathf.Max(minStints, CeilDiv(laps, softLife));
-            int mediumStints = Mathf.Max(minStints, CeilDiv(laps, mediumLife));
-            int hardStints = Mathf.Max(minStints, CeilDiv(laps, hardLife));
-
-            int fewest = Mathf.Min(softStints, Mathf.Min(mediumStints, hardStints));
-            if (softStints == fewest)
-            {
-                return "Soft";
-            }
-
-            return mediumStints == fewest ? "Medium" : "Hard";
-        }
-
-        static int CeilDiv(int a, int b)
-        {
-            return b <= 0 ? a : (a + b - 1) / b;
+            int startCompound;
+            int stopCount;
+            TyreStrategyRules.FastestDryStrategy(raceLaps, trackTempC, out startCompound, out stopCount);
+            return StintCompoundNames[Mathf.Clamp(startCompound, 0, 2)];
         }
 
         // A clear mismatch: slicks on a wet/mixed session, or wet-weather tyres
@@ -7110,9 +7099,12 @@ namespace LocalFormulaRacing
             int softLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Soft, trackTempC);
             int mediumLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Medium, trackTempC);
             int hardLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Hard, trackTempC);
-            string best = BestStartCompound(raceLaps, trackTempC);
+            int startCompound;
+            int stops;
+            TyreStrategyRules.FastestDryStrategy(raceLaps, trackTempC, out startCompound, out stops);
+            string best = StintCompoundNames[Mathf.Clamp(startCompound, 0, 2)];
             string lives = "at " + Mathf.RoundToInt(trackTempC) + "°C: softs ~" + softLaps + ", mediums ~" + mediumLaps + ", hards ~" + hardLaps + " laps";
-            return "Soft to qualify, " + best + " to race (" + lives + ")";
+            return "Soft to qualify, " + best + " + " + stops + "-stop to race (" + lives + ")";
         }
 
         void WeatherTemperatures(string profile, out int air, out int track)

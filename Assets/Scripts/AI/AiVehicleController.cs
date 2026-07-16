@@ -2086,6 +2086,39 @@ namespace LocalFormulaRacing
                 command.pitRequest = true;
             }
 
+            // Short-stint predictive pit (per request - dynamic track-temperature
+            // wear can cut a stint to a lap or two, and the AI must PLAN for that
+            // instead of circulating on a dead tyre). From the tyre's expected
+            // life AT THIS track temperature, if it won't survive roughly another
+            // full lap - its projected wear at the next pit pass would be into
+            // destroyed territory - box at the next entry. Because a car can only
+            // physically pit once per lap (~85% of the way round), the safe call
+            // for a short stint is to box the moment it can't reach the FOLLOWING
+            // pass, which for a one/two-lap stint means lap 1. Deliberately NOT
+            // gated on CompletedLaps > 0 so that lap-1 box can happen rather than
+            // running a lap punctured; the pit-entry logic still owns the actual
+            // box lap, and the final-lap suppression below still applies.
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying)
+            {
+                float pitTrackTempC = raceManager.Track != null ? raceManager.Track.trackTemperatureC : TyreStrategyRules.StandardTrackTempC;
+                int pitStintCode = currentCompound == TyreCompound.Soft ? TyreStrategyRules.Compound.Soft
+                    : (currentCompound == TyreCompound.Hard ? TyreStrategyRules.Compound.Hard : TyreStrategyRules.Compound.Medium);
+                float expectedStintLaps = Mathf.Max(0.6f, TyreStrategyRules.ExpectedStintLapsAtTemp(pitStintCode, pitTrackTempC));
+                float wearPerLap = 1f / expectedStintLaps;
+                // Only box if the tyre genuinely CAN'T reach the flag on its
+                // remaining life - a tyre that can finish, even worn, is never
+                // worth a ~22s stop it can't win back. lapsToFlag is fractional
+                // (counts the part-lap already driven), so a two-lap tyre fitted
+                // with two laps to go runs to the end instead of pitting early.
+                float lapsToFlag = raceManager.RaceLaps - participant.lapTracker.CompletedLaps - progress.normalized;
+                float tyreLapsLeft = vehicle.Tyres.Wear * expectedStintLaps;
+                bool cannotReachFlag = tyreLapsLeft < lapsToFlag - 0.1f;
+                if (cannotReachFlag && vehicle.Tyres.Wear < wearPerLap * 1.15f + 0.04f)
+                {
+                    command.pitRequest = true;
+                }
+            }
+
             // Tyre-overextension fix (pace-loss awareness): independent of the wear-
             // number threshold above, which a high-tyre-management driver can push
             // quite low - if the tyre's own real grip multiplier has genuinely
