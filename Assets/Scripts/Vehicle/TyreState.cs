@@ -1,4 +1,5 @@
 using UnityEngine;
+using F1Game.Race.Rules;
 
 namespace LocalFormulaRacing
 {
@@ -133,8 +134,10 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Intermediate)
             {
                 baseGrip = 0.9f;
-                // ~3 laps in the rain (medium-ish rate, small rain allowance).
-                baseWear = 1.4f;
+                // Mirrors the medium's durability at any temperature (per
+                // request) - same baseWear as Medium, and the track-temp wear
+                // multiplier in Tick maps Inter/Wet onto the Medium curve.
+                baseWear = 1.47f;
                 targetMin = 58f;
                 targetMax = 82f;
                 warmup = 1.05f;
@@ -145,8 +148,10 @@ namespace LocalFormulaRacing
             else
             {
                 baseGrip = 0.78f;
-                // ~3 laps in the rain (medium-ish rate, small rain allowance).
-                baseWear = 1.4f;
+                // Mirrors the medium's durability at any temperature (per
+                // request) - same baseWear as Medium, and the track-temp wear
+                // multiplier in Tick maps Inter/Wet onto the Medium curve.
+                baseWear = 1.47f;
                 targetMin = 45f;
                 targetMax = 70f;
                 warmup = 1.1f;
@@ -224,7 +229,7 @@ namespace LocalFormulaRacing
             Temperature = (targetMin + targetMax) * 0.5f;
         }
 
-        public void Tick(float speedKph, float brake, float steer, float throttle, float slipEnergy, WeatherState weather, int tyreManagement, float deltaTime)
+        public void Tick(float speedKph, float brake, float steer, float throttle, float slipEnergy, WeatherState weather, int tyreManagement, float deltaTime, float trackTemperatureC = TyreStrategyRules.StandardTrackTempC)
         {
             float speedHeat = speedKph / 310f;
             float brakeHeat = brake * brake * Mathf.Lerp(0.72f, 1.45f, Mathf.InverseLerp(80f, 270f, speedKph));
@@ -262,7 +267,23 @@ namespace LocalFormulaRacing
             float slideWear = slipEnergy * 0.0016f;
             float baselineWear = speedHeat * 0.00115f + Mathf.Abs(steer) * 0.0007f + brake * 0.00052f + slideWear;
             baselineWear *= Mathf.Lerp(0.86f, 1.28f, Mathf.InverseLerp(110f, 315f, speedKph));
-            float wearLoss = (baselineWear * baseWear * management * weatherWear * overheatWear * wornHeatWear) + lockupWearRate;
+
+            // Track-temperature wear gradient (per request - degradation varies
+            // with track temp, not a flat per-track rate). The baseWear values
+            // above are calibrated to the COOL (15C) stint targets, so the
+            // multiplier is exactly 1 there and scales wear UP as the track
+            // heats, shrinking stint life toward the hotter targets. It's
+            // compound-specific (softs are far more heat-sensitive than hards)
+            // and driven off the same ExpectedStintLapsAtTemp curve the AI
+            // strategy and pre-race screen read, so life on track matches what
+            // they plan for. Inter/Wet mirror the Medium curve.
+            int stintCompound = Compound == TyreCompound.Soft ? TyreStrategyRules.Compound.Soft
+                : (Compound == TyreCompound.Hard ? TyreStrategyRules.Compound.Hard : TyreStrategyRules.Compound.Medium);
+            float lifeAtTemp = TyreStrategyRules.ExpectedStintLapsAtTemp(stintCompound, trackTemperatureC);
+            float lifeAtCool = TyreStrategyRules.ExpectedStintLapsAtTemp(stintCompound, TyreStrategyRules.CoolTrackTempC);
+            float trackTempWear = lifeAtCool / Mathf.Max(0.1f, lifeAtTemp);
+
+            float wearLoss = (baselineWear * baseWear * management * weatherWear * overheatWear * wornHeatWear * trackTempWear) + lockupWearRate;
             Wear = Mathf.Clamp01(Wear - wearLoss * RegulationWearMultiplier * deltaTime);
         }
 

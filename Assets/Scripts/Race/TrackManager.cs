@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using UnityEngine;
+using F1Game.Race.Rules;
 
 namespace LocalFormulaRacing
 {
@@ -40,6 +41,12 @@ namespace LocalFormulaRacing
         public float drsDetectionOne;
         public float drsDetectionTwo;
         public WeatherState weather = WeatherState.Clear;
+        // Session track-surface temperature (C), derived once from the event's
+        // weather profile (plus a small per-track offset) - drives the
+        // compound-specific tyre-wear gradient in TyreState. Defaults to the
+        // standard anchor so any track built without an explicit value still
+        // wears tyres at the calibrated mid-temperature rate.
+        public float trackTemperatureC = F1Game.Race.Rules.TyreStrategyRules.StandardTrackTempC;
         public MeshCollider roadCollider;
 
         // Pit-exit early-turn fix round 4: baked once at build time (see
@@ -2106,6 +2113,9 @@ namespace LocalFormulaRacing
                     : DetermineWeather(eventData == null ? "clear_hot" : eventData.weatherProfile)
             };
 
+            runtime.trackTemperatureC = DetermineTrackTemperature(
+                eventData == null ? "clear_hot" : eventData.weatherProfile, runtime.trackId, runtime.weather);
+
             AddLayoutPoints(runtime);
             runtime.RecalculateDistances();
             // Hairpin centers are derived from the FINAL, fully-repaired/scaled
@@ -2582,6 +2592,17 @@ namespace LocalFormulaRacing
 
                 zone = new Vector2(zone.x, Mathf.Repeat(zone.x + 0.14f, 1f));
             }
+        }
+
+        // Session track-surface temperature on the same 15-30C scale the tyre-wear
+        // gradient is calibrated to. The band + per-track spread lives in the
+        // shared engine-free rule (TyreStrategyRules.TrackTemperatureFor) so the
+        // track build, the pre-race UI and the on-track wear all agree. A forced-
+        // dry session (time trial) still keys off the profile string for a
+        // repeatable temperature.
+        float DetermineTrackTemperature(string profile, string trackId, WeatherState resolvedWeather)
+        {
+            return TyreStrategyRules.TrackTemperatureFor(profile, trackId);
         }
 
         WeatherState DetermineWeather(string profile)

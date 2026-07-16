@@ -696,7 +696,8 @@ namespace LocalFormulaRacing
             float slipEnergy = Mathf.Clamp01(lateralSpeed / Mathf.Max(6f, body.velocity.magnitude * 0.32f)) * Mathf.InverseLerp(28f, 260f, absoluteSpeedKph);
             slipEnergy = Mathf.Clamp01(slipEnergy + Mathf.Abs(assisted.steer) * Mathf.InverseLerp(80f, 270f, absoluteSpeedKph) * 0.35f);
             UpdateGear(absoluteSpeedKph);
-            Tyres.Tick(absoluteSpeedKph, assisted.brake, assisted.steer, assisted.throttle, slipEnergy * setupWearBias, Weather, CarData.tyreManagement, dt);
+            float trackTemperatureC = Track != null ? Track.trackTemperatureC : F1Game.Race.Rules.TyreStrategyRules.StandardTrackTempC;
+            Tyres.Tick(absoluteSpeedKph, assisted.brake, assisted.steer, assisted.throttle, slipEnergy * setupWearBias, Weather, CarData.tyreManagement, dt, trackTemperatureC);
             ApplyForces(assisted, absoluteSpeedKph, progress, dt);
             ApplySteering(assisted, absoluteSpeedKph, dt);
             StabilizeChassis(dt);

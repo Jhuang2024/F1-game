@@ -35,8 +35,11 @@ namespace LocalFormulaRacing
 
             // RNG stays here (call order unchanged); the 0-2 roll -> compound
             // mapping is the engine-free TyreStrategyRules.DryStartCompoundFromRoll.
+            // The temperature-aware overload keeps the AI from starting on a soft
+            // that a hot track would burn through inside a single lap.
             int roll = Random.Range(0, 3);
-            return (TyreCompound)TyreStrategyRules.DryStartCompoundFromRoll(roll);
+            float startTrackTempC = Track != null ? Track.trackTemperatureC : TyreStrategyRules.StandardTrackTempC;
+            return (TyreCompound)TyreStrategyRules.DryStartCompoundFromRoll(roll, startTrackTempC);
         }
 
         TyreCompound NextPitCompound(RaceParticipant participant)
@@ -56,19 +59,19 @@ namespace LocalFormulaRacing
                 return TyreCompound.Medium;
             }
 
-            // Smarter AI strategy: a short remaining stint (late in the race) should
-            // reach for a faster compound regardless of the usual Soft->Medium->Hard
-            // ladder - there's no tyre-life reason to save rubber that will never be
-            // needed again. Aggressive drivers push this a little further than
-            // cautious ones. The dry decision (short-stint reach + ladder) lives in
-            // the engine-free TyreStrategyRules; this partial owns the live state
-            // reads (laps remaining, current compound, driver aggression) and the
-            // wet/inter override above, and delegates the dry pick. The compound
-            // codes match the TyreCompound enum ordering, so the cast is exact.
+            // Smarter AI strategy: fit the softest (fastest) compound whose stint
+            // life at THIS track temperature still reaches the flag, so the stop is
+            // the last one instead of committing to another. The dry decision lives
+            // in the engine-free TyreStrategyRules (which owns the temperature->
+            // stint-length gradient); this partial owns the live state reads (laps
+            // remaining, the session track temperature) and the wet/inter override
+            // above, and delegates the dry pick. A hotter track shortens every
+            // stint there, so the same call naturally reaches for harder rubber and
+            // more stops. The compound codes match the TyreCompound enum ordering,
+            // so the cast is exact.
             int lapsRemainingAfterStop = participant.lapTracker == null ? RaceLaps : Mathf.Max(0, RaceLaps - participant.lapTracker.CompletedLaps);
-            int aggression = participant.driverData == null ? 50 : participant.driverData.aggression;
-            int currentCompound = (int)participant.vehicle.Tyres.Compound;
-            return (TyreCompound)TyreStrategyRules.NextDryCompound(lapsRemainingAfterStop, aggression, currentCompound);
+            float trackTempC = Track != null ? Track.trackTemperatureC : TyreStrategyRules.StandardTrackTempC;
+            return (TyreCompound)TyreStrategyRules.NextDryCompound(lapsRemainingAfterStop, trackTempC);
         }
 
     }

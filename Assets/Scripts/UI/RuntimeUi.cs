@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using UnityEngine;
 using UnityEngine.UI;
+using F1Game.Race.Rules;
 
 namespace LocalFormulaRacing
 {
@@ -3280,12 +3281,14 @@ namespace LocalFormulaRacing
                 "Round " + career.Save.currentRound + "  ·  " + WeatherProfileText(profile) +
                 "  ·  " + (team == null ? "Independent" : team.name));
 
-            // Left: conditions briefing.
-            float trackTemp = profile.Contains("hot") ? 44f : (profile.Contains("wet") ? 19f : (profile.Contains("cloud") ? 25f : 31f));
+            // Left: conditions briefing. Track temp now comes from the shared
+            // gradient source so the displayed number, the recommendation and the
+            // on-track tyre wear all agree.
+            float trackTemp = TyreStrategyRules.TrackTemperatureFor(current.weatherProfile, current.trackId);
             string conditionsBody =
                 "Track Temp   " + trackTemp.ToString("0") + "°C\n" +
                 "Air Temp     " + (trackTemp - 7f).ToString("0") + "°C\n" +
-                "Recommended  " + RecommendedTyreText(profile, Mathf.Max(3, settings.Current.laps)) + "\n\n" +
+                "Recommended  " + RecommendedTyreText(profile, Mathf.Max(3, settings.Current.laps), trackTemp) + "\n\n" +
                 (hasQualifying ? "Qualifying complete. Grid is set." : "Qualifying required before the race.");
             UiFactory.CreateInfoCard(background, "Weekend conditions", new Vector2(0.05f, 0.14f), new Vector2(0.34f, 0.76f), "Track Conditions", conditionsBody,
                 hasQualifying ? UiFactory.AccentGreen : UiFactory.AccentAmber);
@@ -3417,7 +3420,7 @@ namespace LocalFormulaRacing
 
             string profile = current.weatherProfile.ToLower();
             string condition = WeatherProfileText(profile);
-            float trackTemp = profile.Contains("hot") ? 42f : (profile.Contains("wet") ? 18f : (profile.Contains("cloud") ? 26f : 32f));
+            float trackTemp = TyreStrategyRules.TrackTemperatureFor(current.weatherProfile, current.trackId);
             float airTemp = trackTemp - 8f;
 
             Text weatherText = UiFactory.CreateText(leftList, "Current weather", "Condition   " + condition + "\nTrack Temp  " + trackTemp.ToString("0") + "°C\nAir Temp    " + airTemp.ToString("0") + "°C\nHumidity    " + (profile.Contains("wet") ? "88%" : "42%") + "\nDRS Zones   2", 18, Color.white, TextAnchor.UpperLeft);
@@ -3448,7 +3451,7 @@ namespace LocalFormulaRacing
                 UiFactory.SetSize(warning, 520f, 24f);
             }
 
-            CreateTyreCompoundGrid(rightList, currentCompound, profile, true, 0, tyreName =>
+            CreateTyreCompoundGrid(rightList, currentCompound, profile, true, 0, trackTemp, tyreName =>
             {
                 settings.Current.tyreCompound = tyreName;
                 settings.Save();
@@ -3505,6 +3508,7 @@ namespace LocalFormulaRacing
 
             string profile = current.weatherProfile == null ? "" : current.weatherProfile.ToLowerInvariant();
             string currentCompound = settings.Current.tyreCompound;
+            float raceTrackTemp = TyreStrategyRules.TrackTemperatureFor(current.weatherProfile, current.trackId);
 
             // Top row: briefing (left) + tyre selection (right).
             RectTransform topRow = UiFactory.CreateRect(bodyMargin, "Race tyre top row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
@@ -3536,7 +3540,7 @@ namespace LocalFormulaRacing
                 UiFactory.SetSize(warning, 500f, 24f);
             }
 
-            CreateTyreCompoundGrid(rightList, currentCompound, profile, false, Mathf.Max(3, settings.Current.laps), tyreName =>
+            CreateTyreCompoundGrid(rightList, currentCompound, profile, false, Mathf.Max(3, settings.Current.laps), raceTrackTemp, tyreName =>
             {
                 settings.Current.tyreCompound = tyreName;
                 settings.Save();
@@ -3668,26 +3672,23 @@ namespace LocalFormulaRacing
             summary.verticalOverflow = VerticalWrapMode.Overflow;
             UiFactory.SetSize(summary, 900f, 26f);
 
-            // Stop-count guide follows the calibrated stint lengths (soft ~2 laps,
-            // medium ~3, hard ~4): the longest single stint is a hard at ~4 laps,
-            // so one stop (two stints) only reaches ~6-7 laps, and races stack up
-            // stops fast from there.
+            // Stop-count guide is now temperature-aware: stint lengths (and so the
+            // minimum stops for the distance) shrink as the track heats, computed
+            // off the same gradient as the wear model and the AI strategy.
             string recommendation;
             if (profileIsWet(current))
             {
                 recommendation = "Wet weather: Intermediates or Wets are the safe call.";
             }
-            else if (raceLaps <= 6)
-            {
-                recommendation = "Short race: one stop is enough (softs ~2 laps, mediums ~3, hards ~4).";
-            }
-            else if (raceLaps <= 10)
-            {
-                recommendation = "Mid race: plan two stops - no tyre lasts more than ~4 laps.";
-            }
             else
             {
-                recommendation = "Long race: three stops - stints run ~2-4 laps, so keep fresh rubber coming.";
+                float stratTemp = TyreStrategyRules.TrackTemperatureFor(current == null ? null : current.weatherProfile, current == null ? null : current.trackId);
+                int softL = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Soft, stratTemp);
+                int medL = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Medium, stratTemp);
+                int hardL = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Hard, stratTemp);
+                int minStops = Mathf.Max(raceLaps >= 4 ? 1 : 0, CeilDiv(Mathf.Max(1, raceLaps), hardL) - 1);
+                recommendation = "At " + Mathf.RoundToInt(stratTemp) + "°C softs last ~" + softL + ", mediums ~" + medL +
+                    ", hards ~" + hardL + " laps - plan ~" + minStops + " stop" + (minStops == 1 ? "" : "s") + " minimum.";
             }
 
             Text recommendationText = UiFactory.CreateText(pitList, "Strategy recommendation", recommendation, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
@@ -3724,24 +3725,31 @@ namespace LocalFormulaRacing
 
         static readonly string[] TyreCompoundOrder = { "Soft", "Medium", "Hard", "Intermediate", "Wet" };
 
-        string TyreShortDescriptor(string tyreName)
+        // Compound-life figures are now temperature-dependent (see the wear
+        // gradient in TyreStrategyRules): the same soft that lasts 3 laps on a
+        // cool track only lasts 1 on a hot one, so the descriptor states the life
+        // AT THIS track's temperature rather than a single fixed number.
+        string TyreShortDescriptor(string tyreName, float trackTempC)
         {
-            if (tyreName == "Soft") return "Most grip, easiest to steer - lasts ~2 laps";
-            if (tyreName == "Medium") return "Balanced grip and steering - lasts ~3 laps";
-            if (tyreName == "Hard") return "-30 kph, heaviest to steer - lasts ~4 laps";
-            if (tyreName == "Intermediate") return "Damp track, light rain - lasts ~3 laps";
-            if (tyreName == "Wet") return "Heavy rain, max clearance - lasts ~3 laps";
+            int softLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Soft, trackTempC);
+            int mediumLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Medium, trackTempC);
+            int hardLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Hard, trackTempC);
+            if (tyreName == "Soft") return "Most grip, easiest to steer - ~" + softLaps + " lap" + (softLaps == 1 ? "" : "s") + " here";
+            if (tyreName == "Medium") return "Balanced grip and steering - ~" + mediumLaps + " laps here";
+            if (tyreName == "Hard") return "-30 kph, heaviest to steer - ~" + hardLaps + " laps here";
+            if (tyreName == "Intermediate") return "Damp track, light rain - lasts like a Medium";
+            if (tyreName == "Wet") return "Heavy rain, max clearance - lasts like a Medium";
             return "";
         }
 
-        // raceLaps <= 0 means "unknown/qualifying context" and falls back to the
-        // mid-length recommendation. Thresholds follow the calibrated stint
-        // lengths (soft ~2 laps, medium ~3, hard ~4): the recommended START tyre
-        // is the one that carries a solid, fast opening stint while leaving the
-        // fewest stops to the flag. A soft only makes sense as a start tyre in a
-        // genuine sprint; anything longer wants the medium's or hard's extra
-        // durability up front.
-        bool IsTyreRecommended(string tyreName, string profile, bool qualifying, int raceLaps)
+        // The recommended START tyre now depends on BOTH race length and the
+        // track temperature (which sets each compound's stint life). It's the
+        // softest - fastest - compound that still achieves the minimum number of
+        // stops for the distance, so a cool track can start soft, a standard day
+        // wants the medium, and a hot track is pushed onto the hard exactly as
+        // the wear gradient dictates. raceLaps <= 0 (unknown context) falls back
+        // to a typical 5-lap race.
+        bool IsTyreRecommended(string tyreName, string profile, bool qualifying, int raceLaps, float trackTempC)
         {
             string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
             if (normalized.Contains("wet"))
@@ -3759,23 +3767,38 @@ namespace LocalFormulaRacing
                 return tyreName == "Soft";
             }
 
-            if (normalized.Contains("hot"))
+            return tyreName == BestStartCompound(raceLaps, trackTempC);
+        }
+
+        // Softest compound that reaches the flag in the fewest stops at this track
+        // temperature. Mirrors the AI's own pit-compound logic so the player's
+        // recommendation and the field's strategy agree. Races of 4+ laps carry a
+        // mandatory pit (PenaltyRules.MandatoryPitMinimumRaceLaps), so the stint
+        // count is floored at two there - a single no-stop run is never the plan.
+        string BestStartCompound(int raceLaps, float trackTempC)
+        {
+            int laps = raceLaps > 0 ? raceLaps : 5;
+            int softLife = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Soft, trackTempC);
+            int mediumLife = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Medium, trackTempC);
+            int hardLife = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Hard, trackTempC);
+
+            int minStints = laps >= 4 ? 2 : 1;
+            int softStints = Mathf.Max(minStints, CeilDiv(laps, softLife));
+            int mediumStints = Mathf.Max(minStints, CeilDiv(laps, mediumLife));
+            int hardStints = Mathf.Max(minStints, CeilDiv(laps, hardLife));
+
+            int fewest = Mathf.Min(softStints, Mathf.Min(mediumStints, hardStints));
+            if (softStints == fewest)
             {
-                // Heat piles extra wear on top of the compound spread - shift
-                // one step harder than the same race length in cool air.
-                return raceLaps > 0 && raceLaps <= 3 ? tyreName == "Medium" : tyreName == "Hard";
+                return "Soft";
             }
 
-            // A true sprint (<= 2 laps) is the only race a soft should start:
-            // its ~2-lap life covers the distance and it's the fastest tyre.
-            if (raceLaps > 0 && raceLaps <= 2)
-            {
-                return tyreName == "Soft";
-            }
+            return mediumStints == fewest ? "Medium" : "Hard";
+        }
 
-            // Long races (> 6 laps) need the hard's ~4-lap stints to keep the
-            // stop count down; everything in between starts on the medium.
-            return raceLaps > 6 ? tyreName == "Hard" : tyreName == "Medium";
+        static int CeilDiv(int a, int b)
+        {
+            return b <= 0 ? a : (a + b - 1) / b;
         }
 
         // A clear mismatch: slicks on a wet/mixed session, or wet-weather tyres
@@ -3794,10 +3817,10 @@ namespace LocalFormulaRacing
         // highlight. Replaces plain "Soft"/"Medium" buttons everywhere tyres
         // are chosen. Laid out in a GridLayoutGroup by the caller so five cards
         // never depend on fragile manual width math.
-        void CreateTyreCompoundCard(RectTransform parent, string tyreName, string selectedCompound, string weatherProfile, bool qualifying, int raceLaps, UnityEngine.Events.UnityAction onSelect)
+        void CreateTyreCompoundCard(RectTransform parent, string tyreName, string selectedCompound, string weatherProfile, bool qualifying, int raceLaps, float trackTempC, UnityEngine.Events.UnityAction onSelect)
         {
             bool selected = selectedCompound == tyreName;
-            bool recommended = IsTyreRecommended(tyreName, weatherProfile, qualifying, raceLaps);
+            bool recommended = IsTyreRecommended(tyreName, weatherProfile, qualifying, raceLaps, trackTempC);
             bool mismatch = selected && IsTyreMismatch(tyreName, weatherProfile);
 
             RectTransform card = UiFactory.CreateRect(parent, tyreName + " compound card", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
@@ -3823,7 +3846,7 @@ namespace LocalFormulaRacing
             nameRect.offsetMin = new Vector2(36f, -30f);
             nameRect.offsetMax = new Vector2(-8f, -10f);
 
-            Text descriptorText = UiFactory.CreateText(card, tyreName + " descriptor", TyreShortDescriptor(tyreName), 13, selected ? new Color(1f, 0.88f, 0.86f) : UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text descriptorText = UiFactory.CreateText(card, tyreName + " descriptor", TyreShortDescriptor(tyreName, trackTempC), 13, selected ? new Color(1f, 0.88f, 0.86f) : UiFactory.TextMuted, TextAnchor.UpperLeft);
             RectTransform descriptorRect = descriptorText.GetComponent<RectTransform>();
             descriptorRect.anchorMin = new Vector2(0f, 1f);
             descriptorRect.anchorMax = new Vector2(1f, 1f);
@@ -3867,7 +3890,7 @@ namespace LocalFormulaRacing
         // 3+2 grid of tyre compound cards - always sized by a GridLayoutGroup
         // (which fully owns child size/position) rather than a horizontal stack
         // of fixed-width buttons that can overflow its container.
-        void CreateTyreCompoundGrid(RectTransform parent, string selectedCompound, string weatherProfile, bool qualifying, int raceLaps, System.Action<string> onSelect)
+        void CreateTyreCompoundGrid(RectTransform parent, string selectedCompound, string weatherProfile, bool qualifying, int raceLaps, float trackTempC, System.Action<string> onSelect)
         {
             RectTransform grid = UiFactory.CreateRect(parent, "Tyre compound grid", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             grid.sizeDelta = new Vector2(3f * 168f + 2f * 10f, 2f * 96f + 10f);
@@ -3879,7 +3902,7 @@ namespace LocalFormulaRacing
             for (int i = 0; i < TyreCompoundOrder.Length; i++)
             {
                 string tyreName = TyreCompoundOrder[i];
-                CreateTyreCompoundCard(grid, tyreName, selectedCompound, weatherProfile, qualifying, raceLaps, () => onSelect(tyreName));
+                CreateTyreCompoundCard(grid, tyreName, selectedCompound, weatherProfile, qualifying, raceLaps, trackTempC, () => onSelect(tyreName));
             }
         }
 
@@ -6963,9 +6986,12 @@ namespace LocalFormulaRacing
         string BuildWeatherBriefing(CalendarEventData current, string sessionName, string selectedCompound, string objectiveText, int raceLaps)
         {
             string profile = current == null ? "" : current.weatherProfile;
-            int air;
-            int track;
-            WeatherTemperatures(profile, out air, out track);
+            // Track temp from the shared wear gradient (with its per-track offset)
+            // so the briefing's temperature, its recommendation and the on-track
+            // wear all agree; air temp trails it by ~7C as before.
+            float trackTempC = TyreStrategyRules.TrackTemperatureFor(profile, current == null ? null : current.trackId);
+            int track = Mathf.RoundToInt(trackTempC);
+            int air = track - 7;
             string text =
                 (current == null ? "Prototype GP" : current.displayName) + "\n" +
                 "Session: " + sessionName + "\n" +
@@ -6974,7 +7000,7 @@ namespace LocalFormulaRacing
                 "Track condition: " + TrackConditionText(profile) + "\n" +
                 "Track temp: " + track + " C   Air temp: " + air + " C\n" +
                 "DRS zones: 2\n" +
-                "Recommended compound: " + RecommendedTyreText(profile, raceLaps) + "\n" +
+                "Recommended compound: " + RecommendedTyreText(profile, raceLaps, trackTempC) + "\n" +
                 "Selected compound: " + selectedCompound;
             if (!string.IsNullOrEmpty(objectiveText))
             {
@@ -7062,10 +7088,11 @@ namespace LocalFormulaRacing
             return "Dry";
         }
 
-        // Race-length-aware (see IsTyreRecommended): calibrated stint lengths are
-        // soft ~2 laps, medium ~3, hard ~4, so the recommendation names the best
-        // START tyre and states the lifespans so the player can plan stops.
-        string RecommendedTyreText(string profile, int raceLaps)
+        // Temperature-aware: names the best START tyre for this track's temp and
+        // length, and states the per-compound stint life AT this temperature so
+        // the player can plan stops. Hotter track -> shorter stints -> harder
+        // recommended tyre, all off the same gradient the AI and wear model use.
+        string RecommendedTyreText(string profile, int raceLaps, float trackTempC)
         {
             string normalized = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
             if (normalized.Contains("wet"))
@@ -7078,21 +7105,12 @@ namespace LocalFormulaRacing
                 return "Intermediate if damp, Medium if drying";
             }
 
-            if (normalized.Contains("hot"))
-            {
-                return raceLaps > 0 && raceLaps <= 3
-                    ? "Soft to qualify, Medium to race (heat burns softs - they last ~2 laps)"
-                    : "Soft to qualify, Hard to race (heat + wear; hards last ~4 laps)";
-            }
-
-            if (raceLaps > 0 && raceLaps <= 2)
-            {
-                return "Soft - fastest, and its ~2-lap life covers the sprint";
-            }
-
-            return raceLaps > 6
-                ? "Soft to qualify, Hard to race (softs ~2 laps, mediums ~3, hards ~4)"
-                : "Soft to qualify, Medium to race (softs ~2 laps, mediums ~3, hards ~4)";
+            int softLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Soft, trackTempC);
+            int mediumLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Medium, trackTempC);
+            int hardLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Hard, trackTempC);
+            string best = BestStartCompound(raceLaps, trackTempC);
+            string lives = "at " + Mathf.RoundToInt(trackTempC) + "°C: softs ~" + softLaps + ", mediums ~" + mediumLaps + ", hards ~" + hardLaps + " laps";
+            return "Soft to qualify, " + best + " to race (" + lives + ")";
         }
 
         void WeatherTemperatures(string profile, out int air, out int track)
