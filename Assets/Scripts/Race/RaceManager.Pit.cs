@@ -166,7 +166,7 @@ namespace LocalFormulaRacing
                     if (participant.isPlayer && !engineerPitRequestConfirmed)
                     {
                         engineerPitRequestConfirmed = true;
-                        PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is 80 km/h.", true, RaceAudioCue.PitConfirm);
+                        PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is 100 km/h.", true, RaceAudioCue.PitConfirm);
                     }
 
                     BeginPitEntry(participant, actualProgress);
@@ -393,6 +393,12 @@ namespace LocalFormulaRacing
         // the realistic 80 km/h pit-speed-limit ballpark instead of the old
         // crawl - a full stop is now ~20s (entry+service+exit) on every track.
         const float PitEntryPaceKph = 75f;
+        // Player pit-entry buff (per request - "up my speed to 100 kph in the
+        // pit entry lane"): the player's rail runs the entire entry leg
+        // (commit -> box) at 100 while the AI keep the 75 pace, matching the
+        // player's raised 100 kph entry limiter (VehicleController). Exit and
+        // service paces stay shared.
+        const float PlayerPitEntryPaceKph = 100f;
         const float PitLanePaceKph = 75f;
         const float PitExitPaceKph = 106f;
         const float PitGuideLateralRateMetersPerSecond = 9f;
@@ -654,7 +660,7 @@ namespace LocalFormulaRacing
             bool beforeBox = !participant.pitRailServiceStarted;
             float normalizedHere = participant.pitGuideDistance / Mathf.Max(1f, Track.length);
             float paceKph = beforeBox
-                ? (Track.IsInPitEntryRampWindow(normalizedHere) ? PitEntryPaceKph : PitLanePaceKph)
+                ? (participant.isPlayer ? PlayerPitEntryPaceKph : (Track.IsInPitEntryRampWindow(normalizedHere) ? PitEntryPaceKph : PitLanePaceKph))
                 : (participant.pitRailTraveled >= participant.pitRailReleaseS ? PitExitPaceKph : PitLanePaceKph);
             participant.pitPhase = beforeBox
                 ? PitPhase.Entry

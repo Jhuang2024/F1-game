@@ -13,7 +13,18 @@ namespace LocalFormulaRacing
         // (see PitExitFastLimiter) gets a meaningfully higher cap so the drive
         // back to the racing line doesn't read as a fixed-length "wait it out"
         // tunnel once the car has nothing left to be careful of.
-        const float PitEntryLimiterCapKph = 80f;
+        // Player pit-entry buff (per request - "up my speed to 100 kph in the
+        // pit entry lane"): the PLAYER's entry limiter caps at 100 while the AI
+        // keep the 80 kph limit, a deliberate player advantage through pit
+        // entry. Paired with the player-only rail entry pace in
+        // RaceManager.Pit (UpdatePitRail) and the 100 kph pit-entry assist
+        // target so the whole player entry sequence runs at the same speed.
+        const float AiPitEntryLimiterCapKph = 80f;
+        const float PlayerPitEntryLimiterCapKph = 100f;
+        float PitEntryLimiterCapKph
+        {
+            get { return IsPlayerControlled ? PlayerPitEntryLimiterCapKph : AiPitEntryLimiterCapKph; }
+        }
         const float PitExitLimiterCapKph = 108f;
 
         public TyreState Tyres { get; private set; }

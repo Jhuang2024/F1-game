@@ -2216,7 +2216,7 @@ namespace LocalFormulaRacing
                 // the entry-grade approach limiter (80) - a hardcoded "80"
                 // here would silently under-report the real speed once the
                 // car is actually released and driving out.
-                int limiterCapKph = car.PitExitFastLimiter ? 108 : 80;
+                int limiterCapKph = car.PitExitFastLimiter ? 108 : 100;
                 pitStatusValue.text = (player.pitLimiterUntilExit ? "PIT EXIT  LIMITER " : "PIT APPROACH  LIMITER ") + limiterCapKph;
             }
             else

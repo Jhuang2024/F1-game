@@ -400,7 +400,9 @@ namespace LocalFormulaRacing
             bool limiterOnly = vehicle.PitLimiterActive && player.pitPhase == PitPhase.None;
             if (limiterOnly)
             {
-                int limiterCapKph = vehicle.PitExitFastLimiter ? 108 : 80;
+                // Player entry limiter is 100 (player pit-entry buff); this line
+                // only ever renders for the player.
+                int limiterCapKph = vehicle.PitExitFastLimiter ? 108 : 100;
                 return (player.pitLimiterUntilExit ? "PIT EXIT  LIMITER " : "PIT APPROACH  LIMITER ") + limiterCapKph;
             }
 
