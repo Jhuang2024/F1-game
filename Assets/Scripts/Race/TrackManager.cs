@@ -1376,12 +1376,25 @@ namespace LocalFormulaRacing
             }
             hash &= 0x7fffffff;
 
+            // Break the lap into a per-track set of SECTIONS, each with its own
+            // distinct width (per request - "sections of the track should have
+            // different widths", not merely corners vs straights). One stretch
+            // might run genuinely wide, the next genuinely narrow, regardless of
+            // the corners in it. Deterministic per track + section so a given
+            // circuit always has the same character.
+            int sectionCount = 7 + (hash % 6); // 7..12 distinct-width stretches
+            float[] sectionMul = new float[sectionCount];
+            for (int k = 0; k < sectionCount; k++)
+            {
+                int sh = unchecked(hash * 131 + k * 977 + 17) & 0x7fffffff;
+                sectionMul[k] = Mathf.Lerp(0.68f, 1.30f, (sh % 1000) / 1000f);
+            }
+
             // Authored specs already set a per-track base width, so only the flat
             // fallback layouts need an extra per-track scale to tell them apart.
-            float trackScale = hasAuthored ? 1f : Mathf.Lerp(0.82f, 1.12f, (hash % 1000) / 1000f);
-            float phase = (hash % 628) / 100f;
+            float trackScale = hasAuthored ? 1f : Mathf.Lerp(0.85f, 1.12f, ((hash / 7) % 1000) / 1000f);
 
-            const int ProfileSamples = 96;
+            const int ProfileSamples = 128;
             float[] profile = new float[ProfileSamples];
             for (int s = 0; s < ProfileSamples; s++)
             {
@@ -1404,22 +1417,26 @@ namespace LocalFormulaRacing
 
                 baseHalf = Mathf.Max(6f, baseHalf * trackScale);
 
-                // Curvature: heading change over a short forward span - ~0 on a
-                // straight, ~1 through a tight corner.
+                // Section width, smoothly blended between adjacent sections so the
+                // transitions read as the road opening up / pinching in rather
+                // than a hard step.
+                float sf = u * sectionCount;
+                int si = ((int)sf) % sectionCount;
+                int sn = (si + 1) % sectionCount;
+                float frac = Mathf.SmoothStep(0f, 1f, sf - Mathf.Floor(sf));
+                float sectionWidth = Mathf.Lerp(sectionMul[si], sectionMul[sn], frac);
+
+                // A little extra pinch through the tightest corners on top, so a
+                // corner inside a wide section is still slightly tighter than the
+                // straight beside it.
                 Vector3 pA, fA, rA;
                 Vector3 pB, fB, rB;
                 SampleAtDistance(dist, out pA, out fA, out rA);
                 SampleAtDistance(dist + 22f, out pB, out fB, out rB);
                 float curvature = Mathf.Clamp01(Vector3.Angle(fA, fB) / 24f);
+                float cornerFactor = Mathf.Lerp(1.04f, 0.86f, curvature);
 
-                // Wider on the straights, narrower through the corners, plus a
-                // low-frequency wave so even two similar sections differ.
-                float cornerFactor = Mathf.Lerp(1.10f, 0.78f, curvature);
-                float wave = 1f
-                    + 0.11f * Mathf.Sin(u * Mathf.PI * 2f * 3f + phase)
-                    + 0.06f * Mathf.Sin(u * Mathf.PI * 2f * 7f + phase * 1.7f);
-
-                profile[s] = Mathf.Clamp(baseHalf * cornerFactor * wave, 5.5f, baseHalf * 1.32f);
+                profile[s] = Mathf.Clamp(baseHalf * sectionWidth * cornerFactor, 6f, baseHalf * 1.34f);
             }
 
             authoredHalfWidthProfile = profile;
@@ -2212,6 +2229,11 @@ namespace LocalFormulaRacing
                 : RollTrackTemperature(tempProfile, runtime.trackId, runtime.weather);
 
             AddLayoutPoints(runtime);
+            // Elevation change (per request - "put some more elevation into the
+            // tracks"). Added to the FINAL centreline before distances/ground/
+            // mesh are computed, so the road, its runoff apron and the terrain
+            // base all follow it, and the gradients are gentle enough to drive.
+            AddProceduralElevation(runtime);
             runtime.RecalculateDistances();
             // Hairpin centers are derived from the FINAL, fully-repaired/scaled
             // centerline (AddLayoutPoints already ran repair + NormalizeTrackLength +
@@ -2219,6 +2241,46 @@ namespace LocalFormulaRacing
             // RecalculateDistances so cumulativeDistances line up with centerLine.
             runtime.RecalculateHairpinWidening();
             return runtime;
+        }
+
+        // Layers gentle rolling elevation onto the centreline so tracks aren't
+        // billiard-table flat: a few big hills over the lap plus finer
+        // undulations, deterministic per track and periodic over the loop so the
+        // start/finish elevation always matches. Amplitudes stay small relative
+        // to the section length (sub-1% gradients), so the AI, the ride-height
+        // follower and the camera all handle it, and the terrain apron built
+        // later follows the same centreline Y.
+        void AddProceduralElevation(TrackRuntime runtime)
+        {
+            if (runtime.centerLine == null || runtime.centerLine.Count < 8 || runtime.length <= 1f)
+            {
+                return;
+            }
+
+            int hash = 23;
+            string id = runtime.trackId ?? "";
+            for (int i = 0; i < id.Length; i++)
+            {
+                hash = unchecked(hash * 31 + id[i]);
+            }
+            hash &= 0x7fffffff;
+
+            float amp = Mathf.Lerp(5f, 11f, (hash % 1000) / 1000f);
+            float phase1 = (hash % 628) / 100f;
+            float phase2 = ((hash / 7) % 628) / 100f;
+            int lobes1 = 2 + (hash % 3);          // 2..4 big rises/dips over the lap
+            int lobes2 = 5 + ((hash / 5) % 4);    // 5..8 finer undulations
+
+            int count = runtime.centerLine.Count;
+            for (int i = 0; i < count; i++)
+            {
+                float u = i / (float)count;
+                float e = amp * (0.68f * Mathf.Sin(u * Mathf.PI * 2f * lobes1 + phase1)
+                               + 0.32f * Mathf.Sin(u * Mathf.PI * 2f * lobes2 + phase2));
+                Vector3 p = runtime.centerLine[i];
+                p.y += e;
+                runtime.centerLine[i] = p;
+            }
         }
 
         void AddLayoutPoints(TrackRuntime runtime)

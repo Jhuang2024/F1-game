@@ -1198,15 +1198,18 @@ namespace LocalFormulaRacing
             float driverPaceVariance = Mathf.Lerp(1.06f, 1.16f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm);
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
-            // multipliers (up to ~1.35x combined on Expert) used to inflate the
-            // corner-entry target past what the steering can physically rotate
-            // through - which is precisely why the earlier floor-only fixes
-            // never held on the higher tiers. Differentiation stays (up to
-            // +8%), but the target can never again outrun the geometry the
-            // floors were matched to.
+            // multipliers used to inflate the corner-entry target past what the
+            // steering can physically rotate through. The cap is now DRIVER-
+            // DEPENDENT (per report - "you can't tell the drivers apart"): a top
+            // driver is allowed to carry meaningfully more corner-entry speed
+            // (up to ~1.17x the geometric apex) than a backmarker (~1.07x), so
+            // skill shows through the corners instead of everyone being flattened
+            // to the same flat 1.12 ceiling. It still never runs away from the
+            // geometry the way the uncapped target could.
+            float feasibilityCap = Mathf.Lerp(1.07f, 1.17f, paceNorm);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
-                apexTargetSpeed * 1.12f);
+                apexTargetSpeed * feasibilityCap);
 
             float damagePercent = vehicle.Damage == null ? 0f : vehicle.Damage.OverallPercent;
             float damageMultiplier = AiDamagePaceMultiplier(damagePercent);

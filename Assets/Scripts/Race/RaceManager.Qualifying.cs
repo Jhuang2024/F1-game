@@ -455,13 +455,17 @@ namespace LocalFormulaRacing
 
             string[] minorMistakeTypes = { "small lock-up", "poor corner exit", "traffic", "track limits" };
             mistakeType = minorMistakeTypes[Random.Range(0, minorMistakeTypes.Length)];
-            float penalty = Random.Range(0.1f, 0.4f) * Mathf.Lerp(1.25f, 0.75f, awareness / 100f);
-            if (Random.value < 0.1f)
+            float penalty = Random.Range(0.1f, 0.35f) * Mathf.Lerp(1.25f, 0.75f, awareness / 100f);
+            // Grid-sanity fix (per report - a nonsensical order with weak
+            // drivers up front): the old major-mistake tail (10% chance,
+            // +0.8-2.0s) could drop a genuine front-runner two seconds down the
+            // grid, and in a short race there's no time to recover - so the
+            // result read as random. The tail is now both rarer and much
+            // smaller, so car+driver quality, not luck, sets the grid.
+            if (Random.value < 0.04f)
             {
-                // Rare, uncommon major mistake on top of the minor one - clearly
-                // identifiable via mistakeType rather than a hidden random tail.
                 mistakeType = "major mistake";
-                penalty += Random.Range(0.8f, 2.0f);
+                penalty += Random.Range(0.4f, 1.0f);
             }
 
             return penalty;
