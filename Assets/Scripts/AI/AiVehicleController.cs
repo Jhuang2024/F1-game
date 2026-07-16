@@ -1356,11 +1356,18 @@ namespace LocalFormulaRacing
             // player and the AI). This never sets PitLimiterActive or shows "PIT
             // LIMITER" itself - it just means a well-driven AI already arrives at
             // that line under 95 km/h instead of getting hard-clamped into it.
-            // Matched down to the player's pit-entry limiter cap (80kph) so the AI
-            // no longer stream past the player through pit entry (per report). A
-            // hair above 80 so they flow to the limiter line rather than braking
-            // below it.
-            const float PitApproachTargetSpeedKph = 82f;
+            // Pit-entry PARITY fix (per report - "AI faster than me in pit
+            // entry"): the player's own pit-entry assist holds the player at
+            // RaceManager.PitEntryAssistTargetSpeedKph (90 km/h) through this
+            // exact same approach window, so the AI must approach at the SAME
+            // speed or it pulls away from the assisted player. An earlier pass
+            // set this to 82 (below the player's 90), which just flipped the
+            // asymmetry and read as the AI behaving oddly. Kept identical to the
+            // player assist target so the two can never diverge again - if one
+            // changes, change both. Both still drop to the shared 80 km/h hard
+            // limiter the instant they cross the entry line, so this only governs
+            // the pre-limiter approach where the mismatch was visible.
+            const float PitApproachTargetSpeedKph = 90f;
             if (committingToPit)
             {
                 cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, PitApproachTargetSpeedKph);
@@ -1697,7 +1704,11 @@ namespace LocalFormulaRacing
             // to ~7m half-width in its narrow sections, so a wall arrives sooner
             // than the earlier tuning assumed. Bumped ~10% (1.155 -> 1.27) to
             // strengthen the steering correction and emergency brake near a wall.
-            const float wallAversionMultiplier = 1.27f;
+            // Round 6 (per request - "buff ai wall aversion even more"): a
+            // further ~12% (1.27 -> 1.42), still a single non-compounding
+            // multiplier, so the reactive steer-away and brake fire harder and
+            // earlier in the pinched sections.
+            const float wallAversionMultiplier = 1.42f;
             float edgeMarginDistance = Mathf.Lerp(7.2f, 12.6f, Mathf.Clamp01(speedKph / 340f)) * wallAversionMultiplier;
             // Wall-crash defence-in-depth: near a known tight-fence corner (the
             // same containment data the barrier builder uses) the reactive edge
@@ -1722,8 +1733,11 @@ namespace LocalFormulaRacing
             // the wall is closest. Raised to 0.68 so the band reaches
             // proportionally further on narrow track while still leaving the
             // outer racing corridor (halfWidth-1.8m) unblocked.
+            // Round 6 (per request - "buff even more"): 0.68 -> 0.72 so the
+            // reactive band reaches further still on narrow track while the
+            // outer racing corridor (halfWidth-1.8m) stays just clear.
             float edgeHalfWidth = LocalHalfWidthAt(progress.distance);
-            edgeMarginDistance = Mathf.Min(edgeMarginDistance, edgeHalfWidth * 0.68f);
+            edgeMarginDistance = Mathf.Min(edgeMarginDistance, edgeHalfWidth * 0.72f);
 
             float edgeMargin = edgeHalfWidth - edgeMarginDistance;
             float edgeOvershoot = !suppressOffTrackRecovery ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;

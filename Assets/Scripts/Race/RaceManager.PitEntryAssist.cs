@@ -64,6 +64,9 @@ namespace LocalFormulaRacing
             return progress.normalized > TrackRuntime.PitApproachStartNormalized && progress.normalized <= Track.PitCorridorStartNormalized;
         }
 
+        // Kept in sync with AiVehicleController.PitApproachTargetSpeedKph so the
+        // assisted player and the AI approach pit entry at the identical speed
+        // (pit-entry parity fix). If one changes, change both.
         const float PitEntryAssistTargetSpeedKph = 90f;
         // Same short, dedicated pit-entry look-ahead AiVehicleController uses
         // (PitEntryLookAheadMeters) - the normal racing-line lookahead is tuned
