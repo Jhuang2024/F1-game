@@ -19,12 +19,14 @@ namespace LocalFormulaRacing
         // button press. Kept because several session/pit/pace-limit branches
         // force it false to shut the wing.
         bool drsLatched;
-        // Auto-DRS hold-open grace: DRS now deploys itself (no button press) and
-        // this keeps the wing open a beat past the end of a zone so it lasts a
-        // little longer than the strict zone boundary. Refreshed every frame DRS
-        // is available, then counts down once it isn't.
+        // Auto-DRS hold-open grace: DRS deploys itself and this keeps the wing
+        // open well past the end of a zone (per request - DRS should last ~10s
+        // longer than it used to). In practice the wing now stays open from the
+        // zone until the driver next brakes for a corner, rather than snapping
+        // shut at the zone boundary. Refreshed every frame DRS is available, then
+        // counts down once it isn't; braking still closes it immediately.
         float drsAutoHoldTimer;
-        const float DrsAutoHoldSeconds = 0.8f;
+        const float DrsAutoHoldSeconds = 10.8f;
         // Tracks the reset key between frames so a single PRESS (the false->true
         // edge) fires the recovery exactly once - no hold required.
         bool resetKeyWasHeld;
