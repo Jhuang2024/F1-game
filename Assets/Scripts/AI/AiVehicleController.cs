@@ -982,9 +982,10 @@ namespace LocalFormulaRacing
             RaceDifficulty racecraftTier = raceManager.Settings != null ? raceManager.Settings.Difficulty : RaceDifficulty.Medium;
             // Round 5: whole ladder shifted up (+6) - every tier attacks and
             // defends harder while the tier ordering stays intact.
-            int racecraftDelta = racecraftTier == RaceDifficulty.Easy ? -8
-                : racecraftTier == RaceDifficulty.Medium ? 0
-                : racecraftTier == RaceDifficulty.Hard ? 8 : 14;
+            // Round 6: ladder shifted up another +6 (per request).
+            int racecraftDelta = racecraftTier == RaceDifficulty.Easy ? -2
+                : racecraftTier == RaceDifficulty.Medium ? 6
+                : racecraftTier == RaceDifficulty.Hard ? 14 : 20;
             overtaking = Mathf.Clamp(overtaking + racecraftDelta, 30, 99);
             defending = Mathf.Clamp(defending + racecraftDelta, 30, 99);
 
@@ -1217,7 +1218,9 @@ namespace LocalFormulaRacing
             // - still bounded by the physical feasibility cap below and by the
             // shared grip/turn-rate physics, so this is drivers using more of
             // the car, not a faster car.
-            float driverPaceVariance = Mathf.Lerp(1.09f, 1.19f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
+            // Round 6 (per request - "buff the AI the same way again"): another
+            // +3% on the commitment band (1.09-1.19 -> 1.12-1.22).
+            float driverPaceVariance = Mathf.Lerp(1.12f, 1.22f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
             // multipliers used to inflate the corner-entry target past what the
@@ -1232,7 +1235,9 @@ namespace LocalFormulaRacing
             // commitment lift above (1.07-1.17 -> 1.08-1.19) - still a
             // corner-entry judgment bound, never past what steering authority
             // can physically rotate.
-            float feasibilityCap = Mathf.Lerp(1.08f, 1.19f, paceNorm);
+            // Round 6: widened again with the commitment lift (1.08-1.19 ->
+            // 1.09-1.21).
+            float feasibilityCap = Mathf.Lerp(1.09f, 1.21f, paceNorm);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
                 apexTargetSpeed * feasibilityCap);
@@ -1902,7 +1907,21 @@ namespace LocalFormulaRacing
             // Hard/Expert genuinely brake later/shorter, not just via the weaker base
             // multiplier alone: >1 shortens the effective distance (brakes later),
             // <1 lengthens it (brakes earlier), same as the base multiplier's own sense.
-            float effectiveBrakeMultiplier = Mathf.Max(0.55f, profile.brakeDistanceMultiplier * Mathf.Lerp(0.92f, 1.05f, experience / 100f) * profile.brakeConfidenceMultiplier);
+            // Hairpin-crash fix (per report - "the AI crash mostly at hairpin
+            // or hairpin-like turns"): this multiplier lets confident tiers
+            // brake far LATER than the kinematic distance (Expert ~2x shorter).
+            // That swagger is survivable scrubbing 40 kph for a sweeper, but a
+            // hairpin is a 250+ kph delta - halving the required distance there
+            // guarantees arriving unsaveably hot, which is exactly why crashes
+            // clustered at hairpin-scale stops only. Real drivers do the
+            // opposite: the bigger the stop, the more conservatively they hit
+            // the number. Brake-later confidence now fades with stop size -
+            // full effect for small scrubs, near-kinematic braking once the
+            // required delta approaches hairpin scale.
+            float stopSizeKph = Mathf.Max(0f, speedKph - brakingApexSpeed);
+            float bigStopBlend = Mathf.Clamp01((stopSizeKph - 120f) / 130f);
+            float confidentMultiplier = profile.brakeDistanceMultiplier * Mathf.Lerp(0.92f, 1.05f, experience / 100f) * profile.brakeConfidenceMultiplier;
+            float effectiveBrakeMultiplier = Mathf.Max(0.55f, Mathf.Lerp(confidentMultiplier, Mathf.Min(confidentMultiplier, 1.02f), bigStopBlend));
             // Active braking-point mistake (see UpdateMistake): the driver is
             // momentarily willing to carry more entry speed than the corner can
             // take. The edge emergency brake below still catches the car at the
