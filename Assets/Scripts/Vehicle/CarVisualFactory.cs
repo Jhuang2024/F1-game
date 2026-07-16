@@ -47,7 +47,9 @@ namespace LocalFormulaRacing
         // VehicleController's targetRideHeight, world-space), so scaling the root
         // never changes how high the car sits - only how big it reads and how
         // much room it takes on track.
-        public const float CarSizeScale = 1.08f;
+        // Trimmed 1.08 -> 1.05 (per report - at 1.08 the wider collider pinned
+        // the player against the pit wall). Still visibly bigger than stock.
+        public const float CarSizeScale = 1.05f;
 
         public static GameObject CreateOpenWheelCar(string driverName, Color primary, Color secondary)
         {

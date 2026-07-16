@@ -1356,7 +1356,11 @@ namespace LocalFormulaRacing
             // player and the AI). This never sets PitLimiterActive or shows "PIT
             // LIMITER" itself - it just means a well-driven AI already arrives at
             // that line under 95 km/h instead of getting hard-clamped into it.
-            const float PitApproachTargetSpeedKph = 95f;
+            // Matched down to the player's pit-entry limiter cap (80kph) so the AI
+            // no longer stream past the player through pit entry (per report). A
+            // hair above 80 so they flow to the limiter line rather than braking
+            // below it.
+            const float PitApproachTargetSpeedKph = 82f;
             if (committingToPit)
             {
                 cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, PitApproachTargetSpeedKph);
@@ -1688,7 +1692,12 @@ namespace LocalFormulaRacing
             // by 5% without compounding separate sub-terms.
             // Round 4 (per request): a further 10% on top (1.05 -> 1.155), same
             // single-multiplier approach so the sub-terms never compound.
-            const float wallAversionMultiplier = 1.155f;
+            // Round 5 (per request - "increase AI wall aversion now that tracks
+            // have narrower sections"): the procedural width profile now pinches
+            // to ~7m half-width in its narrow sections, so a wall arrives sooner
+            // than the earlier tuning assumed. Bumped ~10% (1.155 -> 1.27) to
+            // strengthen the steering correction and emergency brake near a wall.
+            const float wallAversionMultiplier = 1.27f;
             float edgeMarginDistance = Mathf.Lerp(7.2f, 12.6f, Mathf.Clamp01(speedKph / 340f)) * wallAversionMultiplier;
             // Wall-crash defence-in-depth: near a known tight-fence corner (the
             // same containment data the barrier builder uses) the reactive edge
@@ -1707,8 +1716,14 @@ namespace LocalFormulaRacing
             // correction fired almost everywhere on track instead of only near
             // a genuine edge. Capped to a fraction of the real half-width here
             // so the boost can never eat the whole safe corridor.
+            // Narrow-section fix: on the pinched procedural sections the 0.6
+            // cap nullified the boost above (band-start clamped well inside
+            // the corridor edge), so the reactive zone shrank exactly where
+            // the wall is closest. Raised to 0.68 so the band reaches
+            // proportionally further on narrow track while still leaving the
+            // outer racing corridor (halfWidth-1.8m) unblocked.
             float edgeHalfWidth = LocalHalfWidthAt(progress.distance);
-            edgeMarginDistance = Mathf.Min(edgeMarginDistance, edgeHalfWidth * 0.6f);
+            edgeMarginDistance = Mathf.Min(edgeMarginDistance, edgeHalfWidth * 0.68f);
 
             float edgeMargin = edgeHalfWidth - edgeMarginDistance;
             float edgeOvershoot = !suppressOffTrackRecovery ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
