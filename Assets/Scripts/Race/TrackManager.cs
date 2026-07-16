@@ -1354,15 +1354,19 @@ namespace LocalFormulaRacing
         // the variation together. The hairpin widening bonus still stacks on top.
         public void GenerateProceduralWidthProfile()
         {
-            if (authoredHalfWidthProfile != null && authoredHalfWidthProfile.Length > 1)
-            {
-                return;
-            }
-
             if (length <= 1f || centerLine == null || centerLine.Count < 8)
             {
                 return;
             }
+
+            // Every authored circuit carries a single flat HalfWidthMeters, so its
+            // profile is uniform along the lap even though tracks differ from each
+            // other. This runs REGARDLESS of whether a profile already exists: it
+            // reads the current per-sample width as the base (preserving each
+            // track's own authored width) and layers the WITHIN-lap variation on
+            // top. A genuinely flat (non-authored) layout also gets a stable
+            // per-track base scale so those differ from one another too.
+            bool hasAuthored = authoredHalfWidthProfile != null && authoredHalfWidthProfile.Length > 1;
 
             int hash = 23;
             string id = trackId ?? "";
@@ -1372,10 +1376,9 @@ namespace LocalFormulaRacing
             }
             hash &= 0x7fffffff;
 
-            // Some circuits are inherently wider than others - a stable per-track
-            // scale on top of the layout's own roadHalfWidth.
-            float trackScale = Mathf.Lerp(0.82f, 1.12f, (hash % 1000) / 1000f);
-            float baseHalf = Mathf.Max(6f, roadHalfWidth * trackScale);
+            // Authored specs already set a per-track base width, so only the flat
+            // fallback layouts need an extra per-track scale to tell them apart.
+            float trackScale = hasAuthored ? 1f : Mathf.Lerp(0.82f, 1.12f, (hash % 1000) / 1000f);
             float phase = (hash % 628) / 100f;
 
             const int ProfileSamples = 96;
@@ -1385,6 +1388,22 @@ namespace LocalFormulaRacing
                 float u = s / (float)ProfileSamples;
                 float dist = u * length;
 
+                // Base width at this point: the existing (authored) profile if
+                // there is one, otherwise the flat roadHalfWidth.
+                float baseHalf;
+                if (hasAuthored)
+                {
+                    float ft = u * authoredHalfWidthProfile.Length;
+                    int idx = Mathf.Clamp((int)ft, 0, authoredHalfWidthProfile.Length - 1);
+                    baseHalf = authoredHalfWidthProfile[idx];
+                }
+                else
+                {
+                    baseHalf = roadHalfWidth;
+                }
+
+                baseHalf = Mathf.Max(6f, baseHalf * trackScale);
+
                 // Curvature: heading change over a short forward span - ~0 on a
                 // straight, ~1 through a tight corner.
                 Vector3 pA, fA, rA;
@@ -1393,12 +1412,14 @@ namespace LocalFormulaRacing
                 SampleAtDistance(dist + 22f, out pB, out fB, out rB);
                 float curvature = Mathf.Clamp01(Vector3.Angle(fA, fB) / 24f);
 
-                float cornerFactor = Mathf.Lerp(1.09f, 0.80f, curvature);
+                // Wider on the straights, narrower through the corners, plus a
+                // low-frequency wave so even two similar sections differ.
+                float cornerFactor = Mathf.Lerp(1.10f, 0.78f, curvature);
                 float wave = 1f
-                    + 0.10f * Mathf.Sin(u * Mathf.PI * 2f * 3f + phase)
+                    + 0.11f * Mathf.Sin(u * Mathf.PI * 2f * 3f + phase)
                     + 0.06f * Mathf.Sin(u * Mathf.PI * 2f * 7f + phase * 1.7f);
 
-                profile[s] = Mathf.Clamp(baseHalf * cornerFactor * wave, 5.5f, baseHalf * 1.28f);
+                profile[s] = Mathf.Clamp(baseHalf * cornerFactor * wave, 5.5f, baseHalf * 1.32f);
             }
 
             authoredHalfWidthProfile = profile;
