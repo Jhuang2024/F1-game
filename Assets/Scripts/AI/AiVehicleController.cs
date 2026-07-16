@@ -1195,7 +1195,23 @@ namespace LocalFormulaRacing
             // top-to-bottom spread, so skill genuinely sorts the order.
             float paceNorm = Mathf.InverseLerp(74f, 97f, pace);
             float racecraftNorm = Mathf.InverseLerp(76f, 96f, racecraft);
-            float driverPaceVariance = Mathf.Lerp(1.06f, 1.16f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm);
+            // CAR-pace variance (per report - "how is Bottas in a Cadillac top
+            // 5?"): driver skill spread the field, but the CAR barely touched
+            // AI corner pace - its stats only nudge shared physics (grip stat,
+            // small top-speed differences), so a backmarker chassis with a
+            // decent variance roll could genuinely run top 5. The car's overall
+            // performance level now scales the corner-pace target directly,
+            // centred on ~1.0 for a midfield car: a top car gains ~2.5%, a
+            // backmarker loses ~3.5% - about 1.5-2.5s/lap across the field,
+            // which stacks with (rather than replaces) the driver spread, so a
+            // great driver in a bad car can salvage midfield but never podium.
+            float carScore = vehicle.CarData == null ? 90f
+                : (vehicle.CarData.cornering + vehicle.CarData.enginePower + vehicle.CarData.aeroEfficiency + vehicle.CarData.acceleration) * 0.25f;
+            // Live data spans 80.2 (Cadillac) .. 93.5 (McLaren), so this band
+            // uses the field's real spread end to end.
+            float carNorm = Mathf.InverseLerp(80f, 94f, carScore);
+            float carPaceVariance = Mathf.Lerp(0.965f, 1.025f, carNorm);
+            float driverPaceVariance = Mathf.Lerp(1.06f, 1.16f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
             // multipliers used to inflate the corner-entry target past what the

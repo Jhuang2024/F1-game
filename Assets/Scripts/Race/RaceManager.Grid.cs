@@ -165,19 +165,21 @@ namespace LocalFormulaRacing
                 // kph bonus is cut ~3 from its pre-nerf value (4/8/13/16 ->
                 // 1/5/10/13), so the AI corner exactly as before but pull less
                 // on the straights at every skill level.
+                // Straight-line nerf round 2 (per request): another ~3 kph off
+                // every tier (1/5/10/13 -> 0/3/7/10); grip untouched.
                 switch (Settings.Difficulty)
                 {
                     case RaceDifficulty.Easy:
-                        controller.SetAiPerformanceAssist(1f, 1f);
+                        controller.SetAiPerformanceAssist(0f, 1f);
                         break;
                     case RaceDifficulty.Medium:
-                        controller.SetAiPerformanceAssist(5f, 1.04f);
+                        controller.SetAiPerformanceAssist(3f, 1.04f);
                         break;
                     case RaceDifficulty.Hard:
-                        controller.SetAiPerformanceAssist(10f, 1.09f);
+                        controller.SetAiPerformanceAssist(7f, 1.09f);
                         break;
                     default:
-                        controller.SetAiPerformanceAssist(13f, 1.15f);
+                        controller.SetAiPerformanceAssist(10f, 1.15f);
                         break;
                 }
             }
