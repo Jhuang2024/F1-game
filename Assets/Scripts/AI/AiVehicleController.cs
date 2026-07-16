@@ -985,9 +985,10 @@ namespace LocalFormulaRacing
             // Round 6: ladder shifted up another +6 (per request).
             // Round 7: another +6 (per request) - every tier now attacks and
             // defends above its raw stats; the 99 clamp bounds the top end.
-            int racecraftDelta = racecraftTier == RaceDifficulty.Easy ? 4
-                : racecraftTier == RaceDifficulty.Medium ? 12
-                : racecraftTier == RaceDifficulty.Hard ? 20 : 26;
+            // Round 8: another +6 (per request).
+            int racecraftDelta = racecraftTier == RaceDifficulty.Easy ? 10
+                : racecraftTier == RaceDifficulty.Medium ? 18
+                : racecraftTier == RaceDifficulty.Hard ? 26 : 32;
             overtaking = Mathf.Clamp(overtaking + racecraftDelta, 30, 99);
             defending = Mathf.Clamp(defending + racecraftDelta, 30, 99);
 
@@ -1223,7 +1224,8 @@ namespace LocalFormulaRacing
             // Round 6 (per request - "buff the AI the same way again"): another
             // +3% on the commitment band (1.09-1.19 -> 1.12-1.22).
             // Round 7 (per request): +3% again (1.12-1.22 -> 1.15-1.25).
-            float driverPaceVariance = Mathf.Lerp(1.15f, 1.25f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
+            // Round 8 (per request): +3% again (1.15-1.25 -> 1.18-1.28).
+            float driverPaceVariance = Mathf.Lerp(1.18f, 1.28f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
             // multipliers used to inflate the corner-entry target past what the
@@ -1241,7 +1243,8 @@ namespace LocalFormulaRacing
             // Round 6: widened again with the commitment lift (1.08-1.19 ->
             // 1.09-1.21).
             // Round 7: widened again (1.09-1.21 -> 1.10-1.23).
-            float feasibilityCap = Mathf.Lerp(1.10f, 1.23f, paceNorm);
+            // Round 8: widened again (1.10-1.23 -> 1.11-1.25).
+            float feasibilityCap = Mathf.Lerp(1.11f, 1.25f, paceNorm);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
                 apexTargetSpeed * feasibilityCap);
