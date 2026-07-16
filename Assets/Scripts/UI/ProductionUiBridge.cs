@@ -357,7 +357,13 @@ namespace LocalFormulaRacing
                 int rounds = data != null && data.Calendar != null ? data.Calendar.events.Count : 0;
                 summary = string.Format("Season {0} · Round {1}{2} · {3}",
                     career.Save.currentSeason,
-                    career.Save.currentRound + 1,
+                    // Off-by-one fix (per report - "Australia, the first race,
+                    // is already 2/24, which is why Abu Dhabi is 25/24"):
+                    // currentRound is 1-BASED (initialized/reset to 1, compared
+                    // 1-based against the calendar count), but these labels
+                    // formatted it as if 0-based. The save was never wrong -
+                    // only this display.
+                    career.Save.currentRound,
                     rounds > 0 ? "/" + rounds : "",
                     string.IsNullOrEmpty(career.Save.playerDriverName) ? "" : career.Save.playerDriverName);
             }
@@ -379,7 +385,13 @@ namespace LocalFormulaRacing
                 int rounds = data != null && data.Calendar != null ? data.Calendar.events.Count : 0;
                 model.seasonLabel = string.Format("Season {0} · Round {1}{2} · {3}",
                     career.Save.currentSeason,
-                    career.Save.currentRound + 1,
+                    // Off-by-one fix (per report - "Australia, the first race,
+                    // is already 2/24, which is why Abu Dhabi is 25/24"):
+                    // currentRound is 1-BASED (initialized/reset to 1, compared
+                    // 1-based against the calendar count), but these labels
+                    // formatted it as if 0-based. The save was never wrong -
+                    // only this display.
+                    career.Save.currentRound,
                     rounds > 0 ? "/" + rounds : "",
                     career.Save.playerDriverName);
 
@@ -1414,7 +1426,13 @@ namespace LocalFormulaRacing
                 int rounds = data != null && data.Calendar != null ? data.Calendar.events.Count : 0;
                 model.seasonLabel = string.Format("Season {0} · Round {1}{2}",
                     career.Save.currentSeason,
-                    career.Save.currentRound + 1,
+                    // Off-by-one fix (per report - "Australia, the first race,
+                    // is already 2/24, which is why Abu Dhabi is 25/24"):
+                    // currentRound is 1-BASED (initialized/reset to 1, compared
+                    // 1-based against the calendar count), but these labels
+                    // formatted it as if 0-based. The save was never wrong -
+                    // only this display.
+                    career.Save.currentRound,
                     rounds > 0 ? "/" + rounds : "");
 
                 if (career.Save.driverStandings != null)
