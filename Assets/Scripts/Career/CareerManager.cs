@@ -3664,7 +3664,16 @@ namespace LocalFormulaRacing
         // rookie-level grid filler the first time this runs.
         void EnsureCustomPlayerDriverBase()
         {
-            if (Save.customPlayerDriverBase != null && !IsUnfixedRookieTemplate(Save.customPlayerDriverBase))
+            // Zero-stat save repair (per report - "[QualiSim] driver(qualifying=0
+            // pace=0 consistency=0 experience=0)" pinning the player to P22): a
+            // save written before customPlayerDriverBase carried stat fields
+            // deserializes them all as 0 - non-null and not the legacy rookie
+            // template, so this guard kept the zero-rated driver forever and
+            // every simulated qualifying charged the player ~+2.7s of driver
+            // effect plus worst-case consistency variance. Any base missing its
+            // core ratings is now rebuilt like a missing one.
+            if (Save.customPlayerDriverBase != null && !IsUnfixedRookieTemplate(Save.customPlayerDriverBase) &&
+                !HasDegenerateStats(Save.customPlayerDriverBase))
             {
                 return;
             }
@@ -3707,6 +3716,14 @@ namespace LocalFormulaRacing
         {
             return driver.pace == 68 && driver.racecraft == 66 && driver.qualifying == 66 &&
                    driver.tyreManagement == 65 && driver.experience == 35 && driver.developmentPotential == 85;
+        }
+
+        // A custom player base whose core ratings are zero/absent (an old save
+        // serialized before the stat fields existed) - must be rebuilt, never
+        // used as a real driver rating.
+        static bool HasDegenerateStats(DriverData driver)
+        {
+            return driver.pace <= 0 || driver.qualifying <= 0 || driver.consistency <= 0 || driver.experience <= 0;
         }
 
         void GenerateTeamPerformanceEvolution(SeasonArchive completedSeason)
