@@ -257,7 +257,12 @@ namespace LocalFormulaRacing
         // that was missing, without which a car whose real drag-limited
         // equilibrium speed already sat at or below the ceiling never
         // actually reached (or felt) this bonus at all.
-        const float PlayerTopSpeedBonusKph = 5f;
+        // Removed (per request): after the difficulty rework stripped every
+        // AI-side artificial speed term, this was the last asymmetric speed
+        // bonus in the game - a hidden player-only +5. Zeroed so player and
+        // AI machinery are perfectly symmetric; the matching
+        // playerTopSpeedBoost force in ApplyForces is gone with it.
+        const float PlayerTopSpeedBonusKph = 0f;
         // AI-only straightline speed buff - never applies to the player (see
         // CalculateTargetTopSpeedKph, gated on !IsPlayerControlled). Same
         // ceiling-plus-dedicated-force pairing as PlayerTopSpeedBonusKph
@@ -1444,9 +1449,11 @@ namespace LocalFormulaRacing
             // actually earns the extra top speed instead of it being
             // aspirational. Never applies to AI (gated on IsPlayerControlled,
             // same as PlayerTopSpeedBonusKph itself).
-            float playerTopSpeedBoost = IsPlayerControlled
-                ? Mathf.Lerp(10f, 16f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph))
-                : 0f;
+            // Removed (per request - symmetric machinery): the player-only
+            // top-speed push is gone along with PlayerTopSpeedBonusKph. The
+            // stat-scaled statTopSpeedBoost below applies to player and AI
+            // identically, so straight-line pace now comes purely from the car.
+            const float playerTopSpeedBoost = 0f;
 
             // AI straightline speed buff: same reasoning as playerTopSpeedBoost
             // above, mirrored for aiTopSpeedBonusKph - never applies to the
