@@ -25,6 +25,20 @@ namespace LocalFormulaRacing
                     return TyreCompound.Soft;
                 }
 
+                // Wet-race fairness fix (per report - "unexpected wet weather in
+                // an expected dry race: all the AI are on inters but I'm on
+                // slicks"): weather is rolled per race AFTER the player picks
+                // their compound in the pre-race menu, and only the AI branch
+                // below reacted to it - a surprise wet race put every AI on the
+                // correct rain tyre while the player was left on their
+                // pre-selected slick. The player's garage now fits the same
+                // weather-correct compound the AI get at the grid; the player's
+                // own selection still applies whenever the race starts dry.
+                if (Track != null && (Track.weather == WeatherState.HeavyRain || Track.weather == WeatherState.LightRain))
+                {
+                    return Track.weather == WeatherState.HeavyRain ? TyreCompound.Wet : TyreCompound.Intermediate;
+                }
+
                 return Settings.SelectedTyreCompound;
             }
 

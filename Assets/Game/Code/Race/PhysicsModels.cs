@@ -208,8 +208,11 @@ namespace F1Game.Race.Physics
         // 0.06831-0.09801) - a full-throttle deploy now empties a full
         // battery in roughly 20s instead of ~10s, so deployment lasts far
         // longer per charge.
-        public const float MinErsDrainPerSecond = 0.034155f;
-        public const float MaxErsDrainPerSecond = 0.049005f;
+        // Round 6 (per request): raised 20% off round 5 (was
+        // 0.034155-0.049005) - a full-throttle deploy empties a full battery
+        // in roughly 17s.
+        public const float MinErsDrainPerSecond = 0.040986f;
+        public const float MaxErsDrainPerSecond = 0.058806f;
 
         /// <summary>Deploy force for a car's ERS efficiency (0-1) in the current deploy mode.</summary>
         public static float ErsBoostForce(float ersEfficiency01, float deployModeMultiplier)

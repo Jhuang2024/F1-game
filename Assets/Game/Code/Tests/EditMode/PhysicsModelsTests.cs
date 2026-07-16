@@ -42,8 +42,8 @@ namespace F1Game.Tests
 
             Assert.AreEqual(PowertrainModel.MinErsDrainPerSecond, PowertrainModel.ErsDrainPerSecond(0f), 0.0001f);
             Assert.AreEqual(PowertrainModel.MaxErsDrainPerSecond, PowertrainModel.ErsDrainPerSecond(1f), 0.0001f);
-            Assert.AreEqual(0.034155f, PowertrainModel.MinErsDrainPerSecond, 0.000001f);
-            Assert.AreEqual(0.049005f, PowertrainModel.MaxErsDrainPerSecond, 0.000001f);
+            Assert.AreEqual(0.040986f, PowertrainModel.MinErsDrainPerSecond, 0.000001f);
+            Assert.AreEqual(0.058806f, PowertrainModel.MaxErsDrainPerSecond, 0.000001f);
 
             // Out-of-range inputs clamp rather than extrapolate.
             Assert.AreEqual(PowertrainModel.MinErsBoostForce, PowertrainModel.ErsBoostForce(-1f, 1f), 0.0001f);

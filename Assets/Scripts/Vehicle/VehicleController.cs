@@ -1168,19 +1168,17 @@ namespace LocalFormulaRacing
             // a genuinely usable 1.5% minimum; once running it drains to true
             // zero (hysteresis), so the boost always dies before - never
             // after - the gauge reads empty.
-            // Deploy-while-braking fix (per report - "ERS isn't draining when
-            // deployed along with DRS"): the braking-harvest branch below reads
-            // the ASSISTED brake, while the deploy request is keyed off RAW
-            // throttle/intent - so when the auto-brake assist injected brake at
-            // the end of a DRS straight with the driver's foot still flat, the
-            // car deployed AND harvested in the same frames, and the harvest
-            // (0.19/s peak) outran the drain (0.049/s) ~4:1 - the gauge held or
-            // even rose while the HUD showed DEPLOY with DRS open. Braking now
-            // cancels the deploy outright (same 0.1 threshold the braking
-            // harvest uses, so the two states are exactly mutually exclusive -
-            // brakes harvest, throttle deploys, never both), matching how
-            // braking already closes DRS.
-            ErsDeploying = activeCommand.ers && activeCommand.brake <= 0.1f && ErsBattery > (ErsDeploying ? 0f : 0.015f);
+            // Deploy/harvest mutual exclusivity, round 2. Round 1 cancelled the
+            // deploy whenever the ASSISTED brake read > 0.1 - but the auto-brake
+            // assist raises that brake for much of a DRS straight at 330+ kph
+            // (its corner-approach desired speed sits below DRS pace), so ERS
+            // stopped deploying (and draining) at all under DRS - the exact
+            // opposite regression. The deploy is intent-driven (raw key/throttle)
+            // and now WINS: it never checks the brake, and the braking-harvest
+            // branch below yields with a !ErsDeploying gate instead. States stay
+            // strictly mutually exclusive - deploying drains, visibly, every
+            // frame; harvesting only happens when not deploying.
+            ErsDeploying = activeCommand.ers && ErsBattery > (ErsDeploying ? 0f : 0.015f);
             ErsHarvesting = false;
             if (ErsDeploying)
             {
@@ -1252,7 +1250,10 @@ namespace LocalFormulaRacing
             // PowertrainModel so the battery is a genuinely scarcer resource.
             // Round 3 (per request): braking-zone harvest raised 30% - the 1.3
             // factor is kept separate so the prior tuning stays traceable.
-            if (activeCommand.brake > 0.1f)
+            // !ErsDeploying: harvest yields to an active deploy (see the
+            // mutual-exclusivity note above ErsDeploying) so the battery can
+            // never fill and drain in the same frame.
+            if (!ErsDeploying && activeCommand.brake > 0.1f)
             {
                 ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.098f, 0.147f, CarData.ersEfficiency / 100f) * 1.3f * harvestModeMultiplier);
                 ErsHarvesting = true;
@@ -1279,13 +1280,15 @@ namespace LocalFormulaRacing
             // Round 12: cut a further 20% (per request), applied as an extra
             // multiplier so the prior 0.324 factor stays traceable -
             // braking-zone recharge above is unaffected.
-            else if (!ersEmptyCooldownActive && activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
+            else if (!ErsDeploying && !ersEmptyCooldownActive && activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
                 // Non-braking regen raised 30% (per request) - the 1.3 factor is
                 // kept separate so the prior tuning stays traceable. Braking-zone
                 // recharge above is unaffected.
                 // Raised a further 30% (per request) - second 1.3 factor.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.324f * 0.8f * 1.3f * 1.3f * harvestModeMultiplier);
+                // Cut 30% (per request) - the 0.7 factor; braking-zone
+                // recharge above is unaffected.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.324f * 0.8f * 1.3f * 1.3f * 0.7f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ersEmptyCooldownActive && !ErsDeploying)
@@ -1325,7 +1328,9 @@ namespace LocalFormulaRacing
                 // Non-braking passive regen raised 30% (per request) - same 1.3
                 // factor as the coasting rate above; braking recharge unaffected.
                 // Raised a further 30% (per request) - second 1.3 factor.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.324f * 0.85f * 0.8f * 1.3f * 1.3f * harvestModeMultiplier);
+                // Cut 30% (per request) - the 0.7 factor; braking-zone
+                // recharge above is unaffected.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.324f * 0.85f * 0.8f * 1.3f * 1.3f * 0.7f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
