@@ -1203,7 +1203,12 @@ namespace LocalFormulaRacing
             // Live data spans 80.2 (Cadillac) .. 93.5 (McLaren), so this band
             // uses the field's real spread end to end.
             float carNorm = Mathf.InverseLerp(80f, 94f, carScore);
-            float carPaceVariance = Mathf.Lerp(0.965f, 1.025f, carNorm);
+            // Widened (per request - "a Red Bull should be MUCH faster than a
+            // Cadillac"): the machinery gap is the car's own stats, not the
+            // difficulty setting - top-to-bottom corner-pace spread is now ~8%
+            // (~2.5-3s/lap between the best and worst chassis), stacked on the
+            // driver spread.
+            float carPaceVariance = Mathf.Lerp(0.955f, 1.035f, carNorm);
             float driverPaceVariance = Mathf.Lerp(1.06f, 1.16f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
