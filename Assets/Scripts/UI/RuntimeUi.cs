@@ -3281,14 +3281,16 @@ namespace LocalFormulaRacing
                 "Round " + career.Save.currentRound + "  ·  " + WeatherProfileText(profile) +
                 "  ·  " + (team == null ? "Independent" : team.name));
 
-            // Left: conditions briefing. Track temp now comes from the shared
-            // gradient source so the displayed number, the recommendation and the
-            // on-track tyre wear all agree.
+            // Left: conditions briefing. This is the EXPECTED (forecast) temp for
+            // the track's climate - the actual race rolls around it and runs
+            // cooler in the wet - so the number is the shared gradient anchor the
+            // recommendation and typical on-track wear read from.
             float trackTemp = TyreStrategyRules.TrackTemperatureFor(current.weatherProfile, current.trackId);
             string conditionsBody =
-                "Track Temp   " + trackTemp.ToString("0") + "°C\n" +
-                "Air Temp     " + (trackTemp - 7f).ToString("0") + "°C\n" +
-                "Recommended  " + RecommendedTyreText(profile, Mathf.Max(3, settings.Current.laps), trackTemp) + "\n\n" +
+                "Track Temp   ~" + trackTemp.ToString("0") + "°C (forecast)\n" +
+                "Air Temp     ~" + (trackTemp - 7f).ToString("0") + "°C\n" +
+                "Recommended  " + RecommendedTyreText(profile, Mathf.Max(3, settings.Current.laps), trackTemp) + "\n" +
+                "Conditions can change - rain runs cooler.\n\n" +
                 (hasQualifying ? "Qualifying complete. Grid is set." : "Qualifying required before the race.");
             UiFactory.CreateInfoCard(background, "Weekend conditions", new Vector2(0.05f, 0.14f), new Vector2(0.34f, 0.76f), "Track Conditions", conditionsBody,
                 hasQualifying ? UiFactory.AccentGreen : UiFactory.AccentAmber);

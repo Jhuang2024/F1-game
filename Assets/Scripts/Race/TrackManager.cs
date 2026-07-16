@@ -2107,14 +2107,21 @@ namespace LocalFormulaRacing
                 kerbStart = 8.15f,
                 // Time trials always run dry (forceDryWeather): a hot-lap mode
                 // needs comparable, repeatable conditions, so the event's own
-                // wet/mixed forecast never applies there.
+                // forecast never applies there. Every other session ROLLS its
+                // weather fresh (RollWeather) rather than reading a fixed value
+                // off the profile, so the same track races differently each time.
                 weather = forceDryWeather
                     ? WeatherState.Clear
-                    : DetermineWeather(eventData == null ? "clear_hot" : eventData.weatherProfile)
+                    : RollWeather(eventData == null ? "clear_hot" : eventData.weatherProfile)
             };
 
-            runtime.trackTemperatureC = DetermineTrackTemperature(
-                eventData == null ? "clear_hot" : eventData.weatherProfile, runtime.trackId, runtime.weather);
+            string tempProfile = eventData == null ? "clear_hot" : eventData.weatherProfile;
+            runtime.trackTemperatureC = forceDryWeather
+                // Time trial: the stable, repeatable expected temperature.
+                ? TyreStrategyRules.TrackTemperatureFor(tempProfile, runtime.trackId)
+                // Race/qualifying: rolled around the expected temperature, and
+                // pulled down when it's raining (a wet track runs cooler).
+                : RollTrackTemperature(tempProfile, runtime.trackId, runtime.weather);
 
             AddLayoutPoints(runtime);
             runtime.RecalculateDistances();
@@ -2594,40 +2601,73 @@ namespace LocalFormulaRacing
             }
         }
 
-        // Session track-surface temperature on the same 15-30C scale the tyre-wear
-        // gradient is calibrated to. The band + per-track spread lives in the
-        // shared engine-free rule (TyreStrategyRules.TrackTemperatureFor) so the
-        // track build, the pre-race UI and the on-track wear all agree. A forced-
-        // dry session (time trial) still keys off the profile string for a
-        // repeatable temperature.
-        float DetermineTrackTemperature(string profile, string trackId, WeatherState resolvedWeather)
+        // Rolls the session weather instead of reading a fixed state off the
+        // profile, so the same track races differently each time. The profile is
+        // a CLIMATE TENDENCY, not a verdict: a wet-flagged track usually rains, a
+        // hot/desert one is almost always dry, a plain temperate track is mostly
+        // dry with the occasional shower - but any of them can turn out
+        // otherwise. The dry/wet split stays heavily biased toward the profile so
+        // the pre-race tyre choice is still usually right; the day-to-day variety
+        // shows up mostly as temperature and the odd cloudy/damp race.
+        WeatherState RollWeather(string profile)
         {
-            return TyreStrategyRules.TrackTemperatureFor(profile, trackId);
-        }
+            string p = string.IsNullOrEmpty(profile) ? "" : profile.ToLowerInvariant();
+            float r = Random.value;
 
-        WeatherState DetermineWeather(string profile)
-        {
-            if (string.IsNullOrEmpty(profile))
+            if (p.Contains("wet") || p.Contains("rain"))
             {
+                if (r < 0.50f) return WeatherState.LightRain;
+                if (r < 0.80f) return WeatherState.HeavyRain;
+                if (r < 0.93f) return WeatherState.Cloudy;
                 return WeatherState.Clear;
             }
 
-            if (profile.Contains("wet"))
+            if (p.Contains("mixed"))
             {
-                return WeatherState.LightRain;
+                if (r < 0.32f) return WeatherState.LightRain;
+                if (r < 0.46f) return WeatherState.HeavyRain;
+                if (r < 0.75f) return WeatherState.Cloudy;
+                return WeatherState.Clear;
             }
 
-            if (profile.Contains("mixed"))
+            if (p.Contains("cloud") || p.Contains("overcast"))
             {
-                return WeatherState.LightRain;
+                if (r < 0.14f) return WeatherState.LightRain;
+                if (r < 0.19f) return WeatherState.HeavyRain;
+                if (r < 0.62f) return WeatherState.Cloudy;
+                return WeatherState.Clear;
             }
 
-            if (profile.Contains("cloud"))
+            if (p.Contains("hot") || p.Contains("desert"))
             {
-                return WeatherState.Cloudy;
+                if (r < 0.03f) return WeatherState.LightRain;
+                if (r < 0.14f) return WeatherState.Cloudy;
+                return WeatherState.Clear;
             }
 
+            // Plain/temperate: mostly dry, an occasional shower.
+            if (r < 0.08f) return WeatherState.LightRain;
+            if (r < 0.11f) return WeatherState.HeavyRain;
+            if (r < 0.30f) return WeatherState.Cloudy;
             return WeatherState.Clear;
+        }
+
+        // Actual session track temperature: the expected value for this profile/
+        // track (the shared 15-30C gradient anchor plus its deterministic per-
+        // track offset) rolled with a small per-race variance, then pulled DOWN
+        // when the sky is wet - rain and, to a lesser extent, cloud cool the
+        // surface. Clamped to the calibrated [15, 30] range.
+        float RollTrackTemperature(string profile, string trackId, WeatherState weather)
+        {
+            float baseTemp = TyreStrategyRules.TrackTemperatureFor(profile, trackId);
+            float variance = Random.Range(-3.5f, 3.5f);
+            float wetDrop = weather == WeatherState.HeavyRain ? 8f : (weather == WeatherState.LightRain ? 5f : 0f);
+            float cloudDrop = weather == WeatherState.Cloudy ? 2f : 0f;
+            float temp = baseTemp + variance - wetDrop - cloudDrop;
+            // Floor a little below the gradient's cool anchor so a wet race can
+            // read as genuinely cold; the wear model clamps to 15C internally, so
+            // sub-15 temps only affect the displayed number, not slick life.
+            return Mathf.Clamp(temp, 10f, TyreStrategyRules.HotTrackTempC);
         }
 
         void CreateMaterials()
