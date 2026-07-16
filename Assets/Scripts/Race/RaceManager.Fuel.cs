@@ -95,6 +95,37 @@ namespace LocalFormulaRacing
                 FuelLoadChoiceLapDelta(choice), MinimumRaceFuelKg, MaximumRaceFuelKg);
         }
 
+        // AI fuel-starvation fix (per report - "a lot of the AI are going out
+        // due to fuel starvation"). Two compounding causes:
+        // 1. The live burn (VehicleController.UpdateFuel) is neutral at 0.75
+        //    throttle and rises to 1.17x at full throttle - and the AI's own
+        //    cornering model keeps it near full throttle for most of a lap, so
+        //    AI really burn ~10-15% MORE than the per-lap estimate the Target
+        //    load is computed from, against only a 0.4kg reserve.
+        // 2. The underfuel lap deltas are ABSOLUTE laps (-1.5/-3), sized as a
+        //    player gamble that lift-and-coast can recover - the AI has no
+        //    fuel-saving behaviour at all, and on a short race -1.5 laps is a
+        //    third of the tank: guaranteed starvation.
+        // AI loads therefore carry a 1.12x burn margin on the per-lap estimate,
+        // and an AI underfuel choice is capped at 4% of the race distance - the
+        // aggressive AI still runs measurably lighter/faster, it just can no
+        // longer fuel itself out of the race it cannot manage.
+        public float ComputeAiRaceStartFuelKg(int raceLaps, FuelLoadChoice choice, TrackRuntime track, GameSettingsData settings)
+        {
+            const float AiBurnMargin = 1.12f;
+            int difficultyIndex = settings == null ? 1 : Mathf.Clamp(settings.difficultyIndex, 0, 3);
+            RaceDifficulty difficulty = (RaceDifficulty)difficultyIndex;
+            float perLap = EstimateFuelPerLapKg(track, difficulty) * AiBurnMargin;
+            float deltaLaps = FuelLoadChoiceLapDelta(choice);
+            if (deltaLaps < 0f)
+            {
+                deltaLaps = Mathf.Max(deltaLaps, -0.04f * raceLaps);
+            }
+
+            return FuelStrategy.StartFuelKg(perLap, raceLaps, RaceFuelReserveKg,
+                deltaLaps, MinimumRaceFuelKg, MaximumRaceFuelKg);
+        }
+
         // Enough for an out lap plus a genuine push lap (this game's live qualifying
         // session is a short single/handful-of-attempt format - see
         // QualifyingSessionLapCap - not a long multi-run practice block), with a

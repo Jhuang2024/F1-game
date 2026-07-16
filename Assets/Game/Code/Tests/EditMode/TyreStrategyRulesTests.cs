@@ -21,51 +21,52 @@ namespace F1Game.Tests
         [Test]
         public void StintLifeMatchesTheTemperatureGradient()
         {
-            // The three requested anchors: 15C 3/4/5, 22.5C 2/3/5, 30C 1/2/3.
-            Assert.AreEqual(3, TyreStrategyRules.StintLapsForPlanning(Soft, Cool));
-            Assert.AreEqual(4, TyreStrategyRules.StintLapsForPlanning(Medium, Cool));
-            Assert.AreEqual(5, TyreStrategyRules.StintLapsForPlanning(Hard, Cool));
+            // Recalibrated anchors (matching observed live wear): 15C 4/5/6,
+            // 22.5C 3/4/6, 30C 2/3/4.
+            Assert.AreEqual(4, TyreStrategyRules.StintLapsForPlanning(Soft, Cool));
+            Assert.AreEqual(5, TyreStrategyRules.StintLapsForPlanning(Medium, Cool));
+            Assert.AreEqual(6, TyreStrategyRules.StintLapsForPlanning(Hard, Cool));
 
-            Assert.AreEqual(2, TyreStrategyRules.StintLapsForPlanning(Soft, Standard));
-            Assert.AreEqual(3, TyreStrategyRules.StintLapsForPlanning(Medium, Standard));
-            Assert.AreEqual(5, TyreStrategyRules.StintLapsForPlanning(Hard, Standard));
+            Assert.AreEqual(3, TyreStrategyRules.StintLapsForPlanning(Soft, Standard));
+            Assert.AreEqual(4, TyreStrategyRules.StintLapsForPlanning(Medium, Standard));
+            Assert.AreEqual(6, TyreStrategyRules.StintLapsForPlanning(Hard, Standard));
 
-            Assert.AreEqual(1, TyreStrategyRules.StintLapsForPlanning(Soft, Hot));
-            Assert.AreEqual(2, TyreStrategyRules.StintLapsForPlanning(Medium, Hot));
-            Assert.AreEqual(3, TyreStrategyRules.StintLapsForPlanning(Hard, Hot));
+            Assert.AreEqual(2, TyreStrategyRules.StintLapsForPlanning(Soft, Hot));
+            Assert.AreEqual(3, TyreStrategyRules.StintLapsForPlanning(Medium, Hot));
+            Assert.AreEqual(4, TyreStrategyRules.StintLapsForPlanning(Hard, Hot));
         }
 
         [Test]
         public void StintLifeInterpolatesBetweenAnchorsAndClampsTheEnds()
         {
-            // Halfway between cool and standard: soft halfway between 3 and 2.
-            Assert.AreEqual(2.5f, TyreStrategyRules.ExpectedStintLapsAtTemp(Soft, (Cool + Standard) * 0.5f), 0.01f);
+            // Halfway between cool and standard: soft halfway between 4 and 3.
+            Assert.AreEqual(3.5f, TyreStrategyRules.ExpectedStintLapsAtTemp(Soft, (Cool + Standard) * 0.5f), 0.01f);
             // Below/above the defined range holds flat at the end anchors.
-            Assert.AreEqual(3f, TyreStrategyRules.ExpectedStintLapsAtTemp(Soft, 5f), 0.01f);
-            Assert.AreEqual(1f, TyreStrategyRules.ExpectedStintLapsAtTemp(Soft, 45f), 0.01f);
+            Assert.AreEqual(4f, TyreStrategyRules.ExpectedStintLapsAtTemp(Soft, 5f), 0.01f);
+            Assert.AreEqual(2f, TyreStrategyRules.ExpectedStintLapsAtTemp(Soft, 45f), 0.01f);
         }
 
         [Test]
         public void PlanningStintIsAboutOneLapShorterThanRawLife()
         {
             // A car pits once a lap, so usable planning laps trail the raw life by
-            // ~1 (raw soft 2/med 3/hard 5 at 22.5C -> usable 1/2/4).
-            Assert.AreEqual(1, TyreStrategyRules.PlanningStintLaps(Soft, Standard));
-            Assert.AreEqual(2, TyreStrategyRules.PlanningStintLaps(Medium, Standard));
-            Assert.AreEqual(4, TyreStrategyRules.PlanningStintLaps(Hard, Standard));
-            // Cool: raw 3/4/5 -> usable 2/3/4.
-            Assert.AreEqual(2, TyreStrategyRules.PlanningStintLaps(Soft, Cool));
-            Assert.AreEqual(4, TyreStrategyRules.PlanningStintLaps(Hard, Cool));
+            // ~1 (raw soft 3/med 4/hard 6 at 22.5C -> usable 2/3/5).
+            Assert.AreEqual(2, TyreStrategyRules.PlanningStintLaps(Soft, Standard));
+            Assert.AreEqual(3, TyreStrategyRules.PlanningStintLaps(Medium, Standard));
+            Assert.AreEqual(5, TyreStrategyRules.PlanningStintLaps(Hard, Standard));
+            // Cool: raw 4/5/6 -> usable 3/4/5.
+            Assert.AreEqual(3, TyreStrategyRules.PlanningStintLaps(Soft, Cool));
+            Assert.AreEqual(5, TyreStrategyRules.PlanningStintLaps(Hard, Cool));
         }
 
         [Test]
         public void PicksSoftestCompoundThatReachesTheFlagAtStandardTemp()
         {
-            // At 22.5C usable planning stint is soft 1 / medium 2 / hard 4.
+            // At 22.5C usable planning stint is soft 2 / medium 3 / hard 5.
             Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(1, Standard));
-            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(2, Standard));
-            // 3 laps left: soft and medium both fall short, so the hard.
-            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(3, Standard));
+            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(2, Standard));
+            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(3, Standard));
+            // 4+ laps left: soft and medium both fall short, so the hard.
             Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(4, Standard));
             Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(5, Standard));
         }
@@ -73,12 +74,12 @@ namespace F1Game.Tests
         [Test]
         public void HotTrackPushesOntoHarderCompoundsSooner()
         {
-            // At 30C usable planning stint collapses to soft 1 / medium 1 / hard 2.
+            // At 30C usable planning stint collapses to soft 1 / medium 2 / hard 3.
             Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(1, Hot));
-            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(2, Hot));
+            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(2, Hot));
             Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(3, Hot));
 
-            // The same 2 laps on a cool track (usable soft 2) can still take a soft.
+            // The same 2 laps on a cool track (usable soft 3) can still take a soft.
             Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(2, Cool));
         }
 

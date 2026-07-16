@@ -195,7 +195,12 @@ namespace LocalFormulaRacing
             {
                 FuelLoadChoice fuelChoice = player ? (FuelLoadChoice)Settings.Current.fuelLoadChoice : ResolveAiFuelChoice(driver);
                 participant.chosenFuelLoad = fuelChoice;
-                startFuelKg = ComputeRaceStartFuelKg(Mathf.Max(3, Settings.Current.laps), fuelChoice, Track, Settings.Current);
+                // AI loads go through the starvation-proof AI computation (burn
+                // margin + capped underfuel delta - see ComputeAiRaceStartFuelKg);
+                // the player's own gamble stays exactly as chosen.
+                startFuelKg = player
+                    ? ComputeRaceStartFuelKg(Mathf.Max(3, Settings.Current.laps), fuelChoice, Track, Settings.Current)
+                    : ComputeAiRaceStartFuelKg(Mathf.Max(3, Settings.Current.laps), fuelChoice, Track, Settings.Current);
             }
 
             controller.SetStartFuel(startFuelKg, fuelPerLapKg);

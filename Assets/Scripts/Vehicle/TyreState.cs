@@ -109,8 +109,13 @@ namespace LocalFormulaRacing
             if (compound == TyreCompound.Soft)
             {
                 baseGrip = 1f;
-                // ~2 laps (4.4 / 2).
-                baseWear = 2.2f;
+                // Wear recalibration (per report - tyres outlasting the displayed
+                // estimate by ~1 lap): observed live life implied the old 2.2
+                // rate really delivered ~6 laps at cool track temp, not the
+                // table's anchor. Raised 1.5x so actual life lands on the
+                // recalibrated 4-lap cool anchor (TyreStrategyRules), keeping
+                // display, strategy and physics in agreement.
+                baseWear = 3.3f;
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
@@ -121,8 +126,9 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Medium)
             {
                 baseGrip = 0.82f;
-                // ~3 laps (4.4 / 3).
-                baseWear = 1.47f;
+                // Wear recalibration: raised 1.2x (same pass as the soft above)
+                // so actual life lands on the 5-lap cool anchor.
+                baseWear = 1.76f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
@@ -148,7 +154,7 @@ namespace LocalFormulaRacing
                 // Mirrors the medium's durability at any temperature (per
                 // request) - same baseWear as Medium, and the track-temp wear
                 // multiplier in Tick maps Inter/Wet onto the Medium curve.
-                baseWear = 1.47f;
+                baseWear = 1.76f;
                 targetMin = 58f;
                 targetMax = 82f;
                 warmup = 1.05f;
@@ -165,7 +171,7 @@ namespace LocalFormulaRacing
                 // Mirrors the medium's durability at any temperature (per
                 // request) - same baseWear as Medium, and the track-temp wear
                 // multiplier in Tick maps Inter/Wet onto the Medium curve.
-                baseWear = 1.47f;
+                baseWear = 1.76f;
                 targetMin = 45f;
                 targetMax = 70f;
                 warmup = 1.1f;

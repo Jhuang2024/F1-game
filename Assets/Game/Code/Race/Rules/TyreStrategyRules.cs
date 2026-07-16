@@ -21,10 +21,15 @@ namespace F1Game.Race.Rules
         }
 
         // Track-temperature control points for the stint-length gradient. Cooler
-        // rubber lasts longer; hotter degrades faster. The three anchors are the
-        // requested targets: at 15C soft/medium/hard last 3/4/5 laps, at 22.5C
-        // 2/3/5, at 30C 1/2/3. Everything below reads off these so the wear
-        // model (TyreState), the AI strategy and the pre-race screen all agree.
+        // rubber lasts longer; hotter degrades faster. Anchors recalibrated
+        // against observed live wear (per report: "hards showing 4 laps last 5,
+        // softs showing 1 lap last 2" - the old table ran ~1 lap pessimistic
+        // across the board, which also forced the AI into two-stops that were
+        // never actually needed): at 15C soft/medium/hard last 4/5/6 laps, at
+        // 22.5C 3/4/6, at 30C 2/3/4. TyreState's baseWear values are calibrated
+        // to the same anchors so life on track matches what is displayed and
+        // planned. Everything below reads off these so the wear model
+        // (TyreState), the AI strategy and the pre-race screen all agree.
         public const float CoolTrackTempC = 15f;
         public const float StandardTrackTempC = 22.5f;
         public const float HotTrackTempC = 30f;
@@ -95,12 +100,12 @@ namespace F1Game.Race.Rules
             switch (compound)
             {
                 case Compound.Soft:
-                    return LifeGradient(trackTempC, 3f, 2f, 1f);
+                    return LifeGradient(trackTempC, 4f, 3f, 2f);
                 case Compound.Hard:
-                    return LifeGradient(trackTempC, 5f, 5f, 3f);
+                    return LifeGradient(trackTempC, 6f, 6f, 4f);
                 default:
                     // Medium (and Intermediate/Wet, mapped here by the caller).
-                    return LifeGradient(trackTempC, 4f, 3f, 2f);
+                    return LifeGradient(trackTempC, 5f, 4f, 3f);
             }
         }
 
