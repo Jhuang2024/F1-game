@@ -166,7 +166,7 @@ namespace LocalFormulaRacing
                     if (participant.isPlayer && !engineerPitRequestConfirmed)
                     {
                         engineerPitRequestConfirmed = true;
-                        PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is 100 km/h.", true, RaceAudioCue.PitConfirm);
+                        PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is 150 km/h.", true, RaceAudioCue.PitConfirm);
                     }
 
                     BeginPitEntry(participant, actualProgress);
@@ -395,10 +395,11 @@ namespace LocalFormulaRacing
         const float PitEntryPaceKph = 75f;
         // Player pit-entry buff (per request - "up my speed to 100 kph in the
         // pit entry lane"): the player's rail runs the entire entry leg
-        // (commit -> box) at 100 while the AI keep the 75 pace, matching the
-        // player's raised 100 kph entry limiter (VehicleController). Exit and
+        // (commit -> box) at this pace while the AI keep the 75 pace, matching
+        // the player's raised entry limiter (VehicleController). Exit and
         // service paces stay shared.
-        const float PlayerPitEntryPaceKph = 100f;
+        // Round 2 (per request): raised again, 100 -> 150.
+        const float PlayerPitEntryPaceKph = 150f;
         const float PitLanePaceKph = 75f;
         const float PitExitPaceKph = 106f;
         const float PitGuideLateralRateMetersPerSecond = 9f;

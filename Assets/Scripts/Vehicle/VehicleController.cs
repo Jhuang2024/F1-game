@@ -20,7 +20,8 @@ namespace LocalFormulaRacing
         // RaceManager.Pit (UpdatePitRail) and the 100 kph pit-entry assist
         // target so the whole player entry sequence runs at the same speed.
         const float AiPitEntryLimiterCapKph = 80f;
-        const float PlayerPitEntryLimiterCapKph = 100f;
+        // Round 2 (per request): raised again, 100 -> 150.
+        const float PlayerPitEntryLimiterCapKph = 150f;
         float PitEntryLimiterCapKph
         {
             get { return IsPlayerControlled ? PlayerPitEntryLimiterCapKph : AiPitEntryLimiterCapKph; }

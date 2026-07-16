@@ -144,22 +144,26 @@ namespace LocalFormulaRacing
                 // was too easy to drive away from on the straights). This keeps
                 // the AI competitive while shaving a little straight-line speed.
                 // Grip assist is unchanged - this is a straight-line knob only.
-                // Pace nerf (per request - "nerf the AI just a smidge more"): a
-                // light trim to both the straight-line bonus and the grip/pace
-                // assist across the competitive tiers (Easy stays at parity).
+                // Nerf rework (per request): the previous "smidge" nerf trimmed
+                // BOTH the straight-line bonus and the grip assist. Reverted -
+                // grip assists are back at their pre-nerf values (1.04/1.09/
+                // 1.15) - and the nerf is now purely STRAIGHT-LINE: every tier's
+                // kph bonus is cut ~3 from its pre-nerf value (4/8/13/16 ->
+                // 1/5/10/13), so the AI corner exactly as before but pull less
+                // on the straights at every skill level.
                 switch (Settings.Difficulty)
                 {
                     case RaceDifficulty.Easy:
-                        controller.SetAiPerformanceAssist(4f, 1f);
+                        controller.SetAiPerformanceAssist(1f, 1f);
                         break;
                     case RaceDifficulty.Medium:
-                        controller.SetAiPerformanceAssist(7f, 1.03f);
+                        controller.SetAiPerformanceAssist(5f, 1.04f);
                         break;
                     case RaceDifficulty.Hard:
-                        controller.SetAiPerformanceAssist(12f, 1.07f);
+                        controller.SetAiPerformanceAssist(10f, 1.09f);
                         break;
                     default:
-                        controller.SetAiPerformanceAssist(15f, 1.12f);
+                        controller.SetAiPerformanceAssist(13f, 1.15f);
                         break;
                 }
             }
