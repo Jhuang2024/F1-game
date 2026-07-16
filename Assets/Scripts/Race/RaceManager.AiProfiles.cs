@@ -9,6 +9,15 @@ namespace LocalFormulaRacing
     /// </summary>
     public partial class RaceManager
     {
+        // Difficulty raise round 4 (per request - "make the AI more
+        // difficult across all levels in a realistic way, not straight-line
+        // speed or unfair advantages"): every tier's DRIVING-QUALITY knobs
+        // lifted about a half-tier - later and more accurate braking, tighter
+        // apexes, earlier throttle pickup, sharper reactions, fewer mistakes,
+        // better ERS/DRS usage, and driving closer to the car's real envelope
+        // (paceMultiplier +2-3%, still bounded by the physical feasibility
+        // caps). straightSpeedMultiplier untouched; no physics advantage of
+        // any kind - the AI simply drive better at every level.
         // Difficulty as decision-making quality, never a raw speed/grip multiplier.
         // brakeDistanceMultiplier, minimumCornerSpeedConfidence, apexErrorMeters,
         // throttleDelay, exitThrottleConfidence, reactionTimeSeconds,
@@ -69,28 +78,28 @@ namespace LocalFormulaRacing
                     // one tier - Easy now drives like the old Medium, Medium
                     // near the old Hard, Hard near Expert, Expert at the
                     // ceiling. Tier ordering and character preserved.
-                    brakeDistanceMultiplier = 0.92f,
-                    minimumCornerSpeedConfidence = 0.84f,
-                    apexErrorMeters = 1.6f,
-                    throttleDelay = 0.26f,
-                    exitThrottleConfidence = 0.84f,
-                    lineOffsetNoise = 0.8f,
+                    brakeDistanceMultiplier = 0.96f,
+                    minimumCornerSpeedConfidence = 0.90f,
+                    apexErrorMeters = 1.1f,
+                    throttleDelay = 0.18f,
+                    exitThrottleConfidence = 0.90f,
+                    lineOffsetNoise = 0.6f,
                     // Reaction-time buff: explicit per-tier target ranges requested
                     // (Easy 0.4-0.6 / Medium 0.3-0.4 / Hard 0.25-0.3 / Expert 0.2-0.25) -
                     // round 1's uniform nerf (was 0.85/0.55/0.32/0.11) overshot,
                     // especially Easy at a full second.
-                    reactionTimeSeconds = 0.5f,
+                    reactionTimeSeconds = 0.42f,
                     overtakeCommitment = 0.35f,
                     defendCommitment = 0.30f,
-                    ersDeploymentQuality = 0.60f,
-                    drsUsageQuality = 0.72f,
-                    mistakeChancePerLap = 0.11f,
+                    ersDeploymentQuality = 0.70f,
+                    drsUsageQuality = 0.80f,
+                    mistakeChancePerLap = 0.08f,
                     // Aggression pass (per request): every tier's caution cut so AI
                     // race for position instead of yielding it (was 1.35).
                     trafficAvoidanceCaution = 1.1f,
                     wetWeatherCaution = 1.5f,
                     tyreSavingBias = 0.35f,
-                    paceMultiplier = 1.0f,
+                    paceMultiplier = 1.03f,
                     cornerSpeedMultiplier = 1.14f,
                     straightSpeedMultiplier = 0.97f,
                     brakeConfidenceMultiplier = 1.02f,
@@ -103,29 +112,29 @@ namespace LocalFormulaRacing
                 return new AiDifficultyProfile
                 {
                     // Difficulty raise round 3: see the Easy block note.
-                    brakeDistanceMultiplier = 0.99f,
-                    minimumCornerSpeedConfidence = 0.96f,
-                    apexErrorMeters = 0.7f,
+                    brakeDistanceMultiplier = 1.01f,
+                    minimumCornerSpeedConfidence = 0.975f,
+                    apexErrorMeters = 0.5f,
                     // Corner-speed pass 3: Medium should stay clearly more
                     // cautious than Hard/Expert but shouldn't read as broken -
                     // a slightly quicker exit pickup (was 0.30/0.78).
-                    throttleDelay = 0.1f,
+                    throttleDelay = 0.07f,
                     // Cornering buff round 5: Medium gets a modest, deliberately small
                     // lift (was 0.82/1.00/1.00) - "decent, not broken", nowhere near
                     // the Hard/Expert jump below.
-                    exitThrottleConfidence = 0.95f,
-                    lineOffsetNoise = 0.4f,
-                    reactionTimeSeconds = 0.35f,
+                    exitThrottleConfidence = 0.97f,
+                    lineOffsetNoise = 0.3f,
+                    reactionTimeSeconds = 0.31f,
                     overtakeCommitment = 0.55f,
                     defendCommitment = 0.55f,
-                    ersDeploymentQuality = 0.84f,
-                    drsUsageQuality = 0.92f,
-                    mistakeChancePerLap = 0.055f,
+                    ersDeploymentQuality = 0.88f,
+                    drsUsageQuality = 0.94f,
+                    mistakeChancePerLap = 0.04f,
                     // Aggression pass (per request): was 1.05.
                     trafficAvoidanceCaution = 0.85f,
                     wetWeatherCaution = 1.2f,
                     tyreSavingBias = 0.20f,
-                    paceMultiplier = 1.06f,
+                    paceMultiplier = 1.08f,
                     // Cornering buff round 7: pushed up (was 1.05) alongside the wider
                     // HighSpeed/Medium bands in AiVehicleController - Medium now covers
                     // genuinely fast corners too, not just cautious ones.
@@ -148,7 +157,7 @@ namespace LocalFormulaRacing
                 return new AiDifficultyProfile
                 {
                     // Difficulty raise round 3: see the Easy block note.
-                    brakeDistanceMultiplier = 1.04f,
+                    brakeDistanceMultiplier = 1.07f,
                     // Corner-speed pass: Hard used to get none of the skillTier-
                     // gated corner-type bonuses in AiVehicleController (those were
                     // Expert-only) despite already having a fairly high confidence
@@ -156,26 +165,26 @@ namespace LocalFormulaRacing
                     // as "meaningfully faster through corners". Bumped alongside
                     // the new skillTier blend so Hard is now clearly quicker than
                     // Medium through medium/fast corners, not just a hair sharper.
-                    minimumCornerSpeedConfidence = 0.995f,
-                    apexErrorMeters = 0.3f,
+                    minimumCornerSpeedConfidence = 0.997f,
+                    apexErrorMeters = 0.22f,
                     // Cornering buff round 5: exit hesitation shortened again (was
                     // 0.10) and exit confidence raised again (was 0.95) - "pick up
                     // throttle earlier on exit" was as much about this as the
                     // apex-speed floors themselves.
-                    throttleDelay = 0.04f,
-                    exitThrottleConfidence = 0.99f,
-                    lineOffsetNoise = 0.2f,
-                    reactionTimeSeconds = 0.275f,
+                    throttleDelay = 0.035f,
+                    exitThrottleConfidence = 0.993f,
+                    lineOffsetNoise = 0.16f,
+                    reactionTimeSeconds = 0.25f,
                     overtakeCommitment = 0.77f,
                     defendCommitment = 0.79f,
-                    ersDeploymentQuality = 0.93f,
-                    drsUsageQuality = 0.97f,
-                    mistakeChancePerLap = 0.02f,
+                    ersDeploymentQuality = 0.95f,
+                    drsUsageQuality = 0.99f,
+                    mistakeChancePerLap = 0.015f,
                     // Aggression pass (per request): was 0.82.
                     trafficAvoidanceCaution = 0.62f,
                     wetWeatherCaution = 0.98f,
                     tyreSavingBias = 0.12f,
-                    paceMultiplier = 1.12f,
+                    paceMultiplier = 1.14f,
                     // Cornering buff round 7: pushed again (was 1.22/1.24/1.28/1.30/
                     // 1.42) - "fast corners need to be A LOT faster". No longer
                     // touches genuine hairpins at all (see the Hairpin-type exemption
@@ -200,25 +209,25 @@ namespace LocalFormulaRacing
             return new AiDifficultyProfile
             {
                 // Difficulty raise round 3: see the Easy block note.
-                brakeDistanceMultiplier = 1.10f,
+                brakeDistanceMultiplier = 1.12f,
                 // Cornering buff round 5: pushed to the practical ceiling (was
                 // 0.995) - Expert should show essentially zero entry hesitation.
                 minimumCornerSpeedConfidence = 0.999f,
-                apexErrorMeters = 0.14f,
-                throttleDelay = 0.03f,
-                exitThrottleConfidence = 0.995f,
-                lineOffsetNoise = 0.12f,
-                reactionTimeSeconds = 0.225f,
+                apexErrorMeters = 0.10f,
+                throttleDelay = 0.025f,
+                exitThrottleConfidence = 0.997f,
+                lineOffsetNoise = 0.09f,
+                reactionTimeSeconds = 0.21f,
                 overtakeCommitment = 0.93f,
                 defendCommitment = 0.93f,
-                ersDeploymentQuality = 0.96f,
+                ersDeploymentQuality = 0.975f,
                 drsUsageQuality = 0.98f,
-                mistakeChancePerLap = 0.003f,
+                mistakeChancePerLap = 0.002f,
                 // Aggression pass (per request): was 0.42.
                 trafficAvoidanceCaution = 0.32f,
                 wetWeatherCaution = 0.88f,
                 tyreSavingBias = 0.07f,
-                paceMultiplier = 1.18f,
+                paceMultiplier = 1.20f,
                 // Cornering buff round 7: pushed further still (was 1.34/1.58/1.70/
                 // 1.44/1.62) - "fast corners need to be A LOT faster". Still never
                 // touches genuine hairpins (see the Hairpin-type exemption in
