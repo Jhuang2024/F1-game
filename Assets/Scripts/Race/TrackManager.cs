@@ -2246,6 +2246,15 @@ namespace LocalFormulaRacing
             // mesh are computed, so the road, its runoff apron and the terrain
             // base all follow it, and the gradients are gentle enough to drive.
             AddProceduralElevation(runtime);
+            // Self-crossing layouts (per report - the Qatar GP lap-1 pileup):
+            // several authored sketches genuinely cross themselves in plan
+            // view. At a flat crossing the two roads merely overlap (drivable),
+            // but any elevation difference under ~car-clearance turns the
+            // higher road's mesh into a physical wall across the lower one -
+            // exactly the reported "whole field piled up under a black deck".
+            // Wherever the final centreline crosses itself, the higher leg is
+            // smoothly raised into a genuine flyover with real clearance.
+            ResolveTrackCrossings(runtime);
             runtime.RecalculateDistances();
             // Hairpin centers are derived from the FINAL, fully-repaired/scaled
             // centerline (AddLayoutPoints already ran repair + NormalizeTrackLength +
@@ -2305,6 +2314,122 @@ namespace LocalFormulaRacing
                 p.y += e;
                 runtime.centerLine[i] = p;
             }
+        }
+
+        // Self-crossing resolution (per report - the Qatar GP lap-1 pileup):
+        // where the centreline crosses itself in plan view, the two legs must
+        // be separated vertically like a real flyover, or the higher leg's
+        // road mesh stands as a wall across the lower one. Finds every 2D
+        // crossing on the final centreline and smoothly raises whichever leg
+        // is already higher until there is genuine clearance, blended over a
+        // long window so the resulting ramp gradient stays drivable (~6%).
+        const float CrossingClearanceMeters = 9f;
+        const float CrossingBlendMeters = 150f;
+
+        void ResolveTrackCrossings(TrackRuntime runtime)
+        {
+            List<Vector3> line = runtime.centerLine;
+            if (line == null || line.Count < 16)
+            {
+                return;
+            }
+
+            int n = line.Count;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 a1 = line[i];
+                Vector3 a2 = line[(i + 1) % n];
+                for (int j = i + 2; j < n; j++)
+                {
+                    if ((j + 1) % n == i)
+                    {
+                        continue;
+                    }
+
+                    Vector3 b1 = line[j];
+                    Vector3 b2 = line[(j + 1) % n];
+                    if (!SegmentsCross2D(a1, a2, b1, b2))
+                    {
+                        continue;
+                    }
+
+                    // Heights re-read fresh (an earlier crossing's raise this same
+                    // pass may have already lifted this leg); the crossing test
+                    // itself is pure XZ so raises never invalidate it.
+                    float yA = (line[i].y + line[(i + 1) % n].y) * 0.5f;
+                    float yB = (line[j].y + line[(j + 1) % n].y) * 0.5f;
+                    if (Mathf.Abs(yA - yB) >= CrossingClearanceMeters)
+                    {
+                        continue; // already a real flyover
+                    }
+
+                    int upperIndex = yA >= yB ? i : j;
+                    float lowerY = Mathf.Min(yA, yB);
+                    RaiseCrossingLeg(line, upperIndex, lowerY + CrossingClearanceMeters, Mathf.Abs(j - i));
+                    if (LastReport != null)
+                    {
+                        LastReport.Warn("Self-crossing centreline at points " + i + "/" + j +
+                                        " - raised the higher leg into a flyover (+" +
+                                        CrossingClearanceMeters + "m clearance).");
+                    }
+                }
+            }
+        }
+
+        static bool SegmentsCross2D(Vector3 p1, Vector3 p2, Vector3 p3, Vector3 p4)
+        {
+            float d1 = Cross2D(p3, p4, p1);
+            float d2 = Cross2D(p3, p4, p2);
+            float d3 = Cross2D(p1, p2, p3);
+            float d4 = Cross2D(p1, p2, p4);
+            return ((d1 > 0f) != (d2 > 0f)) && ((d3 > 0f) != (d4 > 0f));
+        }
+
+        static float Cross2D(Vector3 a, Vector3 b, Vector3 c)
+        {
+            return (c.z - a.z) * (b.x - a.x) - (b.z - a.z) * (c.x - a.x);
+        }
+
+        // Raises the leg around centerIndex to at least targetY at its apex,
+        // cosine-blended out to CrossingBlendMeters each way (window clamped
+        // so it can never reach around and lift the OTHER leg of the same
+        // crossing). Only ever raises - never digs the road down.
+        static void RaiseCrossingLeg(List<Vector3> line, int centerIndex, float targetY, int indexGapToOtherLeg)
+        {
+            int n = line.Count;
+            float apexY = Mathf.Max(line[centerIndex].y, targetY);
+            float delta = apexY - line[centerIndex].y;
+            if (delta <= 0f)
+            {
+                return;
+            }
+
+            int maxWindowPoints = Mathf.Max(2, Mathf.Min(indexGapToOtherLeg, n - indexGapToOtherLeg) / 3);
+            for (int direction = -1; direction <= 1; direction += 2)
+            {
+                float travelled = 0f;
+                int steps = 0;
+                int index = centerIndex;
+                while (steps < maxWindowPoints && travelled < CrossingBlendMeters)
+                {
+                    int next = ((index + direction) % n + n) % n;
+                    travelled += Vector3.Distance(line[index], line[next]);
+                    index = next;
+                    steps++;
+                    float w = 0.5f * (1f + Mathf.Cos(Mathf.PI * Mathf.Clamp01(travelled / CrossingBlendMeters)));
+                    Vector3 p = line[index];
+                    p.y += delta * w;
+                    line[index] = p;
+                }
+            }
+
+            Vector3 apex = line[centerIndex];
+            apex.y = apexY;
+            line[centerIndex] = apex;
+            int after = (centerIndex + 1) % n;
+            Vector3 apex2 = line[after];
+            apex2.y = Mathf.Max(apex2.y, apexY);
+            line[after] = apex2;
         }
 
         // Elevation amplitude (metres) by circuit character. Famously hilly tracks

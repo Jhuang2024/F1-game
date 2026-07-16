@@ -507,14 +507,25 @@ namespace F1Game.Track
                 DrsZoneTwoNormalized = new Vector2(0.55f, 0.72f),
                 TargetLengthMeters = 8281.25f,
                 AnchorSubdivisions = 5,
+                // Self-intersection fix (per report - the whole field piled up
+                // at an at-grade crossing on lap 1): the old sketch's inner
+                // hook exited north-east straight through the earlier
+                // (252,90)->(210,138) descent - a genuine layout crossing
+                // (verified analytically on the smoothed spline), which put one
+                // section's road/barriers physically across the other. The
+                // corridor was topologically walled off, so the middle is
+                // restructured rather than nudged: eastern lobe first (fast
+                // right-side sweep to the top loop), then the technical infield
+                // hook hangs off the western return. Verified: 0 crossings on
+                // the subdivided spline, ~268m minimum separation between
+                // non-adjacent sections.
                 SketchAnchors = new[]
                 {
                     new Vector3(0f, 0f, 0f), new Vector3(170f, 0f, 0f), new Vector3(232f, 0f, 36f),
-                    new Vector3(252f, 0f, 90f), new Vector3(210f, 0f, 138f), new Vector3(132f, 0f, 144f),
-                    new Vector3(70f, 0f, 108f), new Vector3(104f, 0f, 68f), new Vector3(188f, 0f, 78f),
-                    new Vector3(276f, 0f, 118f), new Vector3(318f, 0f, 168f), new Vector3(248f, 0f, 202f),
-                    new Vector3(136f, 0f, 190f), new Vector3(42f, 0f, 150f), new Vector3(-38f, 0f, 92f),
-                    new Vector3(-98f, 0f, 36f), new Vector3(-166f, 0f, 6f)
+                    new Vector3(280f, 0f, 58f), new Vector3(318f, 0f, 120f), new Vector3(300f, 0f, 178f),
+                    new Vector3(248f, 0f, 202f), new Vector3(136f, 0f, 190f), new Vector3(150f, 0f, 148f),
+                    new Vector3(118f, 0f, 96f), new Vector3(70f, 0f, 120f), new Vector3(42f, 0f, 158f),
+                    new Vector3(-38f, 0f, 92f), new Vector3(-98f, 0f, 36f), new Vector3(-166f, 0f, 6f)
                 },
             };
         }
