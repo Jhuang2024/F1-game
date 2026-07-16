@@ -1376,18 +1376,22 @@ namespace LocalFormulaRacing
             }
             hash &= 0x7fffffff;
 
-            // Break the lap into a per-track set of SECTIONS, each with its own
-            // distinct width (per request - "sections of the track should have
-            // different widths", not merely corners vs straights). One stretch
-            // might run genuinely wide, the next genuinely narrow, regardless of
-            // the corners in it. Deterministic per track + section so a given
-            // circuit always has the same character.
-            int sectionCount = 7 + (hash % 6); // 7..12 distinct-width stretches
+            // Break the lap into a per-track set of SECTIONS with dramatically
+            // different widths (per request - make it EXTREMELY obvious, and not
+            // merely corners vs straights). Sections deliberately ALTERNATE wide
+            // and narrow so there's always a clear contrast - one stretch opens
+            // out to a broad multi-lane expanse, the next pinches into a genuinely
+            // tight corridor - with a random magnitude within each band so it
+            // isn't mechanical. Deterministic per track.
+            int sectionCount = 5 + (hash % 4); // 5..8 alternating stretches
             float[] sectionMul = new float[sectionCount];
             for (int k = 0; k < sectionCount; k++)
             {
                 int sh = unchecked(hash * 131 + k * 977 + 17) & 0x7fffffff;
-                sectionMul[k] = Mathf.Lerp(0.68f, 1.30f, (sh % 1000) / 1000f);
+                float r = (sh % 1000) / 1000f;
+                sectionMul[k] = (k % 2 == 0)
+                    ? Mathf.Lerp(1.15f, 1.42f, r)   // wide
+                    : Mathf.Lerp(0.46f, 0.74f, r);  // narrow
             }
 
             // Authored specs already set a per-track base width, so only the flat
@@ -1436,7 +1440,7 @@ namespace LocalFormulaRacing
                 float curvature = Mathf.Clamp01(Vector3.Angle(fA, fB) / 24f);
                 float cornerFactor = Mathf.Lerp(1.04f, 0.86f, curvature);
 
-                profile[s] = Mathf.Clamp(baseHalf * sectionWidth * cornerFactor, 6f, baseHalf * 1.34f);
+                profile[s] = Mathf.Clamp(baseHalf * sectionWidth * cornerFactor, 5f, baseHalf * 1.45f);
             }
 
             authoredHalfWidthProfile = profile;
@@ -2252,7 +2256,11 @@ namespace LocalFormulaRacing
         // later follows the same centreline Y.
         void AddProceduralElevation(TrackRuntime runtime)
         {
-            if (runtime.centerLine == null || runtime.centerLine.Count < 8 || runtime.length <= 1f)
+            // NOTE: length is NOT set yet here (RecalculateDistances runs after
+            // this in CreateLayout), so this must NOT gate on runtime.length - the
+            // earlier version did and silently applied no elevation on authored
+            // circuits. Only the point count matters.
+            if (runtime.centerLine == null || runtime.centerLine.Count < 8)
             {
                 return;
             }
@@ -2265,18 +2273,23 @@ namespace LocalFormulaRacing
             }
             hash &= 0x7fffffff;
 
-            float amp = Mathf.Lerp(5f, 11f, (hash % 1000) / 1000f);
+            // Real, Spa/Austin-scale hills (per request - not road bumps): tens of
+            // metres of climb and descent over the lap. A couple of big sweeping
+            // rises/dips carry most of it, with a smaller secondary undulation on
+            // top. Deterministic per track, periodic over the loop so start and
+            // finish elevations match exactly.
+            float amp = Mathf.Lerp(22f, 40f, (hash % 1000) / 1000f);
             float phase1 = (hash % 628) / 100f;
             float phase2 = ((hash / 7) % 628) / 100f;
-            int lobes1 = 2 + (hash % 3);          // 2..4 big rises/dips over the lap
-            int lobes2 = 5 + ((hash / 5) % 4);    // 5..8 finer undulations
+            int lobes1 = 2 + (hash % 2);          // 2..3 big sweeping hills
+            int lobes2 = 4 + ((hash / 5) % 3);    // 4..6 secondary undulations
 
             int count = runtime.centerLine.Count;
             for (int i = 0; i < count; i++)
             {
                 float u = i / (float)count;
-                float e = amp * (0.68f * Mathf.Sin(u * Mathf.PI * 2f * lobes1 + phase1)
-                               + 0.32f * Mathf.Sin(u * Mathf.PI * 2f * lobes2 + phase2));
+                float e = amp * (0.80f * Mathf.Sin(u * Mathf.PI * 2f * lobes1 + phase1)
+                               + 0.20f * Mathf.Sin(u * Mathf.PI * 2f * lobes2 + phase2));
                 Vector3 p = runtime.centerLine[i];
                 p.y += e;
                 runtime.centerLine[i] = p;
