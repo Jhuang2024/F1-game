@@ -1160,7 +1160,13 @@ namespace LocalFormulaRacing
                 // (exactly the reported player pit-entry failure). 2.4m keeps
                 // the car unmistakably in the rightmost lane while leaving a
                 // real margin from the wall.
-                float preEntryLateral = HalfWidthAt(pitTargetDistance) - 2.4f;
+                // Round 2 (per report - pinned against the wall again): the
+                // player's pit-entry pace was raised to 100 kph, and at that
+                // speed one oscillation eats the 2.4m margin. Widened to 3.2m -
+                // still clearly in the rightmost lane, with enough air that a
+                // fast approach can wobble once and correct without touching
+                // the barrier.
+                float preEntryLateral = HalfWidthAt(pitTargetDistance) - 3.2f;
                 SamplePitLanePose(pitTargetDistance, preEntryLateral, out targetPoint, out targetRotation);
             }
             else

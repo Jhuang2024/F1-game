@@ -240,6 +240,11 @@ namespace LocalFormulaRacing
 
         const int GearCount = 8;
         const float RaceSpeedCeilingKph = 350f;
+        // Ceiling for the CAR STAT's own contribution to top speed (see the
+        // stat-honesty fix in CalculateTargetTopSpeedKph) - generous enough
+        // that a heavily upgraded career car (~415 stat) keeps its full edge,
+        // while still bounding data errors.
+        const float StatTopSpeedCeilingKph = 435f;
         // Player-only straightline speed buff - never applies to AI (see
         // CalculateTargetTopSpeedKph, gated on IsPlayerControlled). Raised
         // from 4 to 9 (an additional +5), then lowered by 2 to 7, then
@@ -1716,13 +1721,23 @@ namespace LocalFormulaRacing
         float CalculateTargetTopSpeedKph(VehicleCommand activeCommand)
         {
             float carTopSpeed = CarData == null || CarData.topSpeed <= 0 ? 337f : CarData.topSpeed;
-            float target = Mathf.Clamp(carTopSpeed + 15f, 342f, RaceSpeedCeilingKph) * setupTopSpeedMultiplier;
+            // Stat-honesty fix (per report - "are the car stats even applied?"):
+            // this used to clamp to RaceSpeedCeilingKph (350), so ANY topSpeed
+            // stat above 335 mapped to the identical 350 in-game. Stock cars
+            // span 341-350 - all clamped flat - and every career top-speed
+            // upgrade past that point (a player car can reach 415) did literally
+            // NOTHING, while the difficulty AI kph bonus then put a slower-stat
+            // car in front on the straights. The stat now carries through
+            // honestly up to a generous hardware ceiling, so team differences
+            // and upgrades are real straight-line speed.
+            float statTarget = Mathf.Clamp(carTopSpeed + 15f, 342f, StatTopSpeedCeilingKph) * setupTopSpeedMultiplier;
+            float target = statTarget;
 
-            // ERS needs a ceiling above the normal ~350 clamp, otherwise its bonus
+            // ERS needs a ceiling above the base clamp, otherwise its bonus
             // is silently absorbed since the unassisted target already sits close
             // to it. DRS no longer touches this ceiling at all - see the flat,
             // uncapped DrsBoostActive bonus applied after every clamp below.
-            float ceiling = RaceSpeedCeilingKph;
+            float ceiling = Mathf.Max(RaceSpeedCeilingKph, statTarget);
 
             // Player-only straightline speed buff: AiVehicleController's own
             // straightTargetSpeed reads this same TargetTopSpeedKph, so this
@@ -1766,7 +1781,12 @@ namespace LocalFormulaRacing
                 ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + SlipstreamTopSpeedBonusKph);
             }
 
-            ceiling = Mathf.Min(ceiling, 405f);
+            // Stacking safety cap: was a flat 405 (the old 350 base + ~55 of
+            // bonuses). Now relative to the car's own honest stat target so a
+            // genuinely fast car keeps its full advantage under ERS/tow while
+            // the bonuses still can't stack unboundedly. Floored at the old 405
+            // so stock cars behave exactly as before.
+            ceiling = Mathf.Min(ceiling, Mathf.Max(405f, statTarget + 55f));
 
             // Tyre-difference pass: straight-line top speed previously never varied
             // by compound at all - only cornering/acceleration did, via tyre grip.

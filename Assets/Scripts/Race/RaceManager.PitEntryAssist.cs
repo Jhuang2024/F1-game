@@ -125,14 +125,23 @@ namespace LocalFormulaRacing
             // speed, hard against the right edge) now steers LEFT, away from
             // the wall the pit lane always sits on, with enough throttle to
             // actually free itself, then resumes chasing the target normally.
-            if (speedKph < 3f)
+            // Unstick round 2 (per report - "stuck against the wall in pit entry
+            // again"): the old gate only engaged below 3 km/h, so a car grinding
+            // along the barrier at 5-15 km/h was never freed - it kept steering
+            // toward the outboard target and stayed pinned. Engages below
+            // 12 km/h now, with a wider wall-detection band and a stronger
+            // steer-away, so a wall-scrubbing car is pulled off the barrier
+            // while it still has momentum instead of only after a dead stop.
+            bool unstickOverride = false;
+            if (speedKph < 12f)
             {
-                bool againstWall = progress.lateralDistance > LocalHalfWidthAt(progress.distance) - 1.6f;
+                bool againstWall = progress.lateralDistance > LocalHalfWidthAt(progress.distance) - 2f;
                 if (againstWall)
                 {
-                    steer = -0.45f;
+                    steer = -0.6f;
                     command.throttle = 0.5f;
                     command.brake = 0f;
+                    unstickOverride = true;
                 }
                 else if (command.throttle > 0f)
                 {
@@ -151,7 +160,13 @@ namespace LocalFormulaRacing
             // steering (a strong guide, not a lock), so the player can always
             // counter it away from a wall while still being pulled toward the
             // ramp; the planned auto-stop keeps its full override.
-            if (participant.activePitRequestSource == PitRequestSource.PreRacePlan)
+            // Unstick fix round 2 (cont.): the manual-source blend below diluted
+            // the wall-escape steer (0.55x, plus the player's own wheel - often
+            // still pointed AT the pit lane, i.e. at the wall) - which is
+            // exactly how a pinned car stayed pinned with the assist "active".
+            // A genuine wall-escape takes full steering authority regardless of
+            // request source; the blend only applies to normal target-chasing.
+            if (unstickOverride || participant.activePitRequestSource == PitRequestSource.PreRacePlan)
             {
                 command.steer = steer;
             }
