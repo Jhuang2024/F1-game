@@ -95,53 +95,56 @@ namespace LocalFormulaRacing
             // handling of every compound without re-tuning AI corner pace; the
             // AI's own physics grip still gets its 1.0-1.25 grip assist on top,
             // so a harder tyre's lower base never leaves an AI sliding off.
-            // Compound-contrast round 2 (per report - "grip difference between
-            // tyre types is not nearly noticeable enough"): dry spread widened
-            // again around the medium anchor (soft 1.28 -> 1.36, hard 0.76 ->
-            // 0.70), and every compound's rain-state grip pulled further from
-            // the correct-tyre-for-the-conditions choice, in tandem with
-            // VehicleController's lateral-force change that stops a flat base
-            // term swallowing the spread. Medium (1.0) is untouched so the
-            // baseline handling stays put.
+            // Compound-contrast round 3 (per report - "softs are now way too
+            // grippy; make the soft the 1.00 benchmark and rescale the rest"):
+            // the whole grip scale is rebased so SOFT = 1.00 is the ceiling
+            // (round 2 had pushed it to 1.36, which over-gripped the car) and
+            // every other compound sits proportionally below it. The rain-state
+            // grips are rescaled by the same factor - they replace baseGrip
+            // outright in the wet, so leaving them untouched would have made a
+            // wet tyre in heavy rain nearly as fast as a dry soft. The felt
+            // compound spread from round 2 (via VehicleController's
+            // lateral-force weighting) is preserved by the ratios, not the
+            // absolute numbers.
             if (compound == TyreCompound.Soft)
             {
-                baseGrip = 1.36f;
+                baseGrip = 1f;
                 // ~2 laps (4.4 / 2).
                 baseWear = 2.2f;
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
-                heavyRainGrip = 0.26f;
-                lightRainGrip = 0.52f;
+                heavyRainGrip = 0.19f;
+                lightRainGrip = 0.38f;
                 Temperature = 78f;
             }
             else if (compound == TyreCompound.Medium)
             {
-                baseGrip = 1f;
+                baseGrip = 0.82f;
                 // ~3 laps (4.4 / 3).
                 baseWear = 1.47f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
-                heavyRainGrip = 0.22f;
-                lightRainGrip = 0.46f;
+                heavyRainGrip = 0.16f;
+                lightRainGrip = 0.34f;
                 Temperature = 74f;
             }
             else if (compound == TyreCompound.Hard)
             {
-                baseGrip = 0.70f;
+                baseGrip = 0.66f;
                 // ~4 laps (4.4 / 4) - still clearly the endurance tyre.
                 baseWear = 1.1f;
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;
-                heavyRainGrip = 0.18f;
-                lightRainGrip = 0.40f;
+                heavyRainGrip = 0.13f;
+                lightRainGrip = 0.29f;
                 Temperature = 68f;
             }
             else if (compound == TyreCompound.Intermediate)
             {
-                baseGrip = 0.9f;
+                baseGrip = 0.74f;
                 // Mirrors the medium's durability at any temperature (per
                 // request) - same baseWear as Medium, and the track-temp wear
                 // multiplier in Tick maps Inter/Wet onto the Medium curve.
@@ -152,13 +155,13 @@ namespace LocalFormulaRacing
                 // Clearly best in light rain, clearly second-best in heavy -
                 // the gap to the full wet (and to slicks) widened so the
                 // right-tyre-for-the-conditions choice is felt in the wheel.
-                heavyRainGrip = 0.78f;
-                lightRainGrip = 1.06f;
+                heavyRainGrip = 0.57f;
+                lightRainGrip = 0.78f;
                 Temperature = 58f;
             }
             else
             {
-                baseGrip = 0.78f;
+                baseGrip = 0.64f;
                 // Mirrors the medium's durability at any temperature (per
                 // request) - same baseWear as Medium, and the track-temp wear
                 // multiplier in Tick maps Inter/Wet onto the Medium curve.
@@ -169,8 +172,8 @@ namespace LocalFormulaRacing
                 // Dominant in heavy rain, visibly clumsy in light rain (where
                 // the inter is the right call) - both gaps widened alongside
                 // the inter's so the two wet-weather compounds feel distinct.
-                heavyRainGrip = 1.08f;
-                lightRainGrip = 0.72f;
+                heavyRainGrip = 0.79f;
+                lightRainGrip = 0.53f;
                 Temperature = 48f;
             }
         }
