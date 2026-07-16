@@ -985,12 +985,21 @@ namespace LocalFormulaRacing
             // Round 6: ladder shifted up another +6 (per request).
             // Round 7: another +6 (per request) - every tier now attacks and
             // defends above its raw stats; the 99 clamp bounds the top end.
-            // Round 8: another +6 (per request).
-            int racecraftDelta = racecraftTier == RaceDifficulty.Easy ? 10
-                : racecraftTier == RaceDifficulty.Medium ? 18
-                : racecraftTier == RaceDifficulty.Hard ? 26 : 32;
-            overtaking = Mathf.Clamp(overtaking + racecraftDelta, 30, 99);
-            defending = Mathf.Clamp(defending + racecraftDelta, 30, 99);
+            // Rounds 9-10 REWORK (per question - "do these upgrades completely
+            // get rid of the AI driver's skill? don't make it like that"): the
+            // flat +delta ladder WAS saturating - by round 8's +26/+32 nearly
+            // every driver clamped at 99 overtaking/defending, erasing the
+            // skill differences between drivers exactly as feared. Difficulty
+            // now COMPRESSES each driver's gap to 99 instead of adding a flat
+            // amount: every tier makes the whole field better, but an elite
+            // keeps a real margin over a journeyman at every tier and nobody
+            // saturates. (Average 80-rated driver: Easy ~85, Expert ~93;
+            // elite 92: Easy ~94, Expert ~97 - ordering always preserved.)
+            float racecraftGapKeep = racecraftTier == RaceDifficulty.Easy ? 0.75f
+                : racecraftTier == RaceDifficulty.Medium ? 0.60f
+                : racecraftTier == RaceDifficulty.Hard ? 0.45f : 0.32f;
+            overtaking = Mathf.Clamp(Mathf.RoundToInt(99f - (99f - overtaking) * racecraftGapKeep), 30, 98);
+            defending = Mathf.Clamp(Mathf.RoundToInt(99f - (99f - defending) * racecraftGapKeep), 30, 98);
 
             RaceManager.AiDifficultyProfile profile = raceManager.GetAiDifficultyProfile();
             // Part A: the single source of truth for every Expert-only branch below -
@@ -1225,7 +1234,11 @@ namespace LocalFormulaRacing
             // +3% on the commitment band (1.09-1.19 -> 1.12-1.22).
             // Round 7 (per request): +3% again (1.12-1.22 -> 1.15-1.25).
             // Round 8 (per request): +3% again (1.15-1.25 -> 1.18-1.28).
-            float driverPaceVariance = Mathf.Lerp(1.18f, 1.28f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
+            // Rounds 9-10 (per request): +3% twice more (-> 1.24-1.34). The
+            // band's WIDTH is untouched every round, so the driver-skill
+            // spread (paceNorm) is fully preserved - the whole field is
+            // braver, the pecking order unchanged.
+            float driverPaceVariance = Mathf.Lerp(1.24f, 1.34f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
             // multipliers used to inflate the corner-entry target past what the
@@ -1244,7 +1257,9 @@ namespace LocalFormulaRacing
             // 1.09-1.21).
             // Round 7: widened again (1.09-1.21 -> 1.10-1.23).
             // Round 8: widened again (1.10-1.23 -> 1.11-1.25).
-            float feasibilityCap = Mathf.Lerp(1.11f, 1.25f, paceNorm);
+            // Rounds 9-10: widened twice more (-> 1.13-1.29); driver-skill
+            // spread preserved (same width, same paceNorm mapping).
+            float feasibilityCap = Mathf.Lerp(1.13f, 1.29f, paceNorm);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
                 apexTargetSpeed * feasibilityCap);
