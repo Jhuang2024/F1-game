@@ -132,6 +132,20 @@ namespace LocalFormulaRacing
             TyreCompound startCompound = StartingTyreForParticipant(player);
             participant.startingCompound = startCompound;
             controller.Initialize(car, Track, startCompound, Settings.Current.manualGears && player, Settings.Current, player);
+            // Unconditional diagnostic (same pattern as [QualiSim]/[ErsDrain])
+            // for the reported "my upgraded car races like a stock one": logs
+            // the EXACT car data the player's physics was initialised with, so
+            // a stock-vs-upgraded mismatch can be pinned to the data pipeline
+            // (career-effective car vs raw reference) instead of guessed at.
+            if (player)
+            {
+                Debug.Log("[PlayerCar] id=" + (car != null ? car.id : "null") +
+                          " topSpeed=" + (car != null ? car.topSpeed : -1) +
+                          " accel=" + (car != null ? car.acceleration : -1) +
+                          " engine=" + (car != null ? car.enginePower : -1) +
+                          " aero=" + (car != null ? car.aeroEfficiency : -1) +
+                          " careerRace=" + IsCareerRace);
+            }
             if (!player)
             {
                 // Difficulty round 5 (per request): explicit, difficulty-scaled

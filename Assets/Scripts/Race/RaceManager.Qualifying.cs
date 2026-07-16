@@ -173,7 +173,18 @@ namespace LocalFormulaRacing
             // Difficulty round 4: re-anchored to the much faster race pace so
             // the grid keeps predicting the race (Easy 8->5%, Medium 1.5->0.5%,
             // Hard -3->-4%, Expert -6->-7%).
-            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.050f : Settings.Difficulty == RaceDifficulty.Medium ? 0.005f : Settings.Difficulty == RaceDifficulty.Hard ? -0.040f : -0.070f;
+            // Difficulty round 5 (per report - "my qualifying sims keep putting
+            // me P22"): the -4%/-7% AI bonus was anchored to an AI race
+            // handicap model (-92/-55/-15/-5 kph) that no longer exists - the
+            // AI's actual race advantage today is a +10/+13 kph straight-line
+            // bonus and a modest grip assist, roughly 1-2% of lap time. At
+            // -4%/-7% (2.8-4.9s on a typical lap) the ENTIRE AI field
+            // out-qualified the player by seconds regardless of car or driver
+            // (car effect caps at 1.7s, driver at ~0.5s), so the player was
+            // pinned to P22 on Hard/Expert no matter what they drove.
+            // Re-anchored to the CURRENT AI advantage so an upgraded car and a
+            // good driver genuinely move the player up the grid.
+            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.050f : Settings.Difficulty == RaceDifficulty.Medium ? 0.005f : Settings.Difficulty == RaceDifficulty.Hard ? -0.010f : -0.020f;
             breakdown.difficultyEffect = entry.isPlayer ? 0f : breakdown.baseLap * difficultyPercent;
 
             // Track evolution: small and gradual, shared identically by every
