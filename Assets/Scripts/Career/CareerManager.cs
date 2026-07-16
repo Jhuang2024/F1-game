@@ -4045,6 +4045,33 @@ namespace LocalFormulaRacing
             // the old flat 95.
             SortStandings(Save.constructorStandings);
 
+            // Catch-up development (per request - "speed up the other teams'
+            // R&D by a LOT; this lead is incredulous"): every AI team's whole
+            // development pipeline now scales with its rating gap to the BEST
+            // car on the grid (usually the player's). A team 10+ points down
+            // earns ~2.6x the resource points, burns through project weeks
+            // ~3x faster, and spins up extra concurrent projects - so a
+            // runaway leader drags the field's development up behind it
+            // instead of lapping their R&D too.
+            int leaderRating = 0;
+            TeamData playerTeamForRating = data.FindTeam(Save.playerTeamId);
+            if (playerTeamForRating != null)
+            {
+                leaderRating = RatingCalculator.GetCarOverall(GetEffectiveTeamCar(playerTeamForRating, data.FindCar(playerTeamForRating.carPerformanceId)));
+            }
+
+            for (int i = 0; i < data.Teams.teams.Count; i++)
+            {
+                TeamData ratingTeam = data.Teams.teams[i];
+                if (ratingTeam == null || ratingTeam.id == Save.playerTeamId)
+                {
+                    continue;
+                }
+
+                TeamDevelopmentState ratingState = GetOrCreateTeamDevelopmentState(ratingTeam.id);
+                leaderRating = Mathf.Max(leaderRating, ratingState.currentRating);
+            }
+
             for (int i = 0; i < data.Teams.teams.Count; i++)
             {
                 TeamData team = data.Teams.teams[i];
@@ -4060,9 +4087,13 @@ namespace LocalFormulaRacing
                     constructorPosition = 6;
                 }
 
-                float weekendIncome = 70f + Mathf.Max(0, 12 - constructorPosition) * 10f;
+                float ratingGap = Mathf.Max(0f, leaderRating - state.currentRating);
+                float catchUp = 1f + Mathf.Min(ratingGap, 12f) * 0.16f;
+
+                float weekendIncome = (70f + Mathf.Max(0, 12 - constructorPosition) * 10f) * catchUp;
                 state.resourcePoints += Mathf.RoundToInt(weekendIncome * Save.currentSeasonResourceMultiplier);
 
+                int weeksOfProgress = Mathf.Max(1, Mathf.RoundToInt(catchUp));
                 for (int p = state.activeUpgradeProjects.Count - 1; p >= 0; p--)
                 {
                     ActiveUpgradeProject project = state.activeUpgradeProjects[p];
@@ -4071,7 +4102,7 @@ namespace LocalFormulaRacing
                         continue;
                     }
 
-                    project.remainingRaceWeeks--;
+                    project.remainingRaceWeeks -= weeksOfProgress;
                     if (project.remainingRaceWeeks > 0)
                     {
                         continue;
@@ -4148,6 +4179,18 @@ namespace LocalFormulaRacing
 
                 state.activeUpgradeProjects.RemoveAll(p => p.status == ProjectCompleted || p.status == ProjectFailed);
                 TryStartAiUpgradeProject(team, state);
+                // Far-behind teams spin up additional projects the same weekend
+                // (each still pays full cost from their own - catch-up-boosted -
+                // resource pool).
+                if (ratingGap >= 5f)
+                {
+                    TryStartAiUpgradeProject(team, state);
+                }
+
+                if (ratingGap >= 9f)
+                {
+                    TryStartAiUpgradeProject(team, state);
+                }
             }
         }
 
@@ -4176,7 +4219,10 @@ namespace LocalFormulaRacing
             // points with nothing in development because this roll failed,
             // which is exactly the kind of stall that let the player's own,
             // uninterrupted R&D pull away to 104 while the grid sat in the 90s.
-            if (activeCount >= 3 || Random.value > 0.7f)
+            // Catch-up round (per request): another slot (3 -> 4) and a
+            // near-certain start roll (0.7 -> 0.9), paired with the gap-scaled
+            // income/progress in AdvanceAiTeamDevelopment.
+            if (activeCount >= 4 || Random.value > 0.9f)
             {
                 return;
             }
