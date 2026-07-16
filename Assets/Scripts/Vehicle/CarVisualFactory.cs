@@ -41,11 +41,20 @@ namespace LocalFormulaRacing
             return car;
         }
 
+        // Overall car size (per request - "make the cars slightly bigger"). A
+        // uniform scale on the car root grows the visual, the wheels and the
+        // physics collider together. Ride height is code-controlled (see
+        // VehicleController's targetRideHeight, world-space), so scaling the root
+        // never changes how high the car sits - only how big it reads and how
+        // much room it takes on track.
+        public const float CarSizeScale = 1.08f;
+
         public static GameObject CreateOpenWheelCar(string driverName, Color primary, Color secondary)
         {
             GameObject authored = TryInstantiateAuthoredCar(driverName);
             if (authored != null)
             {
+                authored.transform.localScale *= CarSizeScale;
                 return authored;
             }
 
@@ -156,6 +165,7 @@ namespace LocalFormulaRacing
             visuals.SetWheels(wheelFl, wheelFr, wheelRl, wheelRr);
             visuals.SetBrakeGlowMaterial(brakeDiscMaterial);
 
+            root.transform.localScale = Vector3.one * CarSizeScale;
             return root;
         }
 

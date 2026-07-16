@@ -255,11 +255,16 @@ namespace LocalFormulaRacing
                 weatherWear *= 1.3f;
             }
 
-            // Lockups add extra wear on top of the baseline model, scaled by how
-            // severe the current lockup event is (0 when no lockup is active).
-            // Tracked separately into RecentLockupWear as a diagnostic, in addition
-            // to feeding into the normal Wear reduction below.
-            float lockupWearRate = LockupSeverity > 0f ? Mathf.Lerp(0.03f, 0.16f, LockupSeverity) : 0f;
+            // Lockups add a little extra wear on top of the baseline model, scaled
+            // by how severe the current lockup event is (0 when none active).
+            // Consistency fix (per report - "wear can suddenly drop ~8% for no
+            // reason"): a locked wheel used to gouge up to ~0.16/s for ~0.6s, i.e.
+            // a ~9% instantaneous cliff, which read as random inconsistent
+            // degradation (and worsened as a worn tyre locked up more readily).
+            // Cut hard so a lockup's real consequence is the FLAT SPOT it leaves
+            // (the grip/vibration penalty via FlatSpotLevel, unchanged below), not
+            // a sudden chunk of tyre life - degradation now stays smooth.
+            float lockupWearRate = LockupSeverity > 0f ? Mathf.Lerp(0.008f, 0.035f, LockupSeverity) : 0f;
             RecentLockupWear += lockupWearRate * deltaTime;
 
             float overheatWear = Mathf.Lerp(1f, 2.0f, Mathf.InverseLerp(targetMax - 2f, targetMax + 32f, Temperature));

@@ -1221,7 +1221,10 @@ namespace LocalFormulaRacing
             // braking-zone recharge above is unaffected.
             else if (!ersEmptyCooldownActive && activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.324f * 0.8f * harvestModeMultiplier);
+                // Non-braking regen raised 30% (per request) - the 1.3 factor is
+                // kept separate so the prior tuning stays traceable. Braking-zone
+                // recharge above is unaffected.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.324f * 0.8f * 1.3f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ersEmptyCooldownActive && !ErsDeploying)
@@ -1258,7 +1261,9 @@ namespace LocalFormulaRacing
                 // Round 13: cut a further 20% (per request), same non-braking-only
                 // regen cut as the coasting rate above - braking-zone recharge is
                 // unaffected.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.324f * 0.85f * 0.8f * harvestModeMultiplier);
+                // Non-braking passive regen raised 30% (per request) - same 1.3
+                // factor as the coasting rate above; braking recharge unaffected.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.324f * 0.85f * 0.8f * 1.3f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 

@@ -1341,6 +1341,69 @@ namespace LocalFormulaRacing
             return baseHalfWidth + HairpinWidthBonus(distance);
         }
 
+        // Procedural per-section width variation for the hand-authored layouts,
+        // which otherwise run at a single flat roadHalfWidth from start to finish
+        // (per request - "why are all the track widths the same? some parts should
+        // be wider and some narrower"). Spline/authored circuits already carry
+        // their own authored per-point profile, so this no-ops when one exists.
+        // Width eases WIDER on the straights and NARROWER through corners, on top
+        // of a stable per-track base scale and a low-frequency wave, so no two
+        // circuits - and no two stretches of a lap - share the same width. Runs
+        // once at build time, AFTER the centreline is final and BEFORE the road
+        // mesh / racing line / barriers sample HalfWidthAt, so all of them honour
+        // the variation together. The hairpin widening bonus still stacks on top.
+        public void GenerateProceduralWidthProfile()
+        {
+            if (authoredHalfWidthProfile != null && authoredHalfWidthProfile.Length > 1)
+            {
+                return;
+            }
+
+            if (length <= 1f || centerLine == null || centerLine.Count < 8)
+            {
+                return;
+            }
+
+            int hash = 23;
+            string id = trackId ?? "";
+            for (int i = 0; i < id.Length; i++)
+            {
+                hash = unchecked(hash * 31 + id[i]);
+            }
+            hash &= 0x7fffffff;
+
+            // Some circuits are inherently wider than others - a stable per-track
+            // scale on top of the layout's own roadHalfWidth.
+            float trackScale = Mathf.Lerp(0.82f, 1.12f, (hash % 1000) / 1000f);
+            float baseHalf = Mathf.Max(6f, roadHalfWidth * trackScale);
+            float phase = (hash % 628) / 100f;
+
+            const int ProfileSamples = 96;
+            float[] profile = new float[ProfileSamples];
+            for (int s = 0; s < ProfileSamples; s++)
+            {
+                float u = s / (float)ProfileSamples;
+                float dist = u * length;
+
+                // Curvature: heading change over a short forward span - ~0 on a
+                // straight, ~1 through a tight corner.
+                Vector3 pA, fA, rA;
+                Vector3 pB, fB, rB;
+                SampleAtDistance(dist, out pA, out fA, out rA);
+                SampleAtDistance(dist + 22f, out pB, out fB, out rB);
+                float curvature = Mathf.Clamp01(Vector3.Angle(fA, fB) / 24f);
+
+                float cornerFactor = Mathf.Lerp(1.09f, 0.80f, curvature);
+                float wave = 1f
+                    + 0.10f * Mathf.Sin(u * Mathf.PI * 2f * 3f + phase)
+                    + 0.06f * Mathf.Sin(u * Mathf.PI * 2f * 7f + phase * 1.7f);
+
+                profile[s] = Mathf.Clamp(baseHalf * cornerFactor * wave, 5.5f, baseHalf * 1.28f);
+            }
+
+            authoredHalfWidthProfile = profile;
+        }
+
         // ---------- corner risk classification (public, UI-facing) ----------
         // A standalone windowed-cumulative-curvature scan - the same idea
         // TrackManager's own (private) barrier/fencing corner detection uses,
@@ -1835,6 +1898,10 @@ namespace LocalFormulaRacing
                 trackName = eventData != null ? eventData.displayName : "Prototype GP"
             };
             Runtime = CreateLayout(eventData);
+            // Vary the road width per track and per section - the hand-authored
+            // layouts otherwise all run at one flat width. Runs before the road
+            // mesh, racing line and barriers below, which all sample HalfWidthAt.
+            Runtime.GenerateProceduralWidthProfile();
             string trackId = Runtime.trackId ?? "";
             string weatherProfile = eventData != null && eventData.weatherProfile != null ? eventData.weatherProfile.ToLowerInvariant() : "";
             // Night/twilight now follow the calendar's own weatherProfile ("humid_night",
