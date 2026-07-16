@@ -891,7 +891,19 @@ namespace LocalFormulaRacing
             {
                 float severity = EstimateUpcomingCorner(progress.distance);
                 float brakeSeverity = Mathf.Clamp01((severity - 0.18f) / 0.82f);
-                float desiredSpeed = Mathf.Lerp(335f, 108f, brakeSeverity * brakeSeverity);
+                // THE 345-kph mystery, solved (per the [TopSpeed] log - target
+                // 380, car stuck at ~350): this curve used a FLAT 335 base, so
+                // even on a dead straight with zero corner severity the assist
+                // considered anything above 335 kph "too fast", injected brake
+                // ((v-335)/115) and cut throttle to 0.55 - pinning every car at
+                // ~345-355 regardless of its stat. It was tuned when all cars
+                // topped out ~350 and never visibly bound; the honest car-stat
+                // targets made it the binding cap, invisible in the target
+                // decomposition because it corrupts the pedal INPUTS. The
+                // straight-line end of the curve now sits safely above this
+                // car's own top-speed target, so the assist only ever slows the
+                // car for genuine corners.
+                float desiredSpeed = Mathf.Lerp(TargetTopSpeedKph + 40f, 108f, brakeSeverity * brakeSeverity);
                 if (speedKph > desiredSpeed)
                 {
                     assisted.brake = Mathf.Max(assisted.brake, Mathf.Clamp01((speedKph - desiredSpeed) / 115f));
