@@ -166,7 +166,7 @@ namespace LocalFormulaRacing
                     if (participant.isPlayer && !engineerPitRequestConfirmed)
                     {
                         engineerPitRequestConfirmed = true;
-                        PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is 110 km/h.", true, RaceAudioCue.PitConfirm);
+                        PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is 105 km/h.", true, RaceAudioCue.PitConfirm);
                     }
 
                     BeginPitEntry(participant, actualProgress);
@@ -401,7 +401,8 @@ namespace LocalFormulaRacing
         // Round 2 (per request): raised again, 100 -> 150.
         // Round 3 (per request): eased back, 150 -> 125.
         // Round 4 (per request): eased back again, 125 -> 110.
-        const float PlayerPitEntryPaceKph = 110f;
+        // Round 5 (per request): 110 -> 105.
+        const float PlayerPitEntryPaceKph = 105f;
         const float PitLanePaceKph = 75f;
         const float PitExitPaceKph = 106f;
         const float PitGuideLateralRateMetersPerSecond = 9f;

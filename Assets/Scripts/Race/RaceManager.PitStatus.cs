@@ -26,10 +26,10 @@ namespace LocalFormulaRacing
 
             if (participant.pitPhase == PitPhase.Entry)
             {
-                // Player entry runs the raised 110 kph pace (player pit-entry
+                // Player entry runs the raised 105 kph pace (player pit-entry
                 // buff); AI keep 80 - this text is only ever shown for the
                 // player's own HUD.
-                return "PIT LANE  TO BOX " + (participant.pitBoxIndex + 1) + "  LIMITER 110";
+                return "PIT LANE  TO BOX " + (participant.pitBoxIndex + 1) + "  LIMITER 105";
             }
 
             if (participant.pitPhase == PitPhase.Service)
