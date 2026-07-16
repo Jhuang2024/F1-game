@@ -219,9 +219,18 @@ namespace LocalFormulaRacing
             // Dry (Clear/Cloudy): only the three slick compounds get a flat offset -
             // Intermediate/Wet in the dry are already handled by their much lower
             // baseGrip alone, no additional flat penalty needed there.
+            // Dry offsets cut in half (per report - "360-stat car only pulls
+            // ~345"): the [PlayerCar] log proved the car data was right, and the
+            // remaining gap was exactly this offset - a hard tyre erased -30 kph
+            // of top speed, swallowing the entire car-stat advantage the player
+            // had earned (the original ask was a 5-10 kph compound difference,
+            // and the corner-speed side of a harder compound already comes from
+            // its lower grip). Soft stays the reference at 0; medium/hard now
+            // cost a real but sane straight-line penalty. Shared by AI targets,
+            // so field-wide consistency is preserved.
             if (Compound == TyreCompound.Soft) return 0f;
-            if (Compound == TyreCompound.Medium) return 15f;
-            if (Compound == TyreCompound.Hard) return 30f;
+            if (Compound == TyreCompound.Medium) return 7f;
+            if (Compound == TyreCompound.Hard) return 14f;
             return 0f;
         }
 
