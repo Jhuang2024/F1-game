@@ -1750,6 +1750,16 @@ namespace LocalFormulaRacing
             // is silently absorbed since the unassisted target already sits close
             // to it. DRS no longer touches this ceiling at all - see the flat,
             // uncapped DrsBoostActive bonus applied after every clamp below.
+            // Bonus-absorption fix (per report - "360 stat car still can't reach
+            // 360"): every bump below used to raise the ceiling relative to the
+            // OLD flat RaceSpeedCeilingKph (350) base. For a stock car the
+            // resulting ceiling exceeded its target, so nothing was lost - but
+            // for a high-stat car whose statTarget already sits above 350+bonus,
+            // the ceiling stayed at bare statTarget and the player bonus, ERS
+            // and the tow were all silently clamped away (target 395, capped
+            // straight back to 375). The ceiling is now built ADDITIVELY from
+            // the same base the target uses, so every bonus genuinely stacks on
+            // top of the stat for fast and slow cars alike.
             float ceiling = Mathf.Max(RaceSpeedCeilingKph, statTarget);
 
             // Player-only straightline speed buff: AiVehicleController's own
@@ -1759,12 +1769,12 @@ namespace LocalFormulaRacing
             if (IsPlayerControlled)
             {
                 target += PlayerTopSpeedBonusKph;
-                ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + PlayerTopSpeedBonusKph);
+                ceiling += PlayerTopSpeedBonusKph;
             }
             else
             {
                 target += aiTopSpeedBonusKph;
-                ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + aiTopSpeedBonusKph);
+                ceiling += aiTopSpeedBonusKph;
             }
 
             // Empty-battery ERS boost during DRS fix (per report): this used
@@ -1779,7 +1789,7 @@ namespace LocalFormulaRacing
             if (activeCommand.ers && ErsBattery > 0.01f)
             {
                 target += ErsTopSpeedBonusKph;
-                ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + ErsTopSpeedBonusKph);
+                ceiling += ErsTopSpeedBonusKph;
             }
 
             // Slipstream: a genuine top-speed bonus (see SlipstreamBonusKph), same
@@ -1791,15 +1801,16 @@ namespace LocalFormulaRacing
             if (slipstreamStrength > 0.05f)
             {
                 target += SlipstreamTopSpeedBonusKph * slipstreamStrength;
-                ceiling = Mathf.Max(ceiling, RaceSpeedCeilingKph + SlipstreamTopSpeedBonusKph);
+                ceiling += SlipstreamTopSpeedBonusKph;
             }
 
             // Stacking safety cap: was a flat 405 (the old 350 base + ~55 of
             // bonuses). Now relative to the car's own honest stat target so a
             // genuinely fast car keeps its full advantage under ERS/tow while
-            // the bonuses still can't stack unboundedly. Floored at the old 405
+            // the bonuses still can't stack unboundedly (player bonus 5 + ERS
+            // 30 + tow all fit inside the +60 headroom). Floored at the old 405
             // so stock cars behave exactly as before.
-            ceiling = Mathf.Min(ceiling, Mathf.Max(405f, statTarget + 55f));
+            ceiling = Mathf.Min(ceiling, Mathf.Max(405f, statTarget + 60f));
 
             // Tyre-difference pass: straight-line top speed previously never varied
             // by compound at all - only cornering/acceleration did, via tyre grip.

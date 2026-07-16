@@ -109,14 +109,14 @@ namespace LocalFormulaRacing
             if (compound == TyreCompound.Soft)
             {
                 baseGrip = 1f;
-                // Wear recalibration round 2 (per report - "display says 3 laps,
-                // soft can't even last 2"): the round-1 raise to 3.3 overshot.
-                // Solving all three observed data points together (soft ~2 laps
-                // hot, soft <2 at a displayed 3, hard ~5 at warm) gives one
-                // consistent driving constant, and it lands the soft at 2.0:
-                // ~4 laps cool / ~3 standard / ~2 hot, matching the displayed
-                // gradient at every temperature.
-                baseWear = 2.0f;
+                // Wear recalibration round 3 (per report - "softs last a bit
+                // more than 2 laps now but certainly not 3 which it says"):
+                // round 2's single shared driving constant was wrong - the
+                // compounds don't share one (grip differences change slip wear
+                // per compound), so each is now calibrated against its OWN
+                // observed data. Soft: ~2.4 laps observed at a displayed 3 with
+                // baseWear 2.0 -> 1.5 lands it on the displayed gradient.
+                baseWear = 1.5f;
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
@@ -127,9 +127,10 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Medium)
             {
                 baseGrip = 0.82f;
-                // Wear recalibration round 2 (same consistent-constant solve as
-                // the soft above): 5-lap cool anchor -> 1.58.
-                baseWear = 1.58f;
+                // Wear recalibration round 3 (per-compound calibration, see the
+                // soft above): no direct medium observation, so interpolated
+                // between the soft's (1.5) and hard's (1.1) calibrated rates.
+                baseWear = 1.35f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
@@ -140,8 +141,10 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Hard)
             {
                 baseGrip = 0.66f;
-                // ~4 laps (4.4 / 4) - still clearly the endurance tyre.
-                baseWear = 1.32f;
+                // Wear recalibration round 3: reverted to 1.1 - the hard was
+                // OBSERVED matching its display (5 laps at warm) at 1.1 before
+                // round 2's shared-constant raise broke it.
+                baseWear = 1.1f;
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;
@@ -155,7 +158,7 @@ namespace LocalFormulaRacing
                 // Mirrors the medium's durability at any temperature (per
                 // request) - same baseWear as Medium, and the track-temp wear
                 // multiplier in Tick maps Inter/Wet onto the Medium curve.
-                baseWear = 1.58f;
+                baseWear = 1.35f;
                 targetMin = 58f;
                 targetMax = 82f;
                 warmup = 1.05f;
@@ -172,7 +175,7 @@ namespace LocalFormulaRacing
                 // Mirrors the medium's durability at any temperature (per
                 // request) - same baseWear as Medium, and the track-temp wear
                 // multiplier in Tick maps Inter/Wet onto the Medium curve.
-                baseWear = 1.58f;
+                baseWear = 1.35f;
                 targetMin = 45f;
                 targetMax = 70f;
                 warmup = 1.1f;
