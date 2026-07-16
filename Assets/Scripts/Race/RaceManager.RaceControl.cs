@@ -852,6 +852,17 @@ namespace LocalFormulaRacing
         int cautionEpisodesThisRace;
         const int MaxCautionEpisodesPerRace = 1;
 
+        // Per-race caution lottery (per request - "yellow flags shouldn't even
+        // happen every race"): most races are rolled caution-free at the start,
+        // so no ordinary incident can raise a yellow/VSC/SC at all that race,
+        // whatever happens on track. Only when this rolls true is the single
+        // per-race caution allotment above even available. Genuinely
+        // catastrophic, track-blocking incidents (forceEscalate) still bypass
+        // both this lottery and the cap - a blocked track always gets a caution.
+        // Rolled once per session in ResetRaceControlState.
+        bool cautionsAllowedThisRace;
+        const float CautionChancePerRace = 0.35f;
+
         // True if a brand-new caution may begin right now. A track that is not
         // currently green is already under a caution, so deepening it (yellow ->
         // VSC/SC for the same incident) is always allowed and free. Passing
@@ -861,6 +872,13 @@ namespace LocalFormulaRacing
             if (CurrentRaceControlState != RaceControlState.Green)
             {
                 return true;
+            }
+
+            // This race was rolled caution-free: no ordinary incident produces
+            // any yellow/VSC/SC at all.
+            if (!cautionsAllowedThisRace)
+            {
+                return false;
             }
 
             if (cautionEpisodesThisRace >= MaxCautionEpisodesPerRace)
@@ -1049,6 +1067,8 @@ namespace LocalFormulaRacing
             playerDeclinedRaceControlPitOfferMessageSent = false;
             yellowSectorClearTimer = 0f;
             cautionEpisodesThisRace = 0;
+            // Roll the per-race caution lottery: most races come out caution-free.
+            cautionsAllowedThisRace = Random.value < CautionChancePerRace;
             yellowSectorCooldownUntil.Clear();
             globalMinorYellowCooldownUntil = 0f;
             globalYellowFlagCooldownUntil = 0f;

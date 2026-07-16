@@ -139,19 +139,24 @@ namespace LocalFormulaRacing
                 // tiers run genuinely faster, grippier cars as a deliberate
                 // difficulty mechanism (this replaces the old hidden flat kph
                 // bonus with an intentional, documented knob).
+                // AI top-speed advantage nerfed across every tier (per request -
+                // the AI was carrying too much straight-line speed): Easy now runs
+                // at true player top-speed parity, and the upper tiers keep a
+                // smaller edge than before (was 5/9/14/18). Grip assist is
+                // unchanged - this is a straight-line nerf only.
                 switch (Settings.Difficulty)
                 {
                     case RaceDifficulty.Easy:
-                        controller.SetAiPerformanceAssist(5f, 1f);
+                        controller.SetAiPerformanceAssist(0f, 1f);
                         break;
                     case RaceDifficulty.Medium:
-                        controller.SetAiPerformanceAssist(9f, 1.04f);
+                        controller.SetAiPerformanceAssist(4f, 1.04f);
                         break;
                     case RaceDifficulty.Hard:
-                        controller.SetAiPerformanceAssist(14f, 1.09f);
+                        controller.SetAiPerformanceAssist(8f, 1.09f);
                         break;
                     default:
-                        controller.SetAiPerformanceAssist(18f, 1.15f);
+                        controller.SetAiPerformanceAssist(11f, 1.15f);
                         break;
                 }
             }

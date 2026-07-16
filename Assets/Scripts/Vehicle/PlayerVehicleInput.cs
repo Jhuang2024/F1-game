@@ -15,20 +15,16 @@ namespace LocalFormulaRacing
         float steerValue;
         float throttleValue;
         float brakeValue;
+        // Auto-DRS latch state - now driven automatically (see below), not by a
+        // button press. Kept because several session/pit/pace-limit branches
+        // force it false to shut the wing.
         bool drsLatched;
-        // DRS queue fix: a Space press a frame or two before DRS actually becomes
-        // legal (zone/gap) used to be silently dropped. Queue it for a short window
-        // so it activates the instant DRS becomes available instead of requiring a
-        // second, perfectly-timed press.
-        float drsQueueTimer;
-        // Debounce for the availability-driven latch clear below: how long DRS
-        // has read unavailable, continuously. A single-frame blip of
-        // IsDrsAvailable (zone-boundary queries answered from two slightly
-        // different geometry sources, a momentary flag edge) used to clear the
-        // latch instantly - the wing slammed shut and stayed shut until the
-        // driver pressed again, which read as DRS READY/OPEN flicker and a
-        // finicky button. Only a SUSTAINED unavailable read closes the wing.
-        float drsUnavailableTimer;
+        // Auto-DRS hold-open grace: DRS now deploys itself (no button press) and
+        // this keeps the wing open a beat past the end of a zone so it lasts a
+        // little longer than the strict zone boundary. Refreshed every frame DRS
+        // is available, then counts down once it isn't.
+        float drsAutoHoldTimer;
+        const float DrsAutoHoldSeconds = 0.8f;
         float resetHoldTime;
         bool resetTriggered;
         float lastDamagePercent = -1f;
@@ -143,65 +139,25 @@ namespace LocalFormulaRacing
             command.throttle = Mathf.Clamp01(throttleValue);
             command.brake = Mathf.Clamp01(brakeValue);
             command.steer = Mathf.Clamp(steerValue, -1f, 1f);
-            // One availability read per frame, shared by the press, the queued
-            // press and the latch clear below - three separate live reads could
-            // disagree within a single frame at a zone boundary.
+            // Auto-DRS (per request): the wing deploys itself the instant DRS is
+            // available and the driver isn't braking, and retracts on its own when
+            // DRS is no longer available - no button press needed. A short
+            // hold-open grace (drsAutoHoldTimer) keeps it deployed a beat past the
+            // end of a zone, so DRS lasts a little longer than the strict zone
+            // boundary instead of snapping shut the instant the zone ends. Braking
+            // still closes it immediately (here and in VehicleController), and
+            // race control force-closes it while pace-limited regardless.
             bool drsAvailableNow = raceManager.IsDrsAvailable(participant);
-            if (input.DrsPressed)
-            {
-                if (drsAvailableNow)
-                {
-                    drsLatched = !drsLatched;
-                }
-                else
-                {
-                    drsQueueTimer = 0.4f;
-                }
-            }
-
-            if (drsQueueTimer > 0f)
-            {
-                drsQueueTimer = Mathf.Max(0f, drsQueueTimer - Time.deltaTime);
-                if (drsAvailableNow)
-                {
-                    drsLatched = true;
-                    drsQueueTimer = 0f;
-                }
-            }
-
-            // Debounced latch clear (see drsUnavailableTimer): the wing closes
-            // only after DRS has read unavailable for a sustained ~0.25s - a
-            // real zone exit or flag holds unavailable for far longer than
-            // that, while a one-frame boundary blip no longer costs the driver
-            // the latch (and a re-press) mid-zone. Braking still closes the
-            // wing instantly below, and race control force-closes it while
-            // pace-limited regardless of this latch.
             if (drsAvailableNow)
             {
-                drsUnavailableTimer = 0f;
+                drsAutoHoldTimer = DrsAutoHoldSeconds;
             }
             else
             {
-                drsUnavailableTimer += Time.deltaTime;
-                if (drsUnavailableTimer >= 0.25f)
-                {
-                    drsLatched = false;
-                }
+                drsAutoHoldTimer = Mathf.Max(0f, drsAutoHoldTimer - Time.deltaTime);
             }
 
-            // DRS deployment fix: braking auto-closes the wing (see
-            // VehicleController.ApplyForces) and real DRS never silently
-            // reopens on its own once closed mid-zone - the driver must press
-            // the button again. Without this the latch stayed true through a
-            // brake application and the wing would pop back open the instant
-            // the brake was released, with no second press.
-            // Threshold matched to VehicleController's wing-close level (0.2, was
-            // 0.05) so a tiny brake graze - or the smoothed tail of a released
-            // tap - doesn't eat the latch and demand a re-press mid-zone.
-            if (command.brake > 0.2f)
-            {
-                drsLatched = false;
-            }
+            drsLatched = command.brake <= 0.2f && (drsAvailableNow || drsAutoHoldTimer > 0f);
 
             command.ers = input.ErsDeployHeld;
             command.drs = drsLatched;
