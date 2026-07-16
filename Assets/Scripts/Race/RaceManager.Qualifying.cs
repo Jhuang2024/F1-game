@@ -88,11 +88,18 @@ namespace LocalFormulaRacing
         // (CircuitReferenceLapTime, track-only, no car parameter at all); the ONE
         // place car performance enters the model is the composite, track-weighted
         // carEffect term below.
-        const float DriverQualifyingCoefficient = 0.012f;
-        const float DriverPaceCoefficient = 0.003f;
-        const float DriverConfidenceCoefficient = 0.001f;
+        // Driver-separation pass (per report - the grid was almost pure car, so a
+        // top driver in a midfield car qualified midfield and, in a short race,
+        // finished there): the driver coefficients are raised so qualifying ability
+        // and pace carry real weight, and the car's maximum swing is trimmed a
+        // little (2.0 -> 1.7s) so an elite driver can drag a merely-decent car up
+        // the order rather than being locked to the machinery. Elite-vs-weak driver
+        // delta is now roughly 0.6-0.9s instead of ~0.3s.
+        const float DriverQualifyingCoefficient = 0.024f;
+        const float DriverPaceCoefficient = 0.007f;
+        const float DriverConfidenceCoefficient = 0.002f;
         const float CarEffectCoefficientPerPoint = 0.08f;
-        const float CarEffectCapSeconds = 2.0f;
+        const float CarEffectCapSeconds = 1.7f;
 
         QualifyingLapBreakdown SimulateQualifyingRunDetailed(QualifyingSimEntry entry, int phase, bool secondRun)
         {

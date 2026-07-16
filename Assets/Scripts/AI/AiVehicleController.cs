@@ -1176,9 +1176,26 @@ namespace LocalFormulaRacing
             // Driver-quality variance is the per-driver pace differentiator, independent
             // of difficulty; profile.paceMultiplier is the difficulty-tier pace scaler
             // layered on top so Hard/Expert are meaningfully quicker than Easy/Medium.
-            // Part A.8: racecraft's spread widened slightly (was 0.95-1.05) - the
-            // thinnest driver-stat blend found in the verification pass.
-            float driverPaceVariance = Mathf.Lerp(0.89f, 1.11f, pace / 100f) * Mathf.Lerp(0.92f, 1.08f, racecraft / 100f);
+            // Driver-separation fix (per report - "you can't tell Stroll from
+            // Verstappen; weak drivers finish among the strong"): real driver
+            // pace/qualifying stats only span roughly 74-97, so the old pace/100
+            // normalisation crushed the whole grid into a ~6% band where a pace-90
+            // and a pace-96 driver were barely 1% apart - well inside the race's
+            // own noise, so the field never sorted by skill. Both axes are now
+            // normalised against the ACTUAL stat band (InverseLerp), so the grid
+            // spreads across the full multiplier range: a genuine top driver is
+            // meaningfully quicker every lap than a midfielder, who is clearly
+            // quicker than a backmarker. Pace is the dominant race-pace axis;
+            // racecraft adds a smaller edge on top.
+            // The endpoints are deliberately chosen so the FIELD AVERAGE driver
+            // (pace/racecraft ~86) lands at ~1.14 - the same overall pace the old
+            // pace/100 mapping produced - so this only spreads the field, it does
+            // NOT change the average AI difficulty. A top driver comes out ~1.21,
+            // a backmarker ~1.08 (was ~1.18 vs ~1.11): roughly double the old
+            // top-to-bottom spread, so skill genuinely sorts the order.
+            float paceNorm = Mathf.InverseLerp(74f, 97f, pace);
+            float racecraftNorm = Mathf.InverseLerp(76f, 96f, racecraft);
+            float driverPaceVariance = Mathf.Lerp(1.06f, 1.16f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm);
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
             // multipliers (up to ~1.35x combined on Expert) used to inflate the
