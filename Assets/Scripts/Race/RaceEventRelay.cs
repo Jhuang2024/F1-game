@@ -309,7 +309,7 @@ namespace LocalFormulaRacing
                     Y = Mathf.Clamp01((pos.z - mapMinZ) / mapRangeZ),
                     IsPlayer = p != null && p.isPlayer,
                     Retired = p != null && p.retired,
-                    InPit = p != null && (p.isPitting || p.pitPhase != PitPhase.None),
+                    InPit = IsEnteringOrInPit(p),
                 };
             }
 
@@ -456,12 +456,41 @@ namespace LocalFormulaRacing
                     Compound = p != null && p.vehicle != null && p.vehicle.Tyres != null ? (int)p.vehicle.Tyres.Compound : 1,
                     DrsActive = p != null && p.vehicle != null && p.vehicle.DrsActive,
                     IsPlayer = p != null && p.isPlayer,
-                    InPit = p != null && (p.isPitting || p.pitPhase != PitPhase.None),
+                    InPit = IsEnteringOrInPit(p),
                     Retired = p != null && p.retired,
                 };
             }
 
             F1Game.Core.HudRaceOrder.Count = count;
+        }
+
+        // Leaderboard/track-map pit flag. The car is shown as pitting not only
+        // once it's physically committed to the ramp (pitPhase != None / isPitting,
+        // set at BeginPitEntry) but the instant it starts entering: a latched pit
+        // request while in the pit approach window (the same 0.78->corridor-start
+        // span the AI's committingToPit and the player's pit-entry assist use) -
+        // so the badge appears as soon as a car peels off toward the pits rather
+        // than only once it's already on the ramp. missedPitEntryThisLap guards a
+        // request that ran past the opening without committing.
+        bool IsEnteringOrInPit(RaceParticipant p)
+        {
+            if (p == null)
+            {
+                return false;
+            }
+
+            if (p.isPitting || p.pitPhase != PitPhase.None)
+            {
+                return true;
+            }
+
+            if (p.vehicle == null || !p.vehicle.PitRequested || p.missedPitEntryThisLap ||
+                race.Track == null || p.lapTracker == null)
+            {
+                return false;
+            }
+
+            return race.Track.IsInPitApproach(p.lapTracker.CurrentProgress.normalized);
         }
 
         FlagState MapFlag()

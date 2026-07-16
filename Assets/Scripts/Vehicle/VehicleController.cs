@@ -1848,7 +1848,12 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            float delta = Damage.AddImpact(impactSpeedKph, normalSpeedKph, localPoint, impactType, sustained);
+            // Player damage reduction (per request): the player takes 30% less
+            // damage from every impact than the raw impact model would apply.
+            // AI already take none (returned above), so this only scales the
+            // player's own accumulation.
+            const float PlayerDamageScale = 0.7f;
+            float delta = Damage.AddImpact(impactSpeedKph, normalSpeedKph, localPoint, impactType, sustained, PlayerDamageScale);
             LastDamageDebug = "object=" + objectName +
                               " type=" + impactType +
                               " impact=" + impactSpeedKph.ToString("0.0") +
