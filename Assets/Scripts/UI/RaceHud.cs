@@ -2755,7 +2755,7 @@ namespace LocalFormulaRacing
                 // in the hundreds and isn't meaningful to show anywhere.
                 "RACE CONTROL  YEL " + race.YellowFlagEventCount + "  VSC " + race.VirtualSafetyCarEventCount + "  PEN " + race.PenaltyEventCount + "  TOTAL " + race.RaceControlIncidentCount + "\n" +
                 "CONTACT  CAR " + race.CarContactIncidentCount + "  SOLO " + race.SoloContactIncidentCount + "\n" +
-                "Hold R to reset to track";
+                "Press R to reset to track";
         }
 
         // ---------- timing tower ----------

@@ -25,8 +25,9 @@ namespace LocalFormulaRacing
         // is available, then counts down once it isn't.
         float drsAutoHoldTimer;
         const float DrsAutoHoldSeconds = 0.8f;
-        float resetHoldTime;
-        bool resetTriggered;
+        // Tracks the reset key between frames so a single PRESS (the false->true
+        // edge) fires the recovery exactly once - no hold required.
+        bool resetKeyWasHeld;
         float lastDamagePercent = -1f;
 
         void Awake()
@@ -99,26 +100,20 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            // R: tap cycles ERS mode, hold ~1 second recovers a stuck car.
-            if (input.ResetHeld)
+            // R: a single press instantly recovers a stuck car - no hold needed
+            // (per request). Fires once on the press edge (false -> true).
+            if (input.ResetHeld && !resetKeyWasHeld)
             {
-                resetHoldTime += Time.deltaTime;
-                if (!resetTriggered && resetHoldTime >= 1.0f)
-                {
-                    resetTriggered = true;
-                    raceManager.ResetPlayerToSafePose(participant);
-                }
+                raceManager.ResetPlayerToSafePose(participant);
             }
 
-            if (input.ResetReleased)
-            {
-                if (!resetTriggered && resetHoldTime < 0.45f)
-                {
-                    settings.ersMode = (settings.ersMode + 1) % 3;
-                }
+            resetKeyWasHeld = input.ResetHeld;
 
-                resetHoldTime = 0f;
-                resetTriggered = false;
+            // ERS strategy cycle moved off R (now a dedicated one-press reset)
+            // onto the DRS button, which is free because DRS deploys itself now.
+            if (input.DrsPressed)
+            {
+                settings.ersMode = (settings.ersMode + 1) % 3;
             }
 
             VehicleCommand command = new VehicleCommand();

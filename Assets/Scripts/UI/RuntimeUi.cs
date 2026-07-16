@@ -2499,13 +2499,13 @@ namespace LocalFormulaRacing
             AddControlRow(leftList, "Brake / Reverse", "S  /  Down Arrow", rowWidth);
             AddControlRow(leftList, "Steer Left / Right", "A/D  /  Left/Right Arrow", rowWidth);
             AddControlRow(leftList, "Gamepad", "Vertical / Horizontal axes", rowWidth);
-            AddControlRow(leftList, "DRS Toggle", "Space (when race rules allow it)", rowWidth);
-            AddControlRow(leftList, "ERS Mode Cycle", "R", rowWidth);
+            AddControlRow(leftList, "DRS", "Automatic (deploys itself in the zones)", rowWidth);
+            AddControlRow(leftList, "ERS Mode Cycle", "Space", rowWidth);
             AddControlRow(leftList, "ERS Manual Override", "Left Shift  /  Right Shift", rowWidth);
             AddControlRow(leftList, "Manual Shift Down / Up", "Q  /  E  (Manual Gears only)", rowWidth);
             AddControlRow(leftList, "Pit Request", "P", rowWidth);
             AddControlRow(leftList, "Camera Toggle", "C", rowWidth);
-            AddControlRow(leftList, "Reset Car", "Hold R", rowWidth);
+            AddControlRow(leftList, "Reset Car", "Press R", rowWidth);
             AddControlRow(leftList, "Debug Overlay", "F1", rowWidth);
 
             RectTransform right = UiFactory.CreateCard(background, "Session controls card", new Vector2(0.54f, 0.12f), new Vector2(0.94f, 0.76f));
@@ -2517,7 +2517,7 @@ namespace LocalFormulaRacing
             UiFactory.CreateDivider(rightList);
             UiFactory.CreateSubHeader(rightList, "Assists");
             Text assistsNote = UiFactory.CreateText(rightList, "Assists note",
-                "Auto-brake, ABS, traction control, racing line, and input sensitivity are changed on the Assists tab. ERS mode can also be cycled in-race with R.",
+                "Auto-brake, ABS, traction control, racing line, and input sensitivity are changed on the Assists tab. DRS deploys automatically in the zones; ERS mode is cycled in-race with Space.",
                 14, new Color(0.78f, 0.86f, 0.9f), TextAnchor.UpperLeft);
             assistsNote.verticalOverflow = VerticalWrapMode.Overflow;
             UiFactory.SetSize(assistsNote, rowWidth, 78f);
@@ -6666,7 +6666,7 @@ namespace LocalFormulaRacing
             UiFactory.CreateText(menu, "Pause session", sessionLabel + "  ·  " + eventLabel, 18, UiFactory.TextMuted, TextAnchor.MiddleLeft);
             UiFactory.CreateDivider(menu);
             UiFactory.CreateSubHeader(menu, "Controls");
-            Text controls = UiFactory.CreateText(menu, "Pause controls", "W/S throttle & brake   A/D steer\nSpace DRS   R ERS mode (hold: reset car)\nShift ERS override   C camera   P pit\nQ/E manual shift   F1 debug overlay   Esc resume", 16, new Color(0.78f, 0.86f, 0.9f), TextAnchor.UpperLeft);
+            Text controls = UiFactory.CreateText(menu, "Pause controls", "W/S throttle & brake   A/D steer\nDRS auto   Space ERS mode   R reset car\nShift ERS override   C camera   P pit\nQ/E manual shift   F1 debug overlay   Esc resume", 16, new Color(0.78f, 0.86f, 0.9f), TextAnchor.UpperLeft);
             controls.verticalOverflow = VerticalWrapMode.Overflow;
             UiFactory.SetSize(controls, 460f, 92f);
             UiFactory.CreateDivider(menu);
