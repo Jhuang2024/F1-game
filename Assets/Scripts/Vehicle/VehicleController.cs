@@ -193,6 +193,10 @@ namespace LocalFormulaRacing
         float smoothedThrottle;
         float smoothedBrake;
         bool lowBatteryForcedHarvest;
+        // The mode the player actually had selected when the low-battery
+        // failsafe forced Harvest, restored once the battery recovers (the
+        // failsafe used to hard-reset to Balanced instead).
+        int ersModeBeforeForcedHarvest = (int)ErsStrategyMode.Balanced;
         // Velocity at the top of the current physics tick (see ApplyForces /
         // SoftenCarContact) - the baseline for clamping car-car impulses.
         Vector3 lastPrePhysicsVelocity;
@@ -876,15 +880,28 @@ namespace LocalFormulaRacing
                 }
             }
 
+            // Random-mode-change fix (per report - "ERS randomly won't harvest
+            // and auto-deploys, don't know if that's the strategy"): this
+            // failsafe used to hard-reset the mode to BALANCED on recovery
+            // regardless of what the player had actually selected - combined
+            // with Balanced's (now removed) own auto-deploy it produced a
+            // visible deploy/harvest/deploy cycle around the 24-28% band that
+            // the player never asked for. It now remembers and restores the
+            // player's own mode instead.
             if (ErsBattery < 0.02f)
             {
+                if (!lowBatteryForcedHarvest)
+                {
+                    ersModeBeforeForcedHarvest = settings.ersMode;
+                }
+
                 lowBatteryForcedHarvest = true;
                 settings.ersMode = (int)ErsStrategyMode.Harvest;
             }
             else if (lowBatteryForcedHarvest && ErsBattery > 0.28f)
             {
                 lowBatteryForcedHarvest = false;
-                settings.ersMode = (int)ErsStrategyMode.Balanced;
+                settings.ersMode = ersModeBeforeForcedHarvest;
             }
 
             // ERS mode governs when the car deploys automatically, but holding the
@@ -901,15 +918,15 @@ namespace LocalFormulaRacing
             // (a lower keep-alive threshold once deploying, via
             // autoDeployLatched) means a value hovering at the start threshold
             // can never flap the deploy state.
+            // Surprise-deploy fix (per report - "ERS randomly auto-deploys on
+            // track"): BALANCED used to auto-deploy too (throttle > 0.88 and
+            // speed > 130), which read as the car spending the battery by
+            // itself with no input. Auto-deploy is now exclusively an ATTACK
+            // mode behaviour - an explicit player choice - while Balanced and
+            // Harvest only ever deploy on the manual override key.
             bool autoDeployRequested = false;
             if (settings.ersMode == (int)ErsStrategyMode.Attack && ErsBattery > 0.06f &&
                 raw.throttle > (autoDeployLatched ? 0.38f : 0.55f))
-            {
-                autoDeployRequested = true;
-            }
-            else if (settings.ersMode == (int)ErsStrategyMode.Balanced && ErsBattery > 0.24f &&
-                     raw.throttle > (autoDeployLatched ? 0.72f : 0.88f) &&
-                     speedKph > (autoDeployLatched ? 112f : 130f))
             {
                 autoDeployRequested = true;
             }
@@ -1151,7 +1168,19 @@ namespace LocalFormulaRacing
             // a genuinely usable 1.5% minimum; once running it drains to true
             // zero (hysteresis), so the boost always dies before - never
             // after - the gauge reads empty.
-            ErsDeploying = activeCommand.ers && ErsBattery > (ErsDeploying ? 0f : 0.015f);
+            // Deploy-while-braking fix (per report - "ERS isn't draining when
+            // deployed along with DRS"): the braking-harvest branch below reads
+            // the ASSISTED brake, while the deploy request is keyed off RAW
+            // throttle/intent - so when the auto-brake assist injected brake at
+            // the end of a DRS straight with the driver's foot still flat, the
+            // car deployed AND harvested in the same frames, and the harvest
+            // (0.19/s peak) outran the drain (0.049/s) ~4:1 - the gauge held or
+            // even rose while the HUD showed DEPLOY with DRS open. Braking now
+            // cancels the deploy outright (same 0.1 threshold the braking
+            // harvest uses, so the two states are exactly mutually exclusive -
+            // brakes harvest, throttle deploys, never both), matching how
+            // braking already closes DRS.
+            ErsDeploying = activeCommand.ers && activeCommand.brake <= 0.1f && ErsBattery > (ErsDeploying ? 0f : 0.015f);
             ErsHarvesting = false;
             if (ErsDeploying)
             {
