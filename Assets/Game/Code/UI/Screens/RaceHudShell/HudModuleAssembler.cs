@@ -168,10 +168,12 @@ namespace F1Game.UI.Screens.RaceHudShell
 
             // Timing tower body: one multi-line tabular text, refreshed at the
             // publish cadence rather than per frame (mid-left dock).
-            var towerText = Numeric(hud.TimingTowerDock, "TimingTower", 17f);
+            // Font trimmed and height raised so the FULL 22-car field fits in the
+            // dock (it used to show only 10 rows at 17pt in 260px).
+            var towerText = Numeric(hud.TimingTowerDock, "TimingTower", 13f);
             towerText.alignment = TextAlignmentOptions.TopLeft;
             // Multi-line body: the shared Text() helper sizes for one line.
-            towerText.GetComponent<LayoutElement>().preferredHeight = 260f;
+            towerText.GetComponent<LayoutElement>().preferredHeight = 430f;
             hud.gameObject.AddComponent<TimingTowerModule>().Bind(towerText);
         }
 

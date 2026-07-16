@@ -1440,7 +1440,9 @@ namespace LocalFormulaRacing
                 float curvature = Mathf.Clamp01(Vector3.Angle(fA, fB) / 24f);
                 float cornerFactor = Mathf.Lerp(1.04f, 0.86f, curvature);
 
-                profile[s] = Mathf.Clamp(baseHalf * sectionWidth * cornerFactor, 5f, baseHalf * 1.45f);
+                // Floor at 7m half-width (14m wide) so the narrow sections are
+                // clearly tighter but never so pinched that the field wedges.
+                profile[s] = Mathf.Clamp(baseHalf * sectionWidth * cornerFactor, 7f, baseHalf * 1.45f);
             }
 
             authoredHalfWidthProfile = profile;
@@ -2273,27 +2275,60 @@ namespace LocalFormulaRacing
             }
             hash &= 0x7fffffff;
 
-            // Real, Spa/Austin-scale hills (per request - not road bumps): tens of
-            // metres of climb and descent over the lap. A couple of big sweeping
-            // rises/dips carry most of it, with a smaller secondary undulation on
-            // top. Deterministic per track, periodic over the loop so start and
-            // finish elevations match exactly.
-            float amp = Mathf.Lerp(22f, 40f, (hash % 1000) / 1000f);
+            // Per-track amplitude: most circuits get only a SMALL elevation
+            // fluctuation, and only the genuinely hilly ones (Spa, Austin,
+            // Interlagos...) get a real climb (per request - not every track needs
+            // crazy elevation). The previous pass applied 22-40m to everything
+            // with choppy high-frequency lobes, whose steep gradients broke the
+            // flat-chassis ride-height follower and the nearest-point progress
+            // lookup and froze the cars. Amplitudes are now modest and the shape
+            // is one or two BIG sweeping rises so gradients stay gentle (<~4%).
+            float amp = TrackElevationAmplitude(runtime.trackId);
             float phase1 = (hash % 628) / 100f;
             float phase2 = ((hash / 7) % 628) / 100f;
-            int lobes1 = 2 + (hash % 2);          // 2..3 big sweeping hills
-            int lobes2 = 4 + ((hash / 5) % 3);    // 4..6 secondary undulations
+            int lobes1 = 1 + (hash % 2);   // 1..2 big sweeping features
+            const int lobes2 = 3;          // one gentle secondary undulation
 
             int count = runtime.centerLine.Count;
             for (int i = 0; i < count; i++)
             {
                 float u = i / (float)count;
-                float e = amp * (0.80f * Mathf.Sin(u * Mathf.PI * 2f * lobes1 + phase1)
-                               + 0.20f * Mathf.Sin(u * Mathf.PI * 2f * lobes2 + phase2));
+                float e = amp * (0.85f * Mathf.Sin(u * Mathf.PI * 2f * lobes1 + phase1)
+                               + 0.15f * Mathf.Sin(u * Mathf.PI * 2f * lobes2 + phase2));
                 Vector3 p = runtime.centerLine[i];
                 p.y += e;
                 runtime.centerLine[i] = p;
             }
+        }
+
+        // Elevation amplitude (metres) by circuit character. Famously hilly tracks
+        // get a genuine climb; deserts, most street circuits and Monza stay nearly
+        // flat; everything else gets a small rolling fluctuation.
+        static float TrackElevationAmplitude(string trackId)
+        {
+            string id = string.IsNullOrEmpty(trackId) ? "" : trackId.ToLowerInvariant();
+
+            if (id.Contains("spa")) return 11f;
+            if (id.Contains("austin") || id.Contains("cota") || id.Contains("united")) return 10f;
+            if (id.Contains("portimao") || id.Contains("portugal")) return 10f;
+            if (id.Contains("interlagos") || id.Contains("brazil") || id.Contains("sao")) return 9f;
+            if (id.Contains("austria") || id.Contains("red_bull")) return 8f;
+            if (id.Contains("mexico") || id.Contains("suzuka") || id.Contains("japan") ||
+                id.Contains("zandvoort") || id.Contains("imola")) return 7f;
+
+            // Rolling but not dramatic.
+            if (id.Contains("silverstone") || id.Contains("barcelona") || id.Contains("hungary") ||
+                id.Contains("melbourne") || id.Contains("istanbul")) return 4.5f;
+
+            // Near-flat: deserts, most street circuits, Monza.
+            if (id.Contains("monza") || id.Contains("bahrain") || id.Contains("qatar") ||
+                id.Contains("abu_dhabi") || id.Contains("miami") || id.Contains("vegas") ||
+                id.Contains("baku") || id.Contains("singapore") || id.Contains("monaco") ||
+                id.Contains("madrid") || id.Contains("china") || id.Contains("shanghai") ||
+                id.Contains("canada") || id.Contains("jeddah")) return 2.5f;
+
+            // Default: a small fluctuation.
+            return 3.5f;
         }
 
         void AddLayoutPoints(TrackRuntime runtime)

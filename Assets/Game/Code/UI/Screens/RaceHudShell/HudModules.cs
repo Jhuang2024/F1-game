@@ -807,7 +807,9 @@ namespace F1Game.UI.Screens.RaceHudShell
     /// </summary>
     public sealed class TimingTowerModule : MonoBehaviour
     {
-        const int VisibleRows = 10;
+        // Show the whole field (up to the full 22-car grid), per request - the
+        // tower used to cap at the top 10 plus the player's row.
+        const int VisibleRows = 22;
 
         [SerializeField] TMP_Text body;
         readonly System.Text.StringBuilder sb = new System.Text.StringBuilder(512);
