@@ -89,7 +89,7 @@ namespace LocalFormulaRacing
                 {
                     round = 1,
                     trackId = "bahrain_desert",
-                    displayName = "Bahrain-style Desert GP",
+                    displayName = "Bahrain GP",
                     country = "Local Prototype",
                     laps3 = 3,
                     laps5 = 5,

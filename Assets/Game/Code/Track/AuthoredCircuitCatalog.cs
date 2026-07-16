@@ -162,8 +162,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = MonzaTrackId,
-                DisplayName = "Italy-style Speed GP",
-                Country = "Italy-inspired",
+                DisplayName = "Italy GP",
+                Country = "Italy",
                 EnvironmentStyle = "Low-downforce park",
                 HalfWidthMeters = 15.98f,
                 KerbStartMeters = 9.4f,
@@ -188,8 +188,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = ChinaTrackId,
-                DisplayName = "China-style Technical GP",
-                Country = "China-inspired",
+                DisplayName = "China GP",
+                Country = "China",
                 EnvironmentStyle = "Technical snail and back straight",
                 HalfWidthMeters = 15.06f,
                 KerbStartMeters = 8.87f,
@@ -214,8 +214,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = MiamiTrackId,
-                DisplayName = "Miami-style Stadium GP",
-                Country = "United States-inspired",
+                DisplayName = "Miami GP",
+                Country = "United States",
                 EnvironmentStyle = "Stadium street rhythm",
                 HalfWidthMeters = 13.0f,
                 KerbStartMeters = 7.63f,
@@ -240,8 +240,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = CanadaTrackId,
-                DisplayName = "Canada-style Stop-Go GP",
-                Country = "Canada-inspired",
+                DisplayName = "Canada GP",
+                Country = "Canada",
                 EnvironmentStyle = "Stop-go island",
                 HalfWidthMeters = 13.2f,
                 KerbStartMeters = 7.74f,
@@ -266,8 +266,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = BarcelonaTrackId,
-                DisplayName = "Spain-style Flowing GP",
-                Country = "Spain-inspired",
+                DisplayName = "Spain GP",
+                Country = "Spain",
                 EnvironmentStyle = "Flowing test track",
                 HalfWidthMeters = 14.86f,
                 KerbStartMeters = 8.66f,
@@ -292,8 +292,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = AustriaTrackId,
-                DisplayName = "Austria-style Hillside GP",
-                Country = "Austria-inspired",
+                DisplayName = "Austria GP",
+                Country = "Austria",
                 EnvironmentStyle = "Short alpine power",
                 HalfWidthMeters = 14.44f,
                 KerbStartMeters = 8.46f,
@@ -317,8 +317,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = HungaryTrackId,
-                DisplayName = "Hungary-style Technical GP",
-                Country = "Hungary-inspired",
+                DisplayName = "Hungary GP",
+                Country = "Hungary",
                 EnvironmentStyle = "Twisty technical bowl",
                 HalfWidthMeters = 13.0f,
                 KerbStartMeters = 7.63f,
@@ -343,8 +343,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = ZandvoortTrackId,
-                DisplayName = "Netherlands-style Coastal GP",
-                Country = "Netherlands-inspired",
+                DisplayName = "Netherlands GP",
+                Country = "Netherlands",
                 EnvironmentStyle = "Coastal banked flow",
                 HalfWidthMeters = 12.89f,
                 KerbStartMeters = 7.52f,
@@ -368,8 +368,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = MadridTrackId,
-                DisplayName = "Madrid-style Hybrid Street GP",
-                Country = "Spain-inspired",
+                DisplayName = "Madrid GP",
+                Country = "Spain",
                 EnvironmentStyle = "Hybrid street exhibition",
                 HalfWidthMeters = 12.37f,
                 KerbStartMeters = 7.22f,
@@ -394,8 +394,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = BakuTrackId,
-                DisplayName = "Azerbaijan-style Fast Street GP",
-                Country = "Azerbaijan-inspired",
+                DisplayName = "Azerbaijan GP",
+                Country = "Azerbaijan",
                 EnvironmentStyle = "Castle straight street",
                 HalfWidthMeters = 12.79f,
                 KerbStartMeters = 7.52f,
@@ -420,8 +420,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = AustinTrackId,
-                DisplayName = "United States-style Rollercoaster GP",
-                Country = "United States-inspired",
+                DisplayName = "United States GP",
+                Country = "United States",
                 EnvironmentStyle = "Rollercoaster esses",
                 HalfWidthMeters = 15.06f,
                 KerbStartMeters = 8.87f,
@@ -446,8 +446,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = MexicoTrackId,
-                DisplayName = "Mexico-style High-Altitude GP",
-                Country = "Mexico-inspired",
+                DisplayName = "Mexico GP",
+                Country = "Mexico",
                 EnvironmentStyle = "High-altitude stadium",
                 HalfWidthMeters = 14.64f,
                 KerbStartMeters = 8.57f,
@@ -472,8 +472,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = LasVegasTrackId,
-                DisplayName = "Las Vegas-style Night Street GP",
-                Country = "United States-inspired",
+                DisplayName = "Las Vegas GP",
+                Country = "United States",
                 EnvironmentStyle = "Neon strip street",
                 HalfWidthMeters = 13.4f,
                 KerbStartMeters = 7.84f,
@@ -498,8 +498,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = QatarTrackId,
-                DisplayName = "Qatar-style High-Speed GP",
-                Country = "Qatar-inspired",
+                DisplayName = "Qatar GP",
+                Country = "Qatar",
                 EnvironmentStyle = "Desert high-speed flow",
                 HalfWidthMeters = 15.47f,
                 KerbStartMeters = 9.07f,
@@ -524,8 +524,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = JeddahTrackId,
-                DisplayName = "Saudi-style Fast Street GP",
-                Country = "Saudi Arabia-inspired",
+                DisplayName = "Saudi Arabia GP",
+                Country = "Saudi Arabia",
                 EnvironmentStyle = "Fast coastal street",
                 HalfWidthMeters = 13.2f,
                 KerbStartMeters = 7.74f,
@@ -549,8 +549,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = MonacoTrackId,
-                DisplayName = "Monaco-style Tight Street GP",
-                Country = "Monaco-inspired",
+                DisplayName = "Monaco GP",
+                Country = "Monaco",
                 EnvironmentStyle = "Tight harbour street",
                 HalfWidthMeters = 11.14f,
                 KerbStartMeters = 6.5f,
@@ -575,8 +575,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = SuzukaTrackId,
-                DisplayName = "Japan-style Figure-Eight GP",
-                Country = "Japan-inspired",
+                DisplayName = "Japan GP",
+                Country = "Japan",
                 EnvironmentStyle = "Technical esses Park",
                 HalfWidthMeters = 13.61f,
                 KerbStartMeters = 7.93f,
@@ -603,8 +603,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = SilverstoneTrackId,
-                DisplayName = "Britain-style High-Speed GP",
-                Country = "United Kingdom-inspired",
+                DisplayName = "Britain GP",
+                Country = "United Kingdom",
                 EnvironmentStyle = "High-speed airfield",
                 HalfWidthMeters = 15.88f,
                 KerbStartMeters = 9.28f,
@@ -629,8 +629,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = SpaTrackId,
-                DisplayName = "Belgium-style Long Flowing GP",
-                Country = "Belgium-inspired",
+                DisplayName = "Belgium GP",
+                Country = "Belgium",
                 EnvironmentStyle = "Long Ardennes elevation",
                 HalfWidthMeters = 15.26f,
                 KerbStartMeters = 8.98f,
@@ -655,8 +655,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = SingaporeTrackId,
-                DisplayName = "Singapore-style Night Street GP",
-                Country = "Singapore-inspired",
+                DisplayName = "Singapore GP",
+                Country = "Singapore",
                 EnvironmentStyle = "Night street ninety",
                 HalfWidthMeters = 11.54f,
                 KerbStartMeters = 6.8f,
@@ -680,8 +680,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = MelbourneTrackId,
-                DisplayName = "Australia-style Park GP",
-                Country = "Australia-inspired",
+                DisplayName = "Australia GP",
+                Country = "Australia",
                 EnvironmentStyle = "Park circuit",
                 HalfWidthMeters = 15.47f,
                 KerbStartMeters = 9.07f,
@@ -705,8 +705,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = InterlagosTrackId,
-                DisplayName = "Brazil-style Short Flowing GP",
-                Country = "Brazil-inspired",
+                DisplayName = "Brazil GP",
+                Country = "Brazil",
                 EnvironmentStyle = "Short flowing hillside",
                 HalfWidthMeters = 13.4f,
                 KerbStartMeters = 7.84f,
@@ -730,8 +730,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = AbuDhabiTrackId,
-                DisplayName = "Abu Dhabi-style Finale GP",
-                Country = "United Arab Emirates-inspired",
+                DisplayName = "Abu Dhabi GP",
+                Country = "United Arab Emirates",
                 EnvironmentStyle = "Twilight finale",
                 HalfWidthMeters = 14.64f,
                 KerbStartMeters = 8.57f,
@@ -755,8 +755,8 @@ namespace F1Game.Track
             return new LegacyCircuitSpec
             {
                 TrackId = BahrainTrackId,
-                DisplayName = "Bahrain-style Desert GP",
-                Country = "Bahrain-inspired",
+                DisplayName = "Bahrain GP",
+                Country = "Bahrain",
                 EnvironmentStyle = "Desert power braking",
                 HalfWidthMeters = 13.82f,
                 KerbStartMeters = 8.15f,

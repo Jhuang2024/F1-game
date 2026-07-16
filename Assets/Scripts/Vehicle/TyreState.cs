@@ -109,13 +109,14 @@ namespace LocalFormulaRacing
             if (compound == TyreCompound.Soft)
             {
                 baseGrip = 1f;
-                // Wear recalibration (per report - tyres outlasting the displayed
-                // estimate by ~1 lap): observed live life implied the old 2.2
-                // rate really delivered ~6 laps at cool track temp, not the
-                // table's anchor. Raised 1.5x so actual life lands on the
-                // recalibrated 4-lap cool anchor (TyreStrategyRules), keeping
-                // display, strategy and physics in agreement.
-                baseWear = 3.3f;
+                // Wear recalibration round 2 (per report - "display says 3 laps,
+                // soft can't even last 2"): the round-1 raise to 3.3 overshot.
+                // Solving all three observed data points together (soft ~2 laps
+                // hot, soft <2 at a displayed 3, hard ~5 at warm) gives one
+                // consistent driving constant, and it lands the soft at 2.0:
+                // ~4 laps cool / ~3 standard / ~2 hot, matching the displayed
+                // gradient at every temperature.
+                baseWear = 2.0f;
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
@@ -126,9 +127,9 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Medium)
             {
                 baseGrip = 0.82f;
-                // Wear recalibration: raised 1.2x (same pass as the soft above)
-                // so actual life lands on the 5-lap cool anchor.
-                baseWear = 1.76f;
+                // Wear recalibration round 2 (same consistent-constant solve as
+                // the soft above): 5-lap cool anchor -> 1.58.
+                baseWear = 1.58f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
@@ -140,7 +141,7 @@ namespace LocalFormulaRacing
             {
                 baseGrip = 0.66f;
                 // ~4 laps (4.4 / 4) - still clearly the endurance tyre.
-                baseWear = 1.1f;
+                baseWear = 1.32f;
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;
@@ -154,7 +155,7 @@ namespace LocalFormulaRacing
                 // Mirrors the medium's durability at any temperature (per
                 // request) - same baseWear as Medium, and the track-temp wear
                 // multiplier in Tick maps Inter/Wet onto the Medium curve.
-                baseWear = 1.76f;
+                baseWear = 1.58f;
                 targetMin = 58f;
                 targetMax = 82f;
                 warmup = 1.05f;
@@ -171,7 +172,7 @@ namespace LocalFormulaRacing
                 // Mirrors the medium's durability at any temperature (per
                 // request) - same baseWear as Medium, and the track-temp wear
                 // multiplier in Tick maps Inter/Wet onto the Medium curve.
-                baseWear = 1.76f;
+                baseWear = 1.58f;
                 targetMin = 45f;
                 targetMax = 70f;
                 warmup = 1.1f;

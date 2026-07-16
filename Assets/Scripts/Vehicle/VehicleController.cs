@@ -1417,6 +1417,19 @@ namespace LocalFormulaRacing
                 ? Mathf.Lerp(10f, 16f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph)) * (aiTopSpeedBonusKph / 5f)
                 : 0f;
 
+            // Stat-honesty part 2 (per report - "my 360-stat car only reaches
+            // ~355 even with a tow"): raising the top-speed TARGET for high
+            // stats was aspirational - the drag equilibrium sits ~350-355 for
+            // every car regardless of stat, the exact same "ceiling without a
+            // push" failure DRS/ERS/the player bonus each needed their own
+            // dedicated force for. This is that force for the topSpeed STAT:
+            // zero at the old flat 335-and-below behaviour, ramping up with the
+            // stat so a genuinely fast car is actually pushed to its number.
+            // High-speed-only (a straight-line tool, not corner-exit grunt),
+            // applies to player and AI alike - the stat is the stat.
+            float statTopSpeedBoost = Mathf.InverseLerp(335f, 420f, CarData != null ? CarData.topSpeed : 337f) * 26f *
+                Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(170f, 300f, forwardSpeedKph));
+
             // AI launch boost: a genuine additive forward force off a standing
             // start and off VSC/SC/yellow restarts (activeCommand.launchBoost, set
             // by AiVehicleController during its launch/recovery window). Doubling
@@ -1488,7 +1501,7 @@ namespace LocalFormulaRacing
                     ActiveSlowdownReason = "FUEL STARVATION";
                 }
 
-                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoostForce + slipstreamBoost + playerTopSpeedBoost + aiTopSpeedBoost) * starvationPower, ForceMode.Acceleration);
+                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoostForce + slipstreamBoost + playerTopSpeedBoost + aiTopSpeedBoost + statTopSpeedBoost * speedLimiter) * starvationPower, ForceMode.Acceleration);
                 if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
                 {
                     float pullThrough = Mathf.Lerp(5.6f, 2.0f, speedRatio) * activeCommand.throttle * speedLimiter;
