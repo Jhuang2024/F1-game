@@ -563,6 +563,49 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Weather-crossover parity (per report - "the track turned dry, the
+            // AI all got slicks and I'm stuck on inters"): the AI have a
+            // green-flag crossover trigger (AiVehicleController watches a
+            // persistent weather/compound mismatch and boxes for the correct
+            // rubber), but the player's auto strategy only ever fired the
+            // pre-race planned stop - a wet-declared race that dried out left
+            // the player stranded on wet tyres with no call. The player now
+            // gets the same crossover: after ~8s of sustained mismatch the car
+            // auto-queues a stop with the weather-correct compound, exactly
+            // like the AI (and symmetric: slicks in a race that turns wet also
+            // trigger it). Suppressed on the final lap like every other
+            // automatic trigger.
+            WeatherState weatherNow = Track != null ? Track.weather : WeatherState.Clear;
+            bool trackWetNow = weatherNow == WeatherState.LightRain || weatherNow == WeatherState.HeavyRain;
+            TyreCompound playerCompound = PlayerParticipant.vehicle.Tyres != null ? PlayerParticipant.vehicle.Tyres.Compound : TyreCompound.Medium;
+            bool playerOnWetCompound = playerCompound == TyreCompound.Intermediate || playerCompound == TyreCompound.Wet;
+            bool finalLap = F1Game.Race.Rules.AiPitStrategyRules.FinalLapSuppressesNewRequest(PlayerParticipant.lapTracker.CompletedLaps, RaceLaps);
+            if (PlayerParticipant.lapTracker.CompletedLaps > 0 && trackWetNow != playerOnWetCompound && !finalLap)
+            {
+                playerWeatherMismatchSeconds += Time.deltaTime;
+                if (playerWeatherMismatchSeconds > 8f)
+                {
+                    playerWeatherMismatchSeconds = 0f;
+                    PlayerParticipant.vehicle.RequestPit();
+                    PlayerParticipant.pitAutoTriggered = true;
+                    PlayerParticipant.activePitRequestSource = PitRequestSource.PreRacePlan;
+                    PlayerParticipant.manualPitRequested = false;
+                    PlayerParticipant.manualPitCommitted = false;
+                    PlayerParticipant.requestedPitCompound = NextPitCompound(PlayerParticipant);
+                    PlayerParticipant.requestedPitCompoundSet = true;
+                    SessionMessage = "Auto-pit: weather crossover (" + PlayerParticipant.requestedPitCompound + ")";
+                    GameLog.Info("[Pit] Weather-crossover auto stop for player, compound=" + PlayerParticipant.requestedPitCompound + ".");
+                    PostEngineerMessage(trackWetNow
+                        ? "Rain's here and we're on slicks - boxing for " + PlayerParticipant.requestedPitCompound + "s."
+                        : "Track's dry and we're on wet rubber - boxing for " + PlayerParticipant.requestedPitCompound + "s.", true);
+                    return;
+                }
+            }
+            else
+            {
+                playerWeatherMismatchSeconds = 0f;
+            }
+
             if (!ShouldPromptPlannedStop(PlayerParticipant))
             {
                 return;

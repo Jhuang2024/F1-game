@@ -515,6 +515,9 @@ namespace LocalFormulaRacing
         int cachedPlannedPitLapStopTwo = -1;
         bool engineerWeatherSent;
         bool engineerPitRequestConfirmed;
+        // Player weather-crossover accumulator (UpdatePlayerAutoPitStrategy):
+        // seconds of sustained weather/compound mismatch before the auto stop.
+        float playerWeatherMismatchSeconds;
         bool engineerTyreWarningSent;
         bool engineerBatteryWarningSent;
         bool engineerFinalLapSent;

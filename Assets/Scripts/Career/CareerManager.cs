@@ -3853,7 +3853,13 @@ namespace LocalFormulaRacing
                 // team's straight-line pace from swinging as wildly as its
                 // cornering/reliability, matching "avoid wild unrealistic
                 // chaos" for the one stat drivers notice most directly.
-                topSpeed = Mathf.RoundToInt(baseCar.topSpeed * Mathf.Lerp(1f, scale, 0.3f)),
+                // Raised 0.3 -> 0.6 (per report - "my car got slower in the
+                // new season but my top speed didn't change"): at 30% the
+                // season swing moved top speed by barely a rounding error, so
+                // a car that regressed everywhere else kept its old
+                // straight-line pace. 60% is a real, felt change (~a few kph
+                // per season swing) while still gentler than the other stats.
+                topSpeed = Mathf.RoundToInt(baseCar.topSpeed * Mathf.Lerp(1f, scale, 0.6f)),
                 acceleration = Mathf.RoundToInt(baseCar.acceleration * scale),
                 cornering = Mathf.RoundToInt(baseCar.cornering * scale),
                 braking = Mathf.RoundToInt(baseCar.braking * scale),
