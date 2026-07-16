@@ -69,7 +69,8 @@ namespace LocalFormulaRacing
         // and matched to the player's raised entry limiter (VehicleController)
         // - the player now approaches and enters the pits faster than the AI
         // by design. Round 2 (per request): raised again, 100 -> 150.
-        const float PitEntryAssistTargetSpeedKph = 150f;
+        // Round 3 (per request): eased back, 150 -> 125.
+        const float PitEntryAssistTargetSpeedKph = 125f;
         // Same short, dedicated pit-entry look-ahead AiVehicleController uses
         // (PitEntryLookAheadMeters) - the normal racing-line lookahead is tuned
         // for reading corners far down the track, not for tracking the much

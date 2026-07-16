@@ -2107,6 +2107,22 @@ namespace LocalFormulaRacing
                 EnsureCustomPlayerDriverBase();
             }
 
+            // Round-out-of-range save repair (per report - career hub showing
+            // "Round 25/24"): a save written when the calendar had more events
+            // (or corrupted) can carry a currentRound past today's calendar
+            // length. The season-rollover check only runs at race completion,
+            // so on load the stale round persisted forever - FindEventForRound
+            // fell back to the last event while the header showed an impossible
+            // round number. Clamp to the real calendar so the final round plays
+            // (and rolls the season over) normally.
+            if (data != null && data.Calendar != null && data.Calendar.events != null && data.Calendar.events.Count > 0 &&
+                (Save.currentRound < 1 || Save.currentRound > data.Calendar.events.Count))
+            {
+                GameLog.Warn("[Career] currentRound " + Save.currentRound + " outside the " +
+                             data.Calendar.events.Count + "-event calendar - clamped.");
+                Save.currentRound = Mathf.Clamp(Save.currentRound, 1, data.Calendar.events.Count);
+            }
+
             // Legacy DriverRatingModifier entries (written before the per-stat
             // fields existed) only ever have ratingDelta set - fold each into
             // the new per-stat fields exactly once so an old save's driver

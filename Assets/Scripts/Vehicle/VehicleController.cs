@@ -21,7 +21,8 @@ namespace LocalFormulaRacing
         // target so the whole player entry sequence runs at the same speed.
         const float AiPitEntryLimiterCapKph = 80f;
         // Round 2 (per request): raised again, 100 -> 150.
-        const float PlayerPitEntryLimiterCapKph = 150f;
+        // Round 3 (per request): eased back, 150 -> 125.
+        const float PlayerPitEntryLimiterCapKph = 125f;
         float PitEntryLimiterCapKph
         {
             get { return IsPlayerControlled ? PlayerPitEntryLimiterCapKph : AiPitEntryLimiterCapKph; }
