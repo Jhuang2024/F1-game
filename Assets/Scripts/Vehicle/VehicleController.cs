@@ -1221,9 +1221,11 @@ namespace LocalFormulaRacing
             // Round 2 (per request): braking-zone harvest cut a further 30%
             // (was 0.14-0.21), paired with the 10% deploy-drain raise in
             // PowertrainModel so the battery is a genuinely scarcer resource.
+            // Round 3 (per request): braking-zone harvest raised 30% - the 1.3
+            // factor is kept separate so the prior tuning stays traceable.
             if (activeCommand.brake > 0.1f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.098f, 0.147f, CarData.ersEfficiency / 100f) * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.098f, 0.147f, CarData.ersEfficiency / 100f) * 1.3f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             // Non-braking recharge fix round 3: both the off-throttle coasting rate
@@ -1253,7 +1255,8 @@ namespace LocalFormulaRacing
                 // Non-braking regen raised 30% (per request) - the 1.3 factor is
                 // kept separate so the prior tuning stays traceable. Braking-zone
                 // recharge above is unaffected.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.324f * 0.8f * 1.3f * harvestModeMultiplier);
+                // Raised a further 30% (per request) - second 1.3 factor.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.324f * 0.8f * 1.3f * 1.3f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
             else if (!ersEmptyCooldownActive && !ErsDeploying)
@@ -1292,7 +1295,8 @@ namespace LocalFormulaRacing
                 // unaffected.
                 // Non-braking passive regen raised 30% (per request) - same 1.3
                 // factor as the coasting rate above; braking recharge unaffected.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.324f * 0.85f * 0.8f * 1.3f * harvestModeMultiplier);
+                // Raised a further 30% (per request) - second 1.3 factor.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.324f * 0.85f * 0.8f * 1.3f * 1.3f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
 
@@ -1881,7 +1885,8 @@ namespace LocalFormulaRacing
             // damage from every impact than the raw impact model would apply.
             // AI already take none (returned above), so this only scales the
             // player's own accumulation.
-            const float PlayerDamageScale = 0.7f;
+            // Round 2 (per request): a further 30% off (0.7 * 0.7 = 0.49).
+            const float PlayerDamageScale = 0.49f;
             float delta = Damage.AddImpact(impactSpeedKph, normalSpeedKph, localPoint, impactType, sustained, PlayerDamageScale);
             LastDamageDebug = "object=" + objectName +
                               " type=" + impactType +
