@@ -92,6 +92,21 @@ namespace LocalFormulaRacing
                 }
 
                 ApplyQualifyingElimination(active, phase);
+
+                // Per-phase summary diagnostic ([QualiSim] set): the per-run
+                // logs only ever show the PLAYER's own lap terms - a "how did I
+                // end up P20" report also needs where the CUT was and whether
+                // the player cleared it, in the same console stream.
+                QualifyingSimEntry playerPhaseEntry = qualifyingEntries.Find(item => item.isPlayer);
+                if (playerPhaseEntry != null)
+                {
+                    float playerPhaseTime = GetQualifyingPhaseTime(playerPhaseEntry, phase);
+                    Debug.Log("[QualiSim] Q" + phase + " summary: playerTime=" +
+                              (playerPhaseTime > 0f ? playerPhaseTime.ToString("0.000") : "none") +
+                              " tyre=" + (Settings != null ? Settings.SelectedTyreCompound.ToString() : "?") +
+                              " cutoff=" + QualifyingCutoffTime(phase).ToString("0.000") +
+                              " eliminated=" + (string.IsNullOrEmpty(playerPhaseEntry.eliminatedIn) ? "no" : playerPhaseEntry.eliminatedIn));
+                }
             }
 
             Random.state = previousRandomState;

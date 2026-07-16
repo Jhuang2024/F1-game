@@ -45,6 +45,14 @@ namespace LocalFormulaRacing
                 first.finalTime += tyrePenalty;
                 second.tyreChoicePenalty = tyrePenalty;
                 second.finalTime += tyrePenalty;
+                // Part of the [QualiSim] diagnostic set: this penalty lands
+                // AFTER the per-run logs above, so it was invisible in the
+                // console while being fully capable of burying a front-row
+                // time (inters in the dry cost +1.7s, wets +3.1s - and the
+                // selected compound PERSISTS from previous sessions).
+                Debug.Log("[QualiSim] tyre choice " + tyreChoice.Value + " -> penalty " +
+                          (tyrePenalty >= 0f ? "+" : "") + tyrePenalty.ToString("0.000") +
+                          "s, best run " + Mathf.Min(first.finalTime, second.finalTime).ToString("0.000"));
             }
 
             return first.finalTime <= second.finalTime ? first : second;
