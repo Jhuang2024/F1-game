@@ -184,7 +184,18 @@ namespace LocalFormulaRacing
             // pinned to P22 on Hard/Expert no matter what they drove.
             // Re-anchored to the CURRENT AI advantage so an upgraded car and a
             // good driver genuinely move the player up the grid.
-            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.050f : Settings.Difficulty == RaceDifficulty.Medium ? 0.005f : Settings.Difficulty == RaceDifficulty.Hard ? -0.010f : -0.020f;
+            // Round 6 (per report - P22 again on a healthy driver/car): with the
+            // difficulty rework, AI machinery is IDENTICAL across difficulties
+            // (no kph bonus, no grip assist, no straight-line staircase) and
+            // difficulty differentiates racecraft - which does not apply to a
+            // solo qualifying lap. Even the previous -2% Expert bonus (-1.6s on
+            // a typical lap) buried the player's CAPPED car advantage (1.7s
+            // max) under the entire AI field: a backmarker with -1.6s of free
+            // difficulty time still out-qualified a 110-rated car. Hard/Expert
+            // now get NO artificial qualifying bonus, matching the race model;
+            // Easy/Medium keep their positive (slower) offsets, mirroring their
+            // genuinely slower race behaviour profiles.
+            float difficultyPercent = Settings.Difficulty == RaceDifficulty.Easy ? 0.050f : Settings.Difficulty == RaceDifficulty.Medium ? 0.005f : 0f;
             breakdown.difficultyEffect = entry.isPlayer ? 0f : breakdown.baseLap * difficultyPercent;
 
             // Track evolution: small and gradual, shared identically by every
