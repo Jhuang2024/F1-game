@@ -252,6 +252,23 @@ namespace LocalFormulaRacing
         // intentional difficulty mechanism.
         float aiTopSpeedBonusKph = 5f;
         float aiGripAssist = 1f;
+        // Pit-entry parity: set true for the tick whenever an AI car is
+        // physically approaching the pits (pit requested + inside the pit
+        // approach window). While true, the AI's difficulty grip/turn and
+        // top-speed assists are neutralised, so the AI corners the pit-entry
+        // turn-in with exactly the player's grip instead of carrying its
+        // assisted cornering speed through the peel-off - the residual reason
+        // the AI still cleared pit entry faster than the player even at a
+        // matched approach speed target.
+        bool aiPitApproachNeutralize;
+        // AI rotation authority (per request - "the AI need better rotation
+        // when turning"): a dedicated AI-only yaw-rate multiplier applied to
+        // turnRate but NOT to grip, so the AI turns in crisper / rotates into
+        // the corner rather than washing out into understeer, without handing
+        // it extra grip-limited corner speed (that lever, aiGripAssist, is
+        // being trimmed at the same time). Neutralised in the pit approach
+        // alongside the grip assist so pit-entry parity holds.
+        const float AiCorneringRotationBoost = 1.1f;
 
         /// <summary>Difficulty-scaled AI performance advantage (AI cars only):
         /// straight-line top-speed bonus in kph and a grip/turn multiplier.</summary>
@@ -687,6 +704,8 @@ namespace LocalFormulaRacing
 
             IsOnRoad = Track == null || !IsOffTrackSlowdown;
             IsOnKerb = Track != null && Track.IsOnKerb(transform.position);
+            aiPitApproachNeutralize = !IsPlayerControlled && PitRequested && Track != null &&
+                                      Track.IsInPitApproach(progress.normalized);
 
             VehicleCommand assisted = GetAssistedCommand(command, absoluteSpeedKph, progress);
             SmoothDriveCommand(ref assisted, absoluteSpeedKph, dt);
@@ -1038,7 +1057,7 @@ namespace LocalFormulaRacing
             LastPowerMultiplier = Damage.PowerMultiplier;
             LastGearTorqueMultiplier = GearTorqueMultiplier(absoluteSpeedKph);
             float gripStat = Mathf.Lerp(0.9f, 1.28f, CarData.cornering / 100f);
-            float grip = tyreGrip * gripStat * Damage.HandlingMultiplier * setupGripMultiplier * (IsPlayerControlled ? 1f : aiGripAssist);
+            float grip = tyreGrip * gripStat * Damage.HandlingMultiplier * setupGripMultiplier * (IsPlayerControlled || aiPitApproachNeutralize ? 1f : aiGripAssist);
             // Dirty-air cornering penalty (switch-gated, default off): a close car
             // ahead robs front-end grip in the corners only, via AeroModel's decay
             // curve scaled to a modest share of total grip.
@@ -1517,7 +1536,7 @@ namespace LocalFormulaRacing
             // speed again.
             float highSpeedLimit = Mathf.Lerp(1f, 0.8f, Mathf.InverseLerp(90f, 320f, speedKph));
             float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);
-            float turnRate = Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit * tyreGrip * Damage.HandlingMultiplier * (IsPlayerControlled ? 1f : aiGripAssist);
+            float turnRate = Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit * tyreGrip * Damage.HandlingMultiplier * (IsPlayerControlled || aiPitApproachNeutralize ? 1f : aiGripAssist * AiCorneringRotationBoost);
             // Tight-corner authority: a genuine hairpin's real turn radius needs more
             // rotational authority than cruising-speed turnRate provides even at
             // speedFactor's max (1.0 is reached by ~62kph already, well above a real

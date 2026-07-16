@@ -144,19 +144,22 @@ namespace LocalFormulaRacing
                 // was too easy to drive away from on the straights). This keeps
                 // the AI competitive while shaving a little straight-line speed.
                 // Grip assist is unchanged - this is a straight-line knob only.
+                // Pace nerf (per request - "nerf the AI just a smidge more"): a
+                // light trim to both the straight-line bonus and the grip/pace
+                // assist across the competitive tiers (Easy stays at parity).
                 switch (Settings.Difficulty)
                 {
                     case RaceDifficulty.Easy:
                         controller.SetAiPerformanceAssist(4f, 1f);
                         break;
                     case RaceDifficulty.Medium:
-                        controller.SetAiPerformanceAssist(8f, 1.04f);
+                        controller.SetAiPerformanceAssist(7f, 1.03f);
                         break;
                     case RaceDifficulty.Hard:
-                        controller.SetAiPerformanceAssist(13f, 1.09f);
+                        controller.SetAiPerformanceAssist(12f, 1.07f);
                         break;
                     default:
-                        controller.SetAiPerformanceAssist(16f, 1.15f);
+                        controller.SetAiPerformanceAssist(15f, 1.12f);
                         break;
                 }
             }
