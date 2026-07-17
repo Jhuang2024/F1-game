@@ -1502,7 +1502,9 @@ namespace LocalFormulaRacing
             // ramp itself is untouched.
             const float PitApproachTargetSpeedKph = 90f;
             const float PitApproachBrakeDecelMs2 = 10f;
-            const float PitApproachRampBufferMetres = 80f;
+            // Buffer raised 80 -> 140m (matching the player assist): lateral
+            // positioning happens entirely at the settled target speed.
+            const float PitApproachRampBufferMetres = 140f;
             if (committingToPit)
             {
                 float metresToRamp = (track.PitEntryRampStartNormalized - progress.normalized) * track.length;
@@ -1545,6 +1547,12 @@ namespace LocalFormulaRacing
                 float envelopeDistance = Mathf.Max(0f, metresToRamp - PitApproachRampBufferMetres);
                 float pitTargetMs = PitApproachTargetSpeedKph / 3.6f;
                 float pitEnvelopeKph = Mathf.Sqrt(pitTargetMs * pitTargetMs + 2f * PitApproachBrakeDecelMs2 * envelopeDistance) * 3.6f;
+                // Queue behind any pit-bound car ahead (per report - cars
+                // "overtake each other while being in animation"): the shared
+                // headway cap the player assist also obeys, so an AI arriving
+                // at racing pace follows the queue instead of driving past or
+                // through a slower car already committed ahead of it.
+                pitEnvelopeKph = Mathf.Min(pitEnvelopeKph, raceManager.PitApproachHeadwayCapKph(participant));
                 cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, pitEnvelopeKph);
                 brakingApexSpeed = Mathf.Min(brakingApexSpeed, pitEnvelopeKph);
             }

@@ -174,7 +174,22 @@ namespace LocalFormulaRacing
                 // per-tier overtaking/defending delta in AiVehicleController -
                 // plus the existing per-tier behaviour profiles (corner
                 // commitment, reaction, mistakes).
-                controller.SetAiPerformanceAssist(0f, 1f);
+                //
+                // Skill grip UTILIZATION (per report - "the swing feels not
+                // only not noticeable but completely trivial"): forty-one buff
+                // rounds pushed every driver's corner TARGETS beyond the
+                // physical envelope, so the widened target bands stopped
+                // separating anyone - the whole field cornered at the same
+                // physics-bound limit and the driver-skill spread evaporated.
+                // Skill now expresses where it can never saturate: how much of
+                // the car's REAL grip the driver actually uses. The ceiling is
+                // exactly 1.0 (the player's identical machinery - never above,
+                // so no unfair physics at any difficulty), and a backmarker
+                // leaves ~12% of the car on the table - a real, unsaturatable
+                // corner-speed gap that stacks with the car's own stats.
+                // Difficulty-independent by construction.
+                float skillNorm = driver == null ? 0.5f : Mathf.InverseLerp(74f, 97f, driver.pace);
+                controller.SetAiPerformanceAssist(0f, Mathf.Lerp(0.88f, 1f, skillNorm));
             }
             if (IsTimeTrial)
             {

@@ -305,7 +305,12 @@ namespace LocalFormulaRacing
         public void SetAiPerformanceAssist(float topSpeedBonusKph, float gripAssist)
         {
             aiTopSpeedBonusKph = Mathf.Clamp(topSpeedBonusKph, 0f, 30f);
-            aiGripAssist = Mathf.Clamp(gripAssist, 1f, 1.25f);
+            // Lower bound opened 1.0 -> 0.8 (skill grip-utilization pass, see
+            // RaceManager.Grid): values BELOW 1 express a driver using less of
+            // the car's real grip - never more than the player's identical
+            // machinery (the 1.25 unfair-advantage ceiling is unused; every
+            // current caller passes <= 1).
+            aiGripAssist = Mathf.Clamp(gripAssist, 0.8f, 1.25f);
         }
         // Flat DRS speed boost: +DrsBoostAmountKph, uncapped by the normal
         // top-speed ceiling, while the wing is open above DrsBoostThresholdKph -

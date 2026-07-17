@@ -73,6 +73,53 @@ namespace LocalFormulaRacing
         // Round 4 (per request): eased back again, 125 -> 110.
         // Round 5 (per request): 110 -> 105.
         const float PitEntryAssistTargetSpeedKph = 105f;
+
+        // Speed cap that keeps a pit-bound car from running into the pit-bound
+        // car ahead during the approach (per report - "the pitting procedure
+        // allows cars to overtake each other while being in animation"): the
+        // braking envelope lets everyone approach at racing pace, so a later
+        // arrival could catch a queued/railed car inside the corridor and
+        // drive straight past or through it. Any pit-bound car ahead within
+        // 90m now imposes a follow speed: match its pace plus a gentle
+        // gap-closing allowance, never below a crawl. Shared by the player
+        // assist and the AI approach envelope so both queue identically.
+        public float PitApproachHeadwayCapKph(RaceParticipant self)
+        {
+            if (self == null || State == null)
+            {
+                return 9999f;
+            }
+
+            float selfDistance = State.GetProgressDistance(self);
+            float cap = 9999f;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant other = Participants[i];
+                if (other == null || other == self || other.vehicle == null || other.retired || other.finished)
+                {
+                    continue;
+                }
+
+                bool pitBound = other.pitPhase != PitPhase.None ||
+                                (other.vehicle.PitRequested && !other.missedPitEntryThisLap);
+                if (!pitBound)
+                {
+                    continue;
+                }
+
+                float gap = State.GetProgressDistance(other) - selfDistance;
+                if (gap <= 2f || gap > 90f)
+                {
+                    continue;
+                }
+
+                float otherSpeed = Mathf.Abs(other.vehicle.CurrentSpeedKph);
+                float allowed = Mathf.Max(45f, otherSpeed + Mathf.Max(0f, gap - 14f) * 2.2f);
+                cap = Mathf.Min(cap, allowed);
+            }
+
+            return cap;
+        }
         // Same short, dedicated pit-entry look-ahead AiVehicleController uses
         // (PitEntryLookAheadMeters) - the normal racing-line lookahead is tuned
         // for reading corners far down the track, not for tracking the much
@@ -106,7 +153,17 @@ namespace LocalFormulaRacing
             Track.ComputePitEntryTargetPoint(progress.distance, PitEntryAssistLookAheadMeters, out targetPoint, out targetRotation);
 
             Vector3 toTarget = targetPoint - participant.transform.position;
-            float steer = Mathf.Clamp(Vector3.Dot(toTarget.normalized, participant.transform.right) * 2.2f, -1f, 1f);
+            // Steering-stability fix (per report - the assist "slamming me into
+            // one wall then into the other wall on the other side too"): the
+            // flat 2.2 gain was tuned for the old flat ~105 kph approach - at
+            // the braking envelope's racing speeds the same gain over-corrects,
+            // overshoots the line, over-corrects back, and the oscillation ends
+            // on alternating walls. The gain now scales down with speed
+            // (proportional control stays critically damped at any pace), and
+            // the final steer is rate-limited below so it can never snap
+            // between opposite locks in a frame.
+            float steerGain = 2.2f * Mathf.Clamp(105f / Mathf.Max(speedKph, 105f), 0.35f, 1f);
+            float steer = Mathf.Clamp(Vector3.Dot(toTarget.normalized, participant.transform.right) * steerGain, -1f, 1f);
 
             // Alignment-scaled approach speed (per report - "pinned against the
             // wall in pit entry again", now at the 150 kph entry pace): arriving
@@ -135,12 +192,18 @@ namespace LocalFormulaRacing
             // racing stretch - corners included - and only the steering guide
             // applies); once inside the braking zone the assist takes speed
             // over so the ramp is always made at the right pace.
+            // Buffer raised 80 -> 140m (wall-slam report): the lateral
+            // pre-positioning now happens entirely at the settled target speed
+            // instead of overlapping the tail of the braking zone.
             const float PitApproachBrakeDecelMs2 = 10f;
-            const float PitApproachRampBufferMetres = 80f;
+            const float PitApproachRampBufferMetres = 140f;
             float metresToRamp = (Track.PitEntryRampStartNormalized - progress.normalized) * Track.length;
             float envelopeDistance = Mathf.Max(0f, metresToRamp - PitApproachRampBufferMetres);
             float targetMs = alignedTargetKph / 3.6f;
             float envelopeKph = Mathf.Sqrt(targetMs * targetMs + 2f * PitApproachBrakeDecelMs2 * envelopeDistance) * 3.6f;
+            // Queue behind any pit-bound car ahead instead of catching it at
+            // racing pace inside the corridor.
+            envelopeKph = Mathf.Min(envelopeKph, PitApproachHeadwayCapKph(participant));
             // Fully automated again (per report - "why is it no longer
             // animated and I can press the throttle to make me go faster??"):
             // an earlier pass handed throttle/brake back to the player until
@@ -218,10 +281,32 @@ namespace LocalFormulaRacing
             // player expects to see once a stop is latched. Cancelling the
             // request (O key / HUD button) before the limiter line remains the
             // way to take back control.
-            command.steer = steer;
+            // Rate limit (wall-slam report): the wheel moves toward the target
+            // at a bounded rate instead of snapping between opposite locks in
+            // one frame - the other half of the oscillation fix beside the
+            // speed-scaled gain above. Unstick keeps instant full authority.
+            if (speedKph < 12f)
+            {
+                pitAssistSmoothedSteer = steer;
+            }
+            else
+            {
+                pitAssistSmoothedSteer = Mathf.MoveTowards(pitAssistSmoothedSteer, steer, Time.deltaTime * 3.5f);
+            }
+
+            command.steer = pitAssistSmoothedSteer;
             command.ers = false;
             command.drs = false;
             return command;
+        }
+
+        // Live state for the rate-limited assist steering above; only ever the
+        // player's, so a single field suffices.
+        float pitAssistSmoothedSteer;
+
+        void ResetPitAssistSteerSmoothing()
+        {
+            pitAssistSmoothedSteer = 0f;
         }
 
     }
