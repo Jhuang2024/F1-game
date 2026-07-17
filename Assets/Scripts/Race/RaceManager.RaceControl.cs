@@ -17,6 +17,72 @@ namespace LocalFormulaRacing
     /// </summary>
     public partial class RaceManager
     {
+        // Stuck-car diagnostic (per report - repeated "cars completely stuck"
+        // pileups whose physical cause has to be identified from screenshots):
+        // whenever race control is about to recover a stopped/off-track car,
+        // log exactly what colliders sit in the box ahead of it. If a car is
+        // wedged against an invisible collider (safety floor, apron, barrier),
+        // this names it in the console instead of leaving us to guess.
+        float lastStuckScanTime = -10f;
+
+        void LogStuckSurroundings(RaceParticipant participant, string reason)
+        {
+            if (participant == null || participant.transform == null)
+            {
+                return;
+            }
+
+            // Global rate limit: a 20-car pileup should produce a readable
+            // handful of lines, not hundreds per second.
+            if (Time.unscaledTime - lastStuckScanTime < 2f)
+            {
+                return;
+            }
+
+            lastStuckScanTime = Time.unscaledTime;
+            Transform t = participant.transform;
+            Vector3 boxCenter = t.position + t.forward * 3.5f + Vector3.up * 1.0f;
+            Collider[] hits = Physics.OverlapBox(boxCenter, new Vector3(3.0f, 1.8f, 5.0f), t.rotation);
+            TrackProgress progress = State != null ? State.GetCurrentProgress(participant)
+                : (participant.lapTracker != null ? participant.lapTracker.CurrentProgress : default(TrackProgress));
+            System.Text.StringBuilder text = new System.Text.StringBuilder(256);
+            text.Append("[StuckDiag] ").Append(participant.driverName)
+                .Append(" (").Append(reason).Append(") at normalized=").Append(progress.normalized.ToString("0.000"))
+                .Append(" pos=").Append(t.position.ToString("F1"))
+                .Append(" speed=").Append(participant.vehicle != null ? participant.vehicle.CurrentSpeedKph.ToString("0") : "?")
+                .Append("kph. Colliders ahead (").Append(hits.Length).Append("): ");
+            int cars = 0;
+            int named = 0;
+            for (int i = 0; i < hits.Length; i++)
+            {
+                Collider hit = hits[i];
+                if (hit == null)
+                {
+                    continue;
+                }
+
+                if (hit.GetComponentInParent<VehicleController>() != null)
+                {
+                    cars++;
+                    continue;
+                }
+
+                if (named < 10)
+                {
+                    named++;
+                    text.Append(hit.gameObject.name).Append(" @").Append(hit.bounds.center.ToString("F1"))
+                        .Append(" size=").Append(hit.bounds.size.ToString("F1")).Append("; ");
+                }
+            }
+
+            if (cars > 0)
+            {
+                text.Append("[").Append(cars).Append(" car(s)]");
+            }
+
+            Debug.Log(text.ToString());
+        }
+
         // Race control state machine: detects incidents across the field and drives
         // yellow flag / VSC / full safety car escalation, then de-escalates back to
         // green through a scripted restart. Skipped entirely in qualifying/time
@@ -250,6 +316,7 @@ namespace LocalFormulaRacing
                 if (participant.offTrackResetTimer > 1.5f)
                 {
                     participant.offTrackResetTimer = 0f;
+                    LogStuckSurroundings(participant, "off-track auto-recovery");
                     ResetParticipantToTrackCenter(participant, 120f);
                     GameLog.Info("[RaceControl] " + participant.driverName + " auto-recovered from off-track (player-R equivalent).");
                 }
@@ -258,6 +325,7 @@ namespace LocalFormulaRacing
                 if (participant.slowCrawlRetireTimer > 1f)
                 {
                     participant.slowCrawlRetireTimer = 0f;
+                    LogStuckSurroundings(participant, "crash-recovery");
                     ResetParticipantToTrackCenter(participant, 130f);
                     GameLog.Info("[RaceControl] " + participant.driverName + " crash-recovered to the track centerline.");
                 }

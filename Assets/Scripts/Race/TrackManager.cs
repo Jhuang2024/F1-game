@@ -3777,6 +3777,22 @@ namespace LocalFormulaRacing
             float nearbyRadius = halfWidth + 18f;
             float nearbyRadiusSqr = nearbyRadius * nearbyRadius;
 
+            // Round 2 of the intrusion clamp: the first pass compared against
+            // raw centreline POINTS, but on these layouts those can be ~130m
+            // apart - a lower road passing BETWEEN two points could still slip
+            // inside a slab's footprint unnoticed. The clamp now compares
+            // against the road densely sampled every 10m.
+            int denseCount = Mathf.Max(8, Mathf.CeilToInt(Runtime.length / 10f));
+            Vector3[] denseRoad = new Vector3[denseCount];
+            for (int i = 0; i < denseCount; i++)
+            {
+                Vector3 samplePoint;
+                Vector3 sampleForward;
+                Vector3 sampleRight;
+                Runtime.SampleAtDistance(i * (Runtime.length / denseCount), out samplePoint, out sampleForward, out sampleRight);
+                denseRoad[i] = samplePoint;
+            }
+
             for (float d = 0f; d < Runtime.length; d += spacing)
             {
                 Vector3 point;
@@ -3785,9 +3801,9 @@ namespace LocalFormulaRacing
                 Runtime.SampleAtDistance(d + spacing * 0.5f, out point, out forward, out right);
 
                 float lowestNearbyRoadY = point.y;
-                for (int i = 0; i < Runtime.centerLine.Count; i++)
+                for (int i = 0; i < denseCount; i++)
                 {
-                    Vector3 other = Runtime.centerLine[i];
+                    Vector3 other = denseRoad[i];
                     float dx = other.x - point.x;
                     float dz = other.z - point.z;
                     if (dx * dx + dz * dz <= nearbyRadiusSqr && other.y < lowestNearbyRoadY)
@@ -7551,12 +7567,18 @@ namespace LocalFormulaRacing
                 float centerLateral = (innerLateral + outerLateral) * 0.5f;
                 float width = Mathf.Max(4f, outerLateral - innerLateral);
 
-                // Sunk well below the real surfaces (top ~4cm under the road)
-                // so it can NEVER form a lip a car catches on - it only exists
-                // to catch a car where the proper paving has a gap.
+                // Sunk well below the real surfaces so it can NEVER form a lip
+                // a car catches on - it only exists to catch a car where the
+                // proper paving has a gap. Sunk deeper (top ~4cm -> ~27cm under
+                // the road, per report - cars stuck mid-final-turn, where this
+                // apron's span begins): the box is laid FLAT along a road that
+                // can be on a gradient through the pit-entry corner, and at ~1-2%
+                // grade over its ~26m length the old 4cm margin let the box's
+                // high end poke above the road surface as an invisible kerb
+                // 2m inside the track edge.
                 CreateCollidablePitSurface(
                     "Pit zone safety apron",
-                    point + right * centerLateral - Vector3.up * 0.12f,
+                    point + right * centerLateral - Vector3.up * 0.35f,
                     Quaternion.LookRotation(forward, Vector3.up),
                     new Vector3(width, 0.16f, segStep + 6f),
                     pitMaterial);
