@@ -3639,6 +3639,29 @@ namespace LocalFormulaRacing
                         raceManager.GetIntervalToAheadSeconds(participant) < 2.5f)
                     {
                         followPeek = preferredSide * Mathf.Lerp(2.2f, 3.2f, commitment);
+
+                        // Draft-and-sling (per request - "they should learn to
+                        // take advantage of [the slipstream]"): peeking out of
+                        // the wake the moment the car is within 2.5s threw the
+                        // tow away exactly when it mattered - the free straight-
+                        // line speed only flows while sitting square in the
+                        // leader's wake. On a straight with a LIVE tow the car
+                        // now holds dead-centre behind the leader and lets the
+                        // slipstream build the overspeed, and only swings out
+                        // for the pass once genuinely close. How early it slings
+                        // out is a skill read: a sharp tow-user (drsUsageQuality
+                        // is the profile's slipstream/DRS craft knob) stays
+                        // patient in the draft down to ~0.7s; a clumsy one pops
+                        // out early and wastes it. Corners keep the normal peek
+                        // (there is no meaningful tow mid-corner, and the peek
+                        // is what sets up the alternative line).
+                        bool onStraight = severityHere < 0.14f && (apexDistanceAhead > 70f || apexSeverity < 0.14f);
+                        float slingGap = Mathf.Lerp(1.1f, 0.7f, profile.drsUsageQuality);
+                        if (onStraight && vehicle.SlipstreamActive &&
+                            raceManager.GetIntervalToAheadSeconds(participant) > slingGap)
+                        {
+                            followPeek = 0f;
+                        }
                     }
 
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, followPeek, Time.deltaTime * 5f);
@@ -3713,15 +3736,45 @@ namespace LocalFormulaRacing
                         // true - no dice roll for permission to attack.
                         if (attackTrigger && !suppressAttackManeuvers && !inCornerCommitmentZone && (isExpert || Random.value < commitment * Time.deltaTime * (20f + patienceBonus) * drsBonus))
                         {
-                            overtakeState = OvertakeState.PreparingAttack;
-                            overtakeStateTimer = preparingAttackTimer;
-                            followingTimer = 0f;
                             // Versatile side choice (per request - the AI always
                             // took the same side): reads the corner, the
                             // defender's actual road position and the driver's
                             // craft instead of defaulting to the side the car
                             // happened to lean toward.
                             attackSide = ChooseAttackSide(ahead, apexSeverity, apexDistanceAhead, turnSign, overtaking);
+                            followingTimer = 0f;
+
+                            // Decisive commitment (per request - "if they want a
+                            // move done they should just go and do it instead of
+                            // swerving a tiny bit slowing themselves down"): the
+                            // PreparingAttack feint exists for probing moves
+                            // where the attacker is still manufacturing an
+                            // advantage. With a REAL advantage already in hand -
+                            // genuine overspeed, a DRS/slipstream run, or
+                            // already overlapped alongside the defender - the
+                            // half-width shimmy is pure dithering that bleeds
+                            // the very speed delta the move depends on, so those
+                            // launch straight into the full attack. Skill still
+                            // decides what counts as "real": a low-commitment
+                            // driver needs roughly double the overspeed before
+                            // it feels decisive, and the tow/DRS routes lean on
+                            // stats the same way everything else here does.
+                            Vector3 aheadLocalNow = transform.InverseTransformPoint(ahead.transform.position);
+                            bool overlappedAlongside = Mathf.Abs(aheadLocalNow.z) < 8f && Mathf.Abs(aheadLocalNow.x) > 1.1f;
+                            bool decisiveAdvantage = speedDeltaKph > Mathf.Lerp(7f, 3f, commitment) ||
+                                                     (drsHelp && speedDeltaKph > 1f) ||
+                                                     (vehicle.SlipstreamActive && speedDeltaKph > 2f) ||
+                                                     overlappedAlongside;
+                            if (decisiveAdvantage)
+                            {
+                                overtakeState = attackSide < 0f ? OvertakeState.AttackingOutside : OvertakeState.AttackingInside;
+                                overtakeStateTimer = attackingTimer;
+                            }
+                            else
+                            {
+                                overtakeState = OvertakeState.PreparingAttack;
+                                overtakeStateTimer = preparingAttackTimer;
+                            }
                         }
                     }
                     else
@@ -3738,7 +3791,30 @@ namespace LocalFormulaRacing
                     float prepOffset = attackSide * Mathf.Lerp(1.2f, 2.6f, commitment) * 0.6f;
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, Mathf.Clamp(prepOffset, -legalLimit, legalLimit), Time.deltaTime * 5f);
                     bool stillThere = ahead != null && raceManager.GetIntervalToAheadSeconds(participant) < 1.4f;
-                    if (!stillThere || overtakeStateTimer <= 0f)
+
+                    // Decisive commitment, prep half (per request - no swerving
+                    // around wondering whether to make the move): if a genuine
+                    // advantage MATERIALISES during the feint - the tow kicks
+                    // in, DRS opens, or real overspeed builds - the car commits
+                    // to the attack right now instead of riding the prep timer
+                    // out and then rolling dice on whether it dares. The bail
+                    // roll stays only for the no-advantage case, which keeps
+                    // the skill spread: low-commitment drivers still talk
+                    // themselves out of speculative moves, but nobody talks
+                    // themselves out of an advantage they already hold.
+                    bool liveAdvantage = false;
+                    if (stillThere && ahead.vehicle != null)
+                    {
+                        float prepSpeedDeltaKph = Mathf.Abs(vehicle.CurrentSpeedKph) - Mathf.Abs(ahead.vehicle.CurrentSpeedKph);
+                        liveAdvantage = prepSpeedDeltaKph > 2f || vehicle.SlipstreamActive || raceManager.IsDrsAvailable(participant);
+                    }
+
+                    if (liveAdvantage && !inCornerCommitmentZone)
+                    {
+                        overtakeState = attackSide < 0f ? OvertakeState.AttackingOutside : OvertakeState.AttackingInside;
+                        overtakeStateTimer = attackingTimer;
+                    }
+                    else if (!stillThere || overtakeStateTimer <= 0f)
                     {
                         // Part A.2: Expert commits to the attack whenever the target is
                         // still there, no roll.
@@ -3940,9 +4016,16 @@ namespace LocalFormulaRacing
             if (cornerNearby && Mathf.Abs(turnSign) > 0.1f)
             {
                 bool insideCovered = Mathf.Abs(defenderLateral) > 0.9f && Mathf.Sign(defenderLateral) == Mathf.Sign(turnSign);
+                // Boosted hard (per request - "they should go for outside asw...
+                // we need a lot more of it"): a covered inside now almost always
+                // means an outside sweep for a skilled overtaker, and even an
+                // open inside gets a genuine around-the-outside attempt roughly
+                // one time in two at the top of the stat range. Still fully
+                // skill-scaled through the overtaking stat - a clumsy overtaker
+                // keeps defaulting to the classic inside dive.
                 float outsideChance = insideCovered
-                    ? Mathf.Lerp(0.5f, 0.85f, overtaking / 100f)
-                    : Mathf.Lerp(0.12f, 0.3f, overtaking / 100f);
+                    ? Mathf.Lerp(0.6f, 0.92f, overtaking / 100f)
+                    : Mathf.Lerp(0.25f, 0.55f, overtaking / 100f);
                 return Random.value < outsideChance ? -turnSign : turnSign;
             }
 

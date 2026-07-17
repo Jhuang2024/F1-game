@@ -189,7 +189,11 @@ namespace LocalFormulaRacing
                 // corner-speed gap that stacks with the car's own stats.
                 // Difficulty-independent by construction.
                 float skillNorm = driver == null ? 0.5f : Mathf.InverseLerp(74f, 97f, driver.pace);
-                float gripUtilization = Mathf.Lerp(0.88f, 1f, skillNorm);
+                // Widened again (per request - "the skill gap still isn't
+                // nearly wide enough"): a backmarker now leaves ~22% of the
+                // car on the table (was 12%). Ceiling stays exactly 1.0 - the
+                // player's identical machinery, never above.
+                float gripUtilization = Mathf.Lerp(0.78f, 1f, skillNorm);
                 controller.SetAiPerformanceAssist(0f, gripUtilization);
                 // Unconditional diagnostic ([PlayerCar]/[QualiSim] pattern, per
                 // report - "I don't know what you did with the skill level but
