@@ -1245,7 +1245,15 @@ namespace LocalFormulaRacing
             // difficulty setting - top-to-bottom corner-pace spread is now ~8%
             // (~2.5-3s/lap between the best and worst chassis), stacked on the
             // driver spread.
-            float carPaceVariance = Mathf.Lerp(0.955f, 1.035f, carNorm);
+            // Car-weight pass (per request - "the same Verstappen that can go
+            // P22 to P1 will likely only manage P22 to P15 in a Cadillac,
+            // while Stroll in a Red Bull/McLaren should still fall from P1 to
+            // ~P10"): the car band nearly doubles (8% -> 14% top-to-bottom),
+            // sized at roughly 60% of the driver band below - machinery gates
+            // the ceiling hard, but a driver's own ability remains the single
+            // biggest factor. Top speed stays the car's own absolute kph stat
+            // and is untouched here.
+            float carPaceVariance = Mathf.Lerp(0.93f, 1.07f, carNorm);
             // Difficulty raise round 5 (per request - "the AI still aren't good
             // enough; realistic, no straight-line/unfair advantage"): the whole
             // field's corner commitment band lifted +3% (1.06-1.16 -> 1.09-1.19)
@@ -1283,7 +1291,15 @@ namespace LocalFormulaRacing
             // the band is widened further still (0.24 -> 0.36) rather than
             // shifted rigidly - the whole field gets faster AND the elite pull
             // further clear of the backmarkers at the same time.
-            float driverPaceVariance = Mathf.Lerp(1.92f, 2.28f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
+            // Rounds 37-41 + skill-decides-races pass (per request - "an AI
+            // with Verstappen-level skill should be able to go P22 to P1 in
+            // any difficulty; Stroll-level should be able to fall P1 to P22"):
+            // mean +3% per round as usual (2.10 -> 2.25), and the width jumps
+            // 0.36 -> 0.54 (~24% top-to-bottom) so driver ability is the
+            // single biggest separator on track. Difficulty still only moves
+            // the MEAN (via the per-tier paceMultiplier), never this spread -
+            // the elite-vs-backmarker gap is identical on Easy and Expert.
+            float driverPaceVariance = Mathf.Lerp(1.98f, 2.52f, paceNorm) * Mathf.Lerp(1.0f, 1.06f, racecraftNorm) * carPaceVariance;
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
             // multipliers used to inflate the corner-entry target past what the
@@ -1313,7 +1329,11 @@ namespace LocalFormulaRacing
             // Rounds 27-31: widened five more times (-> 1.34-1.71).
             // Rounds 32-36: widened five more times (-> 1.39-1.81), bottom
             // moving less than the top so driver skill decides more of it.
-            float feasibilityCap = Mathf.Lerp(1.39f, 1.81f, paceNorm);
+            // Rounds 37-41 + skill-decides-races pass: raised with the rounds
+            // and widened further (1.39-1.81 -> 1.42-1.98) so the corner-entry
+            // judgment ceiling separates by driver skill as hard as the
+            // commitment band does.
+            float feasibilityCap = Mathf.Lerp(1.42f, 1.98f, paceNorm);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
                 apexTargetSpeed * feasibilityCap);
