@@ -186,14 +186,17 @@ namespace F1Game.UI.Screens.Championship
 
         void RenderSeries(List<ChampionshipSeriesModel> series)
         {
-            // Count the segments needed across every series.
+            // Count the segments plus one round joint per data point across
+            // every series - the joints cap the line ends and round every
+            // direction change, hiding the wedge gap two rotated rects leave
+            // on the outside of a corner.
             int needed = 0;
             if (series != null)
             {
                 for (int s = 0; s < series.Count; s++)
                 {
                     int pc = series[s].points != null ? series[s].points.Count : 0;
-                    needed += Mathf.Max(0, pc - 1);
+                    needed += Mathf.Max(0, pc - 1) + (pc > 1 ? pc : 0);
                 }
             }
 
@@ -211,15 +214,34 @@ namespace F1Game.UI.Screens.Championship
                         continue;
                     }
 
+                    float thickness = sm.isPlayer ? LineThickness + 1.5f : LineThickness;
                     for (int i = 0; i < pts.Count - 1; i++)
                     {
                         Image line = segmentPool[seg++];
                         line.gameObject.SetActive(true);
+                        line.sprite = null;
                         line.color = sm.color;
                         Configure(line.rectTransform,
                             new Vector2(pts[i].x * PlotWidth, pts[i].y * PlotHeight),
                             new Vector2(pts[i + 1].x * PlotWidth, pts[i + 1].y * PlotHeight),
-                            sm.isPlayer ? LineThickness + 1.5f : LineThickness);
+                            thickness);
+                    }
+
+                    if (pts.Count > 1)
+                    {
+                        for (int i = 0; i < pts.Count; i++)
+                        {
+                            Image joint = segmentPool[seg++];
+                            joint.gameObject.SetActive(true);
+                            joint.sprite = UiSprites.Circle;
+                            joint.color = sm.color;
+                            RectTransform rt = joint.rectTransform;
+                            rt.anchorMin = rt.anchorMax = new Vector2(0f, 0f);
+                            rt.pivot = new Vector2(0.5f, 0.5f);
+                            rt.localRotation = Quaternion.identity;
+                            rt.sizeDelta = new Vector2(thickness, thickness);
+                            rt.anchoredPosition = new Vector2(pts[i].x * PlotWidth, pts[i].y * PlotHeight);
+                        }
                     }
                 }
             }

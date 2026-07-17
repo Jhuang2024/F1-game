@@ -57,35 +57,27 @@ engineering constraint and is deliberately honored. New systems are added and
 integrated incrementally behind flags or as delegated services, so the working
 game is never traded for unverifiable code.
 
-## Render pipeline: reverted to Built-in (URP switch was incomplete)
-The URP migration pointed GraphicsSettings + every quality tier at hand-authored
-URP pipeline assets, but those assets cannot be fully authored without the Unity
-editor: the `UniversalRendererData` has no shader resources populated and there is
-no `UniversalRenderPipelineGlobalSettings` asset (`m_SRPDefaultSettings: {}`). At
-runtime URP therefore threw `NullReferenceException` from
-`UniversalRenderPipelineAsset.CreatePipeline` **every frame** while trying to build
-the pipeline — the persistent on-screen error.
+## Render pipeline: URP is the active pipeline (doc previously stale)
+An earlier revision of this section described a revert to Built-in after the
+hand-authored URP assets crashed at runtime. That description no longer matched
+the working tree: `ProjectSettings/GraphicsSettings.asset` points at
+`URP-High.asset` and every quality tier's `customRenderPipeline` is assigned a
+URP tier asset (Very Low/Low → URP-Low, Medium → URP-Medium, High/Very
+High/Ultra → URP-High). **URP is the pipeline the project currently runs.**
 
-Fix applied: the active render pipeline is set back to **Built-in** (GraphicsSettings
-and all quality tiers `customRenderPipeline: {fileID: 0}`), which is the pipeline the
-project shipped and rendered with before the migration. The URP *package*, Linear
-colour, and all migration scaffolding stay installed; nothing depends on URP being the
-active pipeline:
-- `ShaderCompat` keys off `GraphicsSettings.currentRenderPipeline` and falls back to
-  the Standard shader, so runtime materials render correctly under Built-in.
-- `UrpCameraSetup` no-ops when URP is not active; `RaceVolumeService` still sets
-  `RenderSettings` fog (native Built-in) and creates an inert volume — no crash.
+Both pipeline configurations remain supported by the runtime code, so a future
+revert stays safe:
+- `ShaderCompat` keys off `GraphicsSettings.currentRenderPipeline` and falls
+  back to the Standard shader under Built-in.
+- Exactly one post backend is active per pipeline: the `CameraPostFx`
+  OnRenderImage chain (`Hidden/RacePostUber`) attaches only when no scriptable
+  pipeline is active; the URP Volume (`RaceVolumeService`) drives post under
+  URP.
 
-Post-processing under Built-in: the original pre-migration `CameraPostFx`
-OnRenderImage chain (bloom + filmic tonemap + grade + vignette,
-`Hidden/RacePostUber`) has been **restored from git history** and is attached by
-`CameraRig` whenever no scriptable pipeline is active, driven by the same
-mood/quality calls in `RaceManager.CreateLighting`. Exactly one post backend is
-active per pipeline: CameraPostFx under Built-in, the URP Volume under URP.
-
-To re-enable URP later, regenerate the URP asset **in-editor**
-(Create ▸ Rendering ▸ URP Asset (with Universal Renderer)) so Unity populates the
-renderer shader resources + global settings, then reassign it in Graphics/Quality.
+If URP asset import problems resurface at bring-up (renderer shader resources /
+global settings unpopulated), regenerate the URP asset **in-editor**
+(Create ▸ Rendering ▸ URP Asset (with Universal Renderer)) and reassign it in
+Graphics/Quality; `RenderPipelineValidator` repairs PostProcessData references.
 
 ## Runtime validation still required
 Everything in `Docs/EDITOR_BRINGUP.md`: package resolution, TMP essentials, test

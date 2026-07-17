@@ -78,7 +78,10 @@ Shader "Hidden/RacePostUber"
             ENDCG
         }
 
-        // Pass 1: separable gaussian blur.
+        // Pass 1: separable gaussian blur. 13-tap kernel via 7 linear-filtered
+        // samples (was an effective 9-tap via 5) - the wider, denser kernel
+        // removes the stepped halo rings the smaller kernel left around
+        // strong bloom sources like floodlights and the setting sun.
         Pass
         {
             CGPROGRAM
@@ -87,11 +90,13 @@ Shader "Hidden/RacePostUber"
             fixed4 frag (v2f i) : SV_Target
             {
                 float2 stepUv = _BlurDir * _MainTex_TexelSize.xy;
-                float3 c = tex2D(_MainTex, i.uv).rgb * 0.227027;
-                c += tex2D(_MainTex, i.uv + stepUv * 1.384615).rgb * 0.316216;
-                c += tex2D(_MainTex, i.uv - stepUv * 1.384615).rgb * 0.316216;
-                c += tex2D(_MainTex, i.uv + stepUv * 3.230769).rgb * 0.070270;
-                c += tex2D(_MainTex, i.uv - stepUv * 3.230769).rgb * 0.070270;
+                float3 c = tex2D(_MainTex, i.uv).rgb * 0.196482;
+                c += tex2D(_MainTex, i.uv + stepUv * 1.411764).rgb * 0.296906;
+                c += tex2D(_MainTex, i.uv - stepUv * 1.411764).rgb * 0.296906;
+                c += tex2D(_MainTex, i.uv + stepUv * 3.294117).rgb * 0.094470;
+                c += tex2D(_MainTex, i.uv - stepUv * 3.294117).rgb * 0.094470;
+                c += tex2D(_MainTex, i.uv + stepUv * 5.176470).rgb * 0.010381;
+                c += tex2D(_MainTex, i.uv - stepUv * 5.176470).rgb * 0.010381;
                 return fixed4(c, 1.0);
             }
             ENDCG

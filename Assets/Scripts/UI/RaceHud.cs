@@ -523,22 +523,24 @@ namespace LocalFormulaRacing
             float span = Mathf.Max(1f, Mathf.Max(max.x - min.x, max.z - min.z));
             mapWorldScale = (TrackMapSize - 26f) / span;
 
-            // Track ribbon as dense dots; cheap, readable, and shape-accurate.
-            // Tinted by sector (S1/S2/S3) using the same normalized-progress
-            // thirds RaceManager/LapTracker already use for TrackProgress.sector,
-            // so the minimap reads like a broadcast track map instead of a flat
-            // gray outline - no new track data needed, just the same split.
-            int step = Mathf.Max(1, line.Count / 110);
+            // Track ribbon as a continuous closed polyline - rotated segment
+            // rects between resampled centerline points - instead of the old
+            // scatter of ~110 separate glow dots, so the circuit reads as one
+            // smooth drawn line at any zoom. Still tinted by sector (S1/S2/S3)
+            // using the same normalized-progress thirds RaceManager/LapTracker
+            // already use for TrackProgress.sector, so the minimap reads like a
+            // broadcast track map - no new track data needed, just the split.
+            int segmentBudget = Mathf.Min(line.Count, 180);
+            int step = Mathf.Max(1, line.Count / segmentBudget);
             for (int i = 0; i < line.Count; i += step)
             {
+                int next = i + step >= line.Count ? 0 : i + step;
                 float normalized = i / (float)line.Count;
                 Color sectorTint = normalized < 0.333f ? UiFactory.AccentCyan
                     : normalized < 0.666f ? UiFactory.AccentAmber
                     : UiFactory.AccentPurple;
                 Color ribbonColor = new Color(sectorTint.r, sectorTint.g, sectorTint.b, 0.55f);
-                Image dot = CreateMapDot("Map track dot", 3.4f, ribbonColor);
-                dot.rectTransform.anchoredPosition = WorldToMap(line[i]);
-                dot.raycastTarget = false;
+                CreateMapSegment(WorldToMap(line[i]), WorldToMap(line[next]), 3f, ribbonColor);
             }
 
             // Start/finish marker.
@@ -589,6 +591,23 @@ namespace LocalFormulaRacing
             Image image = dot.gameObject.AddComponent<Image>();
             image.sprite = UiFactory.GlowSprite;
             image.color = color;
+            return image;
+        }
+
+        // One segment of the track ribbon polyline: a thin rect stretched
+        // between two map points and rotated to lie along them. Slightly
+        // over-length (by its own thickness) so consecutive segments overlap
+        // and corners never show gaps.
+        Image CreateMapSegment(Vector2 from, Vector2 to, float thickness, Color color)
+        {
+            RectTransform segment = UiFactory.CreateRect(trackMap, "Map track segment", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
+            Vector2 delta = to - from;
+            segment.sizeDelta = new Vector2(delta.magnitude + thickness, thickness);
+            segment.anchoredPosition = (from + to) * 0.5f;
+            segment.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
+            Image image = segment.gameObject.AddComponent<Image>();
+            image.color = color;
+            image.raycastTarget = false;
             return image;
         }
 

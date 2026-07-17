@@ -105,7 +105,7 @@ namespace F1Game.Core.Pooling
             main.startSize = tuning.StartSize;
             main.startSpeed = tuning.StartSpeed;
             main.startLifetime = tuning.Lifetime;
-            main.maxParticles = 64;
+            main.maxParticles = 192;
 
             var emission = ps.emission;
             emission.rateOverTime = 0f;

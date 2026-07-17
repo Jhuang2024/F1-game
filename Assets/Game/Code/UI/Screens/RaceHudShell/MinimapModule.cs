@@ -7,16 +7,19 @@ using UnityEngine.UI;
 namespace F1Game.UI.Screens.RaceHudShell
 {
     /// <summary>
-    /// Track minimap: the circuit outline (pooled dots rebuilt only when the
-    /// track changes) plus the live car dots (pooled, repositioned each frame)
-    /// read from <see cref="HudTrackMap"/>. Normalized 0..1 map space is scaled
-    /// into this module's own square rect, so it needs no world-scale knowledge.
-    /// Pooled - never destroys/reallocates dots per frame.
+    /// Track minimap: the circuit outline (a pooled closed polyline of rotated
+    /// segment images, rebuilt only when the track changes) plus the live car
+    /// dots (pooled circular sprites, repositioned each frame) read from
+    /// <see cref="HudTrackMap"/>. Normalized 0..1 map space is scaled into
+    /// this module's own square rect, so it needs no world-scale knowledge.
+    /// Pooled - never destroys/reallocates elements per frame.
     /// </summary>
     public sealed class MinimapModule : MonoBehaviour
     {
+        const float OutlineThickness = 2.5f;
+
         [SerializeField] RectTransform container;
-        readonly List<Image> outlineDots = new List<Image>();
+        readonly List<Image> outlineSegments = new List<Image>();
         readonly List<Image> carDots = new List<Image>();
         int builtOutlineVersion = -1;
         float mapSize;
@@ -53,18 +56,24 @@ namespace F1Game.UI.Screens.RaceHudShell
 
             builtOutlineVersion = HudTrackMap.OutlineVersion;
             int count = HudTrackMap.OutlineCount;
-            EnsurePool(outlineDots, count, 3f, UiTheme.Active.palette.textMuted);
-            for (int i = 0; i < outlineDots.Count; i++)
+            // Closed loop: one segment per outline point, the last wrapping
+            // back to the first, so the circuit reads as one continuous drawn
+            // line instead of a scatter of dots.
+            int segmentCount = count >= 2 ? count : 0;
+            EnsurePool(outlineSegments, segmentCount, OutlineThickness, UiTheme.Active.palette.textMuted, null);
+            for (int i = 0; i < outlineSegments.Count; i++)
             {
-                bool active = i < count;
-                if (outlineDots[i].gameObject.activeSelf != active)
+                bool active = i < segmentCount;
+                if (outlineSegments[i].gameObject.activeSelf != active)
                 {
-                    outlineDots[i].gameObject.SetActive(active);
+                    outlineSegments[i].gameObject.SetActive(active);
                 }
 
                 if (active)
                 {
-                    Place(outlineDots[i], HudTrackMap.Outline[i].x, HudTrackMap.Outline[i].y);
+                    Vector2 from = HudTrackMap.Outline[i] * mapSize;
+                    Vector2 to = HudTrackMap.Outline[(i + 1) % count] * mapSize;
+                    PlaceSegment(outlineSegments[i], from, to);
                 }
             }
         }
@@ -72,7 +81,7 @@ namespace F1Game.UI.Screens.RaceHudShell
         void RenderCarDots()
         {
             int count = HudTrackMap.DotCount;
-            EnsurePool(carDots, count, 6f, UiTheme.Active.palette.textPrimary);
+            EnsurePool(carDots, count, 6f, UiTheme.Active.palette.textPrimary, UiSprites.Circle);
             for (int i = 0; i < carDots.Count; i++)
             {
                 bool active = i < count;
@@ -99,14 +108,16 @@ namespace F1Game.UI.Screens.RaceHudShell
             }
         }
 
-        void EnsurePool(List<Image> pool, int needed, float size, Color color)
+        void EnsurePool(List<Image> pool, int needed, float size, Color color, Sprite sprite)
         {
             while (pool.Count < needed)
             {
-                var go = new GameObject("Dot", typeof(RectTransform));
+                var go = new GameObject(sprite == null ? "Segment" : "Dot", typeof(RectTransform));
                 go.transform.SetParent(container, false);
                 var img = go.AddComponent<Image>();
                 img.color = color;
+                img.sprite = sprite;
+                img.raycastTarget = false;
                 var rt = (RectTransform)go.transform;
                 rt.sizeDelta = new Vector2(size, size);
                 rt.anchorMin = rt.anchorMax = new Vector2(0f, 0f);
@@ -118,6 +129,18 @@ namespace F1Game.UI.Screens.RaceHudShell
         void Place(Image dot, float nx, float ny)
         {
             dot.rectTransform.anchoredPosition = new Vector2(nx * mapSize, ny * mapSize);
+        }
+
+        // Stretch a thin rect between two map points and rotate it to lie
+        // along them. Slightly over-length (by its own thickness) so
+        // consecutive segments overlap and corners never show gaps.
+        void PlaceSegment(Image segment, Vector2 from, Vector2 to)
+        {
+            Vector2 delta = to - from;
+            RectTransform rt = segment.rectTransform;
+            rt.sizeDelta = new Vector2(delta.magnitude + OutlineThickness, OutlineThickness);
+            rt.anchoredPosition = (from + to) * 0.5f;
+            rt.localRotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(delta.y, delta.x) * Mathf.Rad2Deg);
         }
     }
 }

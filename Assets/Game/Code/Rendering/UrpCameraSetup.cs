@@ -33,7 +33,10 @@ namespace F1Game.Rendering
 
             data.renderPostProcessing = true;
             data.antialiasing = AntialiasingMode.SubpixelMorphologicalAntiAliasing;
-            data.antialiasingQuality = AntialiasingQuality.Medium;
+            // High SMAA: the runtime world is built from many small primitives
+            // whose silhouette edges are exactly what SMAA cleans up; the
+            // Medium preset left visible crawl on wings and barrier edges.
+            data.antialiasingQuality = AntialiasingQuality.High;
             data.dithering = true;
 
             RaceVolumeService.EnsureVolume();

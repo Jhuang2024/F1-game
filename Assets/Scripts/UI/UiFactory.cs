@@ -505,7 +505,10 @@ namespace LocalFormulaRacing
             {
                 if (glowSprite == null)
                 {
-                    glowSprite = BuildGlowSprite(64);
+                    // 256px (was 64): the glow is stretched over minimap dots,
+                    // DRS indicators and header accents at many sizes; the old
+                    // 64px source showed banding rings at larger scales.
+                    glowSprite = BuildGlowSprite(256);
                 }
 
                 return glowSprite;
@@ -514,25 +517,32 @@ namespace LocalFormulaRacing
 
         static Sprite BuildRoundedSprite(int size, int radius, float topBrightness, float bottomBrightness, string spriteName)
         {
-            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            // Rendered at 4x the requested size with a matching 4x pixels-per-
+            // unit, so every sliced corner keeps its on-screen dimensions but
+            // resolves with 4x the pixel density (the old 32/64px sources were
+            // visibly stair-stepped on large panels).
+            const int scale = 4;
+            int texSize = size * scale;
+            int texRadius = radius * scale;
+            Texture2D texture = new Texture2D(texSize, texSize, TextureFormat.RGBA32, true);
             texture.name = spriteName;
             texture.wrapMode = TextureWrapMode.Clamp;
-            texture.filterMode = FilterMode.Bilinear;
-            Color[] pixels = new Color[size * size];
-            for (int y = 0; y < size; y++)
+            texture.filterMode = FilterMode.Trilinear;
+            Color[] pixels = new Color[texSize * texSize];
+            for (int y = 0; y < texSize; y++)
             {
-                float brightness = Mathf.Lerp(bottomBrightness, topBrightness, y / (float)(size - 1));
-                for (int x = 0; x < size; x++)
+                float brightness = Mathf.Lerp(bottomBrightness, topBrightness, y / (float)(texSize - 1));
+                for (int x = 0; x < texSize; x++)
                 {
-                    float alpha = RoundedRectAlpha(x + 0.5f, y + 0.5f, size, radius);
-                    pixels[y * size + x] = new Color(brightness, brightness, brightness, alpha);
+                    float alpha = RoundedRectAlpha(x + 0.5f, y + 0.5f, texSize, texRadius);
+                    pixels[y * texSize + x] = new Color(brightness, brightness, brightness, alpha);
                 }
             }
 
             texture.SetPixels(pixels);
-            texture.Apply();
-            float border = radius + 4;
-            return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), 100f, 0, SpriteMeshType.FullRect, new Vector4(border, border, border, border));
+            texture.Apply(true);
+            float border = (radius + 4) * scale;
+            return Sprite.Create(texture, new Rect(0, 0, texSize, texSize), new Vector2(0.5f, 0.5f), 100f * scale, 0, SpriteMeshType.FullRect, new Vector4(border, border, border, border));
         }
 
         static float RoundedRectAlpha(float x, float y, int size, int radius)
@@ -549,10 +559,13 @@ namespace LocalFormulaRacing
 
         static Sprite BuildGlowSprite(int size)
         {
-            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            // Mipmapped: this sprite is drawn anywhere from 3px minimap dots to
+            // large header glows, so it needs clean minification as much as
+            // clean magnification.
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, true);
             texture.name = "Ui soft glow";
             texture.wrapMode = TextureWrapMode.Clamp;
-            texture.filterMode = FilterMode.Bilinear;
+            texture.filterMode = FilterMode.Trilinear;
             Color[] pixels = new Color[size * size];
             float half = (size - 1) * 0.5f;
             for (int y = 0; y < size; y++)
@@ -567,7 +580,7 @@ namespace LocalFormulaRacing
             }
 
             texture.SetPixels(pixels);
-            texture.Apply();
+            texture.Apply(true);
             return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
         }
 
@@ -591,25 +604,41 @@ namespace LocalFormulaRacing
 
         static Sprite BuildCheckeredSprite(int size, int cell)
         {
-            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            // Rendered at 4x density with matching pixels-per-unit so the tiled
+            // on-screen cell size is unchanged, but the cell edges are now
+            // anti-aliased in-texture under bilinear filtering instead of the
+            // old Point-filtered stair-stepping.
+            const int scale = 4;
+            int texSize = size * scale;
+            int texCell = cell * scale;
+            const float edge = 1.5f; // AA falloff in pixels at each cell border
+            Texture2D texture = new Texture2D(texSize, texSize, TextureFormat.RGBA32, true);
             texture.name = "Ui checkered";
             texture.wrapMode = TextureWrapMode.Repeat;
-            texture.filterMode = FilterMode.Point;
-            Color[] pixels = new Color[size * size];
+            texture.filterMode = FilterMode.Trilinear;
+            Color[] pixels = new Color[texSize * texSize];
             Color dark = new Color(0.05f, 0.06f, 0.07f, 1f);
             Color light = new Color(0.92f, 0.94f, 0.97f, 1f);
-            for (int y = 0; y < size; y++)
+            for (int y = 0; y < texSize; y++)
             {
-                for (int x = 0; x < size; x++)
+                for (int x = 0; x < texSize; x++)
                 {
-                    bool darkSquare = ((x / cell) + (y / cell)) % 2 == 0;
-                    pixels[y * size + x] = darkSquare ? dark : light;
+                    bool darkSquare = ((x / texCell) + (y / texCell)) % 2 == 0;
+                    // Distance to the nearest cell boundary on each axis; the
+                    // two colours cross-fade over ~1.5px so tile edges stay
+                    // crisp but never shimmer.
+                    float edgeX = Mathf.Min(x % texCell, texCell - 1 - x % texCell) + 0.5f;
+                    float edgeY = Mathf.Min(y % texCell, texCell - 1 - y % texCell) + 0.5f;
+                    float blend = Mathf.Clamp01(Mathf.Min(edgeX, edgeY) / edge) * 0.5f + 0.5f;
+                    Color inside = darkSquare ? dark : light;
+                    Color outside = darkSquare ? light : dark;
+                    pixels[y * texSize + x] = Color.Lerp(outside, inside, blend);
                 }
             }
 
             texture.SetPixels(pixels);
-            texture.Apply();
-            return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
+            texture.Apply(true);
+            return Sprite.Create(texture, new Rect(0, 0, texSize, texSize), new Vector2(0.5f, 0.5f), 100f * scale);
         }
 
         // Tiled checker strip - reused by the chequered finish flourish and by
@@ -2272,7 +2301,9 @@ namespace LocalFormulaRacing
             {
                 if (circleSprite == null)
                 {
-                    circleSprite = BuildCircleSprite(64);
+                    // 256px (was 64): avatars and chart markers scale this up
+                    // well past 64px, where the old source's edge went soft.
+                    circleSprite = BuildCircleSprite(256);
                 }
 
                 return circleSprite;
@@ -2281,10 +2312,12 @@ namespace LocalFormulaRacing
 
         static Sprite BuildCircleSprite(int size)
         {
-            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            // Mipmapped for the same reason as the glow sprite: chart markers
+            // draw this at ~12px while avatars magnify it well past 100px.
+            Texture2D texture = new Texture2D(size, size, TextureFormat.RGBA32, true);
             texture.name = "Ui circle";
             texture.wrapMode = TextureWrapMode.Clamp;
-            texture.filterMode = FilterMode.Bilinear;
+            texture.filterMode = FilterMode.Trilinear;
             Color[] pixels = new Color[size * size];
             float radius = size * 0.5f;
             for (int y = 0; y < size; y++)
@@ -2299,7 +2332,7 @@ namespace LocalFormulaRacing
             }
 
             texture.SetPixels(pixels);
-            texture.Apply();
+            texture.Apply(true);
             return Sprite.Create(texture, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f));
         }
 
@@ -2607,7 +2640,10 @@ namespace LocalFormulaRacing
             return image;
         }
 
-        // Full polyline through an ordered list of local-space points.
+        // Full polyline through an ordered list of local-space points. A small
+        // circle at every interior vertex rounds the joints, so direction
+        // changes render as smooth elbows instead of showing the wedge-shaped
+        // gap two rotated rects leave on the outside of a corner.
         public static List<Image> DrawChartPolyline(RectTransform parent, string namePrefix, List<Vector2> points, float thickness, Color color)
         {
             List<Image> segments = new List<Image>();
@@ -2619,6 +2655,18 @@ namespace LocalFormulaRacing
             for (int i = 0; i < points.Count - 1; i++)
             {
                 segments.Add(DrawChartLineSegment(parent, namePrefix + " seg " + i, points[i], points[i + 1], thickness, color));
+            }
+
+            for (int i = 1; i < points.Count - 1; i++)
+            {
+                RectTransform joint = CreateRect(parent, namePrefix + " joint " + i, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                joint.sizeDelta = new Vector2(thickness, thickness);
+                joint.anchoredPosition = points[i];
+                Image jointImage = joint.gameObject.AddComponent<Image>();
+                jointImage.sprite = CircleSprite;
+                jointImage.color = color;
+                jointImage.raycastTarget = false;
+                segments.Add(jointImage);
             }
 
             return segments;

@@ -3338,19 +3338,19 @@ namespace LocalFormulaRacing
             roadMaterial.mainTextureScale = new Vector2(1.6f, 0.5f);
             Runtime.AssignRoadMaterial(roadMaterial);
             kerbMaterial = CreateMaterial("Runtime Kerb", new Color(0.94f, 0.04f, 0.03f), 0.02f, 0.64f);
-            kerbMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.92f, 0.92f, 0.92f), 0.08f);
+            kerbMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.92f, 0.92f, 0.92f), 0.08f);
             kerbMaterial.mainTextureScale = new Vector2(6f, 1.5f);
             // Blue/white kerb-paint scheme used at coastal and technical-parkland
             // circuits (see CreateKerbBlock) instead of the default red/white, so not
             // every corner on every track shares one painted colour pair.
             kerbMaterialBlue = CreateMaterial("Runtime Kerb Blue", new Color(0.04f, 0.15f, 0.5f), 0.02f, 0.64f);
-            kerbMaterialBlue.mainTexture = BuildNoiseTexture(64, new Color(0.9f, 0.9f, 0.94f), 0.08f);
+            kerbMaterialBlue.mainTexture = BuildNoiseTexture(256, new Color(0.9f, 0.9f, 0.94f), 0.08f);
             kerbMaterialBlue.mainTextureScale = new Vector2(6f, 1.5f);
             grassMaterial = CreateMaterial("Runtime Runoff", runoff, 0.01f, runoffSmoothness, runoffEmission);
             // Grass/runoff covers the most screen space of anything in the scene, so a
             // tiled neutral-grey noise texture (multiplied against the tinted runoff
             // colour) does the most to kill the flat-plastic ground read.
-            grassMaterial.mainTexture = BuildNoiseTexture(128, new Color(0.83f, 0.85f, 0.8f), 0.18f);
+            grassMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.83f, 0.85f, 0.8f), 0.18f);
             grassMaterial.mainTextureScale = new Vector2(70f, 70f);
             lineMaterial = CreateMaterial("Runtime Track Line", new Color(0.95f, 0.98f, 1f), 0.05f, 0.78f);
             roadEdgeMaterial = CreateMaterial("Runtime Painted Edge", new Color(1f, 0.98f, 0.9f), 0.04f, 0.76f);
@@ -3361,12 +3361,12 @@ namespace LocalFormulaRacing
             // rubbered-in (dark) - speckled the same way concrete/kerb/grass are, just
             // tan/grey and tiled tighter so it reads as scattered debris, not a smooth patch.
             tyreMarbleMaterial = CreateMaterial("Runtime Tyre Marbles", new Color(0.63f, 0.59f, 0.49f), 0f, 0.18f);
-            tyreMarbleMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.68f, 0.63f, 0.5f), 0.24f);
+            tyreMarbleMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.68f, 0.63f, 0.5f), 0.24f);
             tyreMarbleMaterial.mainTextureScale = new Vector2(5f, 2f);
             // Sun-bleached companion tint mixed into corner-exit marble patches for
             // extra variety instead of every patch sharing one flat marble colour.
             tyreMarbleMaterialLight = CreateMaterial("Runtime Tyre Marbles Light", new Color(0.74f, 0.68f, 0.55f), 0f, 0.14f);
-            tyreMarbleMaterialLight.mainTexture = BuildNoiseTexture(64, new Color(0.78f, 0.72f, 0.57f), 0.22f);
+            tyreMarbleMaterialLight.mainTexture = BuildNoiseTexture(256, new Color(0.78f, 0.72f, 0.57f), 0.22f);
             tyreMarbleMaterialLight.mainTextureScale = new Vector2(4f, 2f);
             asphaltPatchMaterial = CreateMaterial("Runtime Asphalt Patch", new Color(0.033f, 0.036f, 0.039f), 0f, rain ? 0.72f : 0.5f);
             // Blotchy low-frequency patch texture (distinct from the fine-grain
@@ -3381,7 +3381,7 @@ namespace LocalFormulaRacing
             rubberSheenMaterial = CreateMaterial("Runtime Rubber Sheen", new Color(0.008f, 0.008f, 0.01f), 0.08f, 0.55f);
             skidMarkMaterial = CreateMaterial("Runtime Skid Mark", new Color(0.001f, 0.001f, 0.001f, 0.92f), 0f, 0.16f);
             barrierMaterial = CreateMaterial("Runtime Barrier", monacoTrack ? new Color(0.86f, 0.85f, 0.8f) : new Color(0.68f, 0.72f, 0.74f), 0.12f, monacoTrack ? 0.55f : 0.62f);
-            barrierMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.87f, 0.87f, 0.87f), 0.1f);
+            barrierMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.87f, 0.87f, 0.87f), 0.1f);
             barrierMaterial.mainTextureScale = new Vector2(4f, 1.5f);
             // Brighter, more metallic than the concrete/painted barrierMaterial so the
             // continuous Armco/guardrail sections read as steel rail rather than a wall.
@@ -3399,7 +3399,7 @@ namespace LocalFormulaRacing
             // other surface material in this file already uses, just darker and duller
             // than the clean armco/barrier finish above it.
             barrierWeatherMaterial = CreateMaterial("Runtime Barrier Weathering", new Color(0.16f, 0.15f, 0.13f), 0.15f, 0.22f);
-            barrierWeatherMaterial.mainTexture = BuildNoiseTexture(48, new Color(0.2f, 0.19f, 0.16f), 0.3f);
+            barrierWeatherMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.2f, 0.19f, 0.16f), 0.3f);
             barrierWeatherMaterial.mainTextureScale = new Vector2(5f, 1f);
             tireBarrierMaterial = CreateMaterial("Runtime Tyre Barrier", new Color(0.015f, 0.016f, 0.017f), 0.02f, 0.28f);
             // Concentric tread-band texture so a stack reads as real tyres rather than
@@ -3423,7 +3423,7 @@ namespace LocalFormulaRacing
             // Subtle brushed-metal grain so fence posts/rails and every other object
             // sharing fencePostMaterial (tower lattice, gantry rails) stop reading as
             // one flat painted colour up close.
-            fencePostMaterial.mainTexture = BuildNoiseTexture(32, new Color(0.44f, 0.48f, 0.51f), 0.1f);
+            fencePostMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.44f, 0.48f, 0.51f), 0.1f);
             fencePostMaterial.mainTextureScale = new Vector2(2f, 4f);
             // Foliage/bark carry a mottled noise texture now (per report -
             // trees were "kind of poorly textured" flat colours). NOTE:
@@ -3432,23 +3432,23 @@ namespace LocalFormulaRacing
             // the colour down to near-black (the "black blobs in Canada" bug,
             // fixed below on the hill/haze materials).
             foliageMaterial = CreateMaterial("Runtime Foliage", spaTrack ? new Color(0.06f, 0.26f, 0.16f) : new Color(0.05f, 0.36f, 0.14f), 0f, 0.42f);
-            foliageMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.82f, 0.92f, 0.8f), 0.32f);
+            foliageMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.82f, 0.92f, 0.8f), 0.32f);
             foliageMaterial.mainTextureScale = new Vector2(5f, 5f);
             // Lighter second canopy tone (see CreateBroadleafTree) - multi-lobe
             // canopies alternate the two so the foliage reads layered.
             foliageMaterialLight = CreateMaterial("Runtime Foliage Light", spaTrack ? new Color(0.13f, 0.34f, 0.19f) : new Color(0.13f, 0.46f, 0.18f), 0f, 0.4f);
-            foliageMaterialLight.mainTexture = BuildNoiseTexture(64, new Color(0.85f, 0.93f, 0.82f), 0.28f);
+            foliageMaterialLight.mainTexture = BuildNoiseTexture(256, new Color(0.85f, 0.93f, 0.82f), 0.28f);
             foliageMaterialLight.mainTextureScale = new Vector2(4f, 4f);
             // Earthy noise-textured slope tone for near backdrop hills (see
             // CreateForestedHill) - deliberately NOT canopy green. Texture tint
             // near-white (see the multiply note above).
             hillsideEarthMaterial = CreateMaterial("Runtime Hillside Earth", new Color(0.32f, 0.34f, 0.19f), 0f, 0.28f);
-            hillsideEarthMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.88f, 0.9f, 0.8f), 0.22f);
+            hillsideEarthMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.88f, 0.9f, 0.8f), 0.22f);
             hillsideEarthMaterial.mainTextureScale = new Vector2(7f, 5f);
             // Dull hazy tone for the far forest-ridge/treeline layers - distant
             // terrain desaturates toward the sky, it doesn't stay lime green.
             distantForestMaterial = CreateMaterial("Runtime Distant Forest Haze", new Color(0.26f, 0.33f, 0.28f), 0f, 0.22f);
-            distantForestMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.9f, 0.93f, 0.9f), 0.12f);
+            distantForestMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.9f, 0.93f, 0.9f), 0.12f);
             distantForestMaterial.mainTextureScale = new Vector2(10f, 5f);
             // Trees used to borrow the bright red scenery-accent material for their
             // trunks (fine for kerb-style trim, glaring as bark) - a dedicated dull
@@ -3456,7 +3456,7 @@ namespace LocalFormulaRacing
             treeBarkMaterial = CreateMaterial("Runtime Tree Bark", desertTrack ? new Color(0.42f, 0.32f, 0.22f) : new Color(0.32f, 0.24f, 0.18f), 0f, 0.32f);
             // Vertical streaky grain so trunks read as bark rather than flat
             // brown plastic (near-white tint - the texture multiplies the colour).
-            treeBarkMaterial.mainTexture = BuildNoiseTexture(32, new Color(0.9f, 0.86f, 0.82f), 0.26f);
+            treeBarkMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.9f, 0.86f, 0.82f), 0.26f);
             treeBarkMaterial.mainTextureScale = new Vector2(2f, 7f);
             metalMaterial = CreateMaterial("Runtime Brushed Metal", new Color(0.52f, 0.56f, 0.58f), 0.42f, 0.78f);
             glassMaterial = CreateMaterial("Runtime Glass", new Color(0.12f, 0.28f, 0.38f, 0.85f), 0.1f, 0.95f);
@@ -3510,20 +3510,20 @@ namespace LocalFormulaRacing
             // Monaco luxury apartment/hotel silhouette: lighter, cream-toned, distinct
             // from the generic barrier-toned street buildings.
             luxuryApartmentMaterial = CreateMaterial("Runtime Luxury Apartment", new Color(0.88f, 0.84f, 0.74f), 0.08f, 0.52f);
-            luxuryApartmentMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.9f, 0.87f, 0.8f), 0.06f);
+            luxuryApartmentMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.9f, 0.87f, 0.8f), 0.06f);
             luxuryApartmentMaterial.mainTextureScale = new Vector2(2f, 3f);
 
             // Weathered concrete tone for "old-school racing venue" grandstands and the
             // Zandvoort boardwalk deck; duller and less glossy than the bridge/wall
             // concreteMaterial.
             weatheredConcreteMaterial = CreateMaterial("Runtime Weathered Concrete", new Color(0.5f, 0.5f, 0.46f), 0.03f, 0.22f);
-            weatheredConcreteMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.6f, 0.6f, 0.56f), 0.14f);
+            weatheredConcreteMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.6f, 0.6f, 0.56f), 0.14f);
             weatheredConcreteMaterial.mainTextureScale = new Vector2(3f, 1f);
 
             // Cooler, sandier ground tone for Zandvoort's coastal dunes than the warm
             // orange desert palette above.
             coastalSandMaterial = CreateMaterial("Runtime Coastal Sand", new Color(0.82f, 0.76f, 0.6f), 0.02f, 0.28f);
-            coastalSandMaterial.mainTexture = BuildNoiseTexture(128, new Color(0.86f, 0.83f, 0.72f), 0.14f);
+            coastalSandMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.86f, 0.83f, 0.72f), 0.14f);
             coastalSandMaterial.mainTextureScale = new Vector2(60f, 60f);
 
             // Brighter, warmer-yellow-green than the parkland foliageMaterial so palm
@@ -3545,7 +3545,7 @@ namespace LocalFormulaRacing
             // (finer, greyer, coarser tiling) so a braking-zone trap reads as raked
             // gravel rather than more scattered marbles.
             gravelMaterial = CreateMaterial("Runtime Gravel Trap", new Color(0.58f, 0.52f, 0.42f), 0f, 0.12f);
-            gravelMaterial.mainTexture = BuildNoiseTexture(96, new Color(0.62f, 0.56f, 0.46f), 0.3f);
+            gravelMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.62f, 0.56f, 0.46f), 0.3f);
             gravelMaterial.mainTextureScale = new Vector2(24f, 24f);
 
             // Flat, smooth, reflective water for the Monaco marina and coastal sea planes -
@@ -3556,7 +3556,7 @@ namespace LocalFormulaRacing
             // distinct from concreteMaterial/barrierMaterial so a rock face doesn't just
             // read as another retaining wall.
             rockMaterial = CreateMaterial("Runtime Rock Outcrop", new Color(0.42f, 0.4f, 0.38f), 0.02f, 0.22f);
-            rockMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.48f, 0.46f, 0.44f), 0.22f);
+            rockMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.48f, 0.46f, 0.44f), 0.22f);
             rockMaterial.mainTextureScale = new Vector2(2.5f, 2.5f);
 
             // Near-black companion to lineMaterial's near-white for the start/finish
@@ -3602,20 +3602,29 @@ namespace LocalFormulaRacing
                 return asphaltNoiseTexture;
             }
 
-            const int size = 256;
+            // 1024px (was 256): coordinates are normalized against the original
+            // 256 grid so the grain keeps the same physical scale on the road,
+            // it just resolves 4x sharper up close. An extra ultra-fine octave
+            // adds the sub-centimetre texture the old resolution couldn't hold.
+            const int size = 1024;
+            const float coordScale = 256f / size;
             asphaltNoiseTexture = new Texture2D(size, size, TextureFormat.RGB24, true);
             asphaltNoiseTexture.name = "Runtime asphalt noise";
             asphaltNoiseTexture.wrapMode = TextureWrapMode.Repeat;
             asphaltNoiseTexture.filterMode = FilterMode.Trilinear;
+            asphaltNoiseTexture.anisoLevel = 8;
             Color[] pixels = new Color[size * size];
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
-                    float coarse = Mathf.PerlinNoise(x * 0.035f, y * 0.035f);
-                    float fine = Mathf.PerlinNoise(x * 0.21f + 51.7f, y * 0.21f + 17.3f);
-                    float grain = Mathf.PerlinNoise(x * 0.62f + 133.7f, y * 0.62f + 71.9f);
-                    float value = 0.62f + coarse * 0.2f + fine * 0.14f + grain * 0.12f;
+                    float u = x * coordScale;
+                    float v = y * coordScale;
+                    float coarse = Mathf.PerlinNoise(u * 0.035f, v * 0.035f);
+                    float fine = Mathf.PerlinNoise(u * 0.21f + 51.7f, v * 0.21f + 17.3f);
+                    float grain = Mathf.PerlinNoise(u * 0.62f + 133.7f, v * 0.62f + 71.9f);
+                    float micro = Mathf.PerlinNoise(u * 2.4f + 311.1f, v * 2.4f + 208.7f);
+                    float value = 0.62f + coarse * 0.2f + fine * 0.14f + grain * 0.08f + micro * 0.08f;
 
                     // Occasional aggregate chips catching the light.
                     if (grain > 0.93f)
@@ -3646,20 +3655,45 @@ namespace LocalFormulaRacing
                 return windowStripTexture;
             }
 
-            const int size = 64;
+            // 256px bilinear (was 64px Point-filtered): the same 8 alternating
+            // window columns per wrap, but now drawn as framed panes - dark
+            // mullion borders, a subtle vertical interior-light gradient on lit
+            // panes and per-pane brightness variation - so the band reads as a
+            // row of real windows rather than hard aliased pixel columns.
+            const int size = 256;
+            const int cellSize = 32; // 8 columns per wrap, as before
             windowStripTexture = new Texture2D(size, size, TextureFormat.RGB24, true);
             windowStripTexture.name = "Runtime window strip";
             windowStripTexture.wrapMode = TextureWrapMode.Repeat;
-            windowStripTexture.filterMode = FilterMode.Point;
+            windowStripTexture.filterMode = FilterMode.Bilinear;
             Color[] pixels = new Color[size * size];
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
-                    int cell = x / 8;
+                    int cell = x / cellSize;
                     bool lit = cell % 2 == 0;
                     float noise = Mathf.PerlinNoise(cell * 3.1f, 0.5f);
-                    float value = lit ? 0.75f + noise * 0.25f : 0.12f + noise * 0.08f;
+                    // Distance (in pixels) from the pane's frame on each axis.
+                    float frameX = Mathf.Min(x % cellSize, cellSize - 1 - x % cellSize);
+                    float frameY = Mathf.Min(y % cellSize, cellSize - 1 - y % cellSize);
+                    float frame = Mathf.Clamp01(Mathf.Min(frameX, frameY) / 3f);
+                    float value;
+                    if (lit)
+                    {
+                        // Interior light: brighter toward the top of each pane.
+                        float glow = 0.75f + noise * 0.25f;
+                        float gradient = Mathf.Lerp(0.82f, 1.05f, (y % cellSize) / (float)cellSize);
+                        value = glow * gradient;
+                    }
+                    else
+                    {
+                        value = 0.12f + noise * 0.08f;
+                    }
+
+                    // Mullion/frame lines darken the pane border on both axes.
+                    value = Mathf.Lerp(0.05f, value, frame);
+                    value = Mathf.Clamp01(value);
                     pixels[y * size + x] = new Color(value, value, value);
                 }
             }
@@ -3680,21 +3714,41 @@ namespace LocalFormulaRacing
                 return chainLinkTexture;
             }
 
-            const int size = 32;
+            // 256px (was 32): same 4-cell diagonal lattice per wrap, but the
+            // strands are now anti-aliased distance bands with a rounded-wire
+            // shading profile instead of 1px stair-stepped runs, so the catch
+            // fence reads as fine woven wire at any distance.
+            const int size = 256;
             chainLinkTexture = new Texture2D(size, size, TextureFormat.RGBA32, true);
             chainLinkTexture.name = "Runtime chain link";
             chainLinkTexture.wrapMode = TextureWrapMode.Repeat;
             chainLinkTexture.filterMode = FilterMode.Bilinear;
+            chainLinkTexture.anisoLevel = 4;
             Color[] pixels = new Color[size * size];
             int cell = Mathf.Max(4, size / 4);
+            float halfWidth = cell * 0.11f; // strand half-thickness in pixels
+            const float edge = 1.5f;        // AA falloff in pixels
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
                     int diagA = ((x + y) % cell + cell) % cell;
                     int diagB = ((x - y) % cell + cell) % cell;
-                    bool strand = diagA <= 1 || diagB <= 1;
-                    pixels[y * size + x] = strand ? new Color(0.85f, 0.87f, 0.88f, 1f) : new Color(0f, 0f, 0f, 0f);
+                    // Distance from each diagonal strand's centreline (wrapped).
+                    float distA = Mathf.Min(diagA, cell - diagA);
+                    float distB = Mathf.Min(diagB, cell - diagB);
+                    float dist = Mathf.Min(distA, distB);
+                    float coverage = Mathf.Clamp01((halfWidth - dist) / edge + 0.5f);
+                    if (coverage <= 0f)
+                    {
+                        pixels[y * size + x] = new Color(0f, 0f, 0f, 0f);
+                        continue;
+                    }
+
+                    // Rounded-wire shading: brightest along the strand centre.
+                    float profile = Mathf.Clamp01(1f - dist / Mathf.Max(halfWidth, 0.001f));
+                    float shade = Mathf.Lerp(0.55f, 0.92f, Mathf.Sqrt(profile));
+                    pixels[y * size + x] = new Color(shade, shade * 1.02f, shade * 1.04f, coverage);
                 }
             }
 
@@ -3715,19 +3769,26 @@ namespace LocalFormulaRacing
                 return asphaltWearTexture;
             }
 
-            const int size = 128;
+            // 512px (was 128), same physical pattern scale via normalized
+            // coordinates, plus a micro octave for close-up detail.
+            const int size = 512;
+            const float coordScale = 128f / size;
             asphaltWearTexture = new Texture2D(size, size, TextureFormat.RGB24, true);
             asphaltWearTexture.name = "Runtime asphalt wear";
             asphaltWearTexture.wrapMode = TextureWrapMode.Repeat;
             asphaltWearTexture.filterMode = FilterMode.Trilinear;
+            asphaltWearTexture.anisoLevel = 8;
             Color[] pixels = new Color[size * size];
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
-                    float patch = Mathf.PerlinNoise(x * 0.045f + 4.1f, y * 0.045f + 8.3f);
-                    float grain = Mathf.PerlinNoise(x * 0.3f + 61f, y * 0.3f + 19f);
-                    float value = Mathf.Clamp01(0.5f + patch * 0.32f + grain * 0.1f);
+                    float u = x * coordScale;
+                    float v = y * coordScale;
+                    float patch = Mathf.PerlinNoise(u * 0.045f + 4.1f, v * 0.045f + 8.3f);
+                    float grain = Mathf.PerlinNoise(u * 0.3f + 61f, v * 0.3f + 19f);
+                    float micro = Mathf.PerlinNoise(u * 1.3f + 27.5f, v * 1.3f + 88.2f);
+                    float value = Mathf.Clamp01(0.5f + patch * 0.32f + grain * 0.07f + micro * 0.05f);
                     pixels[y * size + x] = new Color(value, value * 0.99f, value * 0.97f);
                 }
             }
@@ -3750,21 +3811,42 @@ namespace LocalFormulaRacing
                 return armcoCorrugationTexture;
             }
 
-            const int size = 64;
+            // 256px (was 64): the corrugation wave is analytic (already
+            // resolution-independent); bolt heads become soft round dots with
+            // AA falloff instead of 2px squares, and the grain keeps its
+            // physical scale via normalized coordinates.
+            const int size = 256;
+            const float coordScale = 64f / size;
             armcoCorrugationTexture = new Texture2D(size, size, TextureFormat.RGB24, true);
             armcoCorrugationTexture.name = "Runtime armco corrugation";
             armcoCorrugationTexture.wrapMode = TextureWrapMode.Repeat;
             armcoCorrugationTexture.filterMode = FilterMode.Bilinear;
+            armcoCorrugationTexture.anisoLevel = 4;
             Color[] pixels = new Color[size * size];
+            // Bolt centres: every 16 original units along X (now 16/coordScale
+            // px), one row near the top edge and one at the beam's midline.
+            float boltSpacing = 16f / coordScale;
+            float boltRadius = 3.2f / coordScale * 0.55f;
+            float[] boltRowsY = { 1.5f / coordScale, size * 0.5f };
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
                     float wave = Mathf.Sin(y / (float)size * Mathf.PI * 6f) * 0.5f + 0.5f;
-                    float grain = Mathf.PerlinNoise(x * 0.15f, y * 0.15f) * 0.08f;
-                    int localY = y % size;
-                    bool bolt = x % 16 < 2 && (localY < 3 || (localY > size / 2 - 2 && localY < size / 2 + 1));
-                    float value = Mathf.Clamp01(0.72f + wave * 0.22f + grain - (bolt ? 0.18f : 0f));
+                    float grain = Mathf.PerlinNoise(x * coordScale * 0.15f, y * coordScale * 0.15f) * 0.08f;
+                    // Distance to the nearest bolt centre (X wraps).
+                    float boltX = Mathf.Repeat(x + boltSpacing * 0.5f, boltSpacing) - boltSpacing * 0.5f;
+                    float boltShade = 0f;
+                    for (int row = 0; row < boltRowsY.Length; row++)
+                    {
+                        float dy = y - boltRowsY[row];
+                        float dist = Mathf.Sqrt(boltX * boltX + dy * dy);
+                        float dome = Mathf.Clamp01(1f - dist / boltRadius);
+                        // Domed head: dark rim, slight highlight at the crown.
+                        boltShade = Mathf.Max(boltShade, dome > 0f ? 0.18f * (1f - dome * 0.5f) : 0f);
+                    }
+
+                    float value = Mathf.Clamp01(0.72f + wave * 0.22f + grain - boltShade);
                     pixels[y * size + x] = new Color(value, value, value * 1.02f);
                 }
             }
@@ -3786,20 +3868,37 @@ namespace LocalFormulaRacing
                 return concretePanelTexture;
             }
 
-            const int size = 128;
+            // 512px (was 128): same panel layout via normalized coordinates;
+            // seams become soft chamfered grooves instead of 1px lines, and a
+            // micro octave carries close-up surface detail.
+            const int size = 512;
+            const float coordScale = 128f / size;
             concretePanelTexture = new Texture2D(size, size, TextureFormat.RGB24, true);
             concretePanelTexture.name = "Runtime concrete panel";
             concretePanelTexture.wrapMode = TextureWrapMode.Repeat;
             concretePanelTexture.filterMode = FilterMode.Bilinear;
+            concretePanelTexture.anisoLevel = 4;
             Color[] pixels = new Color[size * size];
+            float seamSpacingX = 32f / coordScale;
+            float seamSpacingY = 64f / coordScale;
+            float seamHalfWidth = 1.2f / coordScale * 0.5f;
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
-                    float stain = Mathf.PerlinNoise(x * 0.02f, y * 0.06f) * 0.14f;
-                    float grain = Mathf.PerlinNoise(x * 0.2f + 9f, y * 0.2f + 4f) * 0.08f;
-                    bool seam = x % 32 < 1 || y % 64 < 1;
-                    float value = Mathf.Clamp01(0.82f - stain + grain - (seam ? 0.22f : 0f));
+                    float u = x * coordScale;
+                    float v = y * coordScale;
+                    float stain = Mathf.PerlinNoise(u * 0.02f, v * 0.06f) * 0.14f;
+                    float grain = Mathf.PerlinNoise(u * 0.2f + 9f, v * 0.2f + 4f) * 0.06f;
+                    float micro = Mathf.PerlinNoise(u * 0.9f + 33f, v * 0.9f + 57f) * 0.04f;
+                    // Distance to the nearest seam centreline on each axis.
+                    float seamDistX = Mathf.Abs(Mathf.Repeat(x + seamSpacingX * 0.5f, seamSpacingX) - seamSpacingX * 0.5f);
+                    float seamDistY = Mathf.Abs(Mathf.Repeat(y + seamSpacingY * 0.5f, seamSpacingY) - seamSpacingY * 0.5f);
+                    float seamDist = Mathf.Min(seamDistX, seamDistY);
+                    // Chamfered groove: full-depth at the centre, easing out
+                    // over ~2x the groove width for a bevelled edge.
+                    float seamDepth = 0.22f * Mathf.Clamp01(1f - seamDist / (seamHalfWidth * 2f));
+                    float value = Mathf.Clamp01(0.82f - stain + grain + micro - seamDepth);
                     pixels[y * size + x] = new Color(value, value, value * 0.98f);
                 }
             }
@@ -3820,19 +3919,28 @@ namespace LocalFormulaRacing
                 return tyreTreadTexture;
             }
 
-            const int size = 64;
+            // 256px (was 64): same four sidewall bands per wrap, but each tyre
+            // ring now has a rounded cosine bulge highlight instead of a 2px
+            // bright line, so a stack reads as curved rubber sidewalls.
+            const int size = 256;
+            const float coordScale = 64f / size;
             tyreTreadTexture = new Texture2D(size, size, TextureFormat.RGB24, true);
             tyreTreadTexture.name = "Runtime tyre tread";
             tyreTreadTexture.wrapMode = TextureWrapMode.Repeat;
             tyreTreadTexture.filterMode = FilterMode.Bilinear;
+            tyreTreadTexture.anisoLevel = 4;
             Color[] pixels = new Color[size * size];
+            float ringPeriod = 16f / coordScale;
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
-                    int ring = y % 16;
-                    float rim = ring < 2 ? 0.06f : 0f;
-                    float grain = Mathf.PerlinNoise(x * 0.3f, y * 0.3f) * 0.03f;
+                    // Position within one tyre ring, 0..1; the sidewall bulge
+                    // peaks at the ring boundary where two tyres touch.
+                    float ringPos = Mathf.Repeat(y, ringPeriod) / ringPeriod;
+                    float bulge = Mathf.Pow(Mathf.Cos(ringPos * Mathf.PI * 2f) * 0.5f + 0.5f, 3f);
+                    float rim = bulge * 0.07f;
+                    float grain = Mathf.PerlinNoise(x * coordScale * 0.3f, y * coordScale * 0.3f) * 0.03f;
                     float value = 0.02f + rim + grain;
                     pixels[y * size + x] = new Color(value, value, value * 1.05f);
                 }
@@ -3870,13 +3978,20 @@ namespace LocalFormulaRacing
             texture.name = "Runtime noise " + key;
             texture.wrapMode = TextureWrapMode.Repeat;
             texture.filterMode = FilterMode.Trilinear;
+            texture.anisoLevel = 4;
+            // Pattern coordinates are normalized against a 64px reference grid
+            // so raising a call site's resolution sharpens the texture without
+            // changing the physical scale of the noise it produces.
+            float coordScale = 64f / size;
             Color[] pixels = new Color[size * size];
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
-                    float coarse = Mathf.PerlinNoise(x * 0.045f, y * 0.045f);
-                    float fine = Mathf.PerlinNoise(x * 0.22f + 91.3f, y * 0.22f + 42.1f);
+                    float u = x * coordScale;
+                    float v = y * coordScale;
+                    float coarse = Mathf.PerlinNoise(u * 0.045f, v * 0.045f);
+                    float fine = Mathf.PerlinNoise(u * 0.22f + 91.3f, v * 0.22f + 42.1f);
                     float jitter = (coarse * 0.65f + fine * 0.35f - 0.5f) * 2f * variation;
                     pixels[y * size + x] = new Color(
                         Mathf.Clamp01(baseColor.r + jitter),
@@ -4122,11 +4237,13 @@ namespace LocalFormulaRacing
             // changes between two sparse vertices the PHYSICAL tarmac was
             // narrower than every consumer believed - barriers stood beyond
             // the mesh edge with void between, and the pit approach steered
-            // cars onto air. The mesh is now sampled densely (every 8m) from
+            // cars onto air. The mesh is now sampled densely (every 3m) from
             // the same SampleAtDistance/HalfWidthAt pair, so the physical
             // surface finally IS the boundary the rest of the game reasons
-            // about.
-            const float RoadMeshStepMeters = 8f;
+            // about. 3m (was 8m) keeps corner arcs visually smooth - at 8m a
+            // tight hairpin's inside edge read as a chain of straight chords;
+            // a ~5km lap at 3m is still only ~3.4k vertices for the ribbon.
+            const float RoadMeshStepMeters = 3f;
             int count = Mathf.Max(Runtime.centerLine.Count, Mathf.CeilToInt(Runtime.length / RoadMeshStepMeters));
             float step = Runtime.length / count;
             Vector3[] vertices = new Vector3[count * 2];
@@ -9030,7 +9147,7 @@ namespace LocalFormulaRacing
             // De-blob pass: rocky noise grain (near-white tint - the texture
             // multiplies the colour) so the ridge line doesn't read as smooth
             // plastic.
-            ridgeMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.88f, 0.87f, 0.85f), 0.18f);
+            ridgeMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.88f, 0.87f, 0.85f), 0.18f);
             ridgeMaterial.mainTextureScale = new Vector2(6f, 3f);
             Bounds bounds = new Bounds(Runtime.centerLine[0], Vector3.zero);
             for (int i = 1; i < Runtime.centerLine.Count; i++)
@@ -9807,7 +9924,7 @@ namespace LocalFormulaRacing
                 mediterranean ? new Color(0.5f, 0.46f, 0.28f) : new Color(0.28f, 0.36f, 0.22f), 0f, 0.2f);
             // De-blob pass: grassy noise grain (near-white tint - the texture
             // multiplies the colour).
-            terrainMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.9f, 0.9f, 0.84f), 0.16f);
+            terrainMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.9f, 0.9f, 0.84f), 0.16f);
             terrainMaterial.mainTextureScale = new Vector2(6f, 4f);
 
             int banks = Mathf.Max(7, Mathf.RoundToInt(14f * density));

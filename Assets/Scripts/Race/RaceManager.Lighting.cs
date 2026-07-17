@@ -96,13 +96,14 @@ namespace LocalFormulaRacing
                 : (desert ? new Color(1f, 0.85f, 0.65f)
                 : (coastal ? new Color(1f, 0.94f, 0.85f)
                 : new Color(0.98f, 0.96f, 0.94f)))));
-            // Performance: Hard rather than Soft shadows. Soft directional shadows
-            // do a multi-tap PCF filter over the whole shadow map every frame; with
-            // 22 cars each built from dozens of small cosmetic primitives plus
-            // thousands of procedural track objects all casting into that map, the
-            // soft filter was a dominant per-frame cost after the Built-in-RP revert.
-            // Hard shadows keep grounded contact shadows at a fraction of the cost.
-            light.shadows = LightShadows.Hard;
+            // Soft shadows: under URP the actual PCF cost is governed by the
+            // active pipeline tier asset - URP-Low has soft shadows unsupported,
+            // so low-end presets automatically degrade this to hard filtering
+            // while Medium and up get properly filtered penumbrae. (The old
+            // hard-coded Hard setting dated from the Built-in-RP revert, where
+            // the per-frame soft filter over thousands of primitive casters was
+            // a dominant cost; the tier assets now make that trade per preset.)
+            light.shadows = LightShadows.Soft;
             light.shadowStrength = rainThreat ? 0.68f : 0.92f;
             light.shadowBias = 0.035f;
             light.shadowNormalBias = 0.22f;
@@ -171,7 +172,11 @@ namespace LocalFormulaRacing
             probe.refreshMode = UnityEngine.Rendering.ReflectionProbeRefreshMode.ViaScripting;
             probe.intensity = rainThreat ? 0.85f : 0.68f;
             probe.size = new Vector3(520f, 120f, 520f);
-            probe.resolution = 128;
+            // 512 faces: the probe renders once per session (ViaScripting, no
+            // per-frame cost), so resolution only costs a few MB of cubemap
+            // memory. 128 left visibly blocky sky/track reflections in car
+            // paint and glass; 512 resolves the skyline cleanly.
+            probe.resolution = 512;
             probe.timeSlicingMode = UnityEngine.Rendering.ReflectionProbeTimeSlicingMode.AllFacesAtOnce;
             probe.RenderProbe();
 

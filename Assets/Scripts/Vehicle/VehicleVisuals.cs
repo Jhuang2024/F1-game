@@ -1066,21 +1066,36 @@ namespace LocalFormulaRacing
                 return sharedTreadTexture;
             }
 
-            const int width = 64;
-            const int height = 8;
-            sharedTreadTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            // High-res version of the original 64x8 strip: same groove rhythm
+            // (a narrow groove every 9 units), rendered at 8x the density with
+            // anti-aliased groove walls and mipmaps so the tiled pattern stays
+            // clean at speed instead of shimmering.
+            const int width = 512;
+            const int height = 64;
+            const int cell = 72;      // 9 units * 8x scale
+            const int grooveEnd = 16; // 2 units * 8x scale
+            const float edge = 3f;    // AA falloff in pixels on each groove wall
+            sharedTreadTexture = new Texture2D(width, height, TextureFormat.RGBA32, true);
             sharedTreadTexture.wrapMode = TextureWrapMode.Repeat;
+            sharedTreadTexture.filterMode = FilterMode.Trilinear;
+            sharedTreadTexture.anisoLevel = 4;
             for (int x = 0; x < width; x++)
             {
-                bool groove = (x % 9) < 2;
-                float shade = groove ? 0.38f : 1f;
+                int phase = x % cell;
+                // Signed distance to the groove band [0, grooveEnd): negative
+                // inside the groove, positive on the tread block.
+                float distance = phase < grooveEnd
+                    ? -Mathf.Min(phase, grooveEnd - 1 - phase) - 1f
+                    : Mathf.Min(phase - grooveEnd, cell - phase);
+                float blend = Mathf.Clamp01(0.5f + distance / edge);
+                float shade = Mathf.Lerp(0.38f, 1f, blend);
                 for (int y = 0; y < height; y++)
                 {
                     sharedTreadTexture.SetPixel(x, y, new Color(shade, shade, shade, 1f));
                 }
             }
 
-            sharedTreadTexture.Apply();
+            sharedTreadTexture.Apply(true);
             return sharedTreadTexture;
         }
 
@@ -2034,11 +2049,17 @@ namespace LocalFormulaRacing
                 return sharedRimSpokeTexture;
             }
 
-            const int width = 128;
-            const int height = 16;
+            // High-res version of the original 128x16 wrap: the cosine wedge
+            // profile is resolution-independent, so raising the sample density
+            // (with mipmaps + trilinear) just removes the banding the old
+            // 128-sample wrap showed on the rim face.
+            const int width = 1024;
+            const int height = 128;
             const int spokeCount = 6;
-            sharedRimSpokeTexture = new Texture2D(width, height, TextureFormat.RGBA32, false);
+            sharedRimSpokeTexture = new Texture2D(width, height, TextureFormat.RGBA32, true);
             sharedRimSpokeTexture.wrapMode = TextureWrapMode.Repeat;
+            sharedRimSpokeTexture.filterMode = FilterMode.Trilinear;
+            sharedRimSpokeTexture.anisoLevel = 4;
             for (int x = 0; x < width; x++)
             {
                 float angle = (x / (float)width) * spokeCount * Mathf.PI * 2f;
@@ -2050,17 +2071,18 @@ namespace LocalFormulaRacing
                 }
             }
 
-            sharedRimSpokeTexture.Apply();
+            sharedRimSpokeTexture.Apply(true);
             return sharedRimSpokeTexture;
         }
 
-        // A small 2x2 basket-weave suggestion - alternating light/dark cells
-        // offset every couple of pixels - multiplied into a dark base colour
-        // the same way GetTreadTexture/GetRimSpokeTexture suggest tread
-        // blocks/spokes without any extra geometry. Tiled several times via
-        // mainTextureScale (see ApplyMaterialContrastPass/EnsureHaloRingDetail)
-        // rather than built at high resolution, so a genuine carbon-fibre
-        // panel reads as woven fabric up close instead of a flat matte plate.
+        // Basket-weave carbon texture, multiplied into a dark base colour the
+        // same way GetTreadTexture/GetRimSpokeTexture suggest tread blocks/
+        // spokes without any extra geometry. Tiled via mainTextureScale (see
+        // ApplyMaterialContrastPass/EnsureHaloRingDetail). Built at 256x256
+        // with the same 8x8 weave cells per wrap the original 16x16 texture
+        // had: each cell now carries a directional fibre-sheen gradient and
+        // soft cell borders, so a panel reads as woven twill up close instead
+        // of a hard checkerboard.
         static Texture2D sharedCarbonWeaveTexture;
 
         static Texture2D GetCarbonWeaveTexture()
@@ -2070,20 +2092,40 @@ namespace LocalFormulaRacing
                 return sharedCarbonWeaveTexture;
             }
 
-            const int size = 16;
-            sharedCarbonWeaveTexture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            const int size = 256;
+            const int cellSize = 32; // 8x8 weave cells per wrap, as before
+            sharedCarbonWeaveTexture = new Texture2D(size, size, TextureFormat.RGBA32, true);
             sharedCarbonWeaveTexture.wrapMode = TextureWrapMode.Repeat;
+            sharedCarbonWeaveTexture.filterMode = FilterMode.Trilinear;
+            sharedCarbonWeaveTexture.anisoLevel = 4;
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
                 {
-                    int cell = ((x / 2) + (y / 2)) % 2;
-                    float shade = cell == 0 ? 0.82f : 0.4f;
+                    int cellX = x / cellSize;
+                    int cellY = y / cellSize;
+                    bool warp = ((cellX + cellY) % 2) == 0;
+                    // Position within the cell, 0..1. The fibre sheen runs
+                    // along the tow direction: horizontal on warp cells,
+                    // vertical on weft cells - a cosine highlight across the
+                    // perpendicular axis mimics the rounded tow surface.
+                    float u = (x % cellSize + 0.5f) / cellSize;
+                    float v = (y % cellSize + 0.5f) / cellSize;
+                    float across = warp ? v : u;
+                    float along = warp ? u : v;
+                    float sheen = Mathf.Cos((across - 0.5f) * Mathf.PI) * 0.5f + 0.5f;
+                    float baseShade = warp ? 0.82f : 0.4f;
+                    float shade = baseShade * Mathf.Lerp(0.72f, 1.12f, sheen);
+                    // Darken the tow ends where a cell tucks under its
+                    // neighbour, so the weave reads as interlaced.
+                    float endFade = Mathf.Min(along, 1f - along) * cellSize;
+                    shade *= Mathf.Lerp(0.65f, 1f, Mathf.Clamp01(endFade / 3f));
+                    shade = Mathf.Clamp01(shade);
                     sharedCarbonWeaveTexture.SetPixel(x, y, new Color(shade, shade, shade, 1f));
                 }
             }
 
-            sharedCarbonWeaveTexture.Apply();
+            sharedCarbonWeaveTexture.Apply(true);
             return sharedCarbonWeaveTexture;
         }
 
@@ -2159,8 +2201,13 @@ namespace LocalFormulaRacing
                 return contactShadowTexture;
             }
 
-            const int size = 32;
-            contactShadowTexture = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            // 256px with mipmaps: the blob is stretched to ~1.9x4.5 m under the
+            // car (and reused as the scuff decal), so the old 32px source
+            // showed visible bilinear diamonds at its centre.
+            const int size = 256;
+            contactShadowTexture = new Texture2D(size, size, TextureFormat.RGBA32, true);
+            contactShadowTexture.wrapMode = TextureWrapMode.Clamp;
+            contactShadowTexture.filterMode = FilterMode.Trilinear;
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
@@ -2173,7 +2220,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            contactShadowTexture.Apply();
+            contactShadowTexture.Apply(true);
             return contactShadowTexture;
         }
 
@@ -2325,7 +2372,7 @@ namespace LocalFormulaRacing
             sparks = CreateEmitter("Spark emitter", new Vector3(0f, 0.22f, 0f), new Color(1f, 0.74f, 0.28f, 0.9f), 0.4f, 0.14f, 7.5f);
             ParticleSystem.MainModule sparkMain = sparks.main;
             sparkMain.gravityModifier = 1.3f;
-            sparkMain.maxParticles = 80;
+            sparkMain.maxParticles = 256;
 
             // Faint heat-haze puffs off the engine cover under hard acceleration.
             // Deliberately understated (small, sparse, quick to fade) - a fake
@@ -2333,7 +2380,7 @@ namespace LocalFormulaRacing
             heatHaze = CreateEmitter("Heat haze emitter", new Vector3(0f, 0.58f, -1.05f), new Color(1f, 0.95f, 0.85f, 0.16f), 0.5f, 0.4f, 0.5f);
             ParticleSystem.MainModule heatMain = heatHaze.main;
             heatMain.gravityModifier = -0.2f;
-            heatMain.maxParticles = 40;
+            heatMain.maxParticles = 96;
             heatHaze.transform.localRotation = Quaternion.Euler(-90f, 0f, 0f);
 
             // Dark engine-damage smoke off the cover, distinct from the pale tyre
@@ -2342,7 +2389,7 @@ namespace LocalFormulaRacing
             damageSmoke = CreateEmitter("Damage smoke emitter", new Vector3(0f, 0.7f, -1.35f), new Color(0.28f, 0.27f, 0.26f, 0.5f), 1.4f, 1.1f, 2.2f);
             ParticleSystem.MainModule damageMain = damageSmoke.main;
             damageMain.gravityModifier = -0.12f;
-            damageMain.maxParticles = 160;
+            damageMain.maxParticles = 384;
         }
 
         ParticleSystem CreateEmitter(string emitterName, Vector3 localPosition, Color color, float lifetime, float size, float speed)
@@ -2357,7 +2404,7 @@ namespace LocalFormulaRacing
             main.startSize = size;
             main.startSpeed = speed;
             main.startColor = color;
-            main.maxParticles = 200;
+            main.maxParticles = 512;
             main.simulationSpace = ParticleSystemSimulationSpace.World;
             ParticleSystem.EmissionModule emission = system.emission;
             emission.rateOverTime = 0f;
@@ -2390,8 +2437,12 @@ namespace LocalFormulaRacing
                 return softDot;
             }
 
-            const int size = 32;
-            softDot = new Texture2D(size, size, TextureFormat.RGBA32, false);
+            // 128px with mipmaps: smoke/spray particles reach ~1.5 m across,
+            // where the old 32px dot's edge banding was visible in every plume.
+            const int size = 128;
+            softDot = new Texture2D(size, size, TextureFormat.RGBA32, true);
+            softDot.wrapMode = TextureWrapMode.Clamp;
+            softDot.filterMode = FilterMode.Trilinear;
             for (int y = 0; y < size; y++)
             {
                 for (int x = 0; x < size; x++)
@@ -2403,7 +2454,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            softDot.Apply();
+            softDot.Apply(true);
             return softDot;
         }
 

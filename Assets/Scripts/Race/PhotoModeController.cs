@@ -170,7 +170,10 @@ namespace LocalFormulaRacing
             // Frame count gives a stable, monotonically increasing name without needing
             // wall-clock time (which the engine-free layers deliberately avoid).
             string path = Path.Combine(dir, "photo_" + Time.frameCount + ".png");
-            ScreenCapture.CaptureScreenshot(path);
+            // superSize 2: render the capture at twice the backbuffer resolution
+            // (4x the pixels), so saved photos are genuinely high-resolution
+            // rather than capped at whatever the current window size is.
+            ScreenCapture.CaptureScreenshot(path, 2);
         }
     }
 }

@@ -27,7 +27,7 @@ namespace F1Game.Rendering
     /// </summary>
     public static class ProceduralSurfaceTextures
     {
-        const int Size = 128;
+        const int Size = 512;
 
         enum Kind { FbmSpeckle, Weave, Brushed, Stripes, Panels, Corrugation, Bands, Turf, ChainLink, Flat }
 
@@ -189,7 +189,8 @@ namespace F1Game.Rendering
             {
                 name = "T_" + slot + "_Procedural",
                 wrapMode = TextureWrapMode.Repeat,
-                filterMode = FilterMode.Bilinear,
+                filterMode = FilterMode.Trilinear,
+                anisoLevel = 4,
             };
 
             var pixels = new Color32[Size * Size];

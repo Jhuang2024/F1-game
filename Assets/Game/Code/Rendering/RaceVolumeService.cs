@@ -130,6 +130,10 @@ namespace F1Game.Rendering
             colorAdjustments = profile.Add<ColorAdjustments>(true);
             bloom = profile.Add<Bloom>(true);
             bloom.scatter.Override(0.6f);
+            // High-quality prefiltering: URP's default bloom downsample can
+            // flicker/sparkle on small bright sources (rain lights, floodlight
+            // specular hits); the HQ path adds the anti-flicker prefilter.
+            bloom.highQualityFiltering.Override(true);
             vignette = profile.Add<Vignette>(true);
             vignette.smoothness.Override(0.42f);
 

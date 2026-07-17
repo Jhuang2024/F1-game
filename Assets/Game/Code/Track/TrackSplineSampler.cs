@@ -28,7 +28,11 @@ namespace F1Game.Track
         public float Length { get; private set; }
         public bool ClosedLoop { get; private set; }
 
-        public void Build(IReadOnlyList<TrackDefinitionAsset.SplinePoint> control, bool closedLoop, float spacing = 6f)
+        // Default resample spacing 3m (was 6m): halves the chord length the
+        // road ribbon is built from, which is what keeps authored corner arcs
+        // round instead of visibly faceted. Callers that need the old density
+        // still pass spacing explicitly.
+        public void Build(IReadOnlyList<TrackDefinitionAsset.SplinePoint> control, bool closedLoop, float spacing = 3f)
         {
             samples.Clear();
             Length = 0f;
@@ -40,10 +44,13 @@ namespace F1Game.Track
 
             int count = control.Count;
             // Dense pass first (fixed subdivisions per segment), then arc-length
-            // resample to the requested even spacing.
+            // resample to the requested even spacing. 32 subdivisions (was 12)
+            // keeps the dense pass from faceting tight corners before the
+            // resample ever sees them - with typical 40-60-point control loops
+            // this is still only ~2k transient samples.
             var dense = new List<Sample>();
             int segments = closedLoop ? count : count - 1;
-            const int perSegment = 12;
+            const int perSegment = 32;
             float cumulative = 0f;
             Vector3 previous = control[0].position;
 

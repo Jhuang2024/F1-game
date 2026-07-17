@@ -236,18 +236,69 @@ All RGBA32, **mipmaps off**, default bilinear, shared statics:
 
 ---
 
-## 7. Suggested priority order for fixing
+## 7. Remediation pass (2026-07-17)
 
-1. **Config bugs (cheap wins):** correct the quality-tier mapping so game
-   tier 2 actually gets URP-High (or fix the comment); reconcile
-   KNOWN_ISSUES.md with the actual active-pipeline state.
-2. **Highest-visibility runtime quality:** reflection probe 128 → 256/512 by
-   tier; consider soft shadows on High/Ultra only; raise road mesh step below
-   8 m near corners; mipmaps for the tiled car textures (tread/weave shimmer
-   at speed without them).
-3. **UI polish independent of art:** draw minimap outline as a line mesh
-   instead of ≤110/256 dots; chart polylines via a single mesh/`UILineRenderer`
-   rather than rotated Images.
-4. **The art pipeline itself** (car FBX, 2K surface library, environment kit,
-   icons) — already fully specified in `ART_PIPELINE.md`; everything in §2–§4
-   is scaffolded to be replaced by it.
+Everything code-addressable above has been fixed on this branch. Item by item:
+
+**Config bugs**
+- Unity quality level "High" now points at the **URP-High** pipeline asset
+  (`QualitySettings.asset`), so game tier 2 gets the 4×MSAA/4096-shadow tier
+  and `GraphicsPresetService`'s comment is accurate as written.
+- `KNOWN_ISSUES.md` pipeline section rewritten to match reality (URP active).
+
+**Lighting / pipeline (§1, §2)**
+- Reflection probe **128 → 512** (`RaceManager.Lighting.cs`) — still a single
+  ViaScripting render, so no per-frame cost.
+- Sun shadows **Hard → Soft**; URP-Low's tier asset (soft shadows unsupported)
+  still degrades low presets to hard automatically.
+- SMAA **Medium → High** (`UrpCameraSetup.cs`).
+- URP bloom **high-quality prefiltering** enabled (`RaceVolumeService.cs`);
+  URP-High color-grading LUT **32 → 64**.
+
+**Car textures (§2)** — all now mipmapped + trilinear with pattern scale
+preserved: tyre tread **64×8 → 512×64** (anti-aliased grooves), rim spokes
+**128×16 → 1024×128**, carbon weave **16×16 → 256×256** (directional
+fibre-sheen twill instead of a hard checkerboard), contact shadow/scuff
+**32² → 256²**, particle soft dot **32² → 128²**. Particle caps raised
+(default 200→512, sparks 80→256, haze 40→96, smoke 160→384, pooled VFX
+64→192).
+
+**Track & environment (§3)**
+- `ProceduralSurfaceTextures` slot maps **128² → 512²**, trilinear + aniso.
+- TrackManager generators (all mipmapped, physical pattern scale preserved via
+  normalized coordinates): asphalt **256² → 1024²** (+micro octave), window
+  strip **64² Point → 256² bilinear** with framed panes, chain-link
+  **32² → 256²** with anti-aliased rounded-wire strands, wear **128² → 512²**,
+  armco **64² → 256²** with domed AA bolt heads, concrete **128² → 512²** with
+  chamfered seams, tyre-stack **64² → 256²** with rounded sidewall bulges, and
+  every `BuildNoiseTexture` call site (32²–128²) **→ 256²**.
+- Road ribbon sampling **8 m → 3 m** (`RoadMeshStepMeters`); authored spline
+  dense pass **12 → 32** subdivisions per segment and default resample spacing
+  **6 m → 3 m** (`TrackSplineSampler`).
+
+**UI / HUD (§4)**
+- All four procedural sprites rebuilt at 4× density with mipmaps + trilinear;
+  the rounded-rect and checker sprites keep their on-screen proportions via a
+  matching 4× pixels-per-unit. The checker is now anti-aliased bilinear
+  instead of Point-filtered.
+- Both minimaps draw the circuit as a **continuous closed polyline** of
+  rotated segments (legacy `RaceHud`, production `MinimapModule`) instead of
+  dot scatters; production car dots are now circular (`UiSprites.Circle`)
+  rather than plain squares.
+- Chart polylines (legacy `UiFactory.DrawChartPolyline`, production
+  `ChampionshipChartView`) gained circular joints at every vertex, rounding
+  corners and capping line ends.
+
+**Post-processing (§5)**
+- `RacePostUber` blur upgraded to a 13-tap (7-sample) gaussian; bloom is still
+  built at quarter/eighth res — that part is standard bloom practice, the
+  small kernel was the actual defect.
+- Photo mode captures at **2× supersampling** (`CaptureScreenshot(path, 2)`).
+
+**Not code-fixable — needs real art (§2, §3, §6)**
+The primitive-built cars, sphere-stack trees, cube crowds/buildings and box
+kerb geometry are placeholder *meshes*; no code change can conjure modelled
+assets, and the project's own `ART_PIPELINE.md` spec (car FBX with LODs, 2K
+PBR surface library, modular environment kit, SVG icon set) remains the
+migration path. The texture/filtering/AA work above makes the placeholders
+render as well as they can until that art lands.
