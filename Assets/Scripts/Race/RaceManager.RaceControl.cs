@@ -80,6 +80,32 @@ namespace LocalFormulaRacing
                 text.Append("[").Append(cars).Append(" car(s)]");
             }
 
+            // Road-geometry probe: sample the road surface at and ahead of the
+            // stuck car. A wedge against "Procedural road" with a big height
+            // jump between consecutive samples is a road cliff - the numbers
+            // point at it directly.
+            if (Track != null)
+            {
+                text.Append(" | road y at +0/+10/+20/+40m: ");
+                for (int step = 0; step < 4; step++)
+                {
+                    float ahead = step == 3 ? 40f : step * 10f;
+                    Vector3 roadPoint;
+                    Vector3 roadForward;
+                    Vector3 roadRight;
+                    Track.SampleAtDistance(progress.distance + ahead, out roadPoint, out roadForward, out roadRight);
+                    text.Append(roadPoint.y.ToString("0.0"));
+                    if (step < 3)
+                    {
+                        text.Append("/");
+                    }
+                }
+
+                text.Append(" (car y=").Append(t.position.y.ToString("0.0"))
+                    .Append(", lateral=").Append(progress.lateralDistance.ToString("0.0"))
+                    .Append(", halfWidth=").Append(Track.HalfWidthAt(progress.distance).ToString("0.0")).Append(")");
+            }
+
             Debug.Log(text.ToString());
         }
 

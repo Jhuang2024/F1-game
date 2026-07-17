@@ -2276,6 +2276,7 @@ namespace LocalFormulaRacing
             // smoothly raised into a genuine flyover with real clearance.
             ResolveTrackCrossings(runtime);
             SmoothSharpKinks(runtime);
+            FlattenRoadCliffs(runtime);
             runtime.RecalculateDistances();
             // Hairpin centers are derived from the FINAL, fully-repaired/scaled
             // centerline (AddLayoutPoints already ran repair + NormalizeTrackLength +
@@ -2405,6 +2406,72 @@ namespace LocalFormulaRacing
             {
                 GameLog.Warn("[TrackValidation] Relaxed " + relaxedPoints + " cusp/fold point(s) sharper than 85 degrees on " +
                              runtime.displayName + " - a fold there renders the road collider as a wall across the corner.");
+            }
+        }
+
+        // Vertical-cliff killer ([StuckDiag] still reporting cars wedged
+        // against "Procedural road" with NO horizontal kink logged):
+        // SmoothSharpKinks deliberately measures turning in the flat plane
+        // (inDir.y = 0), so it is blind to a VERTICAL step - two centreline
+        // points close together horizontally but metres apart in height. The
+        // road mesh lerps between them and its collider becomes a ramp so
+        // steep it is effectively a wall. Any segment steeper than a 35%
+        // grade is relaxed by pulling the two points' heights toward each
+        // other (XZ untouched) until the whole lap is drivable, and every
+        // repair is logged with its location.
+        void FlattenRoadCliffs(TrackRuntime runtime)
+        {
+            List<Vector3> line = runtime.centerLine;
+            if (line == null || line.Count < 8)
+            {
+                return;
+            }
+
+            int n = line.Count;
+            const float maxGrade = 0.35f;
+            int repairs = 0;
+            string worstDescription = "";
+            float worstGrade = 0f;
+            for (int pass = 0; pass < 60; pass++)
+            {
+                bool anySteep = false;
+                for (int i = 0; i < n; i++)
+                {
+                    Vector3 a = line[i];
+                    Vector3 b = line[(i + 1) % n];
+                    float xzDistance = Mathf.Max(0.5f, new Vector2(b.x - a.x, b.z - a.z).magnitude);
+                    float grade = Mathf.Abs(b.y - a.y) / xzDistance;
+                    if (grade <= maxGrade)
+                    {
+                        continue;
+                    }
+
+                    anySteep = true;
+                    repairs++;
+                    if (grade > worstGrade)
+                    {
+                        worstGrade = grade;
+                        worstDescription = "points " + i + "/" + ((i + 1) % n) + " at " + a.ToString("F1") + " -> " + b.ToString("F1");
+                    }
+
+                    float meanY = (a.y + b.y) * 0.5f;
+                    a.y = Mathf.Lerp(a.y, meanY, 0.5f);
+                    b.y = Mathf.Lerp(b.y, meanY, 0.5f);
+                    line[i] = a;
+                    line[(i + 1) % n] = b;
+                }
+
+                if (!anySteep)
+                {
+                    break;
+                }
+            }
+
+            if (repairs > 0)
+            {
+                GameLog.Warn("[TrackValidation] Flattened " + repairs + " road-cliff segment step(s) steeper than 35% grade on " +
+                             runtime.displayName + "; worst was " + (worstGrade * 100f).ToString("0") + "% at " + worstDescription +
+                             " - a step that steep renders the road collider as a wall.");
             }
         }
 
