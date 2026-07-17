@@ -2439,6 +2439,27 @@ namespace LocalFormulaRacing
                 float t = k / (float)(span + 1);
                 line[(i + k) % n] = Vector3.Lerp(from, to, t);
             }
+
+            // Kink smoothing (per report - "a MASSIVE barrier gap on the
+            // outside of the final turn... and a GATHERING of barriers on the
+            // inside"): the raw chord meets the surrounding curve at two sharp
+            // kinks, and offset geometry behaves exactly that way at a kink -
+            // the outside barrier line opens a wedge gap while the inside line
+            // bunches into overlapping segments. Several relaxation passes
+            // over the joined region round both kinks into a continuous arc
+            // the barrier planner can follow normally. Runs before
+            // RecalculateDistances (see the ResolveTrackCrossings call site),
+            // so distances stay consistent with the smoothed points.
+            for (int pass = 0; pass < 10; pass++)
+            {
+                for (int k = -6; k <= span + 6; k++)
+                {
+                    int index = ((i + k) % n + n) % n;
+                    int previous = (index - 1 + n) % n;
+                    int next = (index + 1) % n;
+                    line[index] = line[index] * 0.5f + (line[previous] + line[next]) * 0.25f;
+                }
+            }
         }
 
         static bool SegmentsCross2D(Vector3 p1, Vector3 p2, Vector3 p3, Vector3 p4)

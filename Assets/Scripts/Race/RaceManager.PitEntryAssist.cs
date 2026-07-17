@@ -141,13 +141,17 @@ namespace LocalFormulaRacing
             float envelopeDistance = Mathf.Max(0f, metresToRamp - PitApproachRampBufferMetres);
             float targetMs = alignedTargetKph / 3.6f;
             float envelopeKph = Mathf.Sqrt(targetMs * targetMs + 2f * PitApproachBrakeDecelMs2 * envelopeDistance) * 3.6f;
+            // Fully automated again (per report - "why is it no longer
+            // animated and I can press the throttle to make me go faster??"):
+            // an earlier pass handed throttle/brake back to the player until
+            // the braking point, which read as the pit entry being broken
+            // rather than as freedom. The assist now drives the whole approach
+            // itself - at full racing pace until the envelope's braking point
+            // (so the old "crawls a corner early" complaint stays fixed), then
+            // one clean braking zone to the entry speed. Player throttle input
+            // can no longer add speed on top.
             float speedGapKph = envelopeKph - speedKph;
-            if (speedGapKph > 10f && envelopeDistance > 0f)
-            {
-                command.throttle = fallback.throttle;
-                command.brake = fallback.brake;
-            }
-            else if (speedGapKph < -3f)
+            if (speedGapKph < -3f)
             {
                 command.brake = Mathf.Clamp01(-speedGapKph / 35f);
                 command.throttle = 0f;
@@ -173,7 +177,6 @@ namespace LocalFormulaRacing
             // 12 km/h now, with a wider wall-detection band and a stronger
             // steer-away, so a wall-scrubbing car is pulled off the barrier
             // while it still has momentum instead of only after a dead stop.
-            bool unstickOverride = false;
             if (speedKph < 12f)
             {
                 bool againstWall = progress.lateralDistance > LocalHalfWidthAt(progress.distance) - 2f;
@@ -182,7 +185,6 @@ namespace LocalFormulaRacing
                     steer = -0.6f;
                     command.throttle = 0.5f;
                     command.brake = 0f;
-                    unstickOverride = true;
                 }
                 else if (command.throttle > 0f)
                 {
@@ -207,14 +209,16 @@ namespace LocalFormulaRacing
             // exactly how a pinned car stayed pinned with the assist "active".
             // A genuine wall-escape takes full steering authority regardless of
             // request source; the blend only applies to normal target-chasing.
-            if (unstickOverride || participant.activePitRequestSource == PitRequestSource.PreRacePlan)
-            {
-                command.steer = steer;
-            }
-            else
-            {
-                command.steer = Mathf.Clamp(steer * 0.55f + fallback.steer * 0.7f, -1f, 1f);
-            }
+            // Full steering authority for every request source now (per report
+            // - "why can I steer the car"): the old manual-source blend existed
+            // because the flat-speed assist could drag a fast-moving player
+            // into walls, but the braking envelope above already guarantees the
+            // car arrives at the ramp at a controlled speed, so the guided line
+            // is safe to hold outright - and a guided pit entry is what the
+            // player expects to see once a stop is latched. Cancelling the
+            // request (O key / HUD button) before the limiter line remains the
+            // way to take back control.
+            command.steer = steer;
             command.ers = false;
             command.drs = false;
             return command;
