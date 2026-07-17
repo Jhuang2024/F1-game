@@ -103,7 +103,7 @@ namespace LocalFormulaRacing
                     float playerPhaseTime = GetQualifyingPhaseTime(playerPhaseEntry, phase);
                     Debug.Log("[QualiSim] Q" + phase + " summary: playerTime=" +
                               (playerPhaseTime > 0f ? playerPhaseTime.ToString("0.000") : "none") +
-                              " tyre=" + (Settings != null ? Settings.SelectedTyreCompound.ToString() : "?") +
+                              " tyre=" + WeatherCorrectedQualifyingCompound() +
                               " cutoff=" + QualifyingCutoffTime(phase).ToString("0.000") +
                               " eliminated=" + (string.IsNullOrEmpty(playerPhaseEntry.eliminatedIn) ? "no" : playerPhaseEntry.eliminatedIn));
                 }
@@ -153,7 +153,7 @@ namespace LocalFormulaRacing
                 text.Append("AI difficulty setting    ").Append(SignedSeconds(breakdown.difficultyEffect)).Append("\n");
                 text.Append("Track evolution (Q").Append(decisivePhase).Append(")     ").Append(SignedSeconds(breakdown.phaseEffect)).Append("\n");
                 text.Append("Tyre preparation         ").Append(SignedSeconds(breakdown.tyrePrep)).Append("\n");
-                text.Append("Tyre choice (").Append(Settings == null ? "Medium" : Settings.SelectedTyreCompound.ToString()).Append(")     ").Append(SignedSeconds(breakdown.tyreChoicePenalty)).Append("\n");
+                text.Append("Tyre choice (").Append(WeatherCorrectedQualifyingCompound().ToString()).Append(")     ").Append(SignedSeconds(breakdown.tyreChoicePenalty)).Append("\n");
                 text.Append("Weather                  ").Append(SignedSeconds(breakdown.weatherPenalty)).Append("\n");
                 if (breakdown.mistakePenalty > 0.001f)
                 {

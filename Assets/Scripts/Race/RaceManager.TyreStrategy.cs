@@ -39,7 +39,23 @@ namespace LocalFormulaRacing
                     return Track.weather == WeatherState.HeavyRain ? TyreCompound.Wet : TyreCompound.Intermediate;
                 }
 
-                return Settings.SelectedTyreCompound;
+                // Dry-race fairness fix, the mirror of the wet fix above (per
+                // report - "when it's supposed to be wet and it's actually dry
+                // I'm the only one stuck on inters"): the pre-race selection
+                // (or one persisted from a wet weekend) can be a rain compound
+                // while the race actually rolls dry - every AI does its dry
+                // roll below while the player alone gridded on inters/wets. No
+                // real garage sends a car to a dry grid on rain tyres; fit the
+                // same temperature-aware dry pick the AI use. A dry-compound
+                // selection (soft/medium/hard) is still honoured untouched.
+                TyreCompound selected = Settings.SelectedTyreCompound;
+                if (selected == TyreCompound.Intermediate || selected == TyreCompound.Wet)
+                {
+                    float dryTempC = Track != null ? Track.trackTemperatureC : TyreStrategyRules.StandardTrackTempC;
+                    return (TyreCompound)TyreStrategyRules.DryStartCompoundFromRoll(1, dryTempC);
+                }
+
+                return selected;
             }
 
             if (Track != null && (Track.weather == WeatherState.HeavyRain || Track.weather == WeatherState.LightRain))

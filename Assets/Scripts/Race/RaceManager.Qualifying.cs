@@ -63,9 +63,44 @@ namespace LocalFormulaRacing
             return SimulateBestOfTwoQualifyingAttempt(entry, phase, null).finalTime;
         }
 
-        float SimulatePlayerQualifyingTime(QualifyingSimEntry entry, int phase)
+        // Weather-corrected fitting (per report - "it's predicted the weather's
+        // gonna be wet/dry in qualifying and then it turns out the completely
+        // opposite and my tyres are just f'd and I qualify P22"): the selected
+        // compound persists from the strategy screen and was chosen against the
+        // FORECAST, but the sim runs on the session's LIVE weather - and only
+        // the player ever paid the mismatch penalty (inters in the dry +1.7s,
+        // slicks in rain far worse) because the AI carry no compound choice at
+        // all. No crew would send the car out on the wrong tyre category: rain
+        // sessions fit the correct rain tyre, and a rain-compound selection in
+        // a dry session becomes the soft (the qualifying slick). A dry slick
+        // choice (soft/medium/hard) in a dry session is still the player's own
+        // strategic call, honoured untouched. Shared so the [QualiSim] log and
+        // the itemized explanation report the FITTED compound too.
+        public TyreCompound WeatherCorrectedQualifyingCompound()
         {
             TyreCompound compound = Settings == null ? TyreCompound.Medium : Settings.SelectedTyreCompound;
+            WeatherState qualiWeather = Track == null ? WeatherState.Clear : Track.weather;
+            if (qualiWeather == WeatherState.HeavyRain)
+            {
+                return TyreCompound.Wet;
+            }
+
+            if (qualiWeather == WeatherState.LightRain)
+            {
+                return TyreCompound.Intermediate;
+            }
+
+            if (compound == TyreCompound.Intermediate || compound == TyreCompound.Wet)
+            {
+                return TyreCompound.Soft;
+            }
+
+            return compound;
+        }
+
+        float SimulatePlayerQualifyingTime(QualifyingSimEntry entry, int phase)
+        {
+            TyreCompound compound = WeatherCorrectedQualifyingCompound();
             QualifyingLapBreakdown best = SimulateBestOfTwoQualifyingAttempt(entry, phase, compound);
             best.finalTime = Mathf.Max(20f, best.finalTime);
             if (phase >= 1 && phase <= 3)
