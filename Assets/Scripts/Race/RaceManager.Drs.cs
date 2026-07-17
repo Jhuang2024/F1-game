@@ -45,6 +45,7 @@ namespace LocalFormulaRacing
             {
                 participant.drsEligibleZoneOne = false;
                 participant.drsEligibleZoneTwo = false;
+                participant.drsZoneEntryRacePosition = -1;
                 participant.previousDrsProgressNormalized = currentNormalized;
                 return;
             }
@@ -69,6 +70,20 @@ namespace LocalFormulaRacing
                 participant.drsEligibilityLapZoneTwo = participant.lapTracker.CompletedLaps;
             }
 
+            // Latch the race position held at the moment the car ENTERS a DRS
+            // zone (passed-leader fix - see the gate below). Checked against
+            // both zones with one flag since the zones never overlap.
+            bool inAnyZoneNow = Track.IsInDrsZone(1, currentNormalized) || Track.IsInDrsZone(2, currentNormalized);
+            bool inAnyZoneBefore = Track.IsInDrsZone(1, previousNormalized) || Track.IsInDrsZone(2, previousNormalized);
+            if (inAnyZoneNow && !inAnyZoneBefore)
+            {
+                participant.drsZoneEntryRacePosition = GetPosition(participant);
+            }
+            else if (!inAnyZoneNow)
+            {
+                participant.drsZoneEntryRacePosition = -1;
+            }
+
             // Live in-zone earning ("DRS is broken" fix): the detection-point
             // check above is a snapshot - a car that was 3-4s back at the line
             // but catches the car ahead mid-zone (routine here, where closing
@@ -80,15 +95,28 @@ namespace LocalFormulaRacing
             // ("once earned it holds for the whole zone" is unchanged - the gap
             // opening back up never revokes it), and the zone-exit clearing
             // below still resets everything for the next pass.
+            // Passed-leader gate (per report - "if I'm leading across the DRS
+            // detection line and the AI behind me gets DRS and passes me on
+            // that straight... I get DRS too???"): live earning exists for a
+            // car CATCHING the one ahead, but a car that got PASSED inside the
+            // zone also suddenly has a car ahead within the gap and used to
+            // earn DRS retroactively. A car may only live-earn while it still
+            // holds (or has improved on) the position it entered the zone with
+            // - losing a place inside the zone forfeits live earning for the
+            // rest of that zone, exactly like real DRS where the decision was
+            // already made at the detection line. The detection-point latch
+            // above is untouched.
+            bool heldPositionSinceZoneEntry = participant.drsZoneEntryRacePosition < 0 ||
+                GetPosition(participant) <= participant.drsZoneEntryRacePosition;
             if (Track.IsInDrsZone(1, currentNormalized) && !participant.drsEligibleZoneOne &&
-                EvaluateDrsDetectionGap(participant))
+                heldPositionSinceZoneEntry && EvaluateDrsDetectionGap(participant))
             {
                 participant.drsEligibleZoneOne = true;
                 participant.drsEligibilityLapZoneOne = participant.lapTracker.CompletedLaps;
             }
 
             if (Track.IsInDrsZone(2, currentNormalized) && !participant.drsEligibleZoneTwo &&
-                EvaluateDrsDetectionGap(participant))
+                heldPositionSinceZoneEntry && EvaluateDrsDetectionGap(participant))
             {
                 participant.drsEligibleZoneTwo = true;
                 participant.drsEligibilityLapZoneTwo = participant.lapTracker.CompletedLaps;

@@ -1894,6 +1894,11 @@ namespace LocalFormulaRacing
         bool coastalTrack;
         bool urbanHillsideTrack;
         bool canadaTrack;
+        // Jeddah gets a signature pass on top of the shared street-circuit
+        // treatment (per request - "add more and larger skyscrapers and more
+        // and larger grandstands to it"): a dedicated corniche high-rise
+        // skyline and oversized grandstands.
+        bool jeddahTrack;
         Material edgeGlowMaterial;
         Material[] neonMaterials;
         Material yachtMaterial;
@@ -1976,6 +1981,7 @@ namespace LocalFormulaRacing
             coastalTrack = trackId.Contains("zandvoort") || (Runtime.styleName.ToLowerInvariant().Contains("coastal") && !streetTrack);
             urbanHillsideTrack = trackId.Contains("interlagos");
             canadaTrack = trackId.Contains("canada");
+            jeddahTrack = trackId.Contains("jeddah") || trackId.Contains("saudi");
             CreateMaterials();
             BuildGround();
             BuildContinuousSafetyFloor();
@@ -8028,10 +8034,14 @@ namespace LocalFormulaRacing
 
             // Signature grandstands on the main spectator stretches. Grandstand at 0.85-1.0
             // is kept on the left so it never fights the pit complex on the right.
-            BuildGrandstand(0.02f, -1);
-            BuildGrandstand(0.15f, 1);
-            BuildGrandstand(0.45f, -1);
-            BuildGrandstand(0.85f, -1);
+            // Jeddah's stands build oversized (per request - "more and larger
+            // grandstands"): the fixed set at 1.6x scale plus extra large stands
+            // at fresh slots below.
+            float standScale = jeddahTrack ? 1.6f : 1f;
+            BuildGrandstand(0.02f, -1, standScale);
+            BuildGrandstand(0.15f, 1, standScale);
+            BuildGrandstand(0.45f, -1, standScale);
+            BuildGrandstand(0.85f, -1, standScale);
 
             // Natural road courses read as an open-countryside meeting with an extra
             // grandstand at a corner rather than only on the straights.
@@ -8042,11 +8052,23 @@ namespace LocalFormulaRacing
 
             float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
 
-            // Extra permanent stands for higher scenery-density settings, at fresh
-            // normalized slots that don't overlap the fixed set above, so a fully
-            // built-up circuit (rather than only the fixed handful every track gets)
-            // is available on the high end without costing anything at the low end.
-            if (density >= 1.25f)
+            // Extra permanent stands at fresh normalized slots that don't overlap
+            // the fixed set above. Jeddah gets a full extra set of LARGE stands
+            // unconditionally; every other circuit now gets the two extra stands
+            // at default density too (gate lowered from 1.25 - per request, the
+            // other venues read "mediocre" next to Jeddah, and a busier
+            // spectator build-out is the transferable part of its look).
+            if (jeddahTrack)
+            {
+                BuildGrandstand(0.3f, 1, 1.6f);
+                BuildGrandstand(0.58f, 1, 1.4f);
+                BuildGrandstand(0.72f, -1, 1.6f);
+                BuildGrandstand(0.93f, -1, 1.4f);
+            }
+            // Desert circuits are excluded: BuildDesertBackdrop already plants
+            // its own extra stands at these same 0.3/0.72 slots, and doubling
+            // them up would z-fight inside each other.
+            else if (density >= 1.0f && !desertTrack)
             {
                 BuildGrandstand(0.3f, 1);
                 BuildGrandstand(0.72f, -1);
@@ -8685,8 +8707,11 @@ namespace LocalFormulaRacing
         void BuildCityStreetBackdrop(float density)
         {
             // Denser, taller, and pulled in closer than the original pass so the
-            // street-circuit "canyon" feel is stronger.
-            int clusters = Mathf.Max(4, Mathf.RoundToInt(9f * density));
+            // street-circuit "canyon" feel is stronger. Heights lifted again for
+            // every street circuit (per request - the other venues read
+            // "mediocre" next to Jeddah), and Jeddah itself gets a denser row
+            // here plus its own dedicated corniche high-rise pass at the end.
+            int clusters = Mathf.Max(4, Mathf.RoundToInt((jeddahTrack ? 13f : 9f) * density));
             for (int i = 0; i < clusters; i++)
             {
                 float t = (i + 0.5f) / clusters;
@@ -8698,7 +8723,7 @@ namespace LocalFormulaRacing
                 // Grounded - the street-canyon skyline stands on real ground, not on the
                 // track's own sampled height.
                 Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 42f);
-                CreateProceduralBuildingCluster(anchor, forward, 3, 22f + (i % 4) * 9f, false, 2.5f);
+                CreateProceduralBuildingCluster(anchor, forward, 3, (jeddahTrack ? 32f : 26f) + (i % 4) * 10f, false, 2.5f);
             }
 
             // A closer second row on alternating samples for extra canyon density.
@@ -8742,6 +8767,87 @@ namespace LocalFormulaRacing
                 }
 
                 CreateVisualBox("Street canyon service wall", safePosition + Vector3.up * 1.1f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(0.35f, 2.2f, 8f), i % 2 == 0 ? weatheredConcreteMaterial : concreteMaterial);
+            }
+
+            if (jeddahTrack)
+            {
+                BuildJeddahCornicheSkyline(density);
+            }
+        }
+
+        // Jeddah corniche high-rise skyline (per request - "add more and larger
+        // skyscrapers"): a further-back row of genuinely tall glass towers behind
+        // the shared street-canyon blocks above, so the circuit reads as a real
+        // waterfront high-rise city rather than the same mid-rise skyline every
+        // street circuit gets - plus one landmark supertall near the start/finish
+        // straight. Everything is visual-only, grounded on real terrain, and
+        // clearance-checked through TryGetClearScenerySpot like every other
+        // backdrop pass, and the whole row stands 70m+ off the corridor so height
+        // never crowds the racing line.
+        void BuildJeddahCornicheSkyline(float density)
+        {
+            int towers = Mathf.Max(8, Mathf.RoundToInt(14f * density));
+            for (int i = 0; i < towers; i++)
+            {
+                float t = (i + 0.5f) / towers;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 70f + (i % 3) * 24f);
+                float height = 55f + (i % 5) * 15f;
+                CreateCornicheSkyscraper(anchor, forward, height, i);
+            }
+
+            // Landmark supertall by the start/finish straight - the one silhouette
+            // that anchors the whole skyline, tall enough to read from anywhere
+            // on the lap.
+            Vector3 landmarkPoint;
+            Vector3 landmarkForward;
+            Vector3 landmarkRight;
+            Runtime.SampleAtDistance(Runtime.length * 0.06f, out landmarkPoint, out landmarkForward, out landmarkRight);
+            Vector3 landmarkAnchor = GroundedTrackPoint(landmarkPoint) + landmarkRight * (Runtime.roadHalfWidth + 130f);
+            CreateCornicheSkyscraper(landmarkAnchor, landmarkForward, 150f, 1);
+        }
+
+        // One glass tower: main shaft, full-height vertical window strips, a
+        // set-back crown, and a spire on the taller silhouettes. The band-per-
+        // 3m approach CreateProceduralBuildingCluster uses would need dozens of
+        // boxes at these heights, so tall towers use a few full-height strips
+        // instead.
+        void CreateCornicheSkyscraper(Vector3 anchor, Vector3 forward, float height, int seed)
+        {
+            float footprint = 14f + (seed % 3) * 4f;
+            Vector3 safePosition;
+            if (!TryGetClearScenerySpot(anchor, footprint * 0.75f, 6f, out safePosition))
+            {
+                return;
+            }
+
+            Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+            GameObject shaft = GameObject.CreatePrimitive(PrimitiveType.Cube);
+            shaft.name = "Corniche skyscraper shaft";
+            shaft.transform.SetParent(transform);
+            shaft.transform.position = safePosition + Vector3.up * height * 0.5f;
+            shaft.transform.rotation = rotation;
+            shaft.transform.localScale = new Vector3(footprint, height, footprint * 0.8f);
+            shaft.GetComponent<Renderer>().sharedMaterial = glassMaterial;
+            MakeVisualOnly(shaft);
+
+            for (int strip = -1; strip <= 1; strip++)
+            {
+                CreateVisualBox("Corniche skyscraper window strip",
+                    safePosition + rotation * new Vector3(strip * footprint * 0.28f, height * 0.5f, footprint * 0.41f),
+                    rotation, new Vector3(footprint * 0.16f, height * 0.92f, 0.1f), windowStripMaterial);
+            }
+
+            CreateVisualBox("Corniche skyscraper crown", safePosition + Vector3.up * (height + 2.4f), rotation,
+                new Vector3(footprint * 0.55f, 5f, footprint * 0.45f), concreteMaterial);
+            if (height > 90f)
+            {
+                CreateVisualBox("Corniche skyscraper spire", safePosition + Vector3.up * (height + 9f), rotation,
+                    new Vector3(0.8f, 9f, 0.8f), metalMaterial);
             }
         }
 
@@ -9711,6 +9817,17 @@ namespace LocalFormulaRacing
 
         void BuildGrandstand(float normalizedDistance, int side)
         {
+            BuildGrandstand(normalizedDistance, side, 1f);
+        }
+
+        // scale = 1 reproduces the original stand exactly; scale > 1 builds a
+        // genuinely bigger venue stand (per request - Jeddah's "more and larger
+        // grandstands"): more seating tiers, a longer run of seats, and a
+        // taller roof, all derived from the same row geometry so the tiers
+        // still step up and AWAY from the track (a bigger stand grows outward,
+        // never toward the corridor).
+        void BuildGrandstand(float normalizedDistance, int side, float scale)
+        {
             Vector3 point;
             Vector3 forward;
             Vector3 right;
@@ -9722,42 +9839,49 @@ namespace LocalFormulaRacing
             Vector3 lateral = right * side;
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
 
+            int rows = Mathf.Clamp(Mathf.RoundToInt(6f * scale), 6, 12);
+            float standLength = 22f * scale;
+
             // Paved foundation pad under the stand so it reads as sitting on a real
             // concourse rather than hovering just above unbroken bare ground.
-            CreateGroundPatch("Grandstand foundation pad", basePosition + lateral * 3f, 9f, 24f, concreteMaterial, rotation);
+            CreateGroundPatch("Grandstand foundation pad", basePosition + lateral * rows * 0.5f, 9f * scale, standLength + 2f, concreteMaterial, rotation);
 
             // Tiered seating stepping up and away from the track, with colored crowd
             // blocks so the stands read as full rather than as bare metal shelves.
             // Parkland circuits get a weathered concrete tier tone instead of bare
             // metal for the "old-school racing venue" read the brief asks for.
             Material tierMaterial = parklandTrack ? weatheredConcreteMaterial : metalMaterial;
-            for (int row = 0; row < 6; row++)
+            for (int row = 0; row < rows; row++)
             {
                 Vector3 rowCenter = basePosition + Vector3.up * (0.4f + row * 0.62f) + lateral * row * 1.15f;
-                CreateVisualBox("Grandstand tier", rowCenter, rotation, new Vector3(1.25f, 0.5f, 22f), tierMaterial);
-                CreateVisualBox("Grandstand crowd block", rowCenter + Vector3.up * 0.45f, rotation, new Vector3(0.9f, 0.42f, 21f), row % 2 == 0 ? sceneryAccentMaterial : glassMaterial);
+                CreateVisualBox("Grandstand tier", rowCenter, rotation, new Vector3(1.25f, 0.5f, standLength), tierMaterial);
+                CreateVisualBox("Grandstand crowd block", rowCenter + Vector3.up * 0.45f, rotation, new Vector3(0.9f, 0.42f, standLength - 1f), row % 2 == 0 ? sceneryAccentMaterial : glassMaterial);
             }
 
             // Roof canopy on slender pylons, in a distinct roof-toned material from the
-            // seating tiers so the stand doesn't read as one flat block.
-            Vector3 roofCenter = basePosition + Vector3.up * 5.4f + lateral * 3.4f;
-            CreateVisualBox("Grandstand roof", roofCenter, rotation, new Vector3(9.6f, 0.28f, 23.5f), grandstandRoofMaterial);
-            CreateVisualBox("Grandstand roof fascia", roofCenter - lateral * 4.6f - Vector3.up * 0.5f, rotation, new Vector3(0.22f, 0.9f, 23.5f), sceneryAccentMaterial);
+            // seating tiers so the stand doesn't read as one flat block. All roof
+            // geometry derives from the row count/length so every scale keeps the
+            // original stand's proportions (rows=6/length=22 reproduces the old
+            // hardcoded numbers exactly).
+            float roofHeight = 0.4f + rows * 0.62f + 1.28f;
+            Vector3 roofCenter = basePosition + Vector3.up * roofHeight + lateral * rows * 0.57f;
+            CreateVisualBox("Grandstand roof", roofCenter, rotation, new Vector3(rows * 1.6f, 0.28f, standLength + 1.5f), grandstandRoofMaterial);
+            CreateVisualBox("Grandstand roof fascia", roofCenter - lateral * rows * 0.77f - Vector3.up * 0.5f, rotation, new Vector3(0.22f, 0.9f, standLength + 1.5f), sceneryAccentMaterial);
             for (int pylon = -1; pylon <= 1; pylon++)
             {
-                CreateVisualBox("Grandstand pylon", basePosition + lateral * 7.2f + forward * pylon * 9.5f + Vector3.up * 2.7f, rotation, new Vector3(0.4f, 5.4f, 0.4f), metalMaterial);
+                CreateVisualBox("Grandstand pylon", basePosition + lateral * rows * 1.2f + forward * pylon * standLength * 0.43f + Vector3.up * roofHeight * 0.5f, rotation, new Vector3(0.4f, roofHeight, 0.4f), metalMaterial);
             }
 
             // Sponsor-neutral bunting flags strung along the roof fascia so the stand
             // reads as dressed for a race weekend rather than a bare metal shelf from a
             // distance - cycles the same invented SponsorPalette the trackside boards
             // already share instead of adding another colour set.
-            const int buntingCount = 7;
+            int buntingCount = Mathf.RoundToInt(7f * scale);
             for (int i = 0; i < buntingCount; i++)
             {
                 float t = (i - (buntingCount - 1) * 0.5f) / buntingCount;
                 Material buntingMaterial = CreateMaterial("Grandstand bunting flag material", SponsorPalette[i % SponsorPalette.Length], 0.02f, 0.4f);
-                Vector3 buntingPosition = roofCenter - lateral * 4.7f - Vector3.up * 0.95f + forward * t * 21f;
+                Vector3 buntingPosition = roofCenter - lateral * rows * 0.78f - Vector3.up * 0.95f + forward * t * (standLength - 1f);
                 CreateVisualBox("Grandstand bunting flag", buntingPosition, rotation * Quaternion.Euler(0f, 0f, 18f), new Vector3(0.04f, 0.4f, 0.5f), buntingMaterial);
             }
         }

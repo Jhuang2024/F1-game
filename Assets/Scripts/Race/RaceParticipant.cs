@@ -201,6 +201,15 @@ namespace LocalFormulaRacing
         public int drsEligibilityLapZoneOne = -1;
         public int drsEligibilityLapZoneTwo = -1;
         public float previousDrsProgressNormalized = -1f;
+        // Race position latched the moment this car entered its current DRS
+        // zone (per report - "the AI passed me on that straight... I get DRS
+        // too???"): live in-zone earning (RaceManager.UpdateDrsEligibility)
+        // is only for a car CATCHING the one ahead; a car that got passed
+        // inside the zone now sits behind the car that just passed it, which
+        // used to satisfy the gap check and retroactively hand the passed
+        // leader DRS. Live earning is gated on not having LOST position since
+        // zone entry. -1 = not currently in a zone.
+        public int drsZoneEntryRacePosition = -1;
         // Denominator for the two counters above (post-race telemetry report -
         // see RuntimeUi.BuildDrivingTelemetryCard) - only counts frames this
         // participant was actually ticked (on track, not mid-pit-guide/finished),
