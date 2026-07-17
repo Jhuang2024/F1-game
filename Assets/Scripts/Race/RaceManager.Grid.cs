@@ -189,7 +189,19 @@ namespace LocalFormulaRacing
                 // corner-speed gap that stacks with the car's own stats.
                 // Difficulty-independent by construction.
                 float skillNorm = driver == null ? 0.5f : Mathf.InverseLerp(74f, 97f, driver.pace);
-                controller.SetAiPerformanceAssist(0f, Mathf.Lerp(0.88f, 1f, skillNorm));
+                float gripUtilization = Mathf.Lerp(0.88f, 1f, skillNorm);
+                controller.SetAiPerformanceAssist(0f, gripUtilization);
+                // Unconditional diagnostic ([PlayerCar]/[QualiSim] pattern, per
+                // report - "I don't know what you did with the skill level but
+                // clearly something's wrong"): the exact skill inputs each AI
+                // was spawned with, so a scrambled running order can be checked
+                // against the actual numbers instead of inferred from a tower
+                // screenshot.
+                Debug.Log("[SkillDiag] " + (driver != null ? driver.displayName : "?") +
+                          " pace=" + (driver != null ? driver.pace : -1) +
+                          " skillNorm=" + skillNorm.ToString("0.00") +
+                          " gripUtil=" + gripUtilization.ToString("0.000") +
+                          " car=" + (car != null ? car.id : "null"));
             }
             if (IsTimeTrial)
             {
@@ -198,6 +210,20 @@ namespace LocalFormulaRacing
                 // never be ended by a scrape.
                 controller.PreheatTyres();
                 controller.SetDamageEnabled(false);
+            }
+            else
+            {
+                // Tyre blankets for the whole field at every session start
+                // (skill-order fix, per report - the opening-lap running order
+                // scrambled against driver skill): everyone used to launch on
+                // COLD tyres (below-window temps cost up to ~34% grip), and a
+                // low-skill driver's extra sliding heated their tyres into the
+                // window FASTER - so for the first laps a backmarker could
+                // genuinely out-grip a cold-tyred elite and the field shuffled
+                // against skill. Real cars leave the grid on blanket-warmed
+                // rubber; now so does everyone here (player and AI alike), so
+                // the grip-utilization skill spread applies from lights out.
+                controller.PreheatTyres();
             }
 
             // Fuel system pass: session-specific start fuel instead of the old flat
