@@ -986,6 +986,7 @@ namespace LocalFormulaRacing
             weatherTransitionDone = false;
             weatherSecondTransitionDone = false;
             trackEvolutionHalfwayMessageSent = false;
+            trackWetness01 = -1f;
             playerLastPosition = -1;
             overtakeCheckTimer = 0f;
             sessionFastestLap = -1f;

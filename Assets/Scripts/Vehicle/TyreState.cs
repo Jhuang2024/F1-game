@@ -30,6 +30,16 @@ namespace LocalFormulaRacing
         // Trial (which never touch career regulation state) are never affected.
         public static float RegulationWearMultiplier = 1f;
 
+        // Live track wetness (0 = bone dry, 1 = fully soaked), ramped by
+        // RaceManager.UpdateTrackWetness over ~90s when rain arrives and ~150s
+        // as the track dries (per report - "everything goes to shit when the
+        // weather goes from dry to wet"). Every weather-driven term in this
+        // class blends by it instead of hard-switching on the WeatherState
+        // enum, so a weather flip no longer teleports the field from full dry
+        // grip to full rain grip between two frames. Static ambient state
+        // shared by all cars, same pattern as RegulationWearMultiplier.
+        public static float TrackWetness01 = 0f;
+
         float targetMin;
         float targetMax;
         float baseGrip;
@@ -201,24 +211,6 @@ namespace LocalFormulaRacing
         // otherwise vary wildly with corner speed.
         public float CompoundSpeedOffsetKph(WeatherState weather)
         {
-            if (weather == WeatherState.HeavyRain)
-            {
-                if (Compound == TyreCompound.Wet) return 0f;
-                if (Compound == TyreCompound.Intermediate) return 15f;
-                if (Compound == TyreCompound.Soft) return 80f;
-                if (Compound == TyreCompound.Medium) return 87.5f;
-                return 95f; // Hard
-            }
-
-            if (weather == WeatherState.LightRain)
-            {
-                if (Compound == TyreCompound.Intermediate) return 0f;
-                if (Compound == TyreCompound.Wet) return 10f;
-                if (Compound == TyreCompound.Soft) return 40f;
-                if (Compound == TyreCompound.Medium) return 47.5f;
-                return 55f; // Hard
-            }
-
             // Dry (Clear/Cloudy): only the three slick compounds get a flat offset -
             // Intermediate/Wet in the dry are already handled by their much lower
             // baseGrip alone, no additional flat penalty needed there.
@@ -231,10 +223,45 @@ namespace LocalFormulaRacing
             // its lower grip). Soft stays the reference at 0; medium/hard now
             // cost a real but sane straight-line penalty. Shared by AI targets,
             // so field-wide consistency is preserved.
-            if (Compound == TyreCompound.Soft) return 0f;
-            if (Compound == TyreCompound.Medium) return 7f;
-            if (Compound == TyreCompound.Hard) return 14f;
-            return 0f;
+            float dryOffset = Compound == TyreCompound.Medium ? 7f
+                : (Compound == TyreCompound.Hard ? 14f : 0f);
+
+            float heavyOffset;
+            float lightOffset;
+            if (Compound == TyreCompound.Wet)
+            {
+                heavyOffset = 0f;
+                lightOffset = 10f;
+            }
+            else if (Compound == TyreCompound.Intermediate)
+            {
+                heavyOffset = 15f;
+                lightOffset = 0f;
+            }
+            else if (Compound == TyreCompound.Soft)
+            {
+                heavyOffset = 80f;
+                lightOffset = 40f;
+            }
+            else if (Compound == TyreCompound.Medium)
+            {
+                heavyOffset = 87.5f;
+                lightOffset = 47.5f;
+            }
+            else
+            {
+                heavyOffset = 95f;
+                lightOffset = 55f;
+            }
+
+            // Soak blend (per report - the dry-to-wet flip): the rain offsets
+            // fade in with track wetness rather than landing whole the frame
+            // the weather enum flips - AI target speeds (which subtract this
+            // figure) now fall in step with the grip actually draining away,
+            // instead of the whole field either overdriving a soaked track or
+            // crawling a still-dry one.
+            float rainOffset = weather == WeatherState.HeavyRain ? heavyOffset : lightOffset;
+            return Mathf.Lerp(dryOffset, rainOffset, Mathf.Clamp01(TrackWetness01));
         }
 
         // A fresh tyre sheds any accumulated flat-spotting/lockup history from the
@@ -392,11 +419,16 @@ namespace LocalFormulaRacing
             float steerFactor = Mathf.Lerp(1f, 1.6f, Mathf.Abs(steer));
             float managementFactor = Mathf.Lerp(1.3f, 0.7f, Mathf.Clamp01(tyreManagement / 100f));
             float flatSpotFactor = Mathf.Lerp(1f, 1.35f, Mathf.Clamp01(FlatSpotLevel));
+            // Soak blend (per report - the dry-to-wet flip): a slick's extra
+            // lockup risk fades in with track wetness instead of arriving whole
+            // the frame the weather flips - the same-frame field-wide lockup
+            // storm was a big part of the chaos.
             float wetMismatchFactor = 1f;
             bool wetWeatherCompound = Compound == TyreCompound.Intermediate || Compound == TyreCompound.Wet;
-            if ((weather == WeatherState.LightRain || weather == WeatherState.HeavyRain) && !wetWeatherCompound)
+            if (!wetWeatherCompound)
             {
-                wetMismatchFactor = weather == WeatherState.HeavyRain ? 2.8f : 1.9f;
+                float mismatchReference = weather == WeatherState.HeavyRain ? 2.8f : 1.9f;
+                wetMismatchFactor = Mathf.Lerp(1f, mismatchReference, Mathf.Clamp01(TrackWetness01));
             }
 
             float chance = brakeFactor * speedFactor * Mathf.Lerp(0.6f, 1.4f, tempPenalty) * wearFactor * steerFactor * managementFactor * flatSpotFactor * wetMismatchFactor;
@@ -435,15 +467,12 @@ namespace LocalFormulaRacing
             // back into the wet ordering ahead of a genuinely wet-weather compound,
             // which is exactly why Intermediate used to beat Wet in heavy rain and
             // Soft used to beat Wet in light rain.
-            float effectiveBaseGrip = baseGrip;
-            if (weather == WeatherState.HeavyRain)
-            {
-                effectiveBaseGrip = heavyRainGrip;
-            }
-            else if (weather == WeatherState.LightRain)
-            {
-                effectiveBaseGrip = lightRainGrip;
-            }
+            // Soak blend (per report): the rain-state grip fades in with track
+            // wetness rather than switching the moment the weather enum flips.
+            // While the track dries under a dry sky, the light-rain figure is
+            // the damp-track reference the remaining wetness blends toward.
+            float rainReferenceGrip = weather == WeatherState.HeavyRain ? heavyRainGrip : lightRainGrip;
+            float effectiveBaseGrip = Mathf.Lerp(baseGrip, rainReferenceGrip, Mathf.Clamp01(TrackWetness01));
 
             float lockupGrip = LockupSeverity > 0f ? Mathf.Lerp(1f, 0.82f, LockupSeverity) : 1f;
             // A flat-spotted tyre vibrates and loses a little contact patch every

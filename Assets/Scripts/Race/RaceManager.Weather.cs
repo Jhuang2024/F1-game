@@ -16,6 +16,41 @@ namespace LocalFormulaRacing
         bool weatherTransitionDone;
         bool weatherSecondTransitionDone;
         bool trackEvolutionHalfwayMessageSent;
+        // 0 = bone dry, 1 = fully soaked; -1 = not yet initialised for this
+        // session (snaps straight to the starting weather's level so a wet
+        // race begins on a wet track). See UpdateTrackWetness.
+        float trackWetness01 = -1f;
+
+        // Gradual track soaking/drying (per report - "everything goes to shit
+        // when the weather goes from dry to wet"): the weather STATE flips in
+        // one frame - and strategy (pit calls, compound picks, engineer radio)
+        // reacting instantly to that flip is correct - but physical grip used
+        // to flip with it: slicks lost 60-84% of their grip between two frames
+        // under a full field at race commitment, which is exactly the
+        // whole-field chaos reported. The track now physically SOAKS over ~90
+        // seconds of rain (and dries over ~150), and TyreState blends every
+        // weather-driven grip/offset/lockup term by this wetness - so when
+        // rain arrives the field gets a realistic, driveable crossover window
+        // to reach the pits on slicks while the track wets up, instead of a
+        // same-frame ice rink.
+        void UpdateTrackWetness()
+        {
+            if (Track == null)
+            {
+                return;
+            }
+
+            bool raining = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
+            float target = raining ? 1f : 0f;
+            if (trackWetness01 < 0f)
+            {
+                trackWetness01 = target;
+            }
+
+            float rate = target > trackWetness01 ? 1f / 90f : 1f / 150f;
+            trackWetness01 = Mathf.MoveTowards(trackWetness01, target, rate * Time.deltaTime);
+            TyreState.TrackWetness01 = trackWetness01;
+        }
 
         // Simple dynamic weather: on mixed-forecast races the conditions flip once
         // past half distance — rain arrives on a dry track, or a wet track starts

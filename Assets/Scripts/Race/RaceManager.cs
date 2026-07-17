@@ -810,6 +810,7 @@ namespace LocalFormulaRacing
             UpdatePlayerRaceControlPitOffer();
             UpdateRaceEngineer();
             UpdateWeatherTransition();
+            UpdateTrackWetness();
             UpdateTrackEvolution();
             UpdateRaceControl();
             if (CurrentSession == RaceWeekendSession.Qualifying)
