@@ -1423,22 +1423,34 @@ namespace LocalFormulaRacing
             // player and the AI). This never sets PitLimiterActive or shows "PIT
             // LIMITER" itself - it just means a well-driven AI already arrives at
             // that line under 95 km/h instead of getting hard-clamped into it.
-            // Pit-entry PARITY fix (per report - "AI faster than me in pit
-            // entry"): the player's own pit-entry assist holds the player at
-            // RaceManager.PitEntryAssistTargetSpeedKph (90 km/h) through this
-            // exact same approach window, so the AI must approach at the SAME
-            // speed or it pulls away from the assisted player. An earlier pass
-            // set this to 82 (below the player's 90), which just flipped the
-            // asymmetry and read as the AI behaving oddly. Kept identical to the
-            // player assist target so the two can never diverge again - if one
-            // changes, change both. Both still drop to the shared 80 km/h hard
-            // limiter the instant they cross the entry line, so this only governs
-            // the pre-limiter approach where the mismatch was visible.
+            // Pit-approach braking envelope (per report - "why are some AI
+            // allowed to enter the pits later than I am? They're at full racing
+            // speed for a solid one more corner"): the old flat 90 km/h target
+            // engaged the moment committingToPit did - which for an AI whose
+            // pit request latched EARLY meant crawling the entire 0.78 -> ramp
+            // stretch, while an AI whose wear/strategy trigger happened to fire
+            // MID-approach kept racing until it latched. The player assist had
+            // the same flat-target shape, so who got slowed where was down to
+            // request timing, not driving. Both sides now use the same rule a
+            // real driver uses: race at full pace until the kinematic braking
+            // point for the ramp, then brake once at a normal rate. The
+            // envelope reaches the entry target 80 m before the physical ramp
+            // start (positioning buffer), and the player's assist mirrors this
+            // exact same envelope (RaceManager.BuildPitEntryAssistCommand) so
+            // the two brake at the same point by construction. Corner targets
+            // still win via the Min below, and the shared hard limiter on the
+            // ramp itself is untouched.
             const float PitApproachTargetSpeedKph = 90f;
+            const float PitApproachBrakeDecelMs2 = 10f;
+            const float PitApproachRampBufferMetres = 80f;
             if (committingToPit)
             {
-                cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, PitApproachTargetSpeedKph);
-                brakingApexSpeed = Mathf.Min(brakingApexSpeed, PitApproachTargetSpeedKph);
+                float metresToRamp = (track.PitEntryRampStartNormalized - progress.normalized) * track.length;
+                float envelopeDistance = Mathf.Max(0f, metresToRamp - PitApproachRampBufferMetres);
+                float pitTargetMs = PitApproachTargetSpeedKph / 3.6f;
+                float pitEnvelopeKph = Mathf.Sqrt(pitTargetMs * pitTargetMs + 2f * PitApproachBrakeDecelMs2 * envelopeDistance) * 3.6f;
+                cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, pitEnvelopeKph);
+                brakingApexSpeed = Mathf.Min(brakingApexSpeed, pitEnvelopeKph);
             }
 
             // Corner-exit hesitation: once curvature unwinds, hold a beat of reduced

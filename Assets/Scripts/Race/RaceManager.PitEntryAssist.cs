@@ -119,8 +119,35 @@ namespace LocalFormulaRacing
             // straight.
             float lateralErrorMeters = Mathf.Abs(Vector3.Dot(toTarget, participant.transform.right));
             float alignedTargetKph = Mathf.Lerp(PitEntryAssistTargetSpeedKph, 95f, Mathf.Clamp01(lateralErrorMeters / 6f));
-            float speedGapKph = alignedTargetKph - speedKph;
-            if (speedGapKph < -3f)
+
+            // Pit-approach braking envelope (per report - "why are some AI
+            // allowed to enter the pits later than I am? They're at full racing
+            // speed for a solid one more corner"): the assist used to drag the
+            // player down to the flat target from the very start of the
+            // approach window (normalized 0.78), hundreds of metres before the
+            // ramp physically exists - while an AI whose pit trigger latched
+            // mid-approach kept racing deeper. Both now use the identical rule
+            // (see AiVehicleController's committingToPit envelope, same decel,
+            // same 80 m pre-ramp buffer): full racing speed until the kinematic
+            // braking point for the ramp, one normal braking zone down to the
+            // entry target. Until the envelope actually demands braking, the
+            // player keeps their own throttle/brake (they're driving a normal
+            // racing stretch - corners included - and only the steering guide
+            // applies); once inside the braking zone the assist takes speed
+            // over so the ramp is always made at the right pace.
+            const float PitApproachBrakeDecelMs2 = 10f;
+            const float PitApproachRampBufferMetres = 80f;
+            float metresToRamp = (Track.PitEntryRampStartNormalized - progress.normalized) * Track.length;
+            float envelopeDistance = Mathf.Max(0f, metresToRamp - PitApproachRampBufferMetres);
+            float targetMs = alignedTargetKph / 3.6f;
+            float envelopeKph = Mathf.Sqrt(targetMs * targetMs + 2f * PitApproachBrakeDecelMs2 * envelopeDistance) * 3.6f;
+            float speedGapKph = envelopeKph - speedKph;
+            if (speedGapKph > 10f && envelopeDistance > 0f)
+            {
+                command.throttle = fallback.throttle;
+                command.brake = fallback.brake;
+            }
+            else if (speedGapKph < -3f)
             {
                 command.brake = Mathf.Clamp01(-speedGapKph / 35f);
                 command.throttle = 0f;

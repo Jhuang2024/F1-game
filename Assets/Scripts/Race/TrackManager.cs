@@ -1905,6 +1905,10 @@ namespace LocalFormulaRacing
         Material toriiMaterial;
         Material windowStripMaterial;
         Material grandstandRoofMaterial;
+        // One bunting material per SponsorPalette colour, shared by every
+        // grandstand flag on the track (see BuildGrandstand) - lazily built on
+        // the first stand and reused for the rest of this manager's lifetime.
+        Material[] buntingMaterials;
         Material luxuryApartmentMaterial;
         Material weatheredConcreteMaterial;
         Material coastalSandMaterial;
@@ -8034,10 +8038,9 @@ namespace LocalFormulaRacing
 
             // Signature grandstands on the main spectator stretches. Grandstand at 0.85-1.0
             // is kept on the left so it never fights the pit complex on the right.
-            // Jeddah's stands build oversized (per request - "more and larger
-            // grandstands"): the fixed set at 1.6x scale plus extra large stands
-            // at fresh slots below.
-            float standScale = jeddahTrack ? 1.6f : 1f;
+            // Every circuit's stands now build oversized (per request -
+            // "grandstands being a lot bigger"), Jeddah's biggest of all.
+            float standScale = jeddahTrack ? 2f : 1.4f;
             BuildGrandstand(0.02f, -1, standScale);
             BuildGrandstand(0.15f, 1, standScale);
             BuildGrandstand(0.45f, -1, standScale);
@@ -8047,31 +8050,30 @@ namespace LocalFormulaRacing
             // grandstand at a corner rather than only on the straights.
             if (!desertTrack && !streetTrack)
             {
-                BuildGrandstand(0.62f, 1);
+                BuildGrandstand(0.62f, 1, standScale);
             }
 
             float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
 
-            // Extra permanent stands at fresh normalized slots that don't overlap
-            // the fixed set above. Jeddah gets a full extra set of LARGE stands
-            // unconditionally; every other circuit now gets the two extra stands
-            // at default density too (gate lowered from 1.25 - per request, the
-            // other venues read "mediocre" next to Jeddah, and a busier
-            // spectator build-out is the transferable part of its look).
-            if (jeddahTrack)
+            // Full spectator build-out on EVERY circuit (per request - "a LOT
+            // more, like 20 more grandstands for ALL tracks"): twenty extra
+            // stands spread evenly around the whole lap on alternating sides,
+            // on top of the signature set above. The last stretch of the lap
+            // stays on the left so nothing fights the pit complex on the right,
+            // and the slots are offset from the fixed set's normalized points
+            // so consecutive stands read as a row of separate venues rather
+            // than stacking inside each other.
+            const int extraStandCount = 20;
+            for (int i = 0; i < extraStandCount; i++)
             {
-                BuildGrandstand(0.3f, 1, 1.6f);
-                BuildGrandstand(0.58f, 1, 1.4f);
-                BuildGrandstand(0.72f, -1, 1.6f);
-                BuildGrandstand(0.93f, -1, 1.4f);
-            }
-            // Desert circuits are excluded: BuildDesertBackdrop already plants
-            // its own extra stands at these same 0.3/0.72 slots, and doubling
-            // them up would z-fight inside each other.
-            else if (density >= 1.0f && !desertTrack)
-            {
-                BuildGrandstand(0.3f, 1);
-                BuildGrandstand(0.72f, -1);
+                float slot = (i + 0.5f) / extraStandCount;
+                int standSide = i % 2 == 0 ? 1 : -1;
+                if (slot > 0.82f)
+                {
+                    standSide = -1;
+                }
+
+                BuildGrandstand(slot, standSide, jeddahTrack ? 1.6f : 1.2f);
             }
 
             // Row of trackside flags flanking the start/finish straight - see
@@ -8326,6 +8328,17 @@ namespace LocalFormulaRacing
             else if (cityStreet)
             {
                 BuildCityStreetBackdrop(density);
+            }
+
+            // Every street circuit except Monaco (whose identity is the tight
+            // low-rise hillside canyon, not a tower skyline) gets the full
+            // high-rise field on top of its own archetype pass (per request -
+            // "when I was talking about skyscrapers I was thinking more like
+            // 50-100 more for street circuits"), with Jeddah the densest
+            // skyline on the calendar.
+            if (streetTrack && !monacoTrack)
+            {
+                BuildHighRiseSkyline(density, jeddahTrack ? 100 : 70);
             }
 
             if (parklandTrack)
@@ -8769,24 +8782,20 @@ namespace LocalFormulaRacing
                 CreateVisualBox("Street canyon service wall", safePosition + Vector3.up * 1.1f, Quaternion.LookRotation(forward, Vector3.up), new Vector3(0.35f, 2.2f, 8f), i % 2 == 0 ? weatheredConcreteMaterial : concreteMaterial);
             }
 
-            if (jeddahTrack)
-            {
-                BuildJeddahCornicheSkyline(density);
-            }
         }
 
-        // Jeddah corniche high-rise skyline (per request - "add more and larger
-        // skyscrapers"): a further-back row of genuinely tall glass towers behind
-        // the shared street-canyon blocks above, so the circuit reads as a real
-        // waterfront high-rise city rather than the same mid-rise skyline every
-        // street circuit gets - plus one landmark supertall near the start/finish
-        // straight. Everything is visual-only, grounded on real terrain, and
-        // clearance-checked through TryGetClearScenerySpot like every other
-        // backdrop pass, and the whole row stands 70m+ off the corridor so height
-        // never crowds the racing line.
-        void BuildJeddahCornicheSkyline(float density)
+        // Street-circuit high-rise skyline (per request - "50-100 more
+        // skyscrapers for street circuits"): a large field of genuinely tall
+        // glass towers behind the shared street-canyon blocks above, staggered
+        // across four depth rows on both sides of the lap so the circuit reads
+        // as threading a real high-rise city - plus one landmark supertall near
+        // the start/finish straight. Everything is visual-only, grounded on real
+        // terrain, and clearance-checked through TryGetClearScenerySpot like
+        // every other backdrop pass, and the whole field stands 70m+ off the
+        // corridor so height never crowds the racing line.
+        void BuildHighRiseSkyline(float density, int towerTarget)
         {
-            int towers = Mathf.Max(8, Mathf.RoundToInt(14f * density));
+            int towers = Mathf.Max(24, Mathf.RoundToInt(towerTarget * Mathf.Clamp(density, 0.5f, 1.5f)));
             for (int i = 0; i < towers; i++)
             {
                 float t = (i + 0.5f) / towers;
@@ -8795,8 +8804,8 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? -1 : 1;
-                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 70f + (i % 3) * 24f);
-                float height = 55f + (i % 5) * 15f;
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 70f + (i % 4) * 30f + (i % 3) * 11f);
+                float height = 45f + (i % 7) * 12f + (i % 3) * 8f;
                 CreateCornicheSkyscraper(anchor, forward, height, i);
             }
 
@@ -9876,13 +9885,25 @@ namespace LocalFormulaRacing
             // reads as dressed for a race weekend rather than a bare metal shelf from a
             // distance - cycles the same invented SponsorPalette the trackside boards
             // already share instead of adding another colour set.
+            // Bunting materials are cached per palette colour (one material per
+            // colour for the whole track build, not one per flag) - with the
+            // full 20+-stand build-out the old per-flag CreateMaterial would
+            // have allocated hundreds of identical material instances.
+            if (buntingMaterials == null || buntingMaterials.Length != SponsorPalette.Length || buntingMaterials[0] == null)
+            {
+                buntingMaterials = new Material[SponsorPalette.Length];
+                for (int i = 0; i < SponsorPalette.Length; i++)
+                {
+                    buntingMaterials[i] = CreateMaterial("Grandstand bunting flag material", SponsorPalette[i], 0.02f, 0.4f);
+                }
+            }
+
             int buntingCount = Mathf.RoundToInt(7f * scale);
             for (int i = 0; i < buntingCount; i++)
             {
                 float t = (i - (buntingCount - 1) * 0.5f) / buntingCount;
-                Material buntingMaterial = CreateMaterial("Grandstand bunting flag material", SponsorPalette[i % SponsorPalette.Length], 0.02f, 0.4f);
                 Vector3 buntingPosition = roofCenter - lateral * rows * 0.78f - Vector3.up * 0.95f + forward * t * (standLength - 1f);
-                CreateVisualBox("Grandstand bunting flag", buntingPosition, rotation * Quaternion.Euler(0f, 0f, 18f), new Vector3(0.04f, 0.4f, 0.5f), buntingMaterial);
+                CreateVisualBox("Grandstand bunting flag", buntingPosition, rotation * Quaternion.Euler(0f, 0f, 18f), new Vector3(0.04f, 0.4f, 0.5f), buntingMaterials[i % buntingMaterials.Length]);
             }
         }
 

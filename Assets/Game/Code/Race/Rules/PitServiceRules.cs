@@ -9,12 +9,13 @@ namespace F1Game.Race.Rules
     /// </summary>
     public static class PitServiceRules
     {
-        // Tyre change: the visible wheel-off/wheel-on window. The player's crew
-        // is slightly sharper than the AI teams' spread, matching the original
-        // live tuning.
+        // Tyre change: the visible wheel-off/wheel-on window. One shared range
+        // for every crew (per request - "AI should have the same range of pit
+        // stop times as me, 1.8-3.0 for everyone"): the player's crew is no
+        // longer sharper than the AI teams', the roll alone decides.
         public const float PlayerMinTyreSeconds = 1.8f;
-        public const float PlayerMaxTyreSeconds = 2.6f;
-        public const float AiMinTyreSeconds = 2.0f;
+        public const float PlayerMaxTyreSeconds = 3.0f;
+        public const float AiMinTyreSeconds = 1.8f;
         public const float AiMaxTyreSeconds = 3.0f;
 
         // Repair work (front wing / bodywork) holds the car beyond the tyre
