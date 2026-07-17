@@ -2275,6 +2275,7 @@ namespace LocalFormulaRacing
             // Wherever the final centreline crosses itself, the higher leg is
             // smoothly raised into a genuine flyover with real clearance.
             ResolveTrackCrossings(runtime);
+            SmoothSharpKinks(runtime);
             runtime.RecalculateDistances();
             // Hairpin centers are derived from the FINAL, fully-repaired/scaled
             // centerline (AddLayoutPoints already ran repair + NormalizeTrackLength +
@@ -2346,6 +2347,67 @@ namespace LocalFormulaRacing
         const float CrossingClearanceMeters = 9f;
         const float CrossingBlendMeters = 150f;
 
+        // Belt-and-braces cusp killer ([StuckDiag] report - cars wedged against
+        // "Procedural road" itself at Austria's final corner): a near-reversal
+        // in the centreline folds the road strip over itself and its collider
+        // becomes a physical wall across the corner, whether or not the
+        // centreline technically self-intersects (so ResolveTrackCrossings
+        // alone can't be relied on to catch it). At this layout family's
+        // ~130m point spacing a legitimate hairpin turns ~45-65 degrees per
+        // point; anything past 85 degrees is a cusp/fold, never a real corner.
+        // Any such point is relaxed toward its neighbours until the whole lap
+        // is below the threshold, and every trigger is logged to the console.
+        void SmoothSharpKinks(TrackRuntime runtime)
+        {
+            List<Vector3> line = runtime.centerLine;
+            if (line == null || line.Count < 8)
+            {
+                return;
+            }
+
+            int n = line.Count;
+            const float maxAngleDegrees = 85f;
+            int relaxedPoints = 0;
+            for (int pass = 0; pass < 30; pass++)
+            {
+                bool anySharp = false;
+                for (int i = 0; i < n; i++)
+                {
+                    Vector3 previous = line[(i - 1 + n) % n];
+                    Vector3 current = line[i];
+                    Vector3 next = line[(i + 1) % n];
+                    Vector3 inDir = current - previous;
+                    Vector3 outDir = next - current;
+                    inDir.y = 0f;
+                    outDir.y = 0f;
+                    if (inDir.sqrMagnitude < 0.25f || outDir.sqrMagnitude < 0.25f)
+                    {
+                        continue;
+                    }
+
+                    if (Vector3.Angle(inDir, outDir) <= maxAngleDegrees)
+                    {
+                        continue;
+                    }
+
+                    anySharp = true;
+                    relaxedPoints++;
+                    line[i] = current * 0.4f + (previous + next) * 0.3f;
+                }
+
+                if (!anySharp)
+                {
+                    break;
+                }
+            }
+
+            if (relaxedPoints > 0)
+            {
+                GameLog.Warn("[TrackValidation] Relaxed " + relaxedPoints + " cusp/fold point(s) sharper than 85 degrees on " +
+                             runtime.displayName + " - a fold there renders the road collider as a wall across the corner.");
+            }
+        }
+
         void ResolveTrackCrossings(TrackRuntime runtime)
         {
             List<Vector3> line = runtime.centerLine;
@@ -2386,10 +2448,34 @@ namespace LocalFormulaRacing
                     // instead: the points between the two crossing segments are
                     // replaced with a straight chord, giving a drivable corner
                     // with no cliff.
-                    int indexGap = Mathf.Min(Mathf.Abs(j - i), n - Mathf.Abs(j - i));
-                    if (indexGap < Mathf.Max(6, n / 10))
+                    // Gate round 2 ([StuckDiag] still showing the road-mesh
+                    // wall): the first gate compared INDEX distance, but at
+                    // this layout's ~130m point spacing a cusp loop can span
+                    // more points than max(6, n/10) and still be a tiny loop in
+                    // metres - it sailed past the gate and got raised into the
+                    // cliff again. The gate now measures the actual along-track
+                    // metres between the two crossing segments: genuine flyover
+                    // legs sit thousands of metres apart, so anything under
+                    // 700m of separation is a cusp, not a crossing.
+                    float alongMeters = 0f;
+                    for (int k = i; k < j && alongMeters < 100000f; k++)
+                    {
+                        alongMeters += Vector3.Distance(line[k], line[k + 1]);
+                    }
+
+                    float wrappedMeters = 0f;
+                    for (int k = 0; k < n; k++)
+                    {
+                        wrappedMeters += Vector3.Distance(line[k], line[(k + 1) % n]);
+                    }
+
+                    float separation = Mathf.Min(alongMeters, wrappedMeters - alongMeters);
+                    if (separation < 700f)
                     {
                         CollapseCenterlineMicroLoop(line, i, j);
+                        GameLog.Warn("[TrackValidation] Micro self-crossing (spline cusp) at points " + i + "/" + j +
+                                     " (" + separation.ToString("0") + "m apart) on " + runtime.displayName +
+                                     " - collapsed the loop flat instead of raising a cliff.");
                         if (LastReport != null)
                         {
                             LastReport.Warn("Micro self-crossing (spline cusp) at points " + i + "/" + j +
@@ -2412,6 +2498,9 @@ namespace LocalFormulaRacing
                     int upperIndex = yA >= yB ? i : j;
                     float lowerY = Mathf.Min(yA, yB);
                     RaiseCrossingLeg(line, upperIndex, lowerY + CrossingClearanceMeters, Mathf.Abs(j - i));
+                    GameLog.Warn("[TrackValidation] Self-crossing centreline at points " + i + "/" + j +
+                                 " (" + separation.ToString("0") + "m apart) on " + runtime.displayName +
+                                 " - raised the higher leg into a flyover (+" + CrossingClearanceMeters + "m clearance).");
                     if (LastReport != null)
                     {
                         LastReport.Warn("Self-crossing centreline at points " + i + "/" + j +
