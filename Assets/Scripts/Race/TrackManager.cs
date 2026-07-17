@@ -3756,9 +3756,26 @@ namespace LocalFormulaRacing
         {
             const float spacing = 14f;
             const float segmentLength = spacing * 1.6f;
-            const float halfWidth = 70f;
+            // Invisible-wall fix (per report - the whole field piling up
+            // "completely stuck" on Austria's sector-3 crossing section): each
+            // slab used to be 140m wide (halfWidth 70) and hang 2.6m under its
+            // OWN road section - so an elevated section's slab cut straight
+            // through the airspace of any lower road running within 70m of it.
+            // Along a flyover's ramps (or a hillside crest next to a valley
+            // section) the height difference passes through the 2.6-5m band
+            // where that slab sits at windscreen height across the lower road:
+            // a literal invisible wall even the race leader slams into.
+            // Two changes: the slab is corridor-width (26m half-width still
+            // covers road + kerbs + runoff; the terrain slab catches anything
+            // further out), and each slab's top is clamped below the LOWEST
+            // road point anywhere near it, so the catch floor can never
+            // intrude into another section's driving space - at a crossing the
+            // deck's floor simply drops to serve both levels.
+            const float halfWidth = 26f;
             const float thickness = 1.4f;
             const float depthBelowRoad = 2.6f;
+            float nearbyRadius = halfWidth + 18f;
+            float nearbyRadiusSqr = nearbyRadius * nearbyRadius;
 
             for (float d = 0f; d < Runtime.length; d += spacing)
             {
@@ -3766,7 +3783,20 @@ namespace LocalFormulaRacing
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(d + spacing * 0.5f, out point, out forward, out right);
-                float floorTopY = Mathf.Max(groundTopY + 0.05f, point.y - depthBelowRoad);
+
+                float lowestNearbyRoadY = point.y;
+                for (int i = 0; i < Runtime.centerLine.Count; i++)
+                {
+                    Vector3 other = Runtime.centerLine[i];
+                    float dx = other.x - point.x;
+                    float dz = other.z - point.z;
+                    if (dx * dx + dz * dz <= nearbyRadiusSqr && other.y < lowestNearbyRoadY)
+                    {
+                        lowestNearbyRoadY = other.y;
+                    }
+                }
+
+                float floorTopY = Mathf.Max(groundTopY + 0.05f, lowestNearbyRoadY - depthBelowRoad);
 
                 GameObject floor = new GameObject("Safety catch floor");
                 floor.transform.SetParent(transform);
