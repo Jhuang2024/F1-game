@@ -5035,15 +5035,33 @@ namespace LocalFormulaRacing
                     // can - if the road is actually turning here, the wall gets
                     // capped near the flush distance, full stop, independent of
                     // whatever the corner-list pipeline concluded elsewhere.
-                    bool realCurvatureHere = LocalCurvatureAngle(midDistance) > 12f;
-                    if (!nearTightFenceCorner && !realCurvatureHere)
+                    // Barrier-gap fix round 4 (Britain report - "Barrier gap at
+                    // Xm right side, nearest protection 11-13m away" surviving
+                    // auto-fill): the >12-degree test below was a hard PER-
+                    // SEGMENT boolean - along a corner's entry/exit, where the
+                    // local curvature crosses the threshold between one ~10m
+                    // segment and the next, consecutive wall segments snapped
+                    // between the two families (full fan-out toward the pit
+                    // outer wall vs pulled in tight at the corner), which can
+                    // be 10-20m apart laterally. That lateral SEAM is itself an
+                    // opening - and the validator's "nearest protection 11-13m
+                    // away" is exactly one family's wall measured from where
+                    // the other family was expected. The decision is now a
+                    // continuous curvature blend (fan below 8 degrees, fully
+                    // contained above 16), so the wall walks between the two
+                    // positions over several segments instead of teleporting.
+                    float containBlend = nearTightFenceCorner ? 1f : Mathf.InverseLerp(8f, 16f, LocalCurvatureAngle(midDistance));
+                    if (containBlend < 1f)
                     {
                         lateral = Mathf.Lerp(baseLateral, PitOuterLateral(), pitBlend);
-                        style = EdgeBarrierStyle.StreetWall;
-                        catchFence = false;
-                        tyreStack = false;
+                        if (containBlend < 0.5f)
+                        {
+                            style = EdgeBarrierStyle.StreetWall;
+                            catchFence = false;
+                            tyreStack = false;
+                        }
                     }
-                    else
+                    if (containBlend > 0f)
                     {
                         // Barrier-gap fix ("no barriers on the outside line,
                         // everyone flies into the grass" - the final hairpin,
@@ -5070,9 +5088,9 @@ namespace LocalFormulaRacing
                         // distance, enough to clear a real, modest pit-surface
                         // encroachment without letting the wall balloon far out
                         // into open grass at a tight corner.
-                        const float maxPitBulgeMeters = 8f;
-                        float pitMinimum = PitMinimumOuterLateral(midDistance, normalized);
-                        lateral = Mathf.Max(baseLateral, Mathf.Min(pitMinimum, baseLateral + maxPitBulgeMeters));
+                        // Round 4 (cont.): blended by containBlend instead of
+                        // replacing outright - see the seam comment above.
+                        lateral = Mathf.Lerp(lateral, PitContainedRightLateral(midDistance, normalized, baseLateral), containBlend);
                     }
                 }
             }
@@ -5441,6 +5459,23 @@ namespace LocalFormulaRacing
             // surface is BuildPitLane's fixed-width service road, centred on
             // PitLaneLateral with a PitRampFullWidth-wide width.
             return Runtime.PitLaneLateral + TrackRuntime.PitRampFullWidth * 0.5f + standoff;
+        }
+
+        // The corner-containment wall position inside the pit zone: the corner's
+        // own flush distance, allowed a bounded bulge past it for real pit-surface
+        // encroachment but never ballooning out into open grass (the Monza final-
+        // hairpin fix). Shared between ComputeBarrierPlan (which places the wall
+        // here whenever real curvature overlaps the pit band) and
+        // ValidateBarrierCoverage (which must accept a wall standing here as
+        // sealed - it used to only ever look for protection at the full fan-out
+        // lateral, so every legitimately contained stretch read as a "Barrier
+        // gap ... nearest protection 11-13m away", with the "nearest protection"
+        // being exactly this wall).
+        float PitContainedRightLateral(float midDistance, float normalized, float baseLateral)
+        {
+            const float maxPitBulgeMeters = 8f;
+            float pitMinimum = PitMinimumOuterLateral(midDistance, normalized);
+            return Mathf.Max(baseLateral, Mathf.Min(pitMinimum, baseLateral + maxPitBulgeMeters));
         }
 
         // ---------- pit lane / track divider ----------
@@ -6138,6 +6173,21 @@ namespace LocalFormulaRacing
 
                     Vector3 expected = point + right * side * lateral;
                     float gap = NearestSolidProtectionDistance(expected);
+                    // Corner-containment awareness (Britain "nearest protection
+                    // 11-13m away" report): inside the pit band the plan
+                    // legitimately holds the wall at the corner's own contained
+                    // lateral instead of the full fan-out whenever real
+                    // curvature overlaps the zone (see PitContainedRightLateral).
+                    // A wall standing at that position IS the intended seal -
+                    // measure against it too instead of warning about (and then
+                    // failing to auto-fill over) the fan-out position the plan
+                    // deliberately did not use.
+                    if (side > 0 && PitZoneBlend(normalized) > 0f)
+                    {
+                        Vector3 containedExpected = point + right * PitContainedRightLateral(d, normalized, baseLateral);
+                        gap = Mathf.Min(gap, NearestSolidProtectionDistance(containedExpected));
+                    }
+
                     if (gap > BarrierGapThreshold)
                     {
                         // Validation-driven repair (per report - the same
