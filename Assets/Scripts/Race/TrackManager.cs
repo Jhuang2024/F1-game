@@ -8271,6 +8271,14 @@ namespace LocalFormulaRacing
                             : Runtime.roadHalfWidth + 130f + (row - 2) * 75f + (treeSeed * 7) % 34;
                         float alongJitter = ((treeSeed * 11) % 25) - 12f;
                         Vector3 desired = groundPoint + right * side * lateralOffset + forward * alongJitter;
+                        // Never inside a grandstand's footprint (per report) -
+                        // pushed BEHIND the stand instead of skipped, so
+                        // grandstand stretches keep their treeline backdrop.
+                        if (IsInsideGrandstandZone(desired))
+                        {
+                            desired = groundPoint + right * side * (GrandstandZoneLateralMeters + 12f + (treeSeed * 5) % 18) + forward * alongJitter;
+                        }
+
                         Vector3 safePosition;
                         if (!TryGetClearScenerySpot(desired, 7f, 5f, out safePosition))
                         {
@@ -9624,13 +9632,25 @@ namespace LocalFormulaRacing
                 for (int side = -1; side <= 1; side += 2)
                 {
                     bool pitStrip = (normalized > 0.86f || normalized < 0.03f) && side > 0f;
-                    for (int row = 0; row < 2; row++)
+                    // Four rows (was two, per report - "the mid background has
+                    // no trees; the start finish straight trees are still very
+                    // sparse"): 24/40/58/78m out, so the verge line grades into
+                    // a genuine mid-background wood instead of stopping at two
+                    // thin rows.
+                    for (int row = 0; row < 4; row++)
                     {
-                        int treeSeed = treeLineSeed * 4 + row * 2 + (side + 1) / 2;
+                        int treeSeed = treeLineSeed * 8 + row * 2 + (side + 1) / 2;
                         float lateralOffset = pitStrip
-                            ? Runtime.roadHalfWidth + 90f + row * 18f + (treeSeed * 7) % 12
-                            : Runtime.roadHalfWidth + 24f + row * 14f + (treeSeed * 7) % 9;
+                            ? Runtime.roadHalfWidth + 90f + row * 16f + (treeSeed * 7) % 12
+                            : Runtime.roadHalfWidth + 24f + row * 17f + (treeSeed * 7) % 9;
                         Vector3 desired = groundPoint + right * side * lateralOffset + forward * (((treeSeed * 11) % 15) - 7f);
+                        // Never inside a grandstand's footprint (per report) -
+                        // pushed behind the stand instead of skipped.
+                        if (IsInsideGrandstandZone(desired))
+                        {
+                            desired = groundPoint + right * side * (GrandstandZoneLateralMeters + 12f + (treeSeed * 5) % 18);
+                        }
+
                         Vector3 safePosition;
                         if (!TryGetClearScenerySpot(desired, 3f, 1f, out safePosition))
                         {
@@ -10157,6 +10177,47 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Every built stand's footprint, recorded so the tree passes can avoid
+        // planting inside one (per report - "theres trees in the middle of the
+        // grandstands now"): x = normalized centre, y = side (-1/1),
+        // z = half-span in normalized lap units. Lateral extent is checked as a
+        // shared conservative constant (stands reach ~60m out, plus the
+        // curved-section outward push).
+        readonly System.Collections.Generic.List<Vector3> grandstandSpans = new System.Collections.Generic.List<Vector3>();
+        const float GrandstandZoneLateralMeters = 90f;
+
+        bool IsInsideGrandstandZone(Vector3 position)
+        {
+            if (grandstandSpans.Count == 0)
+            {
+                return false;
+            }
+
+            TrackProgress progress = Runtime.GetProgress(position);
+            float side = progress.lateralDistance >= 0f ? 1f : -1f;
+            if (Mathf.Abs(progress.lateralDistance) > GrandstandZoneLateralMeters)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < grandstandSpans.Count; i++)
+            {
+                if (grandstandSpans[i].y != side)
+                {
+                    continue;
+                }
+
+                float wrapped = Mathf.Abs(progress.normalized - grandstandSpans[i].x);
+                wrapped = Mathf.Min(wrapped, 1f - wrapped);
+                if (wrapped <= grandstandSpans[i].z)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         void BuildGrandstand(float normalizedDistance, int side)
         {
             BuildGrandstand(normalizedDistance, side, 1f);
@@ -10215,6 +10276,9 @@ namespace LocalFormulaRacing
             // stand exactly.
             int rows = Mathf.Clamp(Mathf.RoundToInt(6f * scale), 6, 24);
             float standLength = 22f * scale;
+            // Record the stand's footprint so tree passes never plant inside it
+            // (half the length plus an 10m margin, in normalized lap units).
+            grandstandSpans.Add(new Vector3(normalizedDistance, side, (standLength * 0.5f + 10f) / Mathf.Max(1f, Runtime.length)));
             float rowStepScale = Mathf.Lerp(1f, 1.5f, Mathf.Clamp01((scale - 1f) / 3f));
             float rowRise = 0.62f * rowStepScale;
             float rowDepth = 1.15f * rowStepScale;
@@ -10433,6 +10497,13 @@ namespace LocalFormulaRacing
         // clearance path, same stable index-derived jitter.
         void CreateTreeCluster(Vector3 position, int index)
         {
+            // Never plant a cluster inside a grandstand's footprint (per report
+            // - "theres trees in the middle of the grandstands now").
+            if (IsInsideGrandstandZone(position))
+            {
+                return;
+            }
+
             // Grass apron under the cluster so it reads as a planted stand rather
             // than trees hovering just above unbroken bare ground. Placed at the
             // cluster's own incoming y (not groundTopY) so it stays correct both for
@@ -11490,6 +11561,7 @@ namespace LocalFormulaRacing
                 Destroy(transform.GetChild(i).gameObject);
             }
             solidObstacles.Clear();
+            grandstandSpans.Clear();
             marshalFlagBoardRenderers.Clear();
             raceControlBoardRenderer = null;
             raceControlBoardText = null;
