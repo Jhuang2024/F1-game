@@ -3731,32 +3731,18 @@ namespace LocalFormulaRacing
         // read before its bounding radius became the problem.
         void CreateDistantHillCluster(Vector3 center, int seed)
         {
-            int pieces = 3 + seed % 3;
-            for (int p = 0; p < pieces; p++)
+            // De-blob pass (per report - "nothing blob or dome shaped on any
+            // track"): the cluster of individually-smooth domes is now one
+            // irregular multi-lobe formation in the textured earthy tone.
+            float widthScale = 120f + (seed * 7) % 80;
+            float heightScale = 26f + (seed * 3) % 20;
+            Vector3 safePosition;
+            if (!TryGetClearScenerySpot(center, widthScale * 0.6f, 12f, out safePosition))
             {
-                float widthScale = 55f + (seed * 7 + p * 23) % 55;
-                float heightScale = 26f + (seed * 3 + p * 7) % 20;
-                Vector3 offset = new Vector3((p - (pieces - 1) * 0.5f) * widthScale * 0.6f, 0f, ((seed + p) % 3 - 1) * 20f);
-                Vector3 desired = center + offset;
-                float objectRadius = widthScale * 0.5f;
-                Vector3 safePosition;
-                if (!TryGetClearScenerySpot(desired, objectRadius, 12f, out safePosition))
-                {
-                    continue;
-                }
-
-                // Blob fix (per report - "massive blobs of green"): terrain-edge
-                // ridges use the noise-textured earthy hillside tone rather than
-                // flat bright grass green.
-                float hillCenterY = groundTopY - heightScale * 0.5f + heightScale * 0.55f;
-                GameObject hill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                hill.name = "Distant hill ridge";
-                hill.transform.SetParent(transform);
-                hill.transform.position = new Vector3(safePosition.x, hillCenterY, safePosition.z);
-                hill.transform.localScale = new Vector3(widthScale, heightScale, widthScale * 0.6f);
-                hill.GetComponent<Renderer>().sharedMaterial = hillsideEarthMaterial;
-                MakeVisualOnly(hill);
+                return;
             }
+
+            CreateRidgeFormation(safePosition, widthScale, heightScale, widthScale * 0.55f, hillsideEarthMaterial, seed);
         }
 
         // Continuous invisible collision floor that follows the road's elevation
@@ -8645,21 +8631,13 @@ namespace LocalFormulaRacing
                 }
                 else
                 {
-                    // Bubble fix (per report - "grey disks/bubbles"): anchored at
-                    // +0.4x height this lens sat 90% proud of the ground and read
-                    // as a floating disk. Buried like the mountain ridges now -
-                    // only a rounded ~60% cap shows above the terrain.
+                    // De-blob pass (per report): irregular multi-lobe treeline
+                    // formation, buried and terrain-anchored, in the hazy
+                    // distant-forest tone (sand tone on deserts).
                     float widthScale = 60f + (i % 4) * 20f;
                     float heightScale = 14f + (i % 3) * 6f;
-                    GameObject silhouette = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                    silhouette.name = "Distant parallax tree line";
-                    silhouette.transform.SetParent(transform);
-                    silhouette.transform.position = new Vector3(safePosition.x, groundTopY + heightScale * 0.1f, safePosition.z);
-                    silhouette.transform.localScale = new Vector3(widthScale, heightScale, widthScale * 0.55f);
-                    // Blob fix (per report): the mid-distance treeline ring reads
-                    // as hazy distant forest, not bright canopy green.
-                    silhouette.GetComponent<Renderer>().sharedMaterial = desertTrack ? grassMaterial : distantForestMaterial;
-                    MakeVisualOnly(silhouette);
+                    CreateRidgeFormation(safePosition, widthScale, heightScale, widthScale * 0.55f,
+                        desertTrack ? grassMaterial : distantForestMaterial, i);
                 }
             }
         }
@@ -8668,9 +8646,40 @@ namespace LocalFormulaRacing
         // standing in for a distant mountain/hill range on the horizon. Radius-aware
         // clearance means a segment simply doesn't spawn if it can't clear the corridor
         // rather than risking an oversized silhouette near the racing line.
+        // Shared multi-lobe ridge/hill silhouette (per report - "there should
+        // be nothing that's blob or dome shaped on any track"): every distant
+        // terrain feature used to be ONE smooth ellipsoid, which reads as a
+        // blob no matter how it's tinted or buried. A formation is four
+        // overlapping lobes with seed-varied widths/heights/offsets, each
+        // buried to a ~60% cap and anchored to the terrain, so the silhouette
+        // is an irregular ridge line instead of a perfect dome.
+        void CreateRidgeFormation(Vector3 basePosition, float width, float height, float depth, Material material, int seed)
+        {
+            for (int lobe = 0; lobe < 4; lobe++)
+            {
+                float lobeWidth = width * (lobe == 0 ? 1f : 0.4f + ((seed + lobe) % 4) * 0.12f);
+                float lobeHeight = height * (lobe == 0 ? 1f : 0.55f + ((seed * 3 + lobe) % 4) * 0.12f);
+                float lobeDepth = depth * (lobe == 0 ? 1f : 0.5f + ((seed * 5 + lobe) % 3) * 0.15f);
+                float offsetX = lobe == 0 ? 0f : (((seed * 13 + lobe * 53) % 100) - 50) * 0.01f * width * 0.55f;
+                float offsetZ = lobe == 0 ? 0f : (((seed * 29 + lobe * 31) % 60) - 30) * 0.01f * depth * 0.4f;
+                GameObject piece = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                piece.name = "Ridge formation lobe";
+                piece.transform.SetParent(transform);
+                piece.transform.position = new Vector3(basePosition.x + offsetX, groundTopY + lobeHeight * 0.1f, basePosition.z + offsetZ);
+                piece.transform.localScale = new Vector3(lobeWidth, lobeHeight, lobeDepth);
+                piece.GetComponent<Renderer>().sharedMaterial = material;
+                MakeVisualOnly(piece);
+            }
+        }
+
         void BuildMountainBackdrop(float density, Color tint)
         {
             Material ridgeMaterial = CreateMaterial("Runtime Mountain Ridge", tint, 0f, 0.15f);
+            // De-blob pass: rocky noise grain (near-white tint - the texture
+            // multiplies the colour) so the ridge line doesn't read as smooth
+            // plastic.
+            ridgeMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.88f, 0.87f, 0.85f), 0.18f);
+            ridgeMaterial.mainTextureScale = new Vector2(6f, 3f);
             Bounds bounds = new Bounds(Runtime.centerLine[0], Vector3.zero);
             for (int i = 1; i < Runtime.centerLine.Count; i++)
             {
@@ -8694,16 +8703,9 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                // Sit most of the sphere below groundTopY so only a rounded cap of
-                // roughly 0.6x its height reads above the terrain as a ridge silhouette.
-                float ridgeCenterY = groundTopY - heightScale * 0.5f + heightScale * 0.6f;
-                GameObject ridge = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                ridge.name = "Distant mountain ridge";
-                ridge.transform.SetParent(transform);
-                ridge.transform.position = new Vector3(safePosition.x, ridgeCenterY, safePosition.z);
-                ridge.transform.localScale = new Vector3(widthScale, heightScale, widthScale * 0.62f);
-                ridge.GetComponent<Renderer>().sharedMaterial = ridgeMaterial;
-                MakeVisualOnly(ridge);
+                // De-blob pass (per report): irregular multi-lobe formation
+                // instead of one smooth dome.
+                CreateRidgeFormation(safePosition, widthScale, heightScale, widthScale * 0.62f, ridgeMaterial, i);
             }
         }
 
@@ -8739,15 +8741,11 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
+                // De-blob pass (per report): irregular multi-lobe dune line
+                // instead of one smooth dome.
                 float widthScale = 90f + (i % 4) * 30f;
                 float heightScale = 16f + (i % 3) * 8f;
-                GameObject duneRidge = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                duneRidge.name = "Distant desert dune ridge";
-                duneRidge.transform.SetParent(transform);
-                duneRidge.transform.position = new Vector3(safePosition.x, groundTopY - heightScale * 0.3f, safePosition.z);
-                duneRidge.transform.localScale = new Vector3(widthScale, heightScale, widthScale * 0.7f);
-                duneRidge.GetComponent<Renderer>().sharedMaterial = grassMaterial;
-                MakeVisualOnly(duneRidge);
+                CreateRidgeFormation(safePosition, widthScale, heightScale, widthScale * 0.7f, grassMaterial, i);
             }
 
             Material haze = CreateTranslucentMaterial("Runtime desert haze", new Color(0.85f, 0.72f, 0.5f), 0.12f);
@@ -9348,14 +9346,11 @@ namespace LocalFormulaRacing
                     // from heightScale alone and every layer stays buried to a
                     // ~60% ridge cap, anchored to the terrain (groundTopY), not
                     // the track's sampled height.
+                    // De-blob pass (per report): irregular multi-lobe formation
+                    // instead of one smooth dome.
                     float heightScale = (26f + layer * 14f) + (i % 3) * 8f;
-                    GameObject farHill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                    farHill.name = "Distant forested ridge layer " + layer;
-                    farHill.transform.SetParent(transform);
-                    farHill.transform.position = new Vector3(safePosition.x, groundTopY + heightScale * 0.1f, safePosition.z);
-                    farHill.transform.localScale = new Vector3(70f + (i % 4) * 16f, heightScale, 50f + (i % 3) * 12f);
-                    farHill.GetComponent<Renderer>().sharedMaterial = distantForestMaterial;
-                    MakeVisualOnly(farHill);
+                    CreateRidgeFormation(safePosition, 70f + (i % 4) * 16f, heightScale, 50f + (i % 3) * 12f,
+                        distantForestMaterial, i * 7 + layer);
                 }
             }
         }
@@ -9413,14 +9408,10 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
+                // De-blob pass (per report): irregular multi-lobe dune line
+                // instead of one smooth dome.
                 float heightScale = 12f + (i % 3) * 6f;
-                GameObject duneRidge = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                duneRidge.name = "Coastal dune ridge";
-                duneRidge.transform.SetParent(transform);
-                duneRidge.transform.position = new Vector3(safePosition.x, groundTopY - heightScale * 0.25f, safePosition.z);
-                duneRidge.transform.localScale = new Vector3(80f + (i % 4) * 20f, heightScale, 60f + (i % 3) * 14f);
-                duneRidge.GetComponent<Renderer>().sharedMaterial = coastalSandMaterial;
-                MakeVisualOnly(duneRidge);
+                CreateRidgeFormation(safePosition, 80f + (i % 4) * 20f, heightScale, 60f + (i % 3) * 14f, coastalSandMaterial, i);
             }
 
             // Flattened boardwalk/promenade suggestion on the notional sea side.
@@ -9484,6 +9475,10 @@ namespace LocalFormulaRacing
         {
             Material terrainMaterial = CreateMaterial("Runtime Technical Parkland Terrain",
                 mediterranean ? new Color(0.5f, 0.46f, 0.28f) : new Color(0.28f, 0.36f, 0.22f), 0f, 0.2f);
+            // De-blob pass: grassy noise grain (near-white tint - the texture
+            // multiplies the colour).
+            terrainMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.9f, 0.9f, 0.84f), 0.16f);
+            terrainMaterial.mainTextureScale = new Vector2(6f, 4f);
 
             int banks = Mathf.Max(7, Mathf.RoundToInt(14f * density));
             for (int i = 0; i < banks; i++)
@@ -9501,14 +9496,10 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
+                // De-blob pass (per report): irregular multi-lobe bank instead
+                // of one smooth dome.
                 float heightScale = 14f + (i % 3) * 6f;
-                GameObject bank = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                bank.name = "Amphitheater hillside bank";
-                bank.transform.SetParent(transform);
-                bank.transform.position = safePosition + Vector3.down * (heightScale * 0.3f);
-                bank.transform.localScale = new Vector3(56f + (i % 4) * 12f, heightScale, 40f + (i % 3) * 10f);
-                bank.GetComponent<Renderer>().sharedMaterial = terrainMaterial;
-                MakeVisualOnly(bank);
+                CreateRidgeFormation(safePosition, 56f + (i % 4) * 12f, heightScale, 40f + (i % 3) * 10f, terrainMaterial, i);
 
                 if (i % 3 == 0)
                 {
@@ -9613,6 +9604,47 @@ namespace LocalFormulaRacing
             // ridges, an almost-empty background (per report). Still lighter
             // than a full parkland circuit, but a real one.
             BuildParklandBackdrop(density * 0.85f);
+
+            // Close-in tree lines (per report - "no trees surrounding the track
+            // in canada"): the island layout runs two near-parallel legs only
+            // ~70m apart, so the generic forest belt's 46m+ offsets and wide
+            // clearance radius rejected most spots between and around the legs
+            // - Canada ended up almost treeless while every other green track
+            // got its belts. The real circuit is famously lined with trees
+            // right at the verge, so this dedicated pass plants a tight row
+            // ~24m off the centerline on both sides with a slim clearance
+            // check that fits the narrow island strip.
+            float treeLineSpacing = Mathf.Lerp(30f, 16f, Mathf.InverseLerp(0.25f, 2f, density));
+            int treeLineSeed = 0;
+            for (float d = 0f; d < Runtime.length; d += treeLineSpacing)
+            {
+                treeLineSeed++;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+                Vector3 groundPoint = GroundedTrackPoint(point);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    // Same pit-corridor exclusion the main scenery loop uses.
+                    if ((normalized > 0.83f || normalized < 0.06f) && side > 0f)
+                    {
+                        continue;
+                    }
+
+                    int treeSeed = treeLineSeed * 2 + (side + 1) / 2;
+                    float lateralOffset = Runtime.roadHalfWidth + 24f + (treeSeed * 7) % 9;
+                    Vector3 desired = groundPoint + right * side * lateralOffset + forward * (((treeSeed * 11) % 15) - 7f);
+                    Vector3 safePosition;
+                    if (!TryGetClearScenerySpot(desired, 3f, 1f, out safePosition))
+                    {
+                        continue;
+                    }
+
+                    CreateBeltTree(safePosition, treeSeed);
+                }
+            }
 
             int buildings = Mathf.Max(2, Mathf.RoundToInt(3f * density));
             for (int i = 0; i < buildings; i++)
@@ -9751,14 +9783,10 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
+                // De-blob pass (per report): irregular multi-lobe rise instead
+                // of one smooth dome.
                 float heightScale = 10f + i * 4f;
-                GameObject hill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                hill.name = "Austin rolling terrain rise";
-                hill.transform.SetParent(transform);
-                hill.transform.position = safeHill + Vector3.down * (heightScale * 0.3f);
-                hill.transform.localScale = new Vector3(52f, heightScale, 40f);
-                hill.GetComponent<Renderer>().sharedMaterial = grassMaterial;
-                MakeVisualOnly(hill);
+                CreateRidgeFormation(safeHill, 52f, heightScale, 40f, grassMaterial, i);
             }
         }
 
