@@ -3143,24 +3143,39 @@ namespace LocalFormulaRacing
             // one flat painted colour up close.
             fencePostMaterial.mainTexture = BuildNoiseTexture(32, new Color(0.44f, 0.48f, 0.51f), 0.1f);
             fencePostMaterial.mainTextureScale = new Vector2(2f, 4f);
-            foliageMaterial = CreateMaterial("Runtime Foliage", spaTrack ? new Color(0.05f, 0.22f, 0.14f) : new Color(0.04f, 0.32f, 0.12f), 0f, 0.42f);
+            // Foliage/bark carry a mottled noise texture now (per report -
+            // trees were "kind of poorly textured" flat colours). NOTE:
+            // BuildNoiseTexture output MULTIPLIES the material colour, so the
+            // texture tint must stay near-white - a mid-tone tint multiplies
+            // the colour down to near-black (the "black blobs in Canada" bug,
+            // fixed below on the hill/haze materials).
+            foliageMaterial = CreateMaterial("Runtime Foliage", spaTrack ? new Color(0.06f, 0.26f, 0.16f) : new Color(0.05f, 0.36f, 0.14f), 0f, 0.42f);
+            foliageMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.82f, 0.92f, 0.8f), 0.32f);
+            foliageMaterial.mainTextureScale = new Vector2(5f, 5f);
             // Lighter second canopy tone (see CreateBroadleafTree) - multi-lobe
             // canopies alternate the two so the foliage reads layered.
-            foliageMaterialLight = CreateMaterial("Runtime Foliage Light", spaTrack ? new Color(0.11f, 0.3f, 0.17f) : new Color(0.11f, 0.42f, 0.16f), 0f, 0.4f);
+            foliageMaterialLight = CreateMaterial("Runtime Foliage Light", spaTrack ? new Color(0.13f, 0.34f, 0.19f) : new Color(0.13f, 0.46f, 0.18f), 0f, 0.4f);
+            foliageMaterialLight.mainTexture = BuildNoiseTexture(64, new Color(0.85f, 0.93f, 0.82f), 0.28f);
+            foliageMaterialLight.mainTextureScale = new Vector2(4f, 4f);
             // Earthy noise-textured slope tone for near backdrop hills (see
-            // CreateForestedHill) - deliberately NOT canopy green.
-            hillsideEarthMaterial = CreateMaterial("Runtime Hillside Earth", new Color(0.27f, 0.29f, 0.16f), 0f, 0.28f);
-            hillsideEarthMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.32f, 0.33f, 0.2f), 0.2f);
+            // CreateForestedHill) - deliberately NOT canopy green. Texture tint
+            // near-white (see the multiply note above).
+            hillsideEarthMaterial = CreateMaterial("Runtime Hillside Earth", new Color(0.32f, 0.34f, 0.19f), 0f, 0.28f);
+            hillsideEarthMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.88f, 0.9f, 0.8f), 0.22f);
             hillsideEarthMaterial.mainTextureScale = new Vector2(7f, 5f);
             // Dull hazy tone for the far forest-ridge/treeline layers - distant
             // terrain desaturates toward the sky, it doesn't stay lime green.
-            distantForestMaterial = CreateMaterial("Runtime Distant Forest Haze", new Color(0.21f, 0.27f, 0.23f), 0f, 0.22f);
-            distantForestMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.25f, 0.31f, 0.27f), 0.12f);
+            distantForestMaterial = CreateMaterial("Runtime Distant Forest Haze", new Color(0.26f, 0.33f, 0.28f), 0f, 0.22f);
+            distantForestMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.9f, 0.93f, 0.9f), 0.12f);
             distantForestMaterial.mainTextureScale = new Vector2(10f, 5f);
             // Trees used to borrow the bright red scenery-accent material for their
             // trunks (fine for kerb-style trim, glaring as bark) - a dedicated dull
             // brown fixes that without touching the accent colour anywhere else it's used.
             treeBarkMaterial = CreateMaterial("Runtime Tree Bark", desertTrack ? new Color(0.42f, 0.32f, 0.22f) : new Color(0.32f, 0.24f, 0.18f), 0f, 0.32f);
+            // Vertical streaky grain so trunks read as bark rather than flat
+            // brown plastic (near-white tint - the texture multiplies the colour).
+            treeBarkMaterial.mainTexture = BuildNoiseTexture(32, new Color(0.9f, 0.86f, 0.82f), 0.26f);
+            treeBarkMaterial.mainTextureScale = new Vector2(2f, 7f);
             metalMaterial = CreateMaterial("Runtime Brushed Metal", new Color(0.52f, 0.56f, 0.58f), 0.42f, 0.78f);
             glassMaterial = CreateMaterial("Runtime Glass", new Color(0.12f, 0.28f, 0.38f, 0.85f), 0.1f, 0.95f);
             // Night/twilight races push the floodlight emissive noticeably brighter -
@@ -8189,6 +8204,117 @@ namespace LocalFormulaRacing
                     if (spaTrack || i % 6 == 0) CreateTreeCluster(basePosition + right * side * 40f, i);
                 }
             }
+
+            BuildForestBelt();
+        }
+
+        // Mass tree planting (per report - "20x their amount"): continuous
+        // double-row belts of full-size trees down BOTH sides of the whole lap
+        // on every non-street, non-desert circuit, behind the existing
+        // trackside clusters. Belt trees use a cheaper build (one trunk plus a
+        // small canopy stack, ~4 primitives) than the full showcase trees so
+        // the count can be an order of magnitude higher without an order of
+        // magnitude more objects; spacing tightens with sceneryDensity and
+        // every position is jittered and clearance-checked so the belts read
+        // as forest, not a picket fence.
+        void BuildForestBelt()
+        {
+            if (streetTrack || desertTrack)
+            {
+                return;
+            }
+
+            float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
+            float spacing = Mathf.Lerp(46f, 22f, Mathf.InverseLerp(0.25f, 2f, density));
+            int seed = 0;
+            for (float d = 0f; d < Runtime.length; d += spacing)
+            {
+                seed++;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+                Vector3 groundPoint = GroundedTrackPoint(point);
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    // Same pit-corridor exclusion the main scenery loop uses.
+                    if ((normalized > 0.83f || normalized < 0.06f) && side > 0f)
+                    {
+                        continue;
+                    }
+
+                    for (int row = 0; row < 2; row++)
+                    {
+                        int treeSeed = seed * 4 + row * 2 + (side + 1);
+                        float lateralOffset = Runtime.roadHalfWidth + 46f + row * 24f + (treeSeed * 7) % 15;
+                        float alongJitter = ((treeSeed * 11) % 25) - 12f;
+                        Vector3 desired = groundPoint + right * side * lateralOffset + forward * alongJitter;
+                        Vector3 safePosition;
+                        if (!TryGetClearScenerySpot(desired, 7f, 5f, out safePosition))
+                        {
+                            continue;
+                        }
+
+                        CreateBeltTree(safePosition, treeSeed);
+                    }
+                }
+            }
+        }
+
+        // Cheap full-size belt tree: same species mix and 3x scale as the
+        // showcase trees, built from ~4 primitives (trunk + small canopy
+        // stack) so thousands of them stay affordable.
+        void CreateBeltTree(Vector3 basePosition, int seed)
+        {
+            float size = 2.1f + (seed % 5) * 0.28f;
+            float trunkHeight = (seed % 3 == 0 ? 10f : 6.8f) * size;
+            GameObject trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            trunk.name = "Belt tree trunk";
+            trunk.transform.SetParent(transform);
+            trunk.transform.position = basePosition + Vector3.up * trunkHeight * 0.5f;
+            trunk.transform.localScale = new Vector3(0.5f * size, trunkHeight * 0.5f, 0.5f * size);
+            trunk.GetComponent<Renderer>().sharedMaterial = treeBarkMaterial;
+            MakeVisualOnly(trunk);
+
+            if (seed % 3 == 0)
+            {
+                // Conifer: three narrowing tiers.
+                for (int t = 0; t < 3; t++)
+                {
+                    float f = t / 2f;
+                    float tierWidth = Mathf.Lerp(4.6f, 1.4f, f) * size;
+                    GameObject tier = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                    tier.name = "Belt tree conifer tier";
+                    tier.transform.SetParent(transform);
+                    tier.transform.position = basePosition + Vector3.up * Mathf.Lerp(trunkHeight * 0.35f, trunkHeight, f);
+                    tier.transform.localScale = new Vector3(tierWidth, Mathf.Lerp(2.6f, 1.7f, f) * size, tierWidth);
+                    tier.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
+                    MakeVisualOnly(tier);
+                }
+            }
+            else
+            {
+                // Broadleaf: main crown plus one offset lobe in the lighter tone.
+                float crownWidth = 5f * size;
+                GameObject crown = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                crown.name = "Belt tree crown";
+                crown.transform.SetParent(transform);
+                crown.transform.position = basePosition + Vector3.up * (trunkHeight + 1.4f * size);
+                crown.transform.localScale = new Vector3(crownWidth, crownWidth * 0.78f, crownWidth);
+                crown.GetComponent<Renderer>().sharedMaterial = (seed % 2 == 0) ? foliageMaterial : foliageMaterialLight;
+                MakeVisualOnly(crown);
+
+                float lobeWidth = 3.2f * size;
+                GameObject lobe = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                lobe.name = "Belt tree crown lobe";
+                lobe.transform.SetParent(transform);
+                lobe.transform.position = basePosition + Vector3.up * (trunkHeight + 0.7f * size) +
+                    new Vector3(((seed * 13) % 7) - 3f, 0f, ((seed * 17) % 5) - 2f) * 0.55f * size * 0.4f;
+                lobe.transform.localScale = new Vector3(lobeWidth, lobeWidth * 0.72f, lobeWidth);
+                lobe.GetComponent<Renderer>().sharedMaterial = (seed % 2 == 0) ? foliageMaterialLight : foliageMaterial;
+                MakeVisualOnly(lobe);
+            }
         }
 
         // Row of generic solid-colour flags lining the start/finish straight, both
@@ -9092,7 +9218,8 @@ namespace LocalFormulaRacing
                 float normalized = (dx * dx) / (mainWidth * mainWidth * 0.25f) + (dz * dz) / (mainDepth * mainDepth * 0.25f);
                 float surfaceY = mainCenter.y + mainHeight * 0.5f * Mathf.Sqrt(Mathf.Max(0f, 1f - normalized));
                 Vector3 treeBase = new Vector3(mainCenter.x + dx, surfaceY - 0.6f, mainCenter.z + dz);
-                float jitter = 0.7f + ((seed + t) % 4) * 0.1f;
+                // 3x tree pass: hillside trees scale up with the trackside ones.
+                float jitter = (0.7f + ((seed + t) % 4) * 0.1f) * 3f;
                 if ((seed + t) % 2 == 0)
                 {
                     CreateConiferTree(treeBase, jitter, seed * 7 + t);
@@ -10235,12 +10362,16 @@ namespace LocalFormulaRacing
             // cluster's own incoming y (not groundTopY) so it stays correct both for
             // the flat-ground BuildScenery callers and the hillside backdrop passes
             // that deliberately pass in a locally-elevated position.
-            CreateVisualBox("Tree cluster ground patch", position + Vector3.up * 0.02f, Quaternion.identity, new Vector3(11f, 0.05f, 8f), grassMaterial);
+            CreateVisualBox("Tree cluster ground patch", position + Vector3.up * 0.02f, Quaternion.identity, new Vector3(28f, 0.05f, 20f), grassMaterial);
             for (int i = 0; i < 3; i++)
             {
-                Vector3 offset = new Vector3((i - 1) * 3.8f, 0f, (index % 3 - 1) * 2.4f);
+                // 3x tree pass (per report - "trees r too small"): tree scale
+                // tripled (mature-forest 25-35m instead of 9-14m) and the
+                // in-cluster spacing widened to match so three big canopies
+                // read as a stand of trees, not one merged mass.
+                Vector3 offset = new Vector3((i - 1) * 10f, 0f, (index % 3 - 1) * 6.5f);
                 Vector3 treePosition = PushSceneryClearOfTrack(position + offset, 20f);
-                float sizeJitter = 0.8f + ((index * 3 + i) % 5) * 0.11f;
+                float sizeJitter = (0.8f + ((index * 3 + i) % 5) * 0.11f) * 3f;
                 if ((index + i) % 3 == 0)
                 {
                     CreateConiferTree(treePosition, sizeJitter, index * 3 + i);
