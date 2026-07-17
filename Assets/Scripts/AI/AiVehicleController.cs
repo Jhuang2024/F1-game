@@ -1314,6 +1314,17 @@ namespace LocalFormulaRacing
             // Rounds 32-36: widened five more times (-> 1.39-1.81), bottom
             // moving less than the top so driver skill decides more of it.
             float feasibilityCap = Mathf.Lerp(1.39f, 1.81f, paceNorm);
+            // Tight-corner sanity bound (per report - "Austria's broken on the
+            // final turn, cars seem stuck"): the widened judgment window is a
+            // FAST-corner allowance - carrying 40-80% over the geometric apex
+            // works where the arc is open, but at a hairpin/stop-go corner the
+            // steering physically cannot rotate the car through at that speed,
+            // so the AI overshot, hit the barrier, auto-reset and overshot
+            // again in a loop. The cap now blends down to +16% as the
+            // geometric apex speed falls below ~170 kph; fast corners keep the
+            // full skill-scaled window.
+            float tightCornerBlend = Mathf.Clamp01(Mathf.InverseLerp(170f, 80f, apexTargetSpeed));
+            feasibilityCap = Mathf.Lerp(feasibilityCap, Mathf.Min(feasibilityCap, 1.16f), tightCornerBlend);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
                 apexTargetSpeed * feasibilityCap);
@@ -2401,15 +2412,42 @@ namespace LocalFormulaRacing
             // window or opportunity - on a short race (or with durable rubber)
             // none of them ever fire, and the AI simply ate the +10s no-stop
             // penalty. A car still owing its mandatory stop now boxes
-            // unconditionally once ~62% of the race is done (same >3-lap gate
-            // as PenaltyRules.ShouldApplyMandatoryPitPenalty; a 5-lap race
-            // boxes at the end of lap 4, a 50-lap race by lap 31 - normally the
-            // wear triggers have fired long before this).
+            // unconditionally on its own deadline lap (same >3-lap gate as
+            // PenaltyRules.ShouldApplyMandatoryPitPenalty).
+            //
+            // Stagger fix (per report - "Austria's broken on the final turn,
+            // cars seem stuck... pit entry is now completely broken"): the
+            // first version used ONE fixed deadline (~62%) for the whole
+            // field, so on a short race every AI still owing its stop
+            // requested the pit on the SAME lap - twenty cars funnelled into
+            // one pit lane at once, and the queue backed up through the pit
+            // entry onto the track (Austria's entry sits right at the final
+            // corner). Each driver's deadline is now spread across 40-80% of
+            // the race by a stable per-driver hash, so the stops arrive a few
+            // cars per lap like a real pit window.
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && !raceManager.IsTimeTrial &&
-                raceManager.RaceLaps > 3 && participant.pitStops == 0 &&
-                participant.lapTracker.CompletedLaps + 1 >= Mathf.Max(2, Mathf.CeilToInt(raceManager.RaceLaps * 0.62f)))
+                raceManager.RaceLaps > 3 && participant.pitStops == 0)
             {
-                command.pitRequest = true;
+                float stopJitter01 = 0.5f;
+                if (!string.IsNullOrEmpty(participant.driverId))
+                {
+                    unchecked
+                    {
+                        int hash = 17;
+                        for (int c = 0; c < participant.driverId.Length; c++)
+                        {
+                            hash = hash * 31 + participant.driverId[c];
+                        }
+
+                        stopJitter01 = (hash & 0x7fffffff) / (float)int.MaxValue;
+                    }
+                }
+
+                int deadlineLap = Mathf.Max(2, Mathf.CeilToInt(raceManager.RaceLaps * (0.4f + 0.4f * stopJitter01)));
+                if (participant.lapTracker.CompletedLaps + 1 >= deadlineLap)
+                {
+                    command.pitRequest = true;
+                }
             }
 
             // Never pit on the final lap (per request), whatever the tyre wear:

@@ -10246,24 +10246,45 @@ namespace LocalFormulaRacing
             // "blocking the track"): the stand is a straight box up to ~88m
             // long laid along the CENTRE point's tangent, so on a curved
             // stretch its ends can swing over the road even though the centre
-            // sits 18m clear. Probe the stand's inner edge at both ends and
-            // the middle against the live corridor and push the whole stand
-            // outward by the worst deficit (plus runoff margin), so no part of
-            // any stand can overhang the racing surface.
-            float probeLength = 22f * scale * 0.5f;
-            float worstDeficit = 0f;
-            for (int probe = -1; probe <= 1; probe++)
+            // sits 18m clear.
+            // Round 2 (per report - "the issue of grandstands blocking the
+            // track isn't solved"): one push from three probes wasn't enough -
+            // a probe near a curve can resolve against a DIFFERENT part of the
+            // track after the push, or the mid-span can still bulge over the
+            // road between probe points. Five probes along the stand now
+            // re-check after every push (up to five passes), and a stand that
+            // STILL can't clear (a tight loop with track on both sides, e.g. a
+            // final-corner complex) is skipped outright rather than built
+            // overhanging the racing surface.
+            float probeHalfLength = 22f * scale * 0.5f;
+            bool standClear = false;
+            for (int attempt = 0; attempt < 5 && !standClear; attempt++)
             {
-                Vector3 probePoint = basePosition + forward * (probe * probeLength);
-                TrackProgress probeProgress = Runtime.GetProgress(probePoint);
-                float clearance = Mathf.Abs(probeProgress.lateralDistance) - (Runtime.HalfWidthAt(probeProgress.distance) + 12f);
-                if (clearance < 0f)
+                float worstDeficit = 0f;
+                for (int probe = -2; probe <= 2; probe++)
                 {
-                    worstDeficit = Mathf.Max(worstDeficit, -clearance);
+                    Vector3 probePoint = basePosition + forward * (probe * probeHalfLength * 0.5f);
+                    TrackProgress probeProgress = Runtime.GetProgress(probePoint);
+                    float clearance = Mathf.Abs(probeProgress.lateralDistance) - (Runtime.HalfWidthAt(probeProgress.distance) + 12f);
+                    if (clearance < 0f)
+                    {
+                        worstDeficit = Mathf.Max(worstDeficit, -clearance);
+                    }
                 }
+
+                if (worstDeficit <= 0f)
+                {
+                    standClear = true;
+                    break;
+                }
+
+                basePosition += lateral * (worstDeficit + 2f);
             }
 
-            basePosition += lateral * worstDeficit;
+            if (!standClear)
+            {
+                return;
+            }
 
             // Tier-geometry fix (per report - "the grandstands ARE STILL TOO
             // SMALL"): the earlier scale passes multiplied length and row COUNT
