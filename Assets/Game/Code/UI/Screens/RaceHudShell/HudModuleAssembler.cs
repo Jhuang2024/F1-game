@@ -190,10 +190,24 @@ namespace F1Game.UI.Screens.RaceHudShell
             return tmp;
         }
 
+        static bool warnedMissingTabularFont;
+
         static TMP_Text Numeric(Transform parent, string name, float size)
         {
             TMP_Text t = Text(parent, name, size, TextAlignmentOptions.Left);
-            if (UiTheme.Active.typography.tabularNumeric != null) t.font = UiTheme.Active.typography.tabularNumeric;
+            if (UiTheme.Active.typography.tabularNumeric != null)
+            {
+                t.font = UiTheme.Active.typography.tabularNumeric;
+            }
+            else if (!warnedMissingTabularFont)
+            {
+                // Silent fallback used to just change appearance: the timing
+                // tower and lap-time digits lose tabular alignment and jitter.
+                // Still renders, but now it says why the digits look wrong.
+                warnedMissingTabularFont = true;
+                Debug.LogWarning("[HUD] UiTheme tabularNumeric font missing - numeric HUD text falls back to the default font and loses digit alignment.");
+            }
+
             return t;
         }
 

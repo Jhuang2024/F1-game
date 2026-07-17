@@ -13,6 +13,10 @@ namespace F1Game.UI.Services
     public sealed class TransitionService
     {
         readonly MonoBehaviour coroutineHost;
+        // One in-flight fade per CanvasGroup: starting a new fade cancels the
+        // previous one so overlapping requests never fight over alpha.
+        readonly System.Collections.Generic.Dictionary<CanvasGroup, Coroutine> running =
+            new System.Collections.Generic.Dictionary<CanvasGroup, Coroutine>();
 
         public bool ReducedMotion { get; set; }
 
@@ -39,17 +43,27 @@ namespace F1Game.UI.Services
                 return;
             }
 
-            if (ReducedMotion || duration <= 0f || !coroutineHost.isActiveAndEnabled)
+            if (running.TryGetValue(group, out Coroutine active))
+            {
+                if (active != null && coroutineHost != null)
+                {
+                    coroutineHost.StopCoroutine(active);
+                }
+
+                running.Remove(group);
+            }
+
+            if (ReducedMotion || duration <= 0f || coroutineHost == null || !coroutineHost.isActiveAndEnabled)
             {
                 group.alpha = to;
                 onComplete?.Invoke();
                 return;
             }
 
-            coroutineHost.StartCoroutine(FadeRoutine(group, from, to, duration, onComplete));
+            running[group] = coroutineHost.StartCoroutine(FadeRoutine(group, from, to, duration, onComplete));
         }
 
-        static IEnumerator FadeRoutine(CanvasGroup group, float from, float to, float duration, Action onComplete)
+        IEnumerator FadeRoutine(CanvasGroup group, float from, float to, float duration, Action onComplete)
         {
             AnimationCurve ease = UiTheme.Active.motion.ease;
             float elapsed = 0f;
@@ -62,6 +76,7 @@ namespace F1Game.UI.Services
             }
 
             group.alpha = to;
+            running.Remove(group);
             onComplete?.Invoke();
         }
     }

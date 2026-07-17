@@ -25,6 +25,13 @@ namespace F1Game.UI.Navigation
 
         ScreenView current;
 
+        /// <summary>
+        /// Optional enter animation, run after a screen becomes visible (wired
+        /// by UiShell to TransitionService.FadeIn so navigation honours the
+        /// theme's motion tokens instead of hard-cutting).
+        /// </summary>
+        public Action<ScreenView> EnterTransition;
+
         public NavigationStack Stack => stack;
         public ScreenView Current => current;
         public string CurrentScreenId => current != null ? current.ScreenId : null;
@@ -101,6 +108,7 @@ namespace F1Game.UI.Navigation
 
             current = view;
             view.SetVisible(true);
+            EnterTransition?.Invoke(view);
             view.OnEntered(args);
 
             if (pushToStack)

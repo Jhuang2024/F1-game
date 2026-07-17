@@ -37,8 +37,14 @@ namespace F1Game.UI
         public DevicePromptService DevicePrompts { get; private set; }
 
         Canvas canvas;
+        CanvasScaler scaler;
+        GraphicRaycaster raycaster;
         RectTransform screenLayer;
         RectTransform modalLayer;
+
+        /// <summary>The live shell, if one has been created (used by the legacy
+        /// settings path to push UI-scale changes into the production canvas).</summary>
+        public static UiShell ActiveShell { get; private set; }
         /// <summary>Overlay layer above screens (modals, pause) - used to host the production pause overlay.</summary>
         public RectTransform ModalLayer => modalLayer;
 
@@ -97,6 +103,7 @@ namespace F1Game.UI
             var shell = go.AddComponent<UiShell>();
             shell.BuildLayers();
             shell.RegisterScreens();
+            ActiveShell = shell;
             return shell;
         }
 
@@ -106,11 +113,11 @@ namespace F1Game.UI
             canvas.renderMode = RenderMode.ScreenSpaceOverlay;
             canvas.sortingOrder = 40;
 
-            var scaler = gameObject.AddComponent<CanvasScaler>();
+            scaler = gameObject.AddComponent<CanvasScaler>();
             scaler.uiScaleMode = CanvasScaler.ScaleMode.ScaleWithScreenSize;
             scaler.referenceResolution = new Vector2(1920f, 1080f);
             scaler.matchWidthOrHeight = 0.5f;
-            gameObject.AddComponent<GraphicRaycaster>();
+            raycaster = gameObject.AddComponent<GraphicRaycaster>();
 
             RectTransform MakeLayer(string name)
             {
@@ -148,10 +155,75 @@ namespace F1Game.UI
 
             Router = new ScreenRouter(screenLayer);
             Modals = new ModalService(modalLayer);
-            Toasts = new ToastService(toastColumn, null);
+            // The toast template is built in code (no baked prefab exists yet);
+            // passing null here silently killed every toast — they degraded to
+            // Debug.Log lines and the toast column stayed permanently empty.
+            Toasts = new ToastService(toastColumn, BuildToastTemplate(toastColumn));
             Tooltips = new TooltipService((RectTransform)tooltipGo.transform, tooltipText, tooltipGo.GetComponent<CanvasGroup>());
             Transitions = new TransitionService(this);
+            // Navigation honours the theme's motion tokens (and reduced-motion)
+            // instead of hard-cutting between screens.
+            Router.EnterTransition = view => Transitions.FadeIn(view.CanvasGroup);
             DevicePrompts = new DevicePromptService();
+        }
+
+        // Code-built ToastView used as the pool template until a baked prefab
+        // exists: raised surface, kind-coloured accent bar on the left, body
+        // text. Kept inactive; ToastService instantiates copies from it.
+        static ToastView BuildToastTemplate(RectTransform toastColumn)
+        {
+            UiTheme theme = UiTheme.Active;
+            var go = new GameObject("Toast Template", typeof(RectTransform), typeof(CanvasGroup));
+            go.transform.SetParent(toastColumn, false);
+            var rect = (RectTransform)go.transform;
+            rect.sizeDelta = new Vector2(420f, 56f);
+
+            var background = go.AddComponent<Image>();
+            background.color = theme.palette.surfaceRaised;
+            background.raycastTarget = false;
+
+            var layoutElement = go.AddComponent<LayoutElement>();
+            layoutElement.minHeight = 56f;
+            layoutElement.preferredHeight = 56f;
+
+            var accentGo = new GameObject("Accent", typeof(RectTransform));
+            accentGo.transform.SetParent(go.transform, false);
+            var accentRect = (RectTransform)accentGo.transform;
+            accentRect.anchorMin = new Vector2(0f, 0f);
+            accentRect.anchorMax = new Vector2(0f, 1f);
+            accentRect.pivot = new Vector2(0f, 0.5f);
+            accentRect.sizeDelta = new Vector2(4f, 0f);
+            accentRect.anchoredPosition = Vector2.zero;
+            var accent = accentGo.AddComponent<Image>();
+            accent.color = theme.palette.accent;
+            accent.raycastTarget = false;
+
+            TMP_Text text = UiScreenFactory.CreateText(go.transform, "Label", UiScreenFactory.TextStyle.BodySmall, "");
+            UiScreenFactory.Stretch(text.rectTransform, 12f);
+            text.raycastTarget = false;
+
+            var view = go.AddComponent<ToastView>();
+            view.Bind(text, accent, go.GetComponent<CanvasGroup>());
+            go.SetActive(false);
+            return view;
+        }
+
+        /// <summary>
+        /// Applies the player's UI-scale setting to the production canvas by
+        /// shrinking/growing the reference resolution — the same technique the
+        /// legacy canvas uses, so the two stacks scale identically. Previously
+        /// the slider only affected the legacy canvas, i.e. it did nothing on
+        /// the default production frontend.
+        /// </summary>
+        public void ApplyUiScale(float scale)
+        {
+            if (scaler == null)
+            {
+                return;
+            }
+
+            float clamped = Mathf.Clamp(scale, 0.5f, 2f);
+            scaler.referenceResolution = new Vector2(1920f, 1080f) / clamped;
         }
 
         void RegisterScreens()
@@ -206,6 +278,14 @@ namespace F1Game.UI
         public void SetShellVisible(bool visible)
         {
             canvas.enabled = visible;
+            // Belt-and-braces for the dual-stack window: a hidden shell must
+            // never swallow clicks aimed at the legacy canvas underneath (the
+            // production canvas sorts at 40 with full-screen opaque raycast-
+            // catching screen backgrounds; the legacy canvas sorts at 0).
+            if (raycaster != null)
+            {
+                raycaster.enabled = visible;
+            }
         }
 
         void Update()

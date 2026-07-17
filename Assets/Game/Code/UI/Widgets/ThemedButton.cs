@@ -155,6 +155,18 @@ namespace F1Game.UI.Widgets
             Refresh();
         }
 
+        protected override void DoStateTransition(SelectionState state, bool instant)
+        {
+            base.DoStateTransition(state, instant);
+            // Selectable invokes this on EVERY state change, including
+            // programmatic `interactable` toggles that never pass through the
+            // pointer/focus overrides above. Without this hook a code-disabled
+            // button (stepper at its bound, gated Start Race, ineligible
+            // career action) kept its enabled colours while silently
+            // no-opping.
+            Refresh();
+        }
+
         void Refresh()
         {
             CurrentState = ResolveState();

@@ -48,6 +48,10 @@ namespace F1Game.UI.Services
             ModalView modal = open.Pop();
             if (modal != null)
             {
+                // Mirror of Show's open event: without this, bus observers
+                // (audio/analytics/legacy shell) never learn a modal closed
+                // and can believe one is still open.
+                GameEvents.Publish(new UiNavigationEvent("modal:" + modal.name, null, true));
                 modal.Closed();
                 UnityEngine.Object.Destroy(modal.gameObject);
             }

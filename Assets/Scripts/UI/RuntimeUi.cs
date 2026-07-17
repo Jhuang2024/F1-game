@@ -143,10 +143,13 @@ namespace LocalFormulaRacing
             saveDotRect.anchorMin = new Vector2(0f, 0.5f);
             saveDotRect.anchorMax = new Vector2(0f, 0.5f);
             saveDotRect.anchoredPosition = new Vector2(24f, 0f);
+            // Brighter than TextMuted: this persistent line sits on the darkest
+            // band in the app, where the muted grey was the lowest-contrast
+            // text/background combination anywhere in the UI.
             Text status = UiFactory.CreateText(statusStrip, "Status text",
                 "CAREER SAVE LOADED  ·  SEASON " + career.Save.currentSeason + " ROUND " + career.Save.currentRound +
                 "  ·  DIFFICULTY " + settings.Difficulty.ToString().ToUpperInvariant() +
-                "  ·  LOCAL FORMULA", 14, UiFactory.TextMuted, TextAnchor.MiddleCenter);
+                "  ·  LOCAL FORMULA", 14, new Color(0.78f, 0.85f, 0.9f, 1f), TextAnchor.MiddleCenter);
             RectTransform statusRect = status.GetComponent<RectTransform>();
             statusRect.anchorMin = Vector2.zero;
             statusRect.anchorMax = Vector2.one;
@@ -480,6 +483,81 @@ namespace LocalFormulaRacing
             return best;
         }
 
+        // Biggest championship-POSITION loser over the same up-to-3-round
+        // momentum window the gainer card uses. Cumulative points can never
+        // decrease, so the old lowest-points-delta metric could literally never
+        // show a loss ("Biggest Loser  0"); losing places in the standings is
+        // the signal that can.
+        static CareerManager.ChampionshipSeries FindChampionshipBiggestRankLoser(CareerManager.ChampionshipProgression progression, out int placesLost)
+        {
+            placesLost = 0;
+            CareerManager.ChampionshipSeries worst = null;
+            if (progression == null || progression.series == null || progression.series.Count < 2)
+            {
+                return null;
+            }
+
+            int rounds = 0;
+            for (int i = 0; i < progression.series.Count; i++)
+            {
+                List<int> points = progression.series[i].cumulativePoints;
+                rounds = Mathf.Max(rounds, points != null ? points.Count : 0);
+            }
+
+            if (rounds < 2)
+            {
+                return null;
+            }
+
+            int endRound = rounds - 1;
+            int startRound = Mathf.Max(0, rounds - 3);
+            for (int i = 0; i < progression.series.Count; i++)
+            {
+                CareerManager.ChampionshipSeries series = progression.series[i];
+                if (series.cumulativePoints == null || series.cumulativePoints.Count == 0)
+                {
+                    continue;
+                }
+
+                int lost = ChampionshipRankAtRound(progression, series, endRound) -
+                           ChampionshipRankAtRound(progression, series, startRound);
+                if (lost > placesLost)
+                {
+                    placesLost = lost;
+                    worst = series;
+                }
+            }
+
+            return worst;
+        }
+
+        static int ChampionshipPointsAtRound(CareerManager.ChampionshipSeries series, int round)
+        {
+            List<int> points = series.cumulativePoints;
+            if (points == null || points.Count == 0)
+            {
+                return 0;
+            }
+
+            return points[Mathf.Clamp(round, 0, points.Count - 1)];
+        }
+
+        static int ChampionshipRankAtRound(CareerManager.ChampionshipProgression progression, CareerManager.ChampionshipSeries series, int round)
+        {
+            int mine = ChampionshipPointsAtRound(series, round);
+            int rank = 1;
+            for (int i = 0; i < progression.series.Count; i++)
+            {
+                CareerManager.ChampionshipSeries other = progression.series[i];
+                if (!ReferenceEquals(other, series) && ChampionshipPointsAtRound(other, round) > mine)
+                {
+                    rank++;
+                }
+            }
+
+            return rank;
+        }
+
         static CareerManager.ChampionshipSeries FindChampionshipSeriesById(CareerManager.ChampionshipProgression progression, string id)
         {
             if (progression == null || progression.series == null || string.IsNullOrEmpty(id))
@@ -617,7 +695,7 @@ namespace LocalFormulaRacing
             for (int r = 0; r < roundCount; r += labelStride)
             {
                 string roundLabel = progression.roundLabels != null && r < progression.roundLabels.Count ? progression.roundLabels[r] : ("R" + progression.rounds[r]);
-                Text label = UiFactory.CreateText(plotArea, "Round label " + r, roundLabel, 12, UiFactory.TextMuted, TextAnchor.UpperCenter);
+                Text label = UiFactory.CreateText(plotArea, "Round label " + r, roundLabel, 13, UiFactory.TextMuted, TextAnchor.UpperCenter);
                 RectTransform labelRect = label.GetComponent<RectTransform>();
                 labelRect.anchorMin = new Vector2(0f, 0f);
                 labelRect.anchorMax = new Vector2(0f, 0f);
@@ -797,15 +875,15 @@ namespace LocalFormulaRacing
             CareerManager.ChampionshipProgression moverSource = championshipGraphTab == 1 ? constructorProgression : driverProgression;
             int gainDelta;
             CareerManager.ChampionshipSeries gainerSeries = FindChampionshipBiggestMover(moverSource, true, out gainDelta);
-            int lossDelta;
-            CareerManager.ChampionshipSeries loserSeries = FindChampionshipBiggestMover(moverSource, false, out lossDelta);
+            int lossPlaces;
+            CareerManager.ChampionshipSeries loserSeries = FindChampionshipBiggestRankLoser(moverSource, out lossPlaces);
 
             UiFactory.CreateStatCard(summaryRow, "WDC Leader", driverLeaderSeries != null ? driverLeaderSeries.label + "  (" + ChampionshipLastPoints(driverLeaderSeries) + ")" : "--", 240f);
             UiFactory.CreateStatCard(summaryRow, "Gap To You", driverPlayerSeries != null ? (driverGap <= 0 ? "Leading" : "-" + driverGap + " pts") : "--", 170f);
             UiFactory.CreateStatCard(summaryRow, "WCC Leader", teamLeaderSeries != null ? teamLeaderSeries.label + "  (" + ChampionshipLastPoints(teamLeaderSeries) + ")" : "--", 240f);
             UiFactory.CreateStatCard(summaryRow, "Gap To Your Team", teamPlayerSeries != null ? (teamGap <= 0 ? "Leading" : "-" + teamGap + " pts") : "--", 190f);
             UiFactory.CreateStatCard(summaryRow, "Biggest Gainer", gainerSeries != null ? gainerSeries.label + "  +" + gainDelta : "--", 220f);
-            UiFactory.CreateStatCard(summaryRow, "Biggest Loser", loserSeries != null ? loserSeries.label + "  " + lossDelta : "--", 220f);
+            UiFactory.CreateStatCard(summaryRow, "Biggest Loser", loserSeries != null && lossPlaces > 0 ? loserSeries.label + "  -" + lossPlaces + (lossPlaces == 1 ? " place" : " places") : "--", 220f);
             UiFactory.CreateStatCard(summaryRow, "Your Position", (driverPosition > 0 ? "P" + driverPosition : "--") + " drv / " + (teamPosition > 0 ? "P" + teamPosition : "--") + " ctor", 220f);
 
             // Chart(s) + legend(s).
@@ -1439,34 +1517,45 @@ namespace LocalFormulaRacing
             });
         }
 
-        // Pending R&D results surface once on the career hub, then the queue is
-        // cleared - rendering the card consumes the report.
+        // R&D messages the hub is currently showing. The save's pending queue
+        // is consumed (moved here + persisted empty) the first time the hub
+        // renders it, but the cache keeps the card visible across hub rebuilds
+        // within the session - rendering no longer silently destroys unread
+        // one-shot messages as a side effect of drawing (e.g. a UI-scale
+        // change rebuilding the hub used to eat them).
+        readonly List<string> rndReportDisplayCache = new List<string>();
+
         void BuildRndReportCard(RectTransform parent, CareerManager career)
         {
-            if (career.Save.pendingRndMessages == null || career.Save.pendingRndMessages.Count == 0)
+            if (career.Save.pendingRndMessages != null && career.Save.pendingRndMessages.Count > 0)
+            {
+                rndReportDisplayCache.Clear();
+                rndReportDisplayCache.AddRange(career.Save.pendingRndMessages);
+                career.Save.pendingRndMessages.Clear();
+                career.Write();
+            }
+
+            if (rndReportDisplayCache.Count == 0)
             {
                 return;
             }
 
             Text header = UiFactory.CreateText(parent, "Rnd report header", "R&D REPORT", 14, UiFactory.AccentAmber, TextAnchor.MiddleLeft);
             UiFactory.SetSize(header, 384f, 22f);
-            for (int i = 0; i < career.Save.pendingRndMessages.Count; i++)
+            for (int i = 0; i < rndReportDisplayCache.Count; i++)
             {
                 RectTransform card = UiFactory.CreateRect(parent, "Rnd report " + i, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
                 card.sizeDelta = new Vector2(384f, 56f);
                 Image cardBackground = card.gameObject.AddComponent<Image>();
                 cardBackground.color = UiFactory.PanelDark;
                 UiFactory.CreateBand(card, "Report rule", new Vector2(0f, 0f), new Vector2(0f, 1f), Vector2.zero, new Vector2(3f, 0f), UiFactory.AccentAmber);
-                Text message = UiFactory.CreateText(card, "Report message", career.Save.pendingRndMessages[i], 14, UiFactory.TextPrimary, TextAnchor.MiddleLeft);
+                Text message = UiFactory.CreateText(card, "Report message", rndReportDisplayCache[i], 14, UiFactory.TextPrimary, TextAnchor.MiddleLeft);
                 RectTransform messageRect = message.GetComponent<RectTransform>();
                 messageRect.anchorMin = Vector2.zero;
                 messageRect.anchorMax = Vector2.one;
                 messageRect.offsetMin = new Vector2(14f, 4f);
                 messageRect.offsetMax = new Vector2(-10f, -4f);
             }
-
-            career.Save.pendingRndMessages.Clear();
-            career.Write();
         }
 
         // Full R&D management screen: department facilities, live projects with
@@ -2833,7 +2922,7 @@ namespace LocalFormulaRacing
                 {
                     Color changeColor = latest.lastOverallChange > 0 ? UiFactory.AccentGreen : UiFactory.Accent;
                     string changeLabel = (latest.lastOverallChange > 0 ? "+" : "") + latest.lastOverallChange;
-                    Text changeText = UiFactory.CreateText(card, "Driver card overall change", changeLabel, 12, changeColor, TextAnchor.MiddleCenter);
+                    Text changeText = UiFactory.CreateText(card, "Driver card overall change", changeLabel, 13, changeColor, TextAnchor.MiddleCenter);
                     changeText.fontStyle = FontStyle.Bold;
                     UiFactory.SetSize(changeText, 54f, 16f);
                     SetTopRight(changeText.rectTransform, 16f, 78f);
@@ -3129,7 +3218,7 @@ namespace LocalFormulaRacing
                 string changeLabel = ratingChange > 0 ? "+" + ratingChange : ratingChange.ToString();
                 Color devColor = ratingChange > 0 ? UiFactory.AccentGreen : (ratingChange < 0 ? UiFactory.Accent : UiFactory.TextMuted);
                 Text devText = UiFactory.CreateText(card, "Team card development", "SEASON START " + devState.ratingAtSeasonStart + "   ·   " + changeLabel +
-                    "   ·   " + devState.completedUpgradeIds.Count + " UPGRADE" + (devState.completedUpgradeIds.Count == 1 ? "" : "S"), 12, devColor, TextAnchor.UpperLeft);
+                    "   ·   " + devState.completedUpgradeIds.Count + " UPGRADE" + (devState.completedUpgradeIds.Count == 1 ? "" : "S"), 13, devColor, TextAnchor.UpperLeft);
                 SetTopLeft(devText.rectTransform, 16f, 96f);
                 UiFactory.SetSize(devText, 320f, 16f);
             }
@@ -4892,11 +4981,10 @@ namespace LocalFormulaRacing
             // sections overlap them, and content's total height (the scrollable
             // range) comes out short. Repeating the rebuild lets each pass
             // consume the previous pass's now-correct child sizes until it
-            // converges from the leaves up to content.
-            for (int layoutPass = 0; layoutPass < 4; layoutPass++)
-            {
-                LayoutRebuilder.ForceRebuildLayoutImmediate(content);
-            }
+            // converges from the leaves up to content. Centralized as
+            // UiFactory.ForceRebuildAutoLayout so every report-style screen
+            // (season review, offseason, pre-season testing) shares the fix.
+            UiFactory.ForceRebuildAutoLayout(content);
 
             RectTransform footerLeft;
             RectTransform footerRight;
@@ -5242,7 +5330,9 @@ namespace LocalFormulaRacing
                 BuildEmptyState(content, "No headlines recorded for this season.", ReportContentWidth);
             }
 
-            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+            // Multi-pass rebuild: nested auto-size cards under-report height on a
+            // single pass and later sections overlap them (see ShowResults).
+            UiFactory.ForceRebuildAutoLayout(content);
 
             RectTransform footerLeft;
             RectTransform footerRight;
@@ -5543,7 +5633,9 @@ namespace LocalFormulaRacing
                 BuildEmptyState(content, "No rival identified yet.", ReportContentWidth);
             }
 
-            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+            // Multi-pass rebuild: nested auto-size cards under-report height on a
+            // single pass and later sections overlap them (see ShowResults).
+            UiFactory.ForceRebuildAutoLayout(content);
 
             RectTransform footerLeft;
             RectTransform footerRight;
@@ -5618,7 +5710,9 @@ namespace LocalFormulaRacing
                 BuildEmptyState(content, "No upgrade recommendations available.", ReportContentWidth);
             }
 
-            LayoutRebuilder.ForceRebuildLayoutImmediate(content);
+            // Multi-pass rebuild: nested auto-size cards under-report height on a
+            // single pass and later sections overlap them (see ShowResults).
+            UiFactory.ForceRebuildAutoLayout(content);
 
             RectTransform footerLeft;
             RectTransform footerRight;
@@ -5984,13 +6078,13 @@ namespace LocalFormulaRacing
 
             RectTransform infoContentArea;
             UiFactory.CreateAutoCard(row, "Incident cleanup", "Incident Cleanup", UiFactory.AccentCyan, halfWidth, out infoContentArea);
-            UiFactory.CreateAutoText(infoContentArea, "Info header", "INFORMATIONAL - NOT RACE CONTROL", 12, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+            UiFactory.CreateAutoText(infoContentArea, "Info header", "INFORMATIONAL - NOT RACE CONTROL", 13, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
             UiFactory.CreateAutoText(infoContentArea, "Info car contact", "Car-contact incidents: " + race.CarContactIncidentCount, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
             UiFactory.CreateAutoText(infoContentArea, "Info solo", "Solo incidents (spins/walls): " + race.SoloContactIncidentCount, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
             UiFactory.CreateAutoText(infoContentArea, "Info dnf", "Retirements (DNF): " + dnfCount, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
             if (player != null)
             {
-                UiFactory.CreateAutoText(infoContentArea, "Info player telemetry header", "YOUR CAR", 12, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+                UiFactory.CreateAutoText(infoContentArea, "Info player telemetry header", "YOUR CAR", 13, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
                 UiFactory.CreateStatBar(infoContentArea, "Lockups", player.lockups, 8f, UiFactory.AccentAmber, innerWidth);
                 UiFactory.CreateStatBar(infoContentArea, "Flat Spot", player.flatSpotPercent, 100f, UiFactory.AccentAmber, innerWidth);
 
@@ -5999,7 +6093,7 @@ namespace LocalFormulaRacing
                 // happened instead of leaving the player to guess.
                 if (player.trackLimitEvents != null && player.trackLimitEvents.Count > 0)
                 {
-                    UiFactory.CreateAutoText(infoContentArea, "Info track limits header", "TRACK LIMIT EVENTS", 12, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+                    UiFactory.CreateAutoText(infoContentArea, "Info track limits header", "TRACK LIMIT EVENTS", 13, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
                     for (int i = 0; i < player.trackLimitEvents.Count; i++)
                     {
                         UiFactory.CreateAutoText(infoContentArea, "Info track limit event " + i, player.trackLimitEvents[i], 13, UiFactory.AccentAmber, TextAnchor.UpperLeft, innerWidth);
@@ -6106,7 +6200,7 @@ namespace LocalFormulaRacing
                 int lap = Mathf.Max(1, entry.lap);
                 if (grouped && lap != lastLap)
                 {
-                    Text lapHeader = UiFactory.CreateAutoText(list, "Timeline lap header " + i, "LAP " + lap, 12, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
+                    Text lapHeader = UiFactory.CreateAutoText(list, "Timeline lap header " + i, "LAP " + lap, 13, UiFactory.TextMuted, TextAnchor.UpperLeft, innerWidth);
                     lapHeader.fontStyle = FontStyle.Bold;
                     lastLap = lap;
                 }
@@ -6700,7 +6794,11 @@ namespace LocalFormulaRacing
 
         void BuildStandingsRows(GameDataRepository data, RectTransform content, List<StandingEntry> standings, float width)
         {
-            int count = Mathf.Min(10, standings.Count);
+            // Full field, not a top-10 cap: the container is a scroll panel, and
+            // the old Min(10, ...) hid P11-P22 - including the player's own row
+            // in a midfield/backmarker season - from the career hub and the
+            // season review's FINAL standings.
+            int count = standings.Count;
             for (int i = 0; i < count; i++)
             {
                 StandingEntry entry = standings[i];

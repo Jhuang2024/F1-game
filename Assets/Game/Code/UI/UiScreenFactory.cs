@@ -57,6 +57,33 @@ namespace F1Game.UI
             {
                 tmp.font = font;
             }
+            else
+            {
+                WarnMissingFontOnce(style);
+            }
+
+            return FinishText(tmp, theme, style);
+        }
+
+        static bool warnedMissingFont;
+
+        // A missing typography asset used to change appearance silently — most
+        // visibly, Numeric text (timing tower, lap times) lost its tabular
+        // digits and jittered. The fallback still renders, but now it says so.
+        static void WarnMissingFontOnce(TextStyle style)
+        {
+            if (warnedMissingFont)
+            {
+                return;
+            }
+
+            warnedMissingFont = true;
+            Debug.LogWarning("[UI] UiTheme typography font missing (first hit: " + style +
+                             ") - text is falling back to the TMP default. Numeric text loses tabular digit alignment.");
+        }
+
+        static TMP_Text FinishText(TMP_Text tmp, UiTheme theme, TextStyle style)
+        {
 
             if (style == TextStyle.Label || style == TextStyle.Caption)
             {
@@ -302,7 +329,10 @@ namespace F1Game.UI
             card.anchorMin = new Vector2(0.5f, 0.5f);
             card.anchorMax = new Vector2(0.5f, 0.5f);
             card.pivot = new Vector2(0.5f, 0.5f);
-            card.sizeDelta = new Vector2(520f, 520f);
+            // 620 tall: with the practice-only 6th button active, the menu's
+            // content exceeded the old 520px card and the bottom button
+            // spilled past the card edge (VerticalLayoutGroups don't clip).
+            card.sizeDelta = new Vector2(520f, 620f);
             RectTransform column = CreateLayoutColumn(card, "PauseMenu", theme.spacing.small,
                 new RectOffset((int)theme.spacing.major, (int)theme.spacing.major, (int)theme.spacing.major, (int)theme.spacing.major));
             Stretch(column);
@@ -474,6 +504,10 @@ namespace F1Game.UI
 
             TMP_Text empty = CreateText(chartArea, "Empty", TextStyle.Body, "");
             empty.color = theme.palette.textMuted;
+            // Centre the empty-state message in the plot rect (the default
+            // anchors left it floating at the rect's local origin).
+            Stretch(empty.rectTransform);
+            empty.alignment = TextAlignmentOptions.Center;
 
             CreateText(content, "LegendLabel", TextStyle.Label, "LEGEND");
             RectTransform legend = CreateLayoutColumn(content, "Legend", theme.spacing.micro);
@@ -915,7 +949,14 @@ statGridGo.transform.SetParent(content, false);
             RectTransform topLeft = MakeDock("Dock_TopLeft", new Vector2(0.035f, 0.965f), new Vector2(0.035f, 0.965f), new Vector2(0f, 1f));
             RectTransform topCenter = MakeDock("Dock_TopCenter", new Vector2(0.5f, 0.965f), new Vector2(0.5f, 0.965f), new Vector2(0.5f, 1f));
             RectTransform topRight = MakeDock("Dock_TopRight", new Vector2(0.965f, 0.965f), new Vector2(0.965f, 0.965f), new Vector2(1f, 1f));
-            RectTransform timingTower = MakeDock("Dock_TimingTower", new Vector2(0.035f, 0.5f), new Vector2(0.035f, 0.5f), new Vector2(0f, 0.5f));
+            // Anchored below screen-centre (not at 0.5): the top-left module
+            // column stacks ~14 modules downward with no clipping, and at the
+            // 0.5 anchor a busy race state (times block + pit status/plan +
+            // cancel button all visible) ran into the tower's first rows.
+            RectTransform timingTower = MakeDock("Dock_TimingTower", new Vector2(0.035f, 0.45f), new Vector2(0.035f, 0.45f), new Vector2(0f, 0.5f));
+            // Tighter spacing on the overloaded top-left column buys back one
+            // module height across the stack.
+            topLeft.GetComponent<VerticalLayoutGroup>().spacing = theme.spacing.micro;
             RectTransform bottomCenter = MakeDock("Dock_BottomCenter", new Vector2(0.5f, 0.035f), new Vector2(0.5f, 0.035f), new Vector2(0.5f, 0f));
             RectTransform bottomRight = MakeDock("Dock_BottomRight", new Vector2(0.965f, 0.035f), new Vector2(0.965f, 0.035f), new Vector2(1f, 0f));
 
@@ -925,10 +966,15 @@ statGridGo.transform.SetParent(content, false);
             topCenter.GetComponent<VerticalLayoutGroup>().childAlignment = TextAnchor.UpperCenter;
 
             // Flag chip (driven by the telemetry-polling FlagModule; created here
-            // so it sits first in the top-right stack).
+            // so it sits first in the top-right stack). The background is
+            // initialized to the positive (green-flag) palette colour with a
+            // contrast-checked label: an Image defaults to opaque WHITE, which
+            // combined with the near-white label meant the chip flashed as an
+            // unreadable white box until the module's first Set call.
             var chipGo = new GameObject("FlagChip", typeof(RectTransform));
             chipGo.transform.SetParent(topRight, false);
             Image chipBg = chipGo.AddComponent<Image>();
+            chipBg.color = theme.palette.positive;
             TMP_Text chipText = CreateText(chipGo.transform, "Label", TextStyle.Label, "GREEN");
             Stretch(chipText.rectTransform);
             chipText.alignment = TextAlignmentOptions.Center;
@@ -936,6 +982,7 @@ statGridGo.transform.SetParent(content, false);
             chipGo.AddComponent<LayoutElement>().preferredHeight = 34f;
             var chip = chipGo.AddComponent<StatusChip>();
             chip.Bind(chipText, chipBg);
+            chip.Set("GREEN", StatusChip.Tone.Positive);
 
             // Notification feed (event-driven, pooled).
             var feedGo = new GameObject("NotificationFeed", typeof(RectTransform));

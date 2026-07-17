@@ -23,6 +23,10 @@ namespace F1Game.UI.Screens.RaceHudShell
         readonly List<Image> carDots = new List<Image>();
         int builtOutlineVersion = -1;
         float mapSize;
+        // Outline segments are baked against a specific mapSize; a container
+        // resize (resolution/HUD-scale change) must trigger a rebake or the
+        // per-frame car dots drift off the stale outline.
+        float builtOutlineMapSize = -1f;
 
         public void Bind(RectTransform mapContainer)
         {
@@ -49,12 +53,14 @@ namespace F1Game.UI.Screens.RaceHudShell
 
         void RebuildOutlineIfNeeded()
         {
-            if (builtOutlineVersion == HudTrackMap.OutlineVersion)
+            if (builtOutlineVersion == HudTrackMap.OutlineVersion &&
+                Mathf.Abs(builtOutlineMapSize - mapSize) < 0.5f)
             {
                 return;
             }
 
             builtOutlineVersion = HudTrackMap.OutlineVersion;
+            builtOutlineMapSize = mapSize;
             int count = HudTrackMap.OutlineCount;
             // Closed loop: one segment per outline point, the last wrapping
             // back to the first, so the circuit reads as one continuous drawn

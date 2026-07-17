@@ -1531,6 +1531,10 @@ namespace LocalFormulaRacing
             shell.Transitions.ReducedMotion = !settings.Current.uiAnimations;
             // Drive the colour-vision-accessibility palette from the player's setting.
             AccessibilityColors.SetMode(settings.Current.colorBlindMode);
+            // UI Scale previously only reached the legacy canvas; push it into
+            // the production shell too so the slider works on the default
+            // frontend (UiFactory.ApplyUiScale mirrors this for live changes).
+            shell.ApplyUiScale(settings.UiScale);
         }
 
         static SettingsModel BuildSettingsModel()

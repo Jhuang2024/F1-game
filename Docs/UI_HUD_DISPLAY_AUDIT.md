@@ -287,12 +287,83 @@ and lap-time digits jitter instead of aligning, with no visible error.
   verified for Sliced and Tiled consumers); only L1's thin-bar mip blur
   regressed.
 
-## 7. Suggested fix order
+## 7. Remediation pass (2026-07-17)
 
-1. H1 (dead toasts), H7 (disabled-button repaint) — systemic, hit every screen.
-2. H3 (standings cap), H4+F-root (report overlap; fix
-   `childControlHeight` in the factory's auto containers and the docstring).
-3. H5/H6 (HUD caution-state overlaps — reflow the banner/right column).
-4. H2 (production UI scale wiring), M2 (button double-tint).
-5. M-tier localized fixes, then L-tier polish (L1's mip-blur regression is a
-   one-line fix worth taking early).
+All HIGH and MEDIUM findings and nearly all LOW findings were fixed on this
+branch the same day. Status per item:
+
+**HIGH — all fixed**
+- H1 ✅ `UiShell.BuildToastTemplate` builds a code-authored ToastView (raised
+  surface, kind-coloured accent, body text) and passes it to ToastService —
+  toasts render for the first time.
+- H2 ✅ `UiShell.ApplyUiScale` scales the production canvas the same way the
+  legacy one scales; pushed at boot (`ProductionUiBridge.
+  ApplyAccessibilityToShell`) and live from `UiFactory.ApplyUiScale`
+  (`UiShell.ActiveShell`). L22's clamp mismatch fixed alongside (factory now
+  clamps to `GameSettingsStore.UiScaleMin/Max`).
+- H3 ✅ `BuildStandingsRows` renders the full field (the container already
+  scrolled); P11–P22 and the player's own row are visible.
+- H4 ✅ Root-caused in the factory: new `UiFactory.ForceRebuildAutoLayout`
+  (multi-pass) with a corrected docstring; ShowResults, ShowSeasonReview,
+  ShowOffseasonHub and ShowPreSeasonTesting all use it.
+- H5 ✅ Race Control banner (and pace pill) pinned below the top band's real
+  scaled bottom via `TopBandClearance()` — no overlap at any aspect/scale.
+- H6 ✅ Radio stack moved one column inboard of the right-edge column; the
+  SC-period card stack and radio bursts no longer share a column. (Residual:
+  at hudScale 1.3 an extreme 3-card burst can brush the scaled column's
+  lower edge — flagged for the in-editor pass.)
+- H7 ✅ `ThemedButton.DoStateTransition` override repaints on programmatic
+  `interactable` changes — disabled buttons now look disabled.
+
+**MEDIUM — all fixed**
+- M1 ✅ `SetShellVisible` now also disables the shell's GraphicRaycaster
+  (belt-and-braces against a hidden-but-enabled canvas eating legacy clicks).
+- M2 ✅ Button/mode-card/toggle graphics stay white; the ColorBlock alone
+  carries the tint — authored colours render exactly once. (L11 fixed in the
+  same pass: selected/toggle states derive pressed/disabled from their own
+  face colour.)
+- M3 ✅ Sector row: single-line (no wrap) + `CompactSectorTimes` strips the
+  redundant "00:" minute prefix so the line fits.
+- M4 ✅ Progress strip tracks `TopBandClearance()` — the scaled band can no
+  longer grow over it.
+- M5 ✅ `TooltipService.ClampToScreen` at request and again at reveal.
+- M6 ✅ "Biggest Loser" now measures championship POSITIONS lost over the
+  momentum window (`FindChampionshipBiggestRankLoser`) — it can actually
+  show a loss, or "--" when nobody dropped.
+- M7 ✅ R&D report renders from a session cache; the save queue is consumed
+  once, and hub rebuilds no longer destroy unread messages.
+- M8 ✅ `MainMenuView.Render` re-points explicit navigation around the hidden
+  Standings button.
+- M9 ✅ Flag chip initialized via `StatusChip.Set("GREEN", Positive)` at
+  build — no white-on-white frame.
+- M10 ✅ One-time `Debug.LogWarning` in both TMP text factories when a theme
+  font (esp. tabularNumeric) is missing — silent fallback now announces
+  itself.
+
+**LOW — fixed:** L1 (thin accent bars are plain solid Images again — button
+chip, mode card, HUD card, radio card), L2 (event/lap band segments best-fit
++ clip), L3 (minimap sector tints by arc length), L4 (radio cards no longer
+block raycasts), L5 (input telemetry shifts left as hudScale rises), L6
+(`CreateBand` defaults `raycastTarget=false`), L7 (chart points get a
+28px invisible hit pad), L8 (`ConstrainSingleLineLabel` on breakdown/HUD
+row labels and card headers), L9 (bar fills inset 1.5px inside rounded
+tracks), L10 (slim auto-hide scrollbar on both scroll panel builders), L11
+(with M2), L12 (chart edge labels pivot inward), L13 (pause card 520→620
+tall), L15 (minimap outline rebakes on container resize), L16
+(ScreenRouter.EnterTransition wired to TransitionService.FadeIn, with
+per-group fade cancellation), L17 (modal close publishes the mirror bus
+event), L18 (12px labels → 13px; status strip brightened), L19 (shared
+`MedalGold/Silver/Bronze` + `PrimaryButtonFace/Hover` constants), L21
+(chart empty label centred), L22 (with H2).
+
+**Mitigated:** L14 — timing tower dock anchored lower (0.45) and the
+top-left column spacing tightened; full-worst-case stacking still needs the
+in-editor visual pass to confirm.
+
+**Accepted as designed:** L20 — `AccessibilityColors.Status` adoption is
+explicitly incremental per its own contract; the factory's raw-Color
+primitives can't infer semantic roles mechanically. Each call site adopts
+`Status(role)` as screens migrate.
+
+All of this is static-only (no Unity editor in this environment); the
+in-editor bring-up pass in `EDITOR_BRINGUP.md` validates it visually.

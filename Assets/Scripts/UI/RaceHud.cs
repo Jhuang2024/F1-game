@@ -356,6 +356,16 @@ namespace LocalFormulaRacing
             panel.localScale = new Vector3(hudScale, hudScale, 1f);
         }
 
+        // Vertical clearance below the top band's REAL bottom edge: the band is
+        // 52 tall at offset 8 and scales down from its top pivot, so anything
+        // pinned near the top must clear 8 + 52 * hudScale (plus a small gap)
+        // or the scaled band will grow over it - localScale reserves no layout
+        // space.
+        float TopBandClearance()
+        {
+            return 8f + 52f * hudScale + 10f;
+        }
+
         // ---------- construction ----------
 
         // Distinct segments instead of one long pipe-joined string: a session
@@ -370,6 +380,15 @@ namespace LocalFormulaRacing
             sessionLabelText = CreateTopBandSegment(band, "Session segment", 0f, 0.13f, UiFactory.Accent, TextAnchor.MiddleLeft, 15, true);
             CreateTopBandDivider(band, 0.13f);
             eventNameText = CreateTopBandSegment(band, "Event segment", 0.14f, 0.4f, UiFactory.TextPrimary, TextAnchor.MiddleLeft, 16, false);
+            // Event names are unbounded strings: shrink-to-fit and clip inside
+            // the segment instead of overflowing across the divider into the
+            // position badge (the segment is 48px tall, so Truncate here can
+            // never hide a whole single line).
+            eventNameText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            eventNameText.verticalOverflow = VerticalWrapMode.Truncate;
+            eventNameText.resizeTextForBestFit = true;
+            eventNameText.resizeTextMinSize = 11;
+            eventNameText.resizeTextMaxSize = 16;
             CreateTopBandDivider(band, 0.4f);
             // Position and lap counter are the two primary numbers this strip
             // exists to show (see the HUD hierarchy pass) - bumped a couple of
@@ -379,6 +398,13 @@ namespace LocalFormulaRacing
             positionBadgeText = CreateTopBandSegment(band, "Position segment", 0.41f, 0.51f, UiFactory.AccentCyan, TextAnchor.MiddleCenter, 19, true);
             CreateTopBandDivider(band, 0.51f);
             lapCounterText = CreateTopBandSegment(band, "Lap segment", 0.52f, 0.63f, UiFactory.TextPrimary, TextAnchor.MiddleCenter, 19, true);
+            // "LAP 12 / 58" at 19pt bold is right at this segment's ~108px
+            // width: shrink-to-fit instead of spilling across the dividers.
+            lapCounterText.horizontalOverflow = HorizontalWrapMode.Wrap;
+            lapCounterText.verticalOverflow = VerticalWrapMode.Truncate;
+            lapCounterText.resizeTextForBestFit = true;
+            lapCounterText.resizeTextMinSize = 12;
+            lapCounterText.resizeTextMaxSize = 19;
             lapCounterPunch = lapCounterText.gameObject.AddComponent<UiPunch>();
             CreateTopBandDivider(band, 0.63f);
             sessionMessageText = CreateTopBandSegment(band, "Message segment", 0.64f, 1f, new Color(0.85f, 0.9f, 0.94f), TextAnchor.MiddleLeft, 16, false);
@@ -435,7 +461,13 @@ namespace LocalFormulaRacing
             raceControlBanner.anchorMin = new Vector2(0f, 1f);
             raceControlBanner.anchorMax = new Vector2(0f, 1f);
             raceControlBanner.pivot = new Vector2(0f, 1f);
-            raceControlBanner.anchoredPosition = new Vector2(16f, -10f);
+            // Below the top band's scaled bottom edge: the old fixed -10 put
+            // the left-pinned banner ON TOP of the centre-pinned session band
+            // at every aspect ratio of 16:9 or narrower (the two overlap
+            // horizontally whenever the reference width is under ~1970), so a
+            // caution period hid the session pill/event name exactly when the
+            // banner appeared.
+            raceControlBanner.anchoredPosition = new Vector2(16f, -TopBandClearance());
             ApplyPanelScale(raceControlBanner);
             raceControlBanner.gameObject.SetActive(false);
 
@@ -450,7 +482,7 @@ namespace LocalFormulaRacing
             paceCompliancePill.root.anchorMin = new Vector2(0f, 1f);
             paceCompliancePill.root.anchorMax = new Vector2(0f, 1f);
             paceCompliancePill.root.pivot = new Vector2(0f, 1f);
-            paceCompliancePill.root.anchoredPosition = new Vector2(16f, -10f - RaceControlBannerBaseHeight - 12f);
+            paceCompliancePill.root.anchoredPosition = new Vector2(16f, -TopBandClearance() - RaceControlBannerBaseHeight - 12f);
             ApplyPanelScale(paceCompliancePill.root);
             paceCompliancePill.root.gameObject.SetActive(false);
         }
@@ -474,13 +506,16 @@ namespace LocalFormulaRacing
 
             if (paceCompliancePill != null)
             {
-                paceCompliancePill.root.anchoredPosition = new Vector2(16f, -10f - height - 12f);
+                paceCompliancePill.root.anchoredPosition = new Vector2(16f, -TopBandClearance() - height - 12f);
             }
         }
 
         void BuildProgressStrip()
         {
-            progressStrip = UiFactory.CreateResponsivePanel(transform, "Track progress strip", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(ProgressStripWidth + 24f, 16f), new Vector2(0f, -66f), new Color(0.006f, 0.009f, 0.012f, 0.66f));
+            // Tracks the top band's scaled bottom (at hudScale 1 this is the
+            // original -66): the fixed offset let the band grow over the strip
+            // at hudScale above ~1.12.
+            progressStrip = UiFactory.CreateResponsivePanel(transform, "Track progress strip", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f), new Vector2(ProgressStripWidth + 24f, 16f), new Vector2(0f, -(TopBandClearance() - 4f)), new Color(0.006f, 0.009f, 0.012f, 0.66f));
             ApplyPanelScale(progressStrip);
             UiFactory.CreateBand(progressStrip, "Start finish marker", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(10f, 3f), new Vector2(13f, -3f), Color.white);
 
@@ -530,12 +565,25 @@ namespace LocalFormulaRacing
             // using the same normalized-progress thirds RaceManager/LapTracker
             // already use for TrackProgress.sector, so the minimap reads like a
             // broadcast track map - no new track data needed, just the split.
+            // Sector tint boundaries use ARC-LENGTH fraction, matching how
+            // TrackProgress.sector is actually assigned (distance thirds) -
+            // the old centerline-INDEX fraction drifted off the true S1/S2/S3
+            // boundaries wherever the points weren't uniformly spaced.
+            float totalLength = 0f;
+            float[] cumulative = new float[line.Count];
+            for (int i = 1; i < line.Count; i++)
+            {
+                totalLength += Vector3.Distance(line[i - 1], line[i]);
+                cumulative[i] = totalLength;
+            }
+
+            totalLength = Mathf.Max(totalLength, 0.001f);
             int segmentBudget = Mathf.Min(line.Count, 180);
             int step = Mathf.Max(1, line.Count / segmentBudget);
             for (int i = 0; i < line.Count; i += step)
             {
                 int next = i + step >= line.Count ? 0 : i + step;
-                float normalized = i / (float)line.Count;
+                float normalized = cumulative[i] / totalLength;
                 Color sectorTint = normalized < 0.333f ? UiFactory.AccentCyan
                     : normalized < 0.666f ? UiFactory.AccentAmber
                     : UiFactory.AccentPurple;
@@ -650,7 +698,12 @@ namespace LocalFormulaRacing
         // being asked to do, like a broadcast telemetry insert.
         void BuildInputTelemetry()
         {
-            RectTransform panel = UiFactory.CreateResponsivePanel(transform, "Input telemetry", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(96f, 138f), new Vector2(-292f, 12f), new Color(0.008f, 0.012f, 0.018f, 0.8f));
+            // Scale-aware x offset: this panel and the bottom dash are both
+            // centre-anchored, and localScale grows them toward each other -
+            // above hudScale ~1.03 the fixed -292 put the telemetry bars over
+            // the dash's left edge. The extra shift keeps a gap at any scale.
+            float telemetryX = -(292f + 300f * Mathf.Max(0f, hudScale - 1f));
+            RectTransform panel = UiFactory.CreateResponsivePanel(transform, "Input telemetry", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f), new Vector2(96f, 138f), new Vector2(telemetryX, 12f), new Color(0.008f, 0.012f, 0.018f, 0.8f));
             ApplyPanelScale(panel);
             Text throttleLabel;
             Text brakeLabel;
@@ -843,6 +896,12 @@ namespace LocalFormulaRacing
             UiFactory.CreateHudLabelValueRow(card, "Best", 90f, out bestRowValue);
 
             sectorRow = UiFactory.CreateText(card, "Sectors", "", 13, UiFactory.TextPrimary, TextAnchor.MiddleLeft);
+            // Single line, never wrap: with the CreateText default (Wrap +
+            // vertical Overflow) the full three-sector string wrapped onto a
+            // second line that rendered straight over the GAP/INT row 4px
+            // below. Combined with the compacted mm:ss stripping in
+            // UpdateTimingCard the row now fits; Overflow is the safety net.
+            sectorRow.horizontalOverflow = HorizontalWrapMode.Overflow;
             RectTransform sectorRect = sectorRow.GetComponent<RectTransform>();
             sectorRect.anchorMin = new Vector2(0f, 1f);
             sectorRect.anchorMax = new Vector2(1f, 1f);
@@ -1128,15 +1187,20 @@ namespace LocalFormulaRacing
         // already-tall right stack (Car Status + Pit + SC Window all visible
         // together during a safety car period) summed to well over the
         // stack's nominal height and could bleed into the track map above or
-        // off the bottom of the screen. It's now its own panel, pinned to a
-        // fixed bottom-right anchor independent of rightStack, so it can only
-        // ever grow upward from a fixed screen position and never competes
-        // with the other cards for space regardless of how tall they get.
+        // off the bottom of the screen.
+        //
+        // Second overlap fix: pinning it to the bottom of the SAME right-edge
+        // column didn't actually bound anything - during a safety car the
+        // downward-growing right stack (Car Status + Pit + SC Window, ~568px
+        // from y=-240) and a full upward-growing radio burst (~348px from the
+        // bottom) still met in the middle and rendered text over text. The
+        // radio stack now lives one column inboard (left of the right-edge
+        // column), where it has the vertical space to itself.
         void BuildRadioStack()
         {
             radioStackContainer = UiFactory.CreateRect(transform, "Radio stack", new Vector2(1f, 0f), new Vector2(1f, 0f), Vector2.zero, Vector2.zero);
             radioStackContainer.pivot = new Vector2(1f, 0f);
-            radioStackContainer.anchoredPosition = new Vector2(-16f, 16f);
+            radioStackContainer.anchoredPosition = new Vector2(-16f - RightStackWidth - 12f, 16f);
             radioStackContainer.sizeDelta = new Vector2(RightStackWidth, RadioCardMinHeight);
             ApplyPanelScale(radioStackContainer);
             VerticalLayoutGroup stackLayout = UiFactory.AddVerticalLayout(radioStackContainer, RadioCardSpacing, new RectOffset(0, 0, 0, 0));
@@ -1148,14 +1212,22 @@ namespace LocalFormulaRacing
                 card.sizeDelta = new Vector2(RightStackWidth, RadioCardMinHeight);
                 Image background = card.gameObject.AddComponent<Image>();
                 UiFactory.StyleRounded(background, UiFactory.HudCardBackground);
+                background.raycastTarget = false;
                 radioCardSlots[i] = card;
 
+                // Plain solid accent (3px): the mipmapped rounded sprite reads
+                // blurry at this width.
                 RectTransform accent = UiFactory.CreateRect(card, "Radio accent " + i, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 8f), new Vector2(3f, -8f));
                 Image accentImage = accent.gameObject.AddComponent<Image>();
-                UiFactory.StyleRoundedSmall(accentImage, UiFactory.AccentGreen);
+                accentImage.color = UiFactory.AccentGreen;
+                accentImage.raycastTarget = false;
                 radioCardAccents[i] = accentImage;
 
                 CanvasGroup group = card.gameObject.AddComponent<CanvasGroup>();
+                // Decorative overlay: never let a (possibly fading/invisible)
+                // radio card swallow pointer events.
+                group.blocksRaycasts = false;
+                group.interactable = false;
                 radioCardGroups[i] = group;
 
                 Text text = UiFactory.CreateText(card, "Radio text " + i, "", 13, new Color(0.86f, 0.95f, 1f), TextAnchor.UpperLeft);
@@ -2021,10 +2093,14 @@ namespace LocalFormulaRacing
 
             bestRowValue.text = best;
 
-            sectorRow.text = "S1 " + SectorText(1, lap.LastSector1Time) +
-                             "  S2 " + SectorText(2, lap.LastSector2Time) +
-                             "  S3 " + SectorText(3, lap.LastSector3Time) +
-                             "   <color=#8A98A2>NOW S" + lap.CurrentSector + " " + race.LiveSectorText(lap.CurrentSectorTime) + "</color>";
+            // CompactSectorTimes drops the redundant "00:" minute prefix from
+            // sub-minute sector times ("00:23.456" -> "23.456") so the full
+            // three-sector line fits its single row.
+            sectorRow.text = CompactSectorTimes(
+                "S1 " + SectorText(1, lap.LastSector1Time) +
+                "  S2 " + SectorText(2, lap.LastSector2Time) +
+                "  S3 " + SectorText(3, lap.LastSector3Time) +
+                "   <color=#8A98A2>NOW S" + lap.CurrentSector + " " + race.LiveSectorText(lap.CurrentSectorTime) + "</color>");
 
             if (race.IsTimeTrial)
             {
@@ -3103,6 +3179,14 @@ namespace LocalFormulaRacing
         string SectorText(int sector, float time)
         {
             return race == null ? (time <= 0f ? "--.---" : UiFactory.FormatTime(time)) : race.PlayerSectorText(sector, time);
+        }
+
+        // Strips the redundant "00:" minute prefix from sub-minute times in a
+        // composed rich-text line (sector times are almost always under a
+        // minute; times of 1min+ keep their full form).
+        static string CompactSectorTimes(string line)
+        {
+            return System.Text.RegularExpressions.Regex.Replace(line, @"\b00:(\d\d\.\d\d\d)", "$1");
         }
 
         Color TyreColor(string tyreName)

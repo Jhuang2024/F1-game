@@ -378,16 +378,38 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            GlobalUiScale = Mathf.Clamp(scale, 0.5f, 2f);
+            // Clamp to the same range the settings store enforces
+            // (GameSettingsStore.UiScaleMin/Max) - the old 0.5-2.0 range here
+            // was unreachable dead range.
+            GlobalUiScale = Mathf.Clamp(scale, GameSettingsStore.UiScaleMin, GameSettingsStore.UiScaleMax);
             CanvasScaler scaler = canvas.GetComponent<CanvasScaler>();
             if (scaler != null)
             {
                 scaler.referenceResolution = BaseReferenceResolution / GlobalUiScale;
             }
+
+            // Keep the production shell's canvas in step, so the UI-Scale
+            // slider affects the default frontend as well as this legacy
+            // canvas (it previously did nothing on the production stack).
+            if (F1Game.UI.UiShell.ActiveShell != null)
+            {
+                F1Game.UI.UiShell.ActiveShell.ApplyUiScale(GlobalUiScale);
+            }
         }
 
         // Shared dark-glass motorsport theme so every screen reads as one product.
         public static readonly Color Accent = new Color(0.95f, 0.08f, 0.06f, 1f);
+        // One medal palette for every P1/P2/P3 surface (classification badges,
+        // podium cards): these used to be re-literalled per call site with
+        // slightly different values, so the same finisher showed two different
+        // golds on one screen.
+        public static readonly Color MedalGold = new Color(1f, 0.8f, 0.2f, 0.92f);
+        public static readonly Color MedalSilver = new Color(0.78f, 0.82f, 0.88f, 0.85f);
+        public static readonly Color MedalBronze = new Color(0.82f, 0.52f, 0.25f, 0.85f);
+        // The Primary button face/hover pair, shared by CreateStyledButton and
+        // SetButtonSelected (previously re-literalled in both).
+        public static readonly Color PrimaryButtonFace = new Color(0.62f, 0.05f, 0.045f, 0.98f);
+        public static readonly Color PrimaryButtonHover = new Color(0.85f, 0.1f, 0.08f, 1f);
         public static readonly Color AccentCyan = new Color(0.2f, 0.72f, 1f, 1f);
         public static readonly Color AccentGreen = new Color(0.35f, 0.95f, 0.5f, 1f);
         public static readonly Color AccentAmber = new Color(1f, 0.78f, 0.22f, 1f);
@@ -734,6 +756,10 @@ namespace LocalFormulaRacing
             RectTransform rect = CreateRect(parent, name, anchorMin, anchorMax, offsetMin, offsetMax);
             Image image = rect.gameObject.AddComponent<Image>();
             image.color = color;
+            // Bands are pure decoration (rules, washes, accents): never let
+            // them capture pointer raycasts - a band layered over a button
+            // would silently eat its clicks.
+            image.raycastTarget = false;
             return rect;
         }
 
@@ -835,8 +861,8 @@ namespace LocalFormulaRacing
             switch (variant)
             {
                 case ButtonVariant.Primary:
-                    face = new Color(0.62f, 0.05f, 0.045f, 0.98f);
-                    hover = new Color(0.85f, 0.1f, 0.08f, 1f);
+                    face = PrimaryButtonFace;
+                    hover = PrimaryButtonHover;
                     accentColor = new Color(1f, 0.42f, 0.32f, 1f);
                     break;
                 case ButtonVariant.Secondary:
@@ -858,6 +884,12 @@ namespace LocalFormulaRacing
             }
 
             StyleRounded(image, face);
+            // The ColorTint transition MULTIPLIES the ColorBlock colour by the
+            // graphic's own vertex colour. With the face colour applied to both
+            // (the old code), every button rendered face x face - a near-black
+            // square of the authored colour. The graphic stays white; the
+            // ColorBlock alone carries the tint.
+            image.color = Color.white;
             Button button = buttonObject.AddComponent<Button>();
             button.targetGraphic = image;
             ColorBlock colors = button.colors;
@@ -876,13 +908,15 @@ namespace LocalFormulaRacing
             RectTransform rect = buttonObject.GetComponent<RectTransform>();
             rect.sizeDelta = new Vector2(296f, 50f);
 
-            // Accent chip on the left edge.
+            // Accent chip on the left edge. Plain solid Image: at 4px wide the
+            // mipmapped rounded sprite sampled a blurry mip and the bar read
+            // soft/translucent instead of crisp.
             RectTransform accent = CreateRect(buttonObject.transform, "Accent", new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), Vector2.zero, Vector2.zero);
             accent.sizeDelta = new Vector2(4f, 26f);
             accent.pivot = new Vector2(0f, 0.5f);
             accent.anchoredPosition = new Vector2(7f, 0f);
             Image accentImage = accent.gameObject.AddComponent<Image>();
-            StyleRoundedSmall(accentImage, accentColor);
+            accentImage.color = accentColor;
             accentImage.raycastTarget = false;
 
             // Sheen band swept by UiButtonFx on hover.
@@ -923,11 +957,18 @@ namespace LocalFormulaRacing
             Image face = button.targetGraphic as Image;
             if (face != null && selected)
             {
-                face.color = new Color(0.62f, 0.05f, 0.045f, 0.98f);
+                // Tint via the ColorBlock only (the graphic stays white - see
+                // CreateStyledButton), and derive pressed/disabled from the
+                // selected face too: the old code left them at the original
+                // variant's dark values, so pressing a selected (red) button
+                // flashed near-black.
+                Color selectedFace = PrimaryButtonFace;
                 ColorBlock colors = button.colors;
-                colors.normalColor = face.color;
-                colors.highlightedColor = new Color(0.85f, 0.1f, 0.08f, 1f);
+                colors.normalColor = selectedFace;
+                colors.highlightedColor = PrimaryButtonHover;
                 colors.selectedColor = colors.highlightedColor;
+                colors.pressedColor = new Color(selectedFace.r * 0.55f, selectedFace.g * 0.55f, selectedFace.b * 0.55f, 1f);
+                colors.disabledColor = new Color(selectedFace.r, selectedFace.g, selectedFace.b, 0.32f);
                 button.colors = colors;
             }
 
@@ -956,6 +997,9 @@ namespace LocalFormulaRacing
             Color face = primary ? new Color(0.55f, 0.048f, 0.04f, 0.96f) : new Color(0.035f, 0.05f, 0.068f, 0.92f);
             Color hover = primary ? new Color(0.78f, 0.09f, 0.07f, 1f) : new Color(0.08f, 0.12f, 0.16f, 1f);
             StyleRounded(image, face);
+            // ColorBlock carries the tint; a white graphic avoids the
+            // face-times-face double tint (see CreateStyledButton).
+            image.color = Color.white;
 
             Button button = cardObject.AddComponent<Button>();
             button.targetGraphic = image;
@@ -976,9 +1020,11 @@ namespace LocalFormulaRacing
             RectTransform rect = cardObject.GetComponent<RectTransform>();
             rect.sizeDelta = new Vector2(440f, string.IsNullOrEmpty(description) ? 54f : 72f);
 
+            // Plain solid accent bar (4px wide): the mipmapped rounded sprite
+            // reads blurry at this size.
             RectTransform accent = CreateRect(cardObject.transform, "Accent", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 8f), new Vector2(4f, -8f));
             Image accentImage = accent.gameObject.AddComponent<Image>();
-            StyleRoundedSmall(accentImage, accentColor);
+            accentImage.color = accentColor;
             accentImage.raycastTarget = false;
 
             RectTransform sheenMask = CreateRect(cardObject.transform, "Sheen mask", Vector2.zero, Vector2.one, new Vector2(2f, 2f), new Vector2(-2f, -2f));
@@ -1316,7 +1362,9 @@ namespace LocalFormulaRacing
             track.sizeDelta = new Vector2(width, height);
             Image trackImage = track.gameObject.AddComponent<Image>();
             StyleRoundedSmall(trackImage, new Color(0.12f, 0.15f, 0.17f, 0.9f));
-            RectTransform fill = CreateBand(track, name + " fill", Vector2.zero, new Vector2(Mathf.Clamp01(value01), 1f), Vector2.zero, Vector2.zero, fillColor);
+            // 1.5px inset keeps the rectangular fill's corners inside the
+            // track's rounded corners at 0% and 100% fill.
+            RectTransform fill = CreateBand(track, name + " fill", Vector2.zero, new Vector2(Mathf.Clamp01(value01), 1f), new Vector2(1.5f, 1.5f), new Vector2(-1.5f, -1.5f), fillColor);
             return fill.GetComponent<Image>();
         }
 
@@ -1425,10 +1473,28 @@ namespace LocalFormulaRacing
         // text and whole card containers, so their sizeDelta always reflects what
         // Unity's layout system actually computed for their content - not a
         // hand-typed constant. They report accurate height once a layout pass has
-        // run; callers that read sizes synchronously right after building the tree
-        // should follow with a single LayoutRebuilder.ForceRebuildLayoutImmediate on
-        // the outermost container after all children exist (ShowResults does this
-        // once, at the end, exactly like RaceHud's radio stack already does).
+        // run. IMPORTANT: with childControlHeight = false at every level, ONE
+        // ForceRebuildLayoutImmediate is NOT enough for nested auto containers -
+        // each rebuild only propagates true heights one nesting level upward
+        // (a parent reads the child sizeDelta the PREVIOUS pass wrote), so a
+        // single pass leaves cards under-reporting and later sections
+        // overlapping them. Call ForceRebuildAutoLayout (below), which runs
+        // enough passes for the deepest nesting these primitives produce.
+
+        // One pass per nesting level of the content -> card -> list -> text
+        // chain the auto primitives build (4 covers the deepest current use).
+        public static void ForceRebuildAutoLayout(RectTransform outermost)
+        {
+            if (outermost == null)
+            {
+                return;
+            }
+
+            for (int pass = 0; pass < 4; pass++)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(outermost);
+            }
+        }
 
         // Wrapping paragraph text that reports its own true rendered height instead
         // of a fixed guess - safe to nest inside any VerticalLayoutGroup (including
@@ -1565,7 +1631,27 @@ namespace LocalFormulaRacing
             scroll.vertical = true;
             scroll.movementType = ScrollRect.MovementType.Clamped;
             scroll.scrollSensitivity = 24f;
+            AttachSlimScrollbar(scroll, viewport, name);
             return content;
+        }
+
+        // Slim auto-hiding scrollbar on the right edge of a scroll viewport:
+        // long lists previously gave no visual hint that more content existed
+        // below the fold.
+        static void AttachSlimScrollbar(ScrollRect scroll, RectTransform viewport, string name)
+        {
+            RectTransform scrollbarRect = CreateRect(viewport, name + " scrollbar", new Vector2(1f, 0f), new Vector2(1f, 1f), new Vector2(-8f, 4f), new Vector2(-2f, -4f));
+            Image scrollbarBackground = scrollbarRect.gameObject.AddComponent<Image>();
+            scrollbarBackground.color = new Color(1f, 1f, 1f, 0.04f);
+            Scrollbar scrollbar = scrollbarRect.gameObject.AddComponent<Scrollbar>();
+            scrollbar.direction = Scrollbar.Direction.BottomToTop;
+            RectTransform handle = CreateRect(scrollbarRect, "Handle", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            Image handleImage = handle.gameObject.AddComponent<Image>();
+            handleImage.color = new Color(1f, 1f, 1f, 0.22f);
+            scrollbar.handleRect = handle;
+            scrollbar.targetGraphic = handleImage;
+            scroll.verticalScrollbar = scrollbar;
+            scroll.verticalScrollbarVisibility = ScrollRect.ScrollbarVisibility.AutoHide;
         }
 
         public static RectTransform CreateBackdrop(Transform parent, string name)
@@ -1660,10 +1746,10 @@ namespace LocalFormulaRacing
             badge.pivot = new Vector2(0f, 0.5f);
             badge.anchoredPosition = new Vector2(8f, 0f);
             Image image = badge.gameObject.AddComponent<Image>();
-            Color badgeColor = position == 1 ? new Color(1f, 0.8f, 0.2f, 0.92f)
-                : position == 2 ? new Color(0.78f, 0.82f, 0.88f, 0.85f)
-                : position == 3 ? new Color(0.82f, 0.52f, 0.25f, 0.85f)
-                : (isPlayer ? new Color(0.95f, 0.08f, 0.06f, 0.9f) : new Color(0.14f, 0.18f, 0.23f, 0.9f));
+            Color badgeColor = position == 1 ? MedalGold
+                : position == 2 ? MedalSilver
+                : position == 3 ? MedalBronze
+                : (isPlayer ? new Color(Accent.r, Accent.g, Accent.b, 0.9f) : new Color(0.14f, 0.18f, 0.23f, 0.9f));
             StyleRoundedSmall(image, badgeColor);
             Text label = CreateText(badge, "Badge label", position.ToString(), 14, position <= 3 ? new Color(0.06f, 0.06f, 0.07f) : Color.white, TextAnchor.MiddleCenter);
             RectTransform labelRect = label.GetComponent<RectTransform>();
@@ -1693,6 +1779,11 @@ namespace LocalFormulaRacing
             RectTransform row = CreateRect(parent, label + " breakdown row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
             row.sizeDelta = new Vector2(width, 24f);
             Text labelText = CreateText(row, "Breakdown label", label, 14, TextMuted, TextAnchor.MiddleLeft);
+            // A long (e.g. localized) label used to wrap and render its second
+            // line over the row below (vertical Overflow is the CreateText
+            // default). Best-fit keeps it on one line by shrinking instead;
+            // Truncate is the safety net.
+            ConstrainSingleLineLabel(labelText, 14);
             RectTransform labelRect = labelText.GetComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0f, 0f);
             labelRect.anchorMax = new Vector2(0.6f, 1f);
@@ -1728,10 +1819,16 @@ namespace LocalFormulaRacing
             card.sizeDelta = new Vector2(width, height);
             Image background = card.gameObject.AddComponent<Image>();
             StyleRounded(background, HudCardBackground);
+            // Plain solid accent (3px wide): the mipmapped rounded sprite reads
+            // blurry at this size.
             RectTransform accent = CreateRect(card, title + " card accent", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(0f, 8f), new Vector2(3f, -8f));
             accentImage = accent.gameObject.AddComponent<Image>();
-            StyleRoundedSmall(accentImage, accentColor);
+            accentImage.color = accentColor;
+            accentImage.raycastTarget = false;
             Text header = CreateText(card, title + " card title", title.ToUpperInvariant(), 13, TextMuted, TextAnchor.UpperLeft);
+            // Keep long/localized headers to one shrunk line instead of
+            // wrapping down into the card body.
+            ConstrainSingleLineLabel(header, 13);
             RectTransform headerRect = header.GetComponent<RectTransform>();
             headerRect.anchorMin = new Vector2(0f, 1f);
             headerRect.anchorMax = new Vector2(1f, 1f);
@@ -1740,10 +1837,22 @@ namespace LocalFormulaRacing
             return card;
         }
 
+        // Fixed-height single-line label protection: best-fit shrinks a
+        // too-long string to keep it on one line; vertical Truncate stops a
+        // worst-case wrap from painting over the row/card content below.
+        static void ConstrainSingleLineLabel(Text label, int maxFontSize)
+        {
+            label.resizeTextForBestFit = true;
+            label.resizeTextMinSize = 9;
+            label.resizeTextMaxSize = maxFontSize;
+            label.verticalOverflow = VerticalWrapMode.Truncate;
+        }
+
         // Label on the left, value on the right, placed at a vertical offset from the card top.
         public static Text CreateHudLabelValueRow(RectTransform card, string label, float topOffset, out Text valueText)
         {
             Text labelText = CreateText(card, label + " row label", label.ToUpperInvariant(), 13, TextMuted, TextAnchor.MiddleLeft);
+            ConstrainSingleLineLabel(labelText, 13);
             RectTransform labelRect = labelText.GetComponent<RectTransform>();
             labelRect.anchorMin = new Vector2(0f, 1f);
             labelRect.anchorMax = new Vector2(0.5f, 1f);
@@ -2213,11 +2322,20 @@ namespace LocalFormulaRacing
             {
                 Color onColor = new Color(0.1f, 0.5f, 0.22f, 0.95f);
                 Color offColor = new Color(0.1f, 0.13f, 0.17f, 0.9f);
-                StyleRounded(face, value ? onColor : offColor);
+                Color state = value ? onColor : offColor;
+                StyleRounded(face, state);
+                // ColorBlock carries the tint over a white graphic (see
+                // CreateStyledButton) - and pressed/disabled derive from the
+                // toggle's own state colour: they used to keep the original
+                // variant's dark values, so pressing an ON (green) toggle
+                // flashed near-black.
+                face.color = Color.white;
                 ColorBlock colors = button.colors;
-                colors.normalColor = face.color;
+                colors.normalColor = state;
                 colors.highlightedColor = value ? new Color(0.14f, 0.62f, 0.28f, 1f) : new Color(0.16f, 0.2f, 0.26f, 1f);
                 colors.selectedColor = colors.highlightedColor;
+                colors.pressedColor = new Color(state.r * 0.7f, state.g * 0.7f, state.b * 0.7f, 1f);
+                colors.disabledColor = new Color(state.r, state.g, state.b, 0.32f);
                 button.colors = colors;
             }
 
@@ -2410,7 +2528,8 @@ namespace LocalFormulaRacing
             Image trackImage = track.gameObject.AddComponent<Image>();
             StyleRoundedSmall(trackImage, MeterTrack);
             float value01 = maxValue <= 0f ? 0f : Mathf.Clamp01(value / maxValue);
-            CreateBand(track, "Stat bar fill", Vector2.zero, new Vector2(value01, 1f), Vector2.zero, Vector2.zero, fillColor);
+            // 1.5px inset keeps the square fill inside the track's rounded corners.
+            CreateBand(track, "Stat bar fill", Vector2.zero, new Vector2(value01, 1f), new Vector2(1.5f, 1.5f), new Vector2(-1.5f, -1.5f), fillColor);
             return row;
         }
 
@@ -2425,9 +2544,9 @@ namespace LocalFormulaRacing
             Image background = card.gameObject.AddComponent<Image>();
             StyleRounded(background, PanelDarker);
 
-            Color medal = position == 1 ? new Color(1f, 0.82f, 0.24f, 1f)
-                : position == 2 ? new Color(0.8f, 0.85f, 0.9f, 1f)
-                : new Color(0.82f, 0.53f, 0.26f, 1f);
+            Color medal = position == 1 ? new Color(MedalGold.r, MedalGold.g, MedalGold.b, 1f)
+                : position == 2 ? new Color(MedalSilver.r, MedalSilver.g, MedalSilver.b, 1f)
+                : new Color(MedalBronze.r, MedalBronze.g, MedalBronze.b, 1f);
 
             // The winner reads clearly as the winner: a bigger avatar, medal tag
             // and name than P2/P3, not just a taller platform underneath them.
@@ -2510,8 +2629,9 @@ namespace LocalFormulaRacing
             StyleRoundedSmall(trackImage, MeterTrack);
             float a01 = maxValue <= 0f ? 0f : Mathf.Clamp01(valueA / maxValue);
             float b01 = maxValue <= 0f ? 0f : Mathf.Clamp01(valueB / maxValue);
-            CreateBand(track, "Comparison fill A", new Vector2(0f, 0.52f), new Vector2(a01, 1f), Vector2.zero, Vector2.zero, colorA);
-            CreateBand(track, "Comparison fill B", new Vector2(0f, 0f), new Vector2(b01, 0.48f), Vector2.zero, Vector2.zero, colorB);
+            // Horizontal inset keeps the square fills inside the rounded track ends.
+            CreateBand(track, "Comparison fill A", new Vector2(0f, 0.52f), new Vector2(a01, 1f), new Vector2(1.5f, 0f), new Vector2(-1.5f, -1f), colorA);
+            CreateBand(track, "Comparison fill B", new Vector2(0f, 0f), new Vector2(b01, 0.48f), new Vector2(1.5f, 1f), new Vector2(-1.5f, 0f), colorB);
             return row;
         }
 
@@ -2553,6 +2673,7 @@ namespace LocalFormulaRacing
             scroll.vertical = true;
             scroll.movementType = ScrollRect.MovementType.Clamped;
             scroll.scrollSensitivity = 24f;
+            AttachSlimScrollbar(scroll, viewport, name);
             return content;
         }
 
@@ -2614,7 +2735,11 @@ namespace LocalFormulaRacing
                     RectTransform labelRect = label.GetComponent<RectTransform>();
                     labelRect.anchorMin = new Vector2(0f, fraction);
                     labelRect.anchorMax = new Vector2(0f, fraction);
-                    labelRect.pivot = new Vector2(0f, 0.5f);
+                    // Edge labels pivot inward: a centre pivot left the top
+                    // label's upper half outside the plot (colliding with the
+                    // chart title) and the bottom label's lower half below it.
+                    float pivotY = fraction >= 0.999f ? 1f : (fraction <= 0.001f ? 0f : 0.5f);
+                    labelRect.pivot = new Vector2(0f, pivotY);
                     labelRect.anchoredPosition = new Vector2(2f, 0f);
                     labelRect.sizeDelta = new Vector2(46f, 16f);
                     label.raycastTarget = false;
@@ -2675,15 +2800,28 @@ namespace LocalFormulaRacing
         // Small tappable circular marker at a chart point - the "tap a point for
         // detail" interaction (full pointer-hover tooltips would need extra
         // IPointerEnter plumbing this simple widget set doesn't have).
+        // The clickable area is a 28px-minimum invisible hit pad around the
+        // visual dot: the old hit area equalled the 9-13px dot itself, which
+        // was effectively untappable.
         public static Button CreateChartPoint(RectTransform parent, string name, Vector2 pointLocal, float size, Color color, UnityAction onTap)
         {
-            RectTransform dot = CreateRect(parent, name, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            float hitSize = Mathf.Max(size, 28f);
+            RectTransform hitPad = CreateRect(parent, name, Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+            hitPad.sizeDelta = new Vector2(hitSize, hitSize);
+            hitPad.anchoredPosition = pointLocal;
+            // Invisible but raycastable graphic covering the whole pad (an
+            // Image with zero alpha still receives raycasts).
+            Image hitImage = hitPad.gameObject.AddComponent<Image>();
+            hitImage.color = new Color(0f, 0f, 0f, 0f);
+
+            RectTransform dot = CreateRect(hitPad, name + " dot", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
             dot.sizeDelta = new Vector2(size, size);
-            dot.anchoredPosition = pointLocal;
             Image image = dot.gameObject.AddComponent<Image>();
             image.sprite = CircleSprite;
             image.color = color;
-            Button button = dot.gameObject.AddComponent<Button>();
+            image.raycastTarget = false;
+
+            Button button = hitPad.gameObject.AddComponent<Button>();
             button.targetGraphic = image;
             ColorBlock colors = button.colors;
             colors.normalColor = Color.white;

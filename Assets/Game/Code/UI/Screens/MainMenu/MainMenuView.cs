@@ -69,6 +69,21 @@ namespace F1Game.UI.Screens.MainMenu
             {
                 standingsButton.gameObject.SetActive(model.hasCareer);
             }
+
+            // Explicit navigation targets are NOT auto-skipped when inactive:
+            // with the Standings button hidden, Down from Time Trial used to
+            // land on the disabled object and controller focus stalled.
+            // Re-point the neighbours around the gap whenever it toggles.
+            if (standingsButton != null && timeTrialButton != null && settingsButton != null)
+            {
+                UnityEngine.UI.Navigation timeTrialNav = timeTrialButton.navigation;
+                timeTrialNav.selectOnDown = model.hasCareer ? standingsButton : (UnityEngine.UI.Selectable)settingsButton;
+                timeTrialButton.navigation = timeTrialNav;
+
+                UnityEngine.UI.Navigation settingsNav = settingsButton.navigation;
+                settingsNav.selectOnUp = model.hasCareer ? standingsButton : (UnityEngine.UI.Selectable)timeTrialButton;
+                settingsButton.navigation = settingsNav;
+            }
         }
     }
 }
