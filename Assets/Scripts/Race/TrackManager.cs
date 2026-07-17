@@ -2373,6 +2373,32 @@ namespace LocalFormulaRacing
                         continue;
                     }
 
+                    // Micro-loop cusp fix (per [StuckDiag] report - the whole
+                    // field wedged against "Procedural road" mid-final-corner
+                    // at Austria): a crossing whose two "legs" are only a few
+                    // points apart along the lap is NOT a real flyover crossing
+                    // - it's the spline overshooting at a too-sharp authored
+                    // vertex and folding into a tiny self-intersecting loop.
+                    // Raising one side of a loop that short clamps the ramp
+                    // blend to almost nothing and builds a near-vertical wall
+                    // of road that cars drive straight into (and get recovery-
+                    // reset back into, forever). The loop is collapsed flat
+                    // instead: the points between the two crossing segments are
+                    // replaced with a straight chord, giving a drivable corner
+                    // with no cliff.
+                    int indexGap = Mathf.Min(Mathf.Abs(j - i), n - Mathf.Abs(j - i));
+                    if (indexGap < Mathf.Max(6, n / 10))
+                    {
+                        CollapseCenterlineMicroLoop(line, i, j);
+                        if (LastReport != null)
+                        {
+                            LastReport.Warn("Micro self-crossing (spline cusp) at points " + i + "/" + j +
+                                            " - collapsed the loop flat instead of raising a cliff.");
+                        }
+
+                        continue;
+                    }
+
                     // Heights re-read fresh (an earlier crossing's raise this same
                     // pass may have already lifted this leg); the crossing test
                     // itself is pure XZ so raises never invalidate it.
@@ -2393,6 +2419,25 @@ namespace LocalFormulaRacing
                                         CrossingClearanceMeters + "m clearance).");
                     }
                 }
+            }
+        }
+
+        // Replaces the points strictly between a micro-loop's two crossing
+        // segments with a straight chord from line[i] to line[j+1] - the loop
+        // (a handful of points) disappears and the corner becomes a slightly
+        // straighter but fully drivable arc. Only ever called for SHORT spans
+        // (see the indexGap gate in ResolveTrackCrossings), so this never
+        // rewrites a meaningful stretch of lap.
+        static void CollapseCenterlineMicroLoop(List<Vector3> line, int i, int j)
+        {
+            int n = line.Count;
+            int span = (j - i + n) % n;
+            Vector3 from = line[i];
+            Vector3 to = line[(j + 1) % n];
+            for (int k = 1; k <= span; k++)
+            {
+                float t = k / (float)(span + 1);
+                line[(i + k) % n] = Vector3.Lerp(from, to, t);
             }
         }
 
