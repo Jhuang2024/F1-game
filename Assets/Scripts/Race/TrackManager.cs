@@ -6140,6 +6140,29 @@ namespace LocalFormulaRacing
                     float gap = NearestSolidProtectionDistance(expected);
                     if (gap > BarrierGapThreshold)
                     {
+                        // Validation-driven repair (per report - the same
+                        // handful of "Barrier gap" warnings survived every
+                        // build pass): the pit entry/exit fan openings are BY
+                        // DESIGN (cars must cross between track and pit lane
+                        // there) and are no longer reported as defects; every
+                        // other detected gap now gets a direct style-matched
+                        // AutoFillBarrierGap attempt at its own location,
+                        // through the same clearance-checked placement path as
+                        // every barrier (with the standard dedupe so an
+                        // offset-but-present wall never gets a duplicate).
+                        // Only a gap that STILL cannot be filled is warned.
+                        if (IsIntentionalPitOpening(normalized, side, false))
+                        {
+                            continue;
+                        }
+
+                        TrackSolidObstacle nearbyBarrier;
+                        if (!HasBarrierColliderNearEdge(d, side, BarrierAutoFillDedupeRadius, out nearbyBarrier) &&
+                            AutoFillBarrierGap(d, side))
+                        {
+                            continue;
+                        }
+
                         gaps++;
                         report.Warn("Barrier gap at " + d.ToString("0") + "m " + (side < 0 ? "left" : "right") +
                                     " side, nearest protection " + gap.ToString("0.0") + "m away");
