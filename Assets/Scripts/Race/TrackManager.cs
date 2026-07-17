@@ -8038,9 +8038,9 @@ namespace LocalFormulaRacing
 
             // Signature grandstands on the main spectator stretches. Grandstand at 0.85-1.0
             // is kept on the left so it never fights the pit complex on the right.
-            // Every circuit's stands now build oversized (per request -
-            // "grandstands being a lot bigger"), Jeddah's biggest of all.
-            float standScale = jeddahTrack ? 2f : 1.4f;
+            // Every circuit's stands now build at double scale (per request -
+            // "every grandstand should be 2x").
+            float standScale = 2f;
             BuildGrandstand(0.02f, -1, standScale);
             BuildGrandstand(0.15f, 1, standScale);
             BuildGrandstand(0.45f, -1, standScale);
@@ -8073,7 +8073,7 @@ namespace LocalFormulaRacing
                     standSide = -1;
                 }
 
-                BuildGrandstand(slot, standSide, jeddahTrack ? 1.6f : 1.2f);
+                BuildGrandstand(slot, standSide, 2f);
             }
 
             // Row of trackside flags flanking the start/finish straight - see
@@ -8333,12 +8333,10 @@ namespace LocalFormulaRacing
             // Every street circuit except Monaco (whose identity is the tight
             // low-rise hillside canyon, not a tower skyline) gets the full
             // high-rise field on top of its own archetype pass (per request -
-            // "when I was talking about skyscrapers I was thinking more like
-            // 50-100 more for street circuits"), with Jeddah the densest
-            // skyline on the calendar.
+            // "every street circuit should have around 100 skyscrapers").
             if (streetTrack && !monacoTrack)
             {
-                BuildHighRiseSkyline(density, jeddahTrack ? 100 : 70);
+                BuildHighRiseSkyline(density, 100);
             }
 
             if (parklandTrack)
@@ -8592,11 +8590,12 @@ namespace LocalFormulaRacing
                 CreateProceduralBuildingCluster(anchor, forward, 2, height, twilightTrack);
             }
 
-            // A couple of extra long, low grandstands beyond BuildScenery's fixed set.
-            BuildGrandstand(0.3f, 1);
+            // A couple of extra long, low grandstands beyond BuildScenery's fixed set
+            // (2x scale like every other stand - per request).
+            BuildGrandstand(0.3f, 1, 2f);
             if (density > 0.6f)
             {
-                BuildGrandstand(0.72f, -1);
+                BuildGrandstand(0.72f, -1, 2f);
             }
         }
 

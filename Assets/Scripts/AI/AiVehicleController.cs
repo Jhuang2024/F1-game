@@ -1000,9 +1000,11 @@ namespace LocalFormulaRacing
             // way"): compression deepened five more notches. Still a gap-KEEP
             // fraction, never a flat delta, so an elite always stays measurably
             // ahead of a journeyman and nobody saturates at the 98 cap.
-            float racecraftGapKeep = racecraftTier == RaceDifficulty.Easy ? 0.42f
-                : racecraftTier == RaceDifficulty.Medium ? 0.30f
-                : racecraftTier == RaceDifficulty.Hard ? 0.19f : 0.11f;
+            // Rounds 17-21 (per request): five more notches (was
+            // 0.42/0.30/0.19/0.11).
+            float racecraftGapKeep = racecraftTier == RaceDifficulty.Easy ? 0.26f
+                : racecraftTier == RaceDifficulty.Medium ? 0.17f
+                : racecraftTier == RaceDifficulty.Hard ? 0.10f : 0.05f;
             overtaking = Mathf.Clamp(Mathf.RoundToInt(99f - (99f - overtaking) * racecraftGapKeep), 30, 98);
             defending = Mathf.Clamp(Mathf.RoundToInt(99f - (99f - defending) * racecraftGapKeep), 30, 98);
 
@@ -1248,7 +1250,8 @@ namespace LocalFormulaRacing
             // way"): +3% five more times (-> 1.42-1.52). Width still untouched
             // every round - the whole field is braver, the pecking order
             // unchanged, and the feasibility cap below still bounds it all.
-            float driverPaceVariance = Mathf.Lerp(1.42f, 1.52f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
+            // Rounds 17-21 (per request): +3% five more times (-> 1.57-1.67).
+            float driverPaceVariance = Mathf.Lerp(1.57f, 1.67f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
             // multipliers used to inflate the corner-entry target past what the
@@ -1273,7 +1276,8 @@ namespace LocalFormulaRacing
             // Rounds 12-16: widened five more times (-> 1.19-1.41); same width
             // discipline as every prior round, so paceNorm (driver skill) still
             // decides who gets to use the extra entry-speed judgment.
-            float feasibilityCap = Mathf.Lerp(1.19f, 1.41f, paceNorm);
+            // Rounds 17-21: widened five more times (-> 1.24-1.51).
+            float feasibilityCap = Mathf.Lerp(1.24f, 1.51f, paceNorm);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
                 apexTargetSpeed * feasibilityCap);
