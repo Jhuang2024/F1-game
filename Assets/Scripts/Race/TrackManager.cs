@@ -8653,20 +8653,30 @@ namespace LocalFormulaRacing
         // overlapping lobes with seed-varied widths/heights/offsets, each
         // buried to a ~60% cap and anchored to the terrain, so the silhouette
         // is an irregular ridge line instead of a perfect dome.
+        // Round 2 (per report - "not only are there still more domes"): sphere
+        // lobes are gone entirely. Every ridge piece is now an ANGULAR slab - a
+        // rotated, z-tilted, squashed cube - so a formation reads as low-poly
+        // faceted terrain with straight skyline edges. There is no curved
+        // silhouette left anywhere in the horizon dressing.
         void CreateRidgeFormation(Vector3 basePosition, float width, float height, float depth, Material material, int seed)
         {
-            for (int lobe = 0; lobe < 4; lobe++)
+            for (int slab = 0; slab < 4; slab++)
             {
-                float lobeWidth = width * (lobe == 0 ? 1f : 0.4f + ((seed + lobe) % 4) * 0.12f);
-                float lobeHeight = height * (lobe == 0 ? 1f : 0.55f + ((seed * 3 + lobe) % 4) * 0.12f);
-                float lobeDepth = depth * (lobe == 0 ? 1f : 0.5f + ((seed * 5 + lobe) % 3) * 0.15f);
-                float offsetX = lobe == 0 ? 0f : (((seed * 13 + lobe * 53) % 100) - 50) * 0.01f * width * 0.55f;
-                float offsetZ = lobe == 0 ? 0f : (((seed * 29 + lobe * 31) % 60) - 30) * 0.01f * depth * 0.4f;
-                GameObject piece = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                piece.name = "Ridge formation lobe";
+                float slabWidth = width * (slab == 0 ? 0.9f : 0.4f + ((seed + slab) % 4) * 0.12f);
+                float slabHeight = height * (slab == 0 ? 1f : 0.55f + ((seed * 3 + slab) % 4) * 0.12f);
+                float slabDepth = depth * (slab == 0 ? 0.8f : 0.45f + ((seed * 5 + slab) % 3) * 0.14f);
+                float offsetX = slab == 0 ? 0f : (((seed * 13 + slab * 53) % 100) - 50) * 0.01f * width * 0.55f;
+                float offsetZ = slab == 0 ? 0f : (((seed * 29 + slab * 31) % 60) - 30) * 0.01f * depth * 0.4f;
+                float yaw = (seed * 37 + slab * 61) % 180;
+                float tilt = ((seed + slab * 3) % 2 == 0 ? 1f : -1f) * (4f + (seed + slab) % 5);
+                GameObject piece = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                piece.name = "Ridge formation slab";
                 piece.transform.SetParent(transform);
-                piece.transform.position = new Vector3(basePosition.x + offsetX, groundTopY + lobeHeight * 0.1f, basePosition.z + offsetZ);
-                piece.transform.localScale = new Vector3(lobeWidth, lobeHeight, lobeDepth);
+                // Buried ~a third so the tilted top edge rises out of the
+                // terrain as a ridge line.
+                piece.transform.position = new Vector3(basePosition.x + offsetX, groundTopY + slabHeight * 0.18f, basePosition.z + offsetZ);
+                piece.transform.rotation = Quaternion.Euler(0f, yaw, tilt);
+                piece.transform.localScale = new Vector3(slabWidth, slabHeight, slabDepth);
                 piece.GetComponent<Renderer>().sharedMaterial = material;
                 MakeVisualOnly(piece);
             }
@@ -9216,45 +9226,23 @@ namespace LocalFormulaRacing
         // between rebuilds.
         void CreateForestedHill(Vector3 basePosition, int seed, float width, float height)
         {
-            float mainWidth = 0f;
-            float mainHeight = 0f;
-            float mainDepth = 0f;
-            Vector3 mainCenter = Vector3.zero;
-            for (int m = 0; m < 3; m++)
-            {
-                float moundWidth = width * (m == 0 ? 1f : 0.5f + ((seed + m) % 3) * 0.14f);
-                float moundHeight = height * (m == 0 ? 1f : 0.55f + ((seed * 3 + m) % 3) * 0.15f);
-                Vector3 offset = m == 0 ? Vector3.zero
-                    : new Vector3(((seed * 7 + m * 29) % 41) - 20f, 0f, ((seed * 11 + m * 17) % 27) - 13f);
-                GameObject mound = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                mound.name = "Forested hill mound";
-                mound.transform.SetParent(transform);
-                mound.transform.position = basePosition + offset + Vector3.down * (moundHeight * 0.28f);
-                mound.transform.localScale = new Vector3(moundWidth, moundHeight, moundWidth * 0.75f);
-                mound.GetComponent<Renderer>().sharedMaterial = hillsideEarthMaterial;
-                MakeVisualOnly(mound);
-                if (m == 0)
-                {
-                    mainCenter = mound.transform.position;
-                    mainWidth = moundWidth;
-                    mainHeight = moundHeight;
-                    mainDepth = moundWidth * 0.75f;
-                }
-            }
+            // De-blob round 2 (per report - "not only are there still more
+            // domes"): the sphere mounds are gone - the hill body is the same
+            // angular slab formation the horizon ridges use.
+            CreateRidgeFormation(basePosition, width, height, width * 0.75f, hillsideEarthMaterial, seed);
 
-            // Trees over the main mound: each base sits ON the ellipsoid surface
-            // (y = halfH * sqrt(1 - r^2) above the mound centre) so the stand
-            // rides the slope instead of floating beside it or sinking into it.
+            // Trees over the main slab's top plateau (kept to its central half
+            // so the slab's tilt can't leave a base hanging off the edge; bases
+            // sink slightly to absorb the tilt).
+            float slabTopY = groundTopY + height * 0.18f + height * 0.5f;
             int treeCount = 5 + seed % 3;
             for (int t = 0; t < treeCount; t++)
             {
                 float angle = ((seed * 43 + t * 149) % 360) * Mathf.Deg2Rad;
-                float radialFraction = 0.15f + ((seed * 5 + t * 7) % 5) * 0.13f;
-                float dx = Mathf.Cos(angle) * radialFraction * mainWidth * 0.5f;
-                float dz = Mathf.Sin(angle) * radialFraction * mainDepth * 0.5f;
-                float normalized = (dx * dx) / (mainWidth * mainWidth * 0.25f) + (dz * dz) / (mainDepth * mainDepth * 0.25f);
-                float surfaceY = mainCenter.y + mainHeight * 0.5f * Mathf.Sqrt(Mathf.Max(0f, 1f - normalized));
-                Vector3 treeBase = new Vector3(mainCenter.x + dx, surfaceY - 0.6f, mainCenter.z + dz);
+                float radialFraction = 0.08f + ((seed * 5 + t * 7) % 5) * 0.07f;
+                float dx = Mathf.Cos(angle) * radialFraction * width * 0.9f;
+                float dz = Mathf.Sin(angle) * radialFraction * width * 0.68f;
+                Vector3 treeBase = new Vector3(basePosition.x + dx, slabTopY - 1.6f, basePosition.z + dz);
                 // 3x tree pass: hillside trees scale up with the trackside ones.
                 float jitter = (0.7f + ((seed + t) % 4) * 0.1f) * 3f;
                 if ((seed + t) % 2 == 0)
@@ -9614,7 +9602,15 @@ namespace LocalFormulaRacing
             // right at the verge, so this dedicated pass plants a tight row
             // ~24m off the centerline on both sides with a slim clearance
             // check that fits the narrow island strip.
-            float treeLineSpacing = Mathf.Lerp(30f, 16f, Mathf.InverseLerp(0.25f, 2f, density));
+            // Round 2 (per report - "not A TREE in sight" at the start/finish
+            // straight): the shared pit-corridor exclusion wiped the RIGHT side
+            // of 23% of the lap (0.83-1.0 plus 0-0.06) - which is exactly the
+            // stretch the player stares down from the grid. The exclusion is
+            // now only the real pit-building strip (0.86-1.0 / 0-0.03), that
+            // stretch still gets trees pushed BEHIND the pit complex (90m+),
+            // and the open lap gets a second staggered row so the verge reads
+            // properly tree-lined.
+            float treeLineSpacing = Mathf.Lerp(26f, 13f, Mathf.InverseLerp(0.25f, 2f, density));
             int treeLineSeed = 0;
             for (float d = 0f; d < Runtime.length; d += treeLineSpacing)
             {
@@ -9627,22 +9623,22 @@ namespace LocalFormulaRacing
                 Vector3 groundPoint = GroundedTrackPoint(point);
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    // Same pit-corridor exclusion the main scenery loop uses.
-                    if ((normalized > 0.83f || normalized < 0.06f) && side > 0f)
+                    bool pitStrip = (normalized > 0.86f || normalized < 0.03f) && side > 0f;
+                    for (int row = 0; row < 2; row++)
                     {
-                        continue;
-                    }
+                        int treeSeed = treeLineSeed * 4 + row * 2 + (side + 1) / 2;
+                        float lateralOffset = pitStrip
+                            ? Runtime.roadHalfWidth + 90f + row * 18f + (treeSeed * 7) % 12
+                            : Runtime.roadHalfWidth + 24f + row * 14f + (treeSeed * 7) % 9;
+                        Vector3 desired = groundPoint + right * side * lateralOffset + forward * (((treeSeed * 11) % 15) - 7f);
+                        Vector3 safePosition;
+                        if (!TryGetClearScenerySpot(desired, 3f, 1f, out safePosition))
+                        {
+                            continue;
+                        }
 
-                    int treeSeed = treeLineSeed * 2 + (side + 1) / 2;
-                    float lateralOffset = Runtime.roadHalfWidth + 24f + (treeSeed * 7) % 9;
-                    Vector3 desired = groundPoint + right * side * lateralOffset + forward * (((treeSeed * 11) % 15) - 7f);
-                    Vector3 safePosition;
-                    if (!TryGetClearScenerySpot(desired, 3f, 1f, out safePosition))
-                    {
-                        continue;
+                        CreateBeltTree(safePosition, treeSeed);
                     }
-
-                    CreateBeltTree(safePosition, treeSeed);
                 }
             }
 
