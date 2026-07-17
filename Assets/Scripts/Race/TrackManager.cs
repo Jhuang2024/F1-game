@@ -9978,6 +9978,29 @@ namespace LocalFormulaRacing
             Vector3 lateral = right * side;
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
 
+            // Curved-section clearance (per report - expanded stands are
+            // "blocking the track"): the stand is a straight box up to ~88m
+            // long laid along the CENTRE point's tangent, so on a curved
+            // stretch its ends can swing over the road even though the centre
+            // sits 18m clear. Probe the stand's inner edge at both ends and
+            // the middle against the live corridor and push the whole stand
+            // outward by the worst deficit (plus runoff margin), so no part of
+            // any stand can overhang the racing surface.
+            float probeLength = 22f * scale * 0.5f;
+            float worstDeficit = 0f;
+            for (int probe = -1; probe <= 1; probe++)
+            {
+                Vector3 probePoint = basePosition + forward * (probe * probeLength);
+                TrackProgress probeProgress = Runtime.GetProgress(probePoint);
+                float clearance = Mathf.Abs(probeProgress.lateralDistance) - (Runtime.HalfWidthAt(probeProgress.distance) + 12f);
+                if (clearance < 0f)
+                {
+                    worstDeficit = Mathf.Max(worstDeficit, -clearance);
+                }
+            }
+
+            basePosition += lateral * worstDeficit;
+
             // Tier-geometry fix (per report - "the grandstands ARE STILL TOO
             // SMALL"): the earlier scale passes multiplied length and row COUNT
             // but kept each row's rise/depth at the original 0.62m/1.15m, so

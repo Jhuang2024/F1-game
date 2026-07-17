@@ -1008,9 +1008,18 @@ namespace LocalFormulaRacing
             // the pace knobs instead.
             // Rounds 27-31 (per request): the last meaningful notches left
             // before the fraction is zero (was 0.16/0.10/0.06/0.03).
-            float racecraftGapKeep = racecraftTier == RaceDifficulty.Easy ? 0.10f
-                : racecraftTier == RaceDifficulty.Medium ? 0.06f
-                : racecraftTier == RaceDifficulty.Hard ? 0.04f : 0.02f;
+            // Skill-differentiation fix (per report - "the leaderboard does not
+            // make sense"): at 0.02-0.10 gap-keep the whole field landed within
+            // a point of the 98 clamp and integer rounding made every driver's
+            // overtaking/defending IDENTICAL - which is exactly the "skill
+            // erased" failure the compression design was built to avoid.
+            // Backed off to fractions that keep the field elite (an average
+            // driver still racecrafts in the mid-90s on Expert) but leave a
+            // real, visible several-point gap between an elite and a
+            // journeyman at every tier.
+            float racecraftGapKeep = racecraftTier == RaceDifficulty.Easy ? 0.30f
+                : racecraftTier == RaceDifficulty.Medium ? 0.22f
+                : racecraftTier == RaceDifficulty.Hard ? 0.16f : 0.12f;
             overtaking = Mathf.Clamp(Mathf.RoundToInt(99f - (99f - overtaking) * racecraftGapKeep), 30, 98);
             defending = Mathf.Clamp(Mathf.RoundToInt(99f - (99f - defending) * racecraftGapKeep), 30, 98);
 
@@ -1259,7 +1268,16 @@ namespace LocalFormulaRacing
             // Rounds 17-21 (per request): +3% five more times (-> 1.57-1.67).
             // Rounds 22-26 (per request): +3% five more times (-> 1.72-1.82).
             // Rounds 27-31 (per request): +3% five more times (-> 1.87-1.97).
-            float driverPaceVariance = Mathf.Lerp(1.87f, 1.97f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
+            // Skill-differentiation fix (per report - "the leaderboard does not
+            // make sense"): thirty rounds of buffs grew the band's MEAN from
+            // ~1.11 to ~1.92 while its width stayed at 0.10 - so the relative
+            // pace gap between an elite and a backmarker quietly halved from
+            // ~9% to ~5%, and driver skill stopped sorting the field. Width
+            // restored to the original ~12% relative spread around the SAME
+            // mean (1.92), so the field's average difficulty is unchanged -
+            // the fast drivers are faster and the slow ones slower, no
+            // artificial anything.
+            float driverPaceVariance = Mathf.Lerp(1.80f, 2.04f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
             // multipliers used to inflate the corner-entry target past what the
@@ -1457,6 +1475,42 @@ namespace LocalFormulaRacing
             const float PitApproachTargetSpeedKph = 90f;
             const float PitApproachBrakeDecelMs2 = 10f;
             const float PitApproachRampBufferMetres = 80f;
+            if (committingToPit)
+            {
+                float metresToRamp = (track.PitEntryRampStartNormalized - progress.normalized) * track.length;
+
+                // Late-decision abort (per report - "the AI cars are still able
+                // to dive into the pits a lot faster than I am"): the envelope
+                // below only caps the TARGET speed - an AI whose pit trigger
+                // latched mid-approach could be left needing far more than the
+                // envelope's 10 m/s^2 to make the ramp, and its controller
+                // happily brakes at full physics force to hit the reduced
+                // target, so it "dived" into the pit lane in a way nobody
+                // following the shared envelope ever could. If making the ramp
+                // from here would take more than 13 m/s^2, the entry is
+                // treated as missed: the AI stays at race pace and pits next
+                // lap, exactly like a real driver who missed the pit-entry
+                // decision point (missedPitEntryThisLap also suppresses the
+                // request until the lap completes, and clears automatically).
+                if (metresToRamp > 1f)
+                {
+                    float speedMs = speedKph / 3.6f;
+                    float rampTargetMs = PitApproachTargetSpeedKph / 3.6f;
+                    float requiredDecel = (speedMs * speedMs - rampTargetMs * rampTargetMs) / (2f * metresToRamp);
+                    if (requiredDecel > 13f)
+                    {
+                        // Mirror RaceManager.HandlePitService's miss bookkeeping:
+                        // record the lap so UpdateMissedPitEntryReset only clears
+                        // the flag once a genuinely new lap has started, and drop
+                        // the latched request so nothing reads it as still live.
+                        participant.missedPitEntryThisLap = true;
+                        participant.missedPitEntryCompletedLap = participant.lapTracker != null ? participant.lapTracker.CompletedLaps : 0;
+                        vehicle.ClearPitRequest();
+                        committingToPit = false;
+                    }
+                }
+            }
+
             if (committingToPit)
             {
                 float metresToRamp = (track.PitEntryRampStartNormalized - progress.normalized) * track.length;
