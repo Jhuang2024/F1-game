@@ -3673,7 +3673,20 @@ namespace LocalFormulaRacing
             // nothing.
             float groundSpanMin = streetTrack ? 2800f : 1200f;
             float groundSpanScale = streetTrack ? 2.2f : 1.5f;
-            Vector3 size = new Vector3(Mathf.Max(groundSpanMin, bounds.size.x * groundSpanScale), 1.0f, Mathf.Max(groundSpanMin, bounds.size.z * groundSpanScale));
+            // Floating-disk fix (per report - "grey disks/bubbles in Canada in
+            // the distance"): the horizon backdrop rings (BuildMountainBackdrop
+            // and BuildDistantParallaxLayer) sit at max(extents)*1.15 + 140m
+            // from the track centre, but the slab's old minimum span could be
+            // SMALLER than that ring on one axis - every dome past the slab
+            // edge had nothing in front of its buried lower half and rendered
+            // as a lens/UFO floating against the sky. The slab now always
+            // extends past the outermost backdrop ring plus the domes' own
+            // footprint.
+            float backdropRingRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) * 1.15f + 140f;
+            float backdropSpan = (backdropRingRadius + 170f) * 2f;
+            Vector3 size = new Vector3(
+                Mathf.Max(Mathf.Max(groundSpanMin, backdropSpan), bounds.size.x * groundSpanScale), 1.0f,
+                Mathf.Max(Mathf.Max(groundSpanMin, backdropSpan), bounds.size.z * groundSpanScale));
             groundTopY = center.y + size.y * 0.5f;
             GameObject ground = CreateVisualBox(Runtime.styleName + " terrain base", center, Quaternion.identity, size, grassMaterial);
             ground.layer = 0;
@@ -8201,7 +8214,9 @@ namespace LocalFormulaRacing
                 else
                 {
                     CreateTreeCluster(basePosition, i);
-                    if (spaTrack || i % 6 == 0) CreateTreeCluster(basePosition + right * side * 40f, i);
+                    // Tree-density round 2 (per report): the second-row cluster
+                    // used to be Spa-only/every-sixth - now every other sample.
+                    if (spaTrack || i % 2 == 0) CreateTreeCluster(basePosition + right * side * 40f, i);
                 }
             }
 
@@ -8224,8 +8239,15 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Density round 2 (per report - "still not enough trees, need to
+            // like 5x it... add some stuff in the near background and far
+            // background too"): tighter spacing, plus two additional belt rows
+            // pushed back to 130m/205m so the forest has genuine depth behind
+            // the trackside rows instead of stopping two rows deep. The outer
+            // rows spawn at half rate - a real treeline thins with distance,
+            // and it keeps the object count from doubling again.
             float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
-            float spacing = Mathf.Lerp(46f, 22f, Mathf.InverseLerp(0.25f, 2f, density));
+            float spacing = Mathf.Lerp(34f, 15f, Mathf.InverseLerp(0.25f, 2f, density));
             int seed = 0;
             for (float d = 0f; d < Runtime.length; d += spacing)
             {
@@ -8244,10 +8266,17 @@ namespace LocalFormulaRacing
                         continue;
                     }
 
-                    for (int row = 0; row < 2; row++)
+                    for (int row = 0; row < 4; row++)
                     {
-                        int treeSeed = seed * 4 + row * 2 + (side + 1);
-                        float lateralOffset = Runtime.roadHalfWidth + 46f + row * 24f + (treeSeed * 7) % 15;
+                        int treeSeed = seed * 8 + row * 2 + (side + 1);
+                        if (row >= 2 && treeSeed % 2 == 0)
+                        {
+                            continue;
+                        }
+
+                        float lateralOffset = row < 2
+                            ? Runtime.roadHalfWidth + 46f + row * 24f + (treeSeed * 7) % 15
+                            : Runtime.roadHalfWidth + 130f + (row - 2) * 75f + (treeSeed * 7) % 34;
                         float alongJitter = ((treeSeed * 11) % 25) - 12f;
                         Vector3 desired = groundPoint + right * side * lateralOffset + forward * alongJitter;
                         Vector3 safePosition;
@@ -9275,10 +9304,12 @@ namespace LocalFormulaRacing
                 }
             }
 
-            // Two further-back layers at increasing distance/height so the forest reads
-            // with real depth instead of one flat treeline ring.
+            // Three further-back layers at increasing distance/height so the forest
+            // reads with real depth instead of one flat treeline ring (third layer
+            // added per report - "add some stuff in the near background and far
+            // background too").
             int farRings = Mathf.Max(4, Mathf.RoundToInt(8f * density));
-            for (int layer = 1; layer <= 2; layer++)
+            for (int layer = 1; layer <= 3; layer++)
             {
                 for (int i = 0; i < farRings; i++)
                 {
