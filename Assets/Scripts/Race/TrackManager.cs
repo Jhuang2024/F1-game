@@ -2266,6 +2266,7 @@ namespace LocalFormulaRacing
             // mesh are computed, so the road, its runoff apron and the terrain
             // base all follow it, and the gradients are gentle enough to drive.
             AddProceduralElevation(runtime);
+            GroundPitZoneElevation(runtime);
             // Self-crossing layouts (per report - the Qatar GP lap-1 pileup):
             // several authored sketches genuinely cross themselves in plan
             // view. At a flat crossing the two roads merely overlap (drivable),
@@ -2284,6 +2285,65 @@ namespace LocalFormulaRacing
             // RecalculateDistances so cumulativeDistances line up with centerLine.
             runtime.RecalculateHairpinWidening();
             return runtime;
+        }
+
+        // The pit zone must sit ON the terrain (per report - Austria: "because
+        // of the lack of barriers when you pit, you actually fall off the
+        // track", plus 18 "elevated road ... has no side protection" build
+        // warnings spanning exactly the pit stretch): the flat terrain slab
+        // sits at the lap's LOWEST point, but nothing kept the start/finish +
+        // pit span near that level - Austria's profile left the entire pit
+        // zone ~6m above the terrain, and the whole pit complex (fan-out
+        // walls, entry ramp, aprons, boxes) is built assuming ground support,
+        // so its barriers failed placement and a pitting car drove off the
+        // elevated edge into the drop. The pit span (0.90 -> 0.08 of the lap,
+        // wrapping through the line) is blended down to the lap minimum with
+        // long cosine ramps on both sides, so the pit complex always stands on
+        // real ground on every layout, whatever the authored/procedural hills
+        // do elsewhere.
+        static void GroundPitZoneElevation(TrackRuntime runtime)
+        {
+            List<Vector3> line = runtime.centerLine;
+            if (line == null || line.Count < 16)
+            {
+                return;
+            }
+
+            int n = line.Count;
+            float minY = float.MaxValue;
+            for (int i = 0; i < n; i++)
+            {
+                minY = Mathf.Min(minY, line[i].y);
+            }
+
+            for (int i = 0; i < n; i++)
+            {
+                // Index fraction is accurate enough here: the zone is broad and
+                // both edges are long cosine blends (distances are finalised
+                // right after this in RecalculateDistances).
+                float t = i / (float)n;
+                float weight;
+                if (t >= 0.93f || t <= 0.05f)
+                {
+                    weight = 1f;
+                }
+                else if (t >= 0.86f)
+                {
+                    weight = 0.5f - 0.5f * Mathf.Cos((t - 0.86f) / 0.07f * Mathf.PI);
+                }
+                else if (t <= 0.12f)
+                {
+                    weight = 0.5f - 0.5f * Mathf.Cos((0.12f - t) / 0.07f * Mathf.PI);
+                }
+                else
+                {
+                    continue;
+                }
+
+                Vector3 point = line[i];
+                point.y = Mathf.Lerp(point.y, minY, weight);
+                line[i] = point;
+            }
         }
 
         // Layers gentle rolling elevation onto the centreline so tracks aren't
