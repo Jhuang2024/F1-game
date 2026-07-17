@@ -9,6 +9,7 @@ using F1Game.UI.Screens.RaceHudShell;
 using F1Game.UI.Screens.TrackSelect;
 using F1Game.UI.Services;
 using F1Game.UI.Theme;
+using F1Game.UI.Widgets;
 using TMPro;
 using UnityEngine;
 using UnityEngine.EventSystems;
