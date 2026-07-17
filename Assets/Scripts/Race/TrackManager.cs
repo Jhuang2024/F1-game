@@ -1842,6 +1842,9 @@ namespace LocalFormulaRacing
         Material fenceMaterial;
         Material fencePostMaterial;
         Material foliageMaterial;
+        // Second, lighter canopy tone so a broadleaf canopy built from several
+        // lobes reads as layered foliage instead of one flat-colour blob.
+        Material foliageMaterialLight;
         Material treeBarkMaterial;
         Material metalMaterial;
         Material glassMaterial;
@@ -3134,6 +3137,9 @@ namespace LocalFormulaRacing
             fencePostMaterial.mainTexture = BuildNoiseTexture(32, new Color(0.44f, 0.48f, 0.51f), 0.1f);
             fencePostMaterial.mainTextureScale = new Vector2(2f, 4f);
             foliageMaterial = CreateMaterial("Runtime Foliage", spaTrack ? new Color(0.05f, 0.22f, 0.14f) : new Color(0.04f, 0.32f, 0.12f), 0f, 0.42f);
+            // Lighter second canopy tone (see CreateBroadleafTree) - multi-lobe
+            // canopies alternate the two so the foliage reads layered.
+            foliageMaterialLight = CreateMaterial("Runtime Foliage Light", spaTrack ? new Color(0.11f, 0.3f, 0.17f) : new Color(0.11f, 0.42f, 0.16f), 0f, 0.4f);
             // Trees used to borrow the bright red scenery-accent material for their
             // trunks (fine for kerb-style trim, glaring as bark) - a dedicated dull
             // brown fixes that without touching the accent colour anywhere else it's used.
@@ -10072,49 +10078,112 @@ namespace LocalFormulaRacing
             light.intensity = bright ? 1.15f : 0.45f;
         }
 
+        // Real tree silhouettes (per report - "whatever the trees are are just
+        // green blobs"): the old tree was a 1.8m trunk under a single ~1.4m
+        // sphere - knee-high blobs at race distance. A cluster now plants
+        // full-size trees (~9-14m) in two species: broadleaf (tall visible
+        // trunk, limbs reaching into an irregular multi-lobe canopy that
+        // alternates two foliage tones) and conifer (a stepped stack of
+        // narrowing tiers to a point). Still cheap primitive stacks, same
+        // clearance path, same stable index-derived jitter.
         void CreateTreeCluster(Vector3 position, int index)
         {
-            // Small grass apron under the cluster so it reads as a planted stand rather
-            // than three trees hovering just above unbroken bare ground. Placed at the
-            // cluster's own incoming y (not groundTopY) so it stays correct both for the
-            // flat-ground BuildScenery callers and the hillside backdrop passes that
-            // deliberately pass in a locally-elevated position for this same function.
-            CreateVisualBox("Tree cluster ground patch", position + Vector3.up * 0.02f, Quaternion.identity, new Vector3(7f, 0.05f, 5f), grassMaterial);
+            // Grass apron under the cluster so it reads as a planted stand rather
+            // than trees hovering just above unbroken bare ground. Placed at the
+            // cluster's own incoming y (not groundTopY) so it stays correct both for
+            // the flat-ground BuildScenery callers and the hillside backdrop passes
+            // that deliberately pass in a locally-elevated position.
+            CreateVisualBox("Tree cluster ground patch", position + Vector3.up * 0.02f, Quaternion.identity, new Vector3(11f, 0.05f, 8f), grassMaterial);
             for (int i = 0; i < 3; i++)
             {
-                Vector3 offset = new Vector3((i - 1) * 2.3f, 0f, (index % 3 - 1) * 1.4f);
+                Vector3 offset = new Vector3((i - 1) * 3.8f, 0f, (index % 3 - 1) * 2.4f);
                 Vector3 treePosition = PushSceneryClearOfTrack(position + offset, 20f);
-                // Cheap per-tree size jitter (a cluster of three identically-sized trees
-                // used to read as one stamped prefab) keyed off index+i so it's stable
-                // across rebuilds without needing a stored seed.
-                float sizeJitter = 0.82f + ((index * 3 + i) % 5) * 0.09f;
-                float trunkHeight = 0.9f * sizeJitter;
+                float sizeJitter = 0.8f + ((index * 3 + i) % 5) * 0.11f;
+                if ((index + i) % 3 == 0)
+                {
+                    CreateConiferTree(treePosition, sizeJitter, index * 3 + i);
+                }
+                else
+                {
+                    CreateBroadleafTree(treePosition, sizeJitter, index * 3 + i);
+                }
+            }
+        }
 
-                GameObject trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
-                trunk.name = "Generic tree trunk";
-                trunk.transform.SetParent(transform);
-                trunk.transform.position = treePosition + Vector3.up * trunkHeight;
-                trunk.transform.localScale = new Vector3(0.18f * sizeJitter, trunkHeight, 0.18f * sizeJitter);
-                trunk.GetComponent<Renderer>().sharedMaterial = treeBarkMaterial;
-                MakeVisualOnly(trunk);
+        void CreateBroadleafTree(Vector3 basePosition, float sizeJitter, int seed)
+        {
+            float trunkHeight = 6.5f * sizeJitter;
+            GameObject trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            trunk.name = "Broadleaf tree trunk";
+            trunk.transform.SetParent(transform);
+            trunk.transform.position = basePosition + Vector3.up * trunkHeight * 0.5f;
+            // Unity cylinders are 2 units tall at scale 1, so y-scale is half the
+            // wanted height.
+            trunk.transform.localScale = new Vector3(0.55f * sizeJitter, trunkHeight * 0.5f, 0.55f * sizeJitter);
+            trunk.GetComponent<Renderer>().sharedMaterial = treeBarkMaterial;
+            MakeVisualOnly(trunk);
 
+            // Two limbs angling out of the upper trunk into the canopy so a close
+            // pass reads as branch structure, not a lollipop stick.
+            for (int branch = 0; branch < 2; branch++)
+            {
+                GameObject limb = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+                limb.name = "Broadleaf tree limb";
+                limb.transform.SetParent(transform);
+                float branchYaw = (seed * 91 + branch * 168) % 360;
+                limb.transform.rotation = Quaternion.Euler(34f + branch * 12f, branchYaw, 0f);
+                limb.transform.position = basePosition + Vector3.up * (trunkHeight * 0.8f) + limb.transform.up * 1.2f * sizeJitter;
+                limb.transform.localScale = new Vector3(0.22f * sizeJitter, 1.4f * sizeJitter, 0.22f * sizeJitter);
+                limb.GetComponent<Renderer>().sharedMaterial = treeBarkMaterial;
+                MakeVisualOnly(limb);
+            }
+
+            // Irregular canopy: one big central crown plus offset lobes at varied
+            // heights, alternating the two foliage tones so it reads as layered
+            // leaf mass instead of one flat-colour blob.
+            Vector3 canopyCenter = basePosition + Vector3.up * (trunkHeight + 1.7f * sizeJitter);
+            for (int lobe = 0; lobe < 5; lobe++)
+            {
+                float angle = ((seed * 53 + lobe * 137) % 360) * Mathf.Deg2Rad;
+                float radial = lobe == 0 ? 0f : (1.5f + (lobe % 2) * 0.8f) * sizeJitter;
+                float lift = lobe == 0 ? 0.8f : ((lobe * 31 + seed) % 3 - 1) * 0.9f;
+                float width = (lobe == 0 ? 5.4f : 3.4f - (lobe % 2) * 0.5f) * sizeJitter;
                 GameObject crown = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                crown.name = "Generic tree crown";
+                crown.name = "Broadleaf tree canopy lobe";
                 crown.transform.SetParent(transform);
-                crown.transform.position = treePosition + Vector3.up * (trunkHeight * 2f + 0.25f);
-                crown.transform.localScale = new Vector3(1.45f, 1.15f, 1.45f) * sizeJitter;
-                crown.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
+                crown.transform.position = canopyCenter + new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle)) * radial + Vector3.up * lift * sizeJitter;
+                crown.transform.localScale = new Vector3(width, width * 0.76f, width);
+                crown.GetComponent<Renderer>().sharedMaterial = (seed + lobe) % 2 == 0 ? foliageMaterial : foliageMaterialLight;
                 MakeVisualOnly(crown);
+            }
+        }
 
-                // Second, smaller lobe offset to one side so the canopy silhouette breaks
-                // out of "single perfect sphere" the moment the camera gets close.
-                GameObject lobe = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                lobe.name = "Generic tree crown lobe";
-                lobe.transform.SetParent(transform);
-                lobe.transform.position = treePosition + Vector3.up * (trunkHeight * 2f - 0.1f) + new Vector3(0.55f * sizeJitter, 0f, 0.4f * sizeJitter) * (i % 2 == 0 ? 1f : -1f);
-                lobe.transform.localScale = new Vector3(0.85f, 0.72f, 0.85f) * sizeJitter;
-                lobe.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
-                MakeVisualOnly(lobe);
+        void CreateConiferTree(Vector3 basePosition, float sizeJitter, int seed)
+        {
+            float trunkHeight = 11f * sizeJitter;
+            GameObject trunk = GameObject.CreatePrimitive(PrimitiveType.Cylinder);
+            trunk.name = "Conifer tree trunk";
+            trunk.transform.SetParent(transform);
+            trunk.transform.position = basePosition + Vector3.up * trunkHeight * 0.5f;
+            trunk.transform.localScale = new Vector3(0.4f * sizeJitter, trunkHeight * 0.5f, 0.4f * sizeJitter);
+            trunk.GetComponent<Renderer>().sharedMaterial = treeBarkMaterial;
+            MakeVisualOnly(trunk);
+
+            // Stepped tiers narrowing toward a point - the classic pine outline.
+            const int tiers = 4;
+            for (int t = 0; t < tiers; t++)
+            {
+                float f = t / (float)(tiers - 1);
+                float tierWidth = Mathf.Lerp(5f, 1.3f, f) * sizeJitter;
+                float tierHeight = Mathf.Lerp(2.8f, 1.8f, f) * sizeJitter;
+                float tierY = Mathf.Lerp(3.4f * sizeJitter, trunkHeight, f);
+                GameObject tier = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                tier.name = "Conifer tree tier";
+                tier.transform.SetParent(transform);
+                tier.transform.position = basePosition + Vector3.up * tierY;
+                tier.transform.localScale = new Vector3(tierWidth, tierHeight, tierWidth);
+                tier.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
+                MakeVisualOnly(tier);
             }
         }
 
