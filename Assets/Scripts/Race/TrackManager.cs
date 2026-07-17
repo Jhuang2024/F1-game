@@ -3682,8 +3682,14 @@ namespace LocalFormulaRacing
             // as a lens/UFO floating against the sky. The slab now always
             // extends past the outermost backdrop ring plus the domes' own
             // footprint.
-            float backdropRingRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) * 1.15f + 140f;
-            float backdropSpan = (backdropRingRadius + 170f) * 2f;
+            // Round 2 (per report - "still looks the same"): the first attempt
+            // sized the slab to the PARALLAX ring (extents*1.15 + 140m), but
+            // the mountain-ridge ring sits much further out at extents*1.55 +
+            // 220m (BuildMountainBackdrop) - its domes were still hundreds of
+            // metres past the slab edge. Sized to the outermost ring plus the
+            // widest dome's half-footprint now.
+            float backdropRingRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) * 1.55f + 220f;
+            float backdropSpan = (backdropRingRadius + 280f) * 2f;
             Vector3 size = new Vector3(
                 Mathf.Max(Mathf.Max(groundSpanMin, backdropSpan), bounds.size.x * groundSpanScale), 1.0f,
                 Mathf.Max(Mathf.Max(groundSpanMin, backdropSpan), bounds.size.z * groundSpanScale));
@@ -8639,12 +8645,16 @@ namespace LocalFormulaRacing
                 }
                 else
                 {
+                    // Bubble fix (per report - "grey disks/bubbles"): anchored at
+                    // +0.4x height this lens sat 90% proud of the ground and read
+                    // as a floating disk. Buried like the mountain ridges now -
+                    // only a rounded ~60% cap shows above the terrain.
                     float widthScale = 60f + (i % 4) * 20f;
                     float heightScale = 14f + (i % 3) * 6f;
                     GameObject silhouette = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                     silhouette.name = "Distant parallax tree line";
                     silhouette.transform.SetParent(transform);
-                    silhouette.transform.position = new Vector3(safePosition.x, groundTopY + heightScale * 0.4f, safePosition.z);
+                    silhouette.transform.position = new Vector3(safePosition.x, groundTopY + heightScale * 0.1f, safePosition.z);
                     silhouette.transform.localScale = new Vector3(widthScale, heightScale, widthScale * 0.55f);
                     // Blob fix (per report): the mid-distance treeline ring reads
                     // as hazy distant forest, not bright canopy green.
@@ -9330,11 +9340,19 @@ namespace LocalFormulaRacing
                     // Blob fix (per report): far layers keep the cheap silhouette
                     // (they're horizon dressing) but in the hazy desaturated
                     // distant-forest tone instead of bright flat canopy green.
-                    float heightScale = (26f + layer * 10f) + (i % 3) * 8f;
+                    // Bubble fix (per report - "grey disks/bubbles... still looks
+                    // the same"): the old +0.15*height*layer upward lift meant to
+                    // stack farther layers taller instead UN-BURIED them - by
+                    // layer 3 nearly the whole ellipsoid hung above the ground as
+                    // a floating disk. Farther layers now get their extra height
+                    // from heightScale alone and every layer stays buried to a
+                    // ~60% ridge cap, anchored to the terrain (groundTopY), not
+                    // the track's sampled height.
+                    float heightScale = (26f + layer * 14f) + (i % 3) * 8f;
                     GameObject farHill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                     farHill.name = "Distant forested ridge layer " + layer;
                     farHill.transform.SetParent(transform);
-                    farHill.transform.position = safePosition + Vector3.up * (heightScale * 0.15f * layer);
+                    farHill.transform.position = new Vector3(safePosition.x, groundTopY + heightScale * 0.1f, safePosition.z);
                     farHill.transform.localScale = new Vector3(70f + (i % 4) * 16f, heightScale, 50f + (i % 3) * 12f);
                     farHill.GetComponent<Renderer>().sharedMaterial = distantForestMaterial;
                     MakeVisualOnly(farHill);
@@ -9591,7 +9609,10 @@ namespace LocalFormulaRacing
         // street tracks.
         void BuildCanadaBackdrop(float density)
         {
-            BuildParklandBackdrop(density * 0.5f);
+            // Was 0.5x - which on Canada meant just 6 near hills and 4 far
+            // ridges, an almost-empty background (per report). Still lighter
+            // than a full parkland circuit, but a real one.
+            BuildParklandBackdrop(density * 0.85f);
 
             int buildings = Mathf.Max(2, Mathf.RoundToInt(3f * density));
             for (int i = 0; i < buildings; i++)
