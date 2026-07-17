@@ -85,6 +85,15 @@ namespace LocalFormulaRacing
                 return offerLabel + " PIT WINDOW OPEN  PRESS P TO BOX";
             }
 
+            // Sprint races carry no mandatory stop (see
+            // PenaltyRules.MandatoryPitMinimumRaceLaps) - showing "MANDATORY
+            // STOP REQUIRED" on one would demand a stop the rulebook never
+            // enforces.
+            if (RaceLaps < F1Game.Race.Rules.PenaltyRules.MandatoryPitMinimumRaceLaps)
+            {
+                return "";
+            }
+
             if (participant.pitStops > 0 && NextPlannedPitLapFor(participant) <= 0)
             {
                 return "MANDATORY STOP COMPLETE";

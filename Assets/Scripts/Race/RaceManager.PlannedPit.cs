@@ -88,6 +88,16 @@ namespace LocalFormulaRacing
                 return RecommendedPitLap(participant);
             }
 
+            // Sprint races carry no mandatory stop (see PenaltyRules) and the
+            // AI no longer take one - the player's auto plan must not schedule
+            // one either, or the PreRacePlan assist would pit the player into
+            // a stop nobody else makes. Manual stops (P key) and the
+            // wear/weather auto triggers still work when the rubber demands.
+            if (RaceLaps < PenaltyRules.MandatoryPitMinimumRaceLaps)
+            {
+                return -1;
+            }
+
             // Which planned stop is next is the rulebook's call; the lap it maps
             // to stays here. Behavior-identical to the prior inline branches.
             int stopIndex = PitPlanRules.NextPlannedStopIndex(participant.pitStops, GetPlannedStopCount());

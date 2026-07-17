@@ -2426,7 +2426,7 @@ namespace LocalFormulaRacing
             // the race by a stable per-driver hash, so the stops arrive a few
             // cars per lap like a real pit window.
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && !raceManager.IsTimeTrial &&
-                raceManager.RaceLaps > 3 && participant.pitStops == 0)
+                raceManager.RaceLaps >= PenaltyRules.MandatoryPitMinimumRaceLaps && participant.pitStops == 0)
             {
                 float stopJitter01 = 0.5f;
                 if (!string.IsNullOrEmpty(participant.driverId))

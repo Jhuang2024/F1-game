@@ -19,9 +19,13 @@ namespace F1Game.Tests
             Assert.IsFalse(PenaltyRules.ShouldApplyMandatoryPitPenalty(true, false, 20, 0, false));
             Assert.IsFalse(PenaltyRules.ShouldApplyMandatoryPitPenalty(false, true, 20, 0, false));
 
-            // Short races (3 laps or fewer) are exempt; 4 laps is the first eligible length.
-            Assert.IsFalse(PenaltyRules.ShouldApplyMandatoryPitPenalty(false, false, 3, 0, false));
-            Assert.IsTrue(PenaltyRules.ShouldApplyMandatoryPitPenalty(false, false, 4, 0, false));
+            // Sprint-length races are exempt (forcing 22 stops through one pit
+            // lane in a handful of laps jams the pit entry); the constant is
+            // the single source of truth for the boundary.
+            Assert.IsFalse(PenaltyRules.ShouldApplyMandatoryPitPenalty(
+                false, false, PenaltyRules.MandatoryPitMinimumRaceLaps - 1, 0, false));
+            Assert.IsTrue(PenaltyRules.ShouldApplyMandatoryPitPenalty(
+                false, false, PenaltyRules.MandatoryPitMinimumRaceLaps, 0, false));
 
             // Never applied twice.
             Assert.IsFalse(PenaltyRules.ShouldApplyMandatoryPitPenalty(false, false, 20, 0, true));

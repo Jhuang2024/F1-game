@@ -50,8 +50,15 @@ namespace F1Game.Race.Rules
         public const float MandatoryPitPenaltySeconds = 30f;
         public const string MandatoryPitReason = "No mandatory stop";
 
-        /// <summary>Races at or below this lap count never require a stop.</summary>
-        public const int MandatoryPitMinimumRaceLaps = 4;
+        /// <summary>
+        /// Races shorter than this never require a stop. Raised 4 -> 10 (per
+        /// report - "cars completely stuck right before the final corner"): a
+        /// mandatory stop on a ~5-lap sprint forces all 22 cars through one
+        /// pit lane inside three laps, and the entry queue physically backs up
+        /// onto the track. Real sprint races carry no mandatory stop either;
+        /// wear/weather still produce voluntary stops when the rubber demands.
+        /// </summary>
+        public const int MandatoryPitMinimumRaceLaps = 10;
 
         public static bool IsOutsideTrackLimits(float lateralOffset, float localHalfWidth)
         {

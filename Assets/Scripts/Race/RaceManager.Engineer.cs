@@ -147,6 +147,13 @@ namespace LocalFormulaRacing
                     : "Time trial. No local record yet, set a benchmark lap.";
             }
 
+            // Sprint races carry no mandatory stop (see PenaltyRules) - the
+            // brief says so instead of promising a rule that won't be enforced.
+            if (RaceLaps < F1Game.Race.Rules.PenaltyRules.MandatoryPitMinimumRaceLaps)
+            {
+                return "Weather is " + weather + ". Sprint race - no mandatory stop. Push from lights to flag.";
+            }
+
             string planLine = GetPlannedStopCount() >= 2
                 ? "Two-stop plan. First window around lap " + GetPlannedPitLapForStop(1) + " for " + GetPlannedCompoundForStop(1) +
                   "s, second around lap " + GetPlannedPitLapForStop(2) + " for " + GetPlannedCompoundForStop(2) + "s."
