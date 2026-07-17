@@ -1845,6 +1845,13 @@ namespace LocalFormulaRacing
         // Second, lighter canopy tone so a broadleaf canopy built from several
         // lobes reads as layered foliage instead of one flat-colour blob.
         Material foliageMaterialLight;
+        // Backdrop-hill pass (per report - "massive blobs of green"): hills are
+        // no longer painted flat canopy-green. Near hills get a noise-textured
+        // earthy slope tone (the green comes from real trees planted on them),
+        // and the far ridge/treeline layers get a duller, hazier tone so they
+        // read as distant terrain instead of lime domes.
+        Material hillsideEarthMaterial;
+        Material distantForestMaterial;
         Material treeBarkMaterial;
         Material metalMaterial;
         Material glassMaterial;
@@ -3140,6 +3147,16 @@ namespace LocalFormulaRacing
             // Lighter second canopy tone (see CreateBroadleafTree) - multi-lobe
             // canopies alternate the two so the foliage reads layered.
             foliageMaterialLight = CreateMaterial("Runtime Foliage Light", spaTrack ? new Color(0.11f, 0.3f, 0.17f) : new Color(0.11f, 0.42f, 0.16f), 0f, 0.4f);
+            // Earthy noise-textured slope tone for near backdrop hills (see
+            // CreateForestedHill) - deliberately NOT canopy green.
+            hillsideEarthMaterial = CreateMaterial("Runtime Hillside Earth", new Color(0.27f, 0.29f, 0.16f), 0f, 0.28f);
+            hillsideEarthMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.32f, 0.33f, 0.2f), 0.2f);
+            hillsideEarthMaterial.mainTextureScale = new Vector2(7f, 5f);
+            // Dull hazy tone for the far forest-ridge/treeline layers - distant
+            // terrain desaturates toward the sky, it doesn't stay lime green.
+            distantForestMaterial = CreateMaterial("Runtime Distant Forest Haze", new Color(0.21f, 0.27f, 0.23f), 0f, 0.22f);
+            distantForestMaterial.mainTexture = BuildNoiseTexture(64, new Color(0.25f, 0.31f, 0.27f), 0.12f);
+            distantForestMaterial.mainTextureScale = new Vector2(10f, 5f);
             // Trees used to borrow the bright red scenery-accent material for their
             // trunks (fine for kerb-style trim, glaring as bark) - a dedicated dull
             // brown fixes that without touching the accent colour anywhere else it's used.
@@ -3687,13 +3704,16 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
+                // Blob fix (per report - "massive blobs of green"): terrain-edge
+                // ridges use the noise-textured earthy hillside tone rather than
+                // flat bright grass green.
                 float hillCenterY = groundTopY - heightScale * 0.5f + heightScale * 0.55f;
                 GameObject hill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                 hill.name = "Distant hill ridge";
                 hill.transform.SetParent(transform);
                 hill.transform.position = new Vector3(safePosition.x, hillCenterY, safePosition.z);
                 hill.transform.localScale = new Vector3(widthScale, heightScale, widthScale * 0.6f);
-                hill.GetComponent<Renderer>().sharedMaterial = grassMaterial;
+                hill.GetComponent<Renderer>().sharedMaterial = hillsideEarthMaterial;
                 MakeVisualOnly(hill);
             }
         }
@@ -8463,7 +8483,9 @@ namespace LocalFormulaRacing
                     silhouette.transform.SetParent(transform);
                     silhouette.transform.position = new Vector3(safePosition.x, groundTopY + heightScale * 0.4f, safePosition.z);
                     silhouette.transform.localScale = new Vector3(widthScale, heightScale, widthScale * 0.55f);
-                    silhouette.GetComponent<Renderer>().sharedMaterial = desertTrack ? grassMaterial : foliageMaterial;
+                    // Blob fix (per report): the mid-distance treeline ring reads
+                    // as hazy distant forest, not bright canopy green.
+                    silhouette.GetComponent<Renderer>().sharedMaterial = desertTrack ? grassMaterial : distantForestMaterial;
                     MakeVisualOnly(silhouette);
                 }
             }
@@ -8994,6 +9016,67 @@ namespace LocalFormulaRacing
             }
         }
 
+        // A near backdrop hill that actually reads as a wooded hill (per report -
+        // "massive blobs of green"): an irregular cluster of three overlapping
+        // earth-toned mounds instead of one clean flat-green dome, with real
+        // broadleaf/conifer trees planted across the main mound's crown and
+        // slopes via the ellipsoid surface maths - so the green a player sees is
+        // visible trees, not the hill itself painted canopy green. All sizes and
+        // placements derive from the stable seed so layouts don't shuffle
+        // between rebuilds.
+        void CreateForestedHill(Vector3 basePosition, int seed, float width, float height)
+        {
+            float mainWidth = 0f;
+            float mainHeight = 0f;
+            float mainDepth = 0f;
+            Vector3 mainCenter = Vector3.zero;
+            for (int m = 0; m < 3; m++)
+            {
+                float moundWidth = width * (m == 0 ? 1f : 0.5f + ((seed + m) % 3) * 0.14f);
+                float moundHeight = height * (m == 0 ? 1f : 0.55f + ((seed * 3 + m) % 3) * 0.15f);
+                Vector3 offset = m == 0 ? Vector3.zero
+                    : new Vector3(((seed * 7 + m * 29) % 41) - 20f, 0f, ((seed * 11 + m * 17) % 27) - 13f);
+                GameObject mound = GameObject.CreatePrimitive(PrimitiveType.Sphere);
+                mound.name = "Forested hill mound";
+                mound.transform.SetParent(transform);
+                mound.transform.position = basePosition + offset + Vector3.down * (moundHeight * 0.28f);
+                mound.transform.localScale = new Vector3(moundWidth, moundHeight, moundWidth * 0.75f);
+                mound.GetComponent<Renderer>().sharedMaterial = hillsideEarthMaterial;
+                MakeVisualOnly(mound);
+                if (m == 0)
+                {
+                    mainCenter = mound.transform.position;
+                    mainWidth = moundWidth;
+                    mainHeight = moundHeight;
+                    mainDepth = moundWidth * 0.75f;
+                }
+            }
+
+            // Trees over the main mound: each base sits ON the ellipsoid surface
+            // (y = halfH * sqrt(1 - r^2) above the mound centre) so the stand
+            // rides the slope instead of floating beside it or sinking into it.
+            int treeCount = 5 + seed % 3;
+            for (int t = 0; t < treeCount; t++)
+            {
+                float angle = ((seed * 43 + t * 149) % 360) * Mathf.Deg2Rad;
+                float radialFraction = 0.15f + ((seed * 5 + t * 7) % 5) * 0.13f;
+                float dx = Mathf.Cos(angle) * radialFraction * mainWidth * 0.5f;
+                float dz = Mathf.Sin(angle) * radialFraction * mainDepth * 0.5f;
+                float normalized = (dx * dx) / (mainWidth * mainWidth * 0.25f) + (dz * dz) / (mainDepth * mainDepth * 0.25f);
+                float surfaceY = mainCenter.y + mainHeight * 0.5f * Mathf.Sqrt(Mathf.Max(0f, 1f - normalized));
+                Vector3 treeBase = new Vector3(mainCenter.x + dx, surfaceY - 0.6f, mainCenter.z + dz);
+                float jitter = 0.7f + ((seed + t) % 4) * 0.1f;
+                if ((seed + t) % 2 == 0)
+                {
+                    CreateConiferTree(treeBase, jitter, seed * 7 + t);
+                }
+                else
+                {
+                    CreateBroadleafTree(treeBase, jitter, seed * 7 + t);
+                }
+            }
+        }
+
         // Forested hills and a distant treeline for Spa/Austria/Suzuka/Silverstone/Monza
         // -style parkland circuits, layered behind the trackside tree clusters BuildScenery
         // already scatters.
@@ -9018,14 +9101,11 @@ namespace LocalFormulaRacing
                 // Local point.y (not groundTopY) on purpose: parkland tracks like Spa and
                 // Austria have real elevation change, so a hillside should sit relative to
                 // the nearby road height rather than one flat global ground reference.
+                // Blob fix (per report): the near hill is no longer one flat-green
+                // dome - CreateForestedHill builds an irregular earth-toned mound
+                // cluster with real trees planted over its crown and slopes.
                 float heightScale = 24f + (i % 3) * 8f;
-                GameObject hill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
-                hill.name = "Forested hillside";
-                hill.transform.SetParent(transform);
-                hill.transform.position = safePosition + Vector3.down * (heightScale * 0.25f);
-                hill.transform.localScale = new Vector3(60f + (i % 4) * 12f, heightScale, 44f + (i % 3) * 10f);
-                hill.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
-                MakeVisualOnly(hill);
+                CreateForestedHill(safePosition, i, 60f + (i % 4) * 12f, heightScale);
 
                 if (i % 2 == 0)
                 {
@@ -9062,13 +9142,16 @@ namespace LocalFormulaRacing
                         continue;
                     }
 
+                    // Blob fix (per report): far layers keep the cheap silhouette
+                    // (they're horizon dressing) but in the hazy desaturated
+                    // distant-forest tone instead of bright flat canopy green.
                     float heightScale = (26f + layer * 10f) + (i % 3) * 8f;
                     GameObject farHill = GameObject.CreatePrimitive(PrimitiveType.Sphere);
                     farHill.name = "Distant forested ridge layer " + layer;
                     farHill.transform.SetParent(transform);
                     farHill.transform.position = safePosition + Vector3.up * (heightScale * 0.15f * layer);
                     farHill.transform.localScale = new Vector3(70f + (i % 4) * 16f, heightScale, 50f + (i % 3) * 12f);
-                    farHill.GetComponent<Renderer>().sharedMaterial = foliageMaterial;
+                    farHill.GetComponent<Renderer>().sharedMaterial = distantForestMaterial;
                     MakeVisualOnly(farHill);
                 }
             }
