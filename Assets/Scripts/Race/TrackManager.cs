@@ -8038,9 +8038,9 @@ namespace LocalFormulaRacing
 
             // Signature grandstands on the main spectator stretches. Grandstand at 0.85-1.0
             // is kept on the left so it never fights the pit complex on the right.
-            // Every circuit's stands now build at double scale (per request -
-            // "every grandstand should be 2x").
-            float standScale = 2f;
+            // Every circuit's stands now build at triple scale (per report -
+            // the 2x stands still read "comically small").
+            float standScale = 3f;
             BuildGrandstand(0.02f, -1, standScale);
             BuildGrandstand(0.15f, 1, standScale);
             BuildGrandstand(0.45f, -1, standScale);
@@ -8073,7 +8073,7 @@ namespace LocalFormulaRacing
                     standSide = -1;
                 }
 
-                BuildGrandstand(slot, standSide, 2f);
+                BuildGrandstand(slot, standSide, 3f);
             }
 
             // Row of trackside flags flanking the start/finish straight - see
@@ -8591,11 +8591,11 @@ namespace LocalFormulaRacing
             }
 
             // A couple of extra long, low grandstands beyond BuildScenery's fixed set
-            // (2x scale like every other stand - per request).
-            BuildGrandstand(0.3f, 1, 2f);
+            // (3x scale like every other stand - per request).
+            BuildGrandstand(0.3f, 1, 3f);
             if (density > 0.6f)
             {
-                BuildGrandstand(0.72f, -1, 2f);
+                BuildGrandstand(0.72f, -1, 3f);
             }
         }
 
@@ -8794,6 +8794,10 @@ namespace LocalFormulaRacing
         // corridor so height never crowds the racing line.
         void BuildHighRiseSkyline(float density, int towerTarget)
         {
+            // Real-skyscraper proportions (per report - "not wide enough nor
+            // tall enough... comically small"): heights run 90-250m and
+            // footprints 26-42m, so the towers read at genuine city scale
+            // against the 10-15m street-canyon blocks in front of them.
             int towers = Mathf.Max(24, Mathf.RoundToInt(towerTarget * Mathf.Clamp(density, 0.5f, 1.5f)));
             for (int i = 0; i < towers; i++)
             {
@@ -8803,8 +8807,8 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? -1 : 1;
-                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 70f + (i % 4) * 30f + (i % 3) * 11f);
-                float height = 45f + (i % 7) * 12f + (i % 3) * 8f;
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 85f + (i % 4) * 34f + (i % 3) * 13f);
+                float height = 90f + (i % 7) * 22f + (i % 3) * 14f;
                 CreateCornicheSkyscraper(anchor, forward, height, i);
             }
 
@@ -8815,8 +8819,8 @@ namespace LocalFormulaRacing
             Vector3 landmarkForward;
             Vector3 landmarkRight;
             Runtime.SampleAtDistance(Runtime.length * 0.06f, out landmarkPoint, out landmarkForward, out landmarkRight);
-            Vector3 landmarkAnchor = GroundedTrackPoint(landmarkPoint) + landmarkRight * (Runtime.roadHalfWidth + 130f);
-            CreateCornicheSkyscraper(landmarkAnchor, landmarkForward, 150f, 1);
+            Vector3 landmarkAnchor = GroundedTrackPoint(landmarkPoint) + landmarkRight * (Runtime.roadHalfWidth + 150f);
+            CreateCornicheSkyscraper(landmarkAnchor, landmarkForward, 320f, 1);
         }
 
         // One glass tower: main shaft, full-height vertical window strips, a
@@ -8826,36 +8830,47 @@ namespace LocalFormulaRacing
         // instead.
         void CreateCornicheSkyscraper(Vector3 anchor, Vector3 forward, float height, int seed)
         {
-            float footprint = 14f + (seed % 3) * 4f;
+            float footprint = 26f + (seed % 3) * 8f;
             Vector3 safePosition;
             if (!TryGetClearScenerySpot(anchor, footprint * 0.75f, 6f, out safePosition))
             {
                 return;
             }
 
+            // Grounding fix (per report - "some of the skyscrapers aren't even
+            // touching the ground"): the shaft is sunk 3m below the terrain
+            // surface so no seam of air can ever show under it, a street-level
+            // podium block wraps its base, and the window strips now run from
+            // 2m off the ground instead of starting ~5% of the tower height up
+            // (which on a tall tower left metres of bare air under the lit
+            // strips and read as the whole building hovering).
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
             GameObject shaft = GameObject.CreatePrimitive(PrimitiveType.Cube);
             shaft.name = "Corniche skyscraper shaft";
             shaft.transform.SetParent(transform);
-            shaft.transform.position = safePosition + Vector3.up * height * 0.5f;
+            shaft.transform.position = safePosition + Vector3.up * (height * 0.5f - 3f);
             shaft.transform.rotation = rotation;
-            shaft.transform.localScale = new Vector3(footprint, height, footprint * 0.8f);
+            shaft.transform.localScale = new Vector3(footprint, height + 6f, footprint * 0.8f);
             shaft.GetComponent<Renderer>().sharedMaterial = glassMaterial;
             MakeVisualOnly(shaft);
 
+            CreateVisualBox("Corniche skyscraper podium", safePosition + Vector3.up * 4f, rotation,
+                new Vector3(footprint * 1.45f, 8f, footprint * 1.25f), concreteMaterial);
+
             for (int strip = -1; strip <= 1; strip++)
             {
+                float stripHeight = height - 4f;
                 CreateVisualBox("Corniche skyscraper window strip",
-                    safePosition + rotation * new Vector3(strip * footprint * 0.28f, height * 0.5f, footprint * 0.41f),
-                    rotation, new Vector3(footprint * 0.16f, height * 0.92f, 0.1f), windowStripMaterial);
+                    safePosition + rotation * new Vector3(strip * footprint * 0.28f, 2f + stripHeight * 0.5f, footprint * 0.41f),
+                    rotation, new Vector3(footprint * 0.16f, stripHeight, 0.1f), windowStripMaterial);
             }
 
-            CreateVisualBox("Corniche skyscraper crown", safePosition + Vector3.up * (height + 2.4f), rotation,
-                new Vector3(footprint * 0.55f, 5f, footprint * 0.45f), concreteMaterial);
-            if (height > 90f)
+            CreateVisualBox("Corniche skyscraper crown", safePosition + Vector3.up * (height + 4f), rotation,
+                new Vector3(footprint * 0.55f, 8f, footprint * 0.45f), concreteMaterial);
+            if (height > 140f)
             {
-                CreateVisualBox("Corniche skyscraper spire", safePosition + Vector3.up * (height + 9f), rotation,
-                    new Vector3(0.8f, 9f, 0.8f), metalMaterial);
+                CreateVisualBox("Corniche skyscraper spire", safePosition + Vector3.up * (height + 15f), rotation,
+                    new Vector3(1.4f, 16f, 1.4f), metalMaterial);
             }
         }
 
@@ -9847,7 +9862,10 @@ namespace LocalFormulaRacing
             Vector3 lateral = right * side;
             Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
 
-            int rows = Mathf.Clamp(Mathf.RoundToInt(6f * scale), 6, 12);
+            // Cap raised 12 -> 20 with the 3x stand pass (per report - the 2x
+            // stands still read "comically small"): at 3x a stand is 18 tiers,
+            // ~66m of seating and a ~13m-high roof line.
+            int rows = Mathf.Clamp(Mathf.RoundToInt(6f * scale), 6, 20);
             float standLength = 22f * scale;
 
             // Paved foundation pad under the stand so it reads as sitting on a real

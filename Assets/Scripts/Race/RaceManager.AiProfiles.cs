@@ -102,7 +102,8 @@ namespace LocalFormulaRacing
                     // Rounds 12-16 (per request - "buff the AI again 5 times the
                     // same way"): +0.02 per round at every tier (was 1.17).
                     // Rounds 17-21 (per request): +0.02 per round again (was 1.27).
-                    paceMultiplier = 1.37f,
+                    // Rounds 22-26 (per request): +0.02 per round again (was 1.37).
+                    paceMultiplier = 1.47f,
                     cornerSpeedMultiplier = 1.14f,
                     straightSpeedMultiplier = 0.97f,
                     brakeConfidenceMultiplier = 1.02f,
@@ -139,7 +140,8 @@ namespace LocalFormulaRacing
                     tyreSavingBias = 0.20f,
                     // Rounds 12-16: +0.02 per round (was 1.22).
                     // Rounds 17-21: +0.02 per round again (was 1.32).
-                    paceMultiplier = 1.42f,
+                    // Rounds 22-26: +0.02 per round again (was 1.42).
+                    paceMultiplier = 1.52f,
                     // Cornering buff round 7: pushed up (was 1.05) alongside the wider
                     // HighSpeed/Medium bands in AiVehicleController - Medium now covers
                     // genuinely fast corners too, not just cautious ones.
@@ -191,7 +193,8 @@ namespace LocalFormulaRacing
                     tyreSavingBias = 0.12f,
                     // Rounds 12-16: +0.02 per round (was 1.28).
                     // Rounds 17-21: +0.02 per round again (was 1.38).
-                    paceMultiplier = 1.48f,
+                    // Rounds 22-26: +0.02 per round again (was 1.48).
+                    paceMultiplier = 1.58f,
                     // Cornering buff round 7: pushed again (was 1.22/1.24/1.28/1.30/
                     // 1.42) - "fast corners need to be A LOT faster". No longer
                     // touches genuine hairpins at all (see the Hairpin-type exemption
@@ -236,7 +239,8 @@ namespace LocalFormulaRacing
                 tyreSavingBias = 0.07f,
                 // Rounds 12-16: +0.02 per round (was 1.34).
                 // Rounds 17-21: +0.02 per round again (was 1.44).
-                paceMultiplier = 1.54f,
+                // Rounds 22-26: +0.02 per round again (was 1.54).
+                paceMultiplier = 1.64f,
                 // Cornering buff round 7: pushed further still (was 1.34/1.58/1.70/
                 // 1.44/1.62) - "fast corners need to be A LOT faster". Still never
                 // touches genuine hairpins (see the Hairpin-type exemption in
