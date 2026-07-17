@@ -124,7 +124,62 @@ namespace LocalFormulaRacing
         // (PitEntryLookAheadMeters) - the normal racing-line lookahead is tuned
         // for reading corners far down the track, not for tracking the much
         // shorter pit-entry ramp whose lateral envelope changes quickly.
+        // Wall-slam fix round 3: this is now only the LOW-SPEED lookahead. The
+        // braking envelope lets the assist run genuine racing speed for most of
+        // the approach, and aiming at a fixed point 18m ahead at 250+ kph makes
+        // the pursuit controller violently under-damped - a small lateral error
+        // becomes a large target angle, the wheel chases it, overshoots, and
+        // the oscillation ends on alternating walls. The AI's own steering
+        // never does this (its lookahead scales 22-62m with speed); the assist
+        // now scales the same way, collapsing back to the short ramp-tracking
+        // lookahead as the envelope sheds speed for the entry.
         const float PitEntryAssistLookAheadMeters = 18f;
+
+        // Corner-safe approach speed (wall-slam fix round 3, the other half):
+        // the AI's pit-approach envelope keeps its full corner-speed model
+        // active during the approach ("corner targets still win via the Min") -
+        // but the player assist, which takes FULL throttle/brake authority, had
+        // no corner knowledge at all: its envelope only knew about the ramp, so
+        // any real corner inside the 0.78 -> 0.885 approach window was taken
+        // at unshedded racing speed on the outer pre-position line. That is
+        // what actually slammed the car into walls "multiple times" - once per
+        // corner in the window, plus the oscillation above. This walks the
+        // track ahead with the exact severity metric the AI uses (heading
+        // change over the 14/46/82m baseline, saturating at 42 degrees) and
+        // imposes a braking envelope into anything genuinely tight. Flowing
+        // bends (severity < 0.55) stay uncapped - the cars corner near
+        // straight-line speed in this game and the earlier "crawls a corner
+        // early" complaint must not come back - so only real tight corners
+        // and hairpins demand braking, at the same 10 m/s^2 the ramp envelope
+        // uses.
+        float PitApproachCornerCapKph(float fromDistance)
+        {
+            const float CornerBrakeDecelMs2 = 10f;
+            float allowedKph = 9999f;
+            Vector3 point;
+            Vector3 forwardA;
+            Vector3 forwardB;
+            Vector3 forwardC;
+            Vector3 right;
+            for (float ahead = 0f; ahead <= 270f; ahead += 27f)
+            {
+                float sampleDistance = fromDistance + ahead;
+                Track.SampleAtDistance(sampleDistance + 14f, out point, out forwardA, out right);
+                Track.SampleAtDistance(sampleDistance + 46f, out point, out forwardB, out right);
+                Track.SampleAtDistance(sampleDistance + 82f, out point, out forwardC, out right);
+                float severity = Mathf.Clamp01(Mathf.Max(Vector3.Angle(forwardA, forwardB), Vector3.Angle(forwardB, forwardC)) / 42f);
+                if (severity < 0.55f)
+                {
+                    continue;
+                }
+
+                float cornerMs = Mathf.Lerp(330f, 110f, Mathf.InverseLerp(0.55f, 1f, severity)) / 3.6f;
+                float sampleAllowedKph = Mathf.Sqrt(cornerMs * cornerMs + 2f * CornerBrakeDecelMs2 * ahead) * 3.6f;
+                allowedKph = Mathf.Min(allowedKph, sampleAllowedKph);
+            }
+
+            return allowedKph;
+        }
 
         // Builds the actual steer/throttle/brake command for the assist window
         // identified by ShouldAssistPlayerPitEntry. Targeting geometry-fix: this
@@ -150,7 +205,12 @@ namespace LocalFormulaRacing
 
             Vector3 targetPoint;
             Quaternion targetRotation;
-            Track.ComputePitEntryTargetPoint(progress.distance, PitEntryAssistLookAheadMeters, out targetPoint, out targetRotation);
+            // Speed-scaled lookahead (see the const's comment): mirrors the AI's
+            // own racing lookahead curve so the pursuit controller stays damped
+            // at envelope racing speeds, collapsing to the short ramp-tracking
+            // distance once braked down for the entry.
+            float steerLookAhead = Mathf.Lerp(PitEntryAssistLookAheadMeters, 55f, Mathf.Clamp01(speedKph / 300f));
+            Track.ComputePitEntryTargetPoint(progress.distance, steerLookAhead, out targetPoint, out targetRotation);
 
             Vector3 toTarget = targetPoint - participant.transform.position;
             // Steering-stability fix (per report - the assist "slamming me into
@@ -204,6 +264,11 @@ namespace LocalFormulaRacing
             // Queue behind any pit-bound car ahead instead of catching it at
             // racing pace inside the corridor.
             envelopeKph = Mathf.Min(envelopeKph, PitApproachHeadwayCapKph(participant));
+            // Corner targets win over the ramp envelope, exactly like the AI's
+            // approach (see PitApproachCornerCapKph's comment) - a corner inside
+            // the approach window gets a real braking zone instead of being
+            // taken flat-out on full assist authority.
+            envelopeKph = Mathf.Min(envelopeKph, PitApproachCornerCapKph(progress.distance));
             // Fully automated again (per report - "why is it no longer
             // animated and I can press the throttle to make me go faster??"):
             // an earlier pass handed throttle/brake back to the player until
