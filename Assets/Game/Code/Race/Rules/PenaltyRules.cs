@@ -51,14 +51,13 @@ namespace F1Game.Race.Rules
         public const string MandatoryPitReason = "No mandatory stop";
 
         /// <summary>
-        /// Races shorter than this never require a stop. Raised 4 -> 10 (per
-        /// report - "cars completely stuck right before the final corner"): a
-        /// mandatory stop on a ~5-lap sprint forces all 22 cars through one
-        /// pit lane inside three laps, and the entry queue physically backs up
-        /// onto the track. Real sprint races carry no mandatory stop either;
-        /// wear/weather still produce voluntary stops when the rubber demands.
+        /// Races at or below this lap count never require a stop. (Briefly
+        /// raised to 10 on the mistaken theory that mandatory stops caused the
+        /// Austria pileup - the real cause was broken road/pit-zone elevation
+        /// geometry, since fixed. Reverted per request: short races carry the
+        /// mandatory stop again.)
         /// </summary>
-        public const int MandatoryPitMinimumRaceLaps = 10;
+        public const int MandatoryPitMinimumRaceLaps = 4;
 
         public static bool IsOutsideTrackLimits(float lateralOffset, float localHalfWidth)
         {
