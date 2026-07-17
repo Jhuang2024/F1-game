@@ -1277,7 +1277,13 @@ namespace LocalFormulaRacing
             // mean (1.92), so the field's average difficulty is unchanged -
             // the fast drivers are faster and the slow ones slower, no
             // artificial anything.
-            float driverPaceVariance = Mathf.Lerp(1.80f, 2.04f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
+            // Rounds 32-36 (per request - "buff the AI another 5 rounds while
+            // keeping Max Verstappen level drivers a lot better than Lance
+            // Stroll level drivers"): +3% per round on the MEAN as usual, and
+            // the band is widened further still (0.24 -> 0.36) rather than
+            // shifted rigidly - the whole field gets faster AND the elite pull
+            // further clear of the backmarkers at the same time.
+            float driverPaceVariance = Mathf.Lerp(1.92f, 2.28f, paceNorm) * Mathf.Lerp(1.0f, 1.045f, racecraftNorm) * carPaceVariance;
             float cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, apexTargetSpeed, severityHere) * driverPaceVariance * profile.paceMultiplier;
             // Feasibility cap on the braking target: the driver/tier pace
             // multipliers used to inflate the corner-entry target past what the
@@ -1305,7 +1311,9 @@ namespace LocalFormulaRacing
             // Rounds 17-21: widened five more times (-> 1.24-1.51).
             // Rounds 22-26: widened five more times (-> 1.29-1.61).
             // Rounds 27-31: widened five more times (-> 1.34-1.71).
-            float feasibilityCap = Mathf.Lerp(1.34f, 1.71f, paceNorm);
+            // Rounds 32-36: widened five more times (-> 1.39-1.81), bottom
+            // moving less than the top so driver skill decides more of it.
+            float feasibilityCap = Mathf.Lerp(1.39f, 1.81f, paceNorm);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
                 apexTargetSpeed * feasibilityCap);
@@ -2385,6 +2393,23 @@ namespace LocalFormulaRacing
             else
             {
                 weatherMismatchSeconds = 0f;
+            }
+
+            // Mandatory-stop backstop (per report - "a lot of AI are just doing
+            // 0 stops which gives them a penalty... they shouldn't be doing 0
+            // stops at all"): every trigger above is gated on wear, grip, plan
+            // window or opportunity - on a short race (or with durable rubber)
+            // none of them ever fire, and the AI simply ate the +10s no-stop
+            // penalty. A car still owing its mandatory stop now boxes
+            // unconditionally once ~62% of the race is done (same >3-lap gate
+            // as PenaltyRules.ShouldApplyMandatoryPitPenalty; a 5-lap race
+            // boxes at the end of lap 4, a 50-lap race by lap 31 - normally the
+            // wear triggers have fired long before this).
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && !raceManager.IsTimeTrial &&
+                raceManager.RaceLaps > 3 && participant.pitStops == 0 &&
+                participant.lapTracker.CompletedLaps + 1 >= Mathf.Max(2, Mathf.CeilToInt(raceManager.RaceLaps * 0.62f)))
+            {
+                command.pitRequest = true;
             }
 
             // Never pit on the final lap (per request), whatever the tyre wear:
