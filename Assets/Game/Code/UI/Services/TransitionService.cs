@@ -35,6 +35,31 @@ namespace F1Game.UI.Services
             Fade(group, group.alpha, 0f, UiTheme.Active.motion.screen, onComplete);
         }
 
+        /// <summary>
+        /// Stops any in-flight fade on the group WITHOUT touching its alpha.
+        /// Wired to ScreenRouter.ExitTransition: a screen being hidden must not
+        /// have a still-running enter fade drag its alpha back up afterwards
+        /// (the boot-instantiation-pass bug that stacked every screen visible
+        /// with the dead Results overlay on top).
+        /// </summary>
+        public void CancelFade(CanvasGroup group)
+        {
+            if (group == null)
+            {
+                return;
+            }
+
+            if (running.TryGetValue(group, out Coroutine active))
+            {
+                if (active != null && coroutineHost != null)
+                {
+                    coroutineHost.StopCoroutine(active);
+                }
+
+                running.Remove(group);
+            }
+        }
+
         public void Fade(CanvasGroup group, float from, float to, float duration, Action onComplete = null)
         {
             if (group == null)

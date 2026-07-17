@@ -163,8 +163,13 @@ namespace F1Game.UI
             Tooltips = new TooltipService((RectTransform)tooltipGo.transform, tooltipText, tooltipGo.GetComponent<CanvasGroup>());
             Transitions = new TransitionService(this);
             // Navigation honours the theme's motion tokens (and reduced-motion)
-            // instead of hard-cutting between screens.
+            // instead of hard-cutting between screens. The exit hook cancels an
+            // outgoing screen's still-running enter fade - without it the fade
+            // kept writing alpha after SetVisible(false) and resurrected hidden
+            // screens (the boot pass stacked every screen visible, with the
+            // dead Results overlay on top of the main menu).
             Router.EnterTransition = view => Transitions.FadeIn(view.CanvasGroup);
+            Router.ExitTransition = view => Transitions.CancelFade(view.CanvasGroup);
             DevicePrompts = new DevicePromptService();
         }
 

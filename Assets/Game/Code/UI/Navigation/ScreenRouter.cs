@@ -32,6 +32,18 @@ namespace F1Game.UI.Navigation
         /// </summary>
         public Action<ScreenView> EnterTransition;
 
+        /// <summary>
+        /// Runs on the outgoing screen BEFORE it is hidden (wired by UiShell to
+        /// cancel any in-flight fade on that screen). Without this, a fade
+        /// started by EnterTransition kept running after SetVisible(false) and
+        /// raised the hidden screen's alpha back to 1 - during the boot
+        /// instantiation pass that resurrected every screen in the stack and
+        /// left the last one (Results) drawn on top of the main menu as a dead
+        /// overlay (per report - "why do i open up the game to this now? a
+        /// screen that doesn't work?").
+        /// </summary>
+        public Action<ScreenView> ExitTransition;
+
         public NavigationStack Stack => stack;
         public ScreenView Current => current;
         public string CurrentScreenId => current != null ? current.ScreenId : null;
@@ -97,6 +109,7 @@ namespace F1Game.UI.Navigation
             if (current != null)
             {
                 current.OnExited();
+                ExitTransition?.Invoke(current);
                 current.SetVisible(false);
             }
 
