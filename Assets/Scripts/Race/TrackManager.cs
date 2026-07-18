@@ -2350,11 +2350,10 @@ namespace LocalFormulaRacing
                 }
             }
 
-            if (adjusted > 0)
-            {
-                Debug.Log("[RoadSurfaceDiag] " + runtime.displayName + ": smoothed " + adjusted +
-                          " vertical kink adjustment(s) in the centreline (launch-bump prevention).");
-            }
+            // Always prints (a "didn't show up" report is indistinguishable
+            // from "had nothing to do" otherwise).
+            Debug.Log("[RoadSurfaceDiag] " + runtime.displayName + ": SmoothVerticalKinks made " + adjusted +
+                      " adjustment(s) (launch-bump prevention).");
         }
 
         // Pit-straight rotation ([FinalCornerDiag] root fix - "the outside of
@@ -2642,9 +2641,26 @@ namespace LocalFormulaRacing
             }
 
             int n = line.Count;
+            // Curvature-based gate (round 3 - [RoadSurfaceDiag] found 17
+            // heading kinks up to 78 degrees SURVIVING this pass on Belgium,
+            // including a 78+58 degree cusp pair six metres apart that read as
+            // the "final corner", broke its outside barriers, and produced the
+            // stuck/sudden-slow spots): the flat 85-degree threshold assumed
+            // this family's ~130m point spacing, where a genuine hairpin
+            // really does turn 45-65 degrees per point. But the repair and
+            // resampling passes leave stretches whose points sit only a few
+            // metres apart - and there, 78 degrees over 6m is a 4-metre turn
+            // radius, physically absurd for road or car, yet comfortably under
+            // the flat gate. The allowed angle now scales with the LOCAL
+            // segment length: the turn a minimum drivable radius (11m,
+            // tighter than any authored hairpin here) produces across this
+            // point's actual spacing - ~31 degrees at 6m spacing, the original
+            // 85-degree cap on coarse stretches (so legitimate coarse-spaced
+            // hairpins are untouched).
             const float maxAngleDegrees = 85f;
+            const float minDrivableRadius = 11f;
             int relaxedPoints = 0;
-            for (int pass = 0; pass < 30; pass++)
+            for (int pass = 0; pass < 60; pass++)
             {
                 bool anySharp = false;
                 for (int i = 0; i < n; i++)
@@ -2661,7 +2677,9 @@ namespace LocalFormulaRacing
                         continue;
                     }
 
-                    if (Vector3.Angle(inDir, outDir) <= maxAngleDegrees)
+                    float localSpacing = (inDir.magnitude + outDir.magnitude) * 0.5f;
+                    float allowedAngle = Mathf.Clamp(localSpacing / minDrivableRadius * Mathf.Rad2Deg, 12f, maxAngleDegrees);
+                    if (Vector3.Angle(inDir, outDir) <= allowedAngle)
                     {
                         continue;
                     }
@@ -2679,8 +2697,10 @@ namespace LocalFormulaRacing
 
             if (relaxedPoints > 0)
             {
-                GameLog.Warn("[TrackValidation] Relaxed " + relaxedPoints + " cusp/fold point(s) sharper than 85 degrees on " +
-                             runtime.displayName + " - a fold there renders the road collider as a wall across the corner.");
+                // Direct Debug logging - GameLog.Warn is Verbose-gated, which
+                // is why these repairs were never visible in the console.
+                Debug.LogWarning("[TrackValidation] Relaxed " + relaxedPoints + " cusp/fold point(s) beyond the local curvature limit on " +
+                                 runtime.displayName + " - a fold there renders the road collider as a wall across the corner.");
             }
         }
 
