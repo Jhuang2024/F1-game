@@ -1537,22 +1537,71 @@ namespace LocalFormulaRacing
                         participant.missedPitEntryCompletedLap = participant.lapTracker != null ? participant.lapTracker.CompletedLaps : 0;
                         vehicle.ClearPitRequest();
                         committingToPit = false;
+                        // Was completely silent - a whole field of cars can 0-stop
+                        // through this exact branch (see the pre-window envelope
+                        // comment below) without a single line of evidence.
+                        GameLog.Warn("[PitDiag] " + participant.driverName + " aborted pit entry (too late to brake): speed=" +
+                                     speedKph.ToString("0") + "kph metresToRamp=" + metresToRamp.ToString("0") +
+                                     "m requiredDecel=" + requiredDecel.ToString("0.0") + "m/s^2");
                     }
                 }
             }
 
-            if (committingToPit)
+            // 0-stop root fix (per report - "a lot of cars seemed like they
+            // were diving into the pits and just swerved off last second"):
+            // this envelope used to be gated on committingToPit, which only
+            // becomes true at the approach window (0.78) - the AI was FORBIDDEN
+            // from starting its pit braking any earlier. After the pace-buff
+            // rounds pushed straight-line speeds to 350-365 kph, the window
+            // itself became kinematically too short: from 360 kph, making the
+            // ramp needs ~13.4 m/s^2 at the very moment committingToPit first
+            // turns true, which is already OVER the 13 m/s^2 late-decision
+            // abort threshold below - so every fast car silently aborted the
+            // instant it committed, retried next lap at the same speed,
+            // aborted again, and finished on 0 stops with a penalty. The
+            // envelope now engages from the moment a pit request is LIVE,
+            // keyed purely on wrapped distance-to-ramp: far from the ramp it
+            // allows any speed (sqrt grows unbounded), so this changes nothing
+            // for most of the lap - it just means a car that already knows it
+            // is pitting begins its one normal 10 m/s^2 braking zone at the
+            // physically correct point, exactly like a real driver, instead of
+            // holding 360 into an approach it can no longer make. The abort
+            // check stays: it now only catches requests genuinely latched too
+            // late (mid-approach wear/strategy triggers), its original purpose.
+            bool pitEntryPlanned = participant.pitPhase == PitPhase.None && vehicle.PitRequested &&
+                                    !participant.missedPitEntryThisLap;
+            if (pitEntryPlanned)
             {
-                float metresToRamp = (track.PitEntryRampStartNormalized - progress.normalized) * track.length;
-                float envelopeDistance = Mathf.Max(0f, metresToRamp - PitApproachRampBufferMetres);
+                float rampStartDistance = track.PitEntryRampStartNormalized * track.length;
+                float rampWindowMetres = Mathf.Max(0f, (track.PitCorridorStartNormalized - track.PitEntryRampStartNormalized) * track.length);
+                float metresToRampWrapped = rampStartDistance - progress.distance;
+                if (metresToRampWrapped < 0f && metresToRampWrapped >= -(rampWindowMetres + 30f))
+                {
+                    // Physically at/inside the ramp opening while still lining up
+                    // the commit - hold the entry target speed (the old in-window
+                    // code's behaviour), don't wrap to "next lap's ramp" and
+                    // release the cap right at the ramp mouth.
+                    metresToRampWrapped = 0f;
+                }
+                else if (metresToRampWrapped < 0f)
+                {
+                    metresToRampWrapped += track.length;
+                }
+
+                float envelopeDistance = Mathf.Max(0f, metresToRampWrapped - PitApproachRampBufferMetres);
                 float pitTargetMs = PitApproachTargetSpeedKph / 3.6f;
                 float pitEnvelopeKph = Mathf.Sqrt(pitTargetMs * pitTargetMs + 2f * PitApproachBrakeDecelMs2 * envelopeDistance) * 3.6f;
                 // Queue behind any pit-bound car ahead (per report - cars
                 // "overtake each other while being in animation"): the shared
                 // headway cap the player assist also obeys, so an AI arriving
                 // at racing pace follows the queue instead of driving past or
-                // through a slower car already committed ahead of it.
-                pitEnvelopeKph = Mathf.Min(pitEnvelopeKph, raceManager.PitApproachHeadwayCapKph(participant));
+                // through a slower car already committed ahead of it. Only
+                // applied near the approach itself - a pit-bound car 80m ahead
+                // on the back straight is just racing traffic, not a pit queue.
+                if (metresToRampWrapped < 480f)
+                {
+                    pitEnvelopeKph = Mathf.Min(pitEnvelopeKph, raceManager.PitApproachHeadwayCapKph(participant));
+                }
                 cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, pitEnvelopeKph);
                 brakingApexSpeed = Mathf.Min(brakingApexSpeed, pitEnvelopeKph);
             }
