@@ -2897,7 +2897,17 @@ namespace LocalFormulaRacing
             // so authored hairpins at the original ~130m spacing are untouched.
             float minDrivableRadius = Mathf.Max(11f, runtime.roadHalfWidth + 12f);
             int relaxedPoints = 0;
-            for (int pass = 0; pass < 60; pass++)
+            // Round 5 (Italy final-hairpin table - curvature still 149-174 deg
+            // at the apex, i.e. a ~10m radius, despite this pass): the allowed
+            // angle had a 12-degree FLOOR, and the smoothing passes bunch
+            // points tightly at high curvature - at ~2m local spacing even a
+            // 10m radius only turns ~11 degrees per point, sliding UNDER the
+            // floor and hiding the fold from the gate entirely. The allowed
+            // angle is now purely spacing-proportional (radius is radius, at
+            // any sampling density); pass budget raised so deep authored
+            // hairpins genuinely converge to the drivable-radius floor instead
+            // of stopping partway.
+            for (int pass = 0; pass < 240; pass++)
             {
                 bool anySharp = false;
                 for (int i = 0; i < n; i++)
@@ -2915,7 +2925,7 @@ namespace LocalFormulaRacing
                     }
 
                     float localSpacing = (inDir.magnitude + outDir.magnitude) * 0.5f;
-                    float allowedAngle = Mathf.Clamp(localSpacing / minDrivableRadius * Mathf.Rad2Deg, 12f, maxAngleDegrees);
+                    float allowedAngle = Mathf.Min(localSpacing / minDrivableRadius * Mathf.Rad2Deg, maxAngleDegrees);
                     if (Vector3.Angle(inDir, outDir) <= allowedAngle)
                     {
                         continue;
@@ -2938,6 +2948,45 @@ namespace LocalFormulaRacing
                 // is why these repairs were never visible in the console.
                 Debug.LogWarning("[TrackValidation] Relaxed " + relaxedPoints + " cusp/fold point(s) beyond the local curvature limit on " +
                                  runtime.displayName + " - a fold there renders the road collider as a wall across the corner.");
+            }
+
+            // Convergence audit (round 5): partial convergence is how the
+            // Italy hairpin kept a ~10m radius through 60 silent passes -
+            // never trust the loop finished, verify and SAY so.
+            int unconverged = 0;
+            float worstRadius = float.MaxValue;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 previous = line[(i - 1 + n) % n];
+                Vector3 current = line[i];
+                Vector3 next = line[(i + 1) % n];
+                Vector3 inDir = current - previous;
+                Vector3 outDir = next - current;
+                inDir.y = 0f;
+                outDir.y = 0f;
+                if (inDir.sqrMagnitude < 0.25f || outDir.sqrMagnitude < 0.25f)
+                {
+                    continue;
+                }
+
+                float spacing = (inDir.magnitude + outDir.magnitude) * 0.5f;
+                float angleRad = Vector3.Angle(inDir, outDir) * Mathf.Deg2Rad;
+                if (angleRad > 0.001f)
+                {
+                    float radius = spacing / angleRad;
+                    if (radius < minDrivableRadius - 1f)
+                    {
+                        unconverged++;
+                        worstRadius = Mathf.Min(worstRadius, radius);
+                    }
+                }
+            }
+
+            if (unconverged > 0)
+            {
+                Debug.LogWarning("[TrackValidation] Cusp relaxation did NOT fully converge on " + runtime.displayName + ": " +
+                                 unconverged + " point(s) still tighter than the " + minDrivableRadius.ToString("0") +
+                                 "m drivable-radius floor (worst ~" + worstRadius.ToString("0.0") + "m).");
             }
         }
 
@@ -12652,13 +12701,20 @@ namespace LocalFormulaRacing
                 }
 
                 bool hole = nearest == null || nearestDist > 10f;
+                // SEAM class (Italy report - "there's a hole there" in a table
+                // this diag called clean): barrier segments are ~8-10m long, so
+                // a sample can never legitimately sit more than ~5m from the
+                // nearest segment CENTRE - a 6m+ reading means a segment-sized
+                // opening even though it's under the 10m HOLE bar.
+                bool seam = !hole && nearestDist > 5.2f;
                 bool jump = !hole && !float.IsNaN(prevLateral) && Mathf.Abs(obsLateral - prevLateral) > 4f;
                 bool pileUp = crowd >= 5;
                 if (hole) holes++;
+                if (seam) holes++;
                 if (jump) jumps++;
                 if (pileUp) pileUps++;
 
-                string flag = hole ? " <HOLE>" : jump ? " <JUMP>" : pileUp ? " <PILE:" + crowd + ">" : "";
+                string flag = hole ? " <HOLE>" : seam ? " <SEAM>" : jump ? " <JUMP>" : pileUp ? " <PILE:" + crowd + ">" : "";
                 string standing = nearest == null
                     ? "NONE within range"
                     : nearest.obstacleType + " dist=" + nearestDist.ToString("0.0") + " lat=" + obsLateral.ToString("0.0");

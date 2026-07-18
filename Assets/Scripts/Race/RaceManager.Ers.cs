@@ -29,6 +29,33 @@ namespace LocalFormulaRacing
         public bool ShouldAiUseErs(RaceParticipant participant, float cornerSeverity)
         {
             bool deploy = ShouldAiUseErsInternal(participant, cornerSeverity);
+            if (participant != null && participant.vehicle != null)
+            {
+                // Strategy-dial parity (see VehicleController's AI mode block):
+                // run the same Harvest/Balanced/Attack dial the player has,
+                // with the policy a competent player uses - Attack in a live
+                // fight or the closing stages (harder punch when it matters),
+                // Harvest when the battery is low with nothing on (bank
+                // charge), Balanced otherwise. Same multiplier values as the
+                // player's settings dial.
+                float modeBattery = participant.vehicle.ErsBattery;
+                bool fight = GetIntervalToAheadSeconds(participant) < 1.6f || FindCarBehind(participant, 70f) != null;
+                bool closingStagesMode = CurrentSession != RaceWeekendSession.Qualifying && participant.lapTracker != null &&
+                                         participant.lapTracker.CompletedLaps >= RaceLaps - 2;
+                if (fight || closingStagesMode)
+                {
+                    participant.vehicle.SetAiErsMode(0.8f, 1.2f);
+                }
+                else if (modeBattery < 0.35f)
+                {
+                    participant.vehicle.SetAiErsMode(1.9f, 0.82f);
+                }
+                else
+                {
+                    participant.vehicle.SetAiErsMode(1f, 1f);
+                }
+            }
+
             if (participant != null && participant.vehicle != null && CurrentSession != RaceWeekendSession.Qualifying)
             {
                 ersDiagSamples++;

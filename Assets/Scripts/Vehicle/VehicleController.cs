@@ -504,6 +504,18 @@ namespace LocalFormulaRacing
             PitRequested = false;
         }
 
+        // AI ERS strategy dial (see the mode block in ApplyForces): the same
+        // Harvest/Balanced/Attack multipliers the player's settings dial maps
+        // to, driven for AI by RaceManager's ERS brain. Defaults to neutral.
+        float aiHarvestModeMultiplier = 1f;
+        float aiDeployModeMultiplier = 1f;
+
+        public void SetAiErsMode(float harvestMultiplier, float deployMultiplier)
+        {
+            aiHarvestModeMultiplier = harvestMultiplier;
+            aiDeployModeMultiplier = deployMultiplier;
+        }
+
         // Automatic pit stop fix: lets RaceManager latch a pit request directly
         // (e.g. the player's pre-race strategy plan reaching its target lap
         // without them pressing the manual pit key) without going through
@@ -1219,6 +1231,20 @@ namespace LocalFormulaRacing
                     harvestModeMultiplier = 0.8f;
                     deployModeMultiplier = 1.2f;
                 }
+            }
+            else if (!IsPlayerControlled)
+            {
+                // ERS strategy-dial parity (per report - "i dont know if the AI
+                // ERS even gives the same speed boost it does for me"): the
+                // boost FORMULA was always identical, but the player's mode
+                // dial (Attack = 1.2x punch, Harvest = 1.9x recharge) was
+                // player-only - AI were pinned to the neutral multipliers, so
+                // an Attack-mode player genuinely out-boosted every AI on
+                // every deploy. RaceManager's AI ERS brain now drives the same
+                // dial (SetAiErsMode) with a competent policy; identical
+                // multiplier values, identical formula.
+                harvestModeMultiplier = aiHarvestModeMultiplier;
+                deployModeMultiplier = aiDeployModeMultiplier;
             }
 
             float ersBoost = 0f;
