@@ -513,6 +513,16 @@ namespace LocalFormulaRacing
         // [PitDiag] wall-contact telemetry rate limit (see ProcessDamageCollision).
         float lastPitWallHitLogTime;
 
+        // [PitDiag] pit-assist frame stamp: RaceManager's pit-entry assist writes
+        // its live internal state here every frame it steers this car, so the
+        // wall-hit telemetry below can say definitively whether the assist was
+        // in control at the moment of impact (and with what internal progress/
+        // steer/envelope) - vs. the player driving unassisted. Disambiguates
+        // "the assist steered me into this wall" from "I crashed here on my own
+        // while a pit stop happened to be latched".
+        public string PitAssistDebug = "";
+        public float PitAssistDebugTime = -999f;
+
         public void SetAiErsMode(float harvestMultiplier, float deployMultiplier)
         {
             aiHarvestModeMultiplier = harvestMultiplier;
@@ -2056,15 +2066,31 @@ namespace LocalFormulaRacing
                 {
                     lastPitWallHitLogTime = Time.time;
                     TrackProgress hitProgress = Track != null ? Track.GetProgress(transform.position) : new TrackProgress();
+                    // Elevation mismatch between the car and the matched
+                    // centreline point: near a flyover crossing the two track
+                    // legs overlap in XZ, and a nearest-point match snapping to
+                    // the WRONG leg reports a wildly wrong norm - a |dy| of
+                    // several metres here proves that misattribution.
+                    float dy = 0f;
+                    if (Track != null)
+                    {
+                        Vector3 matchedPoint, matchedForward, matchedRight;
+                        Track.SampleAtDistance(hitProgress.distance, out matchedPoint, out matchedForward, out matchedRight);
+                        dy = transform.position.y - matchedPoint.y;
+                    }
+
+                    bool assistLive = Time.time - PitAssistDebugTime < 0.25f;
                     Debug.LogWarning("[PitDiag] PLAYER WALL HIT while pit-bound: obj=" + objectName +
                                      " norm=" + hitProgress.normalized.ToString("0.000") +
                                      " lateral=" + hitProgress.lateralDistance.ToString("0.0") +
                                      " halfW=" + (Track != null ? Track.HalfWidthAt(hitProgress.distance).ToString("0.0") : "?") +
+                                     " dy=" + dy.ToString("0.0") +
                                      " speed=" + (body.velocity.magnitude * 3.6f).ToString("0") + "kph" +
                                      " impact=" + normalSpeedKph.ToString("0") + "kph" +
                                      " steer=" + LastSteerInput.ToString("0.00") +
                                      " limiter=" + PitLimiterActive +
-                                     " sustained=" + sustained);
+                                     " sustained=" + sustained +
+                                     " assist=" + (assistLive ? "[" + PitAssistDebug + "]" : "inactive"));
                 }
             }
 

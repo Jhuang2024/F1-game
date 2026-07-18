@@ -404,6 +404,18 @@ namespace LocalFormulaRacing
             command.steer = pitAssistSmoothedSteer;
             command.ers = false;
             command.drs = false;
+
+            // [PitDiag] stamp the assist's live internal state onto the vehicle
+            // every steered frame, so a wall-hit log can prove whether the
+            // assist was in control at impact and what it was commanding (the
+            // hit log's own nearest-point norm can mis-match a crossing leg -
+            // this records the progress the assist actually steered by).
+            participant.vehicle.PitAssistDebug = "norm=" + progress.normalized.ToString("0.000") +
+                " steer=" + pitAssistSmoothedSteer.ToString("0.00") +
+                " envKph=" + envelopeKph.ToString("0") +
+                " blend=" + prePositionBlend.ToString("0.00") +
+                " guard=" + pressGuardActive;
+            participant.vehicle.PitAssistDebugTime = Time.time;
             return command;
         }
 
