@@ -1430,6 +1430,38 @@ namespace LocalFormulaRacing
                 paceCapRecoveryBoostTimer -= Time.deltaTime;
             }
 
+            // Tight-corner physics ceiling (per report - "cars cant turn
+            // enough on the final turn of belgium which sends them into the
+            // wall"): the corner-speed buckets are severity-classified, and a
+            // near-hairpin that measures just under the 168-degree Hairpin
+            // threshold lands in VeryTight - a near-straight-line-speed tier.
+            // But speed through a bend is bounded by GEOMETRY: v = sqrt(a*r).
+            // The relaxed final corner has a ~26-30m radius; no classification
+            // bucket may target a speed the measured radius cannot physically
+            // support, or the car simply understeers into the outside wall
+            // exactly as reported. Applied ONLY to genuinely tight geometry
+            // (radius under ~61m, i.e. >30 degrees of heading change across
+            // the 32m sampling baseline) with a generous 30 m/s^2 lateral
+            // budget, so flowing/medium corners and their tuned bucket speeds
+            // are completely untouched. Difficulty-independent, machinery-fair
+            // (it is the corner's radius, identical for everyone).
+            const float TightCornerLateralBudgetMs2 = 30f;
+            float apexLocalHeading = LocalHeadingChange(progress.distance + apexDistanceAhead);
+            if (apexLocalHeading > 30f)
+            {
+                float apexRadius = 32f / (apexLocalHeading * Mathf.Deg2Rad);
+                float radiusCapKph = Mathf.Sqrt(TightCornerLateralBudgetMs2 * apexRadius) * 3.6f;
+                brakingApexSpeed = Mathf.Min(brakingApexSpeed, radiusCapKph);
+            }
+
+            float hereLocalHeading = LocalHeadingChange(progress.distance);
+            if (hereLocalHeading > 30f)
+            {
+                float hereRadius = 32f / (hereLocalHeading * Mathf.Deg2Rad);
+                float hereCapKph = Mathf.Sqrt(TightCornerLateralBudgetMs2 * hereRadius) * 3.6f;
+                cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, hereCapKph);
+            }
+
             UpdateMistake(consistency, aggression, profile);
             UpdateOvertakeState(progress, severityHere, apexDistanceAhead, apexSeverity, turnSign, aggression, overtaking, defending, profile, isExpert, driver);
 

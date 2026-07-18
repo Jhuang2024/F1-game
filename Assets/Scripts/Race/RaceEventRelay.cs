@@ -339,8 +339,15 @@ namespace LocalFormulaRacing
             mapRangeZ *= 1f + margin * 2f;
 
             // Subsample the centerline down to the outline budget.
+            // Truncation fix (per report - wrong map shape): step used integer
+            // FLOOR division (count/budget), so a subdivided ~730-point line
+            // with a 128-point budget produced 146 candidate samples, hit the
+            // budget cap early, and silently DROPPED the last ~12% of the lap
+            // - the published outline was missing its whole final sector and
+            // the UI closed the hole with a straight chord. Ceil guarantees
+            // the stride always spans the entire loop within budget.
             int budget = Mathf.Min(line.Count, F1Game.Core.HudTrackMap.MaxOutline);
-            int step = Mathf.Max(1, line.Count / budget);
+            int step = Mathf.Max(1, Mathf.CeilToInt(line.Count / (float)budget));
             int n = 0;
             for (int i = 0; i < line.Count && n < F1Game.Core.HudTrackMap.MaxOutline; i += step)
             {
@@ -351,6 +358,15 @@ namespace LocalFormulaRacing
             }
 
             F1Game.Core.HudTrackMap.PublishOutline(outlineScratch, n);
+
+            // [MapDiag] - relocated to the map that is ACTUALLY displayed: the
+            // production UI draws this relay-published outline, not
+            // RaceHud.BuildTrackMap (whose earlier [MapDiag] therefore never
+            // printed). States exactly what was published, from which runtime.
+            Debug.LogWarning("[MapDiag] published outline for '" + race.Track.displayName + "' (id=" + race.Track.trackId +
+                             "): centreline=" + line.Count + " points, outline=" + n + " samples (step " + step +
+                             "), boundsXZ=(" + mapMinX.ToString("0") + "," + mapMinZ.ToString("0") +
+                             ") range=(" + mapRangeX.ToString("0") + "," + mapRangeZ.ToString("0") + ")");
         }
 
         // Second line of the production race-control banner: the red-flag

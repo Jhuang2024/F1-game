@@ -3835,7 +3835,17 @@ namespace LocalFormulaRacing
             }
 
             bool rain = wetTrack;
-            roadMaterial = CreateMaterial("Runtime Road", rain ? new Color(0.045f, 0.052f, 0.06f) : new Color(0.075f, 0.078f, 0.083f), 0.04f, rain ? 0.86f : 0.62f);
+            // Dry smoothness raised 0.62 -> 0.8 (per report - "the start finish
+            // straight has a very pretty reflective track... but none of the
+            // rest of the track has it"): the material was ALWAYS uniform -
+            // what made only the pit straight read as reflective is that the
+            // pit-grounding pass flattens that span perfectly, so its planar
+            // surface returns a crisp specular, while the rest of the lap's
+            // procedural elevation/camber scatters the highlight into matte.
+            // Higher gloss keeps the reflection readable on curved geometry
+            // too, so the whole lap gets the look; rain still sits above at
+            // 0.86 so a wet track remains visibly glossier than a dry one.
+            roadMaterial = CreateMaterial("Runtime Road", rain ? new Color(0.045f, 0.052f, 0.06f) : new Color(0.075f, 0.078f, 0.083f), 0.04f, rain ? 0.86f : 0.8f);
 
             // Procedural asphalt grain: a tiling noise texture breaks up the flat
             // road color so the surface reads as tarmac instead of vinyl.
