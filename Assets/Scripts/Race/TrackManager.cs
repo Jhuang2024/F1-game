@@ -1363,6 +1363,16 @@ namespace LocalFormulaRacing
         // it used to correctly catch as hairpin-grade.
         const float HairpinWindowSpanMeters = 87.5f;
 
+        // Per-point curvature radius, precomputed alongside the hairpin scan and
+        // consumed by HalfWidthAt's width-vs-radius cap (Italy hairpin report -
+        // "its very tight which is fine, but i dont even know where to go"):
+        // widening a corner whose half-width approaches its own centreline
+        // radius collapses the inner island to nothing and the corner becomes a
+        // shapeless paved bulb (Italy: 27.8m half-width on a ~28m radius =
+        // 0.2m of island). Box-smoothed so the resulting width cap changes
+        // gradually, never as a step.
+        float[] curvatureRadius;
+
         public void RecalculateHairpinWidening()
         {
             hairpinCenters.Clear();
@@ -1370,6 +1380,36 @@ namespace LocalFormulaRacing
             if (count < 4)
             {
                 return;
+            }
+
+            curvatureRadius = new float[count];
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 previous = centerLine[(i - 1 + count) % count];
+                Vector3 current = centerLine[i];
+                Vector3 next = centerLine[(i + 1) % count];
+                Vector3 inDir = current - previous;
+                Vector3 outDir = next - current;
+                inDir.y = 0f;
+                outDir.y = 0f;
+                float spacing = (inDir.magnitude + outDir.magnitude) * 0.5f;
+                float angleRad = Vector3.Angle(inDir, outDir) * Mathf.Deg2Rad;
+                curvatureRadius[i] = spacing > 0.25f && angleRad > 0.002f
+                    ? Mathf.Clamp(spacing / angleRad, 5f, 9999f)
+                    : 9999f;
+            }
+
+            for (int pass = 0; pass < 6; pass++)
+            {
+                float previousValue = curvatureRadius[count - 1];
+                float firstValue = curvatureRadius[0];
+                for (int i = 0; i < count; i++)
+                {
+                    float nextValue = i + 1 < count ? curvatureRadius[i + 1] : firstValue;
+                    float currentValue = curvatureRadius[i];
+                    curvatureRadius[i] = currentValue * 0.5f + (previousValue + nextValue) * 0.25f;
+                    previousValue = currentValue;
+                }
             }
 
             for (int i = 0; i < count; i++)
@@ -1451,7 +1491,21 @@ namespace LocalFormulaRacing
                 baseHalfWidth = Mathf.Lerp(authoredHalfWidthProfile[index], authoredHalfWidthProfile[next], t - Mathf.Floor(t));
             }
 
-            return baseHalfWidth + HairpinWidthBonus(distance);
+            float halfWidth = baseHalfWidth + HairpinWidthBonus(distance);
+
+            // Width-vs-radius cap (see curvatureRadius): the road may never be
+            // wider than the local turn radius supports - the inner island
+            // between a hairpin's legs must survive. Total half-width is held
+            // at least 7m inside the centreline radius (floor of 8m half-width
+            // so nothing pinches absurdly); real circuits NARROW at hairpins,
+            // and this is exactly that behaviour emerging from geometry.
+            if (curvatureRadius != null && curvatureRadius.Length == centerLine.Count && length > 0f)
+            {
+                int radiusIndex = Mathf.Clamp(Mathf.FloorToInt(Mathf.Repeat(distance / length, 1f) * curvatureRadius.Length), 0, curvatureRadius.Length - 1);
+                halfWidth = Mathf.Min(halfWidth, Mathf.Max(8f, curvatureRadius[radiusIndex] - 7f));
+            }
+
+            return halfWidth;
         }
 
         // Procedural per-section width variation for the hand-authored layouts,
@@ -11389,19 +11443,51 @@ namespace LocalFormulaRacing
             // STILL can't clear (a tight loop with track on both sides, e.g. a
             // final-corner complex) is skipped outright rather than built
             // overhanging the racing surface.
+            // Tier-geometry fix (per report - "the grandstands ARE STILL TOO
+            // SMALL"): the earlier scale passes multiplied length and row COUNT
+            // but kept each row's rise/depth at the original 0.62m/1.15m, so
+            // stands grew long without growing tall - an 18-tier stand still
+            // only reached a ~13m roof line. The per-row rise and depth now
+            // scale with the stand too (up to 1.5x at scale 4+), so a 4x stand
+            // is 24 tiers, ~88m of seating and a ~23m roof line - real main-
+            // grandstand mass. rows=6/scale=1 still reproduces the original
+            // stand exactly.
+            // (Computed BEFORE the clearance loop now - the stand's DEPTH is
+            // part of its footprint and the probes below need it.)
+            int rows = Mathf.Clamp(Mathf.RoundToInt(6f * scale), 6, 24);
+            float standLength = 22f * scale;
+            float standRowStepScale = Mathf.Lerp(1f, 1.5f, Mathf.Clamp01((scale - 1f) / 3f));
+            float standDepth = rows * 1.15f * standRowStepScale * 1.1f;
+
             float probeHalfLength = 22f * scale * 0.5f;
             bool standClear = false;
             for (int attempt = 0; attempt < 5 && !standClear; attempt++)
             {
                 float worstDeficit = 0f;
+                // Full-footprint probe grid (per report - "there are still
+                // very much grandstands covering the track"): the old probes
+                // only walked the stand's FRONT line, but a 4x stand extends
+                // ~40m of tiers BEHIND that line - and the clearance push
+                // moves it further backward still. On any layout with a
+                // second leg running behind the stand (parallel straights,
+                // hairpin complexes), the front cleared its anchor leg while
+                // the tiers landed square on the other leg. Probes now cover
+                // front, mid-depth and the back/roof line; a deficit on the
+                // BACK naturally fails the push loop (pushing away from the
+                // anchor leg digs the back in deeper) and the stand is
+                // correctly skipped instead of built across the road.
                 for (int probe = -2; probe <= 2; probe++)
                 {
-                    Vector3 probePoint = basePosition + forward * (probe * probeHalfLength * 0.5f);
-                    TrackProgress probeProgress = Runtime.GetProgress(probePoint);
-                    float clearance = Mathf.Abs(probeProgress.lateralDistance) - (Runtime.HalfWidthAt(probeProgress.distance) + 12f);
-                    if (clearance < 0f)
+                    for (int depthStep = 0; depthStep <= 2; depthStep++)
                     {
-                        worstDeficit = Mathf.Max(worstDeficit, -clearance);
+                        Vector3 probePoint = basePosition + forward * (probe * probeHalfLength * 0.5f) +
+                                             lateral * (standDepth * 0.55f * depthStep);
+                        TrackProgress probeProgress = Runtime.GetProgress(probePoint);
+                        float clearance = Mathf.Abs(probeProgress.lateralDistance) - (Runtime.HalfWidthAt(probeProgress.distance) + 12f);
+                        if (clearance < 0f)
+                        {
+                            worstDeficit = Mathf.Max(worstDeficit, -clearance);
+                        }
                     }
                 }
 
@@ -11418,18 +11504,6 @@ namespace LocalFormulaRacing
             {
                 return;
             }
-
-            // Tier-geometry fix (per report - "the grandstands ARE STILL TOO
-            // SMALL"): the earlier scale passes multiplied length and row COUNT
-            // but kept each row's rise/depth at the original 0.62m/1.15m, so
-            // stands grew long without growing tall - an 18-tier stand still
-            // only reached a ~13m roof line. The per-row rise and depth now
-            // scale with the stand too (up to 1.5x at scale 4+), so a 4x stand
-            // is 24 tiers, ~88m of seating and a ~23m roof line - real main-
-            // grandstand mass. rows=6/scale=1 still reproduces the original
-            // stand exactly.
-            int rows = Mathf.Clamp(Mathf.RoundToInt(6f * scale), 6, 24);
-            float standLength = 22f * scale;
             // Record the stand's footprint so tree passes never plant inside it
             // (half the length plus an 10m margin, in normalized lap units).
             grandstandSpans.Add(new Vector3(normalizedDistance, side, (standLength * 0.5f + 10f) / Mathf.Max(1f, Runtime.length)));
@@ -12163,9 +12237,17 @@ namespace LocalFormulaRacing
 
             if (!clear)
             {
-                GameLog.Warn("[TrackValidation] Rejected solid obstacle placement (" + obstacleType + ") at " + candidate +
-                             " on " + Runtime.displayName + " - footprint intruded into a drivable corridor. Kept visual-only, no collider.");
-                MakeVisualOnly(obstacle);
+                // Ghost-barrier fix (Italy report - "theres a barrier thats
+                // supposed to be the two sides of the hairpin but that barrier
+                // doesnt even work; you can go right between it"): a rejected
+                // wall used to be KEPT as visual-only geometry - a phantom
+                // barrier the player sees, steers around (or aims at), and
+                // then sails straight through. A wall whose footprint sits in
+                // a drivable corridor must not exist AT ALL: misleading
+                // scenery in the driving line is strictly worse than nothing.
+                Debug.LogWarning("[TrackValidation] Rejected solid obstacle placement (" + obstacleType + ") at " + candidate +
+                                 " on " + Runtime.displayName + " - footprint intruded into a drivable corridor. Object destroyed (no ghost walls).");
+                Destroy(obstacle);
                 return false;
             }
 
