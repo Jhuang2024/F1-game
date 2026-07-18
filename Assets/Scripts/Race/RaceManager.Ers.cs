@@ -146,9 +146,20 @@ namespace LocalFormulaRacing
             // Part A.4: Expert's defend trigger is far more sensitive - a chasing car
             // with DRS, a healthily-charged battery, or simply closing fast all count
             // as a real threat, not only a comfortably-charged battery alone.
-            bool closingFast = isExpert && behind != null && behind.vehicle != null &&
-                (Mathf.Abs(behind.vehicle.CurrentSpeedKph) - Mathf.Abs(participant.vehicle.CurrentSpeedKph)) > 6f;
-            float defendBatteryThreshold = isExpert ? 0.15f : 0.32f;
+            // Defend-deploy round 2 (per request - "make it so that AI use ERS
+            // when defending as well"): the closing-attacker detection was
+            // Expert-ONLY, and the non-Expert battery threshold (0.32) meant
+            // lower tiers mostly ignored a live attack unless the attacker had
+            // DRS. Every tier now reacts to a genuinely closing car, with the
+            // detection threshold scaled by ERS craft (a sharp driver responds
+            // to a ~4kph closure, a weak one only notices a ~10kph rush), and
+            // the defend battery bar is low enough that banked charge (see the
+            // economy fix) actually gets spent on the defence it was banked
+            // for. Skill still decides the final call via the ersQuality roll
+            // below - Expert stays deterministic.
+            bool closingFast = behind != null && behind.vehicle != null &&
+                (Mathf.Abs(behind.vehicle.CurrentSpeedKph) - Mathf.Abs(participant.vehicle.CurrentSpeedKph)) > Mathf.Lerp(10f, 4f, ersQuality);
+            float defendBatteryThreshold = isExpert ? 0.15f : 0.22f;
             bool defending = behind != null && (battery > defendBatteryThreshold || behindHasDrs || closingFast);
 
             if (!attacking && !defending)
