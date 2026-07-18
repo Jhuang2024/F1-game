@@ -2658,7 +2658,20 @@ namespace LocalFormulaRacing
             // 85-degree cap on coarse stretches (so legitimate coarse-spaced
             // hairpins are untouched).
             const float maxAngleDegrees = 85f;
-            const float minDrivableRadius = 11f;
+            // Round 4 (Belgium screenshot + clean-wall table): the 11m floor
+            // stopped CUSPS but the fold threshold isn't set by what a car can
+            // steer - it's set by the ROAD'S OWN WIDTH. The final-corner scan
+            // showed a ~12m-radius apex with the half-width widened to ~21m:
+            // a strip that wide swept around a radius smaller than itself
+            // physically folds over on the inside - self-overlapping mesh,
+            // kerbs scattered mid-tarmac, and the folded collider standing as
+            // a wall across the road (the recovered-car / lap-1 pile-up shot).
+            // The radius floor is therefore the base half-width plus enough
+            // margin to cover hairpin widening and a real inner lane:
+            // centreline radius must always exceed the widest the road can be
+            // there. Coarse-spaced points still hit the 85-degree cap first,
+            // so authored hairpins at the original ~130m spacing are untouched.
+            float minDrivableRadius = Mathf.Max(11f, runtime.roadHalfWidth + 12f);
             int relaxedPoints = 0;
             for (int pass = 0; pass < 60; pass++)
             {
