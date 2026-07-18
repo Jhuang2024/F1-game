@@ -215,6 +215,20 @@ namespace LocalFormulaRacing
         float overtakeStateTimer;
         float attackSide = 1f;
 
+        // [SwerveDiag] state - detects the reported AI "swerving"/shimmy by
+        // counting steering/offset sign reversals while on a STRAIGHT (where a
+        // reversal cannot be justified by the corner, so it is unambiguously a
+        // weave). When a car crosses the threshold it logs which component is
+        // oscillating (the racing-line bias, the overtake offset, the traffic
+        // nudge, or the raw steer) plus the overtake-state churn, so the cause
+        // is named rather than guessed. Per-instance, so each AI tracks itself.
+        int swerveSteerSign, swerveAggSign, swerveAdjustSign, swerveLineSign;
+        int swerveSteerRev, swerveAggRev, swerveAdjustRev, swerveLineRev;
+        int swerveStateChanges;
+        OvertakeState swervePrevState = OvertakeState.Following;
+        float swerveWindowStart;
+        float swerveLastLogTime;
+
         // Stuck-recovery maneuver (Part 2/3): only engages while RaceManager's own
         // recovery-state classification says this car is Recovering or already
         // ActuallyStranded - never while merely Queued/PitSequence/RaceControlPacing,
@@ -2727,6 +2741,7 @@ namespace LocalFormulaRacing
                 command.steer = Mathf.Clamp(command.steer, -steerCap, steerCap);
             }
 
+            DiagnoseSwerve(progress, severityHere, lineBias, command.steer);
             vehicle.SetCommand(command);
         }
 
@@ -3572,6 +3587,80 @@ namespace LocalFormulaRacing
             // out of a detection window.
             smoothedSteerAdjust = Mathf.MoveTowards(smoothedSteerAdjust, steerAdjust, Time.deltaTime * 4f);
             command.steer = Mathf.Clamp(command.steer + smoothedSteerAdjust, -1f, 1f);
+        }
+
+        // [SwerveDiag] (per report - AI "swerving", predates and is unrelated to
+        // the ERS work). Counts sign reversals of the steering and each lateral
+        // component while the car is on a STRAIGHT (severity < 0.15) - on a
+        // straight there is no corner to justify a reversal, so a run of them IS
+        // the weave. When the raw steer reverses 3+ times inside a 2s window it
+        // logs the per-component reversal counts and the overtake-state churn, so
+        // the paste names which input is oscillating: lineBias (racing line),
+        // aggressionOffset (overtake positioning), smoothedSteerAdjust (traffic
+        // nudge), or the base steer alone (pursuit controller). Debug.LogWarning
+        // (not GameLog, which is verbosity-gated).
+        void DiagnoseSwerve(TrackProgress progress, float severityHere, float lineBias, float finalSteer)
+        {
+            if (raceManager == null || raceManager.CurrentSession == RaceWeekendSession.Qualifying)
+            {
+                return;
+            }
+
+            // Reset the 2s counting window.
+            if (Time.time - swerveWindowStart > 2f)
+            {
+                swerveWindowStart = Time.time;
+                swerveSteerRev = 0;
+                swerveAggRev = 0;
+                swerveAdjustRev = 0;
+                swerveLineRev = 0;
+                swerveStateChanges = 0;
+            }
+
+            if (overtakeState != swervePrevState)
+            {
+                swerveStateChanges++;
+                swervePrevState = overtakeState;
+            }
+
+            // Only score reversals on a straight - a corner legitimately reverses
+            // steering/line, and that is not the swerve being reported.
+            if (severityHere < 0.15f)
+            {
+                swerveSteerRev += CountReversal(finalSteer, 0.045f, ref swerveSteerSign);
+                swerveAggRev += CountReversal(aggressionOffset, 0.35f, ref swerveAggSign);
+                swerveAdjustRev += CountReversal(smoothedSteerAdjust, 0.05f, ref swerveAdjustSign);
+                swerveLineRev += CountReversal(lineBias, 0.6f, ref swerveLineSign);
+            }
+
+            if (swerveSteerRev >= 3 && Time.time - swerveLastLogTime > 3f)
+            {
+                swerveLastLogTime = Time.time;
+                string who = participant != null && participant.driverData != null ? participant.driverData.displayName : "AI";
+                Debug.LogWarning("[SwerveDiag] " + who + " weaving on a straight (norm " + progress.normalized.ToString("0.00") +
+                    ") - reversals/2s: steer=" + swerveSteerRev + " lineBias=" + swerveLineRev +
+                    " overtakeOffset=" + swerveAggRev + " trafficNudge=" + swerveAdjustRev +
+                    " | overtakeStateChanges=" + swerveStateChanges + " state=" + overtakeState +
+                    " | now steer=" + finalSteer.ToString("0.00") + " lineBias=" + lineBias.ToString("0.00") +
+                    " agg=" + aggressionOffset.ToString("0.00") + " adjust=" + smoothedSteerAdjust.ToString("0.00") +
+                    " trafficBlend=" + lineTrafficBlend.ToString("0.00") +
+                    " (whichever reversal count is high is the oscillating input).");
+            }
+        }
+
+        // Returns 1 when the signal, once it exceeds the deadband, flips sign
+        // versus the last above-deadband sample - i.e. one genuine reversal.
+        static int CountReversal(float value, float deadband, ref int prevSign)
+        {
+            int sign = Mathf.Abs(value) > deadband ? (value > 0f ? 1 : -1) : 0;
+            if (sign == 0)
+            {
+                return 0;
+            }
+
+            int reversal = (prevSign != 0 && sign != prevSign) ? 1 : 0;
+            prevSign = sign;
+            return reversal;
         }
 
         // Curvature sampled across three forward points instead of two, taking the
