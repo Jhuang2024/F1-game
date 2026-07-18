@@ -2283,6 +2283,23 @@ namespace LocalFormulaRacing
             ResolveTrackCrossings(runtime);
             SmoothSharpKinks(runtime);
             FlattenRoadCliffs(runtime);
+            // Launch-bump fix (per report - "suddenly theres a small change in
+            // elevation where you like levitate above the track for like a
+            // second and then u come down"): FlattenRoadCliffs only catches
+            // grades above 35% - a wall, essentially. But a car at racing speed
+            // can't follow far gentler VERTICAL KINKS either: a grade change
+            // from 0% to 15% over one 10m point step demands ~100 m/s^2 of
+            // vertical acceleration at 300 kph, so the car launches off the
+            // crest, floats, and slams down - exactly the reported levitation
+            // (and the "suddenly slowed" landings). Every elevation writer
+            // (procedural noise, pit grounding, crossing raises, cliff
+            // relaxation, loop collapses) can leave such kinks at its seams.
+            // This clamps the centreline's vertical curvature to what a car
+            // can actually track: allowed mid-point sag scales with point
+            // spacing squared (~0.28m at 10m spacing), which preserves the
+            // deliberate smooth geometry (a flyover's 9m-over-150m cosine
+            // bump peaks at ~0.2m sag) while flattening genuine steps.
+            SmoothVerticalKinks(runtime);
             runtime.RecalculateDistances();
             // Hairpin centers are derived from the FINAL, fully-repaired/scaled
             // centerline (AddLayoutPoints already ran repair + NormalizeTrackLength +
@@ -2290,6 +2307,54 @@ namespace LocalFormulaRacing
             // RecalculateDistances so cumulativeDistances line up with centerLine.
             runtime.RecalculateHairpinWidening();
             return runtime;
+        }
+
+        // See the call site in CreateLayout for the full rationale. Iterative
+        // relaxation: any point whose height sticks out from its neighbours'
+        // average by more than the spacing-scaled allowance is pulled back to
+        // the allowance. Converges quickly (most passes touch nothing).
+        static void SmoothVerticalKinks(TrackRuntime runtime)
+        {
+            List<Vector3> line = runtime.centerLine;
+            int n = line == null ? 0 : line.Count;
+            if (n < 8)
+            {
+                return;
+            }
+
+            int adjusted = 0;
+            for (int pass = 0; pass < 24; pass++)
+            {
+                bool any = false;
+                for (int i = 0; i < n; i++)
+                {
+                    Vector3 prev = line[(i - 1 + n) % n];
+                    Vector3 here = line[i];
+                    Vector3 next = line[(i + 1) % n];
+                    float spacing = (Vector3.Distance(prev, here) + Vector3.Distance(here, next)) * 0.5f;
+                    float allowed = Mathf.Max(0.12f, spacing * spacing * 0.0028f);
+                    float average = (prev.y + next.y) * 0.5f;
+                    float sag = here.y - average;
+                    if (Mathf.Abs(sag) > allowed)
+                    {
+                        here.y = average + Mathf.Sign(sag) * allowed;
+                        line[i] = here;
+                        any = true;
+                        adjusted++;
+                    }
+                }
+
+                if (!any)
+                {
+                    break;
+                }
+            }
+
+            if (adjusted > 0)
+            {
+                Debug.Log("[RoadSurfaceDiag] " + runtime.displayName + ": smoothed " + adjusted +
+                          " vertical kink adjustment(s) in the centreline (launch-bump prevention).");
+            }
         }
 
         // Pit-straight rotation ([FinalCornerDiag] root fix - "the outside of
@@ -12092,7 +12157,91 @@ namespace LocalFormulaRacing
             ValidateBarrierCoverage(report);
             ValidatePitCorridorSealed(report);
             DiagnoseFinalCornerBarriers(report);
+            DiagnoseRoadSurface();
             Debug.Log(report.Summary());
+        }
+
+        // [RoadSurfaceDiag] Always-on scan for the "random sections where you
+        // get stuck / suddenly slowed / levitate for a second" report: walks
+        // the FINAL road (after every smoothing/raising/grounding pass) at 6m
+        // steps and flags the two discontinuity classes that produce exactly
+        // those symptoms:
+        //   GRADE KINK   - the slope changes abruptly between adjacent steps
+        //                  (car launches at the crest / slams at the dip)
+        //   HEADING KINK - the road direction snaps sideways within one step
+        //                  (reads as an invisible wall-tap / sudden slowdown)
+        // Reports the worst offenders with exact distances so a paste pins the
+        // spot; prints a clean line when nothing exceeds thresholds.
+        void DiagnoseRoadSurface()
+        {
+            if (Runtime == null || Runtime.length < 500f)
+            {
+                return;
+            }
+
+            const float step = 6f;
+            const float gradeKinkThreshold = 0.06f;
+            const float headingKinkThreshold = 14f;
+            System.Text.StringBuilder worst = new System.Text.StringBuilder();
+            int gradeKinks = 0;
+            int headingKinks = 0;
+            int listed = 0;
+
+            Vector3 prevPoint;
+            Vector3 forward;
+            Vector3 right;
+            Runtime.SampleAtDistance(0f, out prevPoint, out forward, out right);
+            Vector3 prevForwardFlat = new Vector3(forward.x, 0f, forward.z).normalized;
+            float prevGrade = 0f;
+            bool havePrevGrade = false;
+            for (float d = step; d <= Runtime.length; d += step)
+            {
+                Vector3 point;
+                Runtime.SampleAtDistance(d % Runtime.length, out point, out forward, out right);
+                Vector3 forwardFlat = new Vector3(forward.x, 0f, forward.z).normalized;
+                float run = new Vector2(point.x - prevPoint.x, point.z - prevPoint.z).magnitude;
+                float grade = run > 0.5f ? (point.y - prevPoint.y) / run : 0f;
+
+                if (havePrevGrade && Mathf.Abs(grade - prevGrade) > gradeKinkThreshold)
+                {
+                    gradeKinks++;
+                    if (listed < 25)
+                    {
+                        listed++;
+                        worst.Append("GRADE KINK at ").Append((d - step).ToString("0"))
+                             .Append("m: slope ").Append((prevGrade * 100f).ToString("0.0"))
+                             .Append("% -> ").Append((grade * 100f).ToString("0.0")).Append("%\n");
+                    }
+                }
+
+                float headingChange = Vector3.Angle(prevForwardFlat, forwardFlat);
+                if (headingChange > headingKinkThreshold)
+                {
+                    headingKinks++;
+                    if (listed < 25)
+                    {
+                        listed++;
+                        worst.Append("HEADING KINK at ").Append((d - step).ToString("0"))
+                             .Append("m: direction snaps ").Append(headingChange.ToString("0.0"))
+                             .Append(" deg within ").Append(step.ToString("0")).Append("m\n");
+                    }
+                }
+
+                prevPoint = point;
+                prevForwardFlat = forwardFlat;
+                prevGrade = grade;
+                havePrevGrade = true;
+            }
+
+            if (gradeKinks == 0 && headingKinks == 0)
+            {
+                Debug.Log("[RoadSurfaceDiag] " + Runtime.displayName + ": road surface reads clean (no grade or heading kinks above threshold).");
+            }
+            else
+            {
+                Debug.LogWarning("[RoadSurfaceDiag] " + Runtime.displayName + ": " + gradeKinks + " grade kink(s) and " +
+                                 headingKinks + " heading kink(s) on the final road - these are the launch/levitate and sudden-slow spots:\n" + worst);
+            }
         }
 
         // [FinalCornerDiag] Dedicated diagnostic for the recurring "the outside
@@ -12164,7 +12313,14 @@ namespace LocalFormulaRacing
             int holes = 0;
             int jumps = 0;
             int pileUps = 0;
-            int reported = 0;
+            // Full per-sample table (round 2 - the first run's header was pasted
+            // back WITHOUT the anomaly lines, so this now emits the complete
+            // picture as a handful of consolidated console entries that survive
+            // a partial paste): every 8m sample gets one line whether clean or
+            // not, chunked ~22 lines per Debug.LogWarning entry.
+            System.Text.StringBuilder table = new System.Text.StringBuilder();
+            int tableLines = 0;
+            int tableChunk = 1;
             for (float scan = apexD - 260f; scan <= apexD + 260f; scan += 8f)
             {
                 float d = ((scan % Runtime.length) + Runtime.length) % Runtime.length;
@@ -12232,28 +12388,37 @@ namespace LocalFormulaRacing
                 if (hole) holes++;
                 if (jump) jumps++;
                 if (pileUp) pileUps++;
-                if ((hole || jump || pileUp) && reported < 40)
+
+                string flag = hole ? " <HOLE>" : jump ? " <JUMP>" : pileUp ? " <PILE:" + crowd + ">" : "";
+                string standing = nearest == null
+                    ? "NONE within range"
+                    : nearest.obstacleType + " dist=" + nearestDist.ToString("0.0") + " lat=" + obsLateral.ToString("0.0");
+                table.Append("apex").Append(scan >= apexD ? "+" : "").Append((scan - apexD).ToString("0"))
+                     .Append("m d=").Append(d.ToString("0"))
+                     .Append(" hw=").Append(halfWidth.ToString("0.0"))
+                     .Append(" pit=").Append(PitZoneBlend(normalized).ToString("0.00"))
+                     .Append(" curv=").Append(LocalCurvatureAngle(d).ToString("0"))
+                     .Append(" tight=").Append(Runtime.IsNearTightFenceCorner(d) ? "Y" : "n")
+                     .Append(" elev=").Append(IsElevatedAtDistance(d) ? "Y" : "n")
+                     .Append(" | ").Append(standing).Append(flag).Append('\n');
+                tableLines++;
+                if (tableLines >= 22)
                 {
-                    reported++;
-                    string kind = hole ? "HOLE" : jump ? "LATERAL JUMP" : "PILE-UP";
-                    string what = nearest == null
-                        ? "no barrier collider within range"
-                        : nearest.obstacleType + " " + nearestDist.ToString("0.0") + "m from edge, lat " + obsLateral.ToString("0.0") + "m" +
-                          (jump ? " (prev sample lat " + prevLateral.ToString("0.0") + "m)" : "") +
-                          (pileUp ? ", " + crowd + " barrier objects in this 8m slice" : "");
-                    report.Warn("[FinalCornerDiag] " + kind + " at " + d.ToString("0") + "m (apex" + (scan >= apexD ? "+" : "") +
-                                (scan - apexD).ToString("0") + "m): " + what +
-                                " | halfW=" + halfWidth.ToString("0.0") +
-                                " pitBlend=" + PitZoneBlend(normalized).ToString("0.00") +
-                                " curv=" + LocalCurvatureAngle(d).ToString("0.0") +
-                                " nearTight=" + Runtime.IsNearTightFenceCorner(d) +
-                                " elevated=" + IsElevatedAtDistance(d));
+                    Debug.LogWarning("[FinalCornerDiag] " + Runtime.displayName + " table part " + tableChunk + ":\n" + table);
+                    table.Length = 0;
+                    tableLines = 0;
+                    tableChunk++;
                 }
 
                 if (!float.IsNaN(obsLateral))
                 {
                     prevLateral = obsLateral;
                 }
+            }
+
+            if (tableLines > 0)
+            {
+                Debug.LogWarning("[FinalCornerDiag] " + Runtime.displayName + " table part " + tableChunk + ":\n" + table);
             }
 
             if (holes == 0 && jumps == 0 && pileUps == 0)
@@ -12263,7 +12428,7 @@ namespace LocalFormulaRacing
             else
             {
                 Debug.LogWarning("[FinalCornerDiag] " + Runtime.displayName + ": final-corner outside summary - " + holes + " hole sample(s), " +
-                                 jumps + " lateral jump(s), " + pileUps + " pile-up sample(s) across apex±260m. Paste the [FinalCornerDiag] lines above to pin the failing branch.");
+                                 jumps + " lateral jump(s), " + pileUps + " pile-up sample(s) across apex±260m. Paste ALL [FinalCornerDiag] table parts to pin the failing branch.");
             }
         }
 
