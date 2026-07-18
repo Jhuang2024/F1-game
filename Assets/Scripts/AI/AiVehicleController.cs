@@ -3906,9 +3906,38 @@ namespace LocalFormulaRacing
                         float attackGapThreshold = isExpert ? (aheadIsBackmarker ? 3.4f : 2.8f) : 2.6f;
                         bool attackTrigger = gapSeconds < attackGapThreshold && (approachingBrakeZone || drsHelp || clearlySlower || positiveSpeedDeltaExpert || sustainedPressure) && hasPace;
 
-                        // Part A.2: Expert is fully deterministic once attackTrigger is
-                        // true - no dice roll for permission to attack.
-                        if (attackTrigger && !suppressAttackManeuvers && !inCornerCommitmentZone && (isExpert || Random.value < commitment * Time.deltaTime * (20f + patienceBonus) * drsBonus))
+                        // Narrow-section discretion (per request - "if the cars
+                        // are on an obvious very narrow part of the track where
+                        // overtaking's difficult... if its obvious its unlikely
+                        // the move's gonna get done id rather you just not do it
+                        // instead of doing it and sending it into the wall"):
+                        // a pass needs two car widths plus real margin - when
+                        // the road here OR through the next ~70m is pinched
+                        // below that, the percentage move is to wait for the
+                        // wider stretch. Most drivers now simply don't launch
+                        // there. The boldest (combined aggression+overtaking in
+                        // the top band - "some good ai are gonna take risks
+                        // regardless") may still send one, at a heavily damped
+                        // rate, and even Expert loses its automatic
+                        // deterministic launch in a pinch - risk is a roll for
+                        // everyone when the walls are this close.
+                        float narrowHalfWidth = Mathf.Min(LocalHalfWidthAt(progress.distance), LocalHalfWidthAt(progress.distance + 70f));
+                        bool narrowSection = narrowHalfWidth < 9.5f;
+                        bool attackPermitted;
+                        if (narrowSection)
+                        {
+                            bool boldEnough = (aggression + overtaking) >= 170;
+                            attackPermitted = boldEnough && Random.value < commitment * Time.deltaTime * (20f + patienceBonus) * drsBonus * 0.25f;
+                        }
+                        else
+                        {
+                            // Part A.2: Expert is fully deterministic once
+                            // attackTrigger is true - no dice roll for
+                            // permission to attack (open track only).
+                            attackPermitted = isExpert || Random.value < commitment * Time.deltaTime * (20f + patienceBonus) * drsBonus;
+                        }
+
+                        if (attackTrigger && !suppressAttackManeuvers && !inCornerCommitmentZone && attackPermitted)
                         {
                             // Versatile side choice (per request - the AI always
                             // took the same side): reads the corner, the
