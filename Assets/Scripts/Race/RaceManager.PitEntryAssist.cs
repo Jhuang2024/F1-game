@@ -213,13 +213,32 @@ namespace LocalFormulaRacing
             // at envelope racing speeds, collapsing to the short ramp-tracking
             // distance once braked down for the entry.
             float steerLookAhead = Mathf.Lerp(PitEntryAssistLookAheadMeters, 55f, Mathf.Clamp01(speedKph / 300f));
+            // Metres from here to where the real ramp physically begins. On a
+            // long circuit the fixed-metre ramp anchor sits at a very high
+            // normalized value (China ~0.945 on an 8.25km lap), while the
+            // approach-window gate opens at the CONSTANT normalized 0.78 - so
+            // the assist can be active more than a kilometre before the ramp.
+            float metresToRamp = (Track.PitEntryRampStartNormalized - progress.normalized) * Track.length;
             // Speed-conditioned pre-positioning (the [PitDiag] 363kph wall-hit
             // fix - see ComputePitEntryTargetPoint's blend param): at racing
             // pace the guide holds the road centre and only brakes; the
             // outer-edge entry lane engages progressively below ~280kph and is
             // fully committed by 160, with the whole braked stretch left to
             // slot in before the ramp.
-            float prePositionBlend = Mathf.InverseLerp(280f, 160f, speedKph);
+            float speedBlend = Mathf.InverseLerp(280f, 160f, speedKph);
+            // Ramp-proximity gate ([PitDiag] assist-active wall hits at norm
+            // 0.786-0.796 with the ramp still ~1240m away: assist=[...blend=0.92
+            // guard=True], car pinned to the pit-side edge against a bridge wall
+            // a kilometre before the ramp). The blend used to be speed-ONLY, so
+            // the instant the car slowed anywhere in the long approach window it
+            // hugged the pit-side edge - straight into any wall that sits at
+            // that edge far upstream of the actual opening. Pre-positioning now
+            // also requires being genuinely NEAR the ramp: hold the safe road
+            // centre until the final ~260m, easing fully to the edge lane by
+            // ~70m out (still comfortably before the ramp, and inside the
+            // braking zone so the car is already at entry pace there).
+            float proximityBlend = Mathf.InverseLerp(260f, 70f, metresToRamp);
+            float prePositionBlend = speedBlend * proximityBlend;
             Track.ComputePitEntryTargetPoint(progress.distance, steerLookAhead, prePositionBlend, out targetPoint, out targetRotation);
 
             Vector3 toTarget = targetPoint - participant.transform.position;
@@ -290,7 +309,8 @@ namespace LocalFormulaRacing
             // instead of overlapping the tail of the braking zone.
             const float PitApproachBrakeDecelMs2 = 10f;
             const float PitApproachRampBufferMetres = 140f;
-            float metresToRamp = (Track.PitEntryRampStartNormalized - progress.normalized) * Track.length;
+            // metresToRamp computed once above (shared with the pre-position
+            // proximity gate).
             float envelopeDistance = Mathf.Max(0f, metresToRamp - PitApproachRampBufferMetres);
             float targetMs = alignedTargetKph / 3.6f;
             float envelopeKph = Mathf.Sqrt(targetMs * targetMs + 2f * PitApproachBrakeDecelMs2 * envelopeDistance) * 3.6f;
@@ -414,6 +434,7 @@ namespace LocalFormulaRacing
                 " steer=" + pitAssistSmoothedSteer.ToString("0.00") +
                 " envKph=" + envelopeKph.ToString("0") +
                 " blend=" + prePositionBlend.ToString("0.00") +
+                " mToRamp=" + metresToRamp.ToString("0") +
                 " guard=" + pressGuardActive;
             participant.vehicle.PitAssistDebugTime = Time.time;
             return command;
