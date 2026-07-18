@@ -2706,13 +2706,29 @@ namespace LocalFormulaRacing
 
         void OnCollisionEnter(Collision collision)
         {
-            if (sparks == null || collision.relativeVelocity.magnitude < 8.5f)
+            if (sparks == null || collision.contactCount == 0)
             {
                 return;
             }
 
-            float impactSpeed = collision.relativeVelocity.magnitude;
-            Vector3 contactPoint = collision.contactCount > 0 ? collision.GetContact(0).point : transform.position;
+            // Impact = closing speed INTO the surface (normal component), the
+            // same measure the damage model uses (ProcessDamageCollision).
+            // The old full relativeVelocity.magnitude counted rolling/sliding
+            // contact too: a car re-entering contact with road-mesh seams and
+            // kerb objects at speed has tangential relative velocity equal to
+            // its road speed, so every seam crossing read as an 80+ m/s
+            // "crash" - [VfxDiag] measured 4,700-7,300 collision spark bursts
+            // per 20s in a clean race with zero damage events. Normal closing
+            // speed is ~0 when rolling along a surface and only large when
+            // genuinely hitting something.
+            ContactPoint contact = collision.GetContact(0);
+            float impactSpeed = Mathf.Abs(Vector3.Dot(collision.relativeVelocity, contact.normal));
+            if (impactSpeed < 8.5f)
+            {
+                return;
+            }
+
+            Vector3 contactPoint = contact.point;
             sparks.transform.position = contactPoint;
             sparks.Emit(Mathf.Clamp(Mathf.RoundToInt(impactSpeed * 1.4f), 6, 24));
             diagCollisionBursts++;
