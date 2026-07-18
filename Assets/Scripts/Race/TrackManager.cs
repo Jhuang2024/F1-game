@@ -2261,6 +2261,23 @@ namespace LocalFormulaRacing
                 : RollTrackTemperature(tempProfile, runtime.trackId, runtime.weather);
 
             AddLayoutPoints(runtime);
+            // Polygon-road fix ([RoadSurfaceDiag]'s decisive find - the same 14
+            // heading kinks at identical distances/angles survived every
+            // relaxation pass BYTE-FOR-BYTE, because they are not defects the
+            // passes could see: they are the ordinary VERTICES of a ~130m-
+            // spaced polyline, each turning 15-60 degrees, comfortably under
+            // the per-point cusp cap. The road mesh is built straight through
+            // those vertices, so every corner on every track was literally a
+            // polygon - flat chord, hard angle joint, flat chord. Each joint
+            // is a "suddenly slowed / invisible tap" spot, barrier segments
+            // meet at angles there (the universal "poorly patched" look), and
+            // clusters of 60-110 degree joints kept reading as a broken final
+            // corner. Resamples the coarse polyline through a closed
+            // Catmull-Rom spline at ~12m spacing BEFORE anything else touches
+            // it, so corners become genuine arcs - and the curvature/radius
+            // gates downstream finally operate at a spacing where they can
+            // actually enforce the drivable-radius floor.
+            SubdivideAndSmoothCenterline(runtime);
             // Pit-straight rotation ([FinalCornerDiag] root fix) - must run on
             // the raw layout BEFORE elevation/pit-grounding/crossings, so every
             // normalized-anchored system downstream (the pit band, grid,
@@ -2307,6 +2324,68 @@ namespace LocalFormulaRacing
             // RecalculateDistances so cumulativeDistances line up with centerLine.
             runtime.RecalculateHairpinWidening();
             return runtime;
+        }
+
+        // See the call site in CreateLayout for the full rationale. Closed-loop
+        // Catmull-Rom through the authored vertices (position AND height), arc-
+        // sampled at ~12m. The spline passes exactly through every authored
+        // point, so the layout's shape is preserved - only the flat chords
+        // between points become real curves. Skips layouts that are already
+        // finely sampled.
+        static void SubdivideAndSmoothCenterline(TrackRuntime runtime)
+        {
+            List<Vector3> points = runtime.centerLine;
+            int n = points == null ? 0 : points.Count;
+            if (n < 4)
+            {
+                return;
+            }
+
+            float perimeter = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                perimeter += Vector3.Distance(points[i], points[(i + 1) % n]);
+            }
+
+            const float TargetSpacing = 12f;
+            float averageSpacing = perimeter / n;
+            if (perimeter < 500f || averageSpacing < 20f)
+            {
+                Debug.Log("[RoadSurfaceDiag] " + runtime.displayName + ": centreline already finely sampled (" +
+                          averageSpacing.ToString("0.0") + "m avg spacing) - no subdivision needed.");
+                return;
+            }
+
+            List<Vector3> smooth = new List<Vector3>(Mathf.CeilToInt(perimeter / TargetSpacing) + n);
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 p0 = points[(i - 1 + n) % n];
+                Vector3 p1 = points[i];
+                Vector3 p2 = points[(i + 1) % n];
+                Vector3 p3 = points[(i + 2) % n];
+                int steps = Mathf.Max(1, Mathf.RoundToInt(Vector3.Distance(p1, p2) / TargetSpacing));
+                for (int s = 0; s < steps; s++)
+                {
+                    float t = s / (float)steps;
+                    smooth.Add(CatmullRom(p0, p1, p2, p3, t));
+                }
+            }
+
+            points.Clear();
+            points.AddRange(smooth);
+            Debug.Log("[RoadSurfaceDiag] " + runtime.displayName + ": centreline subdivided " + n + " -> " + smooth.Count +
+                      " points (" + averageSpacing.ToString("0") + "m -> ~" + TargetSpacing.ToString("0") +
+                      "m spacing) - corners are now smooth arcs instead of polygon joints.");
+        }
+
+        static Vector3 CatmullRom(Vector3 a, Vector3 b, Vector3 c, Vector3 d, float t)
+        {
+            float t2 = t * t;
+            float t3 = t2 * t;
+            return 0.5f * ((2f * b) +
+                           (-a + c) * t +
+                           (2f * a - 5f * b + 4f * c - d) * t2 +
+                           (-a + 3f * b - 3f * c + d) * t3);
         }
 
         // See the call site in CreateLayout for the full rationale. Iterative
