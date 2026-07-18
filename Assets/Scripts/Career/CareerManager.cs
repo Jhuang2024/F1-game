@@ -2181,6 +2181,8 @@ namespace LocalFormulaRacing
                 MigrateLegacyRatingModifier(Save.driverRatingModifiers[i]);
             }
 
+            RepairProgressionScaleBias();
+
             // Trim ancient per-season telemetry so a very long career's save
             // file doesn't grow without bound - GenerateDriverProgression only
             // ever needs the season that just completed.
@@ -2188,6 +2190,84 @@ namespace LocalFormulaRacing
             {
                 Save.driverSeasonPerformances.RemoveAll(p => p.season < Save.currentSeason - 3);
             }
+        }
+
+        // One-shot save repair for careers whose past seasons were scored under
+        // the progression expectation-scale bug (team rank 1..11 compared
+        // directly against driver positions 1..22, plus the 1.2-overtakes
+        // neutral point): every season, the WHOLE field's pace/racecraft/
+        // qualifying/overtaking deltas drifted a few points further negative
+        // together, so after a few seasons every driver on the grid reads
+        // artificially weak. The bias was common-mode by construction (the same
+        // impossible expectation applied to everyone), so the repair is to
+        // re-center each affected stat's cumulative deltas so the field mean is
+        // zero - genuinely earned differences BETWEEN drivers (teammate
+        // head-to-heads, beating or missing the car's realistic slot) are
+        // preserved exactly; only the shared sink is removed. Runs once per
+        // save (progressionScaleBiasRepaired), only on the current season's
+        // live modifiers - which is all GetEffectiveDriver ever reads, and
+        // what next season's progression chains from.
+        void RepairProgressionScaleBias()
+        {
+            if (Save.progressionScaleBiasRepaired)
+            {
+                return;
+            }
+
+            Save.progressionScaleBiasRepaired = true;
+
+            List<DriverRatingModifier> live = Save.driverRatingModifiers.FindAll(m => m != null && m.season == Save.currentSeason);
+            if (live.Count < 4)
+            {
+                // A fresh save (or one with no accumulated progression yet) has
+                // nothing to repair.
+                return;
+            }
+
+            float meanPace = 0f, meanRacecraft = 0f, meanQualifying = 0f, meanOvertaking = 0f;
+            for (int i = 0; i < live.Count; i++)
+            {
+                meanPace += live[i].paceDelta;
+                meanRacecraft += live[i].racecraftDelta;
+                meanQualifying += live[i].qualifyingDelta;
+                meanOvertaking += live[i].overtakingDelta;
+            }
+
+            meanPace /= live.Count;
+            meanRacecraft /= live.Count;
+            meanQualifying /= live.Count;
+            meanOvertaking /= live.Count;
+
+            // Only correct a NEGATIVE common mode: this bug could only ever push
+            // the field down, so a positive mean is legitimately earned
+            // (confidence scaling etc.) and must not be taken away.
+            int shiftPace = meanPace < 0f ? Mathf.RoundToInt(-meanPace) : 0;
+            int shiftRacecraft = meanRacecraft < 0f ? Mathf.RoundToInt(-meanRacecraft) : 0;
+            int shiftQualifying = meanQualifying < 0f ? Mathf.RoundToInt(-meanQualifying) : 0;
+            int shiftOvertaking = meanOvertaking < 0f ? Mathf.RoundToInt(-meanOvertaking) : 0;
+
+            if (shiftPace + shiftRacecraft + shiftQualifying + shiftOvertaking == 0)
+            {
+                Debug.Log("[ProgressionRepair] no negative common-mode drift found (means: pace=" + meanPace.ToString("F1") +
+                    " racecraft=" + meanRacecraft.ToString("F1") + " qualifying=" + meanQualifying.ToString("F1") +
+                    " overtaking=" + meanOvertaking.ToString("F1") + ") - nothing to repair.");
+                return;
+            }
+
+            for (int i = 0; i < live.Count; i++)
+            {
+                live[i].paceDelta = Mathf.Clamp(live[i].paceDelta + shiftPace, -40, 40);
+                live[i].racecraftDelta = Mathf.Clamp(live[i].racecraftDelta + shiftRacecraft, -40, 40);
+                live[i].qualifyingDelta = Mathf.Clamp(live[i].qualifyingDelta + shiftQualifying, -40, 40);
+                live[i].overtakingDelta = Mathf.Clamp(live[i].overtakingDelta + shiftOvertaking, -40, 40);
+            }
+
+            Debug.Log("[ProgressionRepair] removed accumulated expectation-scale drift from " + live.Count +
+                " drivers' season-" + Save.currentSeason + " modifiers: pace+" + shiftPace +
+                " racecraft+" + shiftRacecraft + " qualifying+" + shiftQualifying + " overtaking+" + shiftOvertaking +
+                " (field means were pace=" + meanPace.ToString("F1") + " racecraft=" + meanRacecraft.ToString("F1") +
+                " qualifying=" + meanQualifying.ToString("F1") + " overtaking=" + meanOvertaking.ToString("F1") + ")");
+            Write();
         }
 
         void PickRegulationTargets()

@@ -371,6 +371,14 @@ namespace LocalFormulaRacing
         public List<SeasonObjective> seasonObjectives = new List<SeasonObjective>();
         public bool preSeasonTestingSeen;
 
+        // One-shot save repair flag: seasons scored before the progression
+        // expectation-scale fix (team rank 1..11 compared against driver
+        // positions 1..22) accumulated a systematic negative drift into every
+        // driver's cumulative rating deltas. CareerManager.
+        // RepairProgressionScaleBias removes the common-mode drift exactly once
+        // per save; this records that it ran.
+        public bool progressionScaleBiasRepaired;
+
         // Part 5/7: full-grid persistent R&D state, one entry per team
         // (including the player's, for archetype/rating bookkeeping - see
         // TeamDevelopmentState). Created lazily by
