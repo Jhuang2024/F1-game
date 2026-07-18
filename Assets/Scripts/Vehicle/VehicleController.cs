@@ -327,7 +327,16 @@ namespace LocalFormulaRacing
         // higher within a normal straight, instead of the old ceiling being
         // mostly aspirational because the underlying push was too weak to
         // reach it.
-        const float ErsTopSpeedBonusKph = 30f;
+        // Raised 30 -> 40 (per repeated report - "i still dont feel it", after
+        // the deploy path, throttle-hold and battery banking were all verified
+        // working end to end via [ErsDiag]). The mechanism was never broken; the
+        // felt gain was just modest at 350+ kph. This is a deliberate arcade
+        // tuning to make an ERS deploy unmistakable - a chased car defending onto
+        // a straight now pulls clearly, and the player's own deploy has real
+        // punch. Shared player/AI (this whole path is symmetric), so it's a feel
+        // change, not an AI advantage. The stacking safety cap in
+        // CalculateTargetTopSpeedKph still bounds ERS + DRS + tow together.
+        const float ErsTopSpeedBonusKph = 40f;
         static readonly float[] AutoShiftUpKph = { 0f, 62f, 102f, 142f, 186f, 232f, 282f, 322f };
 
         // Read-only view of the authoritative auto-shift speed schedule (index g = the

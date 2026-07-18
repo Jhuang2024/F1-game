@@ -26,6 +26,7 @@ namespace LocalFormulaRacing
         float ersDiagBatterySum;
         float ersDiagDeployThrottleSum;
         float ersDiagDeploySpeedSum;
+        float ersDiagDeployCeilingSum;
         float ersDiagLastLogTime;
 
         public bool ShouldAiUseErs(RaceParticipant participant, float cornerSeverity)
@@ -72,6 +73,11 @@ namespace LocalFormulaRacing
                     ersDiagDeploys++;
                     ersDiagDeployThrottleSum += participant.vehicle.EffectiveThrottle;
                     ersDiagDeploySpeedSum += Mathf.Abs(participant.vehicle.CurrentSpeedKph);
+                    // The ERS-boosted top-speed ceiling the governor is allowing
+                    // right now. Its gap over avg deploy speed is the headroom the
+                    // car still has to climb into on a longer straight - proof the
+                    // +ErsTopSpeedBonusKph is live in the ceiling, not absorbed.
+                    ersDiagDeployCeilingSum += participant.vehicle.TargetTopSpeedKph;
                 }
 
                 ersDiagBatterySum += participant.vehicle.ErsBattery;
@@ -82,13 +88,15 @@ namespace LocalFormulaRacing
                               (100f * ersDiagBatterySum / ersDiagSamples).ToString("0") + "%, while deploying avg throttle " +
                               (ersDiagDeploys > 0 ? (ersDiagDeployThrottleSum / ersDiagDeploys).ToString("0.00") : "n/a") +
                               " avg speed " + (ersDiagDeploys > 0 ? (ersDiagDeploySpeedSum / ersDiagDeploys).ToString("0") : "n/a") +
-                              "kph (high speed + throttle ~1.0 = a real, felt straight-line boost).");
+                              "kph toward a boosted ceiling of " + (ersDiagDeploys > 0 ? (ersDiagDeployCeilingSum / ersDiagDeploys).ToString("0") : "n/a") +
+                              "kph (the ceiling sits +40 over the car's base top speed while deploying - that gap over avg speed is the pull the car climbs into on a straight).");
                     ersDiagLastLogTime = Time.time;
                     ersDiagSamples = 0;
                     ersDiagDeploys = 0;
                     ersDiagBatterySum = 0f;
                     ersDiagDeployThrottleSum = 0f;
                     ersDiagDeploySpeedSum = 0f;
+                    ersDiagDeployCeilingSum = 0f;
                 }
             }
 
