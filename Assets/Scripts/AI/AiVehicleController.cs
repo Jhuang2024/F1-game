@@ -1967,7 +1967,13 @@ namespace LocalFormulaRacing
             // further ~12% (1.27 -> 1.42), still a single non-compounding
             // multiplier, so the reactive steer-away and brake fire harder and
             // earlier in the pinched sections.
-            const float wallAversionMultiplier = 1.42f;
+            // Round 7 (per request - "up the wall aversion without breaking
+            // the game"): ~13% more (1.42 -> 1.6). The "without breaking"
+            // part is carried by the existing gates, all untouched: the
+            // corridor gate (a car on its legal line reads ZERO urgency, so
+            // no phantom braking returns), the launch gate (nothing fires
+            // below 15kph) and the narrow-track width clamp.
+            const float wallAversionMultiplier = 1.6f;
             float edgeMarginDistance = Mathf.Lerp(7.2f, 12.6f, Mathf.Clamp01(speedKph / 340f)) * wallAversionMultiplier;
             // Wall-crash defence-in-depth: near a known tight-fence corner (the
             // same containment data the barrier builder uses) the reactive edge
@@ -1995,8 +2001,9 @@ namespace LocalFormulaRacing
             // Round 6 (per request - "buff even more"): 0.68 -> 0.72 so the
             // reactive band reaches further still on narrow track while the
             // outer racing corridor (halfWidth-1.8m) stays just clear.
+            // Round 7: 0.72 -> 0.75, same reasoning and same corridor bound.
             float edgeHalfWidth = LocalHalfWidthAt(progress.distance);
-            edgeMarginDistance = Mathf.Min(edgeMarginDistance, edgeHalfWidth * 0.72f);
+            edgeMarginDistance = Mathf.Min(edgeMarginDistance, edgeHalfWidth * 0.75f);
 
             float edgeMargin = edgeHalfWidth - edgeMarginDistance;
             float edgeOvershoot = !suppressOffTrackRecovery ? Mathf.Abs(progress.lateralDistance) - edgeMargin : -1f;
@@ -2037,8 +2044,12 @@ namespace LocalFormulaRacing
             // steering did not arrest). The pure-position term for the final
             // ~1.2m before the hard edge is unaffected.
             bool beyondCorridor = Mathf.Abs(progress.lateralDistance) > legalLimit + 0.3f;
-            float trajectoryUrgency = beyondCorridor ? Mathf.Clamp01(1f - timeToEdge / 1.6f) : 0f;
-            float positionUrgency = Mathf.Clamp01((Mathf.Abs(progress.lateralDistance) - (edgeHalfWidth - 1.2f)) / 1.2f);
+            // Round 7 (wall-aversion): a genuine runaway now reads urgent from
+            // 2.0s out instead of 1.6 (still corridor-gated, so a car on its
+            // legal line is untouched), and the pure-position last-resort band
+            // starts 1.5m from the hard edge instead of 1.2.
+            float trajectoryUrgency = beyondCorridor ? Mathf.Clamp01(1f - timeToEdge / 2.0f) : 0f;
+            float positionUrgency = Mathf.Clamp01((Mathf.Abs(progress.lateralDistance) - (edgeHalfWidth - 1.5f)) / 1.5f);
             float edgeUrgency = suppressOffTrackRecovery ? 0f : Mathf.Max(trajectoryUrgency, positionUrgency);
             // Grid-start fix: the wall-aversion boost below removed the old
             // emergency brake's built-in low-speed discount (0.7x floor ->
