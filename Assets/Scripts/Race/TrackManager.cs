@@ -3989,7 +3989,18 @@ namespace LocalFormulaRacing
             lineMaterial = CreateMaterial("Runtime Track Line", new Color(0.95f, 0.98f, 1f), 0.05f, 0.78f);
             roadEdgeMaterial = CreateMaterial("Runtime Painted Edge", new Color(1f, 0.98f, 0.9f), 0.04f, 0.76f);
             drsPaintMaterial = CreateMaterial("Runtime DRS Paint", new Color(0.02f, 0.32f, 0.95f), 0.06f, 0.82f, new Color(0.01f, 0.05f, 0.18f));
-            rubberMaterial = CreateMaterial("Runtime Rubber", new Color(0.003f, 0.003f, 0.003f), 0.01f, 0.24f);
+            // [RoadMaterialDiag] gloss unification (per report - "i really like
+            // that reflective part of the track... the track is all the same
+            // material when its visually not"): the census proved the base road
+            // (gloss 0.80) IS the reflective surface the player likes - but the
+            // racing-line rubber strips (this material, 0.24) and the asphalt
+            // grain patches (0.50) tile over it almost everywhere, breaking the
+            // reflection into matte patches. And the old values had it
+            // backwards: REAL laid-in rubber is glossier than fresh asphalt,
+            // not duller. The overlays now sit at/near the base road's gloss -
+            // still visibly darker (colour contrast preserved), but the mirror
+            // sheen runs the whole lap.
+            rubberMaterial = CreateMaterial("Runtime Rubber", new Color(0.003f, 0.003f, 0.003f), 0.01f, 0.84f);
 
             // Light-coloured tyre marbles that build up off the racing line rather than
             // rubbered-in (dark) - speckled the same way concrete/kerb/grass are, just
@@ -4002,7 +4013,7 @@ namespace LocalFormulaRacing
             tyreMarbleMaterialLight = CreateMaterial("Runtime Tyre Marbles Light", new Color(0.74f, 0.68f, 0.55f), 0f, 0.14f);
             tyreMarbleMaterialLight.mainTexture = BuildNoiseTexture(256, new Color(0.78f, 0.72f, 0.57f), 0.22f);
             tyreMarbleMaterialLight.mainTextureScale = new Vector2(4f, 2f);
-            asphaltPatchMaterial = CreateMaterial("Runtime Asphalt Patch", new Color(0.033f, 0.036f, 0.039f), 0f, rain ? 0.72f : 0.5f);
+            asphaltPatchMaterial = CreateMaterial("Runtime Asphalt Patch", new Color(0.033f, 0.036f, 0.039f), 0f, rain ? 0.84f : 0.76f);
             // Blotchy low-frequency patch texture (distinct from the fine-grain
             // roadMaterial noise) so the "grain variation" stripes BuildAsphaltDetail
             // lays down read as uneven resurfacing/wear rather than a second copy of
@@ -4012,7 +4023,7 @@ namespace LocalFormulaRacing
             // Darker, glossier top layer for the session rubber build-up (see
             // BuildRubberBuildup) so the outermost, most-driven groove reads as wetter
             // and more polished than the flatter base rubberMaterial underneath it.
-            rubberSheenMaterial = CreateMaterial("Runtime Rubber Sheen", new Color(0.008f, 0.008f, 0.01f), 0.08f, 0.55f);
+            rubberSheenMaterial = CreateMaterial("Runtime Rubber Sheen", new Color(0.008f, 0.008f, 0.01f), 0.08f, 0.88f);
             skidMarkMaterial = CreateMaterial("Runtime Skid Mark", new Color(0.001f, 0.001f, 0.001f, 0.92f), 0f, 0.16f);
             barrierMaterial = CreateMaterial("Runtime Barrier", monacoTrack ? new Color(0.86f, 0.85f, 0.8f) : new Color(0.68f, 0.72f, 0.74f), 0.12f, monacoTrack ? 0.55f : 0.62f);
             barrierMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.87f, 0.87f, 0.87f), 0.1f);
