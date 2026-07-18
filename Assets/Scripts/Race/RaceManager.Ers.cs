@@ -25,6 +25,7 @@ namespace LocalFormulaRacing
         int ersDiagDeploys;
         float ersDiagBatterySum;
         float ersDiagDeployThrottleSum;
+        float ersDiagDeploySpeedSum;
         float ersDiagLastLogTime;
 
         public bool ShouldAiUseErs(RaceParticipant participant, float cornerSeverity)
@@ -60,30 +61,34 @@ namespace LocalFormulaRacing
             if (participant != null && participant.vehicle != null && CurrentSession != RaceWeekendSession.Qualifying)
             {
                 ersDiagSamples++;
-                if (deploy)
+                // Measure the ACTUAL physics deploy (ErsDeploying), not the
+                // strategy vote: the strategy `deploy` is true on grip-limited
+                // frames too (braking/tight corner), where the AI-side gate then
+                // SUPPRESSES the real deploy - counting those dragged the "avg
+                // throttle while deploying" down and misreported the deploy rate.
+                // ErsDeploying is the ground truth of what the boost force saw.
+                if (participant.vehicle.ErsDeploying)
                 {
                     ersDiagDeploys++;
-                    // Deploy-frame throttle proves the boost is actually being
-                    // REALIZED: the ERS boost force is throttle-multiplied, so a
-                    // deploy at ~0.3 throttle (the throttle controller lifting
-                    // because ERS pushed the car past its cruise target) is a
-                    // wasted, self-cancelled deploy. Healthy = near 1.0.
                     ersDiagDeployThrottleSum += participant.vehicle.EffectiveThrottle;
+                    ersDiagDeploySpeedSum += Mathf.Abs(participant.vehicle.CurrentSpeedKph);
                 }
 
                 ersDiagBatterySum += participant.vehicle.ErsBattery;
                 if (Time.time - ersDiagLastLogTime > 45f && ersDiagSamples > 200)
                 {
-                    Debug.Log("[ErsDiag] AI ERS over the last " + (Time.time - ersDiagLastLogTime).ToString("0") + "s: deploying on " +
+                    Debug.Log("[ErsDiag] AI ERS over the last " + (Time.time - ersDiagLastLogTime).ToString("0") + "s: actually deploying on " +
                               (100f * ersDiagDeploys / ersDiagSamples).ToString("0.0") + "% of AI-frames, average battery " +
-                              (100f * ersDiagBatterySum / ersDiagSamples).ToString("0") + "%, avg throttle while deploying " +
+                              (100f * ersDiagBatterySum / ersDiagSamples).ToString("0") + "%, while deploying avg throttle " +
                               (ersDiagDeploys > 0 ? (ersDiagDeployThrottleSum / ersDiagDeploys).ToString("0.00") : "n/a") +
-                              " (near 1.0 = boost realized; low = throttle controller cancelling it).");
+                              " avg speed " + (ersDiagDeploys > 0 ? (ersDiagDeploySpeedSum / ersDiagDeploys).ToString("0") : "n/a") +
+                              "kph (high speed + throttle ~1.0 = a real, felt straight-line boost).");
                     ersDiagLastLogTime = Time.time;
                     ersDiagSamples = 0;
                     ersDiagDeploys = 0;
                     ersDiagBatterySum = 0f;
                     ersDiagDeployThrottleSum = 0f;
+                    ersDiagDeploySpeedSum = 0f;
                 }
             }
 
@@ -182,10 +187,23 @@ namespace LocalFormulaRacing
 
             if (!attacking && !defending)
             {
-                // Push-lap deploy: a real driver spends ERS on a clear straight with
-                // battery to spare generally, not only while directly racing someone.
-                // Kept modest and scaled by difficulty so it never becomes constant spam.
-                if (battery > 0.5f)
+                // Bank-and-dump discretionary deploy ([ErsDiag] report - "i still
+                // dont feel it": telemetry showed the field's battery pinned at
+                // ~20%, right at the deploy floor, because the AI dribbled ERS
+                // away on every straight and flat corner and never banked a real
+                // reserve to spend decisively). When NOT in a fight, the AI now
+                // HOLDS charge until it has a genuine reserve, then dumps it in a
+                // burst on a real straight - so an alone car keeps a healthy
+                // battery AND, crucially, still has a full charge to unload the
+                // moment the player catches it (the attacking/defending branch
+                // above deploys freely down to the floor and through flat
+                // corners - that is the ERS the player actually races against
+                // and feels). Hysteresis via the live deploy state: needs a 0.6
+                // reserve to START a burst, then runs it down to 0.32; restricted
+                // to genuine straights so the dump lands where it is visible.
+                bool alreadyDeploying = participant.vehicle.ErsDeploying;
+                float pushLapFloor = alreadyDeploying ? 0.32f : 0.6f;
+                if (battery > pushLapFloor && cornerSeverity < 0.2f)
                 {
                     // Part A.2: Expert-only, deterministic - a push-lap deploy with
                     // battery to spare is an obvious call, not a coin flip.
