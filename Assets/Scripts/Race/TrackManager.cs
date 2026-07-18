@@ -2261,6 +2261,11 @@ namespace LocalFormulaRacing
                 : RollTrackTemperature(tempProfile, runtime.trackId, runtime.weather);
 
             AddLayoutPoints(runtime);
+            // Pit-straight rotation ([FinalCornerDiag] root fix) - must run on
+            // the raw layout BEFORE elevation/pit-grounding/crossings, so every
+            // normalized-anchored system downstream (the pit band, grid,
+            // grounding span, scenery slots) sees the rotated lap.
+            RotateLayoutForPitStraight(runtime);
             // Elevation change (per request - "put some more elevation into the
             // tracks"). Added to the FINAL centreline before distances/ground/
             // mesh are computed, so the road, its runoff apron and the terrain
@@ -2285,6 +2290,151 @@ namespace LocalFormulaRacing
             // RecalculateDistances so cumulativeDistances line up with centerLine.
             runtime.RecalculateHairpinWidening();
             return runtime;
+        }
+
+        // Pit-straight rotation ([FinalCornerDiag] root fix - "the outside of
+        // the very last corner of EVERY track is so poorly patched"): the pit
+        // complex lives at a FIXED normalized band of the lap (approach 0.78+,
+        // entry ramp 0.850-0.885, corridor through the start/finish to the
+        // exit merge), while the layouts put their corners wherever the real
+        // circuit has them. Belgium's diagnostic run showed the final corner
+        // apex at norm 0.886 with 156 degrees of turning - a hairpin
+        // physically interleaved with the pit corridor start - and that
+        // collision is the norm, not the exception, because nothing ever
+        // reconciled the two. Whenever a real corner overlaps the band, its
+        // outside wall becomes a three-way negotiation between the flush
+        // corner containment, the deliberate ramp opening and the pit fan-out:
+        // the recurring "poorly patched" mess, on every track, always at the
+        // final corner. Real circuits don't have this problem because the pit
+        // lane always sits on a straight - so this picks the straightest
+        // available stretch of the lap and rotates the centreline's start
+        // index there (same road shape, different start/finish position,
+        // exactly like choosing where to build the pit straight). Everything
+        // downstream is normalized-relative and runs after this; the two
+        // artifacts authored relative to the ORIGINAL start (the width profile
+        // and the DRS zones) are rotated with it so they stay glued to the
+        // same physical road.
+        static void RotateLayoutForPitStraight(TrackRuntime runtime)
+        {
+            List<Vector3> line = runtime.centerLine;
+            int n = line == null ? 0 : line.Count;
+            if (n < 12)
+            {
+                return;
+            }
+
+            float[] segLen = new float[n];
+            float[] turn = new float[n];
+            float[] startDistance = new float[n];
+            float total = 0f;
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 a = line[i];
+                Vector3 b = line[(i + 1) % n];
+                startDistance[i] = total;
+                segLen[i] = new Vector2(b.x - a.x, b.z - a.z).magnitude;
+                total += segLen[i];
+            }
+
+            if (total < 500f)
+            {
+                return;
+            }
+
+            for (int i = 0; i < n; i++)
+            {
+                Vector3 prev = line[(i - 1 + n) % n];
+                Vector3 here = line[i];
+                Vector3 next = line[(i + 1) % n];
+                Vector2 din = new Vector2(here.x - prev.x, here.z - prev.z);
+                Vector2 dout = new Vector2(next.x - here.x, next.z - here.z);
+                turn[i] = din.sqrMagnitude < 0.01f || dout.sqrMagnitude < 0.01f ? 0f : Vector2.Angle(din, dout);
+            }
+
+            // Badness of a candidate start = total degrees of turning inside
+            // the band the pit systems occupy relative to that start: the
+            // approach/ramp/corridor (0.80..1.00, full weight) plus the exit
+            // ramp/merge/grid straight (0.00..0.06, half weight).
+            float ScoreFor(int s)
+            {
+                float score = 0f;
+                for (int j = 0; j < n; j++)
+                {
+                    float rel = startDistance[j] - startDistance[s];
+                    if (rel < 0f)
+                    {
+                        rel += total;
+                    }
+
+                    float norm = rel / total;
+                    if (norm >= 0.80f)
+                    {
+                        score += turn[j];
+                    }
+                    else if (norm <= 0.06f)
+                    {
+                        score += turn[j] * 0.5f;
+                    }
+                }
+
+                return score;
+            }
+
+            float currentScore = ScoreFor(0);
+            float bestScore = currentScore;
+            int bestStart = 0;
+            for (int s = 1; s < n; s++)
+            {
+                float score = ScoreFor(s);
+                if (score < bestScore)
+                {
+                    bestScore = score;
+                    bestStart = s;
+                }
+            }
+
+            // Keep the authored start when it is already (close to) the best
+            // available - no churn for layouts that genuinely end on a straight.
+            if (bestStart == 0 || bestScore > currentScore * 0.85f)
+            {
+                Debug.Log("[PitStraightRotation] " + runtime.displayName + ": keeping authored start (pit-band turning " +
+                          currentScore.ToString("0") + " deg, best available " + bestScore.ToString("0") + " deg).");
+                return;
+            }
+
+            float shiftNorm = startDistance[bestStart] / total;
+            List<Vector3> rotated = new List<Vector3>(n);
+            for (int i = 0; i < n; i++)
+            {
+                rotated.Add(line[(bestStart + i) % n]);
+            }
+
+            line.Clear();
+            line.AddRange(rotated);
+
+            // Rotate the two authored, normalized-anchored artifacts with the
+            // road so they stay on the same physical stretches.
+            if (runtime.authoredHalfWidthProfile != null && runtime.authoredHalfWidthProfile.Length > 1)
+            {
+                float[] source = runtime.authoredHalfWidthProfile;
+                int m = source.Length;
+                int shiftSamples = Mathf.RoundToInt(shiftNorm * m) % m;
+                float[] rotatedProfile = new float[m];
+                for (int i = 0; i < m; i++)
+                {
+                    rotatedProfile[i] = source[(shiftSamples + i) % m];
+                }
+
+                runtime.authoredHalfWidthProfile = rotatedProfile;
+            }
+
+            runtime.drsZoneOne = new Vector2(Mathf.Repeat(runtime.drsZoneOne.x - shiftNorm, 1f), Mathf.Repeat(runtime.drsZoneOne.y - shiftNorm, 1f));
+            runtime.drsZoneTwo = new Vector2(Mathf.Repeat(runtime.drsZoneTwo.x - shiftNorm, 1f), Mathf.Repeat(runtime.drsZoneTwo.y - shiftNorm, 1f));
+
+            Debug.LogWarning("[PitStraightRotation] " + runtime.displayName + ": rotated lap start by " +
+                             (shiftNorm * total).ToString("0") + "m (norm " + shiftNorm.ToString("0.000") +
+                             ") so the pit band sits on the straightest stretch - pit-band turning " +
+                             currentScore.ToString("0") + " -> " + bestScore.ToString("0") + " deg.");
         }
 
         // The pit zone must sit ON the terrain (per report - Austria: "because
