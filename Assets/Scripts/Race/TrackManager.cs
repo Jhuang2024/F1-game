@@ -1790,9 +1790,24 @@ namespace LocalFormulaRacing
         // the same real clearance from the live track edge as before, not a
         // shrunken one now that the corridor itself is wider. Round 2: widened
         // another 25% (11.5f -> 14.38f) to match the further PitRampFullWidth stack.
+        //
+        // Pit-wall massacre fix (China GP report - the whole pit wall, the
+        // entire divider fence and every right-side edge barrier along the pit
+        // straight destroyed as corridor intrusions): this offset was anchored
+        // to the flat SCALAR roadHalfWidth, but the actual pavement width along
+        // the pit zone (HalfWidthAt: authored per-point profile + hairpin
+        // widening) can be several metres wider there. The pit lane's inner
+        // edge then landed on or inside the live track's real pavement, so
+        // every structure that must fit between them was geometrically
+        // impossible and failed placement validation. The anchor is now the
+        // WIDEST real pavement half-width across the pit zone span, computed
+        // once at build time (TrackManager.AnchorPitLaneToPitZonePavement);
+        // -1 means "not computed" and falls back to the old scalar behaviour.
+        public float pitLaneAnchorHalfWidth = -1f;
+
         public float PitLaneLateral
         {
-            get { return roadHalfWidth + 14.38f; }
+            get { return (pitLaneAnchorHalfWidth > 0f ? pitLaneAnchorHalfWidth : roadHalfWidth) + 14.38f; }
         }
 
         // Fast-lane/service-bay separation fix (root cause 1): PitBoxSpacing is
@@ -2500,7 +2515,56 @@ namespace LocalFormulaRacing
             // a second repair pass above), so this must run after that and after
             // RecalculateDistances so cumulativeDistances line up with centerLine.
             runtime.RecalculateHairpinWidening();
+            // Must run AFTER the widths are final (authored profile applied,
+            // hairpin widening and the width-vs-radius cap computed above): the
+            // pit lane keeps a constant lateral offset, but that offset now
+            // clears the WIDEST real pavement in the pit zone instead of the
+            // flat scalar - see TrackRuntime.pitLaneAnchorHalfWidth.
+            AnchorPitLaneToPitZonePavement(runtime);
             return runtime;
+        }
+
+        // Pit-wall massacre fix (see TrackRuntime.pitLaneAnchorHalfWidth): sweep
+        // the whole pit zone span (entry ramp start, through the corridor, out
+        // the exit ramp end - wrapping the lap line) and record the widest real
+        // pavement half-width. Everything pit-related (ramp lerps, corridor
+        // pavement, boxes, divider fence, pit wall, scenery standoffs) derives
+        // from PitLaneLateral, so raising the anchor moves the whole pit complex
+        // outward consistently on circuits whose pit straight is wider than the
+        // scalar base width.
+        static void AnchorPitLaneToPitZonePavement(TrackRuntime runtime)
+        {
+            if (runtime == null || runtime.length <= 1f)
+            {
+                return;
+            }
+
+            float startNorm = runtime.PitEntryRampStartNormalized;
+            float endNorm = runtime.PitExitRampEndNormalized;
+            float span = endNorm - startNorm;
+            span = (span % 1f + 1f) % 1f;
+            if (span <= 0f || span >= 0.9f)
+            {
+                // A degenerate span means the ramp anchors are broken; keep the
+                // scalar fallback rather than sweeping the whole lap.
+                return;
+            }
+
+            float widest = runtime.roadHalfWidth;
+            float spanMetres = span * runtime.length;
+            for (float offset = 0f; offset <= spanMetres; offset += 5f)
+            {
+                float d = (startNorm * runtime.length + offset) % runtime.length;
+                widest = Mathf.Max(widest, runtime.HalfWidthAt(d));
+            }
+
+            runtime.pitLaneAnchorHalfWidth = widest;
+            if (widest > runtime.roadHalfWidth + 0.05f)
+            {
+                Debug.Log("[TrackValidation] " + runtime.displayName + ": pit lane anchored to widest pit-zone pavement (" +
+                          widest.ToString("0.0") + "m half-width vs scalar " + runtime.roadHalfWidth.ToString("0.0") +
+                          "m) - pit complex shifted outward so the pit wall/divider/edge barriers have real room.");
+            }
         }
 
         // See the call site in CreateLayout for the full rationale. Closed-loop
@@ -12417,6 +12481,16 @@ namespace LocalFormulaRacing
             for (int i = 0; i < samples.Length; i++)
             {
                 TrackProgress progress = Runtime.GetProgress(samples[i]);
+                // Cross-deck disambiguation (same 1.8m mid-height rule as
+                // IsSolidObstaclePlacementValid): this last-resort test used to
+                // have NO height awareness at all, so a flyover-ramp wall that
+                // failed the strict test against the other deck's corridor also
+                // failed here and was destroyed - the raised edges stayed bare.
+                if (Mathf.Abs(samples[i].y - progress.nearestPoint.y) > 1.8f)
+                {
+                    continue;
+                }
+
                 if (Mathf.Abs(progress.lateralDistance) < Runtime.HalfWidthAt(progress.distance) + HardMinimumEdgeBarrierClearance)
                 {
                     return false;
@@ -12563,11 +12637,11 @@ namespace LocalFormulaRacing
             for (int i = 0; i < samples.Length; i++)
             {
                 TrackProgress progress = Runtime.GetProgress(samples[i]);
-                // Cross-deck disambiguation - same reasoning as
-                // IsSolidObstaclePlacementValid: a sample resolved to a road a
-                // full deck-height away is on a different level of a flyover
-                // crossing, not on that road.
-                if (Mathf.Abs(samples[i].y - progress.nearestPoint.y) > 4f)
+                // Cross-deck disambiguation - same reasoning (and same 1.8m
+                // mid-height threshold) as IsSolidObstaclePlacementValid: a
+                // sample well above the road it resolved to is on a different
+                // level of a flyover crossing/ramp, not on that road.
+                if (Mathf.Abs(samples[i].y - progress.nearestPoint.y) > 1.8f)
                 {
                     continue;
                 }
@@ -12673,7 +12747,15 @@ namespace LocalFormulaRacing
                 // overlap zone, leaving the flyover edges bare. A sample a full
                 // deck-height above/below the road it resolved to is not ON
                 // that road - cars pass under/over, there is no conflict.
-                if (Mathf.Abs(samples[i].y - progress.nearestPoint.y) > 4f)
+                // Threshold 4.0 -> 1.8 (China GP report - bridge walls rejected
+                // all along the flyover RAMPS, where the raised leg is only
+                // 2-3.8m up): the sample sits at the wall's mid-height, so 1.8m
+                // above the resolved road surface means the wall's BASE is well
+                // above any car's nose on that road - it stands on the raised
+                // leg's embankment, not in the lower corridor. A wall genuinely
+                // intruding a corridor sits base-on-road (mid-height ~0.5m) and
+                // is still fully checked.
+                if (Mathf.Abs(samples[i].y - progress.nearestPoint.y) > 1.8f)
                 {
                     continue;
                 }
