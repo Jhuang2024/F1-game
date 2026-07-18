@@ -228,8 +228,12 @@ namespace LocalFormulaRacing
         OvertakeState swervePrevState = OvertakeState.Following;
         float swerveWindowStart;
         float swerveLastLogTime;
-        // Previous applied steer, for the straight-line pure-pursuit weave damper.
-        float steerLowPassPrev;
+        // Yaw-rate derivative-damping state for the straight-line pure-pursuit weave
+        // fix: the car's own measured heading rate, smoothed, so the steer command can
+        // oppose unwanted rotation on a straight (the missing D term of a PD controller).
+        float yawRateSmoothedDeg;
+        float prevHeadingDeg;
+        bool hasHeadingRef;
 
         // Overtake-thrash guards ([SwerveDiag] - during passes the state machine
         // cycled Attacking->SideBySide->CompletingPass->Following->Attacking
@@ -2200,7 +2204,21 @@ namespace LocalFormulaRacing
             float edgeEmergencyBrake = edgeUrgency > 0f
                 ? Mathf.Clamp01(Mathf.Lerp(0f, 1.17f, edgeUrgency) * Mathf.Lerp(0.9f, 1.8f, edgeOverspeed) * wallAversionMultiplier) * wallAversionLaunchGate
                 : 0f;
-            command.steer = Mathf.Clamp(localSteer * 2.2f + edgeRecovery, -1f, 1f);
+            // Pure-pursuit gain is scheduled DOWN on straights ([SwerveDiag] root
+            // cause - 70% of logged weave was steer=3, the detector's floor, in every
+            // state with the offsets steady). This steering is pure-proportional:
+            // steer = gain * (error at the lookahead point), with no derivative term.
+            // The 2.2 gain is tuned for corner turn-in, but on a straight the lookahead
+            // point sits dead ahead and the error is ~0, so that hot gain drives the
+            // loop into a self-sustaining limit cycle - the pervasive weave. (The
+            // earlier low-pass could not remove it: a low-pass shrinks a limit cycle's
+            // amplitude but not its zero-crossing rate, which is exactly what the
+            // reversal count measures.) A straight needs almost no gain, so it eases to
+            // ~1.1 as the road straightens - well clear of the oscillation threshold -
+            // and returns to the full 2.2 for genuine corner turn-in.
+            float pursuitStraightness = 1f - Mathf.Clamp01(severityHere / 0.14f);
+            float pursuitGain = Mathf.Lerp(2.2f, 1.1f, pursuitStraightness);
+            command.steer = Mathf.Clamp(localSteer * pursuitGain + edgeRecovery, -1f, 1f);
 
             // Real braking point: a kinematic stopping distance from current speed down
             // to the apex speed this driver is actually willing to carry, compared
@@ -2754,23 +2772,31 @@ namespace LocalFormulaRacing
                 command.steer = Mathf.Clamp(command.steer, -steerCap, steerCap);
             }
 
-            // Pure-pursuit weave damper ([SwerveDiag] root cause - every car on a
-            // straight showed steer reversing ~3x/2s while lineBias/overtake/
-            // traffic were all steady: the localSteer*2.2 pursuit has no damping,
-            // so it overshoots the held line and corrects, forever). A first-order
-            // low-pass on the FINAL steer attenuates that oscillation. Gated so it
-            // can never dull real steering: it only engages when the steer is
-            // already small (|steer| < 0.35 - i.e. cruising, not cornering or
-            // recovering off a wall) and fades out as corner severity rises. A
-            // low-pass cannot introduce oscillation, so this is safe where a
-            // derivative/yaw-damper could overshoot.
+            // Yaw-rate derivative damping - the other missing half of the PD
+            // controller (see the pursuit-gain schedule at command.steer above). With
+            // no D term, nothing opposes the car's own rotation as it overshoots the
+            // line, and that absent damping is precisely what lets the loop sustain a
+            // limit cycle. This measures the car's ACTUAL yaw rate from its heading
+            // change and subtracts a term proportional to it, so any rotation on a
+            // straight is actively resisted - a real driver's hands holding the wheel
+            // still. The yaw-rate input is smoothed before use: a raw frame-to-frame
+            // derivative is noisy, and un-smoothed D would amplify the very shimmy it
+            // is meant to kill. Gated to straights (steerStraightness) and to the
+            // cruising steer band (|steer| < 0.35) so it can never fight genuine
+            // corner turn-in or wall-recovery steering, where a high yaw rate is
+            // intended. Lowering P gain and adding smoothed D are both monotone,
+            // stabilising changes - neither can introduce a new oscillation.
+            float headingDeg = Mathf.Atan2(transform.forward.x, transform.forward.z) * Mathf.Rad2Deg;
+            float yawRateDeg = hasHeadingRef ? Mathf.DeltaAngle(prevHeadingDeg, headingDeg) / Mathf.Max(Time.deltaTime, 0.0001f) : 0f;
+            prevHeadingDeg = headingDeg;
+            hasHeadingRef = true;
+            yawRateSmoothedDeg = Mathf.Lerp(yawRateSmoothedDeg, yawRateDeg, 0.35f);
             float steerStraightness = 1f - Mathf.Clamp01(severityHere / 0.14f);
-            if (steerStraightness > 0f && Mathf.Abs(command.steer) < 0.35f && Mathf.Abs(steerLowPassPrev) < 0.35f)
+            if (steerStraightness > 0f && Mathf.Abs(command.steer) < 0.35f)
             {
-                command.steer = Mathf.Lerp(command.steer, steerLowPassPrev, 0.55f * steerStraightness);
+                float yawDamp = Mathf.Clamp(yawRateSmoothedDeg * 0.010f, -0.35f, 0.35f) * steerStraightness;
+                command.steer = Mathf.Clamp(command.steer - yawDamp, -1f, 1f);
             }
-
-            steerLowPassPrev = command.steer;
 
             DiagnoseSwerve(progress, severityHere, lineBias, command.steer);
             vehicle.SetCommand(command);
