@@ -510,6 +510,9 @@ namespace LocalFormulaRacing
         float aiHarvestModeMultiplier = 1f;
         float aiDeployModeMultiplier = 1f;
 
+        // [PitDiag] wall-contact telemetry rate limit (see ProcessDamageCollision).
+        float lastPitWallHitLogTime;
+
         public void SetAiErsMode(float harvestMultiplier, float deployMultiplier)
         {
             aiHarvestModeMultiplier = harvestMultiplier;
@@ -2040,6 +2043,29 @@ namespace LocalFormulaRacing
             else
             {
                 DampenWallContactResponse(normalSpeedKph, contact.normal, sustained);
+
+                // [PitDiag] wall-contact telemetry (per report - "still get
+                // slammed into the walls when pitting", after multiple rounds
+                // of assist fixes): the pit pipeline has three distinct control
+                // regimes (racing-speed guide, braked pre-position, kinematic
+                // rail) and the right fix depends entirely on WHERE the contact
+                // happens - so every wall hit during a pit-bound phase logs the
+                // exact position, speed and steering state. Rate-limited so a
+                // grind doesn't spam.
+                if (IsPlayerControlled && (PitRequested || PitLimiterActive) && Time.time - lastPitWallHitLogTime > 1.5f)
+                {
+                    lastPitWallHitLogTime = Time.time;
+                    TrackProgress hitProgress = Track != null ? Track.GetProgress(transform.position) : new TrackProgress();
+                    Debug.LogWarning("[PitDiag] PLAYER WALL HIT while pit-bound: obj=" + objectName +
+                                     " norm=" + hitProgress.normalized.ToString("0.000") +
+                                     " lateral=" + hitProgress.lateralDistance.ToString("0.0") +
+                                     " halfW=" + (Track != null ? Track.HalfWidthAt(hitProgress.distance).ToString("0.0") : "?") +
+                                     " speed=" + (body.velocity.magnitude * 3.6f).ToString("0") + "kph" +
+                                     " impact=" + normalSpeedKph.ToString("0") + "kph" +
+                                     " steer=" + LastSteerInput.ToString("0.00") +
+                                     " limiter=" + PitLimiterActive +
+                                     " sustained=" + sustained);
+                }
             }
 
             Vector3 localPoint = transform.InverseTransformPoint(contact.point);
