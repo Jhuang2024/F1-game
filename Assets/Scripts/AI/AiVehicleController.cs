@@ -3778,7 +3778,12 @@ namespace LocalFormulaRacing
             float aggressionPenalty = Mathf.Lerp(0.85f, 1.35f, aggression / 100f);
             if (Random.value < profile.mistakeChancePerLap * consistencyPenalty * aggressionPenalty)
             {
-                mistakeSteer = Random.Range(-0.9f, 0.9f);
+                // Twitch magnitude cut 0.9 -> 0.6m (per report - mistakes too
+                // common/violent, and a 0.9m instant lateral jerk reads as a
+                // swerve). A mistake is now a believable wobble/correction, not a
+                // near lane-change; the real time-loss consequence is the
+                // braking-point error below, not the size of this steer blip.
+                mistakeSteer = Random.Range(-0.6f, 0.6f);
                 mistakeTimer = Random.Range(0.5f, 1.2f);
 
                 // Consequence pass: a steer wobble alone is clamped back inside

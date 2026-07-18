@@ -192,7 +192,13 @@ namespace LocalFormulaRacing
                     defendCommitment = 0.79f,
                     ersDeploymentQuality = 0.95f,
                     drsUsageQuality = 0.99f,
-                    mistakeChancePerLap = 0.015f,
+                    // Cut 0.015 -> 0.005 (per report - AI mistakes "wayyy too
+                    // common even at hard"). This value is rolled every ~3-8s
+                    // (see UpdateMistake), not once per lap as the name implies,
+                    // and there are 21 AI cars - so even a low per-car rate reads
+                    // as a constant stream of field-wide errors. Hard should look
+                    // clean; a genuine slip stays possible but rare.
+                    mistakeChancePerLap = 0.005f,
                     // Aggression pass (per request): was 0.82.
                     trafficAvoidanceCaution = 0.62f,
                     wetWeatherCaution = 0.98f,
@@ -241,7 +247,9 @@ namespace LocalFormulaRacing
                 defendCommitment = 0.93f,
                 ersDeploymentQuality = 0.975f,
                 drsUsageQuality = 0.98f,
-                mistakeChancePerLap = 0.002f,
+                // Cut 0.002 -> 0.0008 alongside the Hard reduction: Expert should
+                // be the cleanest field on the grid, essentially error-free.
+                mistakeChancePerLap = 0.0008f,
                 // Aggression pass (per request): was 0.42.
                 trafficAvoidanceCaution = 0.32f,
                 wetWeatherCaution = 0.88f,
