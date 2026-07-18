@@ -13,7 +13,47 @@ namespace LocalFormulaRacing
     /// </summary>
     public partial class RaceManager
     {
+        // [ErsDiag] rolling sample (per report - "im convinced the ai either
+        // dont have ERS at all or arent using it"): every AI asks this
+        // function every frame, so sampling here gives a complete picture of
+        // real deployment. One visible summary line every ~45s: what fraction
+        // of AI-frames actually deployed, and the field's average battery.
+        // Near-zero deploy % or a battery pinned at 100% would prove the
+        // report; healthy numbers prove the system and point the perception
+        // gap elsewhere.
+        int ersDiagSamples;
+        int ersDiagDeploys;
+        float ersDiagBatterySum;
+        float ersDiagLastLogTime;
+
         public bool ShouldAiUseErs(RaceParticipant participant, float cornerSeverity)
+        {
+            bool deploy = ShouldAiUseErsInternal(participant, cornerSeverity);
+            if (participant != null && participant.vehicle != null && CurrentSession != RaceWeekendSession.Qualifying)
+            {
+                ersDiagSamples++;
+                if (deploy)
+                {
+                    ersDiagDeploys++;
+                }
+
+                ersDiagBatterySum += participant.vehicle.ErsBattery;
+                if (Time.time - ersDiagLastLogTime > 45f && ersDiagSamples > 200)
+                {
+                    Debug.Log("[ErsDiag] AI ERS over the last " + (Time.time - ersDiagLastLogTime).ToString("0") + "s: deploying on " +
+                              (100f * ersDiagDeploys / ersDiagSamples).ToString("0.0") + "% of AI-frames, average battery " +
+                              (100f * ersDiagBatterySum / ersDiagSamples).ToString("0") + "%.");
+                    ersDiagLastLogTime = Time.time;
+                    ersDiagSamples = 0;
+                    ersDiagDeploys = 0;
+                    ersDiagBatterySum = 0f;
+                }
+            }
+
+            return deploy;
+        }
+
+        bool ShouldAiUseErsInternal(RaceParticipant participant, float cornerSeverity)
         {
             if (participant == null || participant.vehicle == null)
             {

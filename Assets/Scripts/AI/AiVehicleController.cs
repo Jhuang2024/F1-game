@@ -3781,16 +3781,42 @@ namespace LocalFormulaRacing
                     // small swerve that scrubbed exactly the overspeed the
                     // decisive-commit gate needs to see before it launches a
                     // real attack (and threw away the slipstream on straights).
-                    // A follower now HOLDS ITS LINE, sitting square in the tow
-                    // and letting the speed advantage build; the one and only
-                    // lateral move is the full committed swing when an attack
-                    // state actually fires. The original "they just brake
-                    // forever" failure this peek once fixed can't return: the
-                    // sustainedPressure qualifier (0.4s in the wake IS an
-                    // attack trigger), the widened gap thresholds and the
-                    // decisive-advantage fast track all fire the formal attack
-                    // long before braking becomes the only option.
-                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, 0f, Time.deltaTime * 5f);
+                    // The one and only ATTACK move is the full committed swing
+                    // when an attack state actually fires.
+                    //
+                    // Tow-seeking (per report - "on a straight where im just a
+                    // bit ahead theyd much rather stick to their line than pull
+                    // in behind me"): holding-their-own-line went too far the
+                    // other way - a follower whose line is laterally offset
+                    // from the leader's never entered the wake at all, so the
+                    // slipstream they're supposed to exploit never activated.
+                    // On a straight, within tow range, the follower now steers
+                    // to ALIGN with the car ahead (chasing the leader's lateral
+                    // position, not a peek to one side) - one purposeful move
+                    // into the tow, with a dead-band so it never micro-swerves
+                    // once roughly aligned. Corners keep the line-hold.
+                    float followTarget = 0f;
+                    if (ahead != null && ahead.vehicle != null && raceManager.CanParticipantOvertake(participant, ahead))
+                    {
+                        float towGapSeconds = raceManager.GetIntervalToAheadSeconds(participant);
+                        bool towStraight = severityHere < 0.14f && (apexDistanceAhead > 70f || apexSeverity < 0.14f);
+                        if (towStraight && towGapSeconds < 1.8f)
+                        {
+                            Vector3 aheadLocalTow = transform.InverseTransformPoint(ahead.transform.position);
+                            if (Mathf.Abs(aheadLocalTow.z) > 6f && Mathf.Abs(aheadLocalTow.x) > 0.6f)
+                            {
+                                followTarget = Mathf.Clamp(aggressionOffset + aheadLocalTow.x, -legalLimit, legalLimit);
+                            }
+                            else
+                            {
+                                // Roughly aligned (or genuinely alongside):
+                                // hold what we have - no dithering in the wake.
+                                followTarget = aggressionOffset;
+                            }
+                        }
+                    }
+
+                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, followTarget, Time.deltaTime * 5f);
                     if (ahead != null && ahead.vehicle != null && raceManager.CanParticipantOvertake(participant, ahead))
                     {
                         float gapSeconds = raceManager.GetIntervalToAheadSeconds(participant);
