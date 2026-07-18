@@ -231,6 +231,17 @@ namespace LocalFormulaRacing
         // Previous applied steer, for the straight-line pure-pursuit weave damper.
         float steerLowPassPrev;
 
+        // Overtake-thrash guards ([SwerveDiag] - during passes the state machine
+        // cycled Attacking->SideBySide->CompletingPass->Following->Attacking
+        // several times a second, swinging aggressionOffset +-7m). enteredTime
+        // gives every state a minimum dwell before it can hand off; reattack
+        // cooldown stops a just-"completed" pass from instantly re-triggering
+        // when two cars run level and FindCarAhead flickers null.
+        float overtakeStateEnteredTime;
+        float overtakeReattackCooldown;
+        const float OvertakeMinStateDwell = 0.45f;
+        const float OvertakeReattackCooldownSeconds = 2.5f;
+
         // Stuck-recovery maneuver (Part 2/3): only engages while RaceManager's own
         // recovery-state classification says this car is Recovering or already
         // ActuallyStranded - never while merely Queued/PitSequence/RaceControlPacing,
@@ -3951,6 +3962,13 @@ namespace LocalFormulaRacing
             overtakeStateTimer -= Time.deltaTime;
             pressureFactor = 0f;
 
+            // Anti-thrash bookkeeping: how long we've held the current state, and
+            // the post-pass re-attack cooldown ticking down. Both consumed by the
+            // transition guards below.
+            OvertakeState overtakeStateAtStart = overtakeState;
+            float overtakeStateAge = Time.time - overtakeStateEnteredTime;
+            overtakeReattackCooldown = Mathf.Max(0f, overtakeReattackCooldown - Time.deltaTime);
+
             switch (overtakeState)
             {
                 case OvertakeState.Following:
@@ -4097,7 +4115,7 @@ namespace LocalFormulaRacing
                             attackPermitted = isExpert || Random.value < commitment * Time.deltaTime * (20f + patienceBonus) * drsBonus;
                         }
 
-                        if (attackTrigger && !suppressAttackManeuvers && !inCornerCommitmentZone && attackPermitted)
+                        if (attackTrigger && !suppressAttackManeuvers && !inCornerCommitmentZone && attackPermitted && overtakeReattackCooldown <= 0f)
                         {
                             // Versatile side choice (per request - the AI always
                             // took the same side): reads the corner, the
@@ -4233,7 +4251,15 @@ namespace LocalFormulaRacing
 
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, Mathf.Clamp(attackOffset, -legalLimit, legalLimit), Time.deltaTime * 6.5f);
                     bool sideBySideNow = ahead != null && Mathf.Abs(transform.InverseTransformPoint(ahead.transform.position).z) < 6f;
-                    if (sideBySideNow)
+                    // Minimum dwell: hold the committed attack line for at least
+                    // OvertakeMinStateDwell before registering any hand-off, so a
+                    // single frame of the target flickering level (|z|<6) or out
+                    // of FindCarAhead's reach can't ping-pong the state.
+                    if (overtakeStateAge < OvertakeMinStateDwell)
+                    {
+                        // hold - keep pressing the current attack line.
+                    }
+                    else if (sideBySideNow)
                     {
                         overtakeState = OvertakeState.SideBySide;
                         overtakeStateTimer = sideBySideTimer;
@@ -4242,6 +4268,7 @@ namespace LocalFormulaRacing
                     {
                         overtakeState = OvertakeState.CompletingPass;
                         overtakeStateTimer = 1.4f;
+                        overtakeReattackCooldown = OvertakeReattackCooldownSeconds;
                         raceManager.ReportAiOvertakeCompleted(participant);
                     }
                     else
@@ -4277,10 +4304,18 @@ namespace LocalFormulaRacing
                     // Hold the line and ease off the aggression; ApplyTrafficAvoidance's
                     // blockedLeft/blockedRight logic already keeps both cars apart.
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, aggressionOffset * 0.9f, Time.deltaTime * 2f);
-                    if (ahead == null || raceManager.FindCarAhead(participant, 12f) == null)
+                    // Same minimum dwell before a side-by-side can be declared
+                    // "completed": FindCarAhead(12) flickering null while the cars
+                    // are level is exactly what re-triggered the pass loop.
+                    if (overtakeStateAge < OvertakeMinStateDwell)
+                    {
+                        // hold alongside.
+                    }
+                    else if (ahead == null || raceManager.FindCarAhead(participant, 12f) == null)
                     {
                         overtakeState = OvertakeState.CompletingPass;
                         overtakeStateTimer = 1.2f;
+                        overtakeReattackCooldown = OvertakeReattackCooldownSeconds;
                         raceManager.ReportAiOvertakeCompleted(participant);
                     }
                     else if (overtakeStateTimer <= 0f)
@@ -4351,7 +4386,15 @@ namespace LocalFormulaRacing
             // they're alongside, hard-capped so the attacker is always left a
             // genuine car's width of racing room (a squeeze, never a wall),
             // and never under blue flags or race-control overtaking bans.
-            if (behind != null && behind.vehicle != null && !suppressAttackManeuvers &&
+            // Squeeze only from a defensive posture. It used to run every frame
+            // regardless of state, so while the car was mid-attack (offset toward
+            // a car AHEAD) this simultaneously drove the offset toward a car
+            // BEHIND - a per-frame tug-of-war that swung aggressionOffset and was
+            // a direct cause of the pass-time weaving ([SwerveDiag] agg=7.9 in
+            // CompletingPass, where it should be easing to 0). A car actively
+            // making a pass is not also squeeze-defending.
+            bool defensivePosture = overtakeState == OvertakeState.Following || overtakeState == OvertakeState.BackingOut;
+            if (defensivePosture && behind != null && behind.vehicle != null && !suppressAttackManeuvers &&
                 !behind.isPitting && raceManager.CanParticipantOvertake(behind, participant))
             {
                 Vector3 rivalLocal = transform.InverseTransformPoint(behind.transform.position);
@@ -4365,6 +4408,13 @@ namespace LocalFormulaRacing
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, squeezeTarget, Time.deltaTime * Mathf.Lerp(1.6f, 3.2f, defendCommitment));
                     pressureFactor = Mathf.Max(pressureFactor, Mathf.Lerp(0.35f, 0.9f, defendCommitment));
                 }
+            }
+
+            // Stamp the entry time whenever the state actually changed this frame,
+            // so overtakeStateAge above measures the real dwell in the new state.
+            if (overtakeState != overtakeStateAtStart)
+            {
+                overtakeStateEnteredTime = Time.time;
             }
         }
 
