@@ -85,13 +85,27 @@ namespace LocalFormulaRacing
 
             bool finalLap = CurrentSession != RaceWeekendSession.Qualifying && participant.lapTracker != null && participant.lapTracker.CompletedLaps >= RaceLaps - 1;
             float normalized = participant.lapTracker == null ? 0f : (State == null ? participant.lapTracker.CurrentProgress.normalized : State.GetCurrentProgress(participant).normalized);
-            bool finalSector = normalized > 0.68f;
+            // Battery-economy fix ([ErsDiag] report - AI deploying 17-48% of
+            // frames yet average battery pinned at ~19%, right at the deploy
+            // floor): "always spend it coming home" was meant for the END OF
+            // THE RACE, but this flag tested only lap position - so it fired
+            // across the last THIRD of EVERY lap, unconditionally draining the
+            // battery to the floor once per lap. The AI lived hand-to-mouth
+            // with nothing banked for attacks or defence - "their ERS isn't as
+            // good as mine" was exactly right: same hardware, bankrupt
+            // management. The coming-home burn now starts at the final sector
+            // of the PENULTIMATE lap (flowing into the finalLap bypass), so
+            // for the rest of the race deployment is strategic (attacking /
+            // defending / push-lap with >50% banked / near-full battery) and
+            // the battery actually cycles.
+            bool closingStages = CurrentSession != RaceWeekendSession.Qualifying && participant.lapTracker != null &&
+                                 participant.lapTracker.CompletedLaps >= RaceLaps - 2 && normalized > 0.68f;
             bool batteryHigh = battery > 0.85f;
 
             // Never hoard a near-full battery, and always spend it coming home - these
             // are decisions even a weak driver gets right, so they bypass the quality
             // gate entirely.
-            if (batteryHigh || finalLap || finalSector)
+            if (batteryHigh || finalLap || closingStages)
             {
                 return true;
             }
