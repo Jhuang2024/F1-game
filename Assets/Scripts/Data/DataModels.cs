@@ -375,9 +375,12 @@ namespace LocalFormulaRacing
         // expectation-scale fix (team rank 1..11 compared against driver
         // positions 1..22) accumulated a systematic negative drift into every
         // driver's cumulative rating deltas. CareerManager.
-        // RepairProgressionScaleBias removes the common-mode drift exactly once
-        // per save; this records that it ran.
+        // RepairProgressionScaleBias removes the drift exactly once per save;
+        // this records that it ran. The bool is the retired v1 (mean-shift)
+        // marker; the int versions the repair so a stronger pass can supersede
+        // an already-applied weaker one (v2: reset the four corrupted stats).
         public bool progressionScaleBiasRepaired;
+        public int progressionScaleBiasRepairVersion;
 
         // Part 5/7: full-grid persistent R&D state, one entry per team
         // (including the player's, for archetype/rating bookkeeping - see

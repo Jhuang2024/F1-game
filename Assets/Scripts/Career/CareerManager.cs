@@ -2192,81 +2192,80 @@ namespace LocalFormulaRacing
             }
         }
 
-        // One-shot save repair for careers whose past seasons were scored under
-        // the progression expectation-scale bug (team rank 1..11 compared
-        // directly against driver positions 1..22, plus the 1.2-overtakes
-        // neutral point): every season, the WHOLE field's pace/racecraft/
-        // qualifying/overtaking deltas drifted a few points further negative
-        // together, so after a few seasons every driver on the grid reads
-        // artificially weak. The bias was common-mode by construction (the same
-        // impossible expectation applied to everyone), so the repair is to
-        // re-center each affected stat's cumulative deltas so the field mean is
-        // zero - genuinely earned differences BETWEEN drivers (teammate
-        // head-to-heads, beating or missing the car's realistic slot) are
-        // preserved exactly; only the shared sink is removed. Runs once per
-        // save (progressionScaleBiasRepaired), only on the current season's
-        // live modifiers - which is all GetEffectiveDriver ever reads, and
-        // what next season's progression chains from.
+        // One-shot save repair (v2) for careers whose past seasons were scored
+        // under the progression expectation-scale bug (team rank 1..11 compared
+        // directly against driver positions 1..22, plus the unreachable
+        // 1.2-overtakes neutral point). The bias was NOT uniform: the
+        // expectation error grew with team rank (a top car was "expected"
+        // ~P1.3, off by ~0.3 places, while a backmarker was "expected" ~P8
+        // when its car is realistically a P20 car - off by ~7), and the
+        // per-season score clamps saturated on the big errors. Several seasons
+        // of that warped the field non-uniformly, so v1's uniform mean-shift
+        // could not reconstruct the true distribution, and the per-race data
+        // needed to invert the damage exactly is not stored (the biased sums
+        // are baked into the season accumulators, with clamping on top).
+        //
+        // The honest repair is to DISCARD the corrupted data: reset the four
+        // bug-poisoned stats' cumulative deltas (pace/racecraft/qualifying/
+        // overtaking) to zero, returning every driver to their authored base
+        // ratings on those stats. Progression on the stats the bug never
+        // touched - consistency, defending, awareness, tyre, wet, aggression,
+        // experience, all scored from clean signals like teammate
+        // head-to-heads and incident counts - is preserved. Future seasons
+        // accrue correctly under the fixed zero-sum scoring.
+        //
+        // Versioned (progressionScaleBiasRepairVersion) so this v2 supersedes
+        // v1's mean-shift whether or not v1 already ran on the save: the reset
+        // is absolute, so applying it after a v1 shift yields the same state
+        // as applying it alone. Only the current season's live modifiers are
+        // touched - that is all GetEffectiveDriver ever reads, and what next
+        // season's progression chains from; older seasons' entries stay as
+        // historical record.
         void RepairProgressionScaleBias()
         {
-            if (Save.progressionScaleBiasRepaired)
+            if (Save.progressionScaleBiasRepairVersion >= 2)
             {
                 return;
             }
 
+            Save.progressionScaleBiasRepairVersion = 2;
             Save.progressionScaleBiasRepaired = true;
 
             List<DriverRatingModifier> live = Save.driverRatingModifiers.FindAll(m => m != null && m.season == Save.currentSeason);
-            if (live.Count < 4)
+            if (live.Count == 0)
             {
                 // A fresh save (or one with no accumulated progression yet) has
                 // nothing to repair.
                 return;
             }
 
-            float meanPace = 0f, meanRacecraft = 0f, meanQualifying = 0f, meanOvertaking = 0f;
+            int hadDrift = 0;
             for (int i = 0; i < live.Count; i++)
             {
-                meanPace += live[i].paceDelta;
-                meanRacecraft += live[i].racecraftDelta;
-                meanQualifying += live[i].qualifyingDelta;
-                meanOvertaking += live[i].overtakingDelta;
+                DriverRatingModifier m = live[i];
+                if (m.paceDelta != 0 || m.racecraftDelta != 0 || m.qualifyingDelta != 0 || m.overtakingDelta != 0)
+                {
+                    hadDrift++;
+                }
+
+                m.paceDelta = 0;
+                m.racecraftDelta = 0;
+                m.qualifyingDelta = 0;
+                m.overtakingDelta = 0;
+                // Clear the "last season" change badges for the wiped stats and
+                // the now-stale overall trend - showing last season's corrupted
+                // -3/-4 next to freshly restored ratings would just mislead.
+                m.lastPaceChange = 0;
+                m.lastRacecraftChange = 0;
+                m.lastQualifyingChange = 0;
+                m.lastOvertakingChange = 0;
+                m.lastOverallChange = 0;
+                m.trendLabel = "Steady";
             }
 
-            meanPace /= live.Count;
-            meanRacecraft /= live.Count;
-            meanQualifying /= live.Count;
-            meanOvertaking /= live.Count;
-
-            // Only correct a NEGATIVE common mode: this bug could only ever push
-            // the field down, so a positive mean is legitimately earned
-            // (confidence scaling etc.) and must not be taken away.
-            int shiftPace = meanPace < 0f ? Mathf.RoundToInt(-meanPace) : 0;
-            int shiftRacecraft = meanRacecraft < 0f ? Mathf.RoundToInt(-meanRacecraft) : 0;
-            int shiftQualifying = meanQualifying < 0f ? Mathf.RoundToInt(-meanQualifying) : 0;
-            int shiftOvertaking = meanOvertaking < 0f ? Mathf.RoundToInt(-meanOvertaking) : 0;
-
-            if (shiftPace + shiftRacecraft + shiftQualifying + shiftOvertaking == 0)
-            {
-                Debug.Log("[ProgressionRepair] no negative common-mode drift found (means: pace=" + meanPace.ToString("F1") +
-                    " racecraft=" + meanRacecraft.ToString("F1") + " qualifying=" + meanQualifying.ToString("F1") +
-                    " overtaking=" + meanOvertaking.ToString("F1") + ") - nothing to repair.");
-                return;
-            }
-
-            for (int i = 0; i < live.Count; i++)
-            {
-                live[i].paceDelta = Mathf.Clamp(live[i].paceDelta + shiftPace, -40, 40);
-                live[i].racecraftDelta = Mathf.Clamp(live[i].racecraftDelta + shiftRacecraft, -40, 40);
-                live[i].qualifyingDelta = Mathf.Clamp(live[i].qualifyingDelta + shiftQualifying, -40, 40);
-                live[i].overtakingDelta = Mathf.Clamp(live[i].overtakingDelta + shiftOvertaking, -40, 40);
-            }
-
-            Debug.Log("[ProgressionRepair] removed accumulated expectation-scale drift from " + live.Count +
-                " drivers' season-" + Save.currentSeason + " modifiers: pace+" + shiftPace +
-                " racecraft+" + shiftRacecraft + " qualifying+" + shiftQualifying + " overtaking+" + shiftOvertaking +
-                " (field means were pace=" + meanPace.ToString("F1") + " racecraft=" + meanRacecraft.ToString("F1") +
-                " qualifying=" + meanQualifying.ToString("F1") + " overtaking=" + meanOvertaking.ToString("F1") + ")");
+            Debug.Log("[ProgressionRepair] v2: reset corrupted pace/racecraft/qualifying/overtaking progression for " +
+                live.Count + " drivers (" + hadDrift + " carried drift) on season-" + Save.currentSeason +
+                " modifiers - all four stats return to authored base ratings; clean-signal stats keep their progression.");
             Write();
         }
 
