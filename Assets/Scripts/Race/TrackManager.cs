@@ -2378,16 +2378,6 @@ namespace LocalFormulaRacing
                       "m spacing) - corners are now smooth arcs instead of polygon joints.");
         }
 
-        static Vector3 CatmullRom(Vector3 a, Vector3 b, Vector3 c, Vector3 d, float t)
-        {
-            float t2 = t * t;
-            float t3 = t2 * t;
-            return 0.5f * ((2f * b) +
-                           (-a + c) * t +
-                           (2f * a - 5f * b + 4f * c - d) * t2 +
-                           (-a + 3f * b - 3f * c + d) * t3);
-        }
-
         // See the call site in CreateLayout for the full rationale. Iterative
         // relaxation: any point whose height sticks out from its neighbours'
         // average by more than the spacing-scaled allowance is pulled back to
@@ -3501,7 +3491,9 @@ namespace LocalFormulaRacing
             }
         }
 
-        Vector3 CatmullRom(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, float t)
+        // Static (pure function, no instance state) so the static centreline
+        // subdivision pass can share it.
+        static Vector3 CatmullRom(Vector3 p0, Vector3 p1, Vector3 p2, Vector3 p3, float t)
         {
             float t2 = t * t;
             float t3 = t2 * t;
