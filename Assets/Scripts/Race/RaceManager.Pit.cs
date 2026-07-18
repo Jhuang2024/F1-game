@@ -218,7 +218,18 @@ namespace LocalFormulaRacing
                 }
                 else
                 {
-                    GameLog.Warn("[PitLane] " + participant.driverName + " missed pit entry; retrying next lap.");
+                    // Debug.LogWarning, not GameLog (Verbose-gated - this miss
+                    // has been happening invisibly). The lateral/halfWidth pair
+                    // is the discriminator: lateral well INSIDE halfWidth means
+                    // the steering never got the car to the ramp opening;
+                    // lateral AT/BEYOND halfWidth means it was physically there
+                    // but the commit test never fired.
+                    TrackProgress missProgress = Track.GetProgressNear(participant.transform.position, currentProgress.distance);
+                    Debug.LogWarning("[PitDiag] " + participant.driverName + " MISSED pit entry (reached corridor without committing): " +
+                                     "norm=" + normalized.ToString("0.000") +
+                                     " lateral=" + missProgress.lateralDistance.ToString("0.0") +
+                                     " halfWidth=" + LocalHalfWidthAt(missProgress.distance).ToString("0.0") +
+                                     " speed=" + Mathf.Abs(participant.vehicle.CurrentSpeedKph).ToString("0") + "kph");
                 }
             }
             else
@@ -266,6 +277,17 @@ namespace LocalFormulaRacing
             if (participant.isPlayer)
             {
                 GameLog.Info("[Pit] Planned stop target lap=" + plannedTargetLap + ", actual pit-entry lap=" + participant.pitEntryLap + ".");
+            }
+
+            if (!participant.isPlayer)
+            {
+                // One line per successful AI commit (Debug.Log so it's visible
+                // without Verbose) - together with the [PitDiag] MISS/abort
+                // warnings this gives a complete visible record of every AI
+                // pit-entry attempt's outcome.
+                Debug.Log("[PitDiag] " + participant.driverName + " committed pit entry at norm=" +
+                          commitProgress.normalized.ToString("0.000") + " speed=" +
+                          Mathf.Abs(participant.vehicle.CurrentSpeedKph).ToString("0") + "kph");
             }
 
             participant.pitPhase = PitPhase.Entry;

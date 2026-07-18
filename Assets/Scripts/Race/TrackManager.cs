@@ -1146,7 +1146,20 @@ namespace LocalFormulaRacing
             // already gates on an active pit request); the guided rail then
             // carries the car smoothly onto the canonical ramp path from
             // wherever it committed.
-            return progress.lateralDistance >= HalfWidthAt(progress.distance) - 2.6f;
+            //
+            // Constants-mismatch fix (per report - AI "into the pitlane then
+            // bailing last second", every lap, ending on 0 stops): this
+            // acceptance band (-2.6m) was written when the shared pre-position
+            // target sat at halfWidth-2.4. The wall-oscillation fix later
+            // moved that target to halfWidth-3.2 (see
+            // ComputePitEntryTargetPoint) - 0.6m INSIDE this line - so a car
+            // tracking its own guidance PERFECTLY rode the whole ramp window
+            // without ever reading as committed, passed the corridor start,
+            // and was scored a miss. The band now covers the canonical
+            // pre-position lateral plus real tracking noise. Cars without a
+            // pit request never reach this test (the caller gates on the
+            // request), so the wider band cannot catch ordinary racing.
+            return progress.lateralDistance >= HalfWidthAt(progress.distance) - 4.2f;
         }
 
         // Single authoritative pit-entry limiter boundary (bugfix): the painted

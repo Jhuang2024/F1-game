@@ -228,6 +228,29 @@ namespace LocalFormulaRacing
             float steerGain = 2.2f * Mathf.Clamp(105f / Mathf.Max(speedKph, 105f), 0.35f, 1f);
             float steer = Mathf.Clamp(Vector3.Dot(toTarget.normalized, participant.transform.right) * steerGain, -1f, 1f);
 
+            // Never PRESS into a wall (per report - "theres still times where
+            // it just pins me against the wall"): the low-speed unstick below
+            // only engages under 12 kph, so at approach speed the guide could
+            // hold the car ground against a barrier - already at the outer
+            // margin, target still fractionally outboard, wheel pinned toward
+            // the wall. While still on the live road (pre-ramp - crossing the
+            // edge IS the goal once the ramp starts), any steer component that
+            // points further toward an edge the car is already at gets cut to
+            // zero; steering back toward the road stays fully available.
+            bool pressGuardActive = false;
+            if (progress.normalized < Track.PitEntryRampStartNormalized)
+            {
+                float pressLimit = LocalHalfWidthAt(progress.distance) - 2.4f;
+                if (Mathf.Abs(progress.lateralDistance) > pressLimit)
+                {
+                    pressGuardActive = true;
+                    if (Mathf.Sign(steer) == Mathf.Sign(progress.lateralDistance))
+                    {
+                        steer = 0f;
+                    }
+                }
+            }
+
             // Alignment-scaled approach speed (per report - "pinned against the
             // wall in pit entry again", now at the 150 kph entry pace): arriving
             // at full entry speed while still owing metres of sideways movement
@@ -360,6 +383,15 @@ namespace LocalFormulaRacing
             else
             {
                 pitAssistSmoothedSteer = Mathf.MoveTowards(pitAssistSmoothedSteer, steer, Time.deltaTime * 3.5f);
+            }
+
+            // The wall-press guard must also cut the SMOOTHED value - the rate
+            // limiter would otherwise keep the wheel pressed toward the wall
+            // for a fraction of a second after the raw steer was zeroed, which
+            // at a wall is exactly the fraction that grinds.
+            if (pressGuardActive && Mathf.Sign(pitAssistSmoothedSteer) == Mathf.Sign(progress.lateralDistance))
+            {
+                pitAssistSmoothedSteer = 0f;
             }
 
             command.steer = pitAssistSmoothedSteer;
