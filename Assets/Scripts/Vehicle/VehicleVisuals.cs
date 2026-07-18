@@ -2488,7 +2488,7 @@ namespace LocalFormulaRacing
             // longer-hanging burnt-rubber cloud, rather than one fixed puff
             // that only ever fires faster or slower.
             float lockupSeverity = vehicle.Tyres != null ? vehicle.Tyres.LockupSeverity : 0f;
-            bool locking = lockupSeverity > 0.05f && speedKph > 60f;
+            bool locking = lockupSeverity > 0.12f && speedKph > 60f;
             if (locking)
             {
                 ParticleSystem.MainModule smokeMain = lockupSmoke.main;
@@ -2506,8 +2506,11 @@ namespace LocalFormulaRacing
             // speed, where the dust emitter above and normal running respectively
             // already cover the visual, and only while actually moving so a stalled
             // car spinning its wheels on the grid doesn't smoke indefinitely.
+            // Threshold raised 0.12 -> 0.42 (per report - the constant "cloud
+            // behind the car"): the hair-trigger fired a smoke plume on every
+            // ordinary corner exit. Only a genuine, visible slide smokes now.
             float wheelspinAmount = Mathf.Clamp01(vehicle.OversteerAmount * vehicle.EffectiveThrottle * 1.6f);
-            bool spinning = wheelspinAmount > 0.12f && speedKph > 15f && speedKph < 200f && !vehicle.IsOffTrackSlowdown;
+            bool spinning = wheelspinAmount > 0.42f && speedKph > 15f && speedKph < 200f && !vehicle.IsOffTrackSlowdown;
             if (spinning)
             {
                 ParticleSystem.MainModule spinMain = wheelspinSmoke.main;
@@ -2516,14 +2519,16 @@ namespace LocalFormulaRacing
                 spinMain.startLifetime = Mathf.Lerp(0.55f, 1.3f, wheelspinAmount);
             }
 
-            SetRate(wheelspinSmoke, spinning ? Mathf.Lerp(10f, 60f, wheelspinAmount) : 0f);
+            SetRate(wheelspinSmoke, spinning ? Mathf.Lerp(6f, 30f, wheelspinAmount) : 0f);
 
-            // Only under real load - hard on the throttle and actually moving,
-            // not idling on the grid - and scaled by how hard, so it never
-            // becomes a constant background effect.
-            float engineLoad = vehicle.EffectiveThrottle;
-            bool underLoad = engineLoad > 0.7f && speedKph > 25f;
-            SetRate(heatHaze, underLoad ? Mathf.Lerp(3f, 12f, Mathf.InverseLerp(0.7f, 1f, engineLoad)) : 0f);
+            // Heat haze OFF (per report - "the cloud/smoke behind the car...
+            // should only be existent in rain"): despite the intent above, at
+            // >70% throttle it ran for most of every lap and the soft-dot
+            // particles read as a permanent smoke cloud trailing every car in
+            // the dry. The only always-on trailing cloud is now the rain spray
+            // (TrackWetness-gated above); lockup and genuine-slide smokes stay
+            // as momentary events.
+            SetRate(heatHaze, 0f);
 
             UpdateKerbSparks(speedKph);
             UpdateDamageEffects();
@@ -2544,7 +2549,14 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            bool kerbSparking = vehicle.IsOnKerb && speedKph > 130f;
+            // Kerb sparks made genuinely RARE (per report, round 2): the
+            // racing line legally rides kerbs at the apexes, so "on a kerb
+            // above 130" fired for a stretch of nearly every corner. Sparks
+            // now need real speed (200+) AND an intermittent per-car flicker
+            // window - a burst of sparks off a hard kerb strike here and
+            // there, not a grinder trail on every apex.
+            float sparkFlicker = Mathf.PerlinNoise(Time.time * 0.7f, (GetInstanceID() & 0xffff) * 0.013f);
+            bool kerbSparking = vehicle.IsOnKerb && speedKph > 200f && sparkFlicker > 0.72f;
             // Sparks made rare again (per report - "the sparks arent supposed
             // to be that common"): the floor-scrape term used to fire
             // CONTINUOUSLY at speed from any accumulated floor damage - one
@@ -2555,7 +2567,7 @@ namespace LocalFormulaRacing
             // sparks (momentary, on the kerb, at speed) are unchanged.
             float floorScrape = vehicle.Damage != null ? Mathf.Clamp01(vehicle.Damage.floor) : 0f;
             float wreckedFloor = Mathf.Clamp01((floorScrape - 0.45f) / 0.55f);
-            float rate = kerbSparking ? Mathf.Lerp(4f, 24f, Mathf.InverseLerp(130f, 320f, speedKph)) : 0f;
+            float rate = kerbSparking ? Mathf.Lerp(3f, 12f, Mathf.InverseLerp(200f, 340f, speedKph)) : 0f;
             rate += wreckedFloor * Mathf.InverseLerp(80f, 300f, speedKph) * 7f;
             if (rate > 0f)
             {
