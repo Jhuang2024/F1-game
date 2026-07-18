@@ -138,11 +138,28 @@ namespace LocalFormulaRacing
         // little (2.0 -> 1.7s) so an elite driver can drag a merely-decent car up
         // the order rather than being locked to the machinery. Elite-vs-weak driver
         // delta is now roughly 0.6-0.9s instead of ~0.3s.
-        const float DriverQualifyingCoefficient = 0.024f;
-        const float DriverPaceCoefficient = 0.007f;
+        // Season-separation pass (per report - near season end the points were
+        // spread across the entire field, 'midfield ppl and backmarkers should
+        // have 0-80 points across the entire season MAX'): the race model's
+        // skill spread is SECONDS per lap, but this qualifying model was
+        // calibrated to real-F1 gaps (elite vs weak ~0.25-0.55s, car capped at
+        // 1.7s) - the whole grid landed within ~2s, the midfield within
+        // tenths, where the mistake/variance noise freely shuffled it. With
+        // short races (nowhere near enough laps for race pace to re-sort 22
+        // cars), finishing order ~= grid order ~= half-lottery, and the season
+        // table bunched exactly as reported. Real F1 gets away with tiny quali
+        // gaps because races are 60 laps; here the GRID has to carry the merit
+        // order. Driver spread now ~2.9s worst-to-best (qualifying stat
+        // primary, pace secondary), car ~2.0s (roughly the requested ~60%-of-
+        // driver weight) - so grids read like the race pace they preview, the
+        // same faces fight for wins every week, and backmarkers only score on
+        // genuine chaos days. Mistake/variance terms are untouched, so upsets
+        // still happen at realistic (rare) rates.
+        const float DriverQualifyingCoefficient = 0.09f;
+        const float DriverPaceCoefficient = 0.03f;
         const float DriverConfidenceCoefficient = 0.002f;
         const float CarEffectCoefficientPerPoint = 0.08f;
-        const float CarEffectCapSeconds = 1.7f;
+        const float CarEffectCapSeconds = 1.0f;
 
         QualifyingLapBreakdown SimulateQualifyingRunDetailed(QualifyingSimEntry entry, int phase, bool secondRun)
         {
