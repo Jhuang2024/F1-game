@@ -2657,23 +2657,32 @@ namespace LocalFormulaRacing
             // heading-change / v=sqrt(a*r) ceiling the cornering model uses
             // above), or is already sliding. That - not a blanket "is this a
             // corner" severity cut - is the honest "can ERS help here" test.
+            // Deploy where the car is power-limited: not braking and not in a
+            // genuinely tight, speed-capped corner (>30deg heading change). This
+            // deliberately does NOT include the live slide state - keying the
+            // deploy on oversteer/understeer made it binary-flip frame to frame
+            // (deploy -> slide crosses the threshold -> stop -> slide recovers ->
+            // deploy...), and combined with the throttle floor below that
+            // flip-flop surged the car and made the steering controller chase the
+            // induced line changes = the reported swerving. In a corner the boost
+            // is instead scaled smoothly by the AI's own grip-managed throttle
+            // (which already lifts on oversteer - see the exit-throttle block), so
+            // a slide bleeds the boost off gradually instead of chopping it.
             float hereHeadingForErs = LocalHeadingChange(progress.distance);
-            bool gripLimitedForErs = command.brake > 0.05f || hereHeadingForErs > 30f ||
-                                     vehicle.OversteerAmount > 0.4f || vehicle.UndersteerAmount > 0.4f;
+            bool gripLimitedForErs = command.brake > 0.05f || hereHeadingForErs > 30f;
             command.ers = !gripLimitedForErs && raceManager.ShouldAiUseErs(participant, severityHere);
 
-            // Hold throttle so the boost is actually realized. Without this the
-            // throttle controller lifts the instant ERS pushes the car past its
-            // cruise target (throttleTarget scales with cruiseTargetSpeed - speed
-            // and collapses once exceeded); since the boost force is
-            // throttle-multiplied in ApplyForces, that lift cancelled the deploy -
-            // battery drained for zero net speed, which is why AI never appeared
-            // to use ERS. gripLimitedForErs already excludes braking, tight
-            // corners and slides, so flooring throttle here is safe on straights,
-            // corner EXITS and genuinely flat fast/medium corners alike; if grip
-            // does run out the slide terms above pull command.ers (and this
-            // floor) back the same frame. Pit/handback re-clamps still apply.
-            if (command.ers && !vehicle.PitRequested && !participant.missedPitEntryThisLap)
+            // Force full throttle ONLY on a genuine straight. This is what stops
+            // the throttle controller from lifting once ERS pushes the car past
+            // its cruise target (the self-cancelling deploy), but forcing 1.0
+            // inside a corner - even a flat one - is exactly what induced the
+            // slide/flip-flop swerve above. In corners the deploy still happens;
+            // the boost just rides the AI's normal grip-managed throttle, which
+            // is smooth. Straights have no lateral load, so full throttle there
+            // can't provoke a slide.
+            bool genuineStraightForErs = hereHeadingForErs < 8f && severityHere < 0.1f &&
+                                         vehicle.OversteerAmount < 0.4f && vehicle.UndersteerAmount < 0.4f;
+            if (command.ers && genuineStraightForErs && !vehicle.PitRequested && !participant.missedPitEntryThisLap)
             {
                 command.throttle = 1f;
                 currentThrottle = 1f;
