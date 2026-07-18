@@ -268,6 +268,9 @@ namespace LocalFormulaRacing
 
         // Real track-shape minimap built from Track.centerLine projected to UI space.
         RectTransform trackMap;
+        // [MapDiag] one-shot state (see UpdateTrackMap).
+        bool mapDiagLogged;
+        float mapDiagTimer;
         Image mapPlayerDot;
         readonly List<Image> mapCarDots = new List<Image>();
         readonly List<RaceParticipant> mapCarOwners = new List<RaceParticipant>();
@@ -558,6 +561,22 @@ namespace LocalFormulaRacing
             float span = Mathf.Max(1f, Mathf.Max(max.x - min.x, max.z - min.z));
             mapWorldScale = (TrackMapSize - 26f) / span;
 
+            // [MapDiag] (per report - the minimap draws a scribble that is not
+            // the raced circuit): states exactly which runtime object this map
+            // was drawn from. Combined with the delayed player-position check
+            // in UpdateTrackMap, this discriminates the two possible causes:
+            // if the player's lateral offset against THIS runtime is huge, the
+            // HUD was handed a stale/fallback runtime (the drawn shape is a
+            // different track); if it's small, the runtime is right and the
+            // map-space projection itself is broken.
+            Debug.LogWarning("[MapDiag] track map built from runtime '" + race.Track.displayName +
+                             "' (id=" + race.Track.trackId + "): points=" + line.Count +
+                             " length=" + race.Track.length.ToString("0") +
+                             "m boundsXZ=(" + min.x.ToString("0") + "," + min.z.ToString("0") +
+                             ")..(" + max.x.ToString("0") + "," + max.z.ToString("0") +
+                             ") first=" + line[0].ToString("F0") +
+                             " span=" + span.ToString("0") + "m");
+
             // Track ribbon as a continuous closed polyline - rotated segment
             // rects between resampled centerline points - instead of the old
             // scatter of ~110 separate glow dots, so the circuit reads as one
@@ -669,6 +688,27 @@ namespace LocalFormulaRacing
             if (trackMap == null || !trackMap.gameObject.activeSelf)
             {
                 return;
+            }
+
+            // [MapDiag] delayed cross-check (see BuildTrackMap): once, a few
+            // seconds in (cars placed and moving), measure the player's actual
+            // position against the SAME runtime the map was drawn from.
+            if (!mapDiagLogged && player != null && race != null && race.Track != null)
+            {
+                mapDiagTimer += Time.deltaTime;
+                if (mapDiagTimer > 5f)
+                {
+                    mapDiagLogged = true;
+                    Vector3 pos = player.transform.position;
+                    TrackProgress pp = race.Track.GetProgress(pos);
+                    Vector2 mapPos = WorldToMap(pos);
+                    Debug.LogWarning("[MapDiag] player world=" + pos.ToString("F0") +
+                                     " -> lateral vs map runtime=" + pp.lateralDistance.ToString("0.0") +
+                                     "m (|lateral| >> halfWidth means the map was drawn from a DIFFERENT track than the one being raced)" +
+                                     " runtime halfWidth=" + race.Track.roadHalfWidth.ToString("0.0") +
+                                     " mapPos=" + mapPos.ToString("F0") +
+                                     " runtime='" + race.Track.displayName + "' points=" + race.Track.centerLine.Count);
+                }
             }
 
             if (mapPlayerDot != null && player != null)
