@@ -502,25 +502,45 @@ namespace LocalFormulaRacing
 
         public void SampleAtDistance(float distance, out Vector3 point, out Vector3 forward, out Vector3 right)
         {
+            // Binary search (build-freeze fix): this was a LINEAR scan over
+            // every centreline point per call, invisible at the old ~67-point
+            // resolution but a build/frame killer at the subdivided ~730 -
+            // every consumer (mesh, kerbs, barriers each ~8m, scenery,
+            // validators, per-frame AI lookahead) pays this function
+            // constantly. cumulativeDistances is sorted by construction, so
+            // the segment lookup is O(log n) with identical results.
             float wrapped = WrapDistance(distance);
-            for (int i = 0; i < centerLine.Count; i++)
+            int count = centerLine.Count;
+            if (count < 2 || cumulativeDistances.Count < count + 1)
             {
-                float a = cumulativeDistances[i];
-                float b = cumulativeDistances[i + 1];
-                if (wrapped >= a && wrapped <= b)
+                point = count > 0 ? centerLine[0] : Vector3.zero;
+                forward = Vector3.forward;
+                right = Vector3.right;
+                return;
+            }
+
+            int lo = 0;
+            int hi = count - 1;
+            while (lo < hi)
+            {
+                int mid = (lo + hi) >> 1;
+                if (cumulativeDistances[mid + 1] < wrapped)
                 {
-                    float t = Mathf.InverseLerp(a, b, wrapped);
-                    Vector3 start = centerLine[i];
-                    Vector3 end = centerLine[(i + 1) % centerLine.Count];
-                    point = Vector3.Lerp(start, end, t);
-                    forward = (end - start).normalized;
-                    right = Vector3.Cross(Vector3.up, forward).normalized;
-                    return;
+                    lo = mid + 1;
+                }
+                else
+                {
+                    hi = mid;
                 }
             }
 
-            point = centerLine[0];
-            forward = (centerLine[1] - centerLine[0]).normalized;
+            float a = cumulativeDistances[lo];
+            float b = cumulativeDistances[lo + 1];
+            float t = Mathf.InverseLerp(a, b, wrapped);
+            Vector3 start = centerLine[lo];
+            Vector3 end = centerLine[(lo + 1) % count];
+            point = Vector3.Lerp(start, end, t);
+            forward = (end - start).normalized;
             right = Vector3.Cross(Vector3.up, forward).normalized;
         }
 
@@ -559,11 +579,16 @@ namespace LocalFormulaRacing
         {
             TrackProgress progress = new TrackProgress();
             float bestScore = float.MaxValue;
+            int n = centerLine.Count;
+            if (n < 2)
+            {
+                return progress;
+            }
 
-            for (int i = 0; i < centerLine.Count; i++)
+            void ScanSegment(int i)
             {
                 Vector3 a = centerLine[i];
-                Vector3 b = centerLine[(i + 1) % centerLine.Count];
+                Vector3 b = centerLine[(i + 1) % n];
                 Vector3 segment = b - a;
                 float t = Vector3.Dot(worldPosition - a, segment) / Mathf.Max(1f, segment.sqrMagnitude);
                 t = Mathf.Clamp01(t);
@@ -593,6 +618,75 @@ namespace LocalFormulaRacing
                     progress.nearestPoint = candidate;
                     progress.forward = forward;
                     progress.sector = progress.normalized < 0.333f ? 1 : (progress.normalized < 0.666f ? 2 : 3);
+                }
+            }
+
+            // Small lines: the original full scan is already cheap and exact.
+            if (n < 128)
+            {
+                for (int i = 0; i < n; i++)
+                {
+                    ScanSegment(i);
+                }
+
+                return progress;
+            }
+
+            // Coarse-to-fine (build-freeze fix): at the subdivided ~730-point
+            // resolution a full per-call scan multiplied across thousands of
+            // placement/validation calls (and every car every frame) froze the
+            // build. A strided coarse pass keeps the best THREE candidate
+            // regions - three, not one, so near a flyover crossing both decks
+            // (and one spare) always reach the exact refine stage - then the
+            // full-precision scoring (including the continuity penalty) runs
+            // only inside those windows.
+            int stride = Mathf.Max(2, n / 128);
+            int c0 = -1, c1 = -1, c2 = -1;
+            float s0 = float.MaxValue, s1 = float.MaxValue, s2 = float.MaxValue;
+            for (int i = 0; i < n; i += stride)
+            {
+                Vector3 a = centerLine[i];
+                Vector3 b = centerLine[(i + 1) % n];
+                Vector3 segment = b - a;
+                float t = Mathf.Clamp01(Vector3.Dot(worldPosition - a, segment) / Mathf.Max(1f, segment.sqrMagnitude));
+                Vector3 diff = worldPosition - (a + segment * t);
+                float score = new Vector3(diff.x, diff.y * 3.5f, diff.z).sqrMagnitude;
+                if (score < s0)
+                {
+                    s2 = s1; c2 = c1;
+                    s1 = s0; c1 = c0;
+                    s0 = score; c0 = i;
+                }
+                else if (score < s1)
+                {
+                    s2 = s1; c2 = c1;
+                    s1 = score; c1 = i;
+                }
+                else if (score < s2)
+                {
+                    s2 = score; c2 = i;
+                }
+            }
+
+            int window = stride + 2;
+            for (int k = c0 - window; k <= c0 + window; k++)
+            {
+                ScanSegment(((k % n) + n) % n);
+            }
+
+            if (c1 >= 0)
+            {
+                for (int k = c1 - window; k <= c1 + window; k++)
+                {
+                    ScanSegment(((k % n) + n) % n);
+                }
+            }
+
+            if (c2 >= 0)
+            {
+                for (int k = c2 - window; k <= c2 + window; k++)
+                {
+                    ScanSegment(((k % n) + n) % n);
                 }
             }
 
