@@ -118,11 +118,17 @@ namespace LocalFormulaRacing
                 return 0;
             }
 
-            // topSpeed lives on a different numeric scale (roughly 300-365)
-            // than every other stat (roughly 40-128) - normalize it onto the
-            // same ~40-99 band before weighting so it isn't silently over- or
-            // under-counted relative to the rest of the formula.
-            float normalizedTopSpeed = Mathf.Clamp(car.topSpeed / 3.55f, 30f, 105f);
+            // topSpeed lives on a different numeric scale (an absolute kph
+            // value, clamped 315-360 by the upgrade system) than every other
+            // stat. Normalization fix (per report - "why is top speed capped
+            // at 360... it stops teams from reaching their absolute peak of
+            // 125 rating?"): the old divide-by-3.55 mapped the 360 CEILING to
+            // only ~101, so a completely maxed car (every stat 125, top speed
+            // at the physical cap) could never rate above ~123. The attainable
+            // kph range now maps linearly onto the stat band itself: 315 kph
+            // -> 45, 360 kph -> 125 - a car at its absolute peak rates at the
+            // absolute peak.
+            float normalizedTopSpeed = Mathf.Lerp(45f, 125f, Mathf.InverseLerp(315f, 360f, car.topSpeed));
             float weighted =
                 normalizedTopSpeed * 0.10f +
                 car.acceleration * 0.12f +
