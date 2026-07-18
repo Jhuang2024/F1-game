@@ -2470,8 +2470,16 @@ namespace LocalFormulaRacing
 
             SetRate(dust, vehicle.IsOffTrackSlowdown && speedKph > 35f ? Mathf.Lerp(14f, 70f, speed01) : 0f);
 
-            bool wet = vehicle.Weather == WeatherState.LightRain || vehicle.Weather == WeatherState.HeavyRain;
-            SetRate(spray, wet && speedKph > 85f ? Mathf.Lerp(18f, 85f, speed01) : 0f);
+            // Spray follows the PHYSICAL track wetness (per report - spray
+            // "coming from them constantly... should only happen in rainy
+            // conditions"): the old gate keyed off the session's weather FLAG,
+            // so a rain-flagged session sprayed all race even when the visuals
+            // read dry, and a drying/soaking track couldn't be represented at
+            // all. TrackWetness01 is the shared standing-water state the grip
+            // model already uses - spray now builds as the track soaks and
+            // stops as it dries, exactly like the real thing.
+            bool wetSurface = TyreState.TrackWetness01 > 0.2f;
+            SetRate(spray, wetSurface && speedKph > 85f ? Mathf.Lerp(18f, 85f, speed01) * Mathf.Clamp01(TyreState.TrackWetness01) : 0f);
 
             // Scales continuously with LockupSeverity so a small lockup puffs
             // lightly and a big one smokes hard, instead of one binary rate.
@@ -2537,9 +2545,18 @@ namespace LocalFormulaRacing
             }
 
             bool kerbSparking = vehicle.IsOnKerb && speedKph > 130f;
+            // Sparks made rare again (per report - "the sparks arent supposed
+            // to be that common"): the floor-scrape term used to fire
+            // CONTINUOUSLY at speed from any accumulated floor damage - one
+            // bad kerb strike early in a race meant a permanent spark shower
+            // for the rest of the stint. Real floor sparks need a genuinely
+            // wrecked floor: the term now only engages past 45% floor damage,
+            // ramps from zero there, and at half the old intensity. Kerb-strike
+            // sparks (momentary, on the kerb, at speed) are unchanged.
             float floorScrape = vehicle.Damage != null ? Mathf.Clamp01(vehicle.Damage.floor) : 0f;
+            float wreckedFloor = Mathf.Clamp01((floorScrape - 0.45f) / 0.55f);
             float rate = kerbSparking ? Mathf.Lerp(4f, 24f, Mathf.InverseLerp(130f, 320f, speedKph)) : 0f;
-            rate += floorScrape * Mathf.InverseLerp(80f, 300f, speedKph) * 14f;
+            rate += wreckedFloor * Mathf.InverseLerp(80f, 300f, speedKph) * 7f;
             if (rate > 0f)
             {
                 sparks.transform.localPosition = new Vector3(0f, 0.22f, 0f);

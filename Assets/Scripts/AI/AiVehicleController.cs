@@ -1585,6 +1585,7 @@ namespace LocalFormulaRacing
             // late (mid-approach wear/strategy triggers), its original purpose.
             bool pitEntryPlanned = participant.pitPhase == PitPhase.None && vehicle.PitRequested &&
                                     !participant.missedPitEntryThisLap;
+            float pitApproachBrakeDemand = 0f;
             if (pitEntryPlanned)
             {
                 float rampStartDistance = track.PitEntryRampStartNormalized * track.length;
@@ -1631,6 +1632,20 @@ namespace LocalFormulaRacing
                 }
                 cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, pitEnvelopeKph);
                 brakingApexSpeed = Mathf.Min(brakingApexSpeed, pitEnvelopeKph);
+
+                // THE actual fix behind the [PitDiag] mass-abort report (every
+                // abort at exactly 13.0-13.1 m/s^2, still at 353-377 kph): the
+                // two target caps above only LIFT THE THROTTLE. The AI's brake
+                // pedal is driven by the corner-braking model, which fires only
+                // when a genuine corner apex is within braking distance - on a
+                // straight pit approach there is no apex, so the car COASTED
+                // toward the ramp on drag alone, requiredDecel crept up through
+                // the abort threshold, and the whole field bailed lap after
+                // lap. The envelope now produces a direct brake demand of its
+                // own: proportional to how far the car is above the envelope
+                // speed, folded into brakeDemand below alongside the corner
+                // model and the edge emergency brake.
+                pitApproachBrakeDemand = Mathf.Clamp01((speedKph - pitEnvelopeKph) / 40f);
             }
 
             // Corner-exit hesitation: once curvature unwinds, hold a beat of reduced
@@ -2195,6 +2210,11 @@ namespace LocalFormulaRacing
             // the actual geometry, so it must never be capped by it.
             brakeDemand = Mathf.Max(brakeDemand, edgeEmergencyBrake);
 
+            // Pit-approach envelope braking (see the pitEntryPlanned block):
+            // the corner model above only brakes for apexes, and a pit
+            // approach on a straight has none.
+            brakeDemand = Mathf.Max(brakeDemand, pitApproachBrakeDemand);
+
             float throttleTarget;
             if (brakeDemand > 0.02f)
             {
@@ -2552,6 +2572,20 @@ namespace LocalFormulaRacing
             // closed. The request stays suppressed until UpdateMissedPitEntryReset
             // clears missedPitEntryThisLap on the next completed lap.
             if (participant.missedPitEntryThisLap)
+            {
+                command.pitRequest = false;
+            }
+
+            // Late-latch filter (per [PitDiag] - 'MISSED pit entry' logged at
+            // norm 0.984-0.998 at full racing speed): a request whose FIRST
+            // latch happens past the pit corridor start cannot possibly be
+            // serviced this lap - RaceManager immediately scores it a miss,
+            // with the full miss bookkeeping and the visible last-second bail
+            // swerve. Hold the trigger instead: it re-fires right after the
+            // start/finish line with the entire lap to plan a real approach.
+            // An ALREADY-latched request (vehicle.PitRequested) is untouched.
+            if (command.pitRequest && !vehicle.PitRequested &&
+                progress.normalized > track.PitCorridorStartNormalized)
             {
                 command.pitRequest = false;
             }
