@@ -89,7 +89,7 @@ namespace LocalFormulaRacing
                               (ersDiagDeploys > 0 ? (ersDiagDeployThrottleSum / ersDiagDeploys).ToString("0.00") : "n/a") +
                               " avg speed " + (ersDiagDeploys > 0 ? (ersDiagDeploySpeedSum / ersDiagDeploys).ToString("0") : "n/a") +
                               "kph toward a boosted ceiling of " + (ersDiagDeploys > 0 ? (ersDiagDeployCeilingSum / ersDiagDeploys).ToString("0") : "n/a") +
-                              "kph (the ceiling sits +40 over the car's base top speed while deploying - that gap over avg speed is the pull the car climbs into on a straight).");
+                              "kph (the ceiling sits +30 over the car's base top speed while deploying - that gap over avg speed is the pull the car climbs into on a straight).");
                     ersDiagLastLogTime = Time.time;
                     ersDiagSamples = 0;
                     ersDiagDeploys = 0;
