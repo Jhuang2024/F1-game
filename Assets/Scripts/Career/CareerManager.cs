@@ -3312,7 +3312,14 @@ namespace LocalFormulaRacing
                 DriverSeasonPerformance perf = GetOrCreateSeasonPerformance(driverId);
                 perf.qualifyingSessions++;
 
-                int expectedPosition = TeamCarRank(carRanking, entry.teamId);
+                // Expectation on the DRIVER scale, not the team scale: TeamCarRank
+                // is 1..teamCount (~11) while qualifying positions run 1..~22, so
+                // comparing them directly made the whole field "underperform" by
+                // ~3.6 places per session by construction, bleeding every driver's
+                // qualifying rating season after season. A team ranked r puts its
+                // two drivers in slots 2r-1 and 2r; expecting their average
+                // (2r - 0.5) makes the field exactly zero-sum.
+                float expectedPosition = Mathf.Clamp(TeamCarRank(carRanking, entry.teamId) * 2f - 0.5f, 1f, results.Count);
                 perf.sumQualifyingVsExpected += expectedPosition - entry.position;
 
                 QualifyingResultEntry teammate = results.Find(r => r.teamId == entry.teamId && r.driverId != entry.driverId);
@@ -3348,8 +3355,15 @@ namespace LocalFormulaRacing
                 DriverSeasonPerformance perf = GetOrCreateSeasonPerformance(driverId);
                 perf.racesCompleted++;
 
+                // Same driver-scale conversion as the qualifying pass above: the
+                // raw team rank (1..~11) is NOT comparable to finishing positions
+                // (1..~22). Blending the team's expected driver slots (2r - 0.5)
+                // with the actual grid slot keeps "expected" and "finished" on
+                // one scale, so finishVsExpected is zero-sum across the field
+                // instead of ~-3.6 for everyone, every race.
                 int carRank = TeamCarRank(carRanking, entry.teamId);
-                float expectedPosition = Mathf.Clamp(carRank * 0.65f + entry.gridPosition * 0.35f, 1f, results.Count);
+                float carExpectedSlot = carRank * 2f - 0.5f;
+                float expectedPosition = Mathf.Clamp(carExpectedSlot * 0.65f + entry.gridPosition * 0.35f, 1f, results.Count);
 
                 bool isRetirement = !string.IsNullOrEmpty(entry.penaltyReason) && entry.penaltyReason.Contains("DNF");
                 bool driverCaused = isRetirement && ContainsAny(entry.penaltyReason, "Collision", "Contact", "Crash", "Spin");
@@ -3524,7 +3538,14 @@ namespace LocalFormulaRacing
                     paceScore = Mathf.Clamp(avgFinishVsExpected / 4f, -1f, 1f);
                     racecraftScore = Mathf.Clamp((avgFinishVsExpected * 0.5f + avgPositionsGained * 0.3f + raceH2H * 0.4f) / 3f, -1f, 1f);
                     qualifyingScore = Mathf.Clamp(qualH2H * 0.6f + Mathf.Clamp(avgQualVsExpected / 3f, -1f, 1f) * 0.4f, -1f, 1f);
-                    overtakingScore = Mathf.Clamp((avgOvertakes - 1.2f) / 2.5f, -1f, 1f);
+                    // Neutral point lowered 1.2 -> 0.8 and the downside floored:
+                    // a front-runner (or anyone in a short race) often has NO
+                    // overtaking opportunities at all, and a dominant season of
+                    // wins from pole used to read as an overtaking DECLINE. Few
+                    // overtakes is mostly absence of opportunity, not lost skill,
+                    // so it can only nudge the rating down slightly - while a
+                    // genuinely busy season still earns the full upside.
+                    overtakingScore = Mathf.Clamp((avgOvertakes - 0.8f) / 2.5f, -0.25f, 1f);
                     // Defending has no dedicated per-battle telemetry yet (see
                     // DriverSeasonPerformance) - proxied from the same-car
                     // head-to-head record, kept intentionally small.
@@ -3643,7 +3664,10 @@ namespace LocalFormulaRacing
                 Save.driverRatingModifiers.Add(modifier);
                 thisSeason.Add(modifier);
 
-                GameLog.Info("[Progression] " + driver.displayName + " (" + races + " races, confidence=" + confidenceScale.ToString("F2") + "): " +
+                // Debug.Log directly (GameLog.Info is verbosity-gated and this
+                // fires 22 lines once per season - the one time it matters).
+                Debug.Log("[Progression] " + driver.displayName + " (" + races + " races, confidence=" + confidenceScale.ToString("F2") +
+                             ", avgFinishVsExpected=" + (races > 0 && perf != null ? (perf.sumFinishVsExpected / races).ToString("F2") : "n/a") + "): " +
                              "Pace " + Sign(paceChange) + ", Racecraft " + Sign(racecraftChange) + ", Qualifying " + Sign(qualifyingChange) +
                              ", Tyre " + Sign(tyreChange) + ", Wet " + Sign(wetChange) + ", Consistency " + Sign(consistencyChange) +
                              ", Defending " + Sign(defendingChange) + ", Overtaking " + Sign(overtakingChange) + ", Awareness " + Sign(awarenessChange) +
@@ -3690,6 +3714,23 @@ namespace LocalFormulaRacing
             {
                 return;
             }
+
+            // Field-balance audit: driver progression should be roughly zero-sum
+            // across the grid (someone's gain is someone's loss). A strongly
+            // negative sum here means an expectation-scale bug is back and the
+            // whole field is drifting down together.
+            int sumOverallChange = 0, risers = 0, fallers = 0;
+            for (int i = 0; i < thisSeason.Count; i++)
+            {
+                sumOverallChange += thisSeason[i].lastOverallChange;
+                if (thisSeason[i].lastOverallChange > 0) risers++;
+                else if (thisSeason[i].lastOverallChange < 0) fallers++;
+            }
+
+            Debug.Log("[Progression] season summary: drivers=" + thisSeason.Count +
+                " risers=" + risers + " fallers=" + fallers +
+                " sumOverallChange=" + sumOverallChange +
+                " (should hover near zero; strongly negative = expectation-scale bias)");
 
             thisSeason.Sort((a, b) => b.lastOverallChange.CompareTo(a.lastOverallChange));
             DriverRatingModifier riser = thisSeason[0];
