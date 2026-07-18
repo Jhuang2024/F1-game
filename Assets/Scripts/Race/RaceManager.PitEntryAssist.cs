@@ -213,7 +213,14 @@ namespace LocalFormulaRacing
             // at envelope racing speeds, collapsing to the short ramp-tracking
             // distance once braked down for the entry.
             float steerLookAhead = Mathf.Lerp(PitEntryAssistLookAheadMeters, 55f, Mathf.Clamp01(speedKph / 300f));
-            Track.ComputePitEntryTargetPoint(progress.distance, steerLookAhead, out targetPoint, out targetRotation);
+            // Speed-conditioned pre-positioning (the [PitDiag] 363kph wall-hit
+            // fix - see ComputePitEntryTargetPoint's blend param): at racing
+            // pace the guide holds the road centre and only brakes; the
+            // outer-edge entry lane engages progressively below ~280kph and is
+            // fully committed by 160, with the whole braked stretch left to
+            // slot in before the ramp.
+            float prePositionBlend = Mathf.InverseLerp(280f, 160f, speedKph);
+            Track.ComputePitEntryTargetPoint(progress.distance, steerLookAhead, prePositionBlend, out targetPoint, out targetRotation);
 
             Vector3 toTarget = targetPoint - participant.transform.position;
             // Steering-stability fix (per report - the assist "slamming me into

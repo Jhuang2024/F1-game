@@ -92,7 +92,12 @@ namespace LocalFormulaRacing
             // Mirrors RaceManager.BuildPitEntryAssistCommand's fix: 18m at
             // ramp-tracking speeds, growing to 55m at racing speed.
             float lookAhead = Mathf.Lerp(PitEntryLookAheadMeters, 55f, Mathf.Clamp01(Mathf.Abs(vehicle.CurrentSpeedKph) / 300f));
-            track.ComputePitEntryTargetPoint(fromProgress.distance, lookAhead, out pitTargetPoint, out pitTargetRotation);
+            // Speed-conditioned pre-positioning, identical to the player assist
+            // (see ComputePitEntryTargetPoint's blend param): hold the safe
+            // centre while still at racing pace, slot into the edge lane as
+            // the envelope brings the speed down.
+            float prePositionBlend = Mathf.InverseLerp(280f, 160f, Mathf.Abs(vehicle.CurrentSpeedKph));
+            track.ComputePitEntryTargetPoint(fromProgress.distance, lookAhead, prePositionBlend, out pitTargetPoint, out pitTargetRotation);
             return pitTargetPoint;
         }
 

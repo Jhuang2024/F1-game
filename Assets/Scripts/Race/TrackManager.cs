@@ -1248,6 +1248,21 @@ namespace LocalFormulaRacing
         // PitApproachStartNormalized and PitEntryRampStartNormalized.
         public void ComputePitEntryTargetPoint(float fromDistance, float lookAheadMeters, out Vector3 targetPoint, out Quaternion targetRotation)
         {
+            ComputePitEntryTargetPoint(fromDistance, lookAheadMeters, 1f, out targetPoint, out targetRotation);
+        }
+
+        // prePositionBlend01 (the [PitDiag] wall-hit fix - player ground along
+        // the pit wall at 363kph, lateral 15.8 vs halfWidth 15.5, at norm 0.822,
+        // i.e. mid pre-ramp guide): Stage A used to command the outer-edge lane
+        // (halfWidth-3.2) the INSTANT the approach window opened, at any speed -
+        // riding 3.2m from a street wall at racing pace with a pursuit
+        // controller is one overshoot from contact. Callers now pass how far
+        // along the pre-positioning should be (0 = hold the safe road centre,
+        // 1 = full edge lane), derived from CURRENT SPEED: at racing pace the
+        // guide holds centre and only brakes; the edge lane engages as the
+        // envelope brings the speed down, fully in place well before the ramp.
+        public void ComputePitEntryTargetPoint(float fromDistance, float lookAheadMeters, float prePositionBlend01, out Vector3 targetPoint, out Quaternion targetRotation)
+        {
             float corridorStartDistance = length * PitCorridorStartNormalized;
             float distanceToCorridor = Mathf.Max(1f, WrapDistance(corridorStartDistance - fromDistance));
             float pitLookAhead = Mathf.Min(lookAheadMeters, distanceToCorridor);
@@ -1273,7 +1288,7 @@ namespace LocalFormulaRacing
                 // still clearly in the rightmost lane, with enough air that a
                 // fast approach can wobble once and correct without touching
                 // the barrier.
-                float preEntryLateral = HalfWidthAt(pitTargetDistance) - 3.2f;
+                float preEntryLateral = (HalfWidthAt(pitTargetDistance) - 3.2f) * Mathf.Clamp01(prePositionBlend01);
                 SamplePitLanePose(pitTargetDistance, preEntryLateral, out targetPoint, out targetRotation);
             }
             else
