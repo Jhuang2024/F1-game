@@ -2463,26 +2463,66 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            List<Vector3> smooth = new List<Vector3>(Mathf.CeilToInt(perimeter / TargetSpacing) + n);
+            // Overshoot-free rewrite (per report - the minimap drew the
+            // centreline as a tangled scribble): the first version ran UNIFORM
+            // Catmull-Rom over the repaired layouts' wildly non-uniform point
+            // spacing (segments range ~3m to ~95m), which is the textbook
+            // recipe for spline overshoot - the interpolant throws wide loops
+            // near spacing discontinuities. The road is 30-40m wide so the
+            // loops mostly hid under the tarmac in-game, but the minimap draws
+            // the raw centreline and exposed them (and their excursions
+            // inflated the map's bounding fit, shrinking the real circuit into
+            // a corner of the panel). Replaced with a pipeline that CANNOT
+            // overshoot by construction:
+            //   1. pure linear resample of the polyline to uniform ~12m
+            //      spacing (no interpolant, no overshoot - the shape is
+            //      exactly the original polygon, just densely sampled), then
+            //   2. Laplacian rounding passes that spread each polygon joint
+            //      into an arc (each point moves toward its neighbours'
+            //      midpoint - strictly shrinking, can never loop or overshoot).
+            // The curvature/radius gates that run afterwards still enforce the
+            // drivable-radius floor on whatever remains.
+            int targetCount = Mathf.Max(8, Mathf.CeilToInt(perimeter / TargetSpacing));
+            List<Vector3> resampled = new List<Vector3>(targetCount);
+            float[] cumulative = new float[n + 1];
             for (int i = 0; i < n; i++)
             {
-                Vector3 p0 = points[(i - 1 + n) % n];
-                Vector3 p1 = points[i];
-                Vector3 p2 = points[(i + 1) % n];
-                Vector3 p3 = points[(i + 2) % n];
-                int steps = Mathf.Max(1, Mathf.RoundToInt(Vector3.Distance(p1, p2) / TargetSpacing));
-                for (int s = 0; s < steps; s++)
+                cumulative[i + 1] = cumulative[i] + Vector3.Distance(points[i], points[(i + 1) % n]);
+            }
+
+            int segment = 0;
+            for (int s = 0; s < targetCount; s++)
+            {
+                float target = s / (float)targetCount * perimeter;
+                while (segment < n - 1 && cumulative[segment + 1] < target)
                 {
-                    float t = s / (float)steps;
-                    smooth.Add(CatmullRom(p0, p1, p2, p3, t));
+                    segment++;
+                }
+
+                float segmentStart = cumulative[segment];
+                float segmentLength = Mathf.Max(0.001f, cumulative[segment + 1] - segmentStart);
+                float t = Mathf.Clamp01((target - segmentStart) / segmentLength);
+                resampled.Add(Vector3.Lerp(points[segment], points[(segment + 1) % n], t));
+            }
+
+            for (int pass = 0; pass < 25; pass++)
+            {
+                Vector3 previous = resampled[targetCount - 1];
+                Vector3 first = resampled[0];
+                for (int i = 0; i < targetCount; i++)
+                {
+                    Vector3 current = resampled[i];
+                    Vector3 next = i + 1 < targetCount ? resampled[i + 1] : first;
+                    resampled[i] = current * 0.5f + (previous + next) * 0.25f;
+                    previous = current;
                 }
             }
 
             points.Clear();
-            points.AddRange(smooth);
-            Debug.Log("[RoadSurfaceDiag] " + runtime.displayName + ": centreline subdivided " + n + " -> " + smooth.Count +
+            points.AddRange(resampled);
+            Debug.Log("[RoadSurfaceDiag] " + runtime.displayName + ": centreline resampled " + n + " -> " + resampled.Count +
                       " points (" + averageSpacing.ToString("0") + "m -> ~" + TargetSpacing.ToString("0") +
-                      "m spacing) - corners are now smooth arcs instead of polygon joints.");
+                      "m spacing, overshoot-free) - corners are rounded arcs instead of polygon joints.");
         }
 
         // See the call site in CreateLayout for the full rationale. Iterative
@@ -2593,8 +2633,16 @@ namespace LocalFormulaRacing
 
             // Badness of a candidate start = total degrees of turning inside
             // the band the pit systems occupy relative to that start: the
-            // approach/ramp/corridor (0.80..1.00, full weight) plus the exit
+            // approach/ramp/corridor (0.77..1.00, full weight) plus the exit
             // ramp/merge/grid straight (0.00..0.06, half weight).
+            // Band start 0.80 -> 0.77 (Belgium report - "i still hit the wall
+            // during pitting" + AI bails): the pit APPROACH window begins at
+            // 0.78 (TrackRuntime.PitApproachStartNormalized), but the scored
+            // band began at 0.80 - so the optimizer happily parked the final
+            // hairpin at norm ~0.787-0.80, exactly INSIDE the start of the
+            // approach, where the player assist takes steering authority and
+            // the AI begins its edge pre-positioning mid-corner. The band now
+            // covers the whole approach with a small lead-in margin.
             float ScoreFor(int s)
             {
                 float score = 0f;
@@ -2607,7 +2655,7 @@ namespace LocalFormulaRacing
                     }
 
                     float norm = rel / total;
-                    if (norm >= 0.80f)
+                    if (norm >= 0.77f)
                     {
                         score += turn[j];
                     }
