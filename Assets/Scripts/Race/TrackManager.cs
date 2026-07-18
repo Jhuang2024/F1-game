@@ -11990,8 +11990,12 @@ namespace LocalFormulaRacing
 
             if (apexD < 0f || bestAngle < 8f)
             {
-                GameLog.Info("[FinalCornerDiag] " + Runtime.displayName + ": no meaningful final corner found (max local curvature " +
-                             bestAngle.ToString("0.0") + " deg in the last 30%).");
+                // Direct Debug logging, NOT GameLog: GameLog.Info/Warn are gated
+                // behind the Verbose flag (F3), which is exactly why the first
+                // run of this diagnostic printed nothing at all. A diagnostic
+                // that exists to be pasted back must always print.
+                Debug.Log("[FinalCornerDiag] " + Runtime.displayName + ": no meaningful final corner found (max local curvature " +
+                          bestAngle.ToString("0.0") + " deg in the last 30%).");
                 return;
             }
 
@@ -12001,10 +12005,10 @@ namespace LocalFormulaRacing
             float turnSign = Mathf.Sign(Vector3.Cross(fA, fB).y);
             int outsideSide = turnSign > 0f ? -1 : 1;
 
-            GameLog.Warn("[FinalCornerDiag] " + Runtime.displayName + ": final corner apex ~" + apexD.ToString("0") +
-                         "m (norm " + (apexD / Runtime.length).ToString("0.000") + "), curvature " + bestAngle.ToString("0.0") +
-                         " deg, turns " + (turnSign > 0f ? "RIGHT" : "LEFT") + " -> outside is the " +
-                         (outsideSide < 0 ? "LEFT" : "RIGHT") + " side. Scanning outside wall...");
+            Debug.LogWarning("[FinalCornerDiag] " + Runtime.displayName + ": final corner apex ~" + apexD.ToString("0") +
+                             "m (norm " + (apexD / Runtime.length).ToString("0.000") + "), curvature " + bestAngle.ToString("0.0") +
+                             " deg, turns " + (turnSign > 0f ? "RIGHT" : "LEFT") + " -> outside is the " +
+                             (outsideSide < 0 ? "LEFT" : "RIGHT") + " side. Scanning outside wall...");
 
             float prevLateral = float.NaN;
             int holes = 0;
@@ -12104,12 +12108,12 @@ namespace LocalFormulaRacing
 
             if (holes == 0 && jumps == 0 && pileUps == 0)
             {
-                GameLog.Info("[FinalCornerDiag] " + Runtime.displayName + ": outside of the final corner reads clean (no holes, jumps or pile-ups).");
+                Debug.Log("[FinalCornerDiag] " + Runtime.displayName + ": outside of the final corner reads clean (no holes, jumps or pile-ups).");
             }
             else
             {
-                GameLog.Warn("[FinalCornerDiag] " + Runtime.displayName + ": final-corner outside summary - " + holes + " hole sample(s), " +
-                             jumps + " lateral jump(s), " + pileUps + " pile-up sample(s) across apex±260m. Paste the [FinalCornerDiag] lines above to pin the failing branch.");
+                Debug.LogWarning("[FinalCornerDiag] " + Runtime.displayName + ": final-corner outside summary - " + holes + " hole sample(s), " +
+                                 jumps + " lateral jump(s), " + pileUps + " pile-up sample(s) across apex±260m. Paste the [FinalCornerDiag] lines above to pin the failing branch.");
             }
         }
 

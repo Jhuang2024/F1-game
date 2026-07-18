@@ -1552,9 +1552,12 @@ namespace LocalFormulaRacing
                         // Was completely silent - a whole field of cars can 0-stop
                         // through this exact branch (see the pre-window envelope
                         // comment below) without a single line of evidence.
-                        GameLog.Warn("[PitDiag] " + participant.driverName + " aborted pit entry (too late to brake): speed=" +
-                                     speedKph.ToString("0") + "kph metresToRamp=" + metresToRamp.ToString("0") +
-                                     "m requiredDecel=" + requiredDecel.ToString("0.0") + "m/s^2");
+                        // Debug.LogWarning, not GameLog.Warn - GameLog is gated
+                        // behind the Verbose flag and this log exists precisely
+                        // to be visible when the field 0-stops.
+                        Debug.LogWarning("[PitDiag] " + participant.driverName + " aborted pit entry (too late to brake): speed=" +
+                                         speedKph.ToString("0") + "kph metresToRamp=" + metresToRamp.ToString("0") +
+                                         "m requiredDecel=" + requiredDecel.ToString("0.0") + "m/s^2");
                     }
                 }
             }
@@ -3693,51 +3696,24 @@ namespace LocalFormulaRacing
             {
                 case OvertakeState.Following:
                 {
-                    // Drastic follower pass ("they just brake" report, round 2):
-                    // Following used to decay aggressionOffset to ZERO - the car
-                    // was structurally ordered to sit dead-astern in the
-                    // leader's line until an attack formally triggered, so its
-                    // only possible response to catching someone was braking.
-                    // A follower with a live overtake permission now PEEKS out
-                    // of the tow the moment it is close (offset toward its
-                    // preferred side, commitment-scaled), so "take a different
-                    // line" happens before and during the attack decision, not
-                    // after it.
-                    // Tuned WAY up (per request): the peek engages from 2.5s
-                    // back and swings a genuine car-width-plus, so a follower is
-                    // already committed to an alternative line long before the
-                    // formal attack state fires.
-                    float followPeek = 0f;
-                    if (ahead != null && ahead.vehicle != null && raceManager.CanParticipantOvertake(participant, ahead) &&
-                        raceManager.GetIntervalToAheadSeconds(participant) < 2.5f)
-                    {
-                        followPeek = preferredSide * Mathf.Lerp(2.2f, 3.2f, commitment);
-
-                        // Draft-and-sling (per request - "they should learn to
-                        // take advantage of [the slipstream]"): peeking out of
-                        // the wake the moment the car is within 2.5s threw the
-                        // tow away exactly when it mattered - the free straight-
-                        // line speed only flows while sitting square in the
-                        // leader's wake. On a straight with a LIVE tow the car
-                        // now holds dead-centre behind the leader and lets the
-                        // slipstream build the overspeed, and only swings out
-                        // for the pass once genuinely close. How early it slings
-                        // out is a skill read: a sharp tow-user (drsUsageQuality
-                        // is the profile's slipstream/DRS craft knob) stays
-                        // patient in the draft down to ~0.7s; a clumsy one pops
-                        // out early and wastes it. Corners keep the normal peek
-                        // (there is no meaningful tow mid-corner, and the peek
-                        // is what sets up the alternative line).
-                        bool onStraight = severityHere < 0.14f && (apexDistanceAhead > 70f || apexSeverity < 0.14f);
-                        float slingGap = Mathf.Lerp(1.1f, 0.7f, profile.drsUsageQuality);
-                        if (onStraight && vehicle.SlipstreamActive &&
-                            raceManager.GetIntervalToAheadSeconds(participant) > slingGap)
-                        {
-                            followPeek = 0f;
-                        }
-                    }
-
-                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, followPeek, Time.deltaTime * 5f);
+                    // No more follower peek (per report - "that slight swerving
+                    // movement... they'll never have a confident overtake if
+                    // they keep on swerving like that and slowing down"): the
+                    // old peek pulled the car a couple of metres toward its
+                    // preferred side the moment it was within 2.5s - a constant
+                    // small swerve that scrubbed exactly the overspeed the
+                    // decisive-commit gate needs to see before it launches a
+                    // real attack (and threw away the slipstream on straights).
+                    // A follower now HOLDS ITS LINE, sitting square in the tow
+                    // and letting the speed advantage build; the one and only
+                    // lateral move is the full committed swing when an attack
+                    // state actually fires. The original "they just brake
+                    // forever" failure this peek once fixed can't return: the
+                    // sustainedPressure qualifier (0.4s in the wake IS an
+                    // attack trigger), the widened gap thresholds and the
+                    // decisive-advantage fast track all fire the formal attack
+                    // long before braking becomes the only option.
+                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, 0f, Time.deltaTime * 5f);
                     if (ahead != null && ahead.vehicle != null && raceManager.CanParticipantOvertake(participant, ahead))
                     {
                         float gapSeconds = raceManager.GetIntervalToAheadSeconds(participant);
@@ -3861,8 +3837,18 @@ namespace LocalFormulaRacing
                 {
                     // attackSide is chosen once on entry above and only ever read from
                     // here on, so it cannot flip mid-attempt.
-                    float prepOffset = attackSide * Mathf.Lerp(1.2f, 2.6f, commitment) * 0.6f;
-                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, Mathf.Clamp(prepOffset, -legalLimit, legalLimit), Time.deltaTime * 5f);
+                    // No prep shimmy (same swerving report as the follower peek
+                    // above): the old half-width feint toward attackSide was
+                    // the visible "questioning whether to make the move"
+                    // wobble - it bled the speed advantage during exactly the
+                    // seconds the car was deciding, so probes kept arriving at
+                    // the commit roll with nothing in hand. PreparingAttack now
+                    // holds the line dead-straight (staying in the tow, keeping
+                    // its overspeed building); the FIRST lateral movement is
+                    // the full committed swing of AttackingInside/Outside. The
+                    // side was already chosen on entry, so nothing is lost by
+                    // not telegraphing it.
+                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, 0f, Time.deltaTime * 5f);
                     bool stillThere = ahead != null && raceManager.GetIntervalToAheadSeconds(participant) < 1.4f;
 
                     // Decisive commitment, prep half (per request - no swerving
