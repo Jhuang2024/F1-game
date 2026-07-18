@@ -20,10 +20,13 @@ namespace F1Game.Tests
         }
 
         [Test]
-        public void SlipCombinesOversteerAndHalfUndersteer()
+        public void SlipCountsOversteerOnly()
         {
-            Assert.AreEqual(0.5f, VfxTriggerRules.Slip(0.4f, 0.2f), 1e-6f);
-            Assert.AreEqual(1f, VfxTriggerRules.Slip(0.9f, 0.9f), 1e-6f); // clamped
+            // Understeer must NOT contribute (front washing wide is not rear
+            // wheelspin - the old formula kept the smoke firing continuously).
+            Assert.AreEqual(0.4f, VfxTriggerRules.Slip(0.4f, 0.2f), 1e-6f);
+            Assert.AreEqual(0f, VfxTriggerRules.Slip(0f, 0.9f), 1e-6f);
+            Assert.AreEqual(1f, VfxTriggerRules.Slip(1.2f, 0f), 1e-6f); // clamped
         }
 
         [Test]
@@ -38,10 +41,10 @@ namespace F1Game.Tests
         [Test]
         public void WheelspinNeedsSlipSpeedAndCooldownElapsed()
         {
-            Assert.IsTrue(VfxTriggerRules.ShouldWheelspin(0.41f, 0.06f, 0f));
-            Assert.IsFalse(VfxTriggerRules.ShouldWheelspin(0.4f, 0.06f, 0f));   // not above slip gate
-            Assert.IsFalse(VfxTriggerRules.ShouldWheelspin(0.41f, 0.05f, 0f));  // not above speed gate
-            Assert.IsFalse(VfxTriggerRules.ShouldWheelspin(0.41f, 0.06f, 0.1f));// cooldown
+            Assert.IsTrue(VfxTriggerRules.ShouldWheelspin(0.56f, 0.06f, 0f));
+            Assert.IsFalse(VfxTriggerRules.ShouldWheelspin(0.55f, 0.06f, 0f));  // not above slip gate
+            Assert.IsFalse(VfxTriggerRules.ShouldWheelspin(0.56f, 0.05f, 0f));  // not above speed gate
+            Assert.IsFalse(VfxTriggerRules.ShouldWheelspin(0.56f, 0.06f, 0.1f));// cooldown
         }
 
         [Test]
@@ -49,9 +52,9 @@ namespace F1Game.Tests
         {
             Assert.IsTrue(VfxTriggerRules.ShouldOffTrackDust(true, 0.09f, 0f));
             Assert.IsFalse(VfxTriggerRules.ShouldOffTrackDust(true, 0.08f, 0f));
-            Assert.IsTrue(VfxTriggerRules.ShouldKerbSparks(true, 0.26f, 0f));
-            Assert.IsFalse(VfxTriggerRules.ShouldKerbSparks(true, 0.25f, 0f));
-            Assert.IsFalse(VfxTriggerRules.ShouldKerbSparks(false, 0.26f, 0f));
+            Assert.IsTrue(VfxTriggerRules.ShouldKerbSparks(true, 0.66f, 0f));
+            Assert.IsFalse(VfxTriggerRules.ShouldKerbSparks(true, 0.65f, 0f));
+            Assert.IsFalse(VfxTriggerRules.ShouldKerbSparks(false, 0.66f, 0f));
         }
 
         [Test]

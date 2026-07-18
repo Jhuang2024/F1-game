@@ -17,25 +17,36 @@ namespace F1Game.Race.Rules
             return Clamp01(v / 300f);
         }
 
-        /// <summary>Combined slip signal for wheelspin smoke (oversteer + half understeer).</summary>
+        /// <summary>Slip signal for wheelspin smoke. [VfxDiag] fix (per report -
+        /// the constant "cloud behind the car"): understeer used to count toward
+        /// this signal, but understeer is the FRONT washing wide - it produces
+        /// no rear wheelspin and no smoke. Cars carry mild understeer through
+        /// half of every lap, so the old formula kept the rear smoke spawner
+        /// firing continuously. Oversteer only now.</summary>
         public static float Slip(float oversteerAmount, float understeerAmount) =>
-            Clamp01(oversteerAmount + understeerAmount * 0.5f);
+            Clamp01(oversteerAmount);
 
         /// <summary>Lockup smoke: a locked tyre above 0.15 speed with the smoke timer elapsed.</summary>
         public static bool ShouldLockup(bool locked, float speed01, float smokeCooldown) =>
             locked && speed01 > 0.15f && smokeCooldown <= 0f;
 
-        /// <summary>Wheelspin smoke: slip past 0.4 above 0.05 speed with the smoke timer elapsed.</summary>
+        /// <summary>Wheelspin smoke: a genuine slide (slip past 0.55) above 0.05
+        /// speed with the smoke timer elapsed - raised from 0.4 so ordinary
+        /// corner-exit throttle no longer smokes.</summary>
         public static bool ShouldWheelspin(float slip, float speed01, float smokeCooldown) =>
-            slip > 0.4f && speed01 > 0.05f && smokeCooldown <= 0f;
+            slip > 0.55f && speed01 > 0.05f && smokeCooldown <= 0f;
 
         /// <summary>Off-track gravel/dust: off-track slowdown above 0.08 speed with the dust timer elapsed.</summary>
         public static bool ShouldOffTrackDust(bool offTrackSlowdown, float speed01, float dustCooldown) =>
             offTrackSlowdown && speed01 > 0.08f && dustCooldown <= 0f;
 
-        /// <summary>Kerb sparks: on a kerb above 0.25 speed with the dust timer elapsed.</summary>
+        /// <summary>Kerb sparks: on a kerb above 0.65 speed (195+ kph) with the
+        /// dust timer elapsed. [VfxDiag] fix (per report - sparks "arent
+        /// supposed to be that common"): the old 0.25 gate (75 kph) fired at
+        /// practically every apex, because the racing line legally rides the
+        /// kerbs - sparks are now reserved for genuinely fast kerb strikes.</summary>
         public static bool ShouldKerbSparks(bool onKerb, float speed01, float dustCooldown) =>
-            onKerb && speed01 > 0.25f && dustCooldown <= 0f;
+            onKerb && speed01 > 0.65f && dustCooldown <= 0f;
 
         /// <summary>Impact burst: overall damage jumped by more than 0.04 since last frame.</summary>
         public static bool IsFreshDamageJump(float damagePercent, float lastDamagePercent) =>

@@ -18,6 +18,44 @@ namespace LocalFormulaRacing
         float dustCooldown;
         static bool loggedFault;
 
+        // [VfxDiag] pooled-spawn attribution: static counters across ALL cars so a
+        // single periodic line shows exactly which spawner is producing the
+        // sparks/smoke the player sees. Debug.Log directly (GameLog is
+        // verbosity-gated and would silently drop this).
+        static int diagLockup;
+        static int diagTyreSmoke;
+        static int diagGravel;
+        static int diagSparks;
+        static int diagImpact;
+        static float diagNextFlush;
+        const float DiagFlushInterval = 20f;
+
+        static void FlushDiag()
+        {
+            if (Time.time < diagNextFlush)
+            {
+                return;
+            }
+
+            diagNextFlush = Time.time + DiagFlushInterval;
+            if (diagLockup + diagTyreSmoke + diagGravel + diagSparks + diagImpact > 0)
+            {
+                Debug.Log(
+                    "[VfxDiag] pooled spawns last " + DiagFlushInterval + "s (all cars): " +
+                    "lockup=" + diagLockup +
+                    " tyreSmoke=" + diagTyreSmoke +
+                    " gravel=" + diagGravel +
+                    " sparks=" + diagSparks +
+                    " impact=" + diagImpact);
+            }
+
+            diagLockup = 0;
+            diagTyreSmoke = 0;
+            diagGravel = 0;
+            diagSparks = 0;
+            diagImpact = 0;
+        }
+
         static RaceVfxController shared;
 
         static RaceVfxController Controller
@@ -71,6 +109,7 @@ namespace LocalFormulaRacing
             float dt = Time.deltaTime;
             smokeCooldown -= dt;
             dustCooldown -= dt;
+            FlushDiag();
 
             // Trigger thresholds live in the engine-free VfxTriggerRules (same
             // numbers, now unit-tested); this driver owns the cooldowns and spawns.
@@ -82,7 +121,8 @@ namespace LocalFormulaRacing
             if (F1Game.Race.Rules.VfxTriggerRules.ShouldLockup(locked, speed01, smokeCooldown))
             {
                 Controller.Spawn(RaceVfxController.VfxKind.Lockup, FrontContact(), transform.rotation);
-                smokeCooldown = 0.06f;
+                diagLockup++;
+                smokeCooldown = 0.12f;
             }
 
             // Wheelspin / power smoke: high slip while accelerating out of low speed.
@@ -90,13 +130,15 @@ namespace LocalFormulaRacing
             if (F1Game.Race.Rules.VfxTriggerRules.ShouldWheelspin(slip, speed01, smokeCooldown))
             {
                 Controller.Spawn(RaceVfxController.VfxKind.TyreSmoke, rear, transform.rotation);
-                smokeCooldown = 0.08f;
+                diagTyreSmoke++;
+                smokeCooldown = 0.35f;
             }
 
             // Off-track dust/gravel/grass.
             if (F1Game.Race.Rules.VfxTriggerRules.ShouldOffTrackDust(vehicle.IsOffTrackSlowdown, speed01, dustCooldown))
             {
                 Controller.Spawn(RaceVfxController.VfxKind.Gravel, rear, transform.rotation);
+                diagGravel++;
                 dustCooldown = 0.1f;
             }
 
@@ -104,7 +146,8 @@ namespace LocalFormulaRacing
             if (F1Game.Race.Rules.VfxTriggerRules.ShouldKerbSparks(vehicle.IsOnKerb, speed01, dustCooldown))
             {
                 Controller.Spawn(RaceVfxController.VfxKind.Sparks, FrontContact(), transform.rotation);
-                dustCooldown = 0.12f;
+                diagSparks++;
+                dustCooldown = 0.9f;
             }
 
             // Impact burst on a fresh damage jump.
@@ -115,6 +158,7 @@ namespace LocalFormulaRacing
                 {
                     Controller.Spawn(RaceVfxController.VfxKind.Impact, transform.position + Vector3.up * 0.4f, transform.rotation);
                     Controller.Spawn(RaceVfxController.VfxKind.Debris, transform.position + Vector3.up * 0.3f, transform.rotation);
+                    diagImpact++;
                 }
 
                 lastDamagePercent = dmg;
