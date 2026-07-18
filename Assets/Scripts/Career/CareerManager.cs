@@ -1667,16 +1667,65 @@ namespace LocalFormulaRacing
                 tuned.enginePower = F1Game.Core.CarDevelopmentRules.ApplyStatDelta(tuned.enginePower, upgrade.engineDelta, UpgradeEffectScale, bonus);
             }
 
+            // Cap-overflow redistribution (per report - "everyone else has
+            // brought like 16-18 upgrades and improved by around the same
+            // amount... ive brought 20 and ive only gotten better by 11"): the
+            // per-stat 125 clamp below used to silently VAPORIZE any upgrade
+            // points landing on an already-maxed stat - and a front-running
+            // car (several stats pinned at 125) lost a large share of every
+            // upgrade it bought, while low-rated rivals banked full value. A
+            // real team whose braking programme is maxed reallocates the
+            // effort - so overflow past a cap now spills, point by point, into
+            // the weakest stat that still has headroom. Shared by player and
+            // every AI team (this is the one place upgrades apply), so
+            // machinery fairness is preserved; top speed (absolute kph, its
+            // own scale) stays outside the redistribution.
             tuned.topSpeed = Mathf.Clamp(tuned.topSpeed, 315, 360);
-            tuned.acceleration = Mathf.Clamp(tuned.acceleration, 45, 125);
-            tuned.cornering = Mathf.Clamp(tuned.cornering, 45, 125);
-            tuned.braking = Mathf.Clamp(tuned.braking, 45, 125);
-            tuned.reliability = Mathf.Clamp(tuned.reliability, 35, 125);
-            tuned.ersEfficiency = Mathf.Clamp(tuned.ersEfficiency, 45, 125);
-            tuned.tyreManagement = Mathf.Clamp(tuned.tyreManagement, 45, 125);
-            tuned.aeroEfficiency = Mathf.Clamp(tuned.aeroEfficiency, 45, 125);
-            tuned.chassisBalance = Mathf.Clamp(tuned.chassisBalance, 45, 125);
-            tuned.enginePower = Mathf.Clamp(tuned.enginePower, 45, 125);
+            int[] statValues =
+            {
+                tuned.acceleration, tuned.cornering, tuned.braking, tuned.reliability, tuned.ersEfficiency,
+                tuned.tyreManagement, tuned.aeroEfficiency, tuned.chassisBalance, tuned.enginePower
+            };
+            int overflow = 0;
+            for (int s = 0; s < statValues.Length; s++)
+            {
+                if (statValues[s] > 125)
+                {
+                    overflow += statValues[s] - 125;
+                    statValues[s] = 125;
+                }
+            }
+
+            int spillGuard = 0;
+            while (overflow > 0 && spillGuard++ < 1024)
+            {
+                int lowest = -1;
+                for (int s = 0; s < statValues.Length; s++)
+                {
+                    if (statValues[s] < 125 && (lowest < 0 || statValues[s] < statValues[lowest]))
+                    {
+                        lowest = s;
+                    }
+                }
+
+                if (lowest < 0)
+                {
+                    break;
+                }
+
+                statValues[lowest]++;
+                overflow--;
+            }
+
+            tuned.acceleration = Mathf.Clamp(statValues[0], 45, 125);
+            tuned.cornering = Mathf.Clamp(statValues[1], 45, 125);
+            tuned.braking = Mathf.Clamp(statValues[2], 45, 125);
+            tuned.reliability = Mathf.Clamp(statValues[3], 35, 125);
+            tuned.ersEfficiency = Mathf.Clamp(statValues[4], 45, 125);
+            tuned.tyreManagement = Mathf.Clamp(statValues[5], 45, 125);
+            tuned.aeroEfficiency = Mathf.Clamp(statValues[6], 45, 125);
+            tuned.chassisBalance = Mathf.Clamp(statValues[7], 45, 125);
+            tuned.enginePower = Mathf.Clamp(statValues[8], 45, 125);
             return tuned;
         }
 
