@@ -41,7 +41,7 @@ namespace LocalFormulaRacing
             if (diagLockup + diagTyreSmoke + diagGravel + diagSparks + diagImpact > 0)
             {
                 Debug.Log(
-                    "[VfxDiag] pooled spawns last " + DiagFlushInterval + "s (all cars): " +
+                    "[VfxDiag pooled] spawns last " + DiagFlushInterval + "s (all cars): " +
                     "lockup=" + diagLockup +
                     " tyreSmoke=" + diagTyreSmoke +
                     " gravel=" + diagGravel +

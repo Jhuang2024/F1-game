@@ -144,6 +144,11 @@ namespace LocalFormulaRacing
             // repeatable conditions, so the event's wet/mixed forecast is ignored.
             trackManager.forceDryWeather = IsTimeTrial;
             Track = trackManager.Build(eventData, Settings.Current.racingLineAssist);
+            // The probe created in CreateLighting only covered a 520m box at the
+            // origin (start/finish) and rendered before the world existed - refit
+            // it over the whole circuit now that the track is built, so the
+            // reflective road look reaches the full lap.
+            FitReflectionProbeToTrack();
             telemetryCorners = Track.ClassifyCorners();
             if (session == RaceWeekendSession.Qualifying)
             {

@@ -12,6 +12,8 @@ namespace LocalFormulaRacing
     /// </summary>
     public partial class RaceManager
     {
+        ReflectionProbe runtimeReflectionProbe;
+
         void CreateLighting()
         {
             string trackId = EventData == null || string.IsNullOrEmpty(EventData.trackId) ? "" : EventData.trackId;
@@ -179,6 +181,9 @@ namespace LocalFormulaRacing
             probe.resolution = 512;
             probe.timeSlicingMode = UnityEngine.Rendering.ReflectionProbeTimeSlicingMode.AllFacesAtOnce;
             probe.RenderProbe();
+            // Held so FitReflectionProbeToTrack (SessionStart, after the track
+            // builds) can refit this volume over the full circuit - see below.
+            runtimeReflectionProbe = probe;
 
             if (night)
             {
@@ -198,6 +203,53 @@ namespace LocalFormulaRacing
                     floodLight.renderMode = LightRenderMode.ForceVertex;
                 }
             }
+        }
+
+        // Reflection coverage fix (the "only the start/finish straight is
+        // reflective" problem): the probe above is created BEFORE the track
+        // exists, with a fixed 520m box parked at the origin - which is exactly
+        // the start/finish area. Every road renderer samples probes with Simple
+        // usage, so only geometry overlapping that box ever received the probe's
+        // reflection; the rest of the lap fell back to the dull default and read
+        // matte no matter how glossy its material was (which is why the earlier
+        // material-gloss passes changed nothing away from the start straight).
+        // Called from SessionStart once the track is built: refits the volume
+        // over the FULL circuit bounds and re-renders the cubemap - which now
+        // also captures the actual built world instead of an empty sky.
+        void FitReflectionProbeToTrack()
+        {
+            if (runtimeReflectionProbe == null || Track == null || Track.centerLine == null || Track.centerLine.Count == 0)
+            {
+                return;
+            }
+
+            Vector3 min = Track.centerLine[0];
+            Vector3 max = Track.centerLine[0];
+            for (int i = 1; i < Track.centerLine.Count; i++)
+            {
+                min = Vector3.Min(min, Track.centerLine[i]);
+                max = Vector3.Max(max, Track.centerLine[i]);
+            }
+
+            Vector3 worldCenter = (min + max) * 0.5f;
+            // Capture from above the circuit's centre: the road gloss only needs
+            // a plausible sky/skyline environment, not a locally exact one, and
+            // one shared capture is what the start straight already looked like.
+            Transform probeTransform = runtimeReflectionProbe.transform;
+            probeTransform.position = new Vector3(worldCenter.x, max.y + 20f, worldCenter.z);
+            // Generous margin past the centreline bounds: kerbs, run-off and
+            // barriers sit outside it, and a renderer only receives the probe if
+            // its bounds overlap this box.
+            runtimeReflectionProbe.size = new Vector3(
+                max.x - min.x + 500f,
+                max.y - min.y + 260f,
+                max.z - min.z + 500f);
+            runtimeReflectionProbe.center = worldCenter - probeTransform.position;
+            runtimeReflectionProbe.RenderProbe();
+            Debug.Log("[ReflectionDiag] probe refit over full track: center=" + worldCenter +
+                " size=" + runtimeReflectionProbe.size +
+                " points=" + Track.centerLine.Count +
+                " (was a fixed 520m box at the origin covering only start/finish)");
         }
 
     }

@@ -2356,6 +2356,54 @@ namespace LocalFormulaRacing
         static Texture2D softDot;
         static Material sharedParticleMaterial;
 
+        // [VfxDiag] attribution telemetry: THIS class is the live per-car VFX
+        // system (VehicleVfxDriver is deliberately not attached - see
+        // ProductionCarSpawner). Static accumulators across all cars, flushed
+        // unconditionally every 20s via Debug.Log (GameLog is verbosity-gated
+        // and would silently drop it), so a console paste attributes any
+        // sparks/smoke/cloud sighting to the exact emitter that produced it.
+        static float diagDustSec;
+        static float diagSpraySec;
+        static float diagLockupSec;
+        static float diagWheelspinSec;
+        static float diagKerbSparkSec;
+        static float diagFloorSparkSec;
+        static float diagDamageSmokeSec;
+        static int diagCollisionBursts;
+        static int diagDamageJumpBursts;
+        static float diagNextFlush;
+        const float DiagFlushInterval = 20f;
+
+        static void FlushVfxDiag()
+        {
+            if (Time.time < diagNextFlush)
+            {
+                return;
+            }
+
+            diagNextFlush = Time.time + DiagFlushInterval;
+            Debug.Log("[VfxDiag] emitter-active seconds last " + DiagFlushInterval + "s (summed over all cars):" +
+                " dust=" + diagDustSec.ToString("0.0") +
+                " spray=" + diagSpraySec.ToString("0.0") +
+                " lockup=" + diagLockupSec.ToString("0.0") +
+                " wheelspin=" + diagWheelspinSec.ToString("0.0") +
+                " kerbSparks=" + diagKerbSparkSec.ToString("0.0") +
+                " floorSparks=" + diagFloorSparkSec.ToString("0.0") +
+                " damageSmoke=" + diagDamageSmokeSec.ToString("0.0") +
+                " collisionBursts=" + diagCollisionBursts +
+                " damageJumpBursts=" + diagDamageJumpBursts +
+                " trackWetness=" + TyreState.TrackWetness01.ToString("0.00"));
+            diagDustSec = 0f;
+            diagSpraySec = 0f;
+            diagLockupSec = 0f;
+            diagWheelspinSec = 0f;
+            diagKerbSparkSec = 0f;
+            diagFloorSparkSec = 0f;
+            diagDamageSmokeSec = 0f;
+            diagCollisionBursts = 0;
+            diagDamageJumpBursts = 0;
+        }
+
         public void Initialize(VehicleController controller)
         {
             vehicle = controller;
@@ -2465,10 +2513,17 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            FlushVfxDiag();
             float speedKph = Mathf.Abs(vehicle.CurrentSpeedKph);
             float speed01 = Mathf.InverseLerp(40f, 240f, speedKph);
 
-            SetRate(dust, vehicle.IsOffTrackSlowdown && speedKph > 35f ? Mathf.Lerp(14f, 70f, speed01) : 0f);
+            bool dusting = vehicle.IsOffTrackSlowdown && speedKph > 35f;
+            if (dusting)
+            {
+                diagDustSec += Time.deltaTime;
+            }
+
+            SetRate(dust, dusting ? Mathf.Lerp(14f, 70f, speed01) : 0f);
 
             // Spray follows the PHYSICAL track wetness (per report - spray
             // "coming from them constantly... should only happen in rainy
@@ -2479,7 +2534,13 @@ namespace LocalFormulaRacing
             // model already uses - spray now builds as the track soaks and
             // stops as it dries, exactly like the real thing.
             bool wetSurface = TyreState.TrackWetness01 > 0.2f;
-            SetRate(spray, wetSurface && speedKph > 85f ? Mathf.Lerp(18f, 85f, speed01) * Mathf.Clamp01(TyreState.TrackWetness01) : 0f);
+            bool spraying = wetSurface && speedKph > 85f;
+            if (spraying)
+            {
+                diagSpraySec += Time.deltaTime;
+            }
+
+            SetRate(spray, spraying ? Mathf.Lerp(18f, 85f, speed01) * Mathf.Clamp01(TyreState.TrackWetness01) : 0f);
 
             // Scales continuously with LockupSeverity so a small lockup puffs
             // lightly and a big one smokes hard, instead of one binary rate.
@@ -2491,6 +2552,7 @@ namespace LocalFormulaRacing
             bool locking = lockupSeverity > 0.12f && speedKph > 60f;
             if (locking)
             {
+                diagLockupSec += Time.deltaTime;
                 ParticleSystem.MainModule smokeMain = lockupSmoke.main;
                 smokeMain.startColor = Color.Lerp(new Color(0.86f, 0.86f, 0.86f, 0.4f), new Color(0.3f, 0.27f, 0.25f, 0.62f), lockupSeverity);
                 smokeMain.startSize = Mathf.Lerp(0.65f, 1.55f, lockupSeverity);
@@ -2513,6 +2575,7 @@ namespace LocalFormulaRacing
             bool spinning = wheelspinAmount > 0.42f && speedKph > 15f && speedKph < 200f && !vehicle.IsOffTrackSlowdown;
             if (spinning)
             {
+                diagWheelspinSec += Time.deltaTime;
                 ParticleSystem.MainModule spinMain = wheelspinSmoke.main;
                 spinMain.startColor = Color.Lerp(new Color(0.82f, 0.8f, 0.78f, 0.35f), new Color(0.35f, 0.3f, 0.26f, 0.55f), wheelspinAmount);
                 spinMain.startSize = Mathf.Lerp(0.55f, 1.25f, wheelspinAmount);
@@ -2568,7 +2631,18 @@ namespace LocalFormulaRacing
             float floorScrape = vehicle.Damage != null ? Mathf.Clamp01(vehicle.Damage.floor) : 0f;
             float wreckedFloor = Mathf.Clamp01((floorScrape - 0.45f) / 0.55f);
             float rate = kerbSparking ? Mathf.Lerp(3f, 12f, Mathf.InverseLerp(200f, 340f, speedKph)) : 0f;
-            rate += wreckedFloor * Mathf.InverseLerp(80f, 300f, speedKph) * 7f;
+            if (kerbSparking)
+            {
+                diagKerbSparkSec += Time.deltaTime;
+            }
+
+            float floorSparkRate = wreckedFloor * Mathf.InverseLerp(80f, 300f, speedKph) * 7f;
+            if (floorSparkRate > 0f)
+            {
+                diagFloorSparkSec += Time.deltaTime;
+            }
+
+            rate += floorSparkRate;
             if (rate > 0f)
             {
                 sparks.transform.localPosition = new Vector3(0f, 0.22f, 0f);
@@ -2587,6 +2661,7 @@ namespace LocalFormulaRacing
             if (previousDamagePercent >= 0f && sparks != null && damagePercent > previousDamagePercent + 4f)
             {
                 sparks.Emit(Mathf.Clamp(Mathf.RoundToInt((damagePercent - previousDamagePercent) * 2.2f), 8, 30));
+                diagDamageJumpBursts++;
             }
 
             previousDamagePercent = damagePercent;
@@ -2599,6 +2674,7 @@ namespace LocalFormulaRacing
             float damage01 = Mathf.InverseLerp(60f, 100f, damagePercent);
             if (damage01 > 0f)
             {
+                diagDamageSmokeSec += Time.deltaTime;
                 ParticleSystem.MainModule damageMain = damageSmoke.main;
                 damageMain.startColor = Color.Lerp(new Color(0.45f, 0.44f, 0.42f, 0.35f), new Color(0.12f, 0.11f, 0.1f, 0.6f), damage01);
                 damageMain.startSize = Mathf.Lerp(0.8f, 1.6f, damage01);
@@ -2639,6 +2715,7 @@ namespace LocalFormulaRacing
             Vector3 contactPoint = collision.contactCount > 0 ? collision.GetContact(0).point : transform.position;
             sparks.transform.position = contactPoint;
             sparks.Emit(Mathf.Clamp(Mathf.RoundToInt(impactSpeed * 1.4f), 6, 24));
+            diagCollisionBursts++;
 
             if (impactSpeed >= HeavyImpactSpeed && damageSmoke != null)
             {
