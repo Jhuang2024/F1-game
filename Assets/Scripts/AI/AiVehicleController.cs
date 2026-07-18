@@ -228,6 +228,8 @@ namespace LocalFormulaRacing
         OvertakeState swervePrevState = OvertakeState.Following;
         float swerveWindowStart;
         float swerveLastLogTime;
+        // Previous applied steer, for the straight-line pure-pursuit weave damper.
+        float steerLowPassPrev;
 
         // Stuck-recovery maneuver (Part 2/3): only engages while RaceManager's own
         // recovery-state classification says this car is Recovering or already
@@ -2740,6 +2742,24 @@ namespace LocalFormulaRacing
                 float steerCap = Mathf.Lerp(0.7f, 1f, rampBlend);
                 command.steer = Mathf.Clamp(command.steer, -steerCap, steerCap);
             }
+
+            // Pure-pursuit weave damper ([SwerveDiag] root cause - every car on a
+            // straight showed steer reversing ~3x/2s while lineBias/overtake/
+            // traffic were all steady: the localSteer*2.2 pursuit has no damping,
+            // so it overshoots the held line and corrects, forever). A first-order
+            // low-pass on the FINAL steer attenuates that oscillation. Gated so it
+            // can never dull real steering: it only engages when the steer is
+            // already small (|steer| < 0.35 - i.e. cruising, not cornering or
+            // recovering off a wall) and fades out as corner severity rises. A
+            // low-pass cannot introduce oscillation, so this is safe where a
+            // derivative/yaw-damper could overshoot.
+            float steerStraightness = 1f - Mathf.Clamp01(severityHere / 0.14f);
+            if (steerStraightness > 0f && Mathf.Abs(command.steer) < 0.35f && Mathf.Abs(steerLowPassPrev) < 0.35f)
+            {
+                command.steer = Mathf.Lerp(command.steer, steerLowPassPrev, 0.55f * steerStraightness);
+            }
+
+            steerLowPassPrev = command.steer;
 
             DiagnoseSwerve(progress, severityHere, lineBias, command.steer);
             vehicle.SetCommand(command);
