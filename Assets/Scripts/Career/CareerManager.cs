@@ -2223,50 +2223,112 @@ namespace LocalFormulaRacing
         // historical record.
         void RepairProgressionScaleBias()
         {
-            if (Save.progressionScaleBiasRepairVersion >= 2)
+            if (Save.progressionScaleBiasRepairVersion >= 3)
             {
                 return;
             }
 
-            Save.progressionScaleBiasRepairVersion = 2;
+            bool runReset = Save.progressionScaleBiasRepairVersion < 2;
+            Save.progressionScaleBiasRepairVersion = 3;
             Save.progressionScaleBiasRepaired = true;
 
-            List<DriverRatingModifier> live = Save.driverRatingModifiers.FindAll(m => m != null && m.season == Save.currentSeason);
-            if (live.Count == 0)
+            if (runReset)
             {
-                // A fresh save (or one with no accumulated progression yet) has
-                // nothing to repair.
+                List<DriverRatingModifier> live = Save.driverRatingModifiers.FindAll(m => m != null && m.season == Save.currentSeason);
+                int hadDrift = 0;
+                for (int i = 0; i < live.Count; i++)
+                {
+                    DriverRatingModifier m = live[i];
+                    if (m.paceDelta != 0 || m.racecraftDelta != 0 || m.qualifyingDelta != 0 || m.overtakingDelta != 0)
+                    {
+                        hadDrift++;
+                    }
+
+                    m.paceDelta = 0;
+                    m.racecraftDelta = 0;
+                    m.qualifyingDelta = 0;
+                    m.overtakingDelta = 0;
+                    // Clear the "last season" change badges for the wiped stats and
+                    // the now-stale overall trend - showing last season's corrupted
+                    // -3/-4 next to freshly restored ratings would just mislead.
+                    m.lastPaceChange = 0;
+                    m.lastRacecraftChange = 0;
+                    m.lastQualifyingChange = 0;
+                    m.lastOvertakingChange = 0;
+                    m.lastOverallChange = 0;
+                    m.trendLabel = "Steady";
+                }
+
+                Debug.Log("[ProgressionRepair] v2: reset corrupted pace/racecraft/qualifying/overtaking progression for " +
+                    live.Count + " drivers (" + hadDrift + " carried drift) on season-" + Save.currentSeason +
+                    " modifiers - all four stats return to authored base ratings; clean-signal stats keep their progression.");
+            }
+
+            // v3 (per request - "raise them by another 3? everyones ratings?"
+            // and "you also reverted my ratings back to my original which is 4
+            // lower than what i was supposed to be"): a field-wide overall
+            // boost of ~+3 on top of the restored bases, plus +4 more for the
+            // player, whose legitimately earned progression the v2 reset wiped
+            // along with the corruption. Applied through the same four stats
+            // the reset touched; they carry 0.57 of the overall blend (pace
+            // .20 + racecraft .16 + qualifying .13 + overtaking .08), so +5
+            // stat points ~= +3 overall and the player's +12 ~= +7 overall
+            // (+3 field-wide + 4 restoration). Get-or-create so this lands
+            // even on a save whose current season has no modifier rows yet;
+            // per-stat reads still clamp to the 40-99 band, so drivers already
+            // near the ceiling simply cap there.
+            string playerId = Save.useExistingDriver ? Save.selectedDriverId : "player";
+            int boosted = 0;
+            for (int i = 0; i < data.Drivers.drivers.Count; i++)
+            {
+                DriverData rosterDriver = data.Drivers.drivers[i];
+                if (rosterDriver == null)
+                {
+                    continue;
+                }
+
+                ApplyRepairStatBoost(rosterDriver.id, rosterDriver.id == playerId ? 12 : 5);
+                boosted++;
+            }
+
+            if (!Save.useExistingDriver)
+            {
+                ApplyRepairStatBoost("player", 12);
+                boosted++;
+            }
+
+            Debug.Log("[ProgressionRepair] v3: field-wide rating raise applied to " + boosted +
+                " drivers (+5 to pace/racecraft/qualifying/overtaking, ~+3 overall; player '" + playerId +
+                "' +12, ~+7 overall = field raise + restoration of earned progression wiped by the v2 reset).");
+            Write();
+        }
+
+        // v3 helper: bump the four repaired stats on a driver's current-season
+        // live modifier, creating the row if the season doesn't have one yet.
+        void ApplyRepairStatBoost(string driverId, int amount)
+        {
+            if (string.IsNullOrEmpty(driverId))
+            {
                 return;
             }
 
-            int hadDrift = 0;
-            for (int i = 0; i < live.Count; i++)
+            DriverRatingModifier modifier = Save.driverRatingModifiers.Find(m => m != null && m.driverId == driverId && m.season == Save.currentSeason);
+            if (modifier == null)
             {
-                DriverRatingModifier m = live[i];
-                if (m.paceDelta != 0 || m.racecraftDelta != 0 || m.qualifyingDelta != 0 || m.overtakingDelta != 0)
+                modifier = new DriverRatingModifier
                 {
-                    hadDrift++;
-                }
-
-                m.paceDelta = 0;
-                m.racecraftDelta = 0;
-                m.qualifyingDelta = 0;
-                m.overtakingDelta = 0;
-                // Clear the "last season" change badges for the wiped stats and
-                // the now-stale overall trend - showing last season's corrupted
-                // -3/-4 next to freshly restored ratings would just mislead.
-                m.lastPaceChange = 0;
-                m.lastRacecraftChange = 0;
-                m.lastQualifyingChange = 0;
-                m.lastOvertakingChange = 0;
-                m.lastOverallChange = 0;
-                m.trendLabel = "Steady";
+                    driverId = driverId,
+                    season = Save.currentSeason,
+                    legacyDeltaMigrated = true,
+                    trendLabel = "Steady"
+                };
+                Save.driverRatingModifiers.Add(modifier);
             }
 
-            Debug.Log("[ProgressionRepair] v2: reset corrupted pace/racecraft/qualifying/overtaking progression for " +
-                live.Count + " drivers (" + hadDrift + " carried drift) on season-" + Save.currentSeason +
-                " modifiers - all four stats return to authored base ratings; clean-signal stats keep their progression.");
-            Write();
+            modifier.paceDelta = Mathf.Clamp(modifier.paceDelta + amount, -40, 40);
+            modifier.racecraftDelta = Mathf.Clamp(modifier.racecraftDelta + amount, -40, 40);
+            modifier.qualifyingDelta = Mathf.Clamp(modifier.qualifyingDelta + amount, -40, 40);
+            modifier.overtakingDelta = Mathf.Clamp(modifier.overtakingDelta + amount, -40, 40);
         }
 
         void PickRegulationTargets()
