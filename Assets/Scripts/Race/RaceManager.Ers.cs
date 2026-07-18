@@ -98,7 +98,15 @@ namespace LocalFormulaRacing
             }
 
             float battery = participant.vehicle.ErsBattery;
-            if (cornerSeverity > 0.24f || battery < 0.18f)
+            // Geometry gate widened 0.24 -> 0.62 (per report - AI never using ERS
+            // in the many high/medium-speed corners taken flat out). The real
+            // "is the car grip-limited here" test now lives at the AI call site
+            // (gripLimitedForErs: braking / >30deg tight corner / actively
+            // sliding), which correctly lets a flat fast/medium corner deploy.
+            // This retained cut only short-circuits the strategy work for
+            // genuinely slow corners (a hairpin still won't reach here), so the
+            // decision below stays about STRATEGY, not a blanket corner veto.
+            if (cornerSeverity > 0.62f || battery < 0.18f)
             {
                 return false;
             }

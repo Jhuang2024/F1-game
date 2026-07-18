@@ -2645,25 +2645,35 @@ namespace LocalFormulaRacing
                 command.throttle = Mathf.Min(command.throttle, 0.88f);
             }
 
-            command.ers = raceManager.ShouldAiUseErs(participant, severityHere);
+            // ERS is a POWER boost, so it helps wherever the car is POWER-limited
+            // rather than GRIP-limited - and that is emphatically NOT just dead
+            // straights (per report - "there are SO many corners including
+            // high-speed and most medium-speed ones which you can literally take
+            // flat out"). A corner taken flat is power-limited too: the downforce
+            // already supplies the grip to hold it, so extra power = more speed
+            // through it, exactly like the player deploying flat through a fast
+            // sweeper. The car is only truly GRIP-limited where it must brake,
+            // run a genuinely tight speed-capped corner (the same >30deg
+            // heading-change / v=sqrt(a*r) ceiling the cornering model uses
+            // above), or is already sliding. That - not a blanket "is this a
+            // corner" severity cut - is the honest "can ERS help here" test.
+            float hereHeadingForErs = LocalHeadingChange(progress.distance);
+            bool gripLimitedForErs = command.brake > 0.05f || hereHeadingForErs > 30f ||
+                                     vehicle.OversteerAmount > 0.4f || vehicle.UndersteerAmount > 0.4f;
+            command.ers = !gripLimitedForErs && raceManager.ShouldAiUseErs(participant, severityHere);
 
-            // ERS boost realization (per report - "ive NEVER seen AI speed up
-            // using ERS"). Root cause found: the throttle controller above
-            // targets cruiseTargetSpeed and LIFTS the instant the car exceeds it
-            // (throttleTarget scales with speedGap = cruiseTargetSpeed - speed,
-            // going to near-zero once speed passes the target). But an ERS
-            // deploy pushes the car PAST that target - so the controller
-            // immediately backed off the throttle, and since the boost force is
-            // multiplied by throttle in ApplyForces, the deploy cancelled
-            // itself: battery drained, zero net speed. The player never saw this
-            // because a human holds the throttle pinned on a straight. When the
-            // AI is genuinely deploying on a clear straight - not braking, not in
-            // a corner, not pit-bound - hold full throttle so the boost actually
-            // produces speed. ShouldAiUseErs only returns true off-caution and at
-            // low corner severity, so this can't fire mid-corner or under yellow;
-            // ApplySafetyCarFollowing below still re-clamps for SC/VSC.
-            if (command.ers && command.brake < 0.05f && severityHere < 0.16f &&
-                !vehicle.PitRequested && !participant.missedPitEntryThisLap)
+            // Hold throttle so the boost is actually realized. Without this the
+            // throttle controller lifts the instant ERS pushes the car past its
+            // cruise target (throttleTarget scales with cruiseTargetSpeed - speed
+            // and collapses once exceeded); since the boost force is
+            // throttle-multiplied in ApplyForces, that lift cancelled the deploy -
+            // battery drained for zero net speed, which is why AI never appeared
+            // to use ERS. gripLimitedForErs already excludes braking, tight
+            // corners and slides, so flooring throttle here is safe on straights,
+            // corner EXITS and genuinely flat fast/medium corners alike; if grip
+            // does run out the slide terms above pull command.ers (and this
+            // floor) back the same frame. Pit/handback re-clamps still apply.
+            if (command.ers && !vehicle.PitRequested && !participant.missedPitEntryThisLap)
             {
                 command.throttle = 1f;
                 currentThrottle = 1f;
