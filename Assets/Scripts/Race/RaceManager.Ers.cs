@@ -24,6 +24,7 @@ namespace LocalFormulaRacing
         int ersDiagSamples;
         int ersDiagDeploys;
         float ersDiagBatterySum;
+        float ersDiagDeployThrottleSum;
         float ersDiagLastLogTime;
 
         public bool ShouldAiUseErs(RaceParticipant participant, float cornerSeverity)
@@ -62,6 +63,12 @@ namespace LocalFormulaRacing
                 if (deploy)
                 {
                     ersDiagDeploys++;
+                    // Deploy-frame throttle proves the boost is actually being
+                    // REALIZED: the ERS boost force is throttle-multiplied, so a
+                    // deploy at ~0.3 throttle (the throttle controller lifting
+                    // because ERS pushed the car past its cruise target) is a
+                    // wasted, self-cancelled deploy. Healthy = near 1.0.
+                    ersDiagDeployThrottleSum += participant.vehicle.EffectiveThrottle;
                 }
 
                 ersDiagBatterySum += participant.vehicle.ErsBattery;
@@ -69,11 +76,14 @@ namespace LocalFormulaRacing
                 {
                     Debug.Log("[ErsDiag] AI ERS over the last " + (Time.time - ersDiagLastLogTime).ToString("0") + "s: deploying on " +
                               (100f * ersDiagDeploys / ersDiagSamples).ToString("0.0") + "% of AI-frames, average battery " +
-                              (100f * ersDiagBatterySum / ersDiagSamples).ToString("0") + "%.");
+                              (100f * ersDiagBatterySum / ersDiagSamples).ToString("0") + "%, avg throttle while deploying " +
+                              (ersDiagDeploys > 0 ? (ersDiagDeployThrottleSum / ersDiagDeploys).ToString("0.00") : "n/a") +
+                              " (near 1.0 = boost realized; low = throttle controller cancelling it).");
                     ersDiagLastLogTime = Time.time;
                     ersDiagSamples = 0;
                     ersDiagDeploys = 0;
                     ersDiagBatterySum = 0f;
+                    ersDiagDeployThrottleSum = 0f;
                 }
             }
 

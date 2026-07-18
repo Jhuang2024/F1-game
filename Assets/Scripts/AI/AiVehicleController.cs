@@ -2647,6 +2647,28 @@ namespace LocalFormulaRacing
 
             command.ers = raceManager.ShouldAiUseErs(participant, severityHere);
 
+            // ERS boost realization (per report - "ive NEVER seen AI speed up
+            // using ERS"). Root cause found: the throttle controller above
+            // targets cruiseTargetSpeed and LIFTS the instant the car exceeds it
+            // (throttleTarget scales with speedGap = cruiseTargetSpeed - speed,
+            // going to near-zero once speed passes the target). But an ERS
+            // deploy pushes the car PAST that target - so the controller
+            // immediately backed off the throttle, and since the boost force is
+            // multiplied by throttle in ApplyForces, the deploy cancelled
+            // itself: battery drained, zero net speed. The player never saw this
+            // because a human holds the throttle pinned on a straight. When the
+            // AI is genuinely deploying on a clear straight - not braking, not in
+            // a corner, not pit-bound - hold full throttle so the boost actually
+            // produces speed. ShouldAiUseErs only returns true off-caution and at
+            // low corner severity, so this can't fire mid-corner or under yellow;
+            // ApplySafetyCarFollowing below still re-clamps for SC/VSC.
+            if (command.ers && command.brake < 0.05f && severityHere < 0.16f &&
+                !vehicle.PitRequested && !participant.missedPitEntryThisLap)
+            {
+                command.throttle = 1f;
+                currentThrottle = 1f;
+            }
+
             // DRS legality is decided entirely by RaceManager; drsUsageQuality only
             // decides whether this driver reliably remembers to press it, committed
             // once per zone so it never flickers mid-zone. The re-roll requires the
