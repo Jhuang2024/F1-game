@@ -152,7 +152,10 @@ namespace LocalFormulaRacing
         // early" complaint must not come back - so only real tight corners
         // and hairpins demand braking, at the same 10 m/s^2 the ramp envelope
         // uses.
-        float PitApproachCornerCapKph(float fromDistance)
+        // Public: AiVehicleController's pit-approach envelope applies this exact
+        // same cap (parity - "they are clearly faster than me" - and the same
+        // corner-at-approach-speed wall risk the player assist had).
+        public float PitApproachCornerCapKph(float fromDistance)
         {
             const float CornerBrakeDecelMs2 = 10f;
             float allowedKph = 9999f;

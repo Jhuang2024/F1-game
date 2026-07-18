@@ -11941,7 +11941,176 @@ namespace LocalFormulaRacing
             ValidateElevatedProtection(report);
             ValidateBarrierCoverage(report);
             ValidatePitCorridorSealed(report);
+            DiagnoseFinalCornerBarriers(report);
             Debug.Log(report.Summary());
+        }
+
+        // [FinalCornerDiag] Dedicated diagnostic for the recurring "the outside
+        // of the very last corner of EVERY track is so poorly patched" report.
+        // The final corner is structurally special: it is the one corner that
+        // ALWAYS overlaps the pit zone's fixed normalized band, so its outside
+        // wall is fought over by every system at once - the pit fan-out, the
+        // corner-containment pull-in, the curvature blend between them, tyre
+        // stacks/catch fencing, and the auto-fill repair pass. Rather than
+        // guessing again, this walks the outside of the actual final corner
+        // after the full build and reports, sample by sample, what is REALLY
+        // standing there: the nearest same-level barrier, its type, its lateral
+        // offset from the centreline, and how that lateral moves between
+        // consecutive samples. Three anomaly classes are reported:
+        //   HOLE          - no barrier-family collider within 10m of the edge
+        //   LATERAL JUMP  - the wall line teleports sideways >4m between
+        //                   consecutive 8m samples (the visual "poorly patched"
+        //                   seam: overlapping angled segments / wedge gaps)
+        //   PILE-UP       - 5+ separate barrier objects crowding one 8m sample
+        //                   (the "gathering of barriers" duplication)
+        // Each line carries the inputs the barrier planner used at that exact
+        // distance (pitBlend, curvature, containBlend, nearTight, elevated), so
+        // the next report pins the failing branch instead of restarting the
+        // guessing game.
+        void DiagnoseFinalCornerBarriers(TrackValidationReport report)
+        {
+            if (Runtime == null || Runtime.length < 500f)
+            {
+                return;
+            }
+
+            // Locate the final corner: the sharpest local curvature in the last
+            // ~30% of the lap, stopping short of the start/finish straight.
+            float bestAngle = 0f;
+            float apexD = -1f;
+            for (float d = Runtime.length * 0.70f; d < Runtime.length * 0.985f; d += 6f)
+            {
+                float angle = LocalCurvatureAngle(d);
+                if (angle > bestAngle)
+                {
+                    bestAngle = angle;
+                    apexD = d;
+                }
+            }
+
+            if (apexD < 0f || bestAngle < 8f)
+            {
+                GameLog.Info("[FinalCornerDiag] " + Runtime.displayName + ": no meaningful final corner found (max local curvature " +
+                             bestAngle.ToString("0.0") + " deg in the last 30%).");
+                return;
+            }
+
+            Vector3 pA, fA, rA, pB, fB, rB;
+            Runtime.SampleAtDistance(apexD - 20f, out pA, out fA, out rA);
+            Runtime.SampleAtDistance(apexD + 20f, out pB, out fB, out rB);
+            float turnSign = Mathf.Sign(Vector3.Cross(fA, fB).y);
+            int outsideSide = turnSign > 0f ? -1 : 1;
+
+            GameLog.Warn("[FinalCornerDiag] " + Runtime.displayName + ": final corner apex ~" + apexD.ToString("0") +
+                         "m (norm " + (apexD / Runtime.length).ToString("0.000") + "), curvature " + bestAngle.ToString("0.0") +
+                         " deg, turns " + (turnSign > 0f ? "RIGHT" : "LEFT") + " -> outside is the " +
+                         (outsideSide < 0 ? "LEFT" : "RIGHT") + " side. Scanning outside wall...");
+
+            float prevLateral = float.NaN;
+            int holes = 0;
+            int jumps = 0;
+            int pileUps = 0;
+            int reported = 0;
+            for (float scan = apexD - 260f; scan <= apexD + 260f; scan += 8f)
+            {
+                float d = ((scan % Runtime.length) + Runtime.length) % Runtime.length;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                float normalized = d / Mathf.Max(1f, Runtime.length);
+                float halfWidth = Runtime.HalfWidthAt(d);
+                Vector3 edge = point + right * outsideSide * (halfWidth + 2f);
+                Vector3 flatForward = new Vector3(forward.x, 0f, forward.z).normalized;
+
+                TrackSolidObstacle nearest = null;
+                float nearestDist = float.MaxValue;
+                int crowd = 0;
+                for (int i = 0; i < solidObstacles.Count; i++)
+                {
+                    TrackSolidObstacle obs = solidObstacles[i];
+                    if (obs == null)
+                    {
+                        continue;
+                    }
+
+                    string type = obs.obstacleType ?? "";
+                    if (!type.Contains("wall") && !type.Contains("rail") && !type.Contains("barrier") && !type.Contains("fence"))
+                    {
+                        continue;
+                    }
+
+                    if (Mathf.Abs(obs.transform.position.y - edge.y) > 6f)
+                    {
+                        continue;
+                    }
+
+                    Vector3 flat = obs.transform.position - edge;
+                    flat.y = 0f;
+                    float dist = flat.magnitude;
+                    if (dist < nearestDist)
+                    {
+                        nearestDist = dist;
+                        nearest = obs;
+                    }
+
+                    // Crowding: barrier objects whose centre falls inside this
+                    // sample's own 8m slice, on this side of the road.
+                    Vector3 fromCentre = obs.transform.position - point;
+                    float along = Vector3.Dot(new Vector3(fromCentre.x, 0f, fromCentre.z), flatForward);
+                    float lat = Vector3.Dot(new Vector3(fromCentre.x, 0f, fromCentre.z), right) * outsideSide;
+                    if (Mathf.Abs(along) < 4f && lat > 0f && lat < halfWidth + 30f)
+                    {
+                        crowd++;
+                    }
+                }
+
+                float obsLateral = float.NaN;
+                if (nearest != null)
+                {
+                    Vector3 od = nearest.transform.position - point;
+                    obsLateral = Vector3.Dot(new Vector3(od.x, 0f, od.z), right) * outsideSide;
+                }
+
+                bool hole = nearest == null || nearestDist > 10f;
+                bool jump = !hole && !float.IsNaN(prevLateral) && Mathf.Abs(obsLateral - prevLateral) > 4f;
+                bool pileUp = crowd >= 5;
+                if (hole) holes++;
+                if (jump) jumps++;
+                if (pileUp) pileUps++;
+                if ((hole || jump || pileUp) && reported < 40)
+                {
+                    reported++;
+                    string kind = hole ? "HOLE" : jump ? "LATERAL JUMP" : "PILE-UP";
+                    string what = nearest == null
+                        ? "no barrier collider within range"
+                        : nearest.obstacleType + " " + nearestDist.ToString("0.0") + "m from edge, lat " + obsLateral.ToString("0.0") + "m" +
+                          (jump ? " (prev sample lat " + prevLateral.ToString("0.0") + "m)" : "") +
+                          (pileUp ? ", " + crowd + " barrier objects in this 8m slice" : "");
+                    report.Warn("[FinalCornerDiag] " + kind + " at " + d.ToString("0") + "m (apex" + (scan >= apexD ? "+" : "") +
+                                (scan - apexD).ToString("0") + "m): " + what +
+                                " | halfW=" + halfWidth.ToString("0.0") +
+                                " pitBlend=" + PitZoneBlend(normalized).ToString("0.00") +
+                                " curv=" + LocalCurvatureAngle(d).ToString("0.0") +
+                                " nearTight=" + Runtime.IsNearTightFenceCorner(d) +
+                                " elevated=" + IsElevatedAtDistance(d));
+                }
+
+                if (!float.IsNaN(obsLateral))
+                {
+                    prevLateral = obsLateral;
+                }
+            }
+
+            if (holes == 0 && jumps == 0 && pileUps == 0)
+            {
+                GameLog.Info("[FinalCornerDiag] " + Runtime.displayName + ": outside of the final corner reads clean (no holes, jumps or pile-ups).");
+            }
+            else
+            {
+                GameLog.Warn("[FinalCornerDiag] " + Runtime.displayName + ": final-corner outside summary - " + holes + " hole sample(s), " +
+                             jumps + " lateral jump(s), " + pileUps + " pile-up sample(s) across apex±260m. Paste the [FinalCornerDiag] lines above to pin the failing branch.");
+            }
         }
 
         bool ValidateGridSlots(TrackValidationReport report)

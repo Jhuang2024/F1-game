@@ -80,7 +80,19 @@ namespace LocalFormulaRacing
         {
             Vector3 pitTargetPoint;
             Quaternion pitTargetRotation;
-            track.ComputePitEntryTargetPoint(fromProgress.distance, PitEntryLookAheadMeters, out pitTargetPoint, out pitTargetRotation);
+            // Speed-scaled lookahead (per report - "I'm no longer crashing into
+            // the barriers while pitting but the AI are"): the exact bug the
+            // player assist just had, inherited. The pre-window braking
+            // envelope means an AI can now legitimately be at racing speed
+            // during the early approach while committingToPit steering is
+            // already active - and aiming at a point a fixed 18m ahead at
+            // 300+ kph makes the pursuit steering violently under-damped: a
+            // small lateral error becomes a huge target angle, the wheel
+            // chases it, overshoots, and the oscillation ends on the wall.
+            // Mirrors RaceManager.BuildPitEntryAssistCommand's fix: 18m at
+            // ramp-tracking speeds, growing to 55m at racing speed.
+            float lookAhead = Mathf.Lerp(PitEntryLookAheadMeters, 55f, Mathf.Clamp01(Mathf.Abs(vehicle.CurrentSpeedKph) / 300f));
+            track.ComputePitEntryTargetPoint(fromProgress.distance, lookAhead, out pitTargetPoint, out pitTargetRotation);
             return pitTargetPoint;
         }
 
@@ -1601,6 +1613,18 @@ namespace LocalFormulaRacing
                 if (metresToRampWrapped < 480f)
                 {
                     pitEnvelopeKph = Mathf.Min(pitEnvelopeKph, raceManager.PitApproachHeadwayCapKph(participant));
+                }
+
+                // Parity with the player assist (per report - "they are clearly
+                // faster than me"): the player's approach obeys a corner-speed
+                // cap through the pit window; the AI's own corner model targets
+                // much higher speeds through the same bends, so the AI both
+                // out-paced the player on the approach and carried corner speed
+                // into the pre-position line (the same corner-at-speed wall
+                // risk the assist had). Identical rule, identical window.
+                if (track.IsInPitApproach(progress.normalized))
+                {
+                    pitEnvelopeKph = Mathf.Min(pitEnvelopeKph, raceManager.PitApproachCornerCapKph(progress.distance));
                 }
                 cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, pitEnvelopeKph);
                 brakingApexSpeed = Mathf.Min(brakingApexSpeed, pitEnvelopeKph);
