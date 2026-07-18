@@ -3684,7 +3684,20 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            RaceParticipant ahead = raceManager.FindCarAhead(participant, 46f);
+            // Search range 46 -> 150m (per report - "on a straight where im
+            // just a bit ahead theyd much rather stick to their line than pull
+            // in behind me... the slipstream fix doesnt work"): the tow-seek
+            // and every attack qualifier in this state machine can only react
+            // to a car this search actually RETURNS - and 46m is 0.55s at
+            // 300kph, while the physics tow (RaceManager.Slipstream's
+            // SlipstreamMaxDistance) reaches 150m. From any realistic
+            // following distance the leader was simply invisible to this
+            // machine, so the follower held its own line straight through the
+            // wake. The range now matches the slipstream's own reach; nothing
+            // fires earlier than its own time-gap gates allow (attack triggers
+            // still require gapSeconds under their 2.6-3.4s thresholds, the
+            // tow-seek under 1.8s), so this widens PERCEPTION, not aggression.
+            RaceParticipant ahead = raceManager.FindCarAhead(participant, 150f);
             RaceParticipant behind = raceManager.FindCarBehind(participant, 32f);
             float legalLimit = LegalOffsetLimit(severityHere, progress.distance);
             // Racecraft sharpness: lean the tier/stat commitment TOWARD full
