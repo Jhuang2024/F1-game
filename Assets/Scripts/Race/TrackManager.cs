@@ -2229,6 +2229,7 @@ namespace LocalFormulaRacing
             ValidateBarrierPocketFree();
             ValidateNoSolidObstaclesInsideDrivingCorridors();
             ValidateSceneryGrounding();
+            DiagnoseRoadSurfaceMaterials();
             ValidateBarrierSmoothness();
             ValidatePitLaneSurfaceCoverage();
             BuildBoundaryDebugOverlay();
@@ -7712,6 +7713,32 @@ namespace LocalFormulaRacing
         // at deck height" bugs, not every intentionally-elevated sub-component.
         const float SceneryGroundingTolerance = 2.5f;
 
+        // Full rewrite (per request - "make sure every decoration such as
+        // every building/skyscraper/grandstand/tree/mountain thats around the
+        // track is actually on the ground and not floating"). The old sweep
+        // had three fatal flaws: it sampled only every 17th object (94% of
+        // scenery never checked), it dropped individual PRIMITIVES (a sampled
+        // tree-canopy lobe got slammed to the floor while its trunk stayed
+        // put - the fixer could CREATE floaters), and its output was
+        // Verbose-gated. This version:
+        //   1. scans EVERY scenery renderer (whitelisted name families),
+        //   2. clusters primitives into physical objects by XZ overlap
+        //      (union-find), so a tree/trunk/canopy or tower/roof compound
+        //      moves as ONE unit,
+        //   3. treats a cluster as grounded if it touches the physics ground
+        //      OR any non-cluster renderer's top sits directly beneath its
+        //      base (a hillside tree standing on a visual hill, a rooftop
+        //      detail on a building - both correctly supported),
+        //   4. translates genuinely floating clusters down as a whole, and
+        //   5. always prints a visible summary.
+        static readonly string[] SceneryGroundingNameFamilies =
+        {
+            "tree", "trunk", "canopy", "conifer", "frond", "palm", "tower", "skyscraper", "building",
+            "apartment", "block", "grandstand", "crowd", "roof", "pylon", "floodlight", "marshal",
+            "dune", "scrub", "rock", "boulder", "billboard", "skyline", "bleacher", "mountain",
+            "ridge", "hill", "formation", "stand"
+        };
+
         void ValidateSceneryGrounding()
         {
             if (Runtime == null || Runtime.length <= 1f)
@@ -7719,58 +7746,255 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            int sampled = 0;
-            int flagged = 0;
-            int correctedCount = 0;
-            float worstGap = 0f;
-            int childCount = transform.childCount;
-            for (int i = 0; i < childCount; i += SceneryGroundingSampleStride)
+            MeshRenderer[] renderers = GetComponentsInChildren<MeshRenderer>(false);
+            int n = renderers.Length;
+            Bounds[] bounds = new Bounds[n];
+            bool[] isScenery = new bool[n];
+            for (int i = 0; i < n; i++)
             {
-                Transform child = transform.GetChild(i);
-                if (child == null || !IsGroundingCheckCandidate(child))
+                bounds[i] = renderers[i].bounds;
+                string lower = renderers[i].gameObject.name.ToLowerInvariant();
+                bool match = false;
+                for (int f = 0; f < SceneryGroundingNameFamilies.Length && !match; f++)
                 {
-                    continue;
+                    match = lower.Contains(SceneryGroundingNameFamilies[f]);
                 }
 
-                Renderer renderer = child.GetComponent<Renderer>();
-                Vector3 basePosition = renderer.bounds.center;
-                basePosition.y = renderer.bounds.min.y;
-                sampled++;
+                // Never move anything structural: colliders (barriers, road,
+                // pit) stay exactly where physics put them.
+                isScenery[i] = match && renderers[i].GetComponent<Collider>() == null &&
+                               renderers[i].GetComponent<TrackSolidObstacle>() == null;
+            }
 
-                Vector3 rayOrigin = basePosition + Vector3.up * SceneryGroundingRayHeight;
-                RaycastHit hit;
-                if (!Physics.Raycast(rayOrigin, Vector3.down, out hit, SceneryGroundingRayHeight * 2f))
+            // Spatial hash of ALL renderers (support candidates) by 8m XZ cells.
+            const float Cell = 8f;
+            var cellMap = new Dictionary<long, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                int minX = Mathf.FloorToInt(bounds[i].min.x / Cell);
+                int maxX = Mathf.FloorToInt(bounds[i].max.x / Cell);
+                int minZ = Mathf.FloorToInt(bounds[i].min.z / Cell);
+                int maxZ = Mathf.FloorToInt(bounds[i].max.z / Cell);
+                for (int cx = minX; cx <= maxX; cx++)
                 {
-                    continue;
-                }
+                    for (int cz = minZ; cz <= maxZ; cz++)
+                    {
+                        long key = ((long)cx << 32) ^ (uint)cz;
+                        List<int> list;
+                        if (!cellMap.TryGetValue(key, out list))
+                        {
+                            list = new List<int>();
+                            cellMap[key] = list;
+                        }
 
-                float gap = basePosition.y - hit.point.y;
-                if (gap > SceneryGroundingTolerance)
-                {
-                    flagged++;
-                    worstGap = Mathf.Max(worstGap, gap);
-                    GameLog.Warn("[TrackValidation] Scenery grounding check FAILED: '" + child.name + "' base sits " +
-                                 gap.ToString("0.00") + "m above the surface below it on " + Runtime.displayName);
-
-                    // Auto-correct: drop the object straight down onto the surface found
-                    // by the ray, then reuse the same grounding-pad/column helper the
-                    // passes above call directly, in case the surface underneath doesn't
-                    // fully explain away the visual gap (e.g. a sloped hit point).
-                    child.position -= Vector3.up * gap;
-                    EnsureGroundedBase(hit.point, Mathf.Max(renderer.bounds.extents.x, renderer.bounds.extents.z));
-                    correctedCount++;
+                        list.Add(i);
+                    }
                 }
             }
 
-            if (flagged == 0)
+            // Union-find over scenery renderers whose XZ bounds (inflated 1m)
+            // overlap - primitives of one compound end up in one cluster.
+            int[] parent = new int[n];
+            for (int i = 0; i < n; i++)
             {
-                GameLog.Info("[TrackValidation] Scenery grounding sweep clean: " + sampled + " object(s) sampled, all within tolerance on " + Runtime.displayName);
+                parent[i] = i;
+            }
+
+            System.Func<int, int> find = null;
+            find = i => parent[i] == i ? i : (parent[i] = find(parent[i]));
+            foreach (var pair in cellMap)
+            {
+                List<int> list = pair.Value;
+                for (int a = 0; a < list.Count; a++)
+                {
+                    if (!isScenery[list[a]])
+                    {
+                        continue;
+                    }
+
+                    for (int b = a + 1; b < list.Count; b++)
+                    {
+                        if (!isScenery[list[b]])
+                        {
+                            continue;
+                        }
+
+                        Bounds ba = bounds[list[a]];
+                        Bounds bb = bounds[list[b]];
+                        bool overlapXZ = ba.min.x - 1f < bb.max.x && bb.min.x - 1f < ba.max.x &&
+                                         ba.min.z - 1f < bb.max.z && bb.min.z - 1f < ba.max.z;
+                        if (overlapXZ)
+                        {
+                            parent[find(list[a])] = find(list[b]);
+                        }
+                    }
+                }
+            }
+
+            var clusterMembers = new Dictionary<int, List<int>>();
+            for (int i = 0; i < n; i++)
+            {
+                if (!isScenery[i])
+                {
+                    continue;
+                }
+
+                int root = find(i);
+                List<int> members;
+                if (!clusterMembers.TryGetValue(root, out members))
+                {
+                    members = new List<int>();
+                    clusterMembers[root] = members;
+                }
+
+                members.Add(i);
+            }
+
+            int clusters = 0;
+            int floatersFixed = 0;
+            float worstGap = 0f;
+            foreach (var cluster in clusterMembers)
+            {
+                clusters++;
+                List<int> members = cluster.Value;
+                int lowest = members[0];
+                for (int m = 1; m < members.Count; m++)
+                {
+                    if (bounds[members[m]].min.y < bounds[lowest].min.y)
+                    {
+                        lowest = members[m];
+                    }
+                }
+
+                float clusterMinY = bounds[lowest].min.y;
+                Bounds footprint = bounds[lowest];
+
+                // Ground reference: physics ray under the lowest member.
+                Vector3 rayOrigin = footprint.center;
+                rayOrigin.y = clusterMinY + 1.5f;
+                RaycastHit hit;
+                float groundY = Physics.Raycast(rayOrigin, Vector3.down, out hit, 600f) ? hit.point.y : groundTopY;
+
+                float gap = clusterMinY - groundY;
+                if (gap <= SceneryGroundingTolerance)
+                {
+                    continue;
+                }
+
+                // Visual support: any non-cluster renderer whose top sits
+                // directly beneath the cluster's base (hillside terrain boxes,
+                // building roofs carrying details, plinths).
+                bool supported = false;
+                int cellX = Mathf.FloorToInt(footprint.center.x / Cell);
+                int cellZ = Mathf.FloorToInt(footprint.center.z / Cell);
+                for (int cx = cellX - 1; cx <= cellX + 1 && !supported; cx++)
+                {
+                    for (int cz = cellZ - 1; cz <= cellZ + 1 && !supported; cz++)
+                    {
+                        long key = ((long)cx << 32) ^ (uint)cz;
+                        List<int> list;
+                        if (!cellMap.TryGetValue(key, out list))
+                        {
+                            continue;
+                        }
+
+                        for (int c = 0; c < list.Count && !supported; c++)
+                        {
+                            int other = list[c];
+                            if (isScenery[other] && find(other) == cluster.Key)
+                            {
+                                continue;
+                            }
+
+                            Bounds ob = bounds[other];
+                            bool overlapXZ = ob.min.x < footprint.max.x && footprint.min.x < ob.max.x &&
+                                             ob.min.z < footprint.max.z && footprint.min.z < ob.max.z;
+                            supported = overlapXZ && ob.max.y > clusterMinY - 3f && ob.max.y < clusterMinY + 0.6f;
+                        }
+                    }
+                }
+
+                if (supported)
+                {
+                    continue;
+                }
+
+                float drop = gap - 0.05f;
+                for (int m = 0; m < members.Count; m++)
+                {
+                    renderers[members[m]].transform.position -= Vector3.up * drop;
+                    bounds[members[m]] = renderers[members[m]].bounds;
+                }
+
+                floatersFixed++;
+                worstGap = Mathf.Max(worstGap, gap);
+            }
+
+            if (floatersFixed == 0)
+            {
+                Debug.Log("[SceneryGroundDiag] " + Runtime.displayName + ": all " + clusters + " scenery cluster(s) grounded or supported.");
             }
             else
             {
-                GameLog.Warn("[TrackValidation] Scenery grounding sweep found " + flagged + "/" + sampled + " object(s) floating with an unexpected gap (worst " +
-                             worstGap.ToString("0.00") + "m), auto-corrected " + correctedCount + " on " + Runtime.displayName);
+                Debug.LogWarning("[SceneryGroundDiag] " + Runtime.displayName + ": grounded " + floatersFixed + " floating scenery cluster(s) of " +
+                                 clusters + " (worst gap " + worstGap.ToString("0.0") + "m) - whole compounds moved as units.");
             }
+        }
+
+        // [RoadMaterialDiag] (per report - "you say that the track is all the
+        // same material when its visually not... i really like that reflective
+        // part"): a census of what is ACTUALLY rendered on top of the road.
+        // Samples 16 points around the lap; at each, lists every renderer
+        // whose bounds cover that point at road height, with its material name
+        // and Standard-shader glossiness. If the reflective stretch is an
+        // overlay mesh (pit apron, grid slab, rubbered racing line strip)
+        // rather than the base road, this names it - and then the pretty
+        // material can be applied lap-wide deliberately instead of by
+        // accident.
+        void DiagnoseRoadSurfaceMaterials()
+        {
+            if (Runtime == null || Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            MeshRenderer[] renderers = GetComponentsInChildren<MeshRenderer>(false);
+            System.Text.StringBuilder table = new System.Text.StringBuilder();
+            for (int s = 0; s < 16; s++)
+            {
+                float d = Runtime.length * (s / 16f);
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                table.Append("norm=").Append((s / 16f).ToString("0.000")).Append(": ");
+                int listed = 0;
+                for (int i = 0; i < renderers.Length && listed < 6; i++)
+                {
+                    Bounds b = renderers[i].bounds;
+                    bool coversXZ = point.x > b.min.x && point.x < b.max.x && point.z > b.min.z && point.z < b.max.z;
+                    bool atRoadHeight = b.max.y > point.y - 1.2f && b.min.y < point.y + 1.5f;
+                    if (!coversXZ || !atRoadHeight)
+                    {
+                        continue;
+                    }
+
+                    Material mat = renderers[i].sharedMaterial;
+                    string gloss = mat != null && mat.HasProperty("_Glossiness") ? mat.GetFloat("_Glossiness").ToString("0.00") : "?";
+                    table.Append(renderers[i].gameObject.name).Append(" [").Append(mat != null ? mat.name : "null")
+                         .Append(" gloss=").Append(gloss).Append("] ");
+                    listed++;
+                }
+
+                if (listed == 0)
+                {
+                    table.Append("(nothing found at road height)");
+                }
+
+                table.Append('\n');
+            }
+
+            Debug.LogWarning("[RoadMaterialDiag] " + Runtime.displayName + " - surfaces present at road height around the lap:\n" + table);
         }
 
         // Restricts the grounding sweep to plain decorative scenery: a MeshRenderer with
