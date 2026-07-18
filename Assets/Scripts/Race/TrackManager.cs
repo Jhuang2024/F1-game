@@ -2693,9 +2693,24 @@ namespace LocalFormulaRacing
         }
 
         // Raises the leg around centerIndex to at least targetY at its apex,
-        // cosine-blended out to CrossingBlendMeters each way (window clamped
-        // so it can never reach around and lift the OTHER leg of the same
-        // crossing). Only ever raises - never digs the road down.
+        // cosine-blended out each way (window clamped so it can never reach
+        // around and lift the OTHER leg of the same crossing). Only ever
+        // raises - never digs the road down.
+        //
+        // Clearance-hold fix (Belgium report - a ~150m band of the raised leg
+        // with 2-4m of clearance over the lower leg): the old profile was a
+        // pure cosine on ALONG-LEG distance, so on a shallow-angled crossing
+        // the deck descended back toward the lower road while the two legs
+        // were still laterally overlapping in XZ - producing a long stretch
+        // where the decks were neither separated (no room for cars + barriers
+        // between levels) nor merged. Full clearance is now HELD until the
+        // point is both a real distance along the leg AND laterally clear of
+        // the crossing zone in XZ; only then does the cosine descent begin.
+        // On a curving leg that swings back toward the crossing, the XZ term
+        // stalls the descent so the deck stays high exactly where it matters.
+        const float CrossingHoldMeters = 40f;
+        const float CrossingHoldRadiusMeters = 45f;
+
         static void RaiseCrossingLeg(List<Vector3> line, int centerIndex, float targetY, int indexGapToOtherLeg)
         {
             int n = line.Count;
@@ -2706,19 +2721,35 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            Vector3 crossingPoint = line[centerIndex];
             int maxWindowPoints = Mathf.Max(2, Mathf.Min(indexGapToOtherLeg, n - indexGapToOtherLeg) / 3);
             for (int direction = -1; direction <= 1; direction += 2)
             {
                 float travelled = 0f;
                 int steps = 0;
                 int index = centerIndex;
-                while (steps < maxWindowPoints && travelled < CrossingBlendMeters)
+                // The walk runs until the descent has actually finished (w ~ 0),
+                // not just a fixed distance - the XZ stall can legitimately keep
+                // the deck high for longer than Hold+Blend if the leg curves
+                // back past the crossing zone. Hard-capped at 3x that span so a
+                // pathological layout can never raise half the lap.
+                float travelLimit = (CrossingHoldMeters + CrossingBlendMeters) * 3f;
+                while (steps < maxWindowPoints && travelled < travelLimit)
                 {
                     int next = ((index + direction) % n + n) % n;
                     travelled += Vector3.Distance(line[index], line[next]);
                     index = next;
                     steps++;
-                    float w = 0.5f * (1f + Mathf.Cos(Mathf.PI * Mathf.Clamp01(travelled / CrossingBlendMeters)));
+                    float xzFromCrossing = new Vector2(line[index].x - crossingPoint.x, line[index].z - crossingPoint.z).magnitude;
+                    float descend = Mathf.Min(
+                        Mathf.Max(0f, travelled - CrossingHoldMeters),
+                        Mathf.Max(0f, xzFromCrossing - CrossingHoldRadiusMeters));
+                    float w = 0.5f * (1f + Mathf.Cos(Mathf.PI * Mathf.Clamp01(descend / CrossingBlendMeters)));
+                    if (w <= 0.01f)
+                    {
+                        break;
+                    }
+
                     Vector3 p = line[index];
                     p.y += delta * w;
                     line[index] = p;
@@ -6119,6 +6150,13 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
+                // Same cross-deck honesty as NearestSolidProtectionDistance: a
+                // wall a full deck-height above/below this level doesn't guard it.
+                if (Mathf.Abs(obstacle.transform.position.y - position.y) > 6f)
+                {
+                    continue;
+                }
+
                 Vector3 flatDelta = obstacle.transform.position - position;
                 flatDelta.y = 0f;
                 if (flatDelta.sqrMagnitude < radius * radius)
@@ -6269,6 +6307,16 @@ namespace LocalFormulaRacing
 
                 string type = obstacle.obstacleType ?? "";
                 if (!type.Contains("wall") && !type.Contains("fence") && !type.Contains("barrier") && !type.Contains("rail"))
+                {
+                    continue;
+                }
+
+                // Cross-deck honesty (Belgium flyover report): this measure is
+                // horizontal-only, so a wall up on the raised flyover deck used
+                // to count as "protection" for the road passing 9m underneath
+                // it (and vice versa), masking real holes on the other level.
+                // A barrier only protects the level it actually stands on.
+                if (Mathf.Abs(obstacle.transform.position.y - position.y) > 6f)
                 {
                     continue;
                 }
@@ -8671,6 +8719,22 @@ namespace LocalFormulaRacing
                 bool insidePitCorridor = (normalized > 0.83f || normalized < 0.06f) && side > 0f;
                 if (insidePitCorridor)
                 {
+                    // The trackside furniture below (floodlights, marshal posts,
+                    // sponsor boards at 4-9m off the edge) genuinely can't stand
+                    // inside the pit complex - but the TREE clusters can and
+                    // should exist BEHIND it (per report - the bare right side
+                    // of every forested start/finish straight). Same
+                    // behind-the-pits treatment as BuildForestBelt/Canada.
+                    if (!street && !desertTrack)
+                    {
+                        Vector3 behindPits = GroundedTrackPoint(point) + right * side * (PitOuterLateral() + 20f);
+                        CreateTreeCluster(behindPits, i);
+                        if (i % 2 == 0)
+                        {
+                            CreateTreeCluster(behindPits + right * side * 42f, i + 1);
+                        }
+                    }
+
                     continue;
                 }
 
@@ -8776,11 +8840,19 @@ namespace LocalFormulaRacing
                 Vector3 groundPoint = GroundedTrackPoint(point);
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    // Same pit-corridor exclusion the main scenery loop uses.
-                    if ((normalized > 0.83f || normalized < 0.06f) && side > 0f)
-                    {
-                        continue;
-                    }
+                    // Pushed BEHIND the pit complex instead of skipped (per
+                    // report - "with every forested track theres always no
+                    // trees on the right side of the start finish straight, or
+                    // any type of background"): this used to be a full skip of
+                    // the right side across 23% of the lap, exactly the stretch
+                    // the player stares down from the grid, and it wiped ALL
+                    // four rows including the 130m/205m background rows that
+                    // stand nowhere near the pit buildings. The pit complex
+                    // only occupies ~55m of lateral depth, so the rows now
+                    // simply start beyond it - the same treatment Canada's
+                    // dedicated tree line already uses - and the straight keeps
+                    // its forest in both foreground and background.
+                    bool pitStrip = (normalized > 0.83f || normalized < 0.06f) && side > 0f;
 
                     for (int row = 0; row < 4; row++)
                     {
@@ -8793,6 +8865,10 @@ namespace LocalFormulaRacing
                         float lateralOffset = row < 2
                             ? Runtime.roadHalfWidth + 46f + row * 24f + (treeSeed * 7) % 15
                             : Runtime.roadHalfWidth + 130f + (row - 2) * 75f + (treeSeed * 7) % 34;
+                        if (pitStrip)
+                        {
+                            lateralOffset = Mathf.Max(lateralOffset, PitOuterLateral() + 16f + row * 18f);
+                        }
                         float alongJitter = ((treeSeed * 11) % 25) - 12f;
                         Vector3 desired = groundPoint + right * side * lateralOffset + forward * alongJitter;
                         // Never inside a grandstand's footprint (per report) -
@@ -11622,6 +11698,15 @@ namespace LocalFormulaRacing
             for (int i = 0; i < samples.Length; i++)
             {
                 TrackProgress progress = Runtime.GetProgress(samples[i]);
+                // Cross-deck disambiguation - same reasoning as
+                // IsSolidObstaclePlacementValid: a sample resolved to a road a
+                // full deck-height away is on a different level of a flyover
+                // crossing, not on that road.
+                if (Mathf.Abs(samples[i].y - progress.nearestPoint.y) > 4f)
+                {
+                    continue;
+                }
+
                 // Must check against the actual (possibly hairpin-widened) drivable
                 // surface at this sample's own distance, not the flat field - otherwise
                 // an obstacle sitting just beyond the old narrow width could pass this
@@ -11713,6 +11798,21 @@ namespace LocalFormulaRacing
             for (int i = 0; i < samples.Length; i++)
             {
                 TrackProgress progress = Runtime.GetProgress(samples[i]);
+                // Cross-deck disambiguation (Belgium flyover report - a ~150m
+                // stretch of raised leg with NO side protection at all): this
+                // check was pure 2D, so near a flyover crossing a wall sample
+                // on one deck's edge resolved against the OTHER deck's corridor
+                // and read as "inside the racing surface" - every barrier
+                // placement (including auto-fill and the essential push-out
+                // retries) on both crossing legs was rejected across the whole
+                // overlap zone, leaving the flyover edges bare. A sample a full
+                // deck-height above/below the road it resolved to is not ON
+                // that road - cars pass under/over, there is no conflict.
+                if (Mathf.Abs(samples[i].y - progress.nearestPoint.y) > 4f)
+                {
+                    continue;
+                }
+
                 if (Mathf.Abs(progress.lateralDistance) < Runtime.HalfWidthAt(progress.distance) + minimumClearance)
                 {
                     return false;
