@@ -1445,12 +1445,21 @@ namespace LocalFormulaRacing
             // budget, so flowing/medium corners and their tuned bucket speeds
             // are completely untouched. Difficulty-independent, machinery-fair
             // (it is the corner's radius, identical for everyone).
-            const float TightCornerLateralBudgetMs2 = 30f;
+            // Skill-scaled lateral budget (season-standings report - the flat
+            // 30 m/s^2 budget was a hidden EQUALIZER: at every tight corner
+            // all 22 drivers were capped to the identical geometric speed, so
+            // exactly the corners where skill should separate the field
+            // compressed it instead). The ceiling is a driver's JUDGEMENT of
+            // how much of the physical budget to use - a backmarker leaves
+            // real margin, an elite driver runs the geometry's edge. The top
+            // of the band (30) is unchanged, so nobody exceeds what the
+            // radius physically supports; difficulty-independent as always.
+            float tightCornerLateralBudget = Mathf.Lerp(24f, 30f, paceNorm);
             float apexLocalHeading = LocalHeadingChange(progress.distance + apexDistanceAhead);
             if (apexLocalHeading > 30f)
             {
                 float apexRadius = 32f / (apexLocalHeading * Mathf.Deg2Rad);
-                float radiusCapKph = Mathf.Sqrt(TightCornerLateralBudgetMs2 * apexRadius) * 3.6f;
+                float radiusCapKph = Mathf.Sqrt(tightCornerLateralBudget * apexRadius) * 3.6f;
                 brakingApexSpeed = Mathf.Min(brakingApexSpeed, radiusCapKph);
             }
 
@@ -1458,7 +1467,7 @@ namespace LocalFormulaRacing
             if (hereLocalHeading > 30f)
             {
                 float hereRadius = 32f / (hereLocalHeading * Mathf.Deg2Rad);
-                float hereCapKph = Mathf.Sqrt(TightCornerLateralBudgetMs2 * hereRadius) * 3.6f;
+                float hereCapKph = Mathf.Sqrt(tightCornerLateralBudget * hereRadius) * 3.6f;
                 cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, hereCapKph);
             }
 

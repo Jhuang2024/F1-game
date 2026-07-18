@@ -310,7 +310,7 @@ namespace LocalFormulaRacing
             // the car's real grip - never more than the player's identical
             // machinery (the 1.25 unfair-advantage ceiling is unused; every
             // current caller passes <= 1).
-            aiGripAssist = Mathf.Clamp(gripAssist, 0.75f, 1.25f);
+            aiGripAssist = Mathf.Clamp(gripAssist, 0.68f, 1.25f);
         }
         // Flat DRS speed boost: +DrsBoostAmountKph, uncapped by the normal
         // top-speed ceiling, while the wing is open above DrsBoostThresholdKph -
