@@ -2312,6 +2312,15 @@ namespace LocalFormulaRacing
                 ShowSettings(data, career, settings);
             });
 
+            RectTransform legendaryDriversControl;
+            UiFactory.CreateSettingRow(raceControlList, "Legendary Drivers", "Fill Quick Race & single-event grids with all-time greats (Senna, Prost, Schumacher, Lauda, Fangio...) - every one a 99-rated driver in a maxed 125 car. Career is left untouched. Takes effect on the next session.", out legendaryDriversControl);
+            UiFactory.CreateToggleControl(legendaryDriversControl, settings.Current.legendaryDriversEnabled, () =>
+            {
+                settings.Current.legendaryDriversEnabled = !settings.Current.legendaryDriversEnabled;
+                settings.Save();
+                ShowSettings(data, career, settings);
+            });
+
             UiFactory.CreateDivider(raceControlList);
             RectTransform trackRecordsControl;
             UiFactory.CreateSettingRow(raceControlList, "Track Records", "Clears every locally stored best-lap time so records start fresh.", out trackRecordsControl);

@@ -1161,6 +1161,12 @@ namespace LocalFormulaRacing
         // static per-lap grip can turn it off.
         public bool trackEvolutionEnabled = true;
 
+        // Legends mode: replace the entire grid with all-time-great drivers (each a
+        // flat 99 in every skill) in fully maxed 125-rated cars - see
+        // LegendaryRoster and the three roster/car resolvers it feeds. Off by
+        // default, so an old save with no key present keeps the normal 2026 grid.
+        public bool legendaryDriversEnabled;
+
         // Fuel strategy: pre-race fuel-load choice, same "plain int field on
         // settings + companion enum for readability" pattern as ersMode above.
         // Defaults to FuelLoadChoice.Target (2) so an old save with no key present

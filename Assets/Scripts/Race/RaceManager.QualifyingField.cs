@@ -208,6 +208,16 @@ namespace LocalFormulaRacing
         // roster that still contains the player's own seat id.
         List<DriverData> GetDefensiveAiRoster(string playerTeamId, string playerDisplayName)
         {
+            // Legends mode: the whole AI field becomes all-time greats. Return them
+            // straight - no transfers, no career progression, no teammate patching -
+            // the player keeps their own seat and picks up a maxed car via
+            // ResolveTeamCarPerformance, so it is the player versus the legends in
+            // identical machinery.
+            if (LegendaryDriversOn())
+            {
+                return LegendaryRoster.AiDrivers(playerTeamId, FullWeekendAiCount);
+            }
+
             List<DriverTransferRecord> transfers = Career != null && Career.Save != null ? Career.Save.driverTransferRecords : null;
             string replacedId = ReplacedDriverIdForPlayerTeam(playerTeamId);
             List<DriverData> aiDrivers = Data.GetAiRaceDrivers(playerTeamId, FullWeekendAiCount, replacedId, transfers);

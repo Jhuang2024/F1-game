@@ -73,9 +73,31 @@ namespace LocalFormulaRacing
         // player's own upgrade tuning on top if this is the player's own team.
         // Quick Race/Time Trial (IsCareerRace false) always get the raw,
         // unmodified reference car, exactly like before this system existed.
+        // Legends mode: are the all-time-greats (maxed drivers + maxed cars)
+        // switched on? Read straight off the live settings blob so flipping the
+        // toggle takes effect on the next session start with no reload.
+        //
+        // Deliberately scoped to non-career sessions (Quick Race, single Grand
+        // Prix, Time Trial). A career race records results by driver id, and the
+        // legends' synthetic ids would otherwise be injected into the save's real
+        // driver standings - swapping the whole field for one race and leaving
+        // Senna & co. with championship points. Keeping it out of career means the
+        // toggle can be flipped any time without ever touching a career save.
+        bool LegendaryDriversOn()
+        {
+            return !IsCareerRace && Settings != null && Settings.Current != null && Settings.Current.legendaryDriversEnabled;
+        }
+
         CarPerformanceData ResolveTeamCarPerformance(TeamData team)
         {
             CarPerformanceData baseCar = team == null ? Data.Cars.cars[0] : Data.FindCar(team.carPerformanceId);
+            // Legends mode: everyone (player and AI alike) races an identically
+            // maxed 125-rated car, so the result is pure driver, not machinery.
+            if (LegendaryDriversOn())
+            {
+                return LegendaryRoster.MaxedCar(baseCar);
+            }
+
             if (IsCareerRace && Career != null && team != null)
             {
                 return Career.GetEffectiveTeamCar(team, baseCar);
@@ -97,6 +119,13 @@ namespace LocalFormulaRacing
             if (driver == null)
             {
                 return null;
+            }
+
+            // Legends carry their own team id directly and never appear in career
+            // transfer records, so resolve them straight to their listed team.
+            if (LegendaryDriversOn())
+            {
+                return Data.FindTeam(driver.teamId);
             }
 
             List<DriverTransferRecord> transfers = Career != null && Career.Save != null ? Career.Save.driverTransferRecords : null;
