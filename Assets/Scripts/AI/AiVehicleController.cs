@@ -33,6 +33,18 @@ namespace LocalFormulaRacing
         // current lane). Smoothed so a neighbour blinking in and out of the
         // detection windows can never snap the steering target.
         float lineTrafficBlend;
+        // Latched holding lane for the in-traffic case ([SwerveDiag amplitude]:
+        // with the drawn line calmed, the residual straight-line swerve was the
+        // traffic hold itself - laneHold used to be the LIVE lateral position, so
+        // the target was always exactly where the car already was, i.e. zero
+        // centring force. Any drift then persisted and grew, bounded only by
+        // wall-aversion bouncing the car off each edge - a pack-wide wall-to-wall
+        // free-drift on the straights). Latch a STABLE lane on entering traffic
+        // (clamped so it can never latch onto the wall) and hold that, so pursuit
+        // actually centres the car on a fixed lane; each car keeps its own lane, so
+        // the field separation this hold exists to provide is preserved.
+        float heldLaneOffset;
+        bool hasHeldLane;
         // Previous-frame lateral offset, for the wall-aversion system's
         // trajectory (time-to-edge) computation.
         float previousEdgeLateral;
@@ -1850,7 +1862,29 @@ namespace LocalFormulaRacing
                 // and the Lerp still restores the full line before any corner.
                 float straightTrim = Mathf.Lerp(0.35f, 1f, Mathf.Clamp01(severityHere / 0.09f));
                 float optimalPursuit = drawnOffset * 0.94f * straightTrim + apexMissNoise * 0.4f;
-                float laneHold = progress.lateralDistance;
+                // Latched holding lane (see heldLaneOffset): the target the car
+                // holds in traffic is a STABLE captured lane, not its live position.
+                // A fixed lateral target gives pursuit a real centring pull (the car
+                // returns to its lane instead of free-drifting), while each car
+                // latching its own lane keeps the field spread out. Latch once when
+                // traffic first appears and drop it in clear air; clamp so it can
+                // never hold at the wall (a lane, not the barrier). The overtake
+                // state machine's aggressionOffset still layers tactical moves on top.
+                float laneCap = Mathf.Min(bound, 5.5f);
+                if (lineTrafficBlend > 0.05f)
+                {
+                    if (!hasHeldLane)
+                    {
+                        heldLaneOffset = Mathf.Clamp(progress.lateralDistance, -laneCap, laneCap);
+                        hasHeldLane = true;
+                    }
+                }
+                else
+                {
+                    hasHeldLane = false;
+                }
+
+                float laneHold = hasHeldLane ? heldLaneOffset : progress.lateralDistance;
                 lineBias = Mathf.Clamp(Mathf.Lerp(optimalPursuit, laneHold, lineTrafficBlend), -bound, bound);
             }
             else if (severityHere > 0.05f)
@@ -2887,6 +2921,7 @@ namespace LocalFormulaRacing
             overtakeStateTimer = 0f;
             attackSide = preferredSide;
             aggressionOffset = 0f;
+            hasHeldLane = false;
             mistakeSteer = 0f;
             mistakeTimer = Random.Range(3f, 8f);
             mistakeBrakeErrorTimer = 0f;
