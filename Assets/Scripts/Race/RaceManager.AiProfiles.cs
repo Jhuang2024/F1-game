@@ -379,6 +379,125 @@ namespace LocalFormulaRacing
             return "straight";
         }
 
+        // [ErsCompare] player-vs-AI ERS deployment (per request - the existing
+        // [ErsDiag] measures only the AI field, so there was no way to see whether
+        // the player is simply deploying far more). [CornerDiag] localised the
+        // AI's entire deficit to the straights at ~26kph down - the exact size of
+        // the ERS boost - so this measures who actually puts ERS down, split into
+        // overall deploy% and straight-line (>300kph) deploy%, plus average
+        // battery. If the player's straight-line deploy% dwarfs the AI's, the AI
+        // is banking charge it should be spending on the straights.
+        System.Collections.Generic.Dictionary<RaceParticipant, int> ersCmpDeploy;
+        System.Collections.Generic.Dictionary<RaceParticipant, int> ersCmpTotal;
+        System.Collections.Generic.Dictionary<RaceParticipant, int> ersCmpFastDeploy;
+        System.Collections.Generic.Dictionary<RaceParticipant, int> ersCmpFastTotal;
+        System.Collections.Generic.Dictionary<RaceParticipant, float> ersCmpBatterySum;
+        float ersCmpLastLogTime;
+
+        void DiagnoseErsUsage(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null || CurrentSession == RaceWeekendSession.Qualifying)
+            {
+                return;
+            }
+
+            if (ersCmpDeploy == null)
+            {
+                ersCmpDeploy = new System.Collections.Generic.Dictionary<RaceParticipant, int>();
+                ersCmpTotal = new System.Collections.Generic.Dictionary<RaceParticipant, int>();
+                ersCmpFastDeploy = new System.Collections.Generic.Dictionary<RaceParticipant, int>();
+                ersCmpFastTotal = new System.Collections.Generic.Dictionary<RaceParticipant, int>();
+                ersCmpBatterySum = new System.Collections.Generic.Dictionary<RaceParticipant, float>();
+            }
+
+            bool deploying = participant.vehicle.ErsDeploying;
+            bool fast = Mathf.Abs(participant.vehicle.CurrentSpeedKph) > 300f;
+
+            int v;
+            ersCmpTotal.TryGetValue(participant, out v); ersCmpTotal[participant] = v + 1;
+            if (deploying) { ersCmpDeploy.TryGetValue(participant, out v); ersCmpDeploy[participant] = v + 1; }
+            if (fast) { ersCmpFastTotal.TryGetValue(participant, out v); ersCmpFastTotal[participant] = v + 1; }
+            if (fast && deploying) { ersCmpFastDeploy.TryGetValue(participant, out v); ersCmpFastDeploy[participant] = v + 1; }
+            float b;
+            ersCmpBatterySum.TryGetValue(participant, out b); ersCmpBatterySum[participant] = b + participant.vehicle.ErsBattery;
+
+            MaybeLogErsCompare();
+        }
+
+        void MaybeLogErsCompare()
+        {
+            if (Time.time - ersCmpLastLogTime < 20f)
+            {
+                return;
+            }
+
+            int playerTotal;
+            if (PlayerParticipant == null || ersCmpTotal == null || !ersCmpTotal.TryGetValue(PlayerParticipant, out playerTotal) || playerTotal < 200)
+            {
+                return;
+            }
+
+            ersCmpLastLogTime = Time.time;
+
+            float youPct = 100f * ErsCmpGet(ersCmpDeploy, PlayerParticipant) / Mathf.Max(1, playerTotal);
+            int youFastTotal = ErsCmpGet(ersCmpFastTotal, PlayerParticipant);
+            float youFastPct = 100f * ErsCmpGet(ersCmpFastDeploy, PlayerParticipant) / Mathf.Max(1, youFastTotal);
+            float youBattery = 100f * ErsCmpGetF(ersCmpBatterySum, PlayerParticipant) / Mathf.Max(1, playerTotal);
+
+            int aiCount = 0;
+            float aiPctSum = 0f, aiFastPctSum = 0f, aiBatSum = 0f;
+            RaceParticipant topAi = null;
+            float topAiFastPct = -1f;
+            foreach (System.Collections.Generic.KeyValuePair<RaceParticipant, int> kv in ersCmpTotal)
+            {
+                RaceParticipant p = kv.Key;
+                if (p == null || p.isPlayer || kv.Value < 100)
+                {
+                    continue;
+                }
+
+                aiCount++;
+                aiPctSum += 100f * ErsCmpGet(ersCmpDeploy, p) / Mathf.Max(1, kv.Value);
+                aiBatSum += 100f * ErsCmpGetF(ersCmpBatterySum, p) / Mathf.Max(1, kv.Value);
+                float pFast = 100f * ErsCmpGet(ersCmpFastDeploy, p) / Mathf.Max(1, ErsCmpGet(ersCmpFastTotal, p));
+                aiFastPctSum += pFast;
+                if (pFast > topAiFastPct)
+                {
+                    topAiFastPct = pFast;
+                    topAi = p;
+                }
+            }
+
+            if (aiCount > 0)
+            {
+                string topAiName = topAi != null && topAi.driverData != null ? topAi.driverData.displayName : "AI";
+                Debug.Log("[ErsCompare] straight-line ERS (>300kph): you " + youFastPct.ToString("0.0") +
+                          "% vs AI field avg " + (aiFastPctSum / aiCount).ToString("0.0") +
+                          "% (best AI " + topAiName + " " + topAiFastPct.ToString("0.0") + "%). " +
+                          "Overall deploy: you " + youPct.ToString("0.0") + "% vs AI avg " + (aiPctSum / aiCount).ToString("0.0") +
+                          "%. Battery avg: you " + youBattery.ToString("0") + "% vs AI " + (aiBatSum / aiCount).ToString("0") +
+                          "% (if the AI's battery sits high while its straight-line deploy% is low, it is banking charge it should be spending).");
+            }
+
+            ersCmpDeploy.Clear();
+            ersCmpTotal.Clear();
+            ersCmpFastDeploy.Clear();
+            ersCmpFastTotal.Clear();
+            ersCmpBatterySum.Clear();
+        }
+
+        static int ErsCmpGet(System.Collections.Generic.Dictionary<RaceParticipant, int> dict, RaceParticipant key)
+        {
+            int v;
+            return dict != null && dict.TryGetValue(key, out v) ? v : 0;
+        }
+
+        static float ErsCmpGetF(System.Collections.Generic.Dictionary<RaceParticipant, float> dict, RaceParticipant key)
+        {
+            float v;
+            return dict != null && dict.TryGetValue(key, out v) ? v : 0f;
+        }
+
         public AiDifficultyProfile GetAiDifficultyProfile()
         {
             RaceDifficulty difficulty = Settings.Difficulty;
