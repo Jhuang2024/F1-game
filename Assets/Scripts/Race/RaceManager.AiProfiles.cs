@@ -197,8 +197,11 @@ namespace LocalFormulaRacing
                     exitThrottleConfidence = 0.97f,
                     lineOffsetNoise = 0.3f,
                     reactionTimeSeconds = 0.31f,
-                    overtakeCommitment = 0.55f,
-                    defendCommitment = 0.55f,
+                    // Natural-difficulty pass (see Hard): a smaller racecraft lift so
+                    // Medium fights a little harder for position while staying clearly
+                    // more passive than Hard.
+                    overtakeCommitment = 0.62f,
+                    defendCommitment = 0.63f,
                     ersDeploymentQuality = 0.88f,
                     drsUsageQuality = 0.94f,
                     mistakeChancePerLap = 0.04f,
@@ -252,9 +255,19 @@ namespace LocalFormulaRacing
                     throttleDelay = 0.035f,
                     exitThrottleConfidence = 0.993f,
                     lineOffsetNoise = 0.16f,
-                    reactionTimeSeconds = 0.25f,
-                    overtakeCommitment = 0.77f,
-                    defendCommitment = 0.79f,
+                    // Natural-difficulty pass ([PaceDiag] - the AI's raw PACE is
+                    // already competitive with a skilled human on this circuit, and
+                    // 41 rounds of pace/corner-speed cranking have saturated against
+                    // the physical feasibility caps, so more of that lever no longer
+                    // converts to lap time. The untapped, purely-decision-quality
+                    // lever is RACECRAFT: a pace-equal AI still feels easy if it
+                    // reacts slowly, waves the player through, and doesn't fight to
+                    // hold its line. Reaction sharpened and both the attack and the
+                    // defend commitment lifted so Hard actually races the player wheel-
+                    // to-wheel - no grip, no speed, purely how hard it commits.
+                    reactionTimeSeconds = 0.22f,
+                    overtakeCommitment = 0.85f,
+                    defendCommitment = 0.88f,
                     ersDeploymentQuality = 0.95f,
                     drsUsageQuality = 0.99f,
                     // Cut 0.015 -> 0.005 (per report - AI mistakes "wayyy too
@@ -265,7 +278,11 @@ namespace LocalFormulaRacing
                     // clean; a genuine slip stays possible but rare.
                     mistakeChancePerLap = 0.005f,
                     // Aggression pass (per request): was 0.82.
-                    trafficAvoidanceCaution = 0.62f,
+                    // Natural-difficulty pass: trimmed again (0.62 -> 0.56) so Hard
+                    // holds its line in a fight and makes the player find a way past,
+                    // rather than ceding the position early. Still a real avoidance
+                    // margin - not enough to turn into a contact machine.
+                    trafficAvoidanceCaution = 0.56f,
                     wetWeatherCaution = 0.98f,
                     tyreSavingBias = 0.12f,
                     // Rounds 12-16: +0.02 per round (was 1.28).
@@ -307,16 +324,23 @@ namespace LocalFormulaRacing
                 throttleDelay = 0.025f,
                 exitThrottleConfidence = 0.997f,
                 lineOffsetNoise = 0.09f,
-                reactionTimeSeconds = 0.21f,
-                overtakeCommitment = 0.93f,
-                defendCommitment = 0.93f,
+                // Natural-difficulty pass (see the Hard block): pace is saturated at
+                // the caps, so Expert is sharpened as a racer instead - near-instant
+                // reaction and near-maximal attack/defend commitment, so it hounds the
+                // player and shuts the door. Purely decision quality; ordering above
+                // Hard preserved.
+                reactionTimeSeconds = 0.18f,
+                overtakeCommitment = 0.97f,
+                defendCommitment = 0.98f,
                 ersDeploymentQuality = 0.975f,
                 drsUsageQuality = 0.98f,
                 // Cut 0.002 -> 0.0008 alongside the Hard reduction: Expert should
                 // be the cleanest field on the grid, essentially error-free.
                 mistakeChancePerLap = 0.0008f,
                 // Aggression pass (per request): was 0.42.
-                trafficAvoidanceCaution = 0.32f,
+                // Natural-difficulty pass: trimmed (0.32 -> 0.27) so Expert commits to
+                // holding its line, still leaving a genuine racing margin.
+                trafficAvoidanceCaution = 0.27f,
                 wetWeatherCaution = 0.88f,
                 tyreSavingBias = 0.07f,
                 // Rounds 12-16: +0.02 per round (was 1.34).

@@ -160,6 +160,19 @@ namespace LocalFormulaRacing
         const float DriverConfidenceCoefficient = 0.002f;
         const float CarEffectCoefficientPerPoint = 0.08f;
         const float CarEffectCapSeconds = 1.0f;
+        // [PaceDiag] reference-lap calibration. The car top-speed STAT (field avg
+        // ~346) is a 0-125 rating, NOT the speed the car actually sustains: the
+        // physics governor ceiling is 435 kph (VehicleController.StatTopSpeedCeilingKph)
+        // and ERS/DRS/slipstream push higher, so real measured clean-lap averages
+        // (~356-368 kph on Melbourne) sit ABOVE the raw rating. Feeding the raw rating
+        // straight into the length/speed formula made the reference lap ~15% too slow
+        // (Melbourne baseLap 1:36.8 against a real field clean lap of ~1:27 and a
+        // measured fastest lap of 1:22.9) - which is exactly why the qualifying
+        // estimate read ~14s adrift of real pace and made the whole AI field look
+        // slow. This factor maps the rating to the governed sustained speed so the
+        // reference lap lands on the measured pace; per-track corner character still
+        // lives entirely in styleFactor, so every circuit corrects proportionally.
+        const float GovernedTopSpeedFactor = 1.15f;
 
         QualifyingLapBreakdown SimulateQualifyingRunDetailed(QualifyingSimEntry entry, int phase, bool secondRun)
         {
@@ -325,7 +338,7 @@ namespace LocalFormulaRacing
             // Field-average top speed + circuit style factor are the live reads;
             // the length/speed lap-time formula is the engine-free
             // QualifyingModel.ReferenceLapTime.
-            float neutralTopSpeedKph = FieldAverageTopSpeedKph();
+            float neutralTopSpeedKph = FieldAverageTopSpeedKph() * GovernedTopSpeedFactor;
             float styleFactor = TrackAverageSpeedFactor(track);
             float trackLength = track == null ? 7266f : track.length;
             return QualifyingModel.ReferenceLapTime(neutralTopSpeedKph, styleFactor, trackLength);
