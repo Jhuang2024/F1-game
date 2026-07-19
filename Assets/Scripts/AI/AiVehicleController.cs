@@ -1812,7 +1812,16 @@ namespace LocalFormulaRacing
                     lineTrafficBlend,
                     lineTrafficNearby ? 1f : 0f,
                     Time.deltaTime * (lineTrafficNearby ? 2.5f : 0.5f));
-                float optimalPursuit = drawnOffset * 0.94f + apexMissNoise * 0.4f;
+                // Straight-line weave trim ([SwerveDiag]: with the steering
+                // controller settled, the remaining weave was the LINE itself -
+                // on the long straights the drawn line still ordered cars to ride
+                // the edge at ~+/-9.9m and drift back, a big slow lateral weave).
+                // Ease the drawn offset toward centre ONLY where the road is
+                // genuinely straight (severity ~0); it ramps back to the full
+                // authored offset as a corner approaches, so corner entry / apex
+                // lines are unchanged.
+                float straightTrim = Mathf.Lerp(0.55f, 1f, Mathf.Clamp01(severityHere / 0.09f));
+                float optimalPursuit = drawnOffset * 0.94f * straightTrim + apexMissNoise * 0.4f;
                 float laneHold = progress.lateralDistance;
                 lineBias = Mathf.Clamp(Mathf.Lerp(optimalPursuit, laneHold, lineTrafficBlend), -bound, bound);
             }
@@ -1834,7 +1843,7 @@ namespace LocalFormulaRacing
             // colliding and bunching. Distance-proportional tracking keeps the
             // crossing angle shallow at every speed (at 300 kph this is the
             // same ~10 m/s lateral pace as before; at 60 kph it is a calm 2).
-            float lineSlewRate = Mathf.Max(2f, speedKph / 3.6f * 0.12f);
+            float lineSlewRate = Mathf.Max(2f, speedKph / 3.6f * 0.10f);
             smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * lineSlewRate);
             lineBias = smoothedLineBias;
             previousSeverityHere = severityHere;

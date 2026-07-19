@@ -318,7 +318,12 @@ namespace LocalFormulaRacing
                 // swerve slew-limiter stops the AI scrubbing speed with a 16 Hz
                 // shimmy this headroom is real. Kept small so it can't outrun the
                 // player's own car; PaceDiag verifies the result.
-                paceMultiplier = 1.93f,
+                // Round 3 ([PaceDiag] on Hard: player best 1:21.5, fastest AI
+                // Leclerc/Russell 1:21.8-1:22.3 - close but the player still edges
+                // the field, and the slower AI scrub time in the straight-line
+                // weave that's now being trimmed). Bump again so the top AI clear
+                // the player's pace; still bounded by the physical feasibility cap.
+                paceMultiplier = 2.00f,
                     // Cornering buff round 7: pushed again (was 1.22/1.24/1.28/1.30/
                     // 1.42) - "fast corners need to be A LOT faster". No longer
                     // touches genuine hairpins at all (see the Hairpin-type exemption
@@ -377,7 +382,9 @@ namespace LocalFormulaRacing
                 // Rounds 32-36: +0.02 per round again (was 1.74).
                 // Rounds 37-41 (per request): +0.02 per round again (was 1.84).
                 // Natural-difficulty pass round 2 (see Hard): same bounded pace bump.
-                paceMultiplier = 1.99f,
+                // Round 3 (see Hard): +0.06 again so Expert clears the player's pace
+                // by a real margin; still capped by physical feasibility.
+                paceMultiplier = 2.05f,
                 // Cornering buff round 7: pushed further still (was 1.34/1.58/1.70/
                 // 1.44/1.62) - "fast corners need to be A LOT faster". Still never
                 // touches genuine hairpins (see the Hairpin-type exemption in
