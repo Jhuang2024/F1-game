@@ -47,9 +47,6 @@ namespace LocalFormulaRacing
         // itself (one tap at the end of a zone bought a boosted next sector).
         // The boost now lives and dies with the wing, like real DRS.
         public bool DrsBoostActive { get; private set; }
-        // One-shot flag for the [LaunchBoost] diagnostic log below - logs only the
-        // first frame the AI launch boost lands on this car per race session.
-        bool launchBoostLoggedThisRace;
         // Throttle for the [ErsDrain] diagnostic below - printed at most once
         // every 0.5s while deploying, so a held Shift key doesn't spam the
         // console for the whole DRS zone.
@@ -60,9 +57,6 @@ namespace LocalFormulaRacing
         // traffic logic) having behaved - the vehicle itself knows the race just
         // started and boosts. -1 = never armed.
         float raceLaunchBoostUntil = -1f;
-        // One-shot "the boost never fired" alarm - if the window was armed and ran
-        // out without the boost ever landing, log WHY (which gate was closed).
-        bool launchFailureLogged;
         // Slipstream: automatic, physics-based tow from running in another car's
         // wake on a straight - distinct from DRS (button/AI-commanded, gated by
         // race eligibility rules, much bigger effect). RaceManager.UpdateSlipstreamEffects
@@ -718,8 +712,6 @@ namespace LocalFormulaRacing
             }
 
             raceLaunchBoostUntil = Time.time + Mathf.Max(0f, durationSeconds);
-            launchBoostLoggedThisRace = false;
-            launchFailureLogged = false;
         }
 
         void FixedUpdate()
