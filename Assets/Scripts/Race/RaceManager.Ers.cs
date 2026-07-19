@@ -210,7 +210,27 @@ namespace LocalFormulaRacing
                 // reserve to START a burst, then runs it down to 0.32; restricted
                 // to genuine straights so the dump lands where it is visible.
                 bool alreadyDeploying = participant.vehicle.ErsDeploying;
-                float pushLapFloor = alreadyDeploying ? 0.32f : 0.6f;
+                // Solo-stint economy ([CornerDiag]: the AI runs ~26 kph / +0.86s
+                // down on the STRAIGHTS while matching or beating the player in the
+                // corners - the straight-line gap is exactly ERS-boost-sized).
+                // Numbers: deploy drains ~0.059/s (a full battery = ~17s of boost),
+                // braking harvest refills at ~0.19/s each corner. The 0.6/0.32 band
+                // above keeps ~32% of the battery - roughly 5.5s of boost PER LAP -
+                // permanently reserved for a fight. That reserve is correct when a
+                // rival is near, but a spread-out car banks it lap after lap for a
+                // fight that never comes and quietly leaves that straight-line boost
+                // unspent: the deficit the player feels. When GENUINELY ISOLATED (no
+                // car ~4s ahead and none within 70m behind) there is nothing to bank
+                // for, so spend down near the player's floor and start bursts earlier;
+                // the band snaps back to the conservative reserve the instant another
+                // car is in striking range (and the attacking/defending branches
+                // above already deploy freely down to the floor), and the battery
+                // refills under the very next braking zone, so this never bankrupts
+                // the car into a fight - it just stops hoarding when alone.
+                bool soloStint = aheadInterval > 4f && behind == null;
+                float startFloor = soloStint ? 0.42f : 0.6f;
+                float runFloor = soloStint ? 0.2f : 0.32f;
+                float pushLapFloor = alreadyDeploying ? runFloor : startFloor;
                 if (battery > pushLapFloor && cornerSeverity < 0.2f)
                 {
                     // Part A.2: Expert-only, deterministic - a push-lap deploy with
