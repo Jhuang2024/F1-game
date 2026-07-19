@@ -747,6 +747,7 @@ namespace LocalFormulaRacing
                 if (participant.lapTracker != null)
                 {
                     participant.lapTracker.Tick();
+                    DiagnoseAiPace(participant);
                     if (State != null)
                     {
                         State.RefreshTimingSnapshot(participant);

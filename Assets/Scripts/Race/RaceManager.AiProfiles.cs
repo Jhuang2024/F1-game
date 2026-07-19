@@ -66,6 +66,69 @@ namespace LocalFormulaRacing
             public float throttleAggressionMultiplier;
         }
 
+        // [PaceDiag] ground-truth lap-time capture (per report - the player time-
+        // trials this circuit in ~1:06 while the statistical qualifying model
+        // estimates a Verstappen lap at ~1:20; those two systems are disconnected,
+        // so before tuning the RACING AI's pace we need its ACTUAL physics lap time,
+        // per driver and per difficulty, next to the player's, rather than trusting
+        // the quali model). Fires once per completed valid lap: who, their pace stat,
+        // the difficulty, the real lap time and the implied average speed. The
+        // per-driver spread across these lines is the direct read on how far the AI
+        // is off the player AND how much (or little) driver skill currently separates
+        // the field.
+        System.Collections.Generic.Dictionary<RaceParticipant, int> paceDiagLastLaps;
+
+        void DiagnoseAiPace(RaceParticipant participant)
+        {
+            if (participant == null || participant.lapTracker == null)
+            {
+                return;
+            }
+
+            if (paceDiagLastLaps == null)
+            {
+                paceDiagLastLaps = new System.Collections.Generic.Dictionary<RaceParticipant, int>();
+            }
+
+            int laps = participant.lapTracker.CompletedLaps;
+            int previous;
+            if (!paceDiagLastLaps.TryGetValue(participant, out previous))
+            {
+                paceDiagLastLaps[participant] = laps;
+                return;
+            }
+
+            if (laps <= previous)
+            {
+                return;
+            }
+
+            paceDiagLastLaps[participant] = laps;
+
+            float lapTime = participant.lapTracker.LastLapTime;
+            if (lapTime <= 0f || participant.lapTracker.LastLapInvalidated)
+            {
+                // Invalid / out lap - not a representative pace sample.
+                return;
+            }
+
+            float trackLength = Track != null ? Track.length : 0f;
+            float avgKph = lapTime > 0f ? (trackLength / lapTime) * 3.6f : 0f;
+            string who = participant.driverData != null ? participant.driverData.displayName : "AI";
+            int pace = participant.driverData != null ? participant.driverData.pace : 0;
+            string role = participant.isPlayer ? "PLAYER" : "AI";
+            int lapMin = (int)(lapTime / 60f);
+            float lapSec = lapTime - lapMin * 60f;
+            float best = participant.lapTracker.BestLapTime;
+            int bestMin = (int)(best / 60f);
+            float bestSec = best - bestMin * 60f;
+
+            Debug.Log("[PaceDiag] " + who + " (" + role + ") pace=" + pace + " diff=" + Settings.Difficulty +
+                      " lap=" + lapMin + ":" + lapSec.ToString("00.000") +
+                      " best=" + bestMin + ":" + bestSec.ToString("00.000") +
+                      " | trackLen=" + trackLength.ToString("0") + "m avgSpeed=" + avgKph.ToString("0") + "kph");
+        }
+
         public AiDifficultyProfile GetAiDifficultyProfile()
         {
             RaceDifficulty difficulty = Settings.Difficulty;
