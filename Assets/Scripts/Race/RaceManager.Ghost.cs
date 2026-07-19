@@ -49,7 +49,11 @@ namespace LocalFormulaRacing
         // on-track ghost stays a stable target for the whole session.
         void PromoteGhostRecordingIfBest(float lapTime)
         {
-            if (!IsTimeTrial || EventData == null || ghostRecordingBuffer.Count < 2)
+            // Read the SNAPSHOT of the just-finished lap (ghostLastLapBuffer), not
+            // the live ghostRecordingBuffer: RecordGhostSample already cleared the
+            // live buffer for the new lap earlier this frame (it runs before this),
+            // so the completed lap's samples live only in the snapshot now.
+            if (!IsTimeTrial || EventData == null || ghostLastLapBuffer.Count < 2)
             {
                 return;
             }
@@ -58,7 +62,7 @@ namespace LocalFormulaRacing
             {
                 trackId = EventData.trackId,
                 lapTime = lapTime,
-                samples = new List<GhostSample>(ghostRecordingBuffer)
+                samples = new List<GhostSample>(ghostLastLapBuffer)
             };
 
             int ghostMode = Settings != null ? Settings.Current.ghostMode : 0;
@@ -94,6 +98,13 @@ namespace LocalFormulaRacing
             int currentLap = PlayerParticipant.lapTracker.CompletedLaps;
             if (currentLap != ghostRecordedLapNumber)
             {
+                // Snapshot the lap that just finished BEFORE clearing, so the
+                // promotion pass (TrackPlayerBestLapRecord, which runs later this
+                // same frame in Update) still has its samples. Without this the
+                // clear here beat the promote and the ghost was never given a lap -
+                // it spawned but never moved.
+                ghostLastLapBuffer.Clear();
+                ghostLastLapBuffer.AddRange(ghostRecordingBuffer);
                 ghostRecordedLapNumber = currentLap;
                 ghostRecordingBuffer.Clear();
                 ghostRecordTimer = 0f;

@@ -587,10 +587,13 @@ namespace LocalFormulaRacing
 
         // Time-trial ghost recording/playback state (see GhostCarController,
         // TimeTrialGhostStore). ghostRecordingBuffer only ever holds the
-        // CURRENT lap's samples - cleared the instant CompletedLaps advances,
-        // promoted to storage only when that lap turns out to be a new best
-        // (see TrackPlayerBestLapRecord).
+        // CURRENT lap's samples - snapshotted into ghostLastLapBuffer the instant
+        // CompletedLaps advances, then cleared. Promotion reads the SNAPSHOT, not
+        // the live buffer, because RecordGhostSample (which clears) runs earlier in
+        // Update than TrackPlayerBestLapRecord (which promotes) - so the completed
+        // lap's samples would otherwise already be gone by promotion time.
         readonly List<GhostSample> ghostRecordingBuffer = new List<GhostSample>();
+        readonly List<GhostSample> ghostLastLapBuffer = new List<GhostSample>();
         float ghostRecordTimer;
         int ghostRecordedLapNumber = -1;
         const float GhostSampleInterval = 0.12f;

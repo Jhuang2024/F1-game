@@ -68,6 +68,7 @@ namespace LocalFormulaRacing
             ghostCarObject = null;
             ghostController = null;
             ghostRecordingBuffer.Clear();
+            ghostLastLapBuffer.Clear();
             ghostRecordedLapNumber = -1;
             playerCameraRig = null;
             ActivePracticeProgramId = null;
