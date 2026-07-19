@@ -151,6 +151,234 @@ namespace LocalFormulaRacing
             return m + ":" + (seconds - m * 60f).ToString("00.000");
         }
 
+        // [CornerDiag] corner-by-corner "where does the AI lose time vs you"
+        // diagnostic. The only natural pace lever left is letting the elite carry
+        // more corner speed (where they're capped) - but that is the exact lever
+        // behind the old wall-crash regressions, so MEASURE first: buckets the lap
+        // into fixed micro-sectors and, on each car's best VALID lap, records the
+        // time spent and the minimum (apex) speed per sector. Once the player and
+        // at least one AI both have a best lap, it logs the net delta split into
+        // corner vs straight time, then the individual sectors where the AI loses
+        // most - each tagged corner/straight with the apex-kph deficit. A big
+        // corner loss WITH a matching apex-speed deficit points straight at the
+        // corner-speed cap; a straight-only loss means the fix is elsewhere.
+        const int CornerDiagSectors = 32;
+        System.Collections.Generic.Dictionary<RaceParticipant, float[]> cornerDiagCurTime;
+        System.Collections.Generic.Dictionary<RaceParticipant, float[]> cornerDiagCurMinSpeed;
+        System.Collections.Generic.Dictionary<RaceParticipant, float[]> cornerDiagBestTime;
+        System.Collections.Generic.Dictionary<RaceParticipant, float[]> cornerDiagBestMinSpeed;
+        System.Collections.Generic.Dictionary<RaceParticipant, float> cornerDiagBestLap;
+        System.Collections.Generic.Dictionary<RaceParticipant, int> cornerDiagLastLaps;
+        float cornerDiagLastLogTime;
+
+        void DiagnoseCornerTimeLoss(RaceParticipant participant)
+        {
+            if (participant == null || participant.lapTracker == null || participant.vehicle == null || Track == null || Track.length <= 1f)
+            {
+                return;
+            }
+
+            if (cornerDiagCurTime == null)
+            {
+                cornerDiagCurTime = new System.Collections.Generic.Dictionary<RaceParticipant, float[]>();
+                cornerDiagCurMinSpeed = new System.Collections.Generic.Dictionary<RaceParticipant, float[]>();
+                cornerDiagBestTime = new System.Collections.Generic.Dictionary<RaceParticipant, float[]>();
+                cornerDiagBestMinSpeed = new System.Collections.Generic.Dictionary<RaceParticipant, float[]>();
+                cornerDiagBestLap = new System.Collections.Generic.Dictionary<RaceParticipant, float>();
+                cornerDiagLastLaps = new System.Collections.Generic.Dictionary<RaceParticipant, int>();
+            }
+
+            float[] curT;
+            if (!cornerDiagCurTime.TryGetValue(participant, out curT))
+            {
+                curT = new float[CornerDiagSectors];
+                cornerDiagCurTime[participant] = curT;
+            }
+
+            float[] curV;
+            if (!cornerDiagCurMinSpeed.TryGetValue(participant, out curV))
+            {
+                curV = new float[CornerDiagSectors];
+                for (int i = 0; i < CornerDiagSectors; i++)
+                {
+                    curV[i] = float.MaxValue;
+                }
+
+                cornerDiagCurMinSpeed[participant] = curV;
+            }
+
+            float norm = Mathf.Repeat(participant.lapTracker.CurrentProgress.normalized, 1f);
+            int s = Mathf.Clamp((int)(norm * CornerDiagSectors), 0, CornerDiagSectors - 1);
+            curT[s] += Time.deltaTime;
+            float speedKph = Mathf.Abs(participant.vehicle.CurrentSpeedKph);
+            if (speedKph < curV[s])
+            {
+                curV[s] = speedKph;
+            }
+
+            int laps = participant.lapTracker.CompletedLaps;
+            int prevLaps;
+            if (!cornerDiagLastLaps.TryGetValue(participant, out prevLaps))
+            {
+                cornerDiagLastLaps[participant] = laps;
+                return;
+            }
+
+            if (laps > prevLaps)
+            {
+                cornerDiagLastLaps[participant] = laps;
+                float lapTime = participant.lapTracker.LastLapTime;
+                if (lapTime > 0f && !participant.lapTracker.LastLapInvalidated)
+                {
+                    float best;
+                    if (!cornerDiagBestLap.TryGetValue(participant, out best) || lapTime < best)
+                    {
+                        cornerDiagBestLap[participant] = lapTime;
+                        cornerDiagBestTime[participant] = (float[])curT.Clone();
+                        cornerDiagBestMinSpeed[participant] = (float[])curV.Clone();
+                    }
+                }
+
+                // Reset accumulators for the new lap.
+                for (int i = 0; i < CornerDiagSectors; i++)
+                {
+                    curT[i] = 0f;
+                    curV[i] = float.MaxValue;
+                }
+            }
+
+            MaybeLogCornerTimeLoss();
+        }
+
+        void MaybeLogCornerTimeLoss()
+        {
+            if (Time.time - cornerDiagLastLogTime < 12f)
+            {
+                return;
+            }
+
+            if (PlayerParticipant == null || cornerDiagBestTime == null || !cornerDiagBestTime.ContainsKey(PlayerParticipant))
+            {
+                return;
+            }
+
+            RaceParticipant bestAi = null;
+            float bestAiLap = float.MaxValue;
+            foreach (System.Collections.Generic.KeyValuePair<RaceParticipant, float> kv in cornerDiagBestLap)
+            {
+                if (kv.Key != null && !kv.Key.isPlayer && kv.Value < bestAiLap && cornerDiagBestTime.ContainsKey(kv.Key))
+                {
+                    bestAiLap = kv.Value;
+                    bestAi = kv.Key;
+                }
+            }
+
+            if (bestAi == null)
+            {
+                return;
+            }
+
+            cornerDiagLastLogTime = Time.time;
+
+            float[] pT = cornerDiagBestTime[PlayerParticipant];
+            float[] pV = cornerDiagBestMinSpeed[PlayerParticipant];
+            float[] aT = cornerDiagBestTime[bestAi];
+            float[] aV = cornerDiagBestMinSpeed[bestAi];
+            float pLap = cornerDiagBestLap[PlayerParticipant];
+
+            float cornerDelta = 0f;
+            float straightDelta = 0f;
+            for (int i = 0; i < CornerDiagSectors; i++)
+            {
+                float d = aT[i] - pT[i];
+                if (CornerDiagSectorIsCorner(i))
+                {
+                    cornerDelta += d;
+                }
+                else
+                {
+                    straightDelta += d;
+                }
+            }
+
+            int[] order = new int[CornerDiagSectors];
+            for (int i = 0; i < CornerDiagSectors; i++)
+            {
+                order[i] = i;
+            }
+
+            System.Array.Sort(order, (a, b) => (aT[b] - pT[b]).CompareTo(aT[a] - pT[a]));
+
+            string playerName = PlayerParticipant.driverData != null ? PlayerParticipant.driverData.displayName : "PLAYER";
+            string aiName = bestAi.driverData != null ? bestAi.driverData.displayName : "AI";
+
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.Append("[CornerDiag] fastest AI ").Append(aiName).Append(" ").Append(lapMinSec(bestAiLap))
+              .Append(" vs you ").Append(playerName).Append(" ").Append(lapMinSec(pLap))
+              .Append("  (gap ").Append(Signed(bestAiLap - pLap, "0.000")).Append("s)")
+              .Append(" | AI net vs you: corners ").Append(Signed(cornerDelta, "0.00")).Append("s")
+              .Append(", straights ").Append(Signed(straightDelta, "0.00")).Append("s.")
+              .Append(" Biggest AI losses (sector: +dTime, minKph AI vs you):");
+
+            int shown = 0;
+            for (int k = 0; k < CornerDiagSectors && shown < 6; k++)
+            {
+                int i = order[k];
+                float dt = aT[i] - pT[i];
+                if (dt <= 0.02f)
+                {
+                    break;
+                }
+
+                float centerNorm = (i + 0.5f) / CornerDiagSectors;
+                float aiApex = aV[i] >= float.MaxValue ? 0f : aV[i];
+                float youApex = pV[i] >= float.MaxValue ? 0f : pV[i];
+                sb.Append("\n  #").Append(i).Append(" norm ").Append(centerNorm.ToString("0.00")).Append(" ")
+                  .Append(CornerDiagSectorTag(i)).Append(": +").Append(dt.ToString("0.000")).Append("s  minKph ")
+                  .Append(aiApex.ToString("0")).Append(" vs ").Append(youApex.ToString("0"))
+                  .Append(" (").Append(Signed(aiApex - youApex, "0")).Append(")");
+                shown++;
+            }
+
+            if (shown == 0)
+            {
+                sb.Append(" none - you are not quicker than the fastest AI anywhere.");
+            }
+
+            Debug.Log(sb.ToString());
+        }
+
+        static string Signed(float value, string format)
+        {
+            return (value >= 0f ? "+" : "") + value.ToString(format);
+        }
+
+        bool CornerDiagSectorIsCorner(int sector)
+        {
+            return CornerDiagSectorTag(sector) != "straight";
+        }
+
+        string CornerDiagSectorTag(int sector)
+        {
+            if (telemetryCorners == null || telemetryCorners.Count == 0 || Track == null)
+            {
+                return "straight";
+            }
+
+            float startDist = (float)sector / CornerDiagSectors * Track.length;
+            float endDist = (float)(sector + 1) / CornerDiagSectors * Track.length;
+            for (int i = 0; i < telemetryCorners.Count; i++)
+            {
+                float d = telemetryCorners[i].distance;
+                if (d >= startDist && d < endDist)
+                {
+                    return "CORNER-" + telemetryCorners[i].risk;
+                }
+            }
+
+            return "straight";
+        }
+
         public AiDifficultyProfile GetAiDifficultyProfile()
         {
             RaceDifficulty difficulty = Settings.Difficulty;
