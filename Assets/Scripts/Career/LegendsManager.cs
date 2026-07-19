@@ -1,0 +1,198 @@
+using System.Collections.Generic;
+
+namespace LocalFormulaRacing
+{
+    // Legends Championship: a full season the player races against the 21 all-time
+    // greats (see LegendaryRoster), with its own standings persisted to its own
+    // save file. Kept entirely separate from CareerManager so a legends season can
+    // never write into - or read from - a real career save. Mirrors just the slice
+    // of the career loop a championship needs: seed standings, pick the current
+    // round's event, apply a race result (points + advance the round + roll the
+    // season over), and hand the standings tables to the hub UI.
+    public class LegendsManager
+    {
+        const string LegendsFile = "formula_racing_legends.json";
+        const int AiFieldSize = 21;   // 21 legends + the player = a 22-car grid
+
+        readonly GameDataRepository data;
+
+        public LegendsSaveData Save { get; private set; }
+
+        public bool HasChampionship => Save != null && Save.active;
+
+        public LegendsManager(GameDataRepository repository)
+        {
+            data = repository;
+            Save = LocalJsonStore.Load<LegendsSaveData>(LegendsFile, null);
+        }
+
+        public int TotalRounds => data != null && data.Calendar != null ? data.Calendar.events.Count : 0;
+
+        public CalendarEventData CurrentEvent()
+        {
+            return data != null ? data.FindEventForRound(Save != null ? Save.round : 1) : null;
+        }
+
+        public void StartNewChampionship(string playerName, string playerTeamId)
+        {
+            LegendsSaveData save = new LegendsSaveData
+            {
+                active = true,
+                season = 1,
+                round = 1,
+                playerName = string.IsNullOrEmpty(playerName) ? "Player Driver" : playerName,
+                playerTeamId = string.IsNullOrEmpty(playerTeamId) ? "mclaren" : playerTeamId,
+            };
+            SeedStandings(save);
+            Save = save;
+            Write();
+        }
+
+        // Soft reset: mark the championship wrapped up so the hub falls back to the
+        // team picker. The file is rewritten (active=false) so it stays consistent
+        // across a restart rather than silently reappearing.
+        public void Abandon()
+        {
+            if (Save != null)
+            {
+                Save.active = false;
+                Write();
+            }
+        }
+
+        void SeedStandings(LegendsSaveData save)
+        {
+            save.driverStandings = new List<StandingEntry>();
+            save.driverStandings.Add(new StandingEntry
+            {
+                id = "player",
+                displayName = save.playerName,
+                teamId = save.playerTeamId,
+            });
+
+            List<DriverData> ai = LegendaryRoster.AiDrivers(save.playerTeamId, AiFieldSize);
+            for (int i = 0; i < ai.Count; i++)
+            {
+                save.driverStandings.Add(new StandingEntry
+                {
+                    id = ai[i].id,
+                    displayName = ai[i].displayName,
+                    teamId = ai[i].teamId,
+                });
+            }
+
+            save.constructorStandings = data.CreateInitialConstructorStandings();
+        }
+
+        // Called by RaceManager when a legends race finishes. results are already in
+        // finishing order (position i+1), exactly like CareerManager.ApplyRaceResults.
+        public void ApplyRaceResults(CalendarEventData raceEvent, List<RaceResultEntry> results)
+        {
+            if (Save == null || !Save.active || results == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < results.Count; i++)
+            {
+                int points = F1Game.Race.Rules.ChampionshipPoints.ForPosition(i + 1);
+                results[i].finishingPosition = i + 1;
+                results[i].points = points;
+                ApplyDriverPoints(results[i], points);
+                ApplyConstructorPoints(results[i].teamId, points);
+            }
+
+            Save.raceResults.Add(new RaceResultRecord
+            {
+                season = Save.season,
+                round = Save.round,
+                eventName = raceEvent != null ? raceEvent.displayName : "Legends GP",
+                results = results,
+            });
+
+            Sort(Save.driverStandings);
+            Sort(Save.constructorStandings);
+
+            Save.round++;
+            if (TotalRounds > 0 && Save.round > TotalRounds)
+            {
+                string champion = Save.driverStandings.Count > 0 ? Save.driverStandings[0].displayName : "-";
+                Save.pastChampions.Add("Season " + Save.season + ": " + champion);
+                Save.season++;
+                Save.round = 1;
+                SeedStandings(Save);   // fresh tables for the new season
+            }
+
+            Write();
+        }
+
+        void ApplyDriverPoints(RaceResultEntry result, int points)
+        {
+            StandingEntry entry = Save.driverStandings.Find(item => item.id == result.driverId);
+            if (entry == null)
+            {
+                entry = new StandingEntry
+                {
+                    id = result.driverId,
+                    displayName = result.driverName,
+                    teamId = result.teamId,
+                };
+                Save.driverStandings.Add(entry);
+            }
+            else
+            {
+                entry.teamId = result.teamId;
+                entry.displayName = result.driverName;
+            }
+
+            entry.points += points;
+            if (result.finishingPosition == 1)
+            {
+                entry.wins++;
+            }
+
+            if (result.finishingPosition <= 3)
+            {
+                entry.podiums++;
+            }
+        }
+
+        void ApplyConstructorPoints(string teamId, int points)
+        {
+            if (string.IsNullOrEmpty(teamId))
+            {
+                return;
+            }
+
+            StandingEntry entry = Save.constructorStandings.Find(item => item.id == teamId);
+            if (entry == null)
+            {
+                TeamData team = data.FindTeam(teamId);
+                entry = new StandingEntry
+                {
+                    id = teamId,
+                    displayName = team != null ? team.name : teamId,
+                    teamId = teamId,
+                };
+                Save.constructorStandings.Add(entry);
+            }
+
+            entry.points += points;
+        }
+
+        static void Sort(List<StandingEntry> standings)
+        {
+            standings.Sort((a, b) => F1Game.Race.Rules.ChampionshipPoints.CompareStandings(
+                a.points, a.wins, a.podiums,
+                b.points, b.wins, b.podiums));
+        }
+
+        void Write()
+        {
+            if (Save != null)
+            {
+                LocalJsonStore.Save(LegendsFile, Save);
+            }
+        }
+    }
+}

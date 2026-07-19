@@ -7,9 +7,13 @@ namespace LocalFormulaRacing
     {
         GameDataRepository data;
         CareerManager career;
+        LegendsManager legends;
         GameSettingsStore settings;
         RuntimeUi ui;
         RaceManager raceManager;
+
+        /// <summary>The isolated Legends Championship save (never touches career).</summary>
+        public LegendsManager Legends => legends;
 
         /// <summary>Exposed for ProductionUiBridge (new UI shell) interop.</summary>
         public RuntimeUi Ui => ui;
@@ -39,6 +43,7 @@ namespace LocalFormulaRacing
             settings = new GameSettingsStore();
             settings.Load();
             career = new CareerManager(data);
+            legends = new LegendsManager(data);
             ui = gameObject.AddComponent<RuntimeUi>();
             ui.Initialize(this);
             raceManager = gameObject.AddComponent<RaceManager>();
@@ -140,6 +145,50 @@ namespace LocalFormulaRacing
             }
 
             ui.ShowCareerHub(data, career, settings);
+        }
+
+        // Legends Championship entry points (main-menu "Legends" card + hub).
+        public void ShowLegends()
+        {
+            if (raceManager != null)
+            {
+                raceManager.CleanupRaceWorld();
+            }
+
+            ui.ShowLegendsHub(data, career, settings);
+        }
+
+        public void StartLegendsChampionship(string teamId)
+        {
+            legends.StartNewChampionship(career.Save.playerDriverName, teamId);
+            ui.ShowLegendsHub(data, career, settings);
+        }
+
+        public void NewLegendsChampionship()
+        {
+            legends.Abandon();
+            ui.ShowLegendsHub(data, career, settings);
+        }
+
+        public void BeginLegendsRace()
+        {
+            if (legends.Save == null || !legends.HasChampionship)
+            {
+                ui.ShowLegendsHub(data, career, settings);
+                return;
+            }
+
+            CalendarEventData raceEvent = legends.CurrentEvent();
+            SimpleAudioManager.ApplySettings(settings.Current);
+            raceManager.StartLegendsRace(
+                data,
+                career,
+                settings,
+                ui,
+                raceEvent,
+                career.Save.playerDriverName,
+                legends.Save.playerTeamId,
+                legends);
         }
 
         public void ShowRaceWeekend()

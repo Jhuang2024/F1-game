@@ -87,6 +87,12 @@ namespace LocalFormulaRacing
                 // makes the narrative match what race control actually did.
                 Career.ApplyRaceResults(EventData, results, RaceControlIncidentCount, SafetyCarDeploymentCount, AiOvertakesCompletedCount, RedFlagCount, RedFlagReason);
             }
+            else if (IsLegendsRace && Legends != null)
+            {
+                // Legends Championship: points + standings land in the isolated
+                // legends save, never the career save.
+                Legends.ApplyRaceResults(EventData, results);
+            }
 
             RecordPlayerRaceStats(results);
             LogAiDiagnostics(results);

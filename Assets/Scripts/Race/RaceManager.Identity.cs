@@ -85,6 +85,14 @@ namespace LocalFormulaRacing
         // toggle can be flipped any time without ever touching a career save.
         bool LegendaryDriversOn()
         {
+            // A Legends Championship race always fields the greats. Otherwise it is
+            // the optional Settings toggle, scoped to non-career sessions (see the
+            // note above) so a career save is never touched.
+            if (IsLegendsRace)
+            {
+                return true;
+            }
+
             return !IsCareerRace && Settings != null && Settings.Current != null && Settings.Current.legendaryDriversEnabled;
         }
 

@@ -22,6 +22,12 @@ namespace LocalFormulaRacing
         public bool IsPaused { get; private set; }
         public bool IsRaceFinished { get; private set; }
         public bool IsCareerRace { get; private set; }
+        // Legends Championship race: the field is the all-time greats and results
+        // route to LegendsManager (its own isolated save) rather than CareerManager.
+        // Set from pendingLegends at StartSession; see StartLegendsRace.
+        public bool IsLegendsRace { get; private set; }
+        public LegendsManager Legends { get; private set; }
+        LegendsManager pendingLegends;
         public bool IsTimeTrial { get; private set; }
         // Which practice program (see RuntimeUi.ShowPracticePrograms) this
         // Practice session is being driven for, set by GameBootstrap.StartCareerPractice

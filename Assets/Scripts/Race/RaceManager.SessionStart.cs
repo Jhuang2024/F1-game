@@ -43,6 +43,24 @@ namespace LocalFormulaRacing
             StartTimeTrial(Data, Career, Settings, ui, next, Career.Save.playerDriverName, Career.Save.playerTeamId);
         }
 
+        // Legends Championship race: a single race weekend against the all-time
+        // greats. careerRace is false (so it never hits CareerManager), and the
+        // legends manager is armed so the field becomes legendary (LegendaryDriversOn)
+        // and results route to LegendsManager (RaceManager.Results).
+        public void StartLegendsRace(
+            GameDataRepository repository,
+            CareerManager career,
+            GameSettingsStore settings,
+            RuntimeUi runtimeUi,
+            CalendarEventData eventData,
+            string playerName,
+            string playerTeamId,
+            LegendsManager legends)
+        {
+            pendingLegends = legends;
+            StartSession(repository, career, settings, runtimeUi, eventData, playerName, playerTeamId, false, RaceWeekendSession.QuickRace);
+        }
+
         public void StartTimeTrial(
             GameDataRepository repository,
             CareerManager career,
@@ -73,6 +91,12 @@ namespace LocalFormulaRacing
             ui = runtimeUi;
             EventData = eventData;
             IsCareerRace = careerRace;
+            // Legends context is armed by StartLegendsRace right before this call
+            // and consumed here, so every other session-start path (career, quick
+            // race, time trial) resets cleanly to "not a legends race".
+            Legends = pendingLegends;
+            pendingLegends = null;
+            IsLegendsRace = Legends != null;
             // Part 21 regulation hook: reset every session start (not just career
             // ones) so Quick Race/Time Trial always get the neutral 1f default
             // regardless of whatever a career season's regulation last set it to.

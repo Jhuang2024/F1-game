@@ -133,6 +133,10 @@ namespace LocalFormulaRacing
             UiFactory.CreateModeCard(menu, "Career", careerCardInfo, UiFactory.Accent, true, bootstrap.ShowCareer);
             UiFactory.CreateModeCard(menu, "Quick Race", "Jump straight into a race weekend", UiFactory.AccentCyan, false, bootstrap.StartQuickRace);
             UiFactory.CreateModeCard(menu, "Time Trial", "Chase your best lap, no rivals", UiFactory.AccentPurple, false, bootstrap.ShowTimeTrialSetup);
+            string legendsCardInfo = bootstrap.Legends != null && bootstrap.Legends.HasChampionship
+                ? "Season " + bootstrap.Legends.Save.season + "  ·  Round " + bootstrap.Legends.Save.round
+                : "A full season vs the all-time greats";
+            UiFactory.CreateModeCard(menu, "Legends Championship", legendsCardInfo, UiFactory.AccentGreen, false, bootstrap.ShowLegends);
             UiFactory.CreateModeCard(menu, "Settings", "Difficulty, assists, display, controls", UiFactory.AccentAmber, false, () => ShowSettings(data, career, settings));
             UiFactory.CreateModeCard(menu, "Quit", "Exit to desktop", UiFactory.TextMuted, false, Application.Quit);
 
@@ -4939,6 +4943,87 @@ namespace LocalFormulaRacing
         // guarantees all of that has actually resolved before the report is
         // shown, exactly like RaceHud's radio stack already does for its own
         // dynamically-built content.
+        // Team the player has highlighted on the Legends Championship setup picker
+        // (before a championship is created). Persisted only in-session.
+        string legendsSetupTeamId = "mclaren";
+
+        public void ShowLegendsHub(GameDataRepository data, CareerManager career, GameSettingsStore settings)
+        {
+            Clear();
+            UiFactory.ApplyUiScale(canvas, settings.UiScale);
+            RectTransform background = UiFactory.CreatePanel(canvas.transform, "Legends background", new Color(0.012f, 0.016f, 0.021f, 1f));
+            UiFactory.CreateTopNav(background, "Legends Championship");
+
+            LegendsManager legends = bootstrap.Legends;
+
+            if (legends == null || !legends.HasChampionship)
+            {
+                // No live championship: pick a team, then start a fresh season.
+                RectTransform setup = UiFactory.CreateScrollPanel(background, "Legends setup", new Vector2(0.28f, 0.14f), new Vector2(0.72f, 0.86f), 10, new RectOffset(24, 24, 20, 20));
+                UiFactory.CreateSubHeader(setup, "Choose your team");
+                Text blurb = UiFactory.CreateText(setup, "Legends blurb",
+                    "A full season against the all-time greats - Senna, Prost, Schumacher, Lauda, Fangio and more. Every driver is a 99-rated great in a maxed 125 car, so it comes down to pure racecraft. Standings are tracked here, completely separate from your Career save.",
+                    15, UiFactory.TextMuted, TextAnchor.UpperLeft);
+                blurb.verticalOverflow = VerticalWrapMode.Overflow;
+                UiFactory.SetSize(blurb, 560f, 96f);
+                for (int i = 0; i < data.Teams.teams.Count; i++)
+                {
+                    TeamData team = data.Teams.teams[i];
+                    Button teamButton = UiFactory.CreateButton(setup, team.name, () =>
+                    {
+                        legendsSetupTeamId = team.id;
+                        ShowLegendsHub(data, career, settings);
+                    });
+                    UiFactory.SetButtonSelected(teamButton, team.id == legendsSetupTeamId);
+                }
+
+                RectTransform setupFooterLeft;
+                RectTransform setupFooterRight;
+                UiFactory.CreateFooterBar(background, out setupFooterLeft, out setupFooterRight);
+                UiFactory.CreateSecondaryButton(setupFooterLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
+                UiFactory.CreatePrimaryButton(setupFooterRight, "Start Championship", () => bootstrap.StartLegendsChampionship(legendsSetupTeamId));
+                return;
+            }
+
+            LegendsSaveData save = legends.Save;
+            CalendarEventData currentEvent = legends.CurrentEvent();
+            string trackName = currentEvent != null ? currentEvent.displayName : "-";
+            TeamData playerTeam = data.FindTeam(save.playerTeamId);
+
+            RectTransform header = UiFactory.CreateRect(background, "Legends header", new Vector2(0.05f, 0.78f), new Vector2(0.95f, 0.9f), Vector2.zero, Vector2.zero);
+            UiFactory.CreateText(header, "Legends title",
+                "SEASON " + save.season + "   ·   ROUND " + save.round + " / " + legends.TotalRounds + "   ·   " + trackName.ToUpperInvariant(),
+                26, Color.white, TextAnchor.UpperLeft);
+            Text sub = UiFactory.CreateText(header, "Legends subtitle",
+                "You: " + save.playerName + "  ·  " + (playerTeam != null ? playerTeam.name : save.playerTeamId) + "   —   racing the greatest field ever assembled, in equal maxed cars.",
+                16, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            sub.GetComponent<RectTransform>().anchoredPosition = new Vector2(0f, -38f);
+
+            RectTransform standingsPanel = UiFactory.CreateScrollPanel(background, "Legends driver standings", new Vector2(0.05f, 0.14f), new Vector2(0.52f, 0.75f), 4, new RectOffset(20, 20, 18, 18));
+            UiFactory.CreateSubHeader(standingsPanel, "Driver Standings");
+            BuildStandingsRows(data, standingsPanel, save.driverStandings, 520f);
+
+            RectTransform constructorsPanel = UiFactory.CreateScrollPanel(background, "Legends constructor standings", new Vector2(0.54f, 0.14f), new Vector2(0.95f, 0.75f), 4, new RectOffset(20, 20, 18, 18));
+            UiFactory.CreateSubHeader(constructorsPanel, "Constructors");
+            BuildStandingsRows(data, constructorsPanel, save.constructorStandings, 520f);
+            if (save.pastChampions != null && save.pastChampions.Count > 0)
+            {
+                UiFactory.CreateDivider(constructorsPanel);
+                UiFactory.CreateSubHeader(constructorsPanel, "Past Champions");
+                for (int i = save.pastChampions.Count - 1; i >= 0; i--)
+                {
+                    UiFactory.CreateText(constructorsPanel, "Legends champion " + i, save.pastChampions[i], 14, new Color(0.82f, 0.86f, 0.9f), TextAnchor.UpperLeft);
+                }
+            }
+
+            RectTransform footerLeft;
+            RectTransform footerRight;
+            UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
+            UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => ShowMainMenu(data, career, settings));
+            UiFactory.CreateSecondaryButton(footerLeft, "New Championship", () => bootstrap.NewLegendsChampionship());
+            UiFactory.CreatePrimaryButton(footerRight, "Race Round " + save.round, () => bootstrap.BeginLegendsRace());
+        }
+
         public void ShowResults(RaceManager race, List<RaceResultEntry> results, bool careerRace)
         {
             Clear();
@@ -4999,7 +5084,11 @@ namespace LocalFormulaRacing
             RectTransform footerRight;
             UiFactory.CreateFooterBar(background, out footerLeft, out footerRight);
             UiFactory.CreateSecondaryButton(footerLeft, "Main Menu", () => bootstrap.ShowMainMenu());
-            if (careerRace)
+            if (race != null && race.IsLegendsRace)
+            {
+                UiFactory.CreatePrimaryButton(footerRight, "Continue Championship", () => bootstrap.ShowLegends());
+            }
+            else if (careerRace)
             {
                 UiFactory.CreatePrimaryButton(footerRight, "Continue Career", () => bootstrap.ShowCareer());
             }

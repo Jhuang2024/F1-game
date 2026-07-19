@@ -976,6 +976,28 @@ namespace LocalFormulaRacing
         public List<RaceResultEntry> results = new List<RaceResultEntry>();
     }
 
+    // Legends Championship save (see LegendsManager): a full season raced against
+    // the all-time greats, with its OWN standings in its OWN file so it never
+    // touches the normal career save. Deliberately lean - no R&D, transfers,
+    // reputation or rivalries; just the season loop and its championship tables.
+    [Serializable]
+    public class LegendsSaveData
+    {
+        // active=false is a wrapped-up / not-yet-started championship: the file may
+        // still exist on disk, but the hub treats it as "no championship" and shows
+        // the team picker instead. Lets "New Championship" cleanly reset without a
+        // half-live save reappearing on the next launch.
+        public bool active;
+        public int season = 1;
+        public int round = 1;
+        public string playerName = "Player Driver";
+        public string playerTeamId = "mclaren";
+        public List<StandingEntry> driverStandings = new List<StandingEntry>();
+        public List<StandingEntry> constructorStandings = new List<StandingEntry>();
+        public List<RaceResultRecord> raceResults = new List<RaceResultRecord>();
+        public List<string> pastChampions = new List<string>();
+    }
+
     [Serializable]
     public class RaceResultEntry
     {
