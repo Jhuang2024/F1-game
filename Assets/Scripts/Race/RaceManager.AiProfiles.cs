@@ -108,17 +108,26 @@ namespace LocalFormulaRacing
             paceDiagLastLaps[participant] = laps;
 
             float lapTime = participant.lapTracker.LastLapTime;
+            string who = participant.driverData != null ? participant.driverData.displayName : "AI";
+            int pace = participant.driverData != null ? participant.driverData.pace : 0;
+            string role = participant.isPlayer ? "PLAYER" : "AI";
+
+            // "PaceDiag is gone" was a silent symptom of a broken track: a lap that
+            // never closes cleanly (or is invalidated by track limits every time)
+            // used to hit this early return and print nothing, so the diagnostic
+            // looked disabled when it was really telling us no valid lap existed.
+            // Now say so out loud - an [INVALID] line proves laps ARE completing but
+            // getting thrown out, which is a very different problem from cars never
+            // finishing a lap at all.
             if (lapTime <= 0f || participant.lapTracker.LastLapInvalidated)
             {
-                // Invalid / out lap - not a representative pace sample.
+                Debug.Log("[PaceDiag] " + who + " (" + role + ") pace=" + pace + " diff=" + Settings.Difficulty +
+                          " lap=" + lapMinSec(lapTime) + " [INVALID: track-limits or unclosed lap - not a pace sample]");
                 return;
             }
 
             float trackLength = Track != null ? Track.length : 0f;
             float avgKph = lapTime > 0f ? (trackLength / lapTime) * 3.6f : 0f;
-            string who = participant.driverData != null ? participant.driverData.displayName : "AI";
-            int pace = participant.driverData != null ? participant.driverData.pace : 0;
-            string role = participant.isPlayer ? "PLAYER" : "AI";
             int lapMin = (int)(lapTime / 60f);
             float lapSec = lapTime - lapMin * 60f;
             float best = participant.lapTracker.BestLapTime;
@@ -129,6 +138,17 @@ namespace LocalFormulaRacing
                       " lap=" + lapMin + ":" + lapSec.ToString("00.000") +
                       " best=" + bestMin + ":" + bestSec.ToString("00.000") +
                       " | trackLen=" + trackLength.ToString("0") + "m avgSpeed=" + avgKph.ToString("0") + "kph");
+        }
+
+        static string lapMinSec(float seconds)
+        {
+            if (seconds <= 0f)
+            {
+                return "--:--.---";
+            }
+
+            int m = (int)(seconds / 60f);
+            return m + ":" + (seconds - m * 60f).ToString("00.000");
         }
 
         public AiDifficultyProfile GetAiDifficultyProfile()

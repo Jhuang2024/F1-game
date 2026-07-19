@@ -171,6 +171,18 @@ namespace F1Game.Track
                 DrsZoneTwoNormalized = new Vector2(0.44f, 0.62f),
                 TargetLengthMeters = 8281.25f,
                 AnchorSubdivisions = 3,
+                // Final-corner rebuild ("Italy is completely broken"): the old last
+                // anchor was a single spike out to (-210,0,0) that forced the start
+                // tangent by doubling the road straight back east along z=0 - on top
+                // of the pit straight. That near-180-degree reversal with the entry
+                // and exit legs collinear left a ~1.6m centreline radius that no
+                // amount of cusp relaxation could lift above the drivable-radius
+                // floor, so the road collider folded into a wall across the corner
+                // (the [FinalCornerDiag] 176.5-degree / 8m-half-width hairpin). The
+                // U-turn is now a proper multi-point hairpin routed through the empty
+                // quadrant SOUTH of the start line (z<0), so entry and exit legs are
+                // genuinely separated: verified min radius stays above the 28m floor
+                // and no two parts of the road come within a road-width of each other.
                 SketchAnchors = new[]
                 {
                     new Vector3(0f, 0f, 0f), new Vector3(230f, 0f, 0f), new Vector3(272f, 0f, 26f),
@@ -178,7 +190,9 @@ namespace F1Game.Track
                     new Vector3(252f, 0f, 148f), new Vector3(196f, 0f, 184f), new Vector3(92f, 0f, 190f),
                     new Vector3(20f, 0f, 164f), new Vector3(-42f, 0f, 174f), new Vector3(-86f, 0f, 132f),
                     new Vector3(-48f, 0f, 86f), new Vector3(62f, 0f, 76f), new Vector3(112f, 0f, 42f),
-                    new Vector3(74f, 0f, 14f), new Vector3(-210f, 0f, 0f)
+                    new Vector3(74f, 0f, 14f),
+                    new Vector3(-90f, 0f, 48f), new Vector3(-175f, 0f, 25f), new Vector3(-215f, 0f, -35f),
+                    new Vector3(-175f, 0f, -85f), new Vector3(-95f, 0f, -70f), new Vector3(-40f, 0f, -30f)
                 },
             };
         }
