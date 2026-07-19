@@ -232,6 +232,16 @@ namespace LocalFormulaRacing
         // fix): the final command.steer is rate-limited toward its new target so a
         // fast oscillation can never physically materialise.
         float steerSlewPrev;
+        // Previous frame's forward heading, for straight-line yaw-rate damping.
+        // The pursuit loop (steer -> yaw -> transform.right -> localSteer -> steer)
+        // gains loop authority with speed, so a maxed 360kph car crosses the
+        // oscillation threshold the normal ~300kph field stayed under - the weave
+        // that got worse the instant Legends (maxed cars) was switched on. Damping
+        // the measured yaw rate on a STRAIGHT (where any rotation is unwanted) with
+        // an UN-smoothed term removes the loop's zero-crossing rate, not just its
+        // amplitude - the thing a low-pass or slew limiter alone can't touch.
+        Vector3 swerveHeadingPrev;
+        bool swerveHeadingHasRef;
 
         // Overtake-thrash guards ([SwerveDiag] - during passes the state machine
         // cycled Attacking->SideBySide->CompletingPass->Following->Attacking
@@ -2215,8 +2225,38 @@ namespace LocalFormulaRacing
             // ~1.1 as the road straightens - well clear of the oscillation threshold -
             // and returns to the full 2.2 for genuine corner turn-in.
             float pursuitStraightness = 1f - Mathf.Clamp01(severityHere / 0.14f);
-            float pursuitGain = Mathf.Lerp(2.2f, 1.1f, pursuitStraightness);
+            // Speed-scaled gain cut ([SwerveDiag] round: the weave got visibly worse
+            // the moment Legends/maxed cars were enabled). The pursuit loop's
+            // authority rises with speed, so above ~260kph the 1.1 straight-line
+            // gain self-oscillates - and a maxed 360kph car lives there. Ease the
+            // gain to 0.6x by 360kph. Monotone: a lower gain can only REDUCE
+            // steering activity, never introduce oscillation, so this is safe even
+            // untuned, and it leaves low-speed hairpin turn-in at full strength.
+            float highSpeedGainScale = Mathf.Lerp(1f, 0.6f, Mathf.Clamp01((speedKph - 260f) / 100f));
+            float pursuitGain = Mathf.Lerp(2.2f, 1.1f, pursuitStraightness) * highSpeedGainScale;
             command.steer = Mathf.Clamp(localSteer * pursuitGain + edgeRecovery, -1f, 1f);
+
+            // Straight-line yaw-rate damping (see swerveHeadingPrev): oppose the
+            // measured rotation on a straight, where any yaw IS the shimmy. Scaled
+            // by pursuitStraightness so it fades to zero for genuine corner yaw, and
+            // gated off during edge recovery so it never fights a wall save. Small
+            // and un-smoothed - the phase lead cancels the limit cycle's reversal
+            // rate, which amplitude-only measures (low-pass, slew limiter) can't.
+            Vector3 flatForward = transform.forward;
+            flatForward.y = 0f;
+            if (flatForward.sqrMagnitude > 0.0001f)
+            {
+                flatForward.Normalize();
+                if (swerveHeadingHasRef && Time.deltaTime > 0.0001f && edgeUrgency <= 0f)
+                {
+                    float yawRateDegPerSec = Vector3.SignedAngle(swerveHeadingPrev, flatForward, Vector3.up) / Time.deltaTime;
+                    float yawDampGain = 0.0022f * pursuitStraightness;
+                    command.steer = Mathf.Clamp(command.steer - yawRateDegPerSec * yawDampGain, -1f, 1f);
+                }
+
+                swerveHeadingPrev = flatForward;
+                swerveHeadingHasRef = true;
+            }
 
             // Real braking point: a kinematic stopping distance from current speed down
             // to the apex speed this driver is actually willing to carry, compared
