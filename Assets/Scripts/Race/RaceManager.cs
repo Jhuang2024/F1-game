@@ -594,6 +594,9 @@ namespace LocalFormulaRacing
         // lap's samples would otherwise already be gone by promotion time.
         readonly List<GhostSample> ghostRecordingBuffer = new List<GhostSample>();
         readonly List<GhostSample> ghostLastLapBuffer = new List<GhostSample>();
+        // [GhostDiag] heartbeat state.
+        float ghostDiagTimer;
+        Vector3 ghostDiagLastGhostPos;
         float ghostRecordTimer;
         int ghostRecordedLapNumber = -1;
         const float GhostSampleInterval = 0.12f;
