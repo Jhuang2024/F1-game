@@ -228,12 +228,10 @@ namespace LocalFormulaRacing
         OvertakeState swervePrevState = OvertakeState.Following;
         float swerveWindowStart;
         float swerveLastLogTime;
-        // Yaw-rate derivative-damping state for the straight-line pure-pursuit weave
-        // fix: the car's own measured heading rate, smoothed, so the steer command can
-        // oppose unwanted rotation on a straight (the missing D term of a PD controller).
-        float yawRateSmoothedDeg;
-        float prevHeadingDeg;
-        bool hasHeadingRef;
+        // Previous applied steer, for the steering slew-rate limiter (the swerve
+        // fix): the final command.steer is rate-limited toward its new target so a
+        // fast oscillation can never physically materialise.
+        float steerSlewPrev;
 
         // Overtake-thrash guards ([SwerveDiag] - during passes the state machine
         // cycled Attacking->SideBySide->CompletingPass->Following->Attacking
@@ -2772,31 +2770,27 @@ namespace LocalFormulaRacing
                 command.steer = Mathf.Clamp(command.steer, -steerCap, steerCap);
             }
 
-            // Yaw-rate derivative damping - the other missing half of the PD
-            // controller (see the pursuit-gain schedule at command.steer above). With
-            // no D term, nothing opposes the car's own rotation as it overshoots the
-            // line, and that absent damping is precisely what lets the loop sustain a
-            // limit cycle. This measures the car's ACTUAL yaw rate from its heading
-            // change and subtracts a term proportional to it, so any rotation on a
-            // straight is actively resisted - a real driver's hands holding the wheel
-            // still. The yaw-rate input is smoothed before use: a raw frame-to-frame
-            // derivative is noisy, and un-smoothed D would amplify the very shimmy it
-            // is meant to kill. Gated to straights (steerStraightness) and to the
-            // cruising steer band (|steer| < 0.35) so it can never fight genuine
-            // corner turn-in or wall-recovery steering, where a high yaw rate is
-            // intended. Lowering P gain and adding smoothed D are both monotone,
-            // stabilising changes - neither can introduce a new oscillation.
-            float headingDeg = Mathf.Atan2(transform.forward.x, transform.forward.z) * Mathf.Rad2Deg;
-            float yawRateDeg = hasHeadingRef ? Mathf.DeltaAngle(prevHeadingDeg, headingDeg) / Mathf.Max(Time.deltaTime, 0.0001f) : 0f;
-            prevHeadingDeg = headingDeg;
-            hasHeadingRef = true;
-            yawRateSmoothedDeg = Mathf.Lerp(yawRateSmoothedDeg, yawRateDeg, 0.35f);
-            float steerStraightness = 1f - Mathf.Clamp01(severityHere / 0.14f);
-            if (steerStraightness > 0f && Mathf.Abs(command.steer) < 0.35f)
-            {
-                float yawDamp = Mathf.Clamp(yawRateSmoothedDeg * 0.010f, -0.35f, 0.35f) * steerStraightness;
-                command.steer = Mathf.Clamp(command.steer - yawDamp, -1f, 1f);
-            }
+            // Steering slew-rate limiter - the actual swerve cure. Every prior
+            // attempt (low-pass, pursuit-gain schedule above, smoothed yaw-damp)
+            // failed to cut the REVERSAL COUNT, and the reason is now clear from the
+            // telemetry (shimmy up to ~16 Hz, steer=30+ reversals/2s): an amplitude
+            // shrink (low-pass / lower gain) leaves a limit cycle's zero-crossing
+            // rate unchanged, and a smoothed derivative is itself filtered out at
+            // those frequencies, so it did nothing. A slew-rate limiter is the
+            // standard actuator-chatter cure and, unlike those, works at ALL
+            // frequencies: it caps how fast the steer may change per second, so a
+            // fast oscillation is physically flattened - exactly like a real steering
+            // rack that cannot reverse instantly. The rate is tight on a genuine
+            // straight (where quick steering is never needed, so this is free) and
+            // opens right up as the corner severity rises; it is also forced wide
+            // open whenever the wall-aversion recovery is active, so it can never
+            // slow a genuine save. This subsumes and replaces the gain schedule's
+            // job on the oscillation itself (the schedule is kept only for the mild
+            // amplitude help it still gives).
+            float steerStraightness = 1f - Mathf.Clamp01(severityHere / 0.12f);
+            float steerSlewRate = Mathf.Abs(edgeRecovery) > 0.05f ? 18f : Mathf.Lerp(18f, 4.5f, steerStraightness);
+            command.steer = Mathf.MoveTowards(steerSlewPrev, command.steer, steerSlewRate * Time.deltaTime);
+            steerSlewPrev = command.steer;
 
             DiagnoseSwerve(progress, severityHere, lineBias, command.steer);
             vehicle.SetCommand(command);

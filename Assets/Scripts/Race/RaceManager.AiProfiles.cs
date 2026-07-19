@@ -291,7 +291,14 @@ namespace LocalFormulaRacing
                     // Rounds 27-31: +0.02 per round again (was 1.58).
                     // Rounds 32-36: +0.02 per round again (was 1.68).
                     // Rounds 37-41 (per request): +0.02 per round again (was 1.78).
-                paceMultiplier = 1.88f,
+                // Natural-difficulty pass round 2 (per report - the racecraft-only
+                // lift was "still not nearly enough"): a bounded pace bump on top.
+                // Most of the pace lever is saturated against the physical caps, but
+                // the straight-line/exit-limited portion still converts, and once the
+                // swerve slew-limiter stops the AI scrubbing speed with a 16 Hz
+                // shimmy this headroom is real. Kept small so it can't outrun the
+                // player's own car; PaceDiag verifies the result.
+                paceMultiplier = 1.93f,
                     // Cornering buff round 7: pushed again (was 1.22/1.24/1.28/1.30/
                     // 1.42) - "fast corners need to be A LOT faster". No longer
                     // touches genuine hairpins at all (see the Hairpin-type exemption
@@ -349,7 +356,8 @@ namespace LocalFormulaRacing
                 // Rounds 27-31: +0.02 per round again (was 1.64).
                 // Rounds 32-36: +0.02 per round again (was 1.74).
                 // Rounds 37-41 (per request): +0.02 per round again (was 1.84).
-                paceMultiplier = 1.94f,
+                // Natural-difficulty pass round 2 (see Hard): same bounded pace bump.
+                paceMultiplier = 1.99f,
                 // Cornering buff round 7: pushed further still (was 1.34/1.58/1.70/
                 // 1.44/1.62) - "fast corners need to be A LOT faster". Still never
                 // touches genuine hairpins (see the Hairpin-type exemption in
