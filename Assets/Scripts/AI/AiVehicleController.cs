@@ -3843,6 +3843,26 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Flyover leg-misattribution guard (same failure the [PitDiag] wall-hit
+            // log guards with dy): near the start/finish flyover the two track legs
+            // overlap in XZ, so GetProgress's nearest-point match can snap to the
+            // WRONG leg for a frame and report a wildly wrong lateralDistance - which
+            // is exactly the phantom 20-27m "swings" logged at norm ~0.00-0.03 with
+            // every steering input dead calm (steer=3, lineBias ~5m). Reject any
+            // sample whose matched centreline point is far from the car in elevation:
+            // that |dy| proves the match jumped to the crossing leg, and folding its
+            // bogus lateral into the min/max is what produced the impossible swing.
+            float dyToLine = 0f;
+            {
+                Vector3 lp, lf, lr;
+                track.SampleAtDistance(progress.distance, out lp, out lf, out lr);
+                dyToLine = transform.position.y - lp.y;
+            }
+            if (Mathf.Abs(dyToLine) > 2f)
+            {
+                return;
+            }
+
             float lat = progress.lateralDistance;
             float drawn = hasLastDrawnOffset ? lastDrawnOffset : 0f;
             if (!swerveAmpHasSample)
@@ -4466,7 +4486,17 @@ namespace LocalFormulaRacing
                 case OvertakeState.AttackingOutside:
                 {
                     pressureFactor = Mathf.Lerp(0.4f, 1f, commitment);
-                    float attackOffset = attackSide * Mathf.Lerp(2f, legalLimit, commitment);
+                    // Overtake lunge capped to a pass width, not the full half-width
+                    // ([SwerveDiag amplitude]: with the line and traffic-hold calmed,
+                    // the dominant remaining swing was OVERTAKE OFFSET pinning to
+                    // +/-legalLimit ~= 9.9m - the car lunging the ENTIRE half-width to
+                    // the track edge to pass, and two cars doing that in opposite
+                    // directions read as violent swerving and made contact). A pass
+                    // only needs to put the car alongside; ~6.5m clears the racing
+                    // line and gets the nose past without riding the wall. Well wider
+                    // than the +/-5.5m holding lane, so overtaking authority is kept.
+                    float overtakeReach = Mathf.Min(legalLimit, 6.5f);
+                    float attackOffset = attackSide * Mathf.Lerp(2f, overtakeReach, commitment);
                     // Collision-reduction pass: don't keep committing further toward
                     // attackOffset once genuinely close alongside the car being
                     // attacked - ApplyTrafficAvoidance's own steer nudge is a small
