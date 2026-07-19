@@ -65,6 +65,15 @@ namespace LocalFormulaRacing
             if (ghostMode == 2)
             {
                 TimeTrialGhostStore.TrySaveIfBest(EventData.trackId, candidate);
+                // First lap on a track with no saved ghost: adopt it live so the
+                // player has something to chase THIS session instead of only next
+                // time they enter. Once a ghost exists (loaded from the store at
+                // spawn), all-time mode keeps it as a stable target - HasLap is
+                // already true, so this never swaps a loaded ghost mid-session.
+                if (ghostController != null && !ghostController.HasLap)
+                {
+                    ghostController.Initialize(candidate);
+                }
             }
             else if (ghostMode == 1 && ghostController != null)
             {
@@ -131,11 +140,16 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Spawn the ghost SHELL for every enabled mode, even when all-time mode
+            // has no saved ghost for this track yet (per report - "where is the ghost
+            // car? it's not there"). The old early-return here meant a first visit to
+            // a track in the DEFAULT all-time mode showed no ghost at all, and (since
+            // all-time only ever loaded from the store at spawn) never showed one for
+            // the whole session even after the player set laps. Now the shell always
+            // spawns; if there's a stored ghost it plays back immediately, otherwise
+            // it waits at the line and PromoteGhostRecordingIfBest adopts the player's
+            // first lap live (see there).
             GhostLapData stored = Settings.Current.ghostMode == 2 ? TimeTrialGhostStore.GetBestGhost(EventData.trackId) : null;
-            if (Settings.Current.ghostMode == 2 && stored == null)
-            {
-                return;
-            }
 
             ghostCarObject = ProductionCarSpawner.SpawnCar("Ghost", new Color(0.3f, 0.62f, 1f), new Color(0.55f, 0.8f, 1f));
             ghostCarObject.name = "Ghost car";
