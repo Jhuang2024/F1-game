@@ -251,8 +251,18 @@ namespace LocalFormulaRacing
             }
 
             // 3) Pins: apex (sharpest point of the span) to the full INSIDE of
-            //    the corridor; entry/exit gates to the full OUTSIDE, a
-            //    span-scaled distance before/after the corner.
+            //    the corridor; entry/exit gates to a REDUCED fraction of the
+            //    outside, a span-scaled distance before/after the corner.
+            // Gate width scaled to 0.55 of the corridor ([SwerveDiag amplitude]
+            // root cause: pinning gates to the FULL outside made the cosine blend
+            // carry the line gate-to-gate across the whole road on every straight
+            // and through every chicane - a ~18m wall-to-wall wander that all 22
+            // cars followed in unison, reading as the reported swerve and tripping
+            // their wall-aversion braking). The APEX stays at the full inside, so
+            // corner apex speed (where [CornerDiag] showed the AI already matches or
+            // beats the player) is unchanged; only the outside setup is pulled in,
+            // which is purely the straight-line/chicane travel that was the problem.
+            const float gateOutsideScale = 0.55f;
             List<KeyValuePair<int, float>> knots = new List<KeyValuePair<int, float>>();
             for (int s = 0; s < corners.Count; s++)
             {
@@ -276,8 +286,8 @@ namespace LocalFormulaRacing
                 knots.Add(new KeyValuePair<int, float>(apex, -sign * limits[apex]));
                 int entry = (a - gate + count * 2) % count;
                 int exit = (b + gate) % count;
-                knots.Add(new KeyValuePair<int, float>(entry, sign * limits[entry]));
-                knots.Add(new KeyValuePair<int, float>(exit, sign * limits[exit]));
+                knots.Add(new KeyValuePair<int, float>(entry, sign * limits[entry] * gateOutsideScale));
+                knots.Add(new KeyValuePair<int, float>(exit, sign * limits[exit] * gateOutsideScale));
             }
 
             knots.Sort((x, y) => x.Key.CompareTo(y.Key));
