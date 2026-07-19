@@ -242,6 +242,25 @@ namespace LocalFormulaRacing
         // amplitude - the thing a low-pass or slew limiter alone can't touch.
         Vector3 swerveHeadingPrev;
         bool swerveHeadingHasRef;
+        // [SwerveDiag amplitude] The reversal counter above catches high-frequency
+        // steer CHATTER, but the swerve that crashes the player into a wall is a
+        // large, slow lateral EXCURSION (the car drifting most of the road width and
+        // back) whose period exceeds the 2s reversal window, so it barely registers
+        // there. These track the peak-to-peak swing over a longer window of the car's
+        // actual lateral position and of each thing that could be commanding it, so a
+        // single log names the dominant driver of the visible weave: the raw drawn
+        // racing line, the blended line target, or the overtake offset.
+        float swerveAmpWindowStart;
+        float swerveAmpLatMin, swerveAmpLatMax;      // car's actual lateralDistance
+        float swerveAmpDrawnMin, swerveAmpDrawnMax;  // raw racing-line offset (pre-blend/trim)
+        float swerveAmpLineMin, swerveAmpLineMax;    // final lineBias (post blend + slew)
+        float swerveAmpAggMin, swerveAmpAggMax;      // overtake aggressionOffset
+        bool swerveAmpHasSample;
+        float swerveAmpLastLog;
+        // Raw racing-line offset at the steering target, captured from the line block
+        // so the amplitude diagnostic can compare it against the car's real motion.
+        float lastDrawnOffset;
+        bool hasLastDrawnOffset;
 
         // Overtake-thrash guards ([SwerveDiag] - during passes the state machine
         // cycled Attacking->SideBySide->CompletingPass->Following->Attacking
@@ -1787,6 +1806,8 @@ namespace LocalFormulaRacing
             if (hasDrawnLine)
             {
                 float drawnOffset = track.RacingLineOffsetAt(progress.distance + lookAhead);
+                lastDrawnOffset = drawnOffset;
+                hasLastDrawnOffset = true;
                 float edgeSafeBound = LocalHalfWidthAt(progress.distance + lookAhead) - 2.6f;
                 float bound = Mathf.Max(0.75f, Mathf.Min(edgeSafeBound, legalLimit));
                 // THE START-PACK COLLISION FIX (root cause of the bunching):
@@ -1820,7 +1841,14 @@ namespace LocalFormulaRacing
                 // genuinely straight (severity ~0); it ramps back to the full
                 // authored offset as a corner approaches, so corner entry / apex
                 // lines are unchanged.
-                float straightTrim = Mathf.Lerp(0.55f, 1f, Mathf.Clamp01(severityHere / 0.09f));
+                // Floor dropped 0.55 -> 0.35 (per report - the swerve still crashes
+                // the player into a wall). On a dead-straight the authored out-in-out
+                // line has no reason to sit at +/-9.9m; that edge-riding IS the slow
+                // wall-to-wall excursion the new [SwerveDiag amplitude] pass is built
+                // to confirm. Pulling the straight-line target to a third of the
+                // authored offset can only reduce lateral motion where severity ~ 0,
+                // and the Lerp still restores the full line before any corner.
+                float straightTrim = Mathf.Lerp(0.35f, 1f, Mathf.Clamp01(severityHere / 0.09f));
                 float optimalPursuit = drawnOffset * 0.94f * straightTrim + apexMissNoise * 0.4f;
                 float laneHold = progress.lateralDistance;
                 lineBias = Mathf.Clamp(Mathf.Lerp(optimalPursuit, laneHold, lineTrafficBlend), -bound, bound);
@@ -2842,6 +2870,7 @@ namespace LocalFormulaRacing
             steerSlewPrev = command.steer;
 
             DiagnoseSwerve(progress, severityHere, lineBias, command.steer);
+            DiagnoseSwerveAmplitude(progress, severityHere, lineBias);
             vehicle.SetCommand(command);
         }
 
@@ -3746,6 +3775,112 @@ namespace LocalFormulaRacing
                     " trafficBlend=" + lineTrafficBlend.ToString("0.00") +
                     " (whichever reversal count is high is the oscillating input).");
             }
+        }
+
+        // [SwerveDiag amplitude] Names the driver of the VISIBLE, wall-crashing
+        // weave, which the reversal counter above misses. Over a 4s window on a
+        // sustained straight it records the peak-to-peak swing of the car's real
+        // lateral position and of each thing that could command it. If the car
+        // actually swung more than ~5m across the road (a genuine wall-threatening
+        // excursion, not normal line variation) it logs every component's swing in
+        // the same units, so the ONE whose swing matches the car's is the cause:
+        //   drawnLine  -> the precomputed racing line itself is running edge-to-edge
+        //                 on this straight (fix = the line data / straightTrim).
+        //   lineBias   -> the blend/slew is amplifying or lagging the line target.
+        //   overtakeOff-> the pass state machine is throwing the car sideways.
+        //   (none big) -> the car swings but no target does => the steering
+        //                 CONTROLLER is oscillating (pursuit/slew/yaw loop), not the
+        //                 target. That is the pure limit-cycle case.
+        void DiagnoseSwerveAmplitude(TrackProgress progress, float severityHere, float lineBias)
+        {
+            if (raceManager == null || raceManager.CurrentSession == RaceWeekendSession.Qualifying)
+            {
+                return;
+            }
+
+            // A corner legitimately swings the car across the road; only measure
+            // where the road is genuinely straight. Any corner sample voids the
+            // whole window so a corner's line move is never miscounted as a weave.
+            if (severityHere >= 0.12f)
+            {
+                swerveAmpHasSample = false;
+                swerveAmpWindowStart = Time.time;
+                return;
+            }
+
+            float lat = progress.lateralDistance;
+            float drawn = hasLastDrawnOffset ? lastDrawnOffset : 0f;
+            if (!swerveAmpHasSample)
+            {
+                swerveAmpHasSample = true;
+                swerveAmpWindowStart = Time.time;
+                swerveAmpLatMin = swerveAmpLatMax = lat;
+                swerveAmpDrawnMin = swerveAmpDrawnMax = drawn;
+                swerveAmpLineMin = swerveAmpLineMax = lineBias;
+                swerveAmpAggMin = swerveAmpAggMax = aggressionOffset;
+                return;
+            }
+
+            swerveAmpLatMin = Mathf.Min(swerveAmpLatMin, lat);
+            swerveAmpLatMax = Mathf.Max(swerveAmpLatMax, lat);
+            swerveAmpDrawnMin = Mathf.Min(swerveAmpDrawnMin, drawn);
+            swerveAmpDrawnMax = Mathf.Max(swerveAmpDrawnMax, drawn);
+            swerveAmpLineMin = Mathf.Min(swerveAmpLineMin, lineBias);
+            swerveAmpLineMax = Mathf.Max(swerveAmpLineMax, lineBias);
+            swerveAmpAggMin = Mathf.Min(swerveAmpAggMin, aggressionOffset);
+            swerveAmpAggMax = Mathf.Max(swerveAmpAggMax, aggressionOffset);
+
+            if (Time.time - swerveAmpWindowStart < 4f)
+            {
+                return;
+            }
+
+            float latSwing = swerveAmpLatMax - swerveAmpLatMin;
+            float drawnSwing = swerveAmpDrawnMax - swerveAmpDrawnMin;
+            float lineSwing = swerveAmpLineMax - swerveAmpLineMin;
+            float aggSwing = swerveAmpAggMax - swerveAmpAggMin;
+
+            // Re-arm the window regardless of whether we log.
+            swerveAmpHasSample = false;
+            swerveAmpWindowStart = Time.time;
+
+            if (latSwing < 5f || Time.time - swerveAmpLastLog < 4f)
+            {
+                return;
+            }
+            swerveAmpLastLog = Time.time;
+
+            string who = participant != null && participant.driverData != null
+                ? participant.driverData.displayName : "AI";
+            // Whichever COMMAND swing most closely accounts for the car's swing.
+            string verdict;
+            float biggest = Mathf.Max(drawnSwing, Mathf.Max(lineSwing, aggSwing));
+            if (biggest < 2f)
+            {
+                verdict = "STEERING CONTROLLER (no target moved - pursuit/slew/yaw limit cycle)";
+            }
+            else if (aggSwing >= drawnSwing && aggSwing >= lineSwing)
+            {
+                verdict = "OVERTAKE OFFSET (pass state machine)";
+            }
+            else if (drawnSwing >= lineSwing * 0.75f)
+            {
+                verdict = "RACING LINE (drawn line runs edge-to-edge on this straight)";
+            }
+            else
+            {
+                verdict = "LINE BLEND/SLEW (target amplified vs the drawn line)";
+            }
+
+            Debug.LogWarning("[SwerveDiag amplitude] " + who + " swung " + latSwing.ToString("0.0") +
+                "m across a straight over 4s (norm " + progress.normalized.ToString("0.00") +
+                ") | swings: drawnLine=" + drawnSwing.ToString("0.0") +
+                "m lineBias=" + lineSwing.ToString("0.0") +
+                "m overtakeOff=" + aggSwing.ToString("0.0") +
+                "m | lineBias now=" + lineBias.ToString("0.0") +
+                " trafficBlend=" + lineTrafficBlend.ToString("0.00") +
+                " state=" + overtakeState +
+                " => CAUSE: " + verdict);
         }
 
         // Returns 1 when the signal, once it exceeds the deadband, flips sign
