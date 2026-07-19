@@ -421,7 +421,25 @@ namespace LocalFormulaRacing
                 pitAssistSmoothedSteer = 0f;
             }
 
-            command.steer = pitAssistSmoothedSteer;
+            // Steering-authority proximity gate ([PitDiag] assist-active wall
+            // hits at mToRamp 526-1218m, blend=0.00, guard=True, pinned to the
+            // wall: that far out the braking envelope correctly keeps racing
+            // speed, but the assist ALSO took full steering authority and dragged
+            // the car toward road centre - on a normal racing stretch, with the
+            // player anywhere off-centre, that cross-track pull at 300+kph ends on
+            // the far wall. The file already holds POSITION to the road centre
+            // until the final ~260m (the pre-position proximity gate); apply the
+            // same discipline to STEERING - the guide only needs the wheel once
+            // the ramp is near (where pre-positioning and the entry pose happen).
+            // Far out, hand the player their own line back (the automated braking
+            // envelope still runs, so approach speed is unchanged); fade the guide
+            // in over the final approach so the handoff to the entry is smooth.
+            // The low-speed unstick keeps full authority always - a wall-escape
+            // can never be diluted.
+            float steerAuthority = speedKph < 12f
+                ? 1f
+                : Mathf.InverseLerp(400f, 180f, metresToRamp);
+            command.steer = Mathf.Lerp(fallback.steer, pitAssistSmoothedSteer, steerAuthority);
             command.ers = false;
             command.drs = false;
 
@@ -435,6 +453,7 @@ namespace LocalFormulaRacing
                 " envKph=" + envelopeKph.ToString("0") +
                 " blend=" + prePositionBlend.ToString("0.00") +
                 " mToRamp=" + metresToRamp.ToString("0") +
+                " steerAuth=" + steerAuthority.ToString("0.00") +
                 " guard=" + pressGuardActive;
             participant.vehicle.PitAssistDebugTime = Time.time;
             return command;
