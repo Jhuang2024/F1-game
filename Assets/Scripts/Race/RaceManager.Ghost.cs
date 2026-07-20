@@ -126,9 +126,14 @@ namespace LocalFormulaRacing
                 // it spawned but never moved.
                 ghostLastLapBuffer.Clear();
                 ghostLastLapBuffer.AddRange(ghostRecordingBuffer);
+                LapTracker lt = PlayerParticipant.lapTracker;
                 Debug.LogWarning("[GhostDiag] LAP BOUNDARY: CompletedLaps " + ghostRecordedLapNumber + " -> " +
-                    currentLap + "; snapshotted " + ghostLastLapBuffer.Count + " samples, outLap=" +
-                    PlayerParticipant.lapTracker.OutLapActive + " bestLap=" + PlayerParticipant.lapTracker.BestLapTime.ToString("0.000"));
+                    currentLap + "; snapshotted " + ghostLastLapBuffer.Count + " samples" +
+                    " | lastLapTime=" + lt.LastLapTime.ToString("0.000") + " lastInvalid=" + lt.LastLapInvalidated +
+                    " curInvalid=" + lt.CurrentLapInvalidated + " bestLap=" + lt.BestLapTime.ToString("0.000") +
+                    " validLaps=" + lt.ValidLapsCompleted + " outLap=" + lt.OutLapActive +
+                    " timedStarted=" + lt.TimedLapStarted + " completedRace=" + lt.CompletedRace +
+                    " raceLaps=" + lt.RaceLaps);
                 ghostRecordedLapNumber = currentLap;
                 ghostRecordingBuffer.Clear();
                 ghostRecordTimer = 0f;
@@ -170,7 +175,11 @@ namespace LocalFormulaRacing
                     " ctrlLapTime=" + (ghostController != null ? ghostController.LapTime.ToString("0.00") : "-") +
                     " movedLast1s=" + moved.ToString("0.00") + "m" +
                     " liveBuf=" + ghostRecordingBuffer.Count + " lastBuf=" + ghostLastLapBuffer.Count +
-                    " playerLapTime=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.CurrentLapTime.ToString("0.00") : "-"));
+                    " playerLapTime=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.CurrentLapTime.ToString("0.00") : "-") +
+                    " completedLaps=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.CompletedLaps.ToString() : "-") +
+                    " completedRace=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.CompletedRace.ToString() : "-") +
+                    " raceLaps=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.RaceLaps.ToString() : "-") +
+                    " norm=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.CurrentProgress.normalized.ToString("0.00") : "-"));
             }
 
             if (ghostController == null || PlayerParticipant == null || PlayerParticipant.lapTracker == null)
