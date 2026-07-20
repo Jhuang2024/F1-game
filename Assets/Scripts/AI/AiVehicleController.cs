@@ -2310,9 +2310,20 @@ namespace LocalFormulaRacing
             // Straight-line yaw-rate damping (see swerveHeadingPrev): oppose the
             // measured rotation on a straight, where any yaw IS the shimmy. Scaled
             // by pursuitStraightness so it fades to zero for genuine corner yaw, and
-            // gated off during edge recovery so it never fights a wall save. Small
-            // and un-smoothed - the phase lead cancels the limit cycle's reversal
-            // rate, which amplitude-only measures (low-pass, slew limiter) can't.
+            // gated off during edge recovery so it never fights a wall save.
+            // [SwerveDiag amplitude] CONFIRMED this is the last cause: on dead
+            // straights (drawnLine 0, lineBias 0, no overtake) cars still swing
+            // 8-15m with steer reversing 10-22x/2s - a pure pursuit/slew/yaw limit
+            // cycle. The damper is the phase-lead term that kills it, but it was
+            // being APPLIED here, BEFORE the steering slew-limiter far below, which
+            // then rate-limited its fast correction away (a slew limiter is a
+            // low-pass; it filters out exactly the derivative term meant to break
+            // the cycle). So only COMPUTE it here; it is applied AFTER the slew
+            // limiter (see below), un-rate-limited, where its phase lead survives.
+            // Gain also raised (0.0022 -> 0.006) since the filtered version clearly
+            // wasn't enough. Monotone-safe: it only ever opposes measured yaw, so a
+            // higher gain can only reduce rotation, never add it.
+            float yawDampSteer = 0f;
             Vector3 flatForward = transform.forward;
             flatForward.y = 0f;
             if (flatForward.sqrMagnitude > 0.0001f)
@@ -2321,8 +2332,7 @@ namespace LocalFormulaRacing
                 if (swerveHeadingHasRef && Time.deltaTime > 0.0001f && edgeUrgency <= 0f)
                 {
                     float yawRateDegPerSec = Vector3.SignedAngle(swerveHeadingPrev, flatForward, Vector3.up) / Time.deltaTime;
-                    float yawDampGain = 0.0022f * pursuitStraightness;
-                    command.steer = Mathf.Clamp(command.steer - yawRateDegPerSec * yawDampGain, -1f, 1f);
+                    yawDampSteer = yawRateDegPerSec * 0.006f * pursuitStraightness;
                 }
 
                 swerveHeadingPrev = flatForward;
@@ -2901,7 +2911,17 @@ namespace LocalFormulaRacing
             float steerStraightness = 1f - Mathf.Clamp01(severityHere / 0.12f);
             float steerSlewRate = Mathf.Abs(edgeRecovery) > 0.05f ? 18f : Mathf.Lerp(18f, 4.5f, steerStraightness);
             command.steer = Mathf.MoveTowards(steerSlewPrev, command.steer, steerSlewRate * Time.deltaTime);
+            // slewPrev tracks the slew-limited PURSUIT command only (pre-yaw-damp),
+            // so the yaw damper's fast correction below never feeds back into the
+            // rate limiter and get smeared out next frame.
             steerSlewPrev = command.steer;
+
+            // Yaw-rate damping applied HERE, after the slew limiter (see the compute
+            // site far above): un-rate-limited so its phase lead survives to break
+            // the pursuit/slew limit cycle the amplitude diagnostic pinned as the
+            // last remaining straight-line swerve. Layered on top of, not fed into,
+            // the slew state.
+            command.steer = Mathf.Clamp(command.steer - yawDampSteer, -1f, 1f);
 
             DiagnoseSwerve(progress, severityHere, lineBias, command.steer);
             DiagnoseSwerveAmplitude(progress, severityHere, lineBias);
