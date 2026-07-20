@@ -2010,6 +2010,12 @@ namespace LocalFormulaRacing
     public class TrackManager : MonoBehaviour
     {
         public TrackRuntime Runtime { get; private set; }
+
+        // Authored definition for the circuit currently built (when the authored
+        // path is taken). Used only by the additive, visual-only runtime art
+        // dressing (F1Game.Track.Dressing.RuntimeTrackDressing) at the tail of
+        // Build(); null on the legacy fallback path. Never read by gameplay.
+        F1Game.Track.TrackDefinitionAsset activeTrackDefinition;
         public TrackValidationReport LastReport { get; private set; }
 
         // Scenery/detail spawn multiplier, set by the race flow from graphics settings before Build.
@@ -2258,6 +2264,16 @@ namespace LocalFormulaRacing
             ValidateBarrierSmoothness();
             ValidatePitLaneSurfaceCoverage();
             BuildBoundaryDebugOverlay();
+
+            // Additive, visual-only art dressing (modular GLB kit) placed from the
+            // authored definition after every gameplay pass and validation above.
+            // No-op until the CircuitProfileCatalog + profiles are generated and
+            // committed (AutomatedArtIntegration, run in CI); colliders are
+            // disabled so it can never affect physics, the racing line or pit
+            // in/out. Wrapped internally so it can never break the race.
+            F1Game.Track.Dressing.RuntimeTrackDressing.TryDress(
+                transform, activeTrackDefinition, Runtime != null ? Runtime.trackId : trackId);
+
             return Runtime;
         }
 
@@ -3475,6 +3491,10 @@ namespace LocalFormulaRacing
                 F1Game.Track.TrackDefinitionAsset definition = F1Game.Track.AuthoredCircuitCatalog.Generate(id);
                 if (definition != null && definition.spline.Count >= 8)
                 {
+                    // Keep the authored definition so the tail-of-build art
+                    // dressing can decorate this circuit from the same source
+                    // (presentation only; does not affect the layout below).
+                    activeTrackDefinition = definition;
                     BuildAuthoredLayout(runtime, definition);
                     RepairLayout(runtime);
                     ValidateLayout(runtime);

@@ -29,11 +29,21 @@ namespace F1Game.Editor.ArtPipeline
         [MenuItem("F1 Game/Art/Build URP Materials From Generated Textures")]
         public static void BuildAll()
         {
+            RunBuild();
+        }
+
+        /// <summary>
+        /// Programmatic material build used by the menu and by
+        /// <c>AutomatedArtIntegration.Run</c>. Returns the count built, or -1 if the
+        /// URP/Lit shader is unavailable (URP not active).
+        /// </summary>
+        public static int RunBuild()
+        {
             Shader lit = Shader.Find("Universal Render Pipeline/Lit");
             if (lit == null)
             {
                 Debug.LogError("[ArtPipeline] URP/Lit shader not found — is URP active?");
-                return;
+                return -1;
             }
 
             int built = 0;
@@ -93,6 +103,7 @@ namespace F1Game.Editor.ArtPipeline
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
             Debug.Log($"[ArtPipeline] Built {built} URP materials under {MaterialsRoot}.");
+            return built;
         }
 
         static void ConfigureTextureImporter(string path, bool isNormal, bool linear)

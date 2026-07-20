@@ -31,42 +31,67 @@ namespace F1Game.Editor.ArtPipeline
         const string PrefabSubfolder = "Prefabs";
         const string MetaSubfolder = "SourceMetadata";
 
+        /// <summary>Result of a programmatic import run (used by AutomatedArtIntegration).</summary>
+        public struct ImportResult
+        {
+            public int Built;
+            public int Skipped;
+            public int Failed;
+            public int Total;
+            public List<string> Report;
+            public bool Ok => Failed == 0 && Total > 0;
+        }
+
         [MenuItem("F1 Game/Art/Import Kit GLBs → Prefabs")]
         public static void ImportAll()
         {
+            RunImport();
+        }
+
+        /// <summary>
+        /// Programmatic import (menu-free) used by both the menu command and the
+        /// batch-mode <c>AutomatedArtIntegration.Run</c>. Returns structured counts
+        /// instead of only logging, so automation can assert success/fail.
+        /// </summary>
+        public static ImportResult RunImport()
+        {
             string[] glbs = FindGlbs();
+            var report = new List<string>();
+            var result = new ImportResult { Report = report, Total = glbs.Length };
             if (glbs.Length == 0)
             {
                 Debug.LogWarning("[ArtPipeline] No GLBs found under " + ArtRoot);
-                return;
+                report.Add("NO GLBs under " + ArtRoot);
+                return result;
             }
 
-            var report = new List<string>();
-            int ok = 0, skipped = 0;
             foreach (string glbPath in glbs)
             {
                 var root = AssetDatabase.LoadAssetAtPath<GameObject>(glbPath);
                 if (root == null)
                 {
-                    skipped++;
+                    result.Skipped++;
                     report.Add("SKIP (not imported — is glTFast installed?): " + glbPath);
                     continue;
                 }
                 try
                 {
                     AssembleOne(glbPath, root, report);
-                    ok++;
+                    result.Built++;
                 }
                 catch (System.Exception e)
                 {
+                    result.Failed++;
                     report.Add("FAIL " + glbPath + " : " + e.Message);
                 }
             }
 
             AssetDatabase.SaveAssets();
             AssetDatabase.Refresh();
-            WriteReport(report, ok, skipped, glbs.Length);
-            Debug.Log($"[ArtPipeline] Import complete: {ok} prefabs, {skipped} skipped of {glbs.Length}.");
+            WriteReport(report, result.Built, result.Skipped, glbs.Length);
+            Debug.Log($"[ArtPipeline] Import complete: {result.Built} prefabs, " +
+                      $"{result.Skipped} skipped, {result.Failed} failed of {glbs.Length}.");
+            return result;
         }
 
         static string[] FindGlbs()
