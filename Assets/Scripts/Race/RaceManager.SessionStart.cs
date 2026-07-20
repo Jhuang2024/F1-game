@@ -100,7 +100,14 @@ namespace LocalFormulaRacing
             // Part 21 regulation hook: reset every session start (not just career
             // ones) so Quick Race/Time Trial always get the neutral 1f default
             // regardless of whatever a career season's regulation last set it to.
-            TyreState.RegulationWearMultiplier = (careerRace && career != null && career.Save != null) ? career.Save.currentSeasonTyreWearMultiplier : 1f;
+            // Time Trial removes tyre wear entirely (per request): a hot-lap mode
+            // is a pure lap-time exercise, so the tyre must never degrade under
+            // the player across a long practice session. A 0 multiplier holds Wear
+            // pinned at full for the whole run (see TyreState.Tick, where wearLoss
+            // is scaled by this). Every other session keeps the career/neutral
+            // value, and this resets each session start so it never leaks out.
+            TyreState.RegulationWearMultiplier = pendingTimeTrial ? 0f
+                : (careerRace && career != null && career.Save != null) ? career.Save.currentSeasonTyreWearMultiplier : 1f;
             IsTimeTrial = pendingTimeTrial;
             pendingTimeTrial = false;
             CurrentSession = session;

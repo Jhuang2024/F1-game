@@ -4188,7 +4188,7 @@ namespace LocalFormulaRacing
             Clear();
             RectTransform background = UiFactory.CreatePanel(canvas.transform, "Track info background", new Color(0.012f, 0.016f, 0.021f, 1f));
             UiFactory.CreateScreenHeader(background, "Track Info",
-                "Every circuit on the calendar, with layout traits and your best lap. Time Trial tyre: " + settings.Current.tyreCompound + " (change in Settings).");
+                "Every circuit on the calendar, with its layout and your best lap. Time Trial runs on fresh Softs with no tyre wear - a pure lap-time run.");
 
             RectTransform content = UiFactory.CreateScrollPanel(background, "Track info list", new Vector2(0.06f, 0.14f), new Vector2(0.94f, 0.86f), 6, new RectOffset(18, 18, 14, 14));
             for (int i = 0; i < data.Calendar.events.Count; i++)
@@ -4628,7 +4628,7 @@ namespace LocalFormulaRacing
             SetTopLeft(titleText.rectTransform, 16f, 14f);
             UiFactory.SetSize(titleText, 380f, 26f);
 
-            Text metaText = UiFactory.CreateText(card, "Track meta", raceEvent.country + "   ·   " + WeatherProfileText(raceEvent.weatherProfile).ToUpperInvariant() + "   ·   " + raceEvent.laps25Percent + " LAPS", 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text metaText = UiFactory.CreateText(card, "Track meta", raceEvent.country + "   ·   " + raceEvent.laps25Percent + " LAPS", 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
             SetTopLeft(metaText.rectTransform, 16f, 46f);
             UiFactory.SetSize(metaText, 380f, 20f);
 
@@ -4669,28 +4669,19 @@ namespace LocalFormulaRacing
         }
 
         // ---------- track preview ----------
-        // New feature: a small visual "shape of the lap" widget for the track
-        // selection and track info screens, with pit entry/exit and
-        // tightest/highest-speed corner call-outs. No live per-track geometry
-        // is available here - TrackManager only builds the real circuit mesh
-        // inside an actual loaded race scene (see the comment that used to be
-        // on ShowQuickRaceTrackSelect explaining why this never existed
-        // before) - so this draws a deterministic procedural approximation of
-        // a lap instead: seeded from the track's own id, so the same track
-        // always renders the same shape, but it is not a literal trace of the
-        // real circuit. The pit entry marker uses the actual shared
-        // TrackRuntime.PitCorridorStartNormalized constant (a fraction of the
-        // lap shared by every real circuit, so that part is accurate); pit
-        // exit has no equivalent public constant to read, so it mirrors the
-        // 0.992 literal TrackRuntime.GetPitReleasePose uses internally.
-        // TODO(barrier-fix): if TrackManager/RaceManager ever expose a
-        // scene-independent per-track corner list (distance + turn angle) and
-        // a named pit-exit-normalized constant, swap this generator for that
-        // real data so the preview traces the actual circuit instead of an
-        // approximation. Tightest-corner/highest-speed markers below are
-        // computed directly from this generated loop's own curvature - real
-        // geometry analysis, just of an approximated lap rather than the true
-        // one.
+        // A small visual "shape of the lap" widget for the track selection and
+        // track info screens, with pit entry/exit and tightest/highest-speed
+        // corner call-outs. It traces the REAL circuit outline: every calendar
+        // track has an authored, scene-independent spline in
+        // AuthoredCircuitCatalog (the same geometry TrackManager builds the race
+        // mesh from), so RealTrackLoopPoints reads that spline's plan-view
+        // (x,z) anchors and fits them into the map box - the widget is now the
+        // actual shape of the lap, not a seeded approximation. Only an
+        // unknown/unauthored id falls back to the old deterministic harmonic
+        // loop below. Tightest-corner/highest-speed markers are computed from
+        // the drawn loop's own curvature. The pit in/out markers still sit at a
+        // representative lap fraction (see below) rather than the exact metres-
+        // before-line boundary, so those two dots remain approximate.
         const int TrackPreviewPointCount = 48;
         // The real pit boundaries are fixed METRES before the line now (see
         // TrackRuntime.PitCorridorStartLeadMetres / PitExitReleaseLeadMetres),
@@ -4718,39 +4709,51 @@ namespace LocalFormulaRacing
             UiFactory.StyleRoundedSmall(mapBackground, new Color(0.02f, 0.03f, 0.045f, 0.92f));
 
             string seedKey = raceEvent != null && !string.IsNullOrEmpty(raceEvent.trackId) ? raceEvent.trackId : "default_track";
-            System.Random rng = new System.Random(seedKey.GetHashCode());
 
-            float centerX = mapSize * 0.5f;
-            float centerY = mapSize * 0.5f;
-            float baseRx = mapSize * 0.36f;
-            float baseRy = mapSize * 0.3f;
-            float amp1 = 0.10f + (float)rng.NextDouble() * 0.10f;
-            float amp2 = 0.06f + (float)rng.NextDouble() * 0.08f;
-            int harmonicOne = 2 + rng.Next(0, 2);
-            int harmonicTwo = 3 + rng.Next(0, 3);
-            float phase1 = (float)(rng.NextDouble() * Mathf.PI * 2.0);
-            float phase2 = (float)(rng.NextDouble() * Mathf.PI * 2.0);
-
-            Vector2[] points = new Vector2[TrackPreviewPointCount];
-            for (int i = 0; i < TrackPreviewPointCount; i++)
+            // Real circuit outline: every calendar track has an authored spline
+            // (AuthoredCircuitCatalog), which is scene-independent geometry - the
+            // exact thing the old procedural-loop TODO was waiting for. Trace that
+            // so the preview is the ACTUAL shape of the lap, not a seeded scribble
+            // (per report - "the track trial UI shows just random shapes"). Only
+            // an unknown/unauthored id falls back to the deterministic loop below.
+            Vector2[] points = RealTrackLoopPoints(seedKey, mapSize);
+            if (points == null)
             {
-                float t = i / (float)TrackPreviewPointCount;
-                float angle = t * Mathf.PI * 2f;
-                float radiusScale = 1f + amp1 * Mathf.Sin(harmonicOne * angle + phase1) + amp2 * Mathf.Sin(harmonicTwo * angle + phase2);
-                points[i] = new Vector2(centerX + Mathf.Cos(angle) * baseRx * radiusScale, centerY + Mathf.Sin(angle) * baseRy * radiusScale);
+                System.Random rng = new System.Random(seedKey.GetHashCode());
+                float centerX = mapSize * 0.5f;
+                float centerY = mapSize * 0.5f;
+                float baseRx = mapSize * 0.36f;
+                float baseRy = mapSize * 0.3f;
+                float amp1 = 0.10f + (float)rng.NextDouble() * 0.10f;
+                float amp2 = 0.06f + (float)rng.NextDouble() * 0.08f;
+                int harmonicOne = 2 + rng.Next(0, 2);
+                int harmonicTwo = 3 + rng.Next(0, 3);
+                float phase1 = (float)(rng.NextDouble() * Mathf.PI * 2.0);
+                float phase2 = (float)(rng.NextDouble() * Mathf.PI * 2.0);
+
+                points = new Vector2[TrackPreviewPointCount];
+                for (int i = 0; i < TrackPreviewPointCount; i++)
+                {
+                    float t = i / (float)TrackPreviewPointCount;
+                    float angle = t * Mathf.PI * 2f;
+                    float radiusScale = 1f + amp1 * Mathf.Sin(harmonicOne * angle + phase1) + amp2 * Mathf.Sin(harmonicTwo * angle + phase2);
+                    points[i] = new Vector2(centerX + Mathf.Cos(angle) * baseRx * radiusScale, centerY + Mathf.Sin(angle) * baseRy * radiusScale);
+                }
             }
 
-            float[] cumulative = new float[TrackPreviewPointCount + 1];
-            for (int i = 0; i < TrackPreviewPointCount; i++)
+            int pointCount = points.Length;
+
+            float[] cumulative = new float[pointCount + 1];
+            for (int i = 0; i < pointCount; i++)
             {
-                Vector2 next = points[(i + 1) % TrackPreviewPointCount];
+                Vector2 next = points[(i + 1) % pointCount];
                 cumulative[i + 1] = cumulative[i] + Vector2.Distance(points[i], next);
             }
 
-            float totalLength = cumulative[TrackPreviewPointCount];
+            float totalLength = cumulative[pointCount];
 
             // Ribbon.
-            for (int i = 0; i < TrackPreviewPointCount; i++)
+            for (int i = 0; i < pointCount; i++)
             {
                 CreatePreviewDot(mapArea, points[i], 4f, new Color(0.2f, 0.72f, 1f, 0.55f));
             }
@@ -4764,17 +4767,17 @@ namespace LocalFormulaRacing
             CreatePreviewDot(mapArea, pitEntryPoint, 7f, UiFactory.AccentAmber);
             CreatePreviewDot(mapArea, pitExitPoint, 7f, UiFactory.AccentAmber);
 
-            // Tightest / highest-speed corner, derived from this generated
-            // loop's own curvature rather than guessed from the track id.
+            // Tightest / highest-speed corner, derived from this loop's own
+            // curvature rather than guessed from the track id.
             int tightestIndex = 0;
             float tightestAngle = -1f;
             int fastestIndex = 0;
             float fastestAngle = float.MaxValue;
-            for (int i = 0; i < TrackPreviewPointCount; i++)
+            for (int i = 0; i < pointCount; i++)
             {
-                Vector2 previous = points[(i - 1 + TrackPreviewPointCount) % TrackPreviewPointCount];
+                Vector2 previous = points[(i - 1 + pointCount) % pointCount];
                 Vector2 current = points[i];
-                Vector2 next = points[(i + 1) % TrackPreviewPointCount];
+                Vector2 next = points[(i + 1) % pointCount];
                 Vector2 entryDirection = (current - previous).normalized;
                 Vector2 exitDirection = (next - current).normalized;
                 float turnAngle = Vector2.Angle(entryDirection, exitDirection);
@@ -4810,6 +4813,89 @@ namespace LocalFormulaRacing
             legendRect.offsetMax = new Vector2(mapSize + 8f + legendColumnWidth, 0f);
 
             return root;
+        }
+
+        // Cache of the real authored circuit outline per trackId, as map-local
+        // 2D points already fitted to a unit square (0..1). Built once per track
+        // from AuthoredCircuitCatalog's scene-independent spline; a null entry
+        // caches "this id has no authored geometry" so we don't regenerate it.
+        static readonly System.Collections.Generic.Dictionary<string, Vector2[]> realTrackLoopUnitCache =
+            new System.Collections.Generic.Dictionary<string, Vector2[]>();
+
+        // Real circuit outline for the preview, scaled into an mapSize box with a
+        // margin, or null when the track has no authored definition (caller draws
+        // its procedural fallback then). Uniform-scaled so the real aspect ratio
+        // is preserved, and centred in the box.
+        Vector2[] RealTrackLoopPoints(string trackId, float mapSize)
+        {
+            Vector2[] unit;
+            if (!realTrackLoopUnitCache.TryGetValue(trackId, out unit))
+            {
+                unit = BuildRealTrackLoopUnit(trackId);
+                realTrackLoopUnitCache[trackId] = unit;
+            }
+
+            if (unit == null)
+            {
+                return null;
+            }
+
+            float margin = mapSize * 0.12f;
+            float draw = mapSize - margin * 2f;
+            Vector2[] mapped = new Vector2[unit.Length];
+            for (int i = 0; i < unit.Length; i++)
+            {
+                mapped[i] = new Vector2(margin + unit[i].x * draw, margin + unit[i].y * draw);
+            }
+
+            return mapped;
+        }
+
+        static Vector2[] BuildRealTrackLoopUnit(string trackId)
+        {
+            if (string.IsNullOrEmpty(trackId) || !F1Game.Track.AuthoredCircuitCatalog.Contains(trackId))
+            {
+                return null;
+            }
+
+            F1Game.Track.TrackDefinitionAsset definition = F1Game.Track.AuthoredCircuitCatalog.Generate(trackId);
+            if (definition == null)
+            {
+                return null;
+            }
+
+            Vector2[] result = null;
+            if (definition.spline != null && definition.spline.Count >= 6)
+            {
+                int n = definition.spline.Count;
+                float minX = float.MaxValue, maxX = float.MinValue, minZ = float.MaxValue, maxZ = float.MinValue;
+                Vector2[] raw = new Vector2[n];
+                for (int i = 0; i < n; i++)
+                {
+                    Vector3 p = definition.spline[i].position;
+                    raw[i] = new Vector2(p.x, p.z);
+                    if (p.x < minX) minX = p.x;
+                    if (p.x > maxX) maxX = p.x;
+                    if (p.z < minZ) minZ = p.z;
+                    if (p.z > maxZ) maxZ = p.z;
+                }
+
+                float spanX = Mathf.Max(1f, maxX - minX);
+                float spanZ = Mathf.Max(1f, maxZ - minZ);
+                float span = Mathf.Max(spanX, spanZ);
+                float offX = (span - spanX) * 0.5f;
+                float offZ = (span - spanZ) * 0.5f;
+                result = new Vector2[n];
+                for (int i = 0; i < n; i++)
+                {
+                    result[i] = new Vector2((raw[i].x - minX + offX) / span, (raw[i].y - minZ + offZ) / span);
+                }
+            }
+
+            // Generate() returns a fresh ScriptableObject instance; release it once
+            // the flat outline is extracted so previews don't leak assets.
+            UnityEngine.Object.Destroy(definition);
+            return result;
         }
 
         void CreatePreviewDot(Transform parent, Vector2 localPoint, float size, Color color)
@@ -4891,17 +4977,7 @@ namespace LocalFormulaRacing
                 overtaking = "Overtaking easy";
             }
 
-            string rain = "";
-            if (raceEvent != null && !string.IsNullOrEmpty(raceEvent.weatherProfile))
-            {
-                string profile = raceEvent.weatherProfile.ToLowerInvariant();
-                if (profile.Contains("wet") || profile.Contains("mixed"))
-                {
-                    rain = "\nRain risk high";
-                }
-            }
-
-            return speed + " · " + wear + "\n" + overtaking + rain;
+            return speed + " · " + wear + "\n" + overtaking;
         }
 
         public void ShowRaceHud(RaceManager race, RaceParticipant player)

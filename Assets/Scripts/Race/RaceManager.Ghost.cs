@@ -98,7 +98,22 @@ namespace LocalFormulaRacing
                 // behaviour, which left a stale lap on track after the player
                 // improved.
                 bool isNewAllTimeBest = TimeTrialGhostStore.TrySaveIfBest(EventData.trackId, storeCandidate);
-                if (ghostController != null && (isNewAllTimeBest || !ghostController.HasLap))
+                // Drive the ON-TRACK ghost off what's actually faster than the
+                // ghost currently on track, NOT off the store's return value
+                // alone (per report - "are you sure the ghost is my all-time
+                // best? the delta shows an OLD fastest lap and won't update").
+                // Both this playback lap and the on-track ghost's lap are trimmed
+                // the same way (ExtractFinalLap), so ghostController.LapTime is an
+                // apples-to-apples reference: adopt whenever this lap beats it (or
+                // there is no ghost yet). This is robust to a stale/corrupt stored
+                // lapTime - a legacy ghost saved with an artificially small
+                // (trimmed) time would otherwise make TrySaveIfBest reject every
+                // genuine new best forever, freezing the on-track ghost and its
+                // delta on an old lap. The store still persists the all-time best
+                // separately (isNewAllTimeBest) for future sessions.
+                bool beatsOnTrackGhost = ghostController == null || !ghostController.HasLap
+                    || playbackCandidate.lapTime < ghostController.LapTime - 0.001f;
+                if (ghostController != null && (isNewAllTimeBest || beatsOnTrackGhost))
                 {
                     ghostController.Initialize(playbackCandidate);
                 }
