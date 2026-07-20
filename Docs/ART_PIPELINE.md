@@ -1,5 +1,14 @@
 # Art pipeline & asset import specification
 
+> **See also `Docs/ArtPipeline/`** — the executable pipeline that implements much
+> of this spec: a headless-Blender procedural asset factory (real GLB modules
+> under `Assets/Art/`), a procedural URP surface library, a licence-aware
+> acquisition tool, a Unity GLB→prefab importer, and a non-destructive
+> procedural track-dressing system. This document remains the target spec for
+> the car and final hero art; the new pipeline fills the modular-environment and
+> surface-library gaps called out below.
+
+
 Everything currently in the repo marked `*_Placeholder` or carrying a
 `PlaceholderArtMarker` component is **not final art**. This document is the
 spec the real assets must meet. Sources: original modelling, properly licensed
