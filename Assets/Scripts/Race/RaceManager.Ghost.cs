@@ -73,7 +73,12 @@ namespace LocalFormulaRacing
             // PLAYBACK copy: reduced to the single final lap, times rebased to that
             // lap's start (see ExtractFinalLap).
             List<GhostSample> playbackSamples = ExtractFinalLap(ghostLastLapBuffer);
-            if (playbackSamples.Count < 2)
+            float playbackLapTime = playbackSamples.Count > 1 ? playbackSamples[playbackSamples.Count - 1].elapsedSeconds : 0f;
+            // Reject a degenerate extraction outright: too few samples, or a lap
+            // that spans no real time (a WrapTime of ~0 would leave the ghost
+            // frozen at the start line). Skipping keeps the previous, moving ghost
+            // instead of swapping in a frozen one.
+            if (playbackSamples.Count < 2 || playbackLapTime < 1f)
             {
                 return;
             }
@@ -81,7 +86,7 @@ namespace LocalFormulaRacing
             GhostLapData playbackCandidate = new GhostLapData
             {
                 trackId = EventData.trackId,
-                lapTime = playbackSamples[playbackSamples.Count - 1].elapsedSeconds,
+                lapTime = playbackLapTime,
                 samples = playbackSamples
             };
 
@@ -138,10 +143,24 @@ namespace LocalFormulaRacing
         // time from that same line) stays in sync.
         List<GhostSample> ExtractFinalLap(List<GhostSample> source)
         {
+            // Find the FINAL lap's start. The lap timer (elapsedSeconds) resets
+            // to ~0 at every valid lap boundary, so a big BACKWARDS jump in time
+            // is the most reliable boundary marker - and, crucially, it strips a
+            // single stale carryover sample. On the frame a lap completes, the
+            // recorder can capture one sample whose elapsedSeconds still holds the
+            // PREVIOUS lap's near-full time (the lap timer only resets a frame
+            // later); if that huge value became the rebase base, every real sample
+            // of the new lap would clamp to 0 and the ghost would sit frozen at
+            // the line (the reported "sometimes the ghost just doesn't move"). A
+            // track-position wrap (distanceAlongLap high -> low) is kept as a
+            // secondary signal for buffers whose loops didn't reset the timer
+            // (invalidated laps that never advanced CompletedLaps).
             int lapStart = 0;
             for (int i = 1; i < source.Count; i++)
             {
-                if (source[i - 1].distanceAlongLap > 0.8f && source[i].distanceAlongLap < 0.2f)
+                bool timeReset = source[i].elapsedSeconds < source[i - 1].elapsedSeconds - 1f;
+                bool posWrap = source[i - 1].distanceAlongLap > 0.8f && source[i].distanceAlongLap < 0.2f;
+                if (timeReset || posWrap)
                 {
                     lapStart = i;
                 }
@@ -153,15 +172,30 @@ namespace LocalFormulaRacing
                 lapStart = 0;
             }
 
-            float baseTime = source[lapStart].elapsedSeconds;
+            // Rebase to the SMALLEST time in the kept range (not just the first
+            // sample's), so the lap always starts at t=0 and no sample can go
+            // negative even if a stale out-of-order sample slipped past the
+            // boundary search above.
+            float baseTime = float.MaxValue;
+            for (int i = lapStart; i < source.Count; i++)
+            {
+                if (source[i].elapsedSeconds < baseTime)
+                {
+                    baseTime = source[i].elapsedSeconds;
+                }
+            }
+
+            if (baseTime == float.MaxValue)
+            {
+                baseTime = 0f;
+            }
+
             List<GhostSample> lap = new List<GhostSample>(source.Count - lapStart);
             for (int i = lapStart; i < source.Count; i++)
             {
                 GhostSample s = source[i];
                 lap.Add(new GhostSample
                 {
-                    // Rebase and clamp: the raw lap time can reset mid-buffer, so a
-                    // pre-lapStart carryover could otherwise go negative.
                     elapsedSeconds = Mathf.Max(0f, s.elapsedSeconds - baseTime),
                     distanceAlongLap = s.distanceAlongLap,
                     position = s.position,
