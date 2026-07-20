@@ -1,0 +1,22 @@
+# Git LFS — large binary art formats introduced by the art pipeline.
+# Run `git lfs install` on the dev machine so these patterns are honoured on new
+# commits. (git-lfs is not installable in the CI/cloud container; the small GLBs
+# committed by the initial kit predate LFS activation and remain plain blobs —
+# `git lfs migrate import --include="*.glb,*.png"` can normalise history later if
+# the binary footprint grows. See Docs/ArtPipeline/PERFORMANCE_BUDGETS.md §Repo.)
+
+*.blend  filter=lfs diff=lfs merge=lfs -text
+*.blend1 filter=lfs diff=lfs merge=lfs -text
+*.fbx    filter=lfs diff=lfs merge=lfs -text
+*.glb    filter=lfs diff=lfs merge=lfs -text
+*.gltf   filter=lfs diff=lfs merge=lfs -text
+*.exr    filter=lfs diff=lfs merge=lfs -text
+*.hdr    filter=lfs diff=lfs merge=lfs -text
+*.tif    filter=lfs diff=lfs merge=lfs -text
+*.tiff   filter=lfs diff=lfs merge=lfs -text
+
+# Normalise line endings for text so cross-platform authoring stays clean.
+*.cs   text diff=csharp
+*.py   text
+*.md   text
+*.json text

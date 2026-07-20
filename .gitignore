@@ -16,3 +16,17 @@
 *.VC.db
 .DS_Store
 
+
+# --- Art pipeline (Docs/ArtPipeline) ---
+# Transient downloads, extracted archives, failed generations, caches.
+Tools/ArtPipeline/downloads/*
+!Tools/ArtPipeline/downloads/.gitkeep
+Tools/ArtPipeline/**/__pycache__/
+*.blend1
+*.pyc
+# Local Python env used by the Blender bpy factory (never commit)
+**/bpyenv/
+# API responses / secrets (never commit)
+.env
+.env.local
+*.apikey
