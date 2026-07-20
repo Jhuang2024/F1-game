@@ -292,6 +292,9 @@ namespace LocalFormulaRacing
         float swerveAmpAggMin, swerveAmpAggMax;      // overtake aggressionOffset
         bool swerveAmpHasSample;
         float swerveAmpLastLog;
+        // Previous frame's measured lateral, for the teleport guard (see below).
+        float swerveAmpPrevLat;
+        bool swerveAmpHasPrevLat;
         // Raw racing-line offset at the steering target, captured from the line block
         // so the amplitude diagnostic can compare it against the car's real motion.
         float lastDrawnOffset;
@@ -3976,6 +3979,7 @@ namespace LocalFormulaRacing
             if (severityHere >= 0.12f)
             {
                 swerveAmpHasSample = false;
+                swerveAmpHasPrevLat = false;
                 swerveAmpWindowStart = Time.time;
                 return;
             }
@@ -4001,6 +4005,25 @@ namespace LocalFormulaRacing
             }
 
             float lat = progress.lateralDistance;
+
+            // Teleport guard: a real car at racing speed physically cannot jump
+            // several metres sideways between two frames. When the matched
+            // centreline snaps to the wrong leg near the start/finish crossing
+            // (the two legs sit at equal elevation there, so the |dy| guard above
+            // does NOT catch it), lateralDistance leaps 10-20m for a single frame
+            // and folding that into the min/max fabricates the impossible 20-25m
+            // "swings" logged at norm ~0.00-0.05 and ~0.90-1.00 while every command
+            // is calm. Reject any frame whose lateral jumped more than a car could
+            // really move in one step; the window keeps its clean samples instead
+            // of being poisoned by the one bad match.
+            if (swerveAmpHasPrevLat && Mathf.Abs(lat - swerveAmpPrevLat) > 2.5f)
+            {
+                return;
+            }
+
+            swerveAmpPrevLat = lat;
+            swerveAmpHasPrevLat = true;
+
             float drawn = hasLastDrawnOffset ? lastDrawnOffset : 0f;
             if (!swerveAmpHasSample)
             {
