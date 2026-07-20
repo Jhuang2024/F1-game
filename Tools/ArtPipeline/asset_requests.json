@@ -1,0 +1,23 @@
+{
+  "_comment": "Declarative asset-acquisition plan. CC0 only, 2K default. Run on the dev machine (Poly Haven / ambientCG are egress-blocked in the cloud container). See Docs/ArtPipeline/ASSET_SOURCING.md.",
+  "_budget_note": "First pass stays under 3 GB; no 8K; 4K only for a justified hero asset.",
+  "polyhaven": [
+    { "slug": "kloofendal_48d_partly_cloudy_puresky", "category": "HDRIs", "resolution": "4k", "cc0_only": true, "purpose": "clear daytime HDRI (hero sky)" },
+    { "slug": "overcast_soil_puresky", "category": "HDRIs", "resolution": "2k", "cc0_only": true, "purpose": "overcast HDRI" },
+    { "slug": "dikhololo_night", "category": "HDRIs", "resolution": "2k", "cc0_only": true, "purpose": "night HDRI" },
+    { "slug": "rock_boulder_dry", "category": "Vegetation", "resolution": "2k", "cc0_only": true, "purpose": "generic terrain rock" },
+    { "slug": "potted_plant_04", "category": "Vegetation", "resolution": "2k", "cc0_only": true, "purpose": "generic shrub" }
+  ],
+  "ambientcg": [
+    { "id": "Asphalt026A", "category": "Materials", "resolution": "2k", "purpose": "clean asphalt" },
+    { "id": "Asphalt025A", "category": "Materials", "resolution": "2k", "purpose": "worn asphalt" },
+    { "id": "Concrete034", "category": "Materials", "resolution": "2k", "purpose": "smooth architectural concrete" },
+    { "id": "Concrete016", "category": "Materials", "resolution": "2k", "purpose": "rough pit-lane concrete" },
+    { "id": "Gravel022", "category": "Materials", "resolution": "2k", "purpose": "gravel runoff" },
+    { "id": "Ground037", "category": "Materials", "resolution": "2k", "purpose": "compacted dirt" },
+    { "id": "Grass004", "category": "Materials", "resolution": "2k", "purpose": "green grass ground" },
+    { "id": "Metal032", "category": "Materials", "resolution": "2k", "purpose": "galvanized metal" },
+    { "id": "Rubber004", "category": "Materials", "resolution": "2k", "purpose": "tire rubber" },
+    { "id": "Rock035", "category": "Materials", "resolution": "2k", "purpose": "generic rock/terrain" }
+  ]
+}
