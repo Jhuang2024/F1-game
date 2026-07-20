@@ -45,6 +45,11 @@ namespace LocalFormulaRacing
         // the field separation this hold exists to provide is preserved.
         float heldLaneOffset;
         bool hasHeldLane;
+        // Rate-limited NET lateral target for the unified straight-line governor
+        // (see where requestedOffset is finalised). Kept as controller state so a
+        // car eases across the road once rather than snapping between whatever the
+        // line/lane/overtake inputs happen to sum to frame-to-frame.
+        float smoothedNetOffset;
         // Sustained clear-air time, so the held lane is STICKY: it is only dropped
         // (and thus re-latched to a fresh live position next time traffic appears)
         // after the car has been in genuine clear air for a while. Without this the
@@ -2081,6 +2086,43 @@ namespace LocalFormulaRacing
             // - see the comment above pitEntryTargetPoint for why the old
             // offset-based approach could disagree with the real ramp geometry by
             // tens of metres.
+            // ===== Unified straight-line lateral governor =====
+            // ONE place that bounds every source of lateral motion on a straight -
+            // racing line, traffic lane-hold, overtake offset, wobble and mistake
+            // steer all funnel through requestedOffset, so governing it here catches
+            // all of them at once instead of tuning each contributor separately.
+            // Two guarantees on a genuine straight (severity ~0):
+            //   1. CLAMP the net target to a safe band well inside the walls, so no
+            //      combination of inputs can ever aim a car at a barrier.
+            //   2. RATE-LIMIT how fast that target moves, so a car eases to one side
+            //      once instead of weaving back and forth (the wall-to-wall swing
+            //      the [SwerveDiag amplitude] pass kept reporting).
+            // Both fade out as a corner approaches (straightness -> 0), so corner
+            // turn-in and apex lines keep full authority. The rate limit acts on the
+            // TARGET offset (kinematic), never inside the steering feedback loop, so
+            // unlike a steer-side slew limiter it can never induce its own
+            // oscillation. A car actively committed to a pass keeps a wider band so
+            // genuine overtakes still have room to go side-by-side.
+            float straightness = 1f - Mathf.Clamp01(severityHere / 0.12f);
+            if (straightness > 0f && !committingToPit)
+            {
+                bool committedPass = overtakeState == OvertakeState.AttackingInside
+                    || overtakeState == OvertakeState.AttackingOutside
+                    || overtakeState == OvertakeState.SideBySide
+                    || overtakeState == OvertakeState.CompletingPass;
+                float safeBand = Mathf.Lerp(legalLimit, committedPass ? 5f : 3f, straightness);
+                requestedOffset = Mathf.Clamp(requestedOffset, -safeBand, safeBand);
+                float netSlew = Mathf.Max(1.5f, speedKph / 3.6f * 0.07f);
+                smoothedNetOffset = Mathf.MoveTowards(smoothedNetOffset, requestedOffset, Time.deltaTime * netSlew);
+                requestedOffset = Mathf.Lerp(requestedOffset, smoothedNetOffset, straightness);
+            }
+            else
+            {
+                // Keep the smoothed state tracking the live target through corners so
+                // it re-engages seamlessly when the next straight arrives.
+                smoothedNetOffset = requestedOffset;
+            }
+
             if (committingToPit)
             {
                 targetPoint = pitEntryTargetPoint;
