@@ -2274,7 +2274,8 @@ namespace LocalFormulaRacing
             // editor assets, no catalog, no menu commands. Internally guarded so it
             // can never break the race.
             F1Game.Art.RuntimeTrackArt.Activate(
-                transform, activeTrackDefinition, Runtime != null ? Runtime.trackId : trackId, nightTrack);
+                transform, Runtime, activeTrackDefinition,
+                Runtime != null ? Runtime.trackId : trackId, nightTrack);
 
             return Runtime;
         }
