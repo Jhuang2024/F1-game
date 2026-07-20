@@ -45,6 +45,14 @@ namespace LocalFormulaRacing
         // the field separation this hold exists to provide is preserved.
         float heldLaneOffset;
         bool hasHeldLane;
+        // Sustained clear-air time, so the held lane is STICKY: it is only dropped
+        // (and thus re-latched to a fresh live position next time traffic appears)
+        // after the car has been in genuine clear air for a while. Without this the
+        // lane re-latched every time the traffic blend briefly dipped in a dense
+        // pack, capturing wherever the car happened to be - a wall-ward, mid-swing
+        // position - which flipped the target side to side and drove the big
+        // straight-line lineBias weave the [SwerveDiag amplitude] pass reported.
+        float laneClearAirTimer;
         // Previous-frame lateral offset, for the wall-aversion system's
         // trajectory (time-to-edge) computation.
         float previousEdgeLateral;
@@ -1870,7 +1878,14 @@ namespace LocalFormulaRacing
                 // to confirm. Pulling the straight-line target to a third of the
                 // authored offset can only reduce lateral motion where severity ~ 0,
                 // and the Lerp still restores the full line before any corner.
-                float straightTrim = Mathf.Lerp(0.35f, 1f, Mathf.Clamp01(severityHere / 0.09f));
+                // Floor 0.35 -> 0.22 and range widened /0.09 -> /0.12 ([SwerveDiag
+                // amplitude] still flagged RACING LINE swings of 4-7m on sections it
+                // classifies as straight, i.e. severity < 0.12). Pulling the drawn
+                // offset to ~a fifth of its authored value across the whole straight
+                // band keeps cars near centre where there is no corner to shape; the
+                // Lerp still restores the full authored line by severity 0.12, before
+                // any real corner turn-in.
+                float straightTrim = Mathf.Lerp(0.22f, 1f, Mathf.Clamp01(severityHere / 0.12f));
                 float optimalPursuit = drawnOffset * 0.94f * straightTrim + apexMissNoise * 0.4f;
                 // Latched holding lane (see heldLaneOffset): the target the car
                 // holds in traffic is a STABLE captured lane, not its live position.
@@ -1880,7 +1895,14 @@ namespace LocalFormulaRacing
                 // traffic first appears and drop it in clear air; clamp so it can
                 // never hold at the wall (a lane, not the barrier). The overtake
                 // state machine's aggressionOffset still layers tactical moves on top.
-                float laneCap = Mathf.Min(bound, 5.5f);
+                // Lane cap tightened 5.5 -> 2.5m ([SwerveDiag amplitude]: the held
+                // lane latching near +/-5.5m and flipping sign was the dominant
+                // straight-line weave, swinging lineBias ~11m peak-to-peak and
+                // shoving cars toward the walls). A +/-2.5m spread still de-stacks
+                // the field off the single racing line, but keeps the hold well
+                // clear of the barriers; the overtake state machine's aggression
+                // offset still layers real tactical moves on top for actual passes.
+                float laneCap = Mathf.Min(bound, 2.5f);
                 if (lineTrafficBlend > 0.05f)
                 {
                     if (!hasHeldLane)
@@ -1888,10 +1910,20 @@ namespace LocalFormulaRacing
                         heldLaneOffset = Mathf.Clamp(progress.lateralDistance, -laneCap, laneCap);
                         hasHeldLane = true;
                     }
+
+                    laneClearAirTimer = 0f;
                 }
                 else
                 {
-                    hasHeldLane = false;
+                    // Sticky release: keep the captured lane through brief traffic-
+                    // blend dips (constant in a dense pack) and only drop it after
+                    // sustained clear air, so the car does not re-latch a new,
+                    // possibly wall-ward lane every time a gap flickers open.
+                    laneClearAirTimer += Time.deltaTime;
+                    if (laneClearAirTimer > 3f)
+                    {
+                        hasHeldLane = false;
+                    }
                 }
 
                 float laneHold = hasHeldLane ? heldLaneOffset : progress.lateralDistance;
