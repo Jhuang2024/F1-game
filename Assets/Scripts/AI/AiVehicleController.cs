@@ -254,6 +254,16 @@ namespace LocalFormulaRacing
         // amplitude - the thing a low-pass or slew limiter alone can't touch.
         Vector3 swerveHeadingPrev;
         bool swerveHeadingHasRef;
+        // Low-passed yaw rate for the straight-line damper. Differentiating the
+        // heading frame-to-frame (SignedAngle/dt) is inherently noisy - the
+        // rigidbody heading jitters a fraction of a degree every physics step,
+        // and feeding that raw derivative straight into an un-rate-limited steer
+        // (which is where the previous "yaw damp after the slew limiter" version
+        // put it) injects that jitter as high-frequency steer CHATTER - the
+        // steer=30-56 reversals/2s the diagnostic kept reporting. Smoothing the
+        // yaw rate first keeps the genuine low-frequency damping while throwing
+        // the per-step noise away, so the damper stops being an oscillation source.
+        float smoothedYawRateDeg;
         // [SwerveDiag amplitude] The reversal counter above catches high-frequency
         // steer CHATTER, but the swerve that crashes the player into a wall is a
         // large, slow lateral EXCURSION (the car drifting most of the road width and
@@ -2305,7 +2315,33 @@ namespace LocalFormulaRacing
             // untuned, and it leaves low-speed hairpin turn-in at full strength.
             float highSpeedGainScale = Mathf.Lerp(1f, 0.6f, Mathf.Clamp01((speedKph - 260f) / 100f));
             float pursuitGain = Mathf.Lerp(2.2f, 1.1f, pursuitStraightness) * highSpeedGainScale;
-            command.steer = Mathf.Clamp(localSteer * pursuitGain + edgeRecovery, -1f, 1f);
+            float pursuitSteer = localSteer * pursuitGain;
+            // Straight-line steer DEADBAND - the actual cure for the "no target
+            // moved - pursuit/slew/yaw limit cycle" the amplitude diagnostic kept
+            // pinning. Every prior attempt (slew limiter, gain schedule, yaw damp
+            // before AND after the slew limiter) tried to DAMP the hunt after it
+            // had already started; none removed its SOURCE. On a dead straight the
+            // pursuit error is ~0, so the loop hunts back and forth across zero
+            // steer forever - a classic proportional-controller limit cycle. A
+            // deadband removes the error signal itself below a small threshold:
+            // with no command to overshoot, there is nothing to reverse, so the
+            // cycle cannot sustain. It is sized to a few metres of lateral slack
+            // (steer ~= gain * lateralError / lookahead), scales to zero the
+            // instant the road curves (pursuitStraightness -> 0) so genuine corner
+            // turn-in keeps full authority, and is applied only to the pursuit
+            // term - the wall-aversion edgeRecovery below is deliberately outside
+            // it so a real save is never deadbanded. Monotone-safe: a deadband can
+            // only ever REDUCE steering activity, never introduce it.
+            // Pure soft deadband: sign(x) * max(0, |x| - db). Continuous
+            // everywhere (no snap at the band edge), it just shifts the response
+            // so tiny straight-line commands collapse to zero while genuine
+            // steering past the band keeps (magnitude - db) of its authority.
+            float steerDeadband = Mathf.Lerp(0f, 0.06f, pursuitStraightness);
+            if (steerDeadband > 0.0001f)
+            {
+                pursuitSteer = Mathf.Sign(pursuitSteer) * Mathf.Max(0f, Mathf.Abs(pursuitSteer) - steerDeadband);
+            }
+            command.steer = Mathf.Clamp(pursuitSteer + edgeRecovery, -1f, 1f);
 
             // Straight-line yaw-rate damping (see swerveHeadingPrev): oppose the
             // measured rotation on a straight, where any yaw IS the shimmy. Scaled
@@ -2331,8 +2367,15 @@ namespace LocalFormulaRacing
                 flatForward.Normalize();
                 if (swerveHeadingHasRef && Time.deltaTime > 0.0001f && edgeUrgency <= 0f)
                 {
-                    float yawRateDegPerSec = Vector3.SignedAngle(swerveHeadingPrev, flatForward, Vector3.up) / Time.deltaTime;
-                    yawDampSteer = yawRateDegPerSec * 0.006f * pursuitStraightness;
+                    float rawYawRateDeg = Vector3.SignedAngle(swerveHeadingPrev, flatForward, Vector3.up) / Time.deltaTime;
+                    // Low-pass the yaw rate before it drives the steer. The raw
+                    // per-frame derivative carries the rigidbody's heading jitter,
+                    // and feeding that straight into an un-rate-limited steer was
+                    // itself a chatter source; smoothing keeps the genuine
+                    // low-frequency yaw (the weave) and discards the per-step noise.
+                    float yawSmooth = 1f - Mathf.Exp(-Time.deltaTime / 0.08f);
+                    smoothedYawRateDeg = Mathf.Lerp(smoothedYawRateDeg, rawYawRateDeg, yawSmooth);
+                    yawDampSteer = smoothedYawRateDeg * 0.006f * pursuitStraightness;
                 }
 
                 swerveHeadingPrev = flatForward;
