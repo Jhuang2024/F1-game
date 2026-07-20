@@ -58,40 +58,54 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            List<GhostSample> lapSamples = TrimGhostStandingStart(ghostLastLapBuffer);
-            if (lapSamples.Count < 2)
+            // STORE the faithful lap - real (untrimmed) lapTime and samples - so the
+            // "is this a new best?" comparison is always official-time vs
+            // official-time. Trimming only happens for PLAYBACK (below and on load),
+            // so a lap that merely lacks a standing start can never masquerade as
+            // faster than a genuinely quicker lap that had one.
+            GhostLapData storeCandidate = new GhostLapData
+            {
+                trackId = EventData.trackId,
+                lapTime = lapTime,
+                samples = new List<GhostSample>(ghostLastLapBuffer)
+            };
+
+            // PLAYBACK copy: standing start trimmed, times rebased so it launches at
+            // t=0 (see TrimGhostStandingStart).
+            List<GhostSample> playbackSamples = TrimGhostStandingStart(ghostLastLapBuffer);
+            if (playbackSamples.Count < 2)
             {
                 return;
             }
 
-            GhostLapData candidate = new GhostLapData
+            GhostLapData playbackCandidate = new GhostLapData
             {
                 trackId = EventData.trackId,
-                // The ghost is a driving reference, so its playback duration is the
-                // TRIMMED (moving) span, not the raw lap time that may include a
-                // standing start. The official lap record (PlayerRecordsStore /
-                // BestLapTime) is untouched - it still holds the real lapTime arg.
-                lapTime = lapSamples[lapSamples.Count - 1].elapsedSeconds,
-                samples = lapSamples
+                lapTime = playbackSamples[playbackSamples.Count - 1].elapsedSeconds,
+                samples = playbackSamples
             };
 
             int ghostMode = Settings != null ? Settings.Current.ghostMode : 0;
             if (ghostMode == 2)
             {
-                TimeTrialGhostStore.TrySaveIfBest(EventData.trackId, candidate);
-                // First lap on a track with no saved ghost: adopt it live so the
-                // player has something to chase THIS session instead of only next
-                // time they enter. Once a ghost exists (loaded from the store at
-                // spawn), all-time mode keeps it as a stable target - HasLap is
-                // already true, so this never swaps a loaded ghost mid-session.
-                if (ghostController != null && !ghostController.HasLap)
+                // All-time mode: the on-track ghost should always BE the all-time
+                // best (per report - "the ghost should be my all time best... and
+                // it's not"). TrySaveIfBest returns true only when this lap beat the
+                // stored best, i.e. it IS the new all-time best - so swap the live
+                // ghost to it then. Also adopt when the ghost has no lap yet (first
+                // lap on a fresh track). A slower lap leaves the better stored ghost
+                // in place. This replaces the old "stable target, never swap"
+                // behaviour, which left a stale lap on track after the player
+                // improved.
+                bool isNewAllTimeBest = TimeTrialGhostStore.TrySaveIfBest(EventData.trackId, storeCandidate);
+                if (ghostController != null && (isNewAllTimeBest || !ghostController.HasLap))
                 {
-                    ghostController.Initialize(candidate);
+                    ghostController.Initialize(playbackCandidate);
                 }
             }
             else if (ghostMode == 1 && ghostController != null)
             {
-                ghostController.Initialize(candidate);
+                ghostController.Initialize(playbackCandidate);
             }
         }
 
@@ -242,9 +256,20 @@ namespace LocalFormulaRacing
             }
 
             ghostController = ghostCarObject.AddComponent<GhostCarController>();
-            if (stored != null)
+            if (stored != null && stored.samples != null && stored.samples.Count > 1)
             {
-                ghostController.Initialize(stored);
+                // Trim on load too: a ghost saved before the standing-start trim
+                // existed (or any lap that began stationary) would otherwise sit at
+                // the line for its first several seconds and "appear" only once it
+                // started moving - the reported "it randomly spawns when I'm 10s in".
+                List<GhostSample> trimmed = TrimGhostStandingStart(stored.samples);
+                GhostLapData loaded = new GhostLapData
+                {
+                    trackId = stored.trackId,
+                    lapTime = trimmed.Count > 1 ? trimmed[trimmed.Count - 1].elapsedSeconds : stored.lapTime,
+                    samples = trimmed
+                };
+                ghostController.Initialize(loaded);
             }
 
             if (Track != null)
