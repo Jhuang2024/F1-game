@@ -512,10 +512,14 @@ namespace LocalFormulaRacing
                     // ceiling. Tier ordering and character preserved.
                     brakeDistanceMultiplier = 0.96f,
                     minimumCornerSpeedConfidence = 0.90f,
-                    apexErrorMeters = 1.1f,
+                    // Error-reduction pass (per request - "decrease the number of
+                    // errors AI make by a lot across all difficulty levels"). Apex
+                    // error, line wander and the mistake-roll below are all cut
+                    // hard at every tier so the field drives cleanly (was 1.1).
+                    apexErrorMeters = 0.6f,
                     throttleDelay = 0.18f,
                     exitThrottleConfidence = 0.90f,
-                    lineOffsetNoise = 0.6f,
+                    lineOffsetNoise = 0.32f, // Error-reduction pass (was 0.6).
                     // Reaction-time buff: explicit per-tier target ranges requested
                     // (Easy 0.4-0.6 / Medium 0.3-0.4 / Hard 0.25-0.3 / Expert 0.2-0.25) -
                     // round 1's uniform nerf (was 0.85/0.55/0.32/0.11) overshot,
@@ -525,7 +529,7 @@ namespace LocalFormulaRacing
                     defendCommitment = 0.30f,
                     ersDeploymentQuality = 0.70f,
                     drsUsageQuality = 0.80f,
-                    mistakeChancePerLap = 0.08f,
+                    mistakeChancePerLap = 0.025f, // Error-reduction pass (was 0.08).
                     // Aggression pass (per request): every tier's caution cut so AI
                     // race for position instead of yielding it (was 1.35).
                     trafficAvoidanceCaution = 1.1f,
@@ -553,7 +557,7 @@ namespace LocalFormulaRacing
                     // Difficulty raise round 3: see the Easy block note.
                     brakeDistanceMultiplier = 1.01f,
                     minimumCornerSpeedConfidence = 0.975f,
-                    apexErrorMeters = 0.5f,
+                    apexErrorMeters = 0.28f, // Error-reduction pass (was 0.5).
                     // Corner-speed pass 3: Medium should stay clearly more
                     // cautious than Hard/Expert but shouldn't read as broken -
                     // a slightly quicker exit pickup (was 0.30/0.78).
@@ -562,7 +566,7 @@ namespace LocalFormulaRacing
                     // lift (was 0.82/1.00/1.00) - "decent, not broken", nowhere near
                     // the Hard/Expert jump below.
                     exitThrottleConfidence = 0.97f,
-                    lineOffsetNoise = 0.3f,
+                    lineOffsetNoise = 0.18f, // Error-reduction pass (was 0.3).
                     reactionTimeSeconds = 0.31f,
                     // Natural-difficulty pass (see Hard): a smaller racecraft lift so
                     // Medium fights a little harder for position while staying clearly
@@ -571,7 +575,7 @@ namespace LocalFormulaRacing
                     defendCommitment = 0.63f,
                     ersDeploymentQuality = 0.88f,
                     drsUsageQuality = 0.94f,
-                    mistakeChancePerLap = 0.04f,
+                    mistakeChancePerLap = 0.013f, // Error-reduction pass (was 0.04).
                     // Aggression pass (per request): was 1.05.
                     trafficAvoidanceCaution = 0.85f,
                     wetWeatherCaution = 1.2f,
@@ -614,14 +618,14 @@ namespace LocalFormulaRacing
                     // the new skillTier blend so Hard is now clearly quicker than
                     // Medium through medium/fast corners, not just a hair sharper.
                     minimumCornerSpeedConfidence = 0.997f,
-                    apexErrorMeters = 0.22f,
+                    apexErrorMeters = 0.14f, // Error-reduction pass (was 0.22).
                     // Cornering buff round 5: exit hesitation shortened again (was
                     // 0.10) and exit confidence raised again (was 0.95) - "pick up
                     // throttle earlier on exit" was as much about this as the
                     // apex-speed floors themselves.
                     throttleDelay = 0.035f,
                     exitThrottleConfidence = 0.993f,
-                    lineOffsetNoise = 0.16f,
+                    lineOffsetNoise = 0.1f, // Error-reduction pass (was 0.16).
                     // Natural-difficulty pass ([PaceDiag] - the AI's raw PACE is
                     // already competitive with a skilled human on this circuit, and
                     // 41 rounds of pace/corner-speed cranking have saturated against
@@ -643,7 +647,7 @@ namespace LocalFormulaRacing
                     // and there are 21 AI cars - so even a low per-car rate reads
                     // as a constant stream of field-wide errors. Hard should look
                     // clean; a genuine slip stays possible but rare.
-                    mistakeChancePerLap = 0.005f,
+                    mistakeChancePerLap = 0.0018f, // Error-reduction pass (was 0.005).
                     // Aggression pass (per request): was 0.82.
                     // Natural-difficulty pass: trimmed again (0.62 -> 0.56) so Hard
                     // holds its line in a fight and makes the player find a way past,
@@ -699,10 +703,10 @@ namespace LocalFormulaRacing
                 // Cornering buff round 5: pushed to the practical ceiling (was
                 // 0.995) - Expert should show essentially zero entry hesitation.
                 minimumCornerSpeedConfidence = 0.999f,
-                apexErrorMeters = 0.10f,
+                apexErrorMeters = 0.06f, // Error-reduction pass (was 0.10).
                 throttleDelay = 0.025f,
                 exitThrottleConfidence = 0.997f,
-                lineOffsetNoise = 0.09f,
+                lineOffsetNoise = 0.06f, // Error-reduction pass (was 0.09).
                 // Natural-difficulty pass (see the Hard block): pace is saturated at
                 // the caps, so Expert is sharpened as a racer instead - near-instant
                 // reaction and near-maximal attack/defend commitment, so it hounds the
@@ -715,7 +719,7 @@ namespace LocalFormulaRacing
                 drsUsageQuality = 0.98f,
                 // Cut 0.002 -> 0.0008 alongside the Hard reduction: Expert should
                 // be the cleanest field on the grid, essentially error-free.
-                mistakeChancePerLap = 0.0008f,
+                mistakeChancePerLap = 0.0003f, // Error-reduction pass (was 0.0008).
                 // Aggression pass (per request): was 0.42.
                 // Natural-difficulty pass: trimmed (0.32 -> 0.27) so Expert commits to
                 // holding its line, still leaving a genuine racing margin.
