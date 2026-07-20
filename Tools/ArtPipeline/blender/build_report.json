@@ -1,0 +1,291 @@
+{
+  "assets": [
+    {
+      "name": "Barrier_Armco_4m",
+      "category": "Track/Barriers",
+      "file": "/home/user/F1-game/Assets/Art/Track/Barriers/Barrier_Armco_4m.glb",
+      "lod0_tris": 92,
+      "lods": 3,
+      "collision_tris": 44,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=8032",
+      "rel": "Assets/Art/Track/Barriers/Barrier_Armco_4m.glb"
+    },
+    {
+      "name": "Barrier_Concrete_3m",
+      "category": "Track/Barriers",
+      "file": "/home/user/F1-game/Assets/Art/Track/Barriers/Barrier_Concrete_3m.glb",
+      "lod0_tris": 36,
+      "lods": 3,
+      "collision_tris": 28,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=7420",
+      "rel": "Assets/Art/Track/Barriers/Barrier_Concrete_3m.glb"
+    },
+    {
+      "name": "Barrier_Tecpro_1m",
+      "category": "Track/Barriers",
+      "file": "/home/user/F1-game/Assets/Art/Track/Barriers/Barrier_Tecpro_1m.glb",
+      "lod0_tris": 100,
+      "lods": 3,
+      "collision_tris": 28,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=15752",
+      "rel": "Assets/Art/Track/Barriers/Barrier_Tecpro_1m.glb"
+    },
+    {
+      "name": "Barrier_TireWall_2m",
+      "category": "Track/Barriers",
+      "file": "/home/user/F1-game/Assets/Art/Track/Barriers/Barrier_TireWall_2m.glb",
+      "lod0_tris": 468,
+      "lods": 3,
+      "collision_tris": 64,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=19332",
+      "rel": "Assets/Art/Track/Barriers/Barrier_TireWall_2m.glb"
+    },
+    {
+      "name": "Fence_Post_3m",
+      "category": "Track/Fencing",
+      "file": "/home/user/F1-game/Assets/Art/Track/Fencing/Fence_Post_3m.glb",
+      "lod0_tris": 48,
+      "lods": 3,
+      "collision_tris": 40,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=5564",
+      "rel": "Assets/Art/Track/Fencing/Fence_Post_3m.glb"
+    },
+    {
+      "name": "Fence_CatchPanel_5m",
+      "category": "Track/Fencing",
+      "file": "/home/user/F1-game/Assets/Art/Track/Fencing/Fence_CatchPanel_5m.glb",
+      "lod0_tris": 72,
+      "lods": 3,
+      "collision_tris": 20,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=12452",
+      "rel": "Assets/Art/Track/Fencing/Fence_CatchPanel_5m.glb"
+    },
+    {
+      "name": "Fence_Gate_3m",
+      "category": "Track/Fencing",
+      "file": "/home/user/F1-game/Assets/Art/Track/Fencing/Fence_Gate_3m.glb",
+      "lod0_tris": 48,
+      "lods": 3,
+      "collision_tris": 12,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=9792",
+      "rel": "Assets/Art/Track/Fencing/Fence_Gate_3m.glb"
+    },
+    {
+      "name": "Kerb_Painted_4m",
+      "category": "Track/Curbs",
+      "file": "/home/user/F1-game/Assets/Art/Track/Curbs/Kerb_Painted_4m.glb",
+      "lod0_tris": 164,
+      "lods": 3,
+      "collision_tris": 16,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=29148",
+      "rel": "Assets/Art/Track/Curbs/Kerb_Painted_4m.glb"
+    },
+    {
+      "name": "Kerb_Sausage_1m",
+      "category": "Track/Curbs",
+      "file": "/home/user/F1-game/Assets/Art/Track/Curbs/Kerb_Sausage_1m.glb",
+      "lod0_tris": 60,
+      "lods": 3,
+      "collision_tris": 60,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=6284",
+      "rel": "Assets/Art/Track/Curbs/Kerb_Sausage_1m.glb"
+    },
+    {
+      "name": "Kerb_Flat_4m",
+      "category": "Track/Curbs",
+      "file": "/home/user/F1-game/Assets/Art/Track/Curbs/Kerb_Flat_4m.glb",
+      "lod0_tris": 82,
+      "lods": 3,
+      "collision_tris": 12,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=17800",
+      "rel": "Assets/Art/Track/Curbs/Kerb_Flat_4m.glb"
+    },
+    {
+      "name": "Track_Drain_2m",
+      "category": "Track/Curbs",
+      "file": "/home/user/F1-game/Assets/Art/Track/Curbs/Track_Drain_2m.glb",
+      "lod0_tris": 132,
+      "lods": 3,
+      "collision_tris": 20,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=19468",
+      "rel": "Assets/Art/Track/Curbs/Track_Drain_2m.glb"
+    },
+    {
+      "name": "Pit_Wall_4m",
+      "category": "PitLane",
+      "file": "/home/user/F1-game/Assets/Art/PitLane/Pit_Wall_4m.glb",
+      "lod0_tris": 24,
+      "lods": 3,
+      "collision_tris": 20,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=8444",
+      "rel": "Assets/Art/PitLane/Pit_Wall_4m.glb"
+    },
+    {
+      "name": "Pit_GarageBay_6m",
+      "category": "PitLane",
+      "file": "/home/user/F1-game/Assets/Art/PitLane/Pit_GarageBay_6m.glb",
+      "lod0_tris": 60,
+      "lods": 3,
+      "collision_tris": 36,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=13304",
+      "rel": "Assets/Art/PitLane/Pit_GarageBay_6m.glb"
+    },
+    {
+      "name": "Pit_GarageDoor_6m",
+      "category": "PitLane",
+      "file": "/home/user/F1-game/Assets/Art/PitLane/Pit_GarageDoor_6m.glb",
+      "lod0_tris": 108,
+      "lods": 3,
+      "collision_tris": 20,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=17492",
+      "rel": "Assets/Art/PitLane/Pit_GarageDoor_6m.glb"
+    },
+    {
+      "name": "Struct_StartGantry_16m",
+      "category": "Props",
+      "file": "/home/user/F1-game/Assets/Art/Props/Struct_StartGantry_16m.glb",
+      "lod0_tris": 536,
+      "lods": 3,
+      "collision_tris": 52,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=55828",
+      "rel": "Assets/Art/Props/Struct_StartGantry_16m.glb"
+    },
+    {
+      "name": "Struct_TimingGantry_14m",
+      "category": "Props",
+      "file": "/home/user/F1-game/Assets/Art/Props/Struct_TimingGantry_14m.glb",
+      "lod0_tris": 48,
+      "lods": 3,
+      "collision_tris": 28,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=11120",
+      "rel": "Assets/Art/Props/Struct_TimingGantry_14m.glb"
+    },
+    {
+      "name": "Prop_BrakingBoard",
+      "category": "Props",
+      "file": "/home/user/F1-game/Assets/Art/Props/Prop_BrakingBoard.glb",
+      "lod0_tris": 40,
+      "lods": 3,
+      "collision_tris": 30,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=10788",
+      "rel": "Assets/Art/Props/Prop_BrakingBoard.glb"
+    },
+    {
+      "name": "Prop_MarshalPost",
+      "category": "Props",
+      "file": "/home/user/F1-game/Assets/Art/Props/Prop_MarshalPost.glb",
+      "lod0_tris": 84,
+      "lods": 3,
+      "collision_tris": 24,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=18008",
+      "rel": "Assets/Art/Props/Prop_MarshalPost.glb"
+    },
+    {
+      "name": "Struct_CameraTower_6m",
+      "category": "Props",
+      "file": "/home/user/F1-game/Assets/Art/Props/Struct_CameraTower_6m.glb",
+      "lod0_tris": 84,
+      "lods": 3,
+      "collision_tris": 32,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=16748",
+      "rel": "Assets/Art/Props/Struct_CameraTower_6m.glb"
+    },
+    {
+      "name": "Struct_LightTower_10m",
+      "category": "Props",
+      "file": "/home/user/F1-game/Assets/Art/Props/Struct_LightTower_10m.glb",
+      "lod0_tris": 120,
+      "lods": 3,
+      "collision_tris": 32,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=19796",
+      "rel": "Assets/Art/Props/Struct_LightTower_10m.glb"
+    },
+    {
+      "name": "Prop_SpeakerPole_5m",
+      "category": "Props",
+      "file": "/home/user/F1-game/Assets/Art/Props/Prop_SpeakerPole_5m.glb",
+      "lod0_tris": 52,
+      "lods": 3,
+      "collision_tris": 44,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=12844",
+      "rel": "Assets/Art/Props/Prop_SpeakerPole_5m.glb"
+    },
+    {
+      "name": "Struct_PedBridge_14m",
+      "category": "Props",
+      "file": "/home/user/F1-game/Assets/Art/Props/Struct_PedBridge_14m.glb",
+      "lod0_tris": 60,
+      "lods": 3,
+      "collision_tris": 28,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=13992",
+      "rel": "Assets/Art/Props/Struct_PedBridge_14m.glb"
+    },
+    {
+      "name": "Struct_Grandstand_12m",
+      "category": "Grandstands",
+      "file": "/home/user/F1-game/Assets/Art/Grandstands/Struct_Grandstand_12m.glb",
+      "lod0_tris": 276,
+      "lods": 3,
+      "collision_tris": 48,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=32396",
+      "rel": "Assets/Art/Grandstands/Struct_Grandstand_12m.glb"
+    },
+    {
+      "name": "Prop_GuardHut",
+      "category": "Props",
+      "file": "/home/user/F1-game/Assets/Art/Props/Prop_GuardHut.glb",
+      "lod0_tris": 36,
+      "lods": 3,
+      "collision_tris": 20,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=10796",
+      "rel": "Assets/Art/Props/Prop_GuardHut.glb"
+    },
+    {
+      "name": "Prop_UtilityCabinet",
+      "category": "Props",
+      "file": "/home/user/F1-game/Assets/Art/Props/Prop_UtilityCabinet.glb",
+      "lod0_tris": 24,
+      "lods": 3,
+      "collision_tris": 20,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=8896",
+      "rel": "Assets/Art/Props/Prop_UtilityCabinet.glb"
+    },
+    {
+      "name": "Prop_MaintenanceCart",
+      "category": "Props",
+      "file": "/home/user/F1-game/Assets/Art/Props/Prop_MaintenanceCart.glb",
+      "lod0_tris": 200,
+      "lods": 3,
+      "collision_tris": 56,
+      "valid": true,
+      "validation": "ok meshes=4 nodes=4 bytes=29428",
+      "rel": "Assets/Art/Props/Prop_MaintenanceCart.glb"
+    }
+  ],
+  "art_root": "/home/user/F1-game/Assets/Art"
+}

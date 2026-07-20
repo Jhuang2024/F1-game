@@ -1,0 +1,206 @@
+{
+  "generator": "procedural (CC0-equivalent, project-owned)",
+  "note": "substitute for egress-blocked CC0 CDNs; upgradeable to 2K downloads via fetch_assets.py on the dev machine",
+  "surfaces": [
+    {
+      "surface": "asphalt_clean",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/asphalt_clean"
+    },
+    {
+      "surface": "asphalt_worn",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/asphalt_worn"
+    },
+    {
+      "surface": "asphalt_patched",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/asphalt_patched"
+    },
+    {
+      "surface": "concrete_pit",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/concrete_pit"
+    },
+    {
+      "surface": "concrete_smooth",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/concrete_smooth"
+    },
+    {
+      "surface": "gravel",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/gravel"
+    },
+    {
+      "surface": "grass_green",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/grass_green"
+    },
+    {
+      "surface": "grass_dry",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/grass_dry"
+    },
+    {
+      "surface": "curb_paint",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/curb_paint"
+    },
+    {
+      "surface": "road_paint",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/road_paint"
+    },
+    {
+      "surface": "metal_painted",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/metal_painted"
+    },
+    {
+      "surface": "metal_galvanised",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/metal_galvanised"
+    },
+    {
+      "surface": "metal_brushed",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/metal_brushed"
+    },
+    {
+      "surface": "rubber",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/rubber"
+    },
+    {
+      "surface": "rubber_marbles",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/rubber_marbles"
+    },
+    {
+      "surface": "carbon_weave",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/carbon_weave"
+    },
+    {
+      "surface": "glass",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/glass"
+    },
+    {
+      "surface": "wire_mesh",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/wire_mesh"
+    },
+    {
+      "surface": "dirt_compacted",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/dirt_compacted"
+    },
+    {
+      "surface": "rock",
+      "resolution": 1024,
+      "maps": [
+        "BaseColor",
+        "Normal",
+        "MaskMap"
+      ],
+      "dir": "Assets/Art/Materials/rock"
+    }
+  ]
+}
