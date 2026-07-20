@@ -16,12 +16,6 @@ namespace LocalFormulaRacing
         {
             if (PlayerParticipant == null || PlayerParticipant.lapTracker == null || EventData == null)
             {
-                if (IsTimeTrial)
-                {
-                    Debug.LogWarning("[GhostDiag] TrackPlayerBestLapRecord early-out: player=" +
-                        (PlayerParticipant != null) + " lapTracker=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null) +
-                        " eventData=" + (EventData != null));
-                }
                 return;
             }
 
@@ -30,10 +24,6 @@ namespace LocalFormulaRacing
             {
                 return;
             }
-
-            Debug.LogWarning("[GhostDiag] NEW BEST detected best=" + best.ToString("0.000") +
-                " (prev=" + lastRecordedPlayerBestLap.ToString("0.000") + ") -> promoting; lastLapBuf=" +
-                ghostLastLapBuffer.Count + " liveBuf=" + ghostRecordingBuffer.Count);
 
             lastRecordedPlayerBestLap = best;
             string context = IsTimeTrial ? "Time Trial" : (CurrentSession == RaceWeekendSession.Qualifying ? "Qualifying" : "Race");
@@ -65,23 +55,27 @@ namespace LocalFormulaRacing
             // so the completed lap's samples live only in the snapshot now.
             if (!IsTimeTrial || EventData == null || ghostLastLapBuffer.Count < 2)
             {
-                Debug.LogWarning("[GhostDiag] Promote BAILED: isTT=" + IsTimeTrial +
-                    " eventData=" + (EventData != null) + " lastLapBuf=" + ghostLastLapBuffer.Count +
-                    " (need >=2). This is why the ghost has no lap.");
+                return;
+            }
+
+            List<GhostSample> lapSamples = TrimGhostStandingStart(ghostLastLapBuffer);
+            if (lapSamples.Count < 2)
+            {
                 return;
             }
 
             GhostLapData candidate = new GhostLapData
             {
                 trackId = EventData.trackId,
-                lapTime = lapTime,
-                samples = new List<GhostSample>(ghostLastLapBuffer)
+                // The ghost is a driving reference, so its playback duration is the
+                // TRIMMED (moving) span, not the raw lap time that may include a
+                // standing start. The official lap record (PlayerRecordsStore /
+                // BestLapTime) is untouched - it still holds the real lapTime arg.
+                lapTime = lapSamples[lapSamples.Count - 1].elapsedSeconds,
+                samples = lapSamples
             };
 
             int ghostMode = Settings != null ? Settings.Current.ghostMode : 0;
-            Debug.LogWarning("[GhostDiag] Promote OK: mode=" + ghostMode + " samples=" + candidate.samples.Count +
-                " lapTime=" + lapTime.ToString("0.000") + " controller=" + (ghostController != null) +
-                " controllerHasLap=" + (ghostController != null && ghostController.HasLap));
             if (ghostMode == 2)
             {
                 TimeTrialGhostStore.TrySaveIfBest(EventData.trackId, candidate);
@@ -93,14 +87,57 @@ namespace LocalFormulaRacing
                 if (ghostController != null && !ghostController.HasLap)
                 {
                     ghostController.Initialize(candidate);
-                    Debug.LogWarning("[GhostDiag] mode2 adopted live ghost; HasLap now=" + ghostController.HasLap);
                 }
             }
             else if (ghostMode == 1 && ghostController != null)
             {
                 ghostController.Initialize(candidate);
-                Debug.LogWarning("[GhostDiag] mode1 initialized ghost; HasLap now=" + ghostController.HasLap);
             }
+        }
+
+        // A time-trial lap can begin with the car sitting at the line while the
+        // clock already runs (per report - "the ghost exists but doesn't move":
+        // the recorded lap had ~9s of norm ~0.97 stationary at the start, so the
+        // ghost faithfully parked at the line for the first 9s of every replay and
+        // read as broken). Drop the leading samples up to the moment the car is
+        // genuinely moving, then rebase every remaining sample's elapsed time so
+        // the launch sits at t=0 - the ghost now pulls away from the line
+        // immediately, and playback (driven by the player's own lap time, also
+        // measured from the line) stays in sync. Falls back to the untrimmed lap
+        // if trimming would leave too little to play.
+        List<GhostSample> TrimGhostStandingStart(List<GhostSample> source)
+        {
+            const float MovingSpeedKph = 20f;
+            int firstMoving = 0;
+            while (firstMoving < source.Count && Mathf.Abs(source[firstMoving].speedKph) < MovingSpeedKph)
+            {
+                firstMoving++;
+            }
+
+            // Keep one sample of lead-in so the launch isn't clipped mid-motion,
+            // and never trim away the whole lap.
+            firstMoving = Mathf.Clamp(firstMoving - 1, 0, source.Count - 1);
+            if (source.Count - firstMoving < 2)
+            {
+                firstMoving = 0;
+            }
+
+            float baseTime = source[firstMoving].elapsedSeconds;
+            List<GhostSample> trimmed = new List<GhostSample>(source.Count - firstMoving);
+            for (int i = firstMoving; i < source.Count; i++)
+            {
+                GhostSample s = source[i];
+                trimmed.Add(new GhostSample
+                {
+                    elapsedSeconds = s.elapsedSeconds - baseTime,
+                    distanceAlongLap = s.distanceAlongLap,
+                    position = s.position,
+                    headingDegrees = s.headingDegrees,
+                    speedKph = s.speedKph
+                });
+            }
+
+            return trimmed;
         }
 
         // Called once per frame (not per participant - only the player is
@@ -110,9 +147,6 @@ namespace LocalFormulaRacing
         {
             if (PlayerParticipant == null || PlayerParticipant.lapTracker == null || PlayerParticipant.vehicle == null)
             {
-                Debug.LogWarning("[GhostDiag] RecordGhostSample no-op: player=" + (PlayerParticipant != null) +
-                    " lapTracker=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null) +
-                    " vehicle=" + (PlayerParticipant != null && PlayerParticipant.vehicle != null));
                 return;
             }
 
@@ -126,14 +160,6 @@ namespace LocalFormulaRacing
                 // it spawned but never moved.
                 ghostLastLapBuffer.Clear();
                 ghostLastLapBuffer.AddRange(ghostRecordingBuffer);
-                LapTracker lt = PlayerParticipant.lapTracker;
-                Debug.LogWarning("[GhostDiag] LAP BOUNDARY: CompletedLaps " + ghostRecordedLapNumber + " -> " +
-                    currentLap + "; snapshotted " + ghostLastLapBuffer.Count + " samples" +
-                    " | lastLapTime=" + lt.LastLapTime.ToString("0.000") + " lastInvalid=" + lt.LastLapInvalidated +
-                    " curInvalid=" + lt.CurrentLapInvalidated + " bestLap=" + lt.BestLapTime.ToString("0.000") +
-                    " validLaps=" + lt.ValidLapsCompleted + " outLap=" + lt.OutLapActive +
-                    " timedStarted=" + lt.TimedLapStarted + " completedRace=" + lt.CompletedRace +
-                    " raceLaps=" + lt.RaceLaps);
                 ghostRecordedLapNumber = currentLap;
                 ghostRecordingBuffer.Clear();
                 ghostRecordTimer = 0f;
@@ -158,30 +184,6 @@ namespace LocalFormulaRacing
 
         void UpdateGhostPlayback()
         {
-            // Heartbeat (~1s): the single line that shows whether the whole pipeline
-            // is alive - is a controller present, does it have a lap yet, is it
-            // actually moving, and are we still recording. Runs even when the
-            // controller is null so an absent ghost is visible too.
-            ghostDiagTimer -= Time.deltaTime;
-            if (ghostDiagTimer <= 0f)
-            {
-                ghostDiagTimer = 1f;
-                Vector3 ghostPos = ghostCarObject != null ? ghostCarObject.transform.position : Vector3.zero;
-                float moved = ghostCarObject != null ? (ghostPos - ghostDiagLastGhostPos).magnitude : 0f;
-                ghostDiagLastGhostPos = ghostPos;
-                Debug.LogWarning("[GhostDiag] heartbeat: mode=" + (Settings != null ? Settings.Current.ghostMode : -1) +
-                    " obj=" + (ghostCarObject != null) + " ctrl=" + (ghostController != null) +
-                    " hasLap=" + (ghostController != null && ghostController.HasLap) +
-                    " ctrlLapTime=" + (ghostController != null ? ghostController.LapTime.ToString("0.00") : "-") +
-                    " movedLast1s=" + moved.ToString("0.00") + "m" +
-                    " liveBuf=" + ghostRecordingBuffer.Count + " lastBuf=" + ghostLastLapBuffer.Count +
-                    " playerLapTime=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.CurrentLapTime.ToString("0.00") : "-") +
-                    " completedLaps=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.CompletedLaps.ToString() : "-") +
-                    " completedRace=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.CompletedRace.ToString() : "-") +
-                    " raceLaps=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.RaceLaps.ToString() : "-") +
-                    " norm=" + (PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.CurrentProgress.normalized.ToString("0.00") : "-"));
-            }
-
             if (ghostController == null || PlayerParticipant == null || PlayerParticipant.lapTracker == null)
             {
                 return;
@@ -199,9 +201,6 @@ namespace LocalFormulaRacing
         // reads as a ghost regardless of team livery colours.
         void SpawnGhostIfAvailable()
         {
-            Debug.LogWarning("[GhostDiag] SpawnGhostIfAvailable: isTT=" + IsTimeTrial +
-                " settings=" + (Settings != null) + " mode=" + (Settings != null ? Settings.Current.ghostMode : -1) +
-                " eventData=" + (EventData != null) + " trackId=" + (EventData != null ? EventData.trackId : "null"));
             if (!IsTimeTrial || Settings == null || Settings.Current.ghostMode == 0 || EventData == null)
             {
                 return;
@@ -217,8 +216,6 @@ namespace LocalFormulaRacing
             // it waits at the line and PromoteGhostRecordingIfBest adopts the player's
             // first lap live (see there).
             GhostLapData stored = Settings.Current.ghostMode == 2 ? TimeTrialGhostStore.GetBestGhost(EventData.trackId) : null;
-            Debug.LogWarning("[GhostDiag] spawning shell; storedGhost=" + (stored != null) +
-                (stored != null ? " storedSamples=" + (stored.samples != null ? stored.samples.Count : 0) + " storedLap=" + stored.lapTime.ToString("0.000") : ""));
 
             ghostCarObject = ProductionCarSpawner.SpawnCar("Ghost", new Color(0.3f, 0.62f, 1f), new Color(0.55f, 0.8f, 1f));
             ghostCarObject.name = "Ghost car";
