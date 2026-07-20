@@ -54,32 +54,19 @@ namespace F1Game.Art
             }
         }
 
-        // -- shared cube mesh (24 verts, per-face normals) -------------------
+        // -- shared cube mesh: use Unity's built-in primitive so winding, normals
+        //    and UVs are guaranteed correct (a hand-rolled cube risks inside-out
+        //    faces that back-face-cull to invisibility). The built-in "Cube" mesh
+        //    is a shared engine asset, so destroying the temp object keeps it alive.
         static Mesh Cube
         {
             get
             {
                 if (cubeMesh != null) return cubeMesh;
-                var m = new Mesh { name = "ProcCube" };
-                Vector3[] v =
-                {
-                    new(-.5f,-.5f,-.5f), new(.5f,-.5f,-.5f), new(.5f,.5f,-.5f), new(-.5f,.5f,-.5f), // back
-                    new(.5f,-.5f,.5f), new(-.5f,-.5f,.5f), new(-.5f,.5f,.5f), new(.5f,.5f,.5f),     // front
-                    new(-.5f,-.5f,.5f), new(-.5f,-.5f,-.5f), new(-.5f,.5f,-.5f), new(-.5f,.5f,.5f), // left
-                    new(.5f,-.5f,-.5f), new(.5f,-.5f,.5f), new(.5f,.5f,.5f), new(.5f,.5f,-.5f),     // right
-                    new(-.5f,.5f,-.5f), new(.5f,.5f,-.5f), new(.5f,.5f,.5f), new(-.5f,.5f,.5f),     // top
-                    new(-.5f,-.5f,.5f), new(.5f,-.5f,.5f), new(.5f,-.5f,-.5f), new(-.5f,-.5f,-.5f), // bottom
-                };
-                int[] t =
-                {
-                    0,2,1, 0,3,2,  4,6,5, 4,7,6,  8,10,9, 8,11,10,
-                    12,14,13, 12,15,14,  16,18,17, 16,19,18,  20,22,21, 20,23,22,
-                };
-                m.vertices = v;
-                m.triangles = t;
-                m.RecalculateNormals();
-                m.RecalculateBounds();
-                cubeMesh = m;
+                var temp = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                temp.hideFlags = HideFlags.HideAndDontSave;
+                cubeMesh = temp.GetComponent<MeshFilter>().sharedMesh;
+                Object.DestroyImmediate(temp);
                 return cubeMesh;
             }
         }
