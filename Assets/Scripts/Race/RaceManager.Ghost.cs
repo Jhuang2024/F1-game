@@ -70,9 +70,9 @@ namespace LocalFormulaRacing
                 samples = new List<GhostSample>(ghostLastLapBuffer)
             };
 
-            // PLAYBACK copy: standing start trimmed, times rebased so it launches at
-            // t=0 (see TrimGhostStandingStart).
-            List<GhostSample> playbackSamples = TrimGhostStandingStart(ghostLastLapBuffer);
+            // PLAYBACK copy: reduced to the single final lap, times rebased to that
+            // lap's start (see ExtractFinalLap).
+            List<GhostSample> playbackSamples = ExtractFinalLap(ghostLastLapBuffer);
             if (playbackSamples.Count < 2)
             {
                 return;
@@ -109,41 +109,45 @@ namespace LocalFormulaRacing
             }
         }
 
-        // A time-trial lap can begin with the car sitting at the line while the
-        // clock already runs (per report - "the ghost exists but doesn't move":
-        // the recorded lap had ~9s of norm ~0.97 stationary at the start, so the
-        // ghost faithfully parked at the line for the first 9s of every replay and
-        // read as broken). Drop the leading samples up to the moment the car is
-        // genuinely moving, then rebase every remaining sample's elapsed time so
-        // the launch sits at t=0 - the ghost now pulls away from the line
-        // immediately, and playback (driven by the player's own lap time, also
-        // measured from the line) stays in sync. Falls back to the untrimmed lap
-        // if trimming would leave too little to play.
-        List<GhostSample> TrimGhostStandingStart(List<GhostSample> source)
+        // Reduce a recording buffer to exactly ONE lap for playback (per report -
+        // "the ghost shows the entire session, not that specific lap"). The buffer
+        // only clears when CompletedLaps advances, but a line crossing that fails
+        // the valid-lap test (sectors/checkpoints/min time) does NOT advance it, so
+        // several loops - plus the standing start, whose recorded lap time even
+        // resets mid-buffer - can pile into one snapshot. Rather than guess by
+        // speed, cut by TRACK POSITION: keep only the samples after the LAST
+        // start-line crossing (distanceAlongLap high -> low), which is the final,
+        // just-completed lap, then rebase its times so it starts at t=0. This
+        // yields a single clean loop whatever the buffer contained, and its start
+        // aligns with the timing line, so playback (driven by the player's own lap
+        // time from that same line) stays in sync.
+        List<GhostSample> ExtractFinalLap(List<GhostSample> source)
         {
-            const float MovingSpeedKph = 20f;
-            int firstMoving = 0;
-            while (firstMoving < source.Count && Mathf.Abs(source[firstMoving].speedKph) < MovingSpeedKph)
+            int lapStart = 0;
+            for (int i = 1; i < source.Count; i++)
             {
-                firstMoving++;
+                if (source[i - 1].distanceAlongLap > 0.8f && source[i].distanceAlongLap < 0.2f)
+                {
+                    lapStart = i;
+                }
             }
 
-            // Keep one sample of lead-in so the launch isn't clipped mid-motion,
-            // and never trim away the whole lap.
-            firstMoving = Mathf.Clamp(firstMoving - 1, 0, source.Count - 1);
-            if (source.Count - firstMoving < 2)
+            // Never cut down to nothing.
+            if (source.Count - lapStart < 2)
             {
-                firstMoving = 0;
+                lapStart = 0;
             }
 
-            float baseTime = source[firstMoving].elapsedSeconds;
-            List<GhostSample> trimmed = new List<GhostSample>(source.Count - firstMoving);
-            for (int i = firstMoving; i < source.Count; i++)
+            float baseTime = source[lapStart].elapsedSeconds;
+            List<GhostSample> lap = new List<GhostSample>(source.Count - lapStart);
+            for (int i = lapStart; i < source.Count; i++)
             {
                 GhostSample s = source[i];
-                trimmed.Add(new GhostSample
+                lap.Add(new GhostSample
                 {
-                    elapsedSeconds = s.elapsedSeconds - baseTime,
+                    // Rebase and clamp: the raw lap time can reset mid-buffer, so a
+                    // pre-lapStart carryover could otherwise go negative.
+                    elapsedSeconds = Mathf.Max(0f, s.elapsedSeconds - baseTime),
                     distanceAlongLap = s.distanceAlongLap,
                     position = s.position,
                     headingDegrees = s.headingDegrees,
@@ -151,7 +155,7 @@ namespace LocalFormulaRacing
                 });
             }
 
-            return trimmed;
+            return lap;
         }
 
         // Called once per frame (not per participant - only the player is
@@ -258,16 +262,16 @@ namespace LocalFormulaRacing
             ghostController = ghostCarObject.AddComponent<GhostCarController>();
             if (stored != null && stored.samples != null && stored.samples.Count > 1)
             {
-                // Trim on load too: a ghost saved before the standing-start trim
-                // existed (or any lap that began stationary) would otherwise sit at
-                // the line for its first several seconds and "appear" only once it
-                // started moving - the reported "it randomly spawns when I'm 10s in".
-                List<GhostSample> trimmed = TrimGhostStandingStart(stored.samples);
+                // Reduce to the single final lap on load too: a stored buffer can
+                // hold a standing start and/or several loops (see ExtractFinalLap),
+                // which otherwise plays back as "it randomly spawns when I'm 10s in"
+                // or "shows the entire session".
+                List<GhostSample> finalLap = ExtractFinalLap(stored.samples);
                 GhostLapData loaded = new GhostLapData
                 {
                     trackId = stored.trackId,
-                    lapTime = trimmed.Count > 1 ? trimmed[trimmed.Count - 1].elapsedSeconds : stored.lapTime,
-                    samples = trimmed
+                    lapTime = finalLap.Count > 1 ? finalLap[finalLap.Count - 1].elapsedSeconds : stored.lapTime,
+                    samples = finalLap
                 };
                 ghostController.Initialize(loaded);
             }
