@@ -2265,14 +2265,16 @@ namespace LocalFormulaRacing
             ValidatePitLaneSurfaceCoverage();
             BuildBoundaryDebugOverlay();
 
-            // Additive, visual-only art dressing (modular GLB kit) placed from the
-            // authored definition after every gameplay pass and validation above.
-            // No-op until the CircuitProfileCatalog + profiles are generated and
-            // committed (AutomatedArtIntegration, run in CI); colliders are
-            // disabled so it can never affect physics, the racing line or pit
-            // in/out. Wrapped internally so it can never break the race.
-            F1Game.Track.Dressing.RuntimeTrackDressing.TryDress(
-                transform, activeTrackDefinition, Runtime != null ? Runtime.trackId : trackId);
+            // Additive, visual-only art: streams the committed GLB kit (via glTFast
+            // from StreamingAssets) and dresses the circuit from its authored
+            // definition, after every gameplay pass and validation above. Applies
+            // the runtime asphalt material to the road, spawns barriers/kerbs/
+            // fencing/gantries/towers/grandstands/props, disables all dressing
+            // colliders (presentation only), and rebuilds safely on reload. No
+            // editor assets, no catalog, no menu commands. Internally guarded so it
+            // can never break the race.
+            F1Game.Art.RuntimeTrackArt.Activate(
+                transform, activeTrackDefinition, Runtime != null ? Runtime.trackId : trackId, nightTrack);
 
             return Runtime;
         }
