@@ -528,6 +528,14 @@ namespace LocalFormulaRacing
             aiDeployModeMultiplier = deployMultiplier;
         }
 
+        // Time Trial ERS top-up: RaceManager calls this at each start/finish
+        // crossing so a hot lap always begins on a full battery, instead of
+        // burning a lap harvesting it back. Battery is a normalized 0..1 charge.
+        public void RefillErsToFull()
+        {
+            ErsBattery = 1f;
+        }
+
         // Automatic pit stop fix: lets RaceManager latch a pit request directly
         // (e.g. the player's pre-race strategy plan reaching its target lap
         // without them pressing the manual pit key) without going through

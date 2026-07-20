@@ -596,6 +596,10 @@ namespace LocalFormulaRacing
         readonly List<GhostSample> ghostLastLapBuffer = new List<GhostSample>();
         float ghostRecordTimer;
         int ghostRecordedLapNumber = -1;
+        // Time-trial ERS auto-refill: the player's CompletedLaps value at the last
+        // start/finish crossing we topped the battery up on, so we only refill
+        // once per crossing (not every frame). -1 = not yet armed this session.
+        int ersRefillLapMarker = -1;
         const float GhostSampleInterval = 0.12f;
         GameObject ghostCarObject;
         GhostCarController ghostController;
@@ -804,6 +808,7 @@ namespace LocalFormulaRacing
 
             if (IsTimeTrial)
             {
+                RefreshTimeTrialErs();
                 RecordGhostSample();
                 UpdateGhostPlayback();
             }

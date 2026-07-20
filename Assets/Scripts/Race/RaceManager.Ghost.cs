@@ -215,6 +215,27 @@ namespace LocalFormulaRacing
             });
         }
 
+        // Time Trial ERS auto-refill (per request - "whenever I cross the
+        // start/finish line give me 100% ERS so I don't spend a lap recharging").
+        // Tops the player's battery to full once per start/finish crossing,
+        // detected off the same CompletedLaps counter the ghost recorder uses.
+        // The -1 initial marker means the very first observed lap tops up
+        // immediately, so even the first flying lap begins on a full battery.
+        void RefreshTimeTrialErs()
+        {
+            if (PlayerParticipant == null || PlayerParticipant.lapTracker == null || PlayerParticipant.vehicle == null)
+            {
+                return;
+            }
+
+            int completed = PlayerParticipant.lapTracker.CompletedLaps;
+            if (completed != ersRefillLapMarker)
+            {
+                ersRefillLapMarker = completed;
+                PlayerParticipant.vehicle.RefillErsToFull();
+            }
+        }
+
         void UpdateGhostPlayback()
         {
             if (ghostController == null || PlayerParticipant == null || PlayerParticipant.lapTracker == null)

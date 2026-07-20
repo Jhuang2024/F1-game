@@ -122,6 +122,7 @@ namespace LocalFormulaRacing
             reactionDisplayTimer = 0f;
             waitingForPlayerReaction = false;
             lastRecordedPlayerBestLap = 0f;
+            ersRefillLapMarker = -1;
             playerResetCooldown = 0f;
             ResetEngineerState();
             ResetRaceControlState();
