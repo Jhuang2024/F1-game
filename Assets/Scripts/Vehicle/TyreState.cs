@@ -380,14 +380,23 @@ namespace LocalFormulaRacing
             //   gameplay lever remains the lockup/temperature behaviour it
             //   also feeds.
             float managementRelief = Mathf.Lerp(1.08f, 0.92f, Mathf.Clamp01(tyreManagement / 100f));
-            float intensity = Mathf.Clamp(
+            // Round 8 (per report - "the recommendations screen is lying about
+            // how long the tires last"): the 0.9 intensity floor times the 0.92
+            // management relief let a smooth, well-managed car consume as
+            // little as ~0.83x the displayed life rate - a "5 laps here" tyre
+            // quietly lasted ~6. The display is the CONTRACT: the combined
+            // multiplier is now hard-floored at 1.0, so no car can ever burn
+            // life SLOWER than the screen says. Pushing (braking, sliding,
+            // overheating) still costs extra on top; management/smoothness now
+            // only ever claws back that extra, never stretches the baseline.
+            float intensity = Mathf.Max(1f, Mathf.Clamp(
                 1.0f
                 + brake * 0.2f
                 + Mathf.Abs(steer) * 0.15f
                 + slipEnergy * 0.35f
                 + (overheatWear - 1f) * 0.4f
                 + (wornHeatWear - 1f) * 0.35f,
-                0.9f, 2.0f) * managementRelief;
+                0.9f, 2.0f) * managementRelief);
 
             float wearLoss = baseLifeFraction * intensity * weatherWear + lockupWearRate;
             Wear = Mathf.Clamp01(Wear - wearLoss * RegulationWearMultiplier * deltaTime);

@@ -2830,10 +2830,36 @@ namespace LocalFormulaRacing
             TyreCompound currentCompound = vehicle.Tyres.Compound;
             float tyrePitThreshold = AiPitStrategyRules.RoutinePitThreshold(
                 tyreManagement / 100f, profile.tyreSavingBias, MapStintCompound(currentCompound));
+
+            // Round 8 (per report - "the AI are going for 2 stops again even
+            // when its not a viable strategy"): the reach-the-flag projection
+            // (already used below to ADD an emergency short-stint stop) now
+            // also VETOES pointless extra stops. Once a car has made its stop,
+            // a further voluntary stop only ever happens if the current tyre
+            // genuinely cannot finish the race - a worn tyre that CAN reach
+            // the flag is always faster than a ~22s stop with a handful of
+            // laps left. The destroyed-tyre (0.12) and grip-collapse safety
+            // nets below stay unconditional.
+            float pitTrackTempC = raceManager.Track != null ? raceManager.Track.trackTemperatureC : TyreStrategyRules.StandardTrackTempC;
+            int pitStintCode = currentCompound == TyreCompound.Soft ? TyreStrategyRules.Compound.Soft
+                : (currentCompound == TyreCompound.Hard ? TyreStrategyRules.Compound.Hard : TyreStrategyRules.Compound.Medium);
+            float expectedStintLaps = Mathf.Max(0.6f, TyreStrategyRules.ExpectedStintLapsAtTemp(pitStintCode, pitTrackTempC));
+            float lapsToFlag = raceManager.RaceLaps - participant.lapTracker.CompletedLaps - progress.normalized;
+            float tyreLapsLeft = vehicle.Tyres.Wear * expectedStintLaps;
+            bool tyreReachesFlag = tyreLapsLeft >= lapsToFlag - 0.1f;
+            // A wrong-compound-for-the-weather car is never "fine to the flag"
+            // whatever the wear projection says - the crossover paths stay open.
+            WeatherState currentWeather = raceManager.Track == null ? WeatherState.Clear : raceManager.Track.weather;
+            bool trackWetNow = currentWeather == WeatherState.LightRain || currentWeather == WeatherState.HeavyRain;
+            bool onWetCompoundNow = AiPitStrategyRules.IsWetCompound(MapStintCompound(currentCompound));
+            bool weatherMismatchNow = trackWetNow != onWetCompoundNow;
+            bool extraStopPointless = participant.pitStops >= 1 && tyreReachesFlag && !weatherMismatchNow;
+
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                 AiPitStrategyRules.ShouldPitRoutine(vehicle.Tyres.Wear, tyrePitThreshold) &&
                 participant.lapTracker.CompletedLaps > 0 &&
-                !raceManager.AiVoluntaryStopsExhausted(participant))
+                !raceManager.AiVoluntaryStopsExhausted(participant) &&
+                !extraStopPointless)
             {
                 command.pitRequest = true;
             }
@@ -2861,20 +2887,15 @@ namespace LocalFormulaRacing
             // box lap, and the final-lap suppression below still applies.
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying)
             {
-                float pitTrackTempC = raceManager.Track != null ? raceManager.Track.trackTemperatureC : TyreStrategyRules.StandardTrackTempC;
-                int pitStintCode = currentCompound == TyreCompound.Soft ? TyreStrategyRules.Compound.Soft
-                    : (currentCompound == TyreCompound.Hard ? TyreStrategyRules.Compound.Hard : TyreStrategyRules.Compound.Medium);
-                float expectedStintLaps = Mathf.Max(0.6f, TyreStrategyRules.ExpectedStintLapsAtTemp(pitStintCode, pitTrackTempC));
                 float wearPerLap = 1f / expectedStintLaps;
                 // Only box if the tyre genuinely CAN'T reach the flag on its
                 // remaining life - a tyre that can finish, even worn, is never
                 // worth a ~22s stop it can't win back. lapsToFlag is fractional
                 // (counts the part-lap already driven), so a two-lap tyre fitted
                 // with two laps to go runs to the end instead of pitting early.
-                float lapsToFlag = raceManager.RaceLaps - participant.lapTracker.CompletedLaps - progress.normalized;
-                float tyreLapsLeft = vehicle.Tyres.Wear * expectedStintLaps;
-                bool cannotReachFlag = tyreLapsLeft < lapsToFlag - 0.1f;
-                if (cannotReachFlag && vehicle.Tyres.Wear < wearPerLap * 1.15f + 0.04f)
+                // (Projection inputs hoisted above the routine trigger, which
+                // now shares them for the extra-stop veto.)
+                if (!tyreReachesFlag && vehicle.Tyres.Wear < wearPerLap * 1.15f + 0.04f)
                 {
                     command.pitRequest = true;
                 }
@@ -2886,7 +2907,7 @@ namespace LocalFormulaRacing
             // collapsed, force the stop regardless of plan. A car losing this much
             // grip is several seconds a lap off the pace and becomes a rolling
             // roadblock no matter what the pre-race strategy said.
-            WeatherState currentWeather = raceManager.Track == null ? WeatherState.Clear : raceManager.Track.weather;
+            // currentWeather declared alongside the reach-the-flag projection above.
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                 AiPitStrategyRules.GripCollapsed(vehicle.Tyres.GripMultiplier(currentWeather)) &&
                 participant.lapTracker.CompletedLaps > 0)
@@ -2908,7 +2929,8 @@ namespace LocalFormulaRacing
             // can still fire slightly ahead of pure wear). Destroyed-tyre/grip
             // safety nets above are unaffected and still force a stop when needed.
             if (raceManager.ShouldAiPitByStrategyLap(participant) && AiPitStrategyRules.StrategyLapMayFire(vehicle.Tyres.Wear) &&
-                !raceManager.AiVoluntaryStopsExhausted(participant))
+                !raceManager.AiVoluntaryStopsExhausted(participant) &&
+                !extraStopPointless)
             {
                 command.pitRequest = true;
                 participant.pitRequestLapNumber = participant.lapTracker.CompletedLaps + 1;
@@ -2918,7 +2940,8 @@ namespace LocalFormulaRacing
             // normal tyre-wear/mandatory-stop triggers above, flowing through the same
             // command.pitRequest -> BeginPitEntry pipeline (including its existing
             // queueing/staggered release) rather than a parallel path.
-            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.ShouldAiPitUnderSafetyCar(participant))
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.ShouldAiPitUnderSafetyCar(participant) &&
+                !extraStopPointless)
             {
                 command.pitRequest = true;
             }
