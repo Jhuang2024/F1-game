@@ -339,6 +339,26 @@ namespace LocalFormulaRacing
         float lastDrawnOffset;
         bool hasLastDrawnOffset;
 
+        // [SwerveTape] full-pipeline flight recorder (per request - "write a
+        // better diagnostic"). Every frame, EVERY term that feeds the final
+        // steering command is captured into a ring buffer; when either swerve
+        // detector fires, the whole window is dumped as a time-series table
+        // PLUS an automatic verdict that attributes each final-steer reversal
+        // to whichever term actually moved the wheel that frame. No inference,
+        // no guessing - the dump names the oscillating term measurably.
+        struct SwerveTapeFrame
+        {
+            public float time, speedKph, lat, halfW, sev;
+            public float drawn, lineBias, agg, traffic;
+            public float pursuit, comp, edge, yawDamp, final;
+            public float urgT, urgP, towardRate, yawMeas;
+            public bool refSnap;
+            public int state;
+        }
+        readonly SwerveTapeFrame[] swerveTape = new SwerveTapeFrame[512];
+        int swerveTapeCount;
+        float swerveTapeLastDump = -999f;
+
         // Overtake-thrash guards ([SwerveDiag] - during passes the state machine
         // cycled Attacking->SideBySide->CompletingPass->Following->Attacking
         // several times a second, swinging aggressionOffset +-7m). enteredTime
@@ -3128,6 +3148,33 @@ namespace LocalFormulaRacing
             bbLineBias = lineBias;
             bbSeverityHere = severityHere;
 
+            // [SwerveTape] frame capture - the full steering pipeline, every frame.
+            {
+                SwerveTapeFrame tapeFrame;
+                tapeFrame.time = Time.time;
+                tapeFrame.speedKph = speedKph;
+                tapeFrame.lat = progress.lateralDistance;
+                tapeFrame.halfW = edgeHalfWidth;
+                tapeFrame.sev = severityHere;
+                tapeFrame.drawn = hasLastDrawnOffset ? lastDrawnOffset : 0f;
+                tapeFrame.lineBias = lineBias;
+                tapeFrame.agg = aggressionOffset;
+                tapeFrame.traffic = smoothedSteerAdjust;
+                tapeFrame.pursuit = pursuitSteer;
+                tapeFrame.comp = bbAuthorityComp;
+                tapeFrame.edge = edgeRecovery;
+                tapeFrame.yawDamp = yawDampSteer;
+                tapeFrame.final = command.steer;
+                tapeFrame.urgT = trajectoryUrgency;
+                tapeFrame.urgP = positionUrgency;
+                tapeFrame.towardRate = towardEdgeRate;
+                tapeFrame.yawMeas = smoothedYawRateDeg;
+                tapeFrame.refSnap = edgeReferenceSnap;
+                tapeFrame.state = (int)overtakeState;
+                swerveTape[swerveTapeCount % swerveTape.Length] = tapeFrame;
+                swerveTapeCount++;
+            }
+
             DiagnoseSwerve(progress, severityHere, lineBias, command.steer);
             DiagnoseSwerveAmplitude(progress, severityHere, lineBias);
             vehicle.SetCommand(command);
@@ -4104,6 +4151,7 @@ namespace LocalFormulaRacing
                     " agg=" + aggressionOffset.ToString("0.00") + " adjust=" + smoothedSteerAdjust.ToString("0.00") +
                     " trafficBlend=" + lineTrafficBlend.ToString("0.00") +
                     " (whichever reversal count is high is the oscillating input).");
+                DumpSwerveTape(who, "steer-reversals(" + swerveSteerRev + "/2s)", progress.normalized);
             }
         }
 
@@ -4272,6 +4320,164 @@ namespace LocalFormulaRacing
                 " trafficBlend=" + lineTrafficBlend.ToString("0.00") +
                 " state=" + overtakeState +
                 " => CAUSE: " + verdict);
+            DumpSwerveTape(who, "lateral-swing(" + latSwing.ToString("0.0") + "m/4s)", progress.normalized);
+        }
+
+        // [SwerveTape] dump: the full recorded steering pipeline for the last
+        // few seconds, one row per ~0.15s, plus a measured verdict. The
+        // attribution rule is mechanical: at every frame where the FINAL steer
+        // flips sign (past a 0.08 deadband), the term whose own change that
+        // frame was largest gets the blame point. Whichever term collects the
+        // points is, by construction, the thing physically moving the wheel -
+        // no interpretation required. Also reports: how often the authority
+        // compensation and the final command sat saturated, how much each
+        // TARGET (drawn racing line, blended line bias, overtake offset)
+        // actually moved, and how many progress-reference snaps poisoned the
+        // window.
+        // Public trigger for external systems (RaceManager's [WallDiag] wall-hit
+        // handler): dump the pipeline history that led INTO the event.
+        public void DumpSwerveTape(string reason, float norm)
+        {
+            string who = participant != null && participant.driverData != null
+                ? participant.driverData.displayName : "AI";
+            // A wall hit always dumps (short anti-spam floor only) - it is the
+            // event the whole recorder exists for.
+            DumpSwerveTape(who, reason, norm, 3f);
+        }
+
+        void DumpSwerveTape(string who, string reason, float norm)
+        {
+            DumpSwerveTape(who, reason, norm, 20f);
+        }
+
+        void DumpSwerveTape(string who, string reason, float norm, float cooldownSeconds)
+        {
+            if (Time.time - swerveTapeLastDump < cooldownSeconds)
+            {
+                return;
+            }
+
+            int available = Mathf.Min(swerveTapeCount, swerveTape.Length);
+            if (available < 40)
+            {
+                return;
+            }
+            swerveTapeLastDump = Time.time;
+
+            int start = swerveTapeCount - available;
+            SwerveTapeFrame First(int k) { return swerveTape[(start + k) % swerveTape.Length]; }
+
+            // --- verdict statistics over the window ---
+            int blamePursuit = 0, blameEdge = 0, blameYaw = 0, blameTraffic = 0, blameLine = 0;
+            int finalSign = 0, reversals = 0, snaps = 0, compSat = 0, steerSat = 0;
+            float sumPur = 0f, sumEdge = 0f, sumYaw = 0f, sumTraffic = 0f;
+            float drawnMin = float.MaxValue, drawnMax = float.MinValue;
+            float biasMin = float.MaxValue, biasMax = float.MinValue;
+            float aggMin = float.MaxValue, aggMax = float.MinValue;
+            float latMin = float.MaxValue, latMax = float.MinValue;
+            for (int k = 0; k < available; k++)
+            {
+                SwerveTapeFrame f = First(k);
+                float pursuitEff = Mathf.Clamp(f.pursuit * f.comp, -1f, 1f);
+                sumPur += Mathf.Abs(pursuitEff);
+                sumEdge += Mathf.Abs(f.edge);
+                sumYaw += Mathf.Abs(f.yawDamp);
+                sumTraffic += Mathf.Abs(f.traffic);
+                if (f.refSnap) snaps++;
+                if (f.comp >= 3.95f) compSat++;
+                if (Mathf.Abs(f.final) > 0.98f) steerSat++;
+                drawnMin = Mathf.Min(drawnMin, f.drawn); drawnMax = Mathf.Max(drawnMax, f.drawn);
+                biasMin = Mathf.Min(biasMin, f.lineBias); biasMax = Mathf.Max(biasMax, f.lineBias);
+                aggMin = Mathf.Min(aggMin, f.agg); aggMax = Mathf.Max(aggMax, f.agg);
+                // Reference snaps teleport the measured lateral - exclude them from
+                // the car-swing measure exactly like the amplitude detector does.
+                if (!f.refSnap)
+                {
+                    latMin = Mathf.Min(latMin, f.lat); latMax = Mathf.Max(latMax, f.lat);
+                }
+
+                int sign = Mathf.Abs(f.final) > 0.08f ? (f.final > 0f ? 1 : -1) : 0;
+                if (sign != 0 && finalSign != 0 && sign != finalSign && k > 0)
+                {
+                    reversals++;
+                    SwerveTapeFrame p = First(k - 1);
+                    float dPursuit = Mathf.Abs(pursuitEff - Mathf.Clamp(p.pursuit * p.comp, -1f, 1f));
+                    float dEdge = Mathf.Abs(f.edge - p.edge);
+                    float dYaw = Mathf.Abs(f.yawDamp - p.yawDamp);
+                    float dTraffic = Mathf.Abs(f.traffic - p.traffic);
+                    // Target motion expressed in approximate steer units so it can
+                    // compete for blame on the same scale (a 1m target move at the
+                    // ~28m lookahead is roughly 0.08 of steer via the 2.2 gain).
+                    float dLine = Mathf.Abs((f.drawn + f.lineBias) - (p.drawn + p.lineBias)) * 0.08f;
+                    float best = Mathf.Max(dPursuit, Mathf.Max(dEdge, Mathf.Max(dYaw, Mathf.Max(dTraffic, dLine))));
+                    if (best <= 0.0001f || best == dPursuit) blamePursuit++;
+                    else if (best == dEdge) blameEdge++;
+                    else if (best == dYaw) blameYaw++;
+                    else if (best == dTraffic) blameTraffic++;
+                    else blameLine++;
+                }
+                if (sign != 0)
+                {
+                    finalSign = sign;
+                }
+            }
+
+            float span = First(available - 1).time - First(0).time;
+            float inv = available > 0 ? 1f / available : 0f;
+            var sb = new System.Text.StringBuilder(4096);
+            sb.Append("[SwerveTape] ").Append(who).Append(" | trigger=").Append(reason)
+              .Append(" norm=").Append(norm.ToString("0.000"))
+              .Append(" | ").Append(available).Append(" frames / ").Append(span.ToString("0.0")).Append("s\n");
+            sb.Append("VERDICT wheel-mover at each of ").Append(reversals).Append(" final-steer reversals: ")
+              .Append("pursuitXcomp=").Append(blamePursuit)
+              .Append(" edgeRecovery=").Append(blameEdge)
+              .Append(" yawDamp=").Append(blameYaw)
+              .Append(" trafficNudge=").Append(blameTraffic)
+              .Append(" lineTarget=").Append(blameLine).Append('\n');
+            sb.Append("mean|term|: purXcomp=").Append((sumPur * inv).ToString("0.00"))
+              .Append(" edge=").Append((sumEdge * inv).ToString("0.00"))
+              .Append(" yawDamp=").Append((sumYaw * inv).ToString("0.00"))
+              .Append(" traffic=").Append((sumTraffic * inv).ToString("0.00"))
+              .Append(" | comp@max ").Append(Mathf.RoundToInt(100f * compSat * inv)).Append("%")
+              .Append(" |steer|>0.98 ").Append(Mathf.RoundToInt(100f * steerSat * inv)).Append("%")
+              .Append(" refSnaps=").Append(snaps).Append('\n');
+            sb.Append("targets p2p: drawnLine=").Append((drawnMax - drawnMin).ToString("0.0"))
+              .Append("m lineBias=").Append((biasMax - biasMin).ToString("0.0"))
+              .Append("m overtakeOff=").Append((aggMax - aggMin).ToString("0.0"))
+              .Append("m carLat=").Append(latMax > latMin ? (latMax - latMin).ToString("0.0") : "n/a").Append("m\n");
+            sb.Append("t+s | kph | lat/halfW | sev | drawn bias agg | pur comp edge yawD traf | FIN | urgT urgP rate | yaw\n");
+
+            int rows = 26;
+            int stride = Mathf.Max(1, available / rows);
+            float t0 = First(0).time;
+            for (int k = 0; k < available; k += stride)
+            {
+                SwerveTapeFrame f = First(k);
+                sb.Append((f.time - t0).ToString("0.00")).Append(" | ")
+                  .Append(f.speedKph.ToString("0")).Append(" | ")
+                  .Append(f.lat.ToString("0.0")).Append('/').Append(f.halfW.ToString("0.0")).Append(" | ")
+                  .Append(f.sev.ToString("0.00")).Append(" | ")
+                  .Append(f.drawn.ToString("0.0")).Append(' ')
+                  .Append(f.lineBias.ToString("0.0")).Append(' ')
+                  .Append(f.agg.ToString("0.0")).Append(" | ")
+                  .Append(f.pursuit.ToString("0.00")).Append(' ')
+                  .Append(f.comp.ToString("0.0")).Append(' ')
+                  .Append(f.edge.ToString("0.00")).Append(' ')
+                  .Append(f.yawDamp.ToString("0.00")).Append(' ')
+                  .Append(f.traffic.ToString("0.00")).Append(" | ")
+                  .Append(f.final.ToString("0.00")).Append(" | ")
+                  .Append(f.urgT.ToString("0.00")).Append(' ')
+                  .Append(f.urgP.ToString("0.00")).Append(' ')
+                  .Append(f.towardRate.ToString("0.0")).Append(" | ")
+                  .Append(f.yawMeas.ToString("0"));
+                if (f.refSnap)
+                {
+                    sb.Append(" SNAP");
+                }
+                sb.Append('\n');
+            }
+
+            Debug.LogWarning(sb.ToString());
         }
 
         // Returns 1 when the signal, once it exceeds the deadband, flips sign

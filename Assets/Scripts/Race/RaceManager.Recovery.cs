@@ -154,6 +154,12 @@ namespace LocalFormulaRacing
                     "/halfW=" + (Track != null ? Track.HalfWidthAt(hitProgress.distance).ToString("0.0") : "?") +
                     " dy=" + dy.ToString("0.0") +
                     (hitAi != null ? " | AI " + hitAi.DescribeLateralState() : ""));
+                // [SwerveTape] the most valuable dump of all: the full steering
+                // pipeline for the seconds BEFORE this wall contact.
+                if (hitAi != null)
+                {
+                    hitAi.DumpSwerveTape("wall-hit(" + impactKph.ToString("0") + "kph,obj=" + colliderName + ")", hitNorm);
+                }
             }
 
             participant.vehicle.PendingWallHitColliderName = "";
