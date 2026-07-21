@@ -548,7 +548,14 @@ namespace LocalFormulaRacing
                 {
                     if (participant.stoppedOnTrackTimer > StrandedRetireSeconds)
                     {
-                        RetireParticipant(participant, "Stranded");
+                        // "Way too easy to DNF" round 5: a stranded car is
+                        // rescued back to its last safe pose and keeps racing;
+                        // retirement only if no safe pose exists to rescue to.
+                        if (!ForceRepositionToLastSafe(participant, "rescued by race control after being stranded " +
+                                participant.stoppedOnTrackTimer.ToString("0") + "s (would previously have retired)"))
+                        {
+                            RetireParticipant(participant, "Stranded");
+                        }
                     }
 
                     string strandedCause = pinnedAtEdge && !blockingLine ? "Stuck against barrier/wall" : "Stopped/stranded";

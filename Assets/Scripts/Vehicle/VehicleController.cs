@@ -932,9 +932,11 @@ namespace LocalFormulaRacing
 
             if (settings.tractionControl && assisted.throttle > 0.1f)
             {
-                float tractionLimit = Mathf.Lerp(1f, 0.58f, slip);
+                // Assist buff (per request): stronger slip cut (0.58 -> 0.45)
+                // so a sliding car gets its power trimmed harder and earlier.
+                float tractionLimit = Mathf.Lerp(1f, 0.45f, slip);
                 tractionLimit *= Mathf.Lerp(0.72f, 1f, Mathf.InverseLerp(0f, 120f, speedKph));
-                assisted.throttle = Mathf.Min(assisted.throttle, Mathf.Clamp01(tractionLimit + 0.16f));
+                assisted.throttle = Mathf.Min(assisted.throttle, Mathf.Clamp01(tractionLimit + 0.12f));
             }
 
             if (settings.autoBrakeAssist && Track != null)
@@ -952,12 +954,17 @@ namespace LocalFormulaRacing
                 // slightly conservative next to the AI's ceiling, as an assist
                 // should be). On a straight every sample returns well above
                 // top speed and the assist never touches the pedals.
-                const float AssistDecelMs2 = 26f;
+                // Assist buff (per request): trusted decel 26 -> 21 (braking
+                // starts earlier for the same corner), corner-speed margin
+                // 0.97 -> 0.92 (arrives with real reserve instead of exactly
+                // at the limit), a longer scan so 400kph runs see the corner
+                // sooner, and a stronger pedal response per kph of overshoot.
+                const float AssistDecelMs2 = 21f;
                 float assistTargetKph = float.MaxValue;
-                float scanEnd = Mathf.Max(80f, speedKph * 1.1f);
+                float scanEnd = Mathf.Max(100f, speedKph * 1.25f);
                 for (float ahead = 15f; ahead <= scanEnd; ahead += 15f)
                 {
-                    float cornerMs = MaxCorneringSpeedKph(Track.CurvatureRadiusAt(progress.distance + ahead)) * 0.97f / 3.6f;
+                    float cornerMs = MaxCorneringSpeedKph(Track.CurvatureRadiusAt(progress.distance + ahead)) * 0.92f / 3.6f;
                     float allowedNowKph = Mathf.Sqrt(cornerMs * cornerMs + 2f * AssistDecelMs2 * ahead) * 3.6f;
                     assistTargetKph = Mathf.Min(assistTargetKph, allowedNowKph);
                 }
@@ -965,8 +972,8 @@ namespace LocalFormulaRacing
                 if (speedKph > assistTargetKph)
                 {
                     float overshoot = speedKph - assistTargetKph;
-                    assisted.brake = Mathf.Max(assisted.brake, Mathf.Clamp01(overshoot / 40f));
-                    assisted.throttle = Mathf.Min(assisted.throttle, overshoot > 12f ? 0.1f : 0.5f);
+                    assisted.brake = Mathf.Max(assisted.brake, Mathf.Clamp01(overshoot / 28f));
+                    assisted.throttle = Mathf.Min(assisted.throttle, overshoot > 8f ? 0.05f : 0.4f);
                 }
             }
 
@@ -2162,7 +2169,10 @@ namespace LocalFormulaRacing
             // AI already take none (returned above), so this only scales the
             // player's own accumulation.
             // Round 2 (per request): a further 30% off (0.7 * 0.7 = 0.49).
-            const float PlayerDamageScale = 0.49f;
+            // Halved again (per request - "decrease damage taken of the user's
+            // car by 50%"): 0.49 -> 0.245, i.e. roughly a quarter of the raw
+            // impact model.
+            const float PlayerDamageScale = 0.245f;
             float delta = Damage.AddImpact(impactSpeedKph, normalSpeedKph, localPoint, impactType, sustained, PlayerDamageScale);
             LastDamageDebug = "object=" + objectName +
                               " type=" + impactType +

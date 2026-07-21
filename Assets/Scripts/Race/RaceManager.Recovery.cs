@@ -56,7 +56,11 @@ namespace LocalFormulaRacing
         // retirement is now reserved for an essentially unslowed max-speed
         // head-on. Everything else damages the car and the damage model
         // remains the only accumulating path out of the race.
-        const float HardWallRetireImpactKph = 320f;
+        // 320 -> 380 ("STILL way too easy" round 5): with stranded cars now
+        // rescued instead of retired, instant heavy-crash retirement is kept
+        // only for a physically unslowed top-speed square hit - in practice
+        // almost never. Mechanical/fuel remain the organic DNF sources.
+        const float HardWallRetireImpactKph = 380f;
         const float HardWallRetireMinRaceSeconds = 25f;
 
         void UpdateResetGhost(RaceParticipant participant)
@@ -113,11 +117,11 @@ namespace LocalFormulaRacing
             // massacre on its own.
             participant.vehicle.ContactFlickEnabled = RaceElapsed > HardWallRetireMinRaceSeconds;
 
-            // ERS caution gate (per request - "the battery shouldnt recharge
-            // during yellow flags"): every caution state suppresses harvesting
-            // for every car; only genuine green racing banks charge.
+            // ERS caution gate round 2 (per request): recharge is legal under
+            // VSC and the safety car - only a YELLOW FLAG (local yellow
+            // sector / full-course yellow state) suppresses harvesting.
             participant.vehicle.ErsRechargeSuppressed =
-                CurrentRaceControlState != RaceControlState.Green || YellowFlagSector >= 0;
+                CurrentRaceControlState == RaceControlState.YellowSector || YellowFlagSector >= 0;
 
             float impactKph = participant.vehicle.PendingHardWallImpactKph;
             if (impactKph <= 0f)
@@ -317,6 +321,30 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // recoveryAttemptCount only ever increments inside
+            // AiVehicleController's own maneuver-complete callback, so this
+            // path naturally never triggers for the player (no
+            // AiVehicleController component) without needing an explicit
+            // isPlayer guard here.
+            ForceRepositionToLastSafe(participant,
+                "force-repositioned after " + StuckRepositionAttemptThreshold + "+ failed recovery attempts (last resort)");
+        }
+
+        // Shared last-resort rescue: snap a car back to its last known safe
+        // on-track pose and clear every stuck/recovery timer. Used by the
+        // stuck-escalation above AND by race control's stranded handler ("way
+        // too easy to DNF" round 5): a car wedged against a wall is now
+        // rescued and keeps racing instead of being permanently retired as
+        // "Stranded" - the field only shrinks through genuinely terminal
+        // events (mechanical, fuel, an unslowed max-speed head-on).
+        public bool ForceRepositionToLastSafe(RaceParticipant participant, string reason)
+        {
+            if (participant == null || participant.vehicle == null || !participant.hasLastSafePosition ||
+                participant.retired || participant.finished)
+            {
+                return false;
+            }
+
             Vector3 respawnPosition = participant.lastSafePosition + Vector3.up * 0.35f;
             Quaternion respawnRotation = participant.lastSafeRotation;
             Rigidbody body = participant.GetComponent<Rigidbody>();
@@ -346,12 +374,8 @@ namespace LocalFormulaRacing
                 ai.ResyncAfterForcedReposition();
             }
 
-            // recoveryAttemptCount only ever increments inside
-            // AiVehicleController's own maneuver-complete callback, so this
-            // path naturally never triggers for the player (no
-            // AiVehicleController component) without needing an explicit
-            // isPlayer guard here.
-            GameLog.Warn("[RaceControl] " + participant.driverName + " force-repositioned after " + StuckRepositionAttemptThreshold + "+ failed recovery attempts (last resort).");
+            GameLog.Warn("[RaceControl] " + participant.driverName + " " + reason + ".");
+            return true;
         }
 
         // Stuck recovery: snap the player back to the last safe on-track pose.
