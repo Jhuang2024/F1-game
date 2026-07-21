@@ -722,9 +722,14 @@ namespace LocalFormulaRacing
 
         void BeginRedFlag(string reason, List<RaceParticipant> involvedDrivers)
         {
-            // A red flag must mean the accident was serious enough that
-            // whoever caused it is out of the race - never a driver who just
-            // carries on after the restart as if nothing happened.
+            // A red flag means the accident scene is bad enough to stop the
+            // race - but only cars that are genuinely wrecked (dead or nearly
+            // stationary at the scene) are out of the grand prix. A car that
+            // brushed the pileup and is still moving at racing speed carries
+            // on after the restart; the old behaviour of retiring EVERY
+            // involved driver could wipe most of the field off one lap-1
+            // scrum cluster.
+            const float RedFlagWreckedSpeedKph = 30f;
             string involvedNames = "";
             int sector = 0;
             if (involvedDrivers != null)
@@ -740,6 +745,13 @@ namespace LocalFormulaRacing
                     if (sector == 0 && State != null)
                     {
                         sector = State.GetCurrentProgress(involved).sector;
+                    }
+
+                    bool wrecked = involved.vehicle == null
+                        || Mathf.Abs(involved.vehicle.CurrentSpeedKph) < RedFlagWreckedSpeedKph;
+                    if (!wrecked)
+                    {
+                        continue;
                     }
 
                     involvedNames += (involvedNames.Length > 0 ? (i == involvedDrivers.Count - 1 ? " and " : ", ") : "") + involved.driverName;

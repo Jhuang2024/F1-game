@@ -2164,7 +2164,11 @@ namespace LocalFormulaRacing
                 // of a real corner is held to a lane a few metres off centre; the
                 // apex line for actual corners is untouched. A car committed to a
                 // pass keeps a wider band so it can still go side-by-side.
-                float baseBand = committedPass ? 5.5f : 3.5f;
+                // Never let the band exceed the wall-safety corridor: with the
+                // barriers flush to the paved edge, legalLimit IS the last safe
+                // lateral metre - a committed pass on a narrow track must not be
+                // allowed to command a target beyond it.
+                float baseBand = Mathf.Min(committedPass ? 5.5f : 3.5f, legalLimit);
                 float cornerOpen = Mathf.InverseLerp(0.18f, 0.34f, severityHere);
                 float safeBand = Mathf.Lerp(baseBand, Mathf.Max(baseBand, legalLimit), cornerOpen);
                 requestedOffset = Mathf.Clamp(requestedOffset, -safeBand, safeBand);
@@ -5045,8 +5049,18 @@ namespace LocalFormulaRacing
             // ceiling combined with Mathf.Min, never Max - a Max here would let
             // this runtime clamp re-permit exactly the too-close-to-the-wall
             // offset the corridor computation was just fixed to rule out.
+            // Flush-barrier recalibration (report: "cars are still swerving
+            // right into the walls", most of the field DNF): these margins were
+            // tuned when barriers stood 0.9m behind the paved edge - 1.8m from
+            // the edge then meant ~2.7m from the actual wall face. With
+            // barriers flush, 1.8m of corridor margin left ~0.8m of physical
+            // clearance for a car ~2m wide with pursuit overshoot at 300kph:
+            // effectively aiming AT the wall. 3.2m/3.6m restores (and slightly
+            // exceeds) the real wall clearance the tuning was built around, so
+            // no commandable target - line, lane, fan-out, attack or defence,
+            // all of which clamp through this - can put a car near a barrier.
             float localHalfWidth = LocalHalfWidthAt(distance);
-            float wallSafetyLimit = localHalfWidth - (track.IsNearTightFenceCorner(distance) ? 2.6f : 1.8f);
+            float wallSafetyLimit = localHalfWidth - (track.IsNearTightFenceCorner(distance) ? 3.6f : 3.2f);
             float kerbBasedLimit = track.kerbStart > 0f ? track.kerbStart + 0.5f : wallSafetyLimit;
             return Mathf.Max(0.75f, Mathf.Min(wallSafetyLimit, kerbBasedLimit));
         }

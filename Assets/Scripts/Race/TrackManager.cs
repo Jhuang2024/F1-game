@@ -146,7 +146,11 @@ namespace LocalFormulaRacing
                 // the corridor further IN (which is where the apex-clipping shape
                 // actually comes from on real layouts, since the kerb typically
                 // starts well before the wall).
-                float wallSafetyLimit = halfWidth - (IsNearTightFenceCorner(d) ? 2.6f : 1.8f);
+                // Flush-barrier recalibration: margins widened 1.8/2.6 ->
+                // 3.2/3.6 to keep the same real wall-face clearance now that
+                // barriers sit ON the paved edge instead of 0.9m behind it.
+                // Must stay aligned with AiVehicleController.LegalOffsetLimit.
+                float wallSafetyLimit = halfWidth - (IsNearTightFenceCorner(d) ? 3.6f : 3.2f);
                 float kerbBasedLimit = kerbStart > 0f ? kerbStart + 0.5f : wallSafetyLimit;
                 limits[i] = Mathf.Max(0.75f, Mathf.Min(wallSafetyLimit, kerbBasedLimit));
                 offsets[i] = 0f;
