@@ -2965,22 +2965,30 @@ namespace LocalFormulaRacing
         // physics envelope (VehicleController.MaxYawRateDegPerSec) cut the yaw
         // produced per unit of steer by up to ~3.5x at speed - correct for
         // SUSTAINED cornering, but this controller's constants were all tuned
-        // against the old response. The ratio of the old tightCorneringBoost
-        // curve to the new one restores that tuned scale for the controller's
-        // outputs; the steer clamp and the envelope itself still decide what
-        // the car physically does. This is a controller-feel constant pair,
-        // deliberately frozen at the old curve's values - it does NOT need to
-        // track future envelope tuning exactly, it only needs to stay within
-        // sane range (clamped) so the loop neither starves nor over-drives.
-        static float SteerAuthorityCompensation(float speedKph)
+        // against the old response.
+        //
+        // Round 2 (per report - "the AI still cant handle the low grip"): the
+        // first version was a STATIC old-curve/new-curve ratio, which assumed
+        // nominal grip. On cold/worn tyres, in rain, or with damage the LIVE
+        // envelope drops further, the static ratio under-compensated by
+        // exactly that grip deficit, and the cars wandered worst precisely
+        // when grip was low. Now computed against the car's ACTUAL live yaw
+        // authority (vehicle.MaxYawRateDegPerSec reads grip/damage/weather
+        // itself), so the controller keeps its tuned response scale in every
+        // condition; the [-1,1] clamp and the physics envelope still bound
+        // what the car can really do.
+        float SteerAuthorityCompensation(float speedKph)
         {
+            // The response the controller's gains/deadband/slew were tuned
+            // for: the old envelope at nominal grip, mid-grid chassis.
+            float speedFactor = Mathf.Lerp(0.34f, 1f, Mathf.Clamp01(speedKph / 62f));
+            float highSpeedLimit = Mathf.Lerp(1f, 0.8f, Mathf.InverseLerp(90f, 320f, speedKph));
             float oldBoost = speedKph <= 120f
                 ? Mathf.Lerp(2.4f, 1.9f, Mathf.Clamp01((speedKph - 35f) / 85f))
                 : Mathf.Lerp(1.9f, 1.6f, Mathf.Clamp01((speedKph - 120f) / 160f));
-            float newBoost = speedKph <= 120f
-                ? Mathf.Lerp(1.6f, 0.85f, Mathf.Clamp01((speedKph - 35f) / 85f))
-                : Mathf.Lerp(0.85f, 0.45f, Mathf.Clamp01((speedKph - 120f) / 200f));
-            return Mathf.Clamp(oldBoost / newBoost, 1f, 3.6f);
+            float referenceYawDegPerSec = 90f * speedFactor * highSpeedLimit * oldBoost;
+            float actualYawDegPerSec = Mathf.Max(6f, vehicle.MaxYawRateDegPerSec(speedKph));
+            return Mathf.Clamp(referenceYawDegPerSec / actualYawDegPerSec, 1f, 4f);
         }
 
         // Shared by every "something moved this car's transform out from under

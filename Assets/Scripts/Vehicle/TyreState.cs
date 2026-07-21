@@ -126,7 +126,14 @@ namespace LocalFormulaRacing
                 // per compound), so each is now calibrated against its OWN
                 // observed data. Soft: ~2.4 laps observed at a displayed 3 with
                 // baseWear 2.0 -> 1.5 lands it on the displayed gradient.
-                baseWear = 1.5f;
+                // Wear recalibration round 5 (per report - "the tires on every
+                // softness/hardness last about a lap too long"): the corner-
+                // speed realism pass slowed the whole field through corners,
+                // which cut the wear model's speed/steer/slip inputs and
+                // quietly stretched every compound ~1 lap past its displayed
+                // life. baseWear scaled by displayed/(displayed-ish observed):
+                // soft ~4 observed vs 3 displayed -> 1.5 * 4/3 = 2.0.
+                baseWear = 2.0f;
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
@@ -143,7 +150,9 @@ namespace LocalFormulaRacing
                 // 1.35 * 2.5/3.0 = 1.12 lands actual life on the displayed
                 // gradient. (Marginally above the hard's 1.1 - the temperature
                 // curve keeps the hard the longer-lived tyre at every temp.)
-                baseWear = 1.12f;
+                // Wear recalibration round 5 (see the soft's note): medium ~5
+                // observed vs 4 displayed -> 1.12 * 5/4 = 1.4.
+                baseWear = 1.4f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
@@ -157,7 +166,9 @@ namespace LocalFormulaRacing
                 // Wear recalibration round 3: reverted to 1.1 - the hard was
                 // OBSERVED matching its display (5 laps at warm) at 1.1 before
                 // round 2's shared-constant raise broke it.
-                baseWear = 1.1f;
+                // Wear recalibration round 5 (see the soft's note): hard ~7
+                // observed vs 6 displayed -> 1.1 * 7/6 = 1.28.
+                baseWear = 1.28f;
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;
@@ -171,7 +182,8 @@ namespace LocalFormulaRacing
                 // Mirrors the medium's durability at any temperature (per
                 // request) - same baseWear as Medium, and the track-temp wear
                 // multiplier in Tick maps Inter/Wet onto the Medium curve.
-                baseWear = 1.12f;
+                // Wear recalibration round 5: tracks the medium's 1.4.
+                baseWear = 1.4f;
                 targetMin = 58f;
                 targetMax = 82f;
                 warmup = 1.05f;
@@ -188,7 +200,8 @@ namespace LocalFormulaRacing
                 // Mirrors the medium's durability at any temperature (per
                 // request) - same baseWear as Medium, and the track-temp wear
                 // multiplier in Tick maps Inter/Wet onto the Medium curve.
-                baseWear = 1.12f;
+                // Wear recalibration round 5: tracks the medium's 1.4.
+                baseWear = 1.4f;
                 targetMin = 45f;
                 targetMax = 70f;
                 warmup = 1.1f;

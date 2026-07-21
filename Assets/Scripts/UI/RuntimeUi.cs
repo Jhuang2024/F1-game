@@ -3846,8 +3846,14 @@ namespace LocalFormulaRacing
             if (tyreName == "Soft") return "Most grip, easiest to steer - ~" + softLaps + " lap" + (softLaps == 1 ? "" : "s") + " here";
             if (tyreName == "Medium") return "Balanced grip and steering - ~" + mediumLaps + " laps here";
             if (tyreName == "Hard") return "-30 kph, heaviest to steer - ~" + hardLaps + " laps here";
-            if (tyreName == "Intermediate") return "Damp track, light rain - lasts like a Medium";
-            if (tyreName == "Wet") return "Heavy rain, max clearance - lasts like a Medium";
+            // Real lap counts for the rain compounds (per request - "make the
+            // intermediates/wets actually say the amount of laps they last,
+            // not just that they last the same amount as mediums"): both are
+            // physically mapped onto the Medium durability curve (TyreState /
+            // TyreStrategyRules), so the honest number IS the medium's count
+            // at this temperature - now printed as laps like every slick.
+            if (tyreName == "Intermediate") return "Damp track, light rain - ~" + mediumLaps + " lap" + (mediumLaps == 1 ? "" : "s") + " here";
+            if (tyreName == "Wet") return "Heavy rain, max clearance - ~" + mediumLaps + " lap" + (mediumLaps == 1 ? "" : "s") + " here";
             return "";
         }
 

@@ -2223,14 +2223,15 @@ namespace LocalFormulaRacing
         // historical record.
         void RepairProgressionScaleBias()
         {
-            if (Save.progressionScaleBiasRepairVersion >= 4)
+            if (Save.progressionScaleBiasRepairVersion >= 5)
             {
                 return;
             }
 
             bool runReset = Save.progressionScaleBiasRepairVersion < 2;
             bool runV3 = Save.progressionScaleBiasRepairVersion < 3;
-            Save.progressionScaleBiasRepairVersion = 4;
+            bool runV4 = Save.progressionScaleBiasRepairVersion < 4;
+            Save.progressionScaleBiasRepairVersion = 5;
             Save.progressionScaleBiasRepaired = true;
 
             if (runReset)
@@ -2317,7 +2318,42 @@ namespace LocalFormulaRacing
             // beyond the shared field raise). The four stats carry 0.57 of the
             // overall blend, so +7 stat points ~= +4 overall. Per-stat reads
             // still clamp to 40-99, so anyone near the ceiling simply caps.
-            int raisedV4 = 0;
+            if (runV4)
+            {
+                int raisedV4 = 0;
+                for (int i = 0; i < data.Drivers.drivers.Count; i++)
+                {
+                    DriverData rosterDriver = data.Drivers.drivers[i];
+                    if (rosterDriver == null)
+                    {
+                        continue;
+                    }
+
+                    ApplyRepairStatBoost(rosterDriver.id, 7);
+                    raisedV4++;
+                }
+
+                if (!Save.useExistingDriver)
+                {
+                    ApplyRepairStatBoost("player", 7);
+                    raisedV4++;
+                }
+
+                Debug.Log("[ProgressionRepair] v4: last-season decline restitution applied to " + raisedV4 +
+                    " drivers (+7 to pace/racecraft/qualifying/overtaking, ~+4 overall each, player '" + playerId +
+                    "' included at the same amount).");
+            }
+
+            // v5 (per request - "the ratings for some drivers only went up by
+            // like 2... buff everyone elses ratings (something other than pace
+            // and race craft) and make sure the overall goes up by 2"): +5 to
+            // the five SUPPORT stats (tyre management .10, consistency .10,
+            // defending .08, awareness .07, wet skill .05 = 0.40 of the
+            // overall blend), so 5 x 0.40 = exactly +2 overall for every
+            // driver, player included - through entirely different stats than
+            // the v3/v4 passes, so drivers capped at 99 on the four headline
+            // stats still get the full raise here.
+            int raisedV5 = 0;
             for (int i = 0; i < data.Drivers.drivers.Count; i++)
             {
                 DriverData rosterDriver = data.Drivers.drivers[i];
@@ -2326,20 +2362,50 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                ApplyRepairStatBoost(rosterDriver.id, 7);
-                raisedV4++;
+                ApplyRepairSupportStatBoost(rosterDriver.id, 5);
+                raisedV5++;
             }
 
             if (!Save.useExistingDriver)
             {
-                ApplyRepairStatBoost("player", 7);
-                raisedV4++;
+                ApplyRepairSupportStatBoost("player", 5);
+                raisedV5++;
             }
 
-            Debug.Log("[ProgressionRepair] v4: last-season decline restitution applied to " + raisedV4 +
-                " drivers (+7 to pace/racecraft/qualifying/overtaking, ~+4 overall each, player '" + playerId +
-                "' included at the same amount).");
+            Debug.Log("[ProgressionRepair] v5: support-stat raise applied to " + raisedV5 +
+                " drivers (+5 to tyre/consistency/defending/awareness/wet, ~+2 overall each, player '" + playerId +
+                "' included).");
             Write();
+        }
+
+        // v5 helper: bump the five support stats (the ones the v3/v4 passes
+        // never touched) on a driver's current-season live modifier, creating
+        // the row if the season doesn't have one yet.
+        void ApplyRepairSupportStatBoost(string driverId, int amount)
+        {
+            if (string.IsNullOrEmpty(driverId))
+            {
+                return;
+            }
+
+            DriverRatingModifier modifier = Save.driverRatingModifiers.Find(m => m != null && m.driverId == driverId && m.season == Save.currentSeason);
+            if (modifier == null)
+            {
+                modifier = new DriverRatingModifier
+                {
+                    driverId = driverId,
+                    season = Save.currentSeason,
+                    legacyDeltaMigrated = true,
+                    trendLabel = "Steady"
+                };
+                Save.driverRatingModifiers.Add(modifier);
+            }
+
+            modifier.tyreManagementDelta = Mathf.Clamp(modifier.tyreManagementDelta + amount, -40, 40);
+            modifier.consistencyDelta = Mathf.Clamp(modifier.consistencyDelta + amount, -40, 40);
+            modifier.defendingDelta = Mathf.Clamp(modifier.defendingDelta + amount, -40, 40);
+            modifier.awarenessDelta = Mathf.Clamp(modifier.awarenessDelta + amount, -40, 40);
+            modifier.wetSkillDelta = Mathf.Clamp(modifier.wetSkillDelta + amount, -40, 40);
         }
 
         // v3 helper: bump the four repaired stats on a driver's current-season

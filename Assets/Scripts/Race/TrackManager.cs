@@ -290,8 +290,20 @@ namespace LocalFormulaRacing
                 knots.Add(new KeyValuePair<int, float>(apex, -sign * limits[apex]));
                 int entry = (a - gate + count * 2) % count;
                 int exit = (b + gate) % count;
-                knots.Add(new KeyValuePair<int, float>(entry, sign * limits[entry] * gateOutsideScale));
-                knots.Add(new KeyValuePair<int, float>(exit, sign * limits[exit] * gateOutsideScale));
+                // Gate cap in ABSOLUTE metres on top of the 0.55 fraction (per
+                // [SwerveDiag amplitude] - "drawnLine=12.4m ... CAUSE: RACING
+                // LINE"): the procedural width profile makes some sections
+                // 12m+ of usable half-width, and 0.55 of THAT still put gates
+                // ~7m off centre - so every straight between opposite corners
+                // carried a ~13m crossing and S-sections chained them into the
+                // field-wide weave the report describes. Real drivers don't
+                // use a triple-wide road for setup: ~4m of offset buys nearly
+                // all the effective-radius gain. Apexes still pin to the full
+                // inside - only the outside setup excursion is capped.
+                float entryGateOffset = Mathf.Min(limits[entry] * gateOutsideScale, 4f);
+                float exitGateOffset = Mathf.Min(limits[exit] * gateOutsideScale, 4f);
+                knots.Add(new KeyValuePair<int, float>(entry, sign * entryGateOffset));
+                knots.Add(new KeyValuePair<int, float>(exit, sign * exitGateOffset));
             }
 
             knots.Sort((x, y) => x.Key.CompareTo(y.Key));
@@ -345,6 +357,40 @@ namespace LocalFormulaRacing
                 }
 
                 offsets = smoothed;
+            }
+
+            // Straight-section lateral rate limit (the other half of the
+            // [SwerveDiag amplitude] "CAUSE: RACING LINE" fix): even with the
+            // gate cap above, chained corner pins can leave the blended line
+            // darting across a straight faster than a car travelling 300 kph
+            // can sensibly follow. On samples whose smoothed curvature reads
+            // as straight, the line may now drift laterally at most ~0.09 m
+            // per metre travelled (a full 8m gate-to-gate crossing takes
+            // ~90m of road) - corner samples are exempt so apex pins and
+            // turn-in geometry are untouched. Forward+backward passes keep
+            // the limit symmetric instead of dragging everything one way.
+            float maxStraightStep = 0.09f * racingLineSpacing;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                for (int i = 1; i <= count; i++)
+                {
+                    int idx = i % count;
+                    int prev = (i - 1 + count) % count;
+                    if (Mathf.Abs(kappa[idx]) <= cornerCurvature)
+                    {
+                        offsets[idx] = Mathf.Clamp(offsets[idx], offsets[prev] - maxStraightStep, offsets[prev] + maxStraightStep);
+                    }
+                }
+
+                for (int i = count - 1; i >= 0; i--)
+                {
+                    int idx = i;
+                    int next = (i + 1) % count;
+                    if (Mathf.Abs(kappa[idx]) <= cornerCurvature)
+                    {
+                        offsets[idx] = Mathf.Clamp(offsets[idx], offsets[next] - maxStraightStep, offsets[next] + maxStraightStep);
+                    }
+                }
             }
 
             // World-space smoothing + reprojection (jaggedness fix): the offset
