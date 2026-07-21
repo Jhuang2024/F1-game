@@ -58,6 +58,12 @@ namespace LocalFormulaRacing
         // position - which flipped the target side to side and drove the big
         // straight-line lineBias weave the [SwerveDiag amplitude] pass reported.
         float laneClearAirTimer;
+        // Hysteresis for the traffic gate itself (see the lineTrafficNearby
+        // assignment): holds the gate engaged until the road has been
+        // continuously clear for a full second, so a neighbour flickering
+        // across the detection edge can't re-blend the lateral target every
+        // few frames.
+        float lineTrafficReleaseTimer;
         // Previous-frame lateral offset, for the wall-aversion system's
         // trajectory (time-to-edge) computation.
         float previousEdgeLateral;
@@ -1401,7 +1407,12 @@ namespace LocalFormulaRacing
             // 0.99 the elite tier had no margin left for the understeer
             // feedback that trims yaw authority under full steering load,
             // which is exactly where "finds the wall" lives.
-            float tightCornerJudgment = Mathf.Lerp(0.85f, 0.94f, paceNorm);
+            // Trimmed again 0.85-0.94 -> 0.82-0.90 (barrier-retirement round):
+            // at 0.94 the top tier's corner-exit margin against the understeer
+            // feedback (which trims yaw authority ~8-10% under combined
+            // steering + exit throttle) was ~zero, so elite cars still drifted
+            // to the wall on exits. 0.90 leaves a real reserve at every tier.
+            float tightCornerJudgment = Mathf.Lerp(0.82f, 0.90f, paceNorm);
             float apexGeoRadius = track.CurvatureRadiusAt(progress.distance + apexDistanceAhead);
             brakingApexSpeed = Mathf.Min(brakingApexSpeed,
                 vehicle.MaxCorneringSpeedKph(apexGeoRadius) * tightCornerJudgment);
@@ -3866,7 +3877,26 @@ namespace LocalFormulaRacing
             // within ~18m ahead or anyone alongside means this car is racing in
             // traffic and must hold its lane rather than converge on the shared
             // optimal line.
-            lineTrafficNearby = nearestAnyAheadZ < 18f || blockedLeft || blockedRight;
+            // Hysteresis (per report - "theyre swerving on straights", with
+            // the logs showing trafficBlend snapping 0.00 <-> 1.00 between
+            // samples of the same car): the raw gate flickered every time a
+            // neighbour crossed the 18m/alongside detection edge, and each
+            // flicker re-blended the lateral target between the racing line
+            // and the held lane - a multi-metre zigzag per flicker, in packs,
+            // on straights. Engagement stays instant (collision safety), but
+            // release now requires a full second of continuously clear road
+            // before the car starts drifting back to the racing line.
+            bool trafficNearNow = nearestAnyAheadZ < 18f || blockedLeft || blockedRight;
+            if (trafficNearNow)
+            {
+                lineTrafficReleaseTimer = 1.0f;
+            }
+            else
+            {
+                lineTrafficReleaseTimer = Mathf.Max(0f, lineTrafficReleaseTimer - Time.deltaTime);
+            }
+
+            lineTrafficNearby = trafficNearNow || lineTrafficReleaseTimer > 0f;
 
             // Pit-entry queueing fix: while committing to a pit stop, braking/
             // throttle reduction for a car ahead (e.g. another car already queued

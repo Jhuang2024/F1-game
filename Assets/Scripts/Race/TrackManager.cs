@@ -5351,14 +5351,19 @@ namespace LocalFormulaRacing
                     // sitting stranded mid-tarmac once the road widens under it.
                     float localHalfWidth = Runtime.HalfWidthAt(sampleDistance);
 
-                    // Outer kerb (Apex or Exit)
-                    Vector3 outer = point + right * turnSign * (localHalfWidth + 0.35f);
+                    // Flush-barrier reposition: kerbs used to sit at +0.35/+0.25
+                    // OUTSIDE the paved edge, inside the old 0.9m barrier
+                    // standoff. With barriers flush to the edge, that placement
+                    // buried every kerb block inside the barrier wall (visual
+                    // clipping, and it read as the barrier "eating" the kerb).
+                    // Kerbs now ride ON the track edge like real rumble strips.
+                    Vector3 outer = point + right * turnSign * (localHalfWidth - 0.75f);
                     CreateKerbBlock(outer, forward, sampleDistance, aggressive);
 
                     // Inner kerb (if sharp turn)
                     if (angle > 35f)
                     {
-                        Vector3 inner = point - right * turnSign * (localHalfWidth + 0.25f);
+                        Vector3 inner = point - right * turnSign * (localHalfWidth - 0.75f);
                         CreateKerbBlock(inner, forward, sampleDistance + 2f, aggressive);
                     }
                 }
@@ -5373,7 +5378,9 @@ namespace LocalFormulaRacing
                     Vector3 apexRight;
                     Runtime.SampleAtDistance(Runtime.cumulativeDistances[i], out apexPoint, out apexForward, out apexRight);
                     float apexHalfWidth = Runtime.HalfWidthAt(Runtime.cumulativeDistances[i]);
-                    CreateApexChevron(apexPoint + apexRight * turnSign * (apexHalfWidth + 1.6f), apexForward, turnSign);
+                    // Flush-barrier reposition: +1.6 put the chevron behind the
+                    // barrier wall; painted on the road edge instead.
+                    CreateApexChevron(apexPoint + apexRight * turnSign * (apexHalfWidth - 1.9f), apexForward, turnSign);
                 }
             }
         }

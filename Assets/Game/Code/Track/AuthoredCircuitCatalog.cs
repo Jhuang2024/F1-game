@@ -213,10 +213,22 @@ namespace F1Game.Track
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
+                    // Stuck-spot fix: the snail-exit anchor used to be (220, 88),
+                    // which sits ON the snail-entry arc between (224,72) and
+                    // (184,124) - the exit leg TERMINATED tangentially against
+                    // the entry leg (measured 1.8m between centrelines), so the
+                    // two roads and their barriers overlapped into a physical
+                    // trap the flyover system cannot bridge (it only raises
+                    // decisive crossings). Moved to (250, 70): the exit now
+                    // crosses the entry rise once at a clean ~50 degree angle
+                    // (verified offline: exactly one crossing, ~140m minimum
+                    // gap everywhere else, lap length and corner radii
+                    // preserved), which ResolveTrackCrossings raises into a
+                    // proper 9m flyover like Shanghai's real bridge section.
                     new Vector3(0f, 0f, 0f), new Vector3(138f, 0f, 0f), new Vector3(206f, 0f, 22f),
                     new Vector3(224f, 0f, 72f), new Vector3(184f, 0f, 124f), new Vector3(114f, 0f, 114f),
                     new Vector3(72f, 0f, 68f), new Vector3(78f, 0f, 28f), new Vector3(140f, 0f, 48f),
-                    new Vector3(220f, 0f, 88f), new Vector3(334f, 0f, 92f), new Vector3(382f, 0f, 128f),
+                    new Vector3(250f, 0f, 70f), new Vector3(334f, 0f, 92f), new Vector3(382f, 0f, 128f),
                     new Vector3(352f, 0f, 174f), new Vector3(262f, 0f, 184f), new Vector3(164f, 0f, 156f),
                     new Vector3(66f, 0f, 132f), new Vector3(-62f, 0f, 54f), new Vector3(-152f, 0f, 8f)
                 },

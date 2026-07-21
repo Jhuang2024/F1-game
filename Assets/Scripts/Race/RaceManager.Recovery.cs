@@ -102,6 +102,32 @@ namespace LocalFormulaRacing
             }
 
             participant.vehicle.PendingHardWallImpactKph = 0f;
+
+            // [WallDiag] every meaningful wall hit, retirement or not (per
+            // report - cars "still going into barriers and retiring like
+            // crazy"): names the driver, WHERE on the lap (norm), how hard,
+            // and the local corner context, so the next report pinpoints
+            // whether hits cluster at entries (norm just before a corner),
+            // exits (just after), or one specific piece of geometry - three
+            // different fixes, finally distinguishable from a log paste.
+            if (impactKph > 60f && State != null && !participant.retired)
+            {
+                TrackProgress hitProgress = State.GetCurrentProgress(participant);
+                float hitNorm = Track != null && Track.length > 1f ? hitProgress.distance / Track.length : 0f;
+                float hitRadius = Track != null ? Track.CurvatureRadiusAt(hitProgress.distance) : 9999f;
+                float radiusBehind = Track != null ? Track.CurvatureRadiusAt(hitProgress.distance - 45f) : 9999f;
+                float radiusAhead = Track != null ? Track.CurvatureRadiusAt(hitProgress.distance + 45f) : 9999f;
+                string phase = hitRadius < 250f ? "MID-CORNER"
+                    : radiusBehind < 250f ? "CORNER-EXIT"
+                    : radiusAhead < 250f ? "CORNER-ENTRY"
+                    : "STRAIGHT";
+                Debug.LogWarning("[WallDiag] " + participant.driverName + " wall hit " + impactKph.ToString("0") +
+                    "kph perpendicular at norm " + hitNorm.ToString("0.000") + " (" + phase +
+                    ", local radius " + hitRadius.ToString("0") + "m, behind " + radiusBehind.ToString("0") +
+                    "m, ahead " + radiusAhead.ToString("0") + "m) speed " +
+                    Mathf.Abs(participant.vehicle.CurrentSpeedKph).ToString("0") + "kph t=" + RaceElapsed.ToString("0") + "s");
+            }
+
             bool raceSession = (CurrentSession == RaceWeekendSession.Race || CurrentSession == RaceWeekendSession.QuickRace) && !IsTimeTrial;
             if (!raceSession || participant.retired || participant.finished || RaceElapsed < HardWallRetireMinRaceSeconds)
             {

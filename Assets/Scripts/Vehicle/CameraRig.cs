@@ -130,11 +130,29 @@ namespace LocalFormulaRacing
                 followCamera.gameObject.AddComponent<CameraPostFx>();
             }
 
+            // Exactly-one-listener guarantee (per report - Unity's "There are
+            // 2 audio listeners in the scene" warning): this used to only
+            // check its OWN camera before adding a listener, so any second
+            // camera in the scene (a leftover rig from a session restart, a
+            // replay/secondary camera, a scene-file camera) duplicated it.
+            // The active race camera is the single authority: every other
+            // listener in the scene is disabled, ours is enabled.
+            AudioListener[] allListeners = FindObjectsOfType<AudioListener>(true);
+            for (int i = 0; i < allListeners.Length; i++)
+            {
+                if (allListeners[i] != null && allListeners[i].gameObject != followCamera.gameObject)
+                {
+                    allListeners[i].enabled = false;
+                }
+            }
+
             AudioListener listener = followCamera.GetComponent<AudioListener>();
             if (listener == null)
             {
-                followCamera.gameObject.AddComponent<AudioListener>();
+                listener = followCamera.gameObject.AddComponent<AudioListener>();
             }
+
+            listener.enabled = true;
 
             SnapToTarget();
 
