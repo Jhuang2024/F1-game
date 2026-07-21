@@ -31,6 +31,16 @@ namespace LocalFormulaRacing
         float visualSteerAngle;
         const float WheelRadius = 0.31f;
 
+        // Cockpit steering wheel (per request - the onboard cameras must show
+        // the wheel turning with the player's live input). Found lazily by
+        // name like the other detail transforms; rotates about its own face
+        // axis with a fast smoothing so keyboard taps read as crisp wheel
+        // movements rather than instant snaps.
+        Transform steeringWheel;
+        bool steeringWheelSearched;
+        Quaternion steeringWheelRestRotation;
+        float steeringWheelAngle;
+
         // Rear wheels get their own spin angle, separate from wheelSpinAngle above,
         // so a wheelspin event (throttle overwhelming rear grip) can visibly overspin
         // just the rear tyres without also speeding up the fronts, which never lose
@@ -601,6 +611,27 @@ namespace LocalFormulaRacing
 
             float targetSteer = vehicle.CurrentCommand.steer * 16f;
             visualSteerAngle = Mathf.Lerp(visualSteerAngle, targetSteer, Time.deltaTime * 10f);
+
+            // Steering wheel mirrors the live steer command (~95 degrees of
+            // visual lock each way; negative z = clockwise from the driver's
+            // seat for a right turn).
+            if (!steeringWheelSearched)
+            {
+                steeringWheelSearched = true;
+                Transform foundWheel = transform.Find("steering wheel");
+                if (foundWheel != null)
+                {
+                    steeringWheel = foundWheel;
+                    steeringWheelRestRotation = foundWheel.localRotation;
+                }
+            }
+
+            if (steeringWheel != null)
+            {
+                float wheelTargetAngle = vehicle.CurrentCommand.steer * 95f;
+                steeringWheelAngle = Mathf.Lerp(steeringWheelAngle, wheelTargetAngle, Time.deltaTime * 14f);
+                steeringWheel.localRotation = steeringWheelRestRotation * Quaternion.Euler(0f, 0f, -steeringWheelAngle);
+            }
 
             Quaternion spin = Quaternion.Euler(wheelSpinAngle, 0f, 0f);
             Quaternion rearSpin = Quaternion.Euler(rearWheelSpinAngle, 0f, 0f);

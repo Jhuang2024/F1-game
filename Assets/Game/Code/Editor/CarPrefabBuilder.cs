@@ -92,8 +92,12 @@ namespace F1Game.Editor
             }
 
             Anchor(root, CarRigSpec.CamChase, new Vector3(0f, 1.5f, -6.5f));
-            Anchor(root, CarRigSpec.CamTCam, new Vector3(0f, 1.05f, -0.6f));
-            Anchor(root, CarRigSpec.CamCockpit, new Vector3(0f, 0.85f, 0.6f));
+            // Onboard mounts (kept in sync with RaceCameraDirector's runtime
+            // fallbacks): the T-cam sits on the airbox main intake framing the
+            // helmet + wheel + road, the cockpit cam at the driver's eye line
+            // behind the wheel.
+            Anchor(root, CarRigSpec.CamTCam, new Vector3(0f, 1.16f, -0.52f));
+            Anchor(root, CarRigSpec.CamCockpit, new Vector3(0f, 0.84f, 0.3f));
             Anchor(root, CarRigSpec.CamNose, new Vector3(0f, 0.35f, 2.7f));
 
             Anchor(root, CarRigSpec.AudioEngine, new Vector3(0f, 0.5f, -1.6f));

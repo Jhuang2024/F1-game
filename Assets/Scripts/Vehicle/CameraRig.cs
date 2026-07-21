@@ -40,9 +40,10 @@ namespace LocalFormulaRacing
         // transform and forwards mode-cycling, impulses, shake scale and look-back.
         F1Game.Cameras.RaceCameraDirector director;
         bool directorActive;
-        // Default view is the FOURTH camera (per request); C cycles onward
-        // from there in the existing order.
-        int mode = 3;
+        // Default view is the rear-chase camera (the "fourth camera" per the
+        // earlier request - now index 5 after the two onboard views were
+        // inserted at 1 and 2); C cycles onward from there in order.
+        int mode = 5;
         Vector3 velocitySmoothed;
         float smoothedSpeedKph;
         float previousRawSpeedKph = -1f;
@@ -78,10 +79,23 @@ namespace LocalFormulaRacing
         // a touch, then eases back out well after the spin itself ends.
         float spinRecoveryAmount;
 
-        // Chase, cockpit/halo, high TV, rear chase, low nose cam, side cinematic.
+        // Chase, driver-eye cockpit, airbox T-cam, halo cam, high TV,
+        // rear chase, low nose cam, side cinematic.
+        // The two onboard views (per request, as the SECOND and THIRD camera
+        // angles) are hard-mounted in car-local space: index 1 sits at the
+        // driver's eye line (helmet height, wheel in frame - the wheel itself
+        // is animated from live input by VehicleVisuals), index 2 sits on top
+        // of the airbox above the cockpit, framing the helmet, wheel and the
+        // road ahead.
         readonly Vector3[] offsets =
         {
             new Vector3(0f, 4.1f, -11.4f),
+            // Driver eye sits INSIDE the visor/helmet shells on purpose:
+            // both are closed primitives, so from inside them backface
+            // culling hides them entirely - placed outside, the dark visor
+            // dome (which encloses the steering wheel) would block the view.
+            new Vector3(0f, 0.84f, 0.3f),
+            new Vector3(0f, 1.16f, -0.52f),
             new Vector3(0f, 2.02f, 1.55f),
             new Vector3(0f, 26f, -11f),
             new Vector3(0f, 4.6f, 14.5f),
@@ -224,23 +238,37 @@ namespace LocalFormulaRacing
         {
             if (mode == 1)
             {
-                // Cockpit: a touch of tunnel widening with speed, kept gentle.
-                return baseFov + 8f + speed01 * 5f;
+                // Driver-eye cockpit: wide enough to keep the wheel and both
+                // mirrorscape edges in frame, with gentle speed widening.
+                return baseFov + 6f + speed01 * 6f;
             }
 
             if (mode == 2)
             {
-                return baseFov - 8f;
+                // Airbox T-cam: broadcast onboard framing - helmet, wheel and
+                // the road ahead.
+                return baseFov + 2f + speed01 * 5f;
+            }
+
+            if (mode == 3)
+            {
+                // Halo cam: a touch of tunnel widening with speed, kept gentle.
+                return baseFov + 8f + speed01 * 5f;
             }
 
             if (mode == 4)
+            {
+                return baseFov - 8f;
+            }
+
+            if (mode == 6)
             {
                 // Nose cam: tarmac-level and close to the action, so let the
                 // lens stretch hard at speed for a proper flat-out feel.
                 return baseFov + 7f + speed01 * 10f;
             }
 
-            if (mode == 5)
+            if (mode == 7)
             {
                 // Side cinematic tracking shot: a touch of telephoto compression
                 // rather than the wide, close-in feel of the other modes, with
@@ -355,7 +383,18 @@ namespace LocalFormulaRacing
             Vector3 offset = offsets[mode];
             Vector3 desired;
             Quaternion desiredRotation;
-            if (mode == 2)
+            if (mode == 1 || mode == 2)
+            {
+                // Driver-eye (1) and airbox (2) are rigid onboard mounts: the
+                // camera lives at a fixed point in car space and looks straight
+                // down the chassis with the car's own up vector, so it banks
+                // and pitches with the car exactly like a real onboard. The
+                // slight downward tilt keeps the wheel/helmet in frame - a bit
+                // more from the airbox since it sits higher and further back.
+                desired = target.TransformPoint(offset);
+                desiredRotation = Quaternion.LookRotation(target.forward + target.up * (mode == 2 ? -0.10f : -0.04f), target.up);
+            }
+            else if (mode == 4)
             {
                 // TV cam drifts alongside the racing line rather than sitting glued
                 // overhead, which reads much more like a broadcast crane. A slow,
@@ -401,15 +440,15 @@ namespace LocalFormulaRacing
                 // behind the front-wheel turn-in.
                 smoothedCornerSignal = Mathf.Lerp(smoothedCornerSignal, rawCornerSignal, 1f - Mathf.Exp(-dt * 9.5f));
                 float cornerSignal = smoothedCornerSignal;
-                float cornerBiasScale = mode == 1 || mode == 4 ? Mathf.Lerp(0.12f, 0.5f, speed01) : Mathf.Lerp(0.25f, 1.4f, speed01);
+                float cornerBiasScale = mode == 3 || mode == 6 ? Mathf.Lerp(0.12f, 0.5f, speed01) : Mathf.Lerp(0.25f, 1.4f, speed01);
                 Vector3 cornerBias = target.right * cornerSignal * cornerBiasScale;
-                Vector3 lookTarget = target.position + Vector3.up * 1.05f + velocitySmoothed * (mode == 1 ? 0.07f : 0.2f) + cornerBias;
+                Vector3 lookTarget = target.position + Vector3.up * 1.05f + velocitySmoothed * (mode == 3 ? 0.07f : 0.2f) + cornerBias;
                 Vector3 lookDirection = lookTarget - desired;
-                if (mode == 3)
+                if (mode == 5)
                 {
                     lookDirection = target.position + Vector3.up * 1.05f - desired;
                 }
-                else if (mode == 4)
+                else if (mode == 6)
                 {
                     // Nose cam hugs the tarmac and always looks down the road.
                     lookDirection = target.forward * 12f + velocitySmoothed * 0.3f + cornerBias * 0.5f + Vector3.up * 0.1f;
@@ -424,7 +463,7 @@ namespace LocalFormulaRacing
 
                 // Corner lean from lateral velocity sells the load transfer, kept mild.
                 float lateral = Vector3.Dot(velocitySmoothed, target.right);
-                float rollClamp = mode == 1 ? 1.6f : 1.2f;
+                float rollClamp = mode == 3 ? 1.6f : 1.2f;
                 float targetRoll = Mathf.Clamp(-lateral * 0.05f, -rollClamp, rollClamp);
                 rollAngle = Mathf.Lerp(rollAngle, targetRoll, dt * 4f);
                 desiredRotation *= Quaternion.Euler(0f, 0f, rollAngle);
@@ -439,7 +478,7 @@ namespace LocalFormulaRacing
             // parked car. Fades to nothing well before the car is actually rolling so
             // it never touches on-track framing; cockpit/nose stay rigidly mounted on
             // purpose and the TV crane already has its own craneSway above.
-            if (mode == 0 || mode == 3 || mode == 5)
+            if (mode == 0 || mode == 5 || mode == 7)
             {
                 // A car can be essentially stationary (speed01 near zero) right after
                 // slamming into something and still be settling from the impact/clatter
@@ -469,7 +508,7 @@ namespace LocalFormulaRacing
             // floaty on purpose. Right after a mode switch, blendEase eases
             // both rates in from a slower start so the cut glides rather than
             // snaps into the new angle.
-            bool chaseLike = mode == 0 || mode == 3;
+            bool chaseLike = mode == 0 || mode == 5;
 
             // Side cinematic (mode 5) gets its own slow, deliberate follow -
             // floatier than the plain chase modes but still tracking the car
@@ -480,20 +519,22 @@ namespace LocalFormulaRacing
             // (that's what reads as fast on screen), but the floor is raised a
             // little from the old 5.6/6.6 so the camera never feels fully
             // detached from the car at v-max - just looser, not laggy.
-            float baseFollowRate = mode == 1 || mode == 4 ? 17f : (mode == 2 ? 3.2f : (mode == 5 ? Mathf.Lerp(4.6f, 3.4f, speed01) : Mathf.Lerp(11.5f, 6.4f, speed01)));
-            float baseRotRate = chaseLike ? Mathf.Lerp(9.6f, 7.2f, speed01) : (mode == 5 ? 5.4f : 8.2f);
+            float baseFollowRate = mode == 1 || mode == 2 ? 45f : (mode == 3 || mode == 6 ? 17f : (mode == 4 ? 3.2f : (mode == 7 ? Mathf.Lerp(4.6f, 3.4f, speed01) : Mathf.Lerp(11.5f, 6.4f, speed01))));
+            float baseRotRate = mode == 1 || mode == 2 ? 35f : (chaseLike ? Mathf.Lerp(9.6f, 7.2f, speed01) : (mode == 7 ? 5.4f : 8.2f));
             float followRate = Mathf.Lerp(baseFollowRate * 0.35f, baseFollowRate, blendEase);
             float rotRate = Mathf.Lerp(baseRotRate * 0.35f, baseRotRate, blendEase);
 
             // Mid-spin/just-recovering, loosen the rotational follow so the
             // camera lags a beat behind a fast-spinning car rather than
-            // whip-panning in lockstep with it - the TV crane (mode 2) is
+            // whip-panning in lockstep with it - the TV crane (mode 4) is
             // excluded, same as the FOV kicks below, since it's meant to stay
-            // detached from the chassis regardless. This only ever loosens
+            // detached from the chassis, and so are the two rigid onboard
+            // mounts (modes 1-2), which should stay bolted to the car through
+            // a spin rather than easing off it. This only ever loosens
             // rotRate, never the position followRate, so the camera still
             // tracks the car's location precisely through a spin - it just
             // stops snapping its facing to match every instant of rotation.
-            float spinRecoveryEase = mode == 2 ? 0f : spinRecoveryAmount;
+            float spinRecoveryEase = mode == 4 || mode == 1 || mode == 2 ? 0f : spinRecoveryAmount;
             if (spinRecoveryEase > 0f)
             {
                 rotRate = Mathf.Lerp(rotRate, rotRate * 0.4f, spinRecoveryEase);
@@ -507,11 +548,11 @@ namespace LocalFormulaRacing
             // the surge - while a fresh impact briefly tightens it (impulseShake is
             // already fed and decayed by the shake pass above), a quick punch-in
             // that reads as the hit even with the offset shake kept subtle. The TV
-            // crane (mode 2) stays at its fixed broadcast focal length.
+            // crane (mode 4) stays at its fixed broadcast focal length.
             float drsTarget = targetVehicle != null && targetVehicle.DrsActive ? 1f : 0f;
             smoothedDrsBoost = Mathf.MoveTowards(smoothedDrsBoost, drsTarget, dt * 1.6f);
             float fovTarget = ModeFov(speed01);
-            if (mode != 2)
+            if (mode != 4)
             {
                 // Same curved punch as the shake offset below (see ImpactPunchCurve)
                 // so a solid hit snaps the lens in noticeably harder than a graze,
@@ -573,7 +614,7 @@ namespace LocalFormulaRacing
         {
             impulseShake = Mathf.MoveTowards(impulseShake, 0f, Time.deltaTime * 1.8f);
             clatterShake = Mathf.MoveTowards(clatterShake, 0f, Time.deltaTime * 5f);
-            if (!cameraShake || mode == 2 || shakeStrength <= 0.001f)
+            if (!cameraShake || mode == 4 || shakeStrength <= 0.001f)
             {
                 return Vector3.zero;
             }
@@ -679,7 +720,7 @@ namespace LocalFormulaRacing
             // side cinematic shot is meant to feel like a composed camera
             // operator, not something bolted to the chassis, so it gets the
             // most damping of all.
-            float modeShakeMultiplier = mode == 4 ? 1.22f : (mode == 1 ? 0.85f : (mode == 5 ? 0.7f : 1f));
+            float modeShakeMultiplier = mode == 6 ? 1.22f : (mode == 1 || mode == 2 ? 0.6f : (mode == 3 ? 0.85f : (mode == 7 ? 0.7f : 1f)));
             return (rumbleOffset + judderOffset + offTrackOffset + impactOffset + clatterOffset) * shakeStrength * 1.6f * modeShakeMultiplier;
         }
 

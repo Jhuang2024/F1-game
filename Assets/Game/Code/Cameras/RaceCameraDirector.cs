@@ -77,6 +77,13 @@ namespace F1Game.Cameras
                 loaded = BuildDefaultProfiles();
             }
 
+            // The cycle order is a promise to the player: chase first, then the
+            // two onboard views as the SECOND and THIRD angles (cockpit
+            // driver-eye, then airbox T-cam), then everything else.
+            // Resources.LoadAll gives no ordering guarantee, so order by kind
+            // explicitly instead of trusting asset-name order.
+            System.Array.Sort(loaded, (a, b) => CycleRank(a.kind).CompareTo(CycleRank(b.kind)));
+
             var rigRoot = new GameObject("Cinemachine Rigs").transform;
             rigRoot.SetParent(transform, false);
 
@@ -175,6 +182,18 @@ namespace F1Game.Cameras
             return vcam;
         }
 
+        static int CycleRank(CameraProfile.Kind kind)
+        {
+            switch (kind)
+            {
+                case CameraProfile.Kind.Chase: return 0;
+                case CameraProfile.Kind.Cockpit: return 1;
+                case CameraProfile.Kind.TCam: return 2;
+                case CameraProfile.Kind.Nose: return 3;
+                default: return 4;
+            }
+        }
+
         static Transform CreateFallbackHardMount(Transform car, CameraProfile.Kind kind)
         {
             if (car == null)
@@ -191,10 +210,19 @@ namespace F1Game.Cameras
             switch (kind)
             {
                 case CameraProfile.Kind.TCam:
-                    localPosition = new Vector3(0f, 1.05f, -0.6f);
+                    // On the airbox main-intake hump above the cockpit, framing
+                    // the driver's helmet, the wheel and the road ahead.
+                    localPosition = new Vector3(0f, 1.16f, -0.52f);
                     break;
                 case CameraProfile.Kind.Cockpit:
-                    localPosition = new Vector3(0f, 0.85f, 0.6f);
+                    // Driver's eye line: helmet sits at (0, 0.88, 0.2), the
+                    // steering wheel at (0, 0.76, 0.62) - so from here the
+                    // (input-animated) wheel fills the lower frame with the
+                    // road beyond it. Deliberately INSIDE the helmet and
+                    // cockpit-visor primitives: backface culling hides both
+                    // from within, whereas from outside the dark visor dome
+                    // (which encloses the wheel) would block the view.
+                    localPosition = new Vector3(0f, 0.84f, 0.3f);
                     break;
                 case CameraProfile.Kind.Nose:
                     localPosition = new Vector3(0f, 0.35f, 2.7f);
@@ -228,8 +256,8 @@ namespace F1Game.Cameras
             return new[]
             {
                 Make(CameraProfile.Kind.Chase, "Cameras/ChaseMount", new Vector3(0f, 1.6f, -6.8f), 58f, 0.8f),
-                Make(CameraProfile.Kind.TCam, "Cameras/TCamMount", Vector3.zero, 55f, 0.2f),
                 Make(CameraProfile.Kind.Cockpit, "Cameras/CockpitMount", Vector3.zero, 62f, 0.1f),
+                Make(CameraProfile.Kind.TCam, "Cameras/TCamMount", Vector3.zero, 55f, 0.2f),
                 Make(CameraProfile.Kind.Nose, "Cameras/NoseMount", Vector3.zero, 60f, 0.15f),
             };
         }
