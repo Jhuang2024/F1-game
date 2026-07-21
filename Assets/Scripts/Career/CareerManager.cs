@@ -3641,6 +3641,51 @@ namespace LocalFormulaRacing
             List<DriverRatingModifier> thisSeason = new List<DriverRatingModifier>();
             List<DriverSeasonChangeRecord> changeRecords = new List<DriverSeasonChangeRecord>();
 
+            // Field-relative baselines (per report - "again the same thing
+            // happened in a new season. everyones rating went down"): the
+            // overtaking/tyre/awareness scores used ABSOLUTE neutral points
+            // (0.8 overtakes/race, 8% flat spot, ~zero track-limit warnings),
+            // so whenever the season's racing character drifted from those
+            // constants - processional races, lockup-heavy tyres, a track-
+            // limit-happy AI field - the ENTIRE grid scored negative on the
+            // same stats and the whole field bled rating together, season
+            // after season. Each of those scores is now centred on this
+            // season's actual field average, making them zero-sum by
+            // construction: a driver only gains or loses relative to the grid
+            // they actually raced against.
+            float fieldOvertakesPerRace = 0.8f;
+            float fieldFlatSpotPercent = 8f;
+            float fieldTrackLimitsPerRace = 0f;
+            {
+                float overtakesSum = 0f, flatSpotSum = 0f, trackLimitsSum = 0f;
+                int fieldSamples = 0;
+                for (int i = 0; i < Save.driverSeasonPerformances.Count; i++)
+                {
+                    DriverSeasonPerformance sample = Save.driverSeasonPerformances[i];
+                    if (sample == null || sample.season != completedSeasonNumber || sample.racesCompleted <= 0)
+                    {
+                        continue;
+                    }
+
+                    fieldSamples++;
+                    overtakesSum += sample.overtakesMade / (float)sample.racesCompleted;
+                    flatSpotSum += sample.sumFlatSpotPercent / sample.racesCompleted;
+                    trackLimitsSum += sample.trackLimitWarnings / (float)sample.racesCompleted;
+                }
+
+                if (fieldSamples > 0)
+                {
+                    fieldOvertakesPerRace = overtakesSum / fieldSamples;
+                    fieldFlatSpotPercent = flatSpotSum / fieldSamples;
+                    fieldTrackLimitsPerRace = trackLimitsSum / fieldSamples;
+                }
+            }
+
+            // Car ranking for the championship-outcome term below. This runs
+            // before GenerateTeamPerformanceEvolution in BeginNewSeason, so it
+            // still reflects the machinery the completed season was raced with.
+            List<string> progressionCarRanking = RankTeamsByCarStrength();
+
             for (int s = 0; s < subjects.Count; s++)
             {
                 string driverId = subjects[s];
@@ -3686,12 +3731,17 @@ namespace LocalFormulaRacing
                     // overtakes is mostly absence of opportunity, not lost skill,
                     // so it can only nudge the rating down slightly - while a
                     // genuinely busy season still earns the full upside.
-                    overtakingScore = Mathf.Clamp((avgOvertakes - 0.8f) / 2.5f, -0.25f, 1f);
+                    // Field-relative (see the baseline block above): neutral is
+                    // this season's average overtakes/race, not a constant.
+                    overtakingScore = Mathf.Clamp((avgOvertakes - fieldOvertakesPerRace) / 2.5f, -0.25f, 1f);
                     // Defending has no dedicated per-battle telemetry yet (see
                     // DriverSeasonPerformance) - proxied from the same-car
                     // head-to-head record, kept intentionally small.
                     defendingScore = Mathf.Clamp(raceH2H * 0.5f, -0.6f, 0.6f);
-                    tyreScore = Mathf.Clamp(-(avgFlatSpot - 8f) / 10f, -1f, 1f);
+                    // Field-relative: measured against this season's average
+                    // flat-spotting, so a lockup-heavy physics/tyre meta can't
+                    // read as the whole grid forgetting tyre management.
+                    tyreScore = Mathf.Clamp(-(avgFlatSpot - fieldFlatSpotPercent) / 10f, -1f, 1f);
 
                     if (perf.wetRacesCompleted > 0)
                     {
@@ -3723,13 +3773,57 @@ namespace LocalFormulaRacing
                     consistencyScore = Mathf.Clamp(consistencyScore - perf.driverCausedRetirements * 0.25f - perf.penalizedRaces * 0.05f, -1f, 1f);
 
                     float avgTrackLimits = perf.trackLimitWarnings / (float)races;
-                    awarenessScore = Mathf.Clamp(-(perf.driverCausedRetirements * 0.4f + perf.penalizedRaces * 0.12f + avgTrackLimits * 0.08f), -1f, 0.4f);
+                    // Field-relative on the track-limits component: a season
+                    // where the WHOLE grid collects warnings (track-limit-happy
+                    // AI, tight new layouts) must not read as every driver's
+                    // awareness declining at once. Retirements/penalties stay
+                    // absolute - causing a crash is bad regardless of the meta.
+                    awarenessScore = Mathf.Clamp(-(perf.driverCausedRetirements * 0.4f + perf.penalizedRaces * 0.12f + (avgTrackLimits - fieldTrackLimitsPerRace) * 0.08f), -1f, 0.4f);
                     if (perf.driverCausedRetirements == 0 && perf.penalizedRaces == 0 && races >= 6)
                     {
                         awarenessScore = Mathf.Max(awarenessScore, 0.3f);
                     }
 
                     aggressionScore = Mathf.Clamp((avgOvertakes * 0.4f + perf.penalizedRaces * 0.15f) / 3f, -1f, 1f);
+
+                    // Championship-outcome term (per report - "my rating didnt
+                    // change even tho i came p1 in the wdc by double second
+                    // places points"): every score above measures form vs the
+                    // car's per-race expectation, so a champion in a title-
+                    // worthy car scores ~zero everywhere BY CONSTRUCTION and
+                    // the season's actual outcome never counted for anything.
+                    // The final standing now feeds pace/racecraft/consistency:
+                    // beating the car's expected championship slot scores
+                    // positively, the champion gets an explicit floor, and a
+                    // dominant title (>= 1.5x the runner-up's points) reads as
+                    // the statement season it is. NOTE the standings list keys
+                    // the player's seat as "player" even in an existing-driver
+                    // career, while progression subjects use the real driver
+                    // id - the seat mapping below bridges that (this was also
+                    // why the champion's own outcome was invisible here).
+                    if (completedSeason != null && completedSeason.finalDriverStandings != null && completedSeason.finalDriverStandings.Count > 1)
+                    {
+                        bool isPlayerSeat = driverId == "player" || (Save.useExistingDriver && driverId == Save.selectedDriverId);
+                        string standingsId = isPlayerSeat && FindStandingPosition(completedSeason.finalDriverStandings, "player") > 0 ? "player" : driverId;
+                        int standingPos = FindStandingPosition(completedSeason.finalDriverStandings, standingsId);
+                        if (standingPos > 0)
+                        {
+                            string rankTeamId = !string.IsNullOrEmpty(driver.teamId) ? driver.teamId : Save.playerTeamId;
+                            float expectedStanding = TeamCarRank(progressionCarRanking, rankTeamId) * 2f - 0.5f;
+                            float championshipScore = Mathf.Clamp((expectedStanding - standingPos) / 6f, -0.5f, 0.8f);
+                            if (standingPos == 1)
+                            {
+                                int champPoints = completedSeason.finalDriverStandings[0].points;
+                                int runnerUpPoints = completedSeason.finalDriverStandings[1].points;
+                                bool dominantTitle = champPoints >= Mathf.RoundToInt(runnerUpPoints * 1.5f);
+                                championshipScore = Mathf.Max(championshipScore, dominantTitle ? 0.6f : 0.35f);
+                            }
+
+                            paceScore = Mathf.Clamp(paceScore + championshipScore * 0.5f, -1f, 1f);
+                            racecraftScore = Mathf.Clamp(racecraftScore + championshipScore * 0.4f, -1f, 1f);
+                            consistencyScore = Mathf.Clamp(consistencyScore + championshipScore * 0.3f, -1f, 1f);
+                        }
+                    }
                 }
 
                 int prevPaceDelta = previous != null ? previous.paceDelta : 0;
