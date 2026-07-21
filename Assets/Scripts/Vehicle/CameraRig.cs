@@ -40,10 +40,10 @@ namespace LocalFormulaRacing
         // transform and forwards mode-cycling, impulses, shake scale and look-back.
         F1Game.Cameras.RaceCameraDirector director;
         bool directorActive;
-        // Default view is the rear-chase camera (the "fourth camera" per the
-        // earlier request - now index 5 after the two onboard views were
-        // inserted at 1 and 2); C cycles onward from there in order.
-        int mode = 5;
+        // Default view is the chase camera. The old dedicated rear-chase
+        // angle was removed (per request) once the always-on rear-view
+        // mirror made it redundant; C cycles onward from here in order.
+        int mode = 0;
         Vector3 velocitySmoothed;
         float smoothedSpeedKph;
         float previousRawSpeedKph = -1f;
@@ -80,7 +80,9 @@ namespace LocalFormulaRacing
         float spinRecoveryAmount;
 
         // Chase, driver-eye cockpit, airbox T-cam, halo cam, high TV,
-        // rear chase, low nose cam, side cinematic.
+        // low nose cam, side cinematic. (The rear-chase angle that used to
+        // sit between TV and nose was removed - the always-on rear-view
+        // mirror covers what's behind in every mode.)
         // The two onboard views (per request, as the SECOND and THIRD camera
         // angles) are hard-mounted in car-local space: index 1 sits at the
         // driver's eye line (helmet height, wheel in frame - the wheel itself
@@ -98,7 +100,6 @@ namespace LocalFormulaRacing
             new Vector3(0f, 1.16f, -0.52f),
             new Vector3(0f, 2.02f, 1.55f),
             new Vector3(0f, 26f, -11f),
-            new Vector3(0f, 4.6f, 14.5f),
             new Vector3(0f, 0.58f, 2.3f),
             new Vector3(3.6f, 1.5f, -5.6f)
         };
@@ -182,6 +183,11 @@ namespace LocalFormulaRacing
 
             SnapToTarget();
 
+            // Always-on rear-view mirror, pinned top-centre of the HUD in every
+            // camera angle (it replaced the dedicated rear-chase angle). Child
+            // of this rig so it's torn down with the race camera.
+            RearViewMirror.Attach(target, transform);
+
             // Cinemachine live path: attach the director to the race camera. When
             // active, this rig stops driving the transform (the brain does) and
             // only forwards cycling/impulse/shake/look-back.
@@ -261,14 +267,14 @@ namespace LocalFormulaRacing
                 return baseFov - 8f;
             }
 
-            if (mode == 6)
+            if (mode == 5)
             {
                 // Nose cam: tarmac-level and close to the action, so let the
                 // lens stretch hard at speed for a proper flat-out feel.
                 return baseFov + 7f + speed01 * 10f;
             }
 
-            if (mode == 7)
+            if (mode == 6)
             {
                 // Side cinematic tracking shot: a touch of telephoto compression
                 // rather than the wide, close-in feel of the other modes, with
@@ -440,15 +446,11 @@ namespace LocalFormulaRacing
                 // behind the front-wheel turn-in.
                 smoothedCornerSignal = Mathf.Lerp(smoothedCornerSignal, rawCornerSignal, 1f - Mathf.Exp(-dt * 9.5f));
                 float cornerSignal = smoothedCornerSignal;
-                float cornerBiasScale = mode == 3 || mode == 6 ? Mathf.Lerp(0.12f, 0.5f, speed01) : Mathf.Lerp(0.25f, 1.4f, speed01);
+                float cornerBiasScale = mode == 3 || mode == 5 ? Mathf.Lerp(0.12f, 0.5f, speed01) : Mathf.Lerp(0.25f, 1.4f, speed01);
                 Vector3 cornerBias = target.right * cornerSignal * cornerBiasScale;
                 Vector3 lookTarget = target.position + Vector3.up * 1.05f + velocitySmoothed * (mode == 3 ? 0.07f : 0.2f) + cornerBias;
                 Vector3 lookDirection = lookTarget - desired;
                 if (mode == 5)
-                {
-                    lookDirection = target.position + Vector3.up * 1.05f - desired;
-                }
-                else if (mode == 6)
                 {
                     // Nose cam hugs the tarmac and always looks down the road.
                     lookDirection = target.forward * 12f + velocitySmoothed * 0.3f + cornerBias * 0.5f + Vector3.up * 0.1f;
@@ -473,12 +475,12 @@ namespace LocalFormulaRacing
 
             // A touch of slow handheld-style breathing once the car is essentially
             // stationary (grid, pit box, post-spin standstill), so a long static hold
-            // on the chase/rear-chase/side-cinematic angles doesn't read as a frozen
+            // on the chase/side-cinematic angles doesn't read as a frozen
             // viewport - real broadcast operators never sit perfectly still even on a
             // parked car. Fades to nothing well before the car is actually rolling so
             // it never touches on-track framing; cockpit/nose stay rigidly mounted on
             // purpose and the TV crane already has its own craneSway above.
-            if (mode == 0 || mode == 5 || mode == 7)
+            if (mode == 0 || mode == 6)
             {
                 // A car can be essentially stationary (speed01 near zero) right after
                 // slamming into something and still be settling from the impact/clatter
@@ -500,7 +502,7 @@ namespace LocalFormulaRacing
                 }
             }
 
-            // Chase and rear-chase get quick, precise response at low speed
+            // The chase camera gets quick, precise response at low speed
             // (good for threading a chicane) that loosens into a trailing,
             // slightly-behind feel at speed, which is what actually reads as
             // fast on screen rather than robotically glued in place. Cockpit
@@ -508,19 +510,19 @@ namespace LocalFormulaRacing
             // floaty on purpose. Right after a mode switch, blendEase eases
             // both rates in from a slower start so the cut glides rather than
             // snaps into the new angle.
-            bool chaseLike = mode == 0 || mode == 5;
+            bool chaseLike = mode == 0;
 
-            // Side cinematic (mode 5) gets its own slow, deliberate follow -
+            // Side cinematic (mode 6) gets its own slow, deliberate follow -
             // floatier than the plain chase modes but still tracking the car
             // (unlike the TV crane, which is anchored in world space), so it
             // reads as a composed tracking shot rather than either a glued-on
             // chase cam or a locked-off broadcast angle.
-            // Chase/rear-chase still loosen into a trailing feel as speed rises
+            // The chase cam still loosens into a trailing feel as speed rises
             // (that's what reads as fast on screen), but the floor is raised a
             // little from the old 5.6/6.6 so the camera never feels fully
             // detached from the car at v-max - just looser, not laggy.
-            float baseFollowRate = mode == 1 || mode == 2 ? 45f : (mode == 3 || mode == 6 ? 17f : (mode == 4 ? 3.2f : (mode == 7 ? Mathf.Lerp(4.6f, 3.4f, speed01) : Mathf.Lerp(11.5f, 6.4f, speed01))));
-            float baseRotRate = mode == 1 || mode == 2 ? 35f : (chaseLike ? Mathf.Lerp(9.6f, 7.2f, speed01) : (mode == 7 ? 5.4f : 8.2f));
+            float baseFollowRate = mode == 1 || mode == 2 ? 45f : (mode == 3 || mode == 5 ? 17f : (mode == 4 ? 3.2f : (mode == 6 ? Mathf.Lerp(4.6f, 3.4f, speed01) : Mathf.Lerp(11.5f, 6.4f, speed01))));
+            float baseRotRate = mode == 1 || mode == 2 ? 35f : (chaseLike ? Mathf.Lerp(9.6f, 7.2f, speed01) : (mode == 6 ? 5.4f : 8.2f));
             float followRate = Mathf.Lerp(baseFollowRate * 0.35f, baseFollowRate, blendEase);
             float rotRate = Mathf.Lerp(baseRotRate * 0.35f, baseRotRate, blendEase);
 
@@ -720,7 +722,7 @@ namespace LocalFormulaRacing
             // side cinematic shot is meant to feel like a composed camera
             // operator, not something bolted to the chassis, so it gets the
             // most damping of all.
-            float modeShakeMultiplier = mode == 6 ? 1.22f : (mode == 1 || mode == 2 ? 0.6f : (mode == 3 ? 0.85f : (mode == 7 ? 0.7f : 1f)));
+            float modeShakeMultiplier = mode == 5 ? 1.22f : (mode == 1 || mode == 2 ? 0.6f : (mode == 3 ? 0.85f : (mode == 6 ? 0.7f : 1f)));
             return (rumbleOffset + judderOffset + offTrackOffset + impactOffset + clatterOffset) * shakeStrength * 1.6f * modeShakeMultiplier;
         }
 
