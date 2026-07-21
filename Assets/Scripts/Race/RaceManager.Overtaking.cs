@@ -118,6 +118,13 @@ namespace LocalFormulaRacing
                 raceControlOrderSnapshot.Clear();
                 raceControlSectorSnapshot.Clear();
                 restrictionActiveAtLastSnapshot = false;
+                if (StartCountdown > 0f)
+                {
+                    // Pre-race countdown = a fresh race about to start; the
+                    // previous race's highlight reel must not leak into it.
+                    ResetOvertakeHighlights();
+                }
+
                 return;
             }
 
@@ -244,6 +251,7 @@ namespace LocalFormulaRacing
             }
 
             TrackPlayerOvertakesCompleted(currentOrder);
+            RecordOvertakeHighlights(currentOrder, restrictionActiveNow);
 
             raceControlOrderSnapshot.Clear();
             raceControlOrderSnapshot.AddRange(currentOrder);

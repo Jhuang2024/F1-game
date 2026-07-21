@@ -92,10 +92,10 @@ namespace LocalFormulaRacing
         readonly Vector3[] offsets =
         {
             new Vector3(0f, 4.1f, -11.4f),
-            // Driver eye sits INSIDE the visor/helmet shells on purpose:
-            // both are closed primitives, so from inside them backface
-            // culling hides them entirely - placed outside, the dark visor
-            // dome (which encloses the steering wheel) would block the view.
+            // Driver eye sits INSIDE the helmet sphere on purpose: a closed
+            // primitive is fully backface-culled from within, so the helmet
+            // vanishes and the view clears straight over the low aeroscreen
+            // deflector to the wheel, the driver's hands and the road.
             new Vector3(0f, 0.84f, 0.3f),
             new Vector3(0f, 1.16f, -0.52f),
             new Vector3(0f, 2.02f, 1.55f),

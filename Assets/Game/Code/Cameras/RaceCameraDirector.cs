@@ -217,11 +217,10 @@ namespace F1Game.Cameras
                 case CameraProfile.Kind.Cockpit:
                     // Driver's eye line: helmet sits at (0, 0.88, 0.2), the
                     // steering wheel at (0, 0.76, 0.62) - so from here the
-                    // (input-animated) wheel fills the lower frame with the
-                    // road beyond it. Deliberately INSIDE the helmet and
-                    // cockpit-visor primitives: backface culling hides both
-                    // from within, whereas from outside the dark visor dome
-                    // (which encloses the wheel) would block the view.
+                    // (input-animated) wheel and the driver's gloved hands
+                    // fill the lower frame with the road beyond. Deliberately
+                    // INSIDE the helmet sphere: backface culling hides it
+                    // entirely from within.
                     localPosition = new Vector3(0f, 0.84f, 0.3f);
                     break;
                 case CameraProfile.Kind.Nose:

@@ -5132,6 +5132,7 @@ namespace LocalFormulaRacing
             BuildStrategySection(content, race, player);
             BuildIncidentSection(content, race, results, player);
             BuildAchievementsSection(content, race, results, player);
+            BuildOvertakeHighlightsSection(content, race);
             BuildRaceControlTimeline(content, race);
 
             UiFactory.CreateDivider(content);
@@ -6391,6 +6392,46 @@ namespace LocalFormulaRacing
                 string lapPrefix = grouped ? "" : ("Lap " + lap + "  ·  ");
                 string line = "<color=#" + ColorUtility.ToHtmlStringRGB(labelColor) + "><b>" + entry.label + "</b></color>  " + lapPrefix + entry.detail;
                 UiFactory.CreateAutoText(list, "Timeline entry " + i, line, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
+            }
+        }
+
+        // Race Highlights (per request): every genuine overtake was recorded
+        // and rated during the race (RaceManager.Highlights); this shows the
+        // best 20, highest-rated first, with the factor tags that earned the
+        // score. Skipped entirely for sessions with no recorded overtakes
+        // (time trial, a processional race) rather than showing an empty box.
+        void BuildOvertakeHighlightsSection(RectTransform content, RaceManager race)
+        {
+            if (race == null || race.OvertakeHighlights == null || race.OvertakeHighlights.Count == 0)
+            {
+                return;
+            }
+
+            List<RaceManager.OvertakeHighlight> top = race.GetTopOvertakeHighlights(20);
+            UiFactory.CreateDivider(content);
+            UiFactory.CreateSubHeader(content, "Race Highlights - Best Overtakes");
+            Text tally = UiFactory.CreateAutoText(content, "Highlights tally",
+                race.OvertakeHighlights.Count + " overtakes recorded - showing the top " + top.Count + " by rating.",
+                14, UiFactory.TextMuted, TextAnchor.UpperLeft, ReportContentWidth);
+            tally.fontStyle = FontStyle.Italic;
+
+            RectTransform list = UiFactory.CreateAutoHeightList(content, "Overtake highlights list", ReportContentWidth, 10, new RectOffset(16, 16, 16, 16));
+            Image listBackground = list.gameObject.AddComponent<Image>();
+            UiFactory.StyleRounded(listBackground, UiFactory.PanelDarker);
+            float innerWidth = ReportContentWidth - 32f;
+
+            for (int i = 0; i < top.Count; i++)
+            {
+                RaceManager.OvertakeHighlight h = top[i];
+                Color ratingColor = h.rating >= 80f ? UiFactory.AccentGreen : (h.rating >= 60f ? UiFactory.AccentCyan : UiFactory.TextMuted);
+                string attacker = h.attackerIsPlayer ? "<color=#FFFFFF><b>" + h.attackerName + "</b></color>" : h.attackerName;
+                string defender = h.defenderIsPlayer ? "<color=#FFFFFF><b>" + h.defenderName + "</b></color>" : h.defenderName;
+                string line = "<b>" + (i + 1) + ".</b>  " +
+                    "<color=#" + ColorUtility.ToHtmlStringRGB(ratingColor) + "><b>" + h.rating.ToString("0") + "</b></color>" +
+                    "  ·  Lap " + h.lap +
+                    "  ·  " + attacker + " passed " + defender + " for P" + h.positionTaken +
+                    "\n<color=#" + ColorUtility.ToHtmlStringRGB(UiFactory.TextMuted) + "><i>" + h.factors + "</i></color>";
+                UiFactory.CreateAutoText(list, "Overtake highlight " + i, line, 14, UiFactory.TextPrimary, TextAnchor.UpperLeft, innerWidth);
             }
         }
 

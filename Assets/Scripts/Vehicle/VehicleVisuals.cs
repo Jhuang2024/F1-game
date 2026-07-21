@@ -41,6 +41,19 @@ namespace LocalFormulaRacing
         Quaternion steeringWheelRestRotation;
         float steeringWheelAngle;
 
+        // The driver's gloved hands (CarVisualFactory "left glove"/"right
+        // glove"). They are siblings of the wheel, not children - the wheel
+        // cube's non-uniform scale would distort parented geometry - so each
+        // frame they are orbited around the wheel's pivot by the same steer
+        // angle, which reads as the hands gripping and turning the wheel.
+        Transform leftGlove;
+        Transform rightGlove;
+        Vector3 leftGloveRestPosition;
+        Vector3 rightGloveRestPosition;
+        Quaternion leftGloveRestRotation;
+        Quaternion rightGloveRestRotation;
+        Vector3 steeringWheelPivot;
+
         // Rear wheels get their own spin angle, separate from wheelSpinAngle above,
         // so a wheelspin event (throttle overwhelming rear grip) can visibly overspin
         // just the rear tyres without also speeding up the fronts, which never lose
@@ -623,6 +636,21 @@ namespace LocalFormulaRacing
                 {
                     steeringWheel = foundWheel;
                     steeringWheelRestRotation = foundWheel.localRotation;
+                    steeringWheelPivot = foundWheel.localPosition;
+                }
+
+                leftGlove = transform.Find("left glove");
+                rightGlove = transform.Find("right glove");
+                if (leftGlove != null)
+                {
+                    leftGloveRestPosition = leftGlove.localPosition;
+                    leftGloveRestRotation = leftGlove.localRotation;
+                }
+
+                if (rightGlove != null)
+                {
+                    rightGloveRestPosition = rightGlove.localPosition;
+                    rightGloveRestRotation = rightGlove.localRotation;
                 }
             }
 
@@ -630,7 +658,23 @@ namespace LocalFormulaRacing
             {
                 float wheelTargetAngle = vehicle.CurrentCommand.steer * 95f;
                 steeringWheelAngle = Mathf.Lerp(steeringWheelAngle, wheelTargetAngle, Time.deltaTime * 14f);
-                steeringWheel.localRotation = steeringWheelRestRotation * Quaternion.Euler(0f, 0f, -steeringWheelAngle);
+                Quaternion grip = Quaternion.Euler(0f, 0f, -steeringWheelAngle);
+                steeringWheel.localRotation = steeringWheelRestRotation * grip;
+
+                // Hands ride the rim: same rotation, applied about the wheel's
+                // pivot point so the gloves sweep the rim arc instead of
+                // spinning in place.
+                if (leftGlove != null)
+                {
+                    leftGlove.localPosition = steeringWheelPivot + grip * (leftGloveRestPosition - steeringWheelPivot);
+                    leftGlove.localRotation = grip * leftGloveRestRotation;
+                }
+
+                if (rightGlove != null)
+                {
+                    rightGlove.localPosition = steeringWheelPivot + grip * (rightGloveRestPosition - steeringWheelPivot);
+                    rightGlove.localRotation = grip * rightGloveRestRotation;
+                }
             }
 
             Quaternion spin = Quaternion.Euler(wheelSpinAngle, 0f, 0f);

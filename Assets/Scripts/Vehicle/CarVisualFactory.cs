@@ -132,9 +132,62 @@ namespace LocalFormulaRacing
             CreateChildCube(root.transform, "halo rim", new Vector3(0f, 0.95f, 0.28f), new Vector3(0.74f, 0.06f, 0.72f), secondaryMaterial);
             CreateChildCube(root.transform, "left halo stay", new Vector3(-0.32f, 0.78f, 0.22f), new Vector3(0.055f, 0.32f, 0.07f), detailMaterial);
             CreateChildCube(root.transform, "right halo stay", new Vector3(0.32f, 0.78f, 0.22f), new Vector3(0.055f, 0.32f, 0.07f), detailMaterial);
-            CreateChildSphere(root.transform, "cockpit visor", new Vector3(0f, 0.78f, 0.44f), new Vector3(0.48f, 0.24f, 0.52f), visorMaterial);
+            // Reshaped from the old wheel-enclosing dome (centre 0.78/0.44,
+            // scale 0.48/0.24/0.52) into a low aeroscreen deflector AHEAD of
+            // the wheel: the old dome swallowed the steering wheel and the
+            // driver's hands, hiding them from the airbox T-cam and every
+            // outside view. As a forward deflector it still reads as the
+            // cockpit glass but leaves the wheel, gloves and suit arms visible.
+            CreateChildSphere(root.transform, "cockpit visor", new Vector3(0f, 0.74f, 0.78f), new Vector3(0.44f, 0.18f, 0.34f), visorMaterial);
             CreateChildSphere(root.transform, "driver helmet", new Vector3(0f, 0.88f, 0.2f), new Vector3(0.32f, 0.32f, 0.32f), helmetMaterial);
             CreateChildCube(root.transform, "steering wheel", new Vector3(0f, 0.76f, 0.62f), new Vector3(0.24f, 0.18f, 0.05f), detailMaterial);
+
+            // Driver arms and gloved hands on the wheel (per request). The
+            // gloves are siblings of the wheel rather than children - the
+            // wheel cube's non-uniform scale would distort anything parented
+            // to it - and VehicleVisuals orbits them around the wheel's pivot
+            // in step with the live steer command, so from the onboard cameras
+            // the hands visibly grip and turn the wheel. Suit and glove
+            // colours come from the team livery (teammates match), and the
+            // accent layout is picked per-team so kits differ in design, not
+            // just colour: 0 = sleeve stripes, 1 = wrist cuffs, 2 = accent
+            // shoulder yoke with dark gloves.
+            int teamKit = TeamKitStyle(bodyPrimary, bodySecondary);
+            Color suitBase = Color.Lerp(bodyPrimary, Color.white, 0.08f);
+            Color gloveColor = teamKit == 2
+                ? Color.Lerp(bodyPrimary, Color.black, 0.5f)
+                : Color.Lerp(bodySecondary, Color.black, teamKit == 1 ? 0.15f : 0f);
+            Material suitMaterial = CreateMaterial(driverName + " race suit", suitBase, 0.04f, 0.34f, suitBase * 0.06f);
+            Material suitAccentMaterial = CreateMaterial(driverName + " suit accent", bodySecondary, 0.05f, 0.4f, bodySecondary * 0.08f);
+            Material gloveMaterial = CreateMaterial(driverName + " gloves", gloveColor, 0.03f, 0.3f, gloveColor * 0.08f);
+
+            // Shoulders rise above the cockpit surround pad to meet the
+            // helmet; forearms angle down over the pad to the wheel rim, so
+            // both stay visible from the onboard cameras instead of sinking
+            // into the pad slab (top y=0.76).
+            CreateChildCube(root.transform, "driver shoulders", new Vector3(0f, 0.76f, 0.16f), new Vector3(0.36f, 0.14f, 0.18f), suitMaterial);
+            CreateChildCube(root.transform, "left suit arm", new Vector3(-0.14f, 0.785f, 0.44f), new Vector3(0.065f, 0.065f, 0.3f), Quaternion.Euler(12f, -9f, 0f), suitMaterial);
+            CreateChildCube(root.transform, "right suit arm", new Vector3(0.14f, 0.785f, 0.44f), new Vector3(0.065f, 0.065f, 0.3f), Quaternion.Euler(12f, 9f, 0f), suitMaterial);
+            if (teamKit == 0)
+            {
+                CreateChildCube(root.transform, "left sleeve stripe", new Vector3(-0.14f, 0.823f, 0.44f), new Vector3(0.03f, 0.012f, 0.3f), Quaternion.Euler(12f, -9f, 0f), suitAccentMaterial);
+                CreateChildCube(root.transform, "right sleeve stripe", new Vector3(0.14f, 0.823f, 0.44f), new Vector3(0.03f, 0.012f, 0.3f), Quaternion.Euler(12f, 9f, 0f), suitAccentMaterial);
+            }
+            else if (teamKit == 1)
+            {
+                CreateChildCube(root.transform, "left wrist cuff", new Vector3(-0.125f, 0.762f, 0.55f), new Vector3(0.072f, 0.072f, 0.045f), Quaternion.Euler(12f, -9f, 0f), suitAccentMaterial);
+                CreateChildCube(root.transform, "right wrist cuff", new Vector3(0.125f, 0.762f, 0.55f), new Vector3(0.072f, 0.072f, 0.045f), Quaternion.Euler(12f, 9f, 0f), suitAccentMaterial);
+            }
+            else
+            {
+                CreateChildCube(root.transform, "shoulder yoke", new Vector3(0f, 0.835f, 0.16f), new Vector3(0.37f, 0.03f, 0.19f), suitAccentMaterial);
+            }
+
+            // Quarter-to-three grip on the rim, on the driver's side of the
+            // wheel face. VehicleVisuals finds these by name and rotates them
+            // about the wheel pivot with the steer input.
+            CreateChildCube(root.transform, "left glove", new Vector3(-0.115f, 0.76f, 0.585f), new Vector3(0.055f, 0.075f, 0.06f), gloveMaterial);
+            CreateChildCube(root.transform, "right glove", new Vector3(0.115f, 0.76f, 0.585f), new Vector3(0.055f, 0.075f, 0.06f), gloveMaterial);
 
             // Detail pass: mirrors, bargeboards, and livery accents that make each
             // team car read as designed rather than assembled from crates.
@@ -144,7 +197,10 @@ namespace LocalFormulaRacing
             CreateChildCube(root.transform, "right bargeboard", new Vector3(0.58f, 0.26f, 0.62f), new Vector3(0.035f, 0.24f, 0.5f), detailMaterial);
             CreateChildCube(root.transform, "engine cover stripe", new Vector3(0f, 0.86f, -0.66f), new Vector3(0.1f, 0.05f, 1.3f), secondaryMaterial);
             CreateChildCube(root.transform, "nose number panel", new Vector3(0f, 0.42f, 2.1f), new Vector3(0.24f, 0.03f, 0.3f), CreateMaterial(driverName + " number panel", Color.Lerp(Color.white, secondary, 0.15f), 0.1f, 0.7f));
-            CreateChildCube(root.transform, "cockpit surround pad", new Vector3(0f, 0.72f, 0.34f), new Vector3(0.58f, 0.08f, 0.5f), inletMaterial);
+            // Rear edge pulled back from z=0.59 to 0.49 so the pad slab no
+            // longer overlaps the steering-wheel/glove zone (gloves grip the
+            // rim at z~0.585) - the driver's hands must stay visible.
+            CreateChildCube(root.transform, "cockpit surround pad", new Vector3(0f, 0.72f, 0.3f), new Vector3(0.58f, 0.08f, 0.38f), inletMaterial);
 
             // Nose tip cone softens the front silhouette.
             CreateChildSphere(root.transform, "nose tip", new Vector3(0f, 0.28f, 2.62f), new Vector3(0.2f, 0.18f, 0.42f), primaryMaterial);
@@ -514,6 +570,17 @@ namespace LocalFormulaRacing
         }
 
         // Lifts near-black livery colours just enough to stay distinguishable
+        // Deterministic per-team pick of the race-suit accent layout. Derived
+        // from the livery colours (the factory's only team identity), so both
+        // cars of a team always get the same kit and different liveries spread
+        // across the three designs.
+        static int TeamKitStyle(Color primary, Color secondary)
+        {
+            int hash = (int)(primary.r * 31f) * 7 + (int)(primary.g * 31f) * 5 + (int)(primary.b * 31f) * 3
+                     + (int)(secondary.r * 31f) * 11 + (int)(secondary.g * 31f) * 13 + (int)(secondary.b * 31f) * 17;
+            return ((hash % 3) + 3) % 3;
+        }
+
         // from dark asphalt; already-visible colours pass through untouched.
         // Scoped to the car body build so UI swatches keep the true team hex.
         static Color EnsureVisibleBodyColor(Color color)
