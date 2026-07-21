@@ -294,7 +294,6 @@ namespace LocalFormulaRacing
 
             UpdateLockup(speedKph, brake, steer, weather, tyreManagement, deltaTime);
 
-            float management = Mathf.Lerp(1.35f, 0.72f, Mathf.Clamp01(tyreManagement / 100f));
             float weatherWear = weather == WeatherState.Clear || weather == WeatherState.Cloudy ? 1.08f : 1.32f;
             bool wetWeatherCompound = Compound == TyreCompound.Intermediate || Compound == TyreCompound.Wet;
             if ((weather == WeatherState.Clear || weather == WeatherState.Cloudy) && wetWeatherCompound)
@@ -363,21 +362,34 @@ namespace LocalFormulaRacing
             float lapsPerSecond = (speedKph / 3.6f) / Mathf.Max(500f, TrackLengthMeters);
             float baseLifeFraction = lapsPerSecond / lifeLapsAtTemp;
 
-            // The 0.95 base is chosen so a TYPICAL racing lap (brake ~0.15,
-            // |steer| ~0.25, slip ~0.2, mild heat) times the average F1
-            // driver's management factor (~0.82 at stat ~82) lands at 1.0 -
-            // i.e. the displayed life holds for the average car driven
-            // normally; nursing stretches it ~25%, abuse shortens it ~30%.
+            // Round 7 (per report - "you clearly havent updated tire wear or
+            // you havent updated the recommendation screen"): round 6 anchored
+            // the BASELINE to the displayed laps but then multiplied by the
+            // legacy tyreManagement factor at its historical +-35% swing
+            // (Lerp(1.35, 0.72)) - so a top car (management ~90) still quietly
+            // stretched a "3 laps here" soft to ~4+ laps and the screen read
+            // as a lie all over again. The display is the CONTRACT now, so
+            // every modifier is disciplined around it:
+            // - The 1.0 base means flat-out cruising on the straights alone
+            //   consumes exactly the displayed life rate. Corners, braking,
+            //   sliding and overheating only ever ADD on top, so a driven lap
+            //   comes out at ~1.05-1.15x - the tyre dies ON or slightly
+            //   BEFORE the displayed lap, never a lap after.
+            // - tyreManagement is re-ranged from a hidden +-35% life swing to
+            //   an honest +-8% (a stat, not a second wear model); its bigger
+            //   gameplay lever remains the lockup/temperature behaviour it
+            //   also feeds.
+            float managementRelief = Mathf.Lerp(1.08f, 0.92f, Mathf.Clamp01(tyreManagement / 100f));
             float intensity = Mathf.Clamp(
-                0.95f
-                + brake * 0.22f
-                + Mathf.Abs(steer) * 0.18f
-                + slipEnergy * 0.45f
-                + (overheatWear - 1f) * 0.45f
-                + (wornHeatWear - 1f) * 0.4f,
-                0.7f, 2.0f);
+                1.0f
+                + brake * 0.2f
+                + Mathf.Abs(steer) * 0.15f
+                + slipEnergy * 0.35f
+                + (overheatWear - 1f) * 0.4f
+                + (wornHeatWear - 1f) * 0.35f,
+                0.9f, 2.0f) * managementRelief;
 
-            float wearLoss = baseLifeFraction * intensity * management * weatherWear + lockupWearRate;
+            float wearLoss = baseLifeFraction * intensity * weatherWear + lockupWearRate;
             Wear = Mathf.Clamp01(Wear - wearLoss * RegulationWearMultiplier * deltaTime);
         }
 

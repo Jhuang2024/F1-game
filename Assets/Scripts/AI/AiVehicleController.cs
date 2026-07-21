@@ -2398,7 +2398,15 @@ namespace LocalFormulaRacing
             // Difficulty round 4 (per request): trusted deceleration ceiling
             // raised again (1.35 -> 1.55 skill scale) - higher tiers brake
             // later and harder than any assist-aided player line.
-            float decelReference = Mathf.Lerp(13f, 21f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1f, 1.55f, skillTier);
+            // Entry-overshoot fix (per report - the AI "keep finding the
+            // barriers", half the field OUT): the physics delivers ~60-90
+            // m/s^2 at full pedal (ApplyForces' brakeStat), so 13-32 here was
+            // never a capacity number - it was the PLANNING decel, and the
+            // old demand ramp below never even delivered it. Planning decel
+            // raised to a realistic-but-conservative band (Expert ~50, still
+            // ~25%+ under what the car can physically do, so the closed-loop
+            // demand below always has reserve to correct with).
+            float decelReference = Mathf.Lerp(20f, 33f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1.05f, 1.5f, skillTier);
             // brakeConfidenceMultiplier folds in on top of brakeDistanceMultiplier so
             // Hard/Expert genuinely brake later/shorter, not just via the weaker base
             // multiplier alone: >1 shortens the effective distance (brakes later),
@@ -2416,7 +2424,17 @@ namespace LocalFormulaRacing
             // required delta approaches hairpin scale.
             float stopSizeKph = Mathf.Max(0f, speedKph - brakingApexSpeed);
             float bigStopBlend = Mathf.Clamp01((stopSizeKph - 120f) / 130f);
-            float confidentMultiplier = profile.brakeDistanceMultiplier * Mathf.Lerp(0.92f, 1.05f, experience / 100f) * profile.brakeConfidenceMultiplier;
+            // Entry-overshoot fix: this multiplier DIVIDES the kinematic
+            // braking distance, and the per-tier confidence product ran to
+            // ~1.4-1.7 - i.e. Hard/Expert began braking at ~60% of the
+            // distance their own planning decel needs, relying on the old
+            // ~13-16g rotation to absorb the guaranteed hot arrival. With the
+            // realistic envelope, that was a wall at nearly every real
+            // braking zone. Brake-later skill is now a few percent, not tens:
+            // capped at 1.03-1.08 by tier.
+            float confidentMultiplier = Mathf.Min(
+                profile.brakeDistanceMultiplier * Mathf.Lerp(0.92f, 1.05f, experience / 100f) * profile.brakeConfidenceMultiplier,
+                Mathf.Lerp(1.03f, 1.08f, skillTier));
             float effectiveBrakeMultiplier = Mathf.Max(0.55f, Mathf.Lerp(confidentMultiplier, Mathf.Min(confidentMultiplier, 1.02f), bigStopBlend));
             // Active braking-point mistake (see UpdateMistake): the driver is
             // momentarily willing to carry more entry speed than the corner can
@@ -2441,8 +2459,28 @@ namespace LocalFormulaRacing
             bool nearCorner = apexSeverity > 0.14f && apexDistanceAhead <= Mathf.Max(brakingDistance, 6f);
             if (speedOverApex > 0f && nearCorner)
             {
-                float closeness = brakingDistance <= 0.5f ? 1f : Mathf.Clamp01(1f - apexDistanceAhead / brakingDistance);
-                brakeDemand = Mathf.Clamp01(speedOverApex / 42f) * Mathf.Lerp(0.35f, 1f, closeness);
+                // Entry-overshoot fix, part 2 - the old demand curve was
+                // Clamp01(over/42) * Lerp(0.35, 1, closeness): it entered
+                // every braking zone at 35% pedal and only reached full brake
+                // deep into the zone, while the kinematic distance above
+                // assumed FULL planning decel from the very first metre. The
+                // arrival was therefore hot at every corner BY CONSTRUCTION -
+                // survivable under the old ~13-16g rotation, a barrier under
+                // the realistic envelope (the report's "they keep finding the
+                // barriers", 12 of 22 OUT). The demand is now a closed-loop
+                // controller: each frame it computes the deceleration the
+                // REMAINING distance actually requires and commands exactly
+                // that fraction of the car's real braking capacity (~12%
+                // headroom). Entering on plan holds ~60-80% pedal; arriving
+                // hot (traffic, tow, mistake) saturates to full brake
+                // immediately, and the ~25%+ physical reserve above the
+                // planning decel absorbs it. No fixed ramp, self-correcting
+                // every frame.
+                float remainingMeters = Mathf.Max(1.5f, apexDistanceAhead);
+                float requiredDecel = Mathf.Max(0f, v0 * v0 - v1 * v1) / (2f * remainingMeters);
+                float availableDecel = Mathf.Lerp(34f, 59f, Mathf.Clamp01(brakingStat / 100f))
+                    * Mathf.Lerp(1.05f, 1.4f, Mathf.InverseLerp(80f, 330f, speedKph));
+                brakeDemand = Mathf.Clamp01(requiredDecel * 1.12f / Mathf.Max(8f, availableDecel));
             }
 
             // Barrier-avoidance fix round 3: the edge-proximity emergency brake
