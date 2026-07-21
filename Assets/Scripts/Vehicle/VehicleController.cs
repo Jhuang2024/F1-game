@@ -509,6 +509,8 @@ namespace LocalFormulaRacing
         float aiHarvestModeMultiplier = 1f;
         float aiDeployModeMultiplier = 1f;
 
+        // [ContactDiag] car-contact telemetry rate limit (see ProcessDamageCollision).
+        float lastCarContactLogTime = -999f;
         // [PitDiag] wall-contact telemetry rate limit (see ProcessDamageCollision).
         float lastPitWallHitLogTime;
 
@@ -2058,6 +2060,22 @@ namespace LocalFormulaRacing
             if (impactType == DamageImpactType.Car)
             {
                 DampenCarContactResponse(normalSpeedKph, contact.normal, sustained);
+
+                // [ContactDiag] (black-box round 2): hard car-to-car shoves are
+                // one of the candidate mechanisms feeding cars toward the
+                // walls in packs - log every fresh contact above 30kph so the
+                // sequence "shoved at t=X, wall at t=X+2" becomes visible in
+                // the same paste as [WallDiag]. Rate-limited per car.
+                if (!sustained && normalSpeedKph > 30f && Time.time - lastCarContactLogTime > 1f)
+                {
+                    lastCarContactLogTime = Time.time;
+                    TrackProgress shoveProgress = Track != null ? Track.GetProgress(transform.position) : new TrackProgress();
+                    Debug.LogWarning("[ContactDiag] " + gameObject.name + " hit by '" + objectName + "' at " +
+                        normalSpeedKph.ToString("0") + "kph normal, my speed " +
+                        (body.velocity.magnitude * 3.6f).ToString("0") + "kph, norm " +
+                        shoveProgress.normalized.ToString("0.000") + ", lateral " +
+                        shoveProgress.lateralDistance.ToString("0.0"));
+                }
             }
             else
             {
@@ -2072,6 +2090,14 @@ namespace LocalFormulaRacing
                 if (!sustained && normalSpeedKph > PendingHardWallImpactKph)
                 {
                     PendingHardWallImpactKph = normalSpeedKph;
+                    // Black-box capture for [WallDiag] (per report - "write
+                    // code to diagnose it properly"): WHAT was hit and the
+                    // contact normal, so the consumer can compute the hit's
+                    // orientation relative to the track (a side-barrier graze
+                    // vs a face-on strike against something across the road
+                    // are entirely different bugs).
+                    PendingWallHitColliderName = objectName;
+                    PendingWallHitNormal = contact.normal;
                 }
 
                 // [PitDiag] wall-contact telemetry (per report - "still get
@@ -2177,6 +2203,13 @@ namespace LocalFormulaRacing
         // last consumed it (kph). Written by ProcessDamageCollision, read and
         // cleared by RaceManager's heavy-crash retirement check.
         public float PendingHardWallImpactKph;
+
+        // Black-box companions to PendingHardWallImpactKph (see [WallDiag]):
+        // the collider that was struck and the world-space contact normal of
+        // that hardest fresh hit, so the diagnostic can name the object and
+        // compute the hit orientation relative to the track direction.
+        public string PendingWallHitColliderName = "";
+        public Vector3 PendingWallHitNormal;
 
         // Set by RaceManager each tick: wheel-to-wheel flicks are disabled
         // during the launch scrum (start-massacre fix - random spins at grid

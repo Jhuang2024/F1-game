@@ -121,13 +121,43 @@ namespace LocalFormulaRacing
                     : radiusBehind < 250f ? "CORNER-EXIT"
                     : radiusAhead < 250f ? "CORNER-ENTRY"
                     : "STRAIGHT";
+                // Black-box round 2 (per report - "write code to diagnose it
+                // properly"): WHAT was hit, its orientation relative to the
+                // track, WHERE across the road the car was, the elevation
+                // mismatch to the matched centreline (flyover/cliff detector),
+                // and the AI controller's complete lateral state at dispatch
+                // time. hitAngle reads: ~90 = face-on into something standing
+                // ACROSS the road (cliff/crossing/rogue object - a track bug),
+                // ~0-30 = glancing side-barrier contact (a driving bug).
+                string colliderName = participant.vehicle.PendingWallHitColliderName;
+                Vector3 hitNormal = participant.vehicle.PendingWallHitNormal;
+                float hitAngle = hitNormal.sqrMagnitude > 0.001f
+                    ? 90f - Vector3.Angle(hitProgress.forward, -hitNormal.normalized)
+                    : 0f;
+                float dy = 0f;
+                if (Track != null)
+                {
+                    Vector3 matchedPoint, matchedForward, matchedRight;
+                    Track.SampleAtDistance(hitProgress.distance, out matchedPoint, out matchedForward, out matchedRight);
+                    dy = participant.transform.position.y - matchedPoint.y;
+                }
+
+                AiVehicleController hitAi = participant.vehicle.GetComponent<AiVehicleController>();
                 Debug.LogWarning("[WallDiag] " + participant.driverName + " wall hit " + impactKph.ToString("0") +
                     "kph perpendicular at norm " + hitNorm.ToString("0.000") + " (" + phase +
                     ", local radius " + hitRadius.ToString("0") + "m, behind " + radiusBehind.ToString("0") +
                     "m, ahead " + radiusAhead.ToString("0") + "m) speed " +
-                    Mathf.Abs(participant.vehicle.CurrentSpeedKph).ToString("0") + "kph t=" + RaceElapsed.ToString("0") + "s");
+                    Mathf.Abs(participant.vehicle.CurrentSpeedKph).ToString("0") + "kph t=" + RaceElapsed.ToString("0") + "s" +
+                    " | obj='" + colliderName + "'" +
+                    " hitAngle=" + hitAngle.ToString("0") + "deg(90=across-road,0=side-graze)" +
+                    " lateral=" + hitProgress.lateralDistance.ToString("0.0") +
+                    "/halfW=" + (Track != null ? Track.HalfWidthAt(hitProgress.distance).ToString("0.0") : "?") +
+                    " dy=" + dy.ToString("0.0") +
+                    (hitAi != null ? " | AI " + hitAi.DescribeLateralState() : ""));
             }
 
+            participant.vehicle.PendingWallHitColliderName = "";
+            participant.vehicle.PendingWallHitNormal = Vector3.zero;
             bool raceSession = (CurrentSession == RaceWeekendSession.Race || CurrentSession == RaceWeekendSession.QuickRace) && !IsTimeTrial;
             if (!raceSession || participant.retired || participant.finished || RaceElapsed < HardWallRetireMinRaceSeconds)
             {

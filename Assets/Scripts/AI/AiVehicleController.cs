@@ -58,6 +58,32 @@ namespace LocalFormulaRacing
         // position - which flipped the target side to side and drove the big
         // straight-line lineBias weave the [SwerveDiag amplitude] pass reported.
         float laneClearAirTimer;
+        // [WallDiag] black box (per report - "write code to diagnose it
+        // properly"): the complete lateral-control state, captured every frame
+        // at command-dispatch time, so a wall impact can print exactly what
+        // the controller was commanding at the moment of the crash instead of
+        // anyone inferring it after the fact.
+        float bbFinalSteer;
+        float bbEdgeRecovery;
+        float bbAuthorityComp;
+        float bbLineBias;
+        float bbSeverityHere;
+
+        public string DescribeLateralState()
+        {
+            return "state=" + overtakeState +
+                   " steer=" + bbFinalSteer.ToString("0.00") +
+                   " comp=" + bbAuthorityComp.ToString("0.0") +
+                   " edgeRec=" + bbEdgeRecovery.ToString("0.00") +
+                   " lineBias=" + bbLineBias.ToString("0.00") +
+                   " agg=" + aggressionOffset.ToString("0.00") +
+                   " adjust=" + smoothedSteerAdjust.ToString("0.00") +
+                   " heldLane=" + (hasHeldLane ? heldLaneOffset.ToString("0.0") : "-") +
+                   " blend=" + lineTrafficBlend.ToString("0.00") +
+                   " netOff=" + smoothedNetOffset.ToString("0.0") +
+                   " sev=" + bbSeverityHere.ToString("0.00");
+        }
+
         // Hysteresis for the traffic gate itself (see the lineTrafficNearby
         // assignment): holds the gate engaged until the road has been
         // continuously clear for a full second, so a neighbour flickering
@@ -2364,7 +2390,7 @@ namespace LocalFormulaRacing
             if (flatForward.sqrMagnitude > 0.0001f)
             {
                 flatForward.Normalize();
-                if (swerveHeadingHasRef && Time.deltaTime > 0.0001f && edgeUrgency <= 0f)
+                if (swerveHeadingHasRef && Time.deltaTime > 0.0001f)
                 {
                     float rawYawRateDeg = Vector3.SignedAngle(swerveHeadingPrev, flatForward, Vector3.up) / Time.deltaTime;
                     // Low-pass the yaw rate before it drives the steer. The raw
@@ -2380,7 +2406,22 @@ namespace LocalFormulaRacing
                     // yaw shrank with the new authority, and an uncompensated
                     // damp term would be proportionally too weak to break the
                     // pursuit/slew limit cycle it exists to kill.
-                    yawDampSteer = smoothedYawRateDeg * 0.006f * pursuitStraightness * SteerAuthorityCompensation(speedKph);
+                    // Edge-recovery damping (per the steer=32-reversals/2s log
+                    // lines): the damper used to switch OFF entirely during a
+                    // wall save (edgeUrgency > 0, "never fight a save") -
+                    // which left the one regime that combines the HIGHEST
+                    // steering gain (edgeRecovery), the FASTEST slew (18/s)
+                    // and the full authority compensation with NO damping at
+                    // all. That is a textbook limit-cycle recipe, and it is
+                    // exactly where the 8-16Hz saw in the logs lives: cars
+                    // banging full-lock alternately while grinding a wall.
+                    // Damping that opposes MEASURED yaw can never fight a
+                    // save's direction - it only stops the save overshooting
+                    // into the opposite swerve - so it now stays on during
+                    // recovery at 60% gain.
+                    float recoveryDampScale = edgeUrgency > 0f ? 0.6f : 1f;
+                    yawDampSteer = smoothedYawRateDeg * 0.006f * Mathf.Max(pursuitStraightness, edgeUrgency > 0f ? 0.75f : 0f)
+                        * recoveryDampScale * SteerAuthorityCompensation(speedKph);
                 }
 
                 swerveHeadingPrev = flatForward;
@@ -3028,6 +3069,13 @@ namespace LocalFormulaRacing
             // last remaining straight-line swerve. Layered on top of, not fed into,
             // the slew state.
             command.steer = Mathf.Clamp(command.steer - yawDampSteer, -1f, 1f);
+
+            // [WallDiag] black-box capture (see DescribeLateralState).
+            bbFinalSteer = command.steer;
+            bbEdgeRecovery = edgeRecovery;
+            bbAuthorityComp = SteerAuthorityCompensation(speedKph);
+            bbLineBias = lineBias;
+            bbSeverityHere = severityHere;
 
             DiagnoseSwerve(progress, severityHere, lineBias, command.steer);
             DiagnoseSwerveAmplitude(progress, severityHere, lineBias);
