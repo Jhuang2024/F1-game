@@ -38,7 +38,15 @@ namespace LocalFormulaRacing
         // 180kph perpendicular is a genuinely unsurvivable head-on; anything
         // below bounces off damaged (and pays through the damage model, which
         // can still retire a repeatedly-crashing car via Collision damage).
-        const float HardWallRetireImpactKph = 180f;
+        // Raised 180 -> 240 (per report - "way too easy to DNF"): the
+        // [SwerveTape] round fixed the two measured crash drivers (the
+        // traffic-nudge x compensation slam and its detection flapping), but
+        // the crossing corner complex still produces glancing 180-240 hits
+        // during lap-1 traffic; those now bounce off damaged instead of
+        // instantly ending the race. 240+ perpendicular remains an
+        // unsurvivable head-on, and the damage model still retires a
+        // repeatedly-crashing car via Collision damage.
+        const float HardWallRetireImpactKph = 240f;
         const float HardWallRetireMinRaceSeconds = 25f;
 
         void UpdateResetGhost(RaceParticipant participant)

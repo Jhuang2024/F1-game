@@ -3085,7 +3085,11 @@ namespace LocalFormulaRacing
             // x4 ratio - the command lived pinned at the clamp with the slew
             // limiter forced wide open (18/s), i.e. full-lock sawing: exactly
             // the swerve every log round kept showing near walls.
-            command.steer = Mathf.Clamp(command.steer * SteerAuthorityCompensation(speedKph) + edgeRecovery, -1f, 1f);
+            // trafficNudge composed here too ([SwerveTape] verdict fix): like the
+            // wall save, the traffic separation nudge is a direct steering
+            // intention in real units - multiplying it by the saturated ratio was
+            // measurably the top wheel-mover in every dump.
+            command.steer = Mathf.Clamp(command.steer * SteerAuthorityCompensation(speedKph) + edgeRecovery + smoothedSteerAdjust, -1f, 1f);
 
             // Green-flag handback ramp: for a couple of seconds right after
             // race-control autopilot lets go (see HandleRaceControlAutopilotReleased),
@@ -4078,8 +4082,24 @@ namespace LocalFormulaRacing
             // fraction of a second, but can no longer jump instantly between
             // opposite pushes just because a marginal neighbour flickered in or
             // out of a detection window.
-            smoothedSteerAdjust = Mathf.MoveTowards(smoothedSteerAdjust, steerAdjust, Time.deltaTime * 4f);
-            command.steer = Mathf.Clamp(command.steer + smoothedSteerAdjust, -1f, 1f);
+            // [SwerveTape] VERDICT fix - the tape named trafficNudge the #1
+            // wheel-mover at final-steer reversals (28/35, 25/47, 17/27...):
+            // 1) This nudge was added HERE, before the authority compensation,
+            //    so its tuned +-0.3-0.85 got multiplied by the x2-4 ratio at
+            //    speed - tape rows verify it exactly: pur=0.00 traf=0.30
+            //    comp=4.0 yawD=0.26 -> FIN=0.74 = clamp(0.3*4)-0.26. A 30%
+            //    separation nudge became a near-full-lock slam at 390kph.
+            //    It is now only COMPUTED here and composed into the command
+            //    AFTER compensation (with edgeRecovery), in real steer units,
+            //    where the final slew limiter also rate-limits its flapping.
+            // 2) The 4/s slew followed every flicker of the detection windows
+            //    (tape: 0.00 <-> 0.30 between adjacent rows). The rate now
+            //    eases down with speed - a dodge at 60kph still snaps in fast,
+            //    while at 350kph (where 0.3 steer moves the car metres in a
+            //    blink and windows flicker most) the target is followed
+            //    smoothly instead of square-wave.
+            float steerAdjustSlewRate = Mathf.Lerp(4f, 1.6f, Mathf.Clamp01((speedKph - 140f) / 220f));
+            smoothedSteerAdjust = Mathf.MoveTowards(smoothedSteerAdjust, steerAdjust, Time.deltaTime * steerAdjustSlewRate);
         }
 
         // [SwerveDiag] (per report - AI "swerving", predates and is unrelated to
