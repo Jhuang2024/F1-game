@@ -1955,7 +1955,19 @@ namespace LocalFormulaRacing
             // colliding and bunching. Distance-proportional tracking keeps the
             // crossing angle shallow at every speed (at 300 kph this is the
             // same ~10 m/s lateral pace as before; at 60 kph it is a calm 2).
-            float lineSlewRate = Mathf.Max(2f, speedKph / 3.6f * 0.10f);
+            // Straight-line line-chase rate ([SwerveDiag]: confirmed on-screen weave
+            // is on the LONG STRAIGHTS). Every prior fix clamped the target offset's
+            // MAGNITUDE (straightTrim, laneCap) but left this tracking RATE hot, so
+            // the car still chased the authored line's small along-track lateral
+            // variation at up to ~8 m/s sideways - and because the line is sampled
+            // 55m ahead, that chase is phase-led, i.e. a self-sustaining weave down
+            // an otherwise dead-straight road. Ease the rate to a third where the
+            // road is genuinely straight (severity ~0) so the car HOLDS a steady
+            // line instead of sawing after every metre of line wiggle; corner
+            // turn-in keeps the full rate so real lines are still taken. Monotone-
+            // safe: a slower lateral rate can only reduce straight-line motion.
+            float lineStraightness = 1f - Mathf.Clamp01(severityHere / 0.14f);
+            float lineSlewRate = Mathf.Max(2f, speedKph / 3.6f * 0.10f) * Mathf.Lerp(1f, 0.33f, lineStraightness);
             smoothedLineBias = Mathf.MoveTowards(smoothedLineBias, lineBias, Time.deltaTime * lineSlewRate);
             lineBias = smoothedLineBias;
             previousSeverityHere = severityHere;
