@@ -2106,23 +2106,38 @@ namespace LocalFormulaRacing
             // unlike a steer-side slew limiter it can never induce its own
             // oscillation. A car actively committed to a pass keeps a wider band so
             // genuine overtakes still have room to go side-by-side.
-            float straightness = 1f - Mathf.Clamp01(severityHere / 0.12f);
-            if (straightness > 0f && !committingToPit)
+            if (!committingToPit)
             {
                 bool committedPass = overtakeState == OvertakeState.AttackingInside
                     || overtakeState == OvertakeState.AttackingOutside
                     || overtakeState == OvertakeState.SideBySide
                     || overtakeState == OvertakeState.CompletingPass;
-                float safeBand = Mathf.Lerp(legalLimit, committedPass ? 5f : 3f, straightness);
+                // FIRM cap on all low/medium-curvature road, opening to the full
+                // legal width only as a GENUINE corner arrives (severity 0.18 ->
+                // 0.34). The previous version lerped the band down from the full
+                // legal width starting at severity 0, so a gentle sweeper (severity
+                // ~0.10) still allowed ~8m and cars traced the racing line
+                // edge-to-edge - which, across a 20-car field in clear air, is the
+                // "swerving really badly" the report describes. Now anything short
+                // of a real corner is held to a lane a few metres off centre; the
+                // apex line for actual corners is untouched. A car committed to a
+                // pass keeps a wider band so it can still go side-by-side.
+                float baseBand = committedPass ? 5.5f : 3.5f;
+                float cornerOpen = Mathf.InverseLerp(0.18f, 0.34f, severityHere);
+                float safeBand = Mathf.Lerp(baseBand, Mathf.Max(baseBand, legalLimit), cornerOpen);
                 requestedOffset = Mathf.Clamp(requestedOffset, -safeBand, safeBand);
+                // Rate-limit the net target so a car eases across once instead of
+                // hunting; kinematic (acts on the target, never inside the steering
+                // loop) and faded in on straighter road so corner turn-in is crisp.
+                float straightness = 1f - Mathf.Clamp01(severityHere / 0.2f);
                 float netSlew = Mathf.Max(1.5f, speedKph / 3.6f * 0.07f);
                 smoothedNetOffset = Mathf.MoveTowards(smoothedNetOffset, requestedOffset, Time.deltaTime * netSlew);
                 requestedOffset = Mathf.Lerp(requestedOffset, smoothedNetOffset, straightness);
             }
             else
             {
-                // Keep the smoothed state tracking the live target through corners so
-                // it re-engages seamlessly when the next straight arrives.
+                // Keep the smoothed state tracking the live target through the pit
+                // sequence so it re-engages seamlessly afterwards.
                 smoothedNetOffset = requestedOffset;
             }
 
