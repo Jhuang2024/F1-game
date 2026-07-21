@@ -2339,7 +2339,13 @@ namespace LocalFormulaRacing
                     // low-frequency yaw (the weave) and discards the per-step noise.
                     float yawSmooth = 1f - Mathf.Exp(-Time.deltaTime / 0.08f);
                     smoothedYawRateDeg = Mathf.Lerp(smoothedYawRateDeg, rawYawRateDeg, yawSmooth);
-                    yawDampSteer = smoothedYawRateDeg * 0.006f * pursuitStraightness;
+                    // Scaled by the same authority compensation as the final
+                    // steer command (see SteerAuthorityCompensation) so the
+                    // damping RATIO survives the envelope change - measured
+                    // yaw shrank with the new authority, and an uncompensated
+                    // damp term would be proportionally too weak to break the
+                    // pursuit/slew limit cycle it exists to kill.
+                    yawDampSteer = smoothedYawRateDeg * 0.006f * pursuitStraightness * SteerAuthorityCompensation(speedKph);
                 }
 
                 swerveHeadingPrev = flatForward;
@@ -2879,6 +2885,23 @@ namespace LocalFormulaRacing
 
             ApplySafetyCarFollowing(ref command);
 
+            // Steering-authority compensation (per report after the corner-
+            // speed realism pass - the AI "are swerving more than ever and
+            // cant seem to go straight"): the physics envelope cut the yaw
+            // produced per unit of steer by up to ~3.5x at speed. That is
+            // correct for sustained cornering, but every gain, deadband and
+            // slew constant in this controller was tuned in the OLD steer
+            // units - small straight-line corrections became ~3x too weak to
+            // hold the line, so lateral errors grew until the car finally
+            // lurched across, over and over. Multiplying the composed command
+            // by the old-to-new authority ratio restores the tuned
+            // command-to-response scale for small corrections, while the
+            // [-1,1] clamp plus the physics envelope still bound what the car
+            // can actually do - a saturated command is simply full lock, so
+            // sustained corner speed stays exactly as slow as the realism
+            // pass demands.
+            command.steer = Mathf.Clamp(command.steer * SteerAuthorityCompensation(speedKph), -1f, 1f);
+
             // Green-flag handback ramp: for a couple of seconds right after
             // race-control autopilot lets go (see HandleRaceControlAutopilotReleased),
             // cap throttle and steering authority so the car eases back into full
@@ -2936,6 +2959,28 @@ namespace LocalFormulaRacing
             DiagnoseSwerve(progress, severityHere, lineBias, command.steer);
             DiagnoseSwerveAmplitude(progress, severityHere, lineBias);
             vehicle.SetCommand(command);
+        }
+
+        // Controller-side compensation for the corner-speed realism pass. The
+        // physics envelope (VehicleController.MaxYawRateDegPerSec) cut the yaw
+        // produced per unit of steer by up to ~3.5x at speed - correct for
+        // SUSTAINED cornering, but this controller's constants were all tuned
+        // against the old response. The ratio of the old tightCorneringBoost
+        // curve to the new one restores that tuned scale for the controller's
+        // outputs; the steer clamp and the envelope itself still decide what
+        // the car physically does. This is a controller-feel constant pair,
+        // deliberately frozen at the old curve's values - it does NOT need to
+        // track future envelope tuning exactly, it only needs to stay within
+        // sane range (clamped) so the loop neither starves nor over-drives.
+        static float SteerAuthorityCompensation(float speedKph)
+        {
+            float oldBoost = speedKph <= 120f
+                ? Mathf.Lerp(2.4f, 1.9f, Mathf.Clamp01((speedKph - 35f) / 85f))
+                : Mathf.Lerp(1.9f, 1.6f, Mathf.Clamp01((speedKph - 120f) / 160f));
+            float newBoost = speedKph <= 120f
+                ? Mathf.Lerp(1.6f, 0.85f, Mathf.Clamp01((speedKph - 35f) / 85f))
+                : Mathf.Lerp(0.85f, 0.45f, Mathf.Clamp01((speedKph - 120f) / 200f));
+            return Mathf.Clamp(oldBoost / newBoost, 1f, 3.6f);
         }
 
         // Shared by every "something moved this car's transform out from under

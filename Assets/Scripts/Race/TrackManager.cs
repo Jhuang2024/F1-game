@@ -4856,8 +4856,11 @@ namespace LocalFormulaRacing
             // 220m (BuildMountainBackdrop) - its domes were still hundreds of
             // metres past the slab edge. Sized to the outermost ring plus the
             // widest dome's half-footprint now.
-            float backdropRingRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) * 1.55f + 220f;
-            float backdropSpan = (backdropRingRadius + 280f) * 2f;
+            // Terrain-scale pass round 2: mirrors BuildMountainBackdrop's new
+            // ring (extents*1.6 + 650) plus the widest massif's ~0.85x-width
+            // slab reach, so no mountain ever stands past the slab edge.
+            float backdropRingRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) * 1.6f + 650f;
+            float backdropSpan = (backdropRingRadius + 900f) * 2f;
             Vector3 size = new Vector3(
                 Mathf.Max(Mathf.Max(groundSpanMin, backdropSpan), bounds.size.x * groundSpanScale), 1.0f,
                 Mathf.Max(Mathf.Max(groundSpanMin, backdropSpan), bounds.size.z * groundSpanScale));
@@ -10256,16 +10259,80 @@ namespace LocalFormulaRacing
                 float offsetZ = slab == 0 ? 0f : (((seed * 29 + slab * 31) % 60) - 30) * 0.01f * depth * 0.4f;
                 float yaw = (seed * 37 + slab * 61) % 180;
                 float tilt = ((seed + slab * 3) % 2 == 0 ? 1f : -1f) * (4f + (seed + slab) % 5);
+                Vector3 slabCenter = new Vector3(basePosition.x + offsetX, groundTopY + slabHeight * 0.18f, basePosition.z + offsetZ);
+                // Per-slab corridor guard (per report - terrain formations "now
+                // on the track"): callers vet only the formation's BASE point
+                // with an estimated radius, but the seed-offset, yaw-rotated
+                // slabs can reach ~0.85x width past it - at the terrain-scale
+                // pass's new sizes that reach exceeded several callers' vetting
+                // radii and slabs landed across the road. Every slab now
+                // proves ITS OWN rotated footprint clear of the corridor or it
+                // simply doesn't spawn - this closes the hole for every ridge/
+                // hill/dune/mesa caller at once, present and future.
+                float slabFootprintRadius = 0.5f * Mathf.Sqrt(slabWidth * slabWidth + slabDepth * slabDepth);
+                if (!IsClearOfTrackCorridor(slabCenter, slabFootprintRadius, 6f))
+                {
+                    continue;
+                }
+
                 GameObject piece = GameObject.CreatePrimitive(PrimitiveType.Cube);
                 piece.name = "Ridge formation slab";
                 piece.transform.SetParent(transform);
                 // Buried ~a third so the tilted top edge rises out of the
                 // terrain as a ridge line.
-                piece.transform.position = new Vector3(basePosition.x + offsetX, groundTopY + slabHeight * 0.18f, basePosition.z + offsetZ);
+                piece.transform.position = slabCenter;
                 piece.transform.rotation = Quaternion.Euler(0f, yaw, tilt);
                 piece.transform.localScale = new Vector3(slabWidth, slabHeight, slabDepth);
                 piece.GetComponent<Renderer>().sharedMaterial = material;
                 MakeVisualOnly(piece);
+            }
+        }
+
+        // A full mountain massif for the horizon ring: a broad ridge base, one
+        // to three steep tilted peak slabs rising well above it, and snow-cap
+        // slabs crowning every peak (per report - "the mountains are still too
+        // small and way to not detailed"). Still pure primitives, but the
+        // two-tone rock + snow massing reads as an actual mountain instead of
+        // a low grey wedge.
+        void CreateMountainMassif(Vector3 basePosition, float width, float height, Material ridgeMaterial, Material rockFaceMaterial, Material snowMaterial, int seed)
+        {
+            CreateRidgeFormation(basePosition, width, height * 0.5f, width * 0.6f, ridgeMaterial, seed);
+
+            int peaks = 2 + seed % 2;
+            for (int p = 0; p < peaks; p++)
+            {
+                float peakHeight = height * (p == 0 ? 1f : 0.6f + ((seed + p) % 3) * 0.1f);
+                float peakWidth = width * (p == 0 ? 0.34f : 0.2f + ((seed * 3 + p) % 3) * 0.05f);
+                float offsetX = p == 0 ? 0f : (((seed * 17 + p * 47) % 100) - 50) * 0.01f * width * 0.5f;
+                float offsetZ = p == 0 ? 0f : (((seed * 23 + p * 31) % 60) - 30) * 0.01f * width * 0.28f;
+                float yaw = (seed * 41 + p * 77) % 180;
+                float tilt = ((seed + p) % 2 == 0 ? 1f : -1f) * (36f + (seed * 3 + p) % 14);
+                Vector3 peakCenter = new Vector3(basePosition.x + offsetX, groundTopY + peakHeight * 0.2f, basePosition.z + offsetZ);
+                // The steep tilt leans the slab's vertical extent into the
+                // horizontal plane, so the guard radius covers that lean too.
+                float peakFootprintRadius = peakWidth * 0.75f + peakHeight * 0.35f;
+                if (!IsClearOfTrackCorridor(peakCenter, peakFootprintRadius, 6f))
+                {
+                    continue;
+                }
+
+                GameObject peak = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                peak.name = "Mountain peak slab";
+                peak.transform.SetParent(transform);
+                peak.transform.position = peakCenter;
+                peak.transform.rotation = Quaternion.Euler(0f, yaw, tilt);
+                peak.transform.localScale = new Vector3(peakWidth, peakHeight, peakWidth * 0.7f);
+                peak.GetComponent<Renderer>().sharedMaterial = p % 2 == 0 ? rockFaceMaterial : ridgeMaterial;
+                MakeVisualOnly(peak);
+
+                GameObject snow = GameObject.CreatePrimitive(PrimitiveType.Cube);
+                snow.name = "Mountain snow cap";
+                snow.transform.SetParent(transform);
+                snow.transform.position = new Vector3(peakCenter.x, groundTopY + peakHeight * 0.62f, peakCenter.z);
+                snow.transform.rotation = Quaternion.Euler(0f, yaw, tilt);
+                snow.transform.localScale = new Vector3(peakWidth * 0.62f, peakHeight * 0.36f, peakWidth * 0.5f);
+                snow.GetComponent<Renderer>().sharedMaterial = snowMaterial;
+                MakeVisualOnly(snow);
             }
         }
 
@@ -10277,38 +10344,46 @@ namespace LocalFormulaRacing
             // plastic.
             ridgeMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.88f, 0.87f, 0.85f), 0.18f);
             ridgeMaterial.mainTextureScale = new Vector2(6f, 3f);
+            // Terrain-scale pass round 2 (per report - "the mountains are
+            // still too small and way to not detailed; and theyre now on the
+            // track"): darker rock-face + snow materials feed the new
+            // CreateMountainMassif two-tone peaks.
+            Material rockFaceMaterial = CreateMaterial("Runtime Mountain Rock Face", tint * 0.68f, 0f, 0.3f);
+            rockFaceMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.82f, 0.8f, 0.78f), 0.24f);
+            rockFaceMaterial.mainTextureScale = new Vector2(4f, 5f);
+            Material snowMaterial = CreateMaterial("Runtime Mountain Snow", new Color(0.93f, 0.95f, 0.99f), 0f, 0.05f);
             Bounds bounds = new Bounds(Runtime.centerLine[0], Vector3.zero);
             for (int i = 1; i < Runtime.centerLine.Count; i++)
             {
                 bounds.Encapsulate(Runtime.centerLine[i]);
             }
 
-            float ringRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) * 1.55f + 220f;
+            // Ring pushed from extents*1.55+220 to extents*1.6+650: round 1
+            // widened the formations without moving the ring or growing the
+            // vetting radius, so slab reach (~0.85x width, see the per-slab
+            // guard in CreateRidgeFormation) could land pieces on the road.
+            // The extra distance also lets genuinely mountain-scale massing
+            // (200-400m peaks) sit on the horizon without looming over the
+            // circuit. BuildGround's slab-span formula mirrors this radius -
+            // keep the two in sync.
+            float ringRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) * 1.6f + 650f;
             Vector3 ringCenter = new Vector3(bounds.center.x, groundTopY, bounds.center.z);
-            // Terrain-scale pass (per report - "the hills that you make are
-            // way too small"): the ring formations were 34-76m tall at 500m+
-            // out, which perspective flattens into a kerb-height smudge. Now
-            // genuinely mountain-scale (95-200m) and wider to match, with a
-            // denser ring so the horizon is a continuous range instead of
-            // isolated humps.
-            int segments = Mathf.Max(10, Mathf.RoundToInt(20f * density));
+            int segments = Mathf.Max(12, Mathf.RoundToInt(22f * density));
             for (int i = 0; i < segments; i++)
             {
                 float angle = (i / (float)segments) * Mathf.PI * 2f;
                 Vector3 direction = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
                 Vector3 desired = ringCenter + direction * ringRadius;
-                float widthScale = 260f + (i % 5) * 70f;
-                float heightScale = 95f + (i % 4) * 35f;
-                float objectRadius = widthScale * 0.5f;
+                float widthScale = 520f + (i % 5) * 130f;
+                float heightScale = 200f + (i % 4) * 70f;
+                float objectRadius = widthScale * 0.6f;
                 Vector3 safePosition;
                 if (!TryGetClearScenerySpot(desired, objectRadius, 20f, out safePosition))
                 {
                     continue;
                 }
 
-                // De-blob pass (per report): irregular multi-lobe formation
-                // instead of one smooth dome.
-                CreateRidgeFormation(safePosition, widthScale, heightScale, widthScale * 0.62f, ridgeMaterial, i);
+                CreateMountainMassif(safePosition, widthScale, heightScale, ridgeMaterial, rockFaceMaterial, snowMaterial, i);
             }
         }
 
