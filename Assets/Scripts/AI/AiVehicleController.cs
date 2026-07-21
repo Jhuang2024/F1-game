@@ -1867,10 +1867,17 @@ namespace LocalFormulaRacing
                 // so a neighbour flickering at a window edge never snaps the
                 // target, and eases in traffic->clear slowly so the field
                 // strings out before anyone cuts across to the ideal line.
+                // Clear-air release 0.5 -> 1.2/s: at 0.5 a car needed 2 full
+                // seconds of clear air to re-earn its racing line - in a pack
+                // that never happens, so trafficBlend rode 1.00 permanently
+                // (every [SwerveDiag] line confirms it) and the whole field
+                // stayed off-line all race. Engagement stays fast (2.5/s) so
+                // collision safety in a closing pack is unchanged; only the
+                // return to pace when a gap opens is quicker (~0.8s).
                 lineTrafficBlend = Mathf.MoveTowards(
                     lineTrafficBlend,
                     lineTrafficNearby ? 1f : 0f,
-                    Time.deltaTime * (lineTrafficNearby ? 2.5f : 0.5f));
+                    Time.deltaTime * (lineTrafficNearby ? 2.5f : 1.2f));
                 // Straight-line weave trim ([SwerveDiag]: with the steering
                 // controller settled, the remaining weave was the LINE itself -
                 // on the long straights the drawn line still ordered cars to ride
@@ -1942,7 +1949,23 @@ namespace LocalFormulaRacing
                 }
 
                 float laneHold = hasHeldLane ? heldLaneOffset : progress.lateralDistance;
-                lineBias = Mathf.Clamp(Mathf.Lerp(optimalPursuit, laneHold, lineTrafficBlend), -bound, bound);
+                // THE PACK-PACE FIX ([PaceDiag]: equal-pace AI ~4s/lap slower than
+                // the player, whole field collapsing to ~2:00 laps with walls of
+                // track-limit invalids; trafficBlend pinned at 1.00 in every log
+                // line). Lane-hold applied at FULL strength in corners too, so a
+                // car in traffic took every corner from its held lane instead of
+                // the racing line - seconds per lap slower. And it self-reinforces:
+                // 21 equally-slowed cars never string out, so nobody ever leaves
+                // anyone's traffic window and the whole field stays off-line for
+                // the entire race. Real racing is single file ON THE LINE through
+                // corners; lane discipline matters on straights where cars run
+                // side by side. So corner severity now bleeds authority back to
+                // the optimal line even in traffic (down to ~35% lane-hold at
+                // full corner severity) - cars carry proper corner speed, string
+                // out, and traffic windows actually clear.
+                float cornerLineAuthority = Mathf.Clamp01(severityHere / 0.2f);
+                float effectiveTrafficBlend = lineTrafficBlend * Mathf.Lerp(1f, 0.35f, cornerLineAuthority);
+                lineBias = Mathf.Clamp(Mathf.Lerp(optimalPursuit, laneHold, effectiveTrafficBlend), -bound, bound);
             }
             else if (severityHere > 0.05f)
             {
@@ -3475,7 +3498,15 @@ namespace LocalFormulaRacing
                         nearestInLaneAheadZ = Mathf.Min(nearestInLaneAheadZ, local.z);
                     }
 
-                    if (absX < 4.5f)
+                    // 4.5 -> 2.6m ([PaceDiag]: the field never re-earned its
+                    // racing line - a car ahead but a FULL LANE AND A HALF to the
+                    // side still counted as "traffic ahead" and suspended line
+                    // pursuit, so in any loose pack every car stayed off-line
+                    // (trafficBlend 1.00 in every log) and seconds-per-lap slower
+                    // than the player. Only a genuinely same-lane car ahead
+                    // suspends the line now; diagonal/alongside cars are still
+                    // covered by blockedLeft/blockedRight and avoidance braking.
+                    if (absX < 2.6f)
                     {
                         nearestAnyAheadZ = Mathf.Min(nearestAnyAheadZ, local.z);
                     }
