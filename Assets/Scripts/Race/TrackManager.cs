@@ -12772,6 +12772,17 @@ namespace LocalFormulaRacing
             for (int i = 0; i < samples.Length; i++)
             {
                 TrackProgress progress = Runtime.GetProgress(samples[i]);
+                // Remote-corridor check FIRST and unconditionally ([WallDiag]
+                // China round): this is the last-resort path that KEEPS a wall
+                // at reduced clearance - it must never tolerate a wall standing
+                // inside another leg's road, which is exactly the tolerated
+                // 'Auto-filled barrier gap'/'Bridge concrete wall' junk the
+                // black box recorded cars hitting at 61-90 degrees.
+                if (IntrudesRemoteCorridor(samples[i], progress.distance, HardMinimumEdgeBarrierClearance))
+                {
+                    return false;
+                }
+
                 // Cross-deck disambiguation (same 1.8m mid-height rule as
                 // IsSolidObstaclePlacementValid): this last-resort test used to
                 // have NO height awareness at all, so a flyover-ramp wall that
@@ -13022,12 +13033,96 @@ namespace LocalFormulaRacing
         // only a legal solid barrier if its whole oriented footprint clears both the
         // live racing surface AND every pit drivable surface (corridor/ramps/merge
         // path). Either intrusion makes it invalid.
+        // Remote-corridor intrusion check ([WallDiag]/[StuckDiag] China GP report -
+        // a 'Bridge concrete wall' standing at y=4.8 BESIDE the lower road at
+        // y=4.1, a physical stuck-spot the whole field piled into): both validity
+        // tests below resolve every footprint sample through Runtime.GetProgress,
+        // which returns the NEAREST centreline only. Near a flyover crossing the
+        // two legs overlap in XZ, so a wall whose samples resolve to its OWN
+        // (raised) leg passes cleanly while physically standing inside the OTHER
+        // leg's corridor at sub-car-height ramp elevation - the nearest-leg test
+        // simply never looks at that corridor. This scans a dense cached
+        // centreline point list for ANY part of the lap that is far away
+        // ALONG-track (a different leg, > 250m wrapped) yet laterally inside
+        // whose corridor the sample sits, with the same 1.8m cross-deck height
+        // exemption as the main test so genuine flyover decks stay buildable.
+        // Build-time only; the cache is invalidated with the rest of the track
+        // state in ClearChildren.
+        List<Vector4> corridorScanPoints;
+
+        void EnsureCorridorScanPoints()
+        {
+            if (corridorScanPoints != null || Runtime == null || Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            corridorScanPoints = new List<Vector4>();
+            const float step = 5f;
+            for (float d = 0f; d < Runtime.length; d += step)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                corridorScanPoints.Add(new Vector4(point.x, point.y, point.z, d));
+            }
+        }
+
+        bool IntrudesRemoteCorridor(Vector3 sample, float resolvedDistance, float clearance)
+        {
+            EnsureCorridorScanPoints();
+            if (corridorScanPoints == null)
+            {
+                return false;
+            }
+
+            float lapLength = Runtime.length;
+            // Slightly relaxed bound (-0.2m) versus the nearest-leg test: the
+            // scan measures distance to discrete 5m-spaced points, which can
+            // only ever OVERestimate the true lateral distance - without the
+            // margin a legitimately flush wall exactly at its own bound could
+            // be rejected against a neighbouring section it actually clears.
+            float boundClearance = Mathf.Max(0f, clearance - 0.2f);
+            for (int i = 0; i < corridorScanPoints.Count; i++)
+            {
+                Vector4 p = corridorScanPoints[i];
+                float along = Mathf.Abs(p.w - resolvedDistance);
+                along = Mathf.Min(along, lapLength - along);
+                if (along < 250f)
+                {
+                    continue; // own neighbourhood - already covered by GetProgress
+                }
+
+                float dx = sample.x - p.x;
+                float dz = sample.z - p.z;
+                float bound = Runtime.HalfWidthAt(p.w) + boundClearance;
+                if (dx * dx + dz * dz >= bound * bound)
+                {
+                    continue;
+                }
+
+                if (Mathf.Abs(sample.y - p.y) > 1.8f)
+                {
+                    continue; // genuine flyover deck above/below - no conflict
+                }
+
+                return true;
+            }
+
+            return false;
+        }
+
         bool IsSolidObstaclePlacementValid(GameObject obstacle, string obstacleType, Vector3 position, Vector3 forward, Vector3 localScale, float minimumClearance)
         {
             Vector3[] samples = GetObstacleFootprintSamples(position, forward, localScale);
             for (int i = 0; i < samples.Length; i++)
             {
                 TrackProgress progress = Runtime.GetProgress(samples[i]);
+                if (IntrudesRemoteCorridor(samples[i], progress.distance, minimumClearance))
+                {
+                    return false;
+                }
                 // Cross-deck disambiguation (Belgium flyover report - a ~150m
                 // stretch of raised leg with NO side protection at all): this
                 // check was pure 2D, so near a flyover crossing a wall sample
@@ -13724,6 +13819,7 @@ namespace LocalFormulaRacing
                 Destroy(transform.GetChild(i).gameObject);
             }
             solidObstacles.Clear();
+            corridorScanPoints = null;
             grandstandSpans.Clear();
             marshalFlagBoardRenderers.Clear();
             raceControlBoardRenderer = null;

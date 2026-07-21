@@ -94,6 +94,13 @@ namespace LocalFormulaRacing
         // trajectory (time-to-edge) computation.
         float previousEdgeLateral;
         bool hasEdgeLateralRef;
+        // Low-passed lateral drift rate for the same system ([WallDiag] black
+        // box round: edgeRec sat at max urgency even 1-2m inside the edge at
+        // sev=0.00 - the raw per-frame derivative spikes on contact jolts and
+        // on progress-reference snaps between overlapping crossing legs, and
+        // one spiked frame read as "wall in <0.2s" = instant full-urgency
+        // save. The filtered rate only reads urgent for SUSTAINED drift).
+        float smoothedEdgeLateralRate;
         float aggressionOffset;
         float damageDecisionTimer;
         float lastProgressDistance;
@@ -2230,12 +2237,33 @@ namespace LocalFormulaRacing
             // term only inside the final ~1.2m. A controlled car on a
             // legitimate line reads zero urgency however wide it runs; a car
             // genuinely sliding at the wall reads urgent long before contact.
-            float edgeLateralRate = hasEdgeLateralRef
-                ? Mathf.Clamp((progress.lateralDistance - previousEdgeLateral) / Mathf.Max(Time.deltaTime, 0.0001f), -20f, 20f)
+            // [WallDiag] black-box fix (the "edgeRec=2.30 in every record" log):
+            // 1) A reference-snap guard - near a flyover crossing the progress
+            //    reference can jump between the two overlapping legs, which
+            //    teleports lateralDistance by metres in one frame. That is a
+            //    RESOLUTION glitch, not car motion; deriving a drift rate from
+            //    it produced a fake +-20 m/s "sliding at the wall" reading and
+            //    a full-urgency full-lock save on a car driving straight.
+            // 2) A low-pass (tau ~0.12s) so only sustained drift, not one
+            //    jolted frame, can push time-to-edge into the urgent range.
+            float rawEdgeDelta = progress.lateralDistance - previousEdgeLateral;
+            bool edgeReferenceSnap = hasEdgeLateralRef && Mathf.Abs(rawEdgeDelta) > 2.5f;
+            float edgeLateralRate = hasEdgeLateralRef && !edgeReferenceSnap
+                ? Mathf.Clamp(rawEdgeDelta / Mathf.Max(Time.deltaTime, 0.0001f), -20f, 20f)
                 : 0f;
+            if (edgeReferenceSnap)
+            {
+                smoothedEdgeLateralRate = 0f;
+            }
+            else
+            {
+                float rateSmooth = 1f - Mathf.Exp(-Time.deltaTime / 0.12f);
+                smoothedEdgeLateralRate = Mathf.Lerp(smoothedEdgeLateralRate, edgeLateralRate, rateSmooth);
+            }
+
             previousEdgeLateral = progress.lateralDistance;
             hasEdgeLateralRef = true;
-            float towardEdgeRate = Mathf.Sign(progress.lateralDistance == 0f ? 1f : progress.lateralDistance) * edgeLateralRate;
+            float towardEdgeRate = Mathf.Sign(progress.lateralDistance == 0f ? 1f : progress.lateralDistance) * smoothedEdgeLateralRate;
             float distanceToHardEdge = Mathf.Max(0.05f, edgeHalfWidth - 0.5f - Mathf.Abs(progress.lateralDistance));
             float timeToEdge = towardEdgeRate > 0.15f ? distanceToHardEdge / towardEdgeRate : 99f;
             // Corridor gate (the "extremely slow cornering" fix): the racing
@@ -2284,8 +2312,20 @@ namespace LocalFormulaRacing
             // toward the centreline was fighting every apex the line
             // legitimately commanded.
             float edgeSteerNudge = beyondCorridor && edgeOvershoot > 0f ? Mathf.Lerp(0.1f, 0.35f, edgeProximity) : 0f;
+            // [WallDiag] black-box fix (the smoking gun - "edgeRec=+-2.25-2.30,
+            // comp=4.0" in nearly every wall-contact record): the old form
+            // Lerp(0.58,1.44,urgency) * 1.6 commanded up to 2.3x FULL LOCK raw,
+            // and even at urgency ~0 the floor was 0.58*1.6 = 0.93 - a near-
+            // full-lock slam the instant the band flickered on, then off, then
+            // on: that on/off full-lock chatter IS the visible swerve. Now
+            // proportional (0.35 at band entry -> 1.0 at true emergency),
+            // hard-capped at full lock, and - critically - NO LONGER multiplied
+            // by SteerAuthorityCompensation downstream (see the final compose):
+            // a save is already expressed in real steering units, and scaling
+            // it by the saturated x4 authority ratio just pinned the command at
+            // the clamp on every frame the band was live.
             float edgeRecovery = (edgeUrgency > 0f || edgeOvershoot > 0f)
-                ? Mathf.Sign(-progress.lateralDistance) * Mathf.Max(edgeSteerNudge, Mathf.Lerp(0.58f, 1.44f, edgeUrgency) * (edgeUrgency > 0f ? 1f : 0f)) * wallAversionMultiplier * wallAversionLaunchGate
+                ? Mathf.Clamp(Mathf.Sign(-progress.lateralDistance) * Mathf.Max(edgeSteerNudge, Mathf.Lerp(0.35f, 1f, edgeUrgency) * (edgeUrgency > 0f ? 1f : 0f)) * wallAversionLaunchGate, -1f, 1f)
                 : 0f;
             // Barrier-avoidance round 6 ("AI sending it into the final corner and
             // hitting the barriers"): the emergency brake's quadratic ramp
@@ -2366,7 +2406,11 @@ namespace LocalFormulaRacing
             {
                 pursuitSteer = Mathf.Sign(pursuitSteer) * Mathf.Max(0f, Mathf.Abs(pursuitSteer) - steerDeadband);
             }
-            command.steer = Mathf.Clamp(pursuitSteer + edgeRecovery, -1f, 1f);
+            // Pursuit only here - the wall-aversion edgeRecovery is composed in
+            // AFTER the authority compensation below, so the compensation never
+            // amplifies a save (it exists to restore small-correction scale for
+            // the pursuit loop, not to multiply an already-full-lock emergency).
+            command.steer = Mathf.Clamp(pursuitSteer, -1f, 1f);
 
             // Straight-line yaw-rate damping (see swerveHeadingPrev): oppose the
             // measured rotation on a straight, where any yaw IS the shimmy. Scaled
@@ -3014,7 +3058,14 @@ namespace LocalFormulaRacing
             // can actually do - a saturated command is simply full lock, so
             // sustained corner speed stays exactly as slow as the realism
             // pass demands.
-            command.steer = Mathf.Clamp(command.steer * SteerAuthorityCompensation(speedKph), -1f, 1f);
+            // [WallDiag] black-box fix: compensation applies to the PURSUIT
+            // command only; the wall-aversion save (already capped at full
+            // lock, already in real steering units) is added AFTER it. The old
+            // order multiplied edgeRecovery (raw up to 2.3) by the saturated
+            // x4 ratio - the command lived pinned at the clamp with the slew
+            // limiter forced wide open (18/s), i.e. full-lock sawing: exactly
+            // the swerve every log round kept showing near walls.
+            command.steer = Mathf.Clamp(command.steer * SteerAuthorityCompensation(speedKph) + edgeRecovery, -1f, 1f);
 
             // Green-flag handback ramp: for a couple of seconds right after
             // race-control autopilot lets go (see HandleRaceControlAutopilotReleased),
