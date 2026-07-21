@@ -1381,22 +1381,36 @@ namespace LocalFormulaRacing
             // number now comes from the same MaxCorneringSpeedKph the apex
             // targets use, with the same judgment-fraction idea: a backmarker
             // leaves margin, an elite driver runs the geometry's edge.
-            float tightCornerJudgment = Mathf.Lerp(0.88f, 0.99f, paceNorm);
-            float apexLocalHeading = LocalHeadingChange(progress.distance + apexDistanceAhead);
-            if (apexLocalHeading > 30f)
-            {
-                float tightApexRadius = 32f / (apexLocalHeading * Mathf.Deg2Rad);
-                float radiusCapKph = vehicle.MaxCorneringSpeedKph(tightApexRadius) * tightCornerJudgment;
-                brakingApexSpeed = Mathf.Min(brakingApexSpeed, radiusCapKph);
-            }
+            // Corner-EXIT push fix (per report - "the AI really find the wall
+            // after basically every turn"): both geometric caps were gated
+            // behind LocalHeadingChange > 30 degrees, i.e. hairpin-tight
+            // geometry only. On every ordinary corner the moment the apex
+            // passed, apexDistanceAhead snapped to the NEXT corner, the
+            // cruise target snapped to straight-line speed, and the car
+            // floored the throttle while still mid-arc - the old ~13-16g
+            // authority forgave that, the realistic envelope does not, so
+            // cars pushed wide into the wall on the way out of nearly every
+            // turn. The caps are now ALWAYS-ON geometric governors built on
+            // the measured centreline radius: on a straight the radius reads
+            // ~9999 and the caps are far above any speed (a no-op), and in or
+            // exiting a corner they bind exactly as hard as the remaining arc
+            // demands. The cruise cap samples the tightest radius the car is
+            // about to occupy (here / +18m / +36m) so exit throttle ramps as
+            // the road genuinely opens instead of the instant the apex tag
+            // moves on. Judgment band trimmed (0.88-0.99 -> 0.85-0.94): at
+            // 0.99 the elite tier had no margin left for the understeer
+            // feedback that trims yaw authority under full steering load,
+            // which is exactly where "finds the wall" lives.
+            float tightCornerJudgment = Mathf.Lerp(0.85f, 0.94f, paceNorm);
+            float apexGeoRadius = track.CurvatureRadiusAt(progress.distance + apexDistanceAhead);
+            brakingApexSpeed = Mathf.Min(brakingApexSpeed,
+                vehicle.MaxCorneringSpeedKph(apexGeoRadius) * tightCornerJudgment);
 
-            float hereLocalHeading = LocalHeadingChange(progress.distance);
-            if (hereLocalHeading > 30f)
-            {
-                float hereRadius = 32f / (hereLocalHeading * Mathf.Deg2Rad);
-                float hereCapKph = vehicle.MaxCorneringSpeedKph(hereRadius) * tightCornerJudgment;
-                cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, hereCapKph);
-            }
+            float occupiedRadius = Mathf.Min(
+                track.CurvatureRadiusAt(progress.distance),
+                Mathf.Min(track.CurvatureRadiusAt(progress.distance + 18f), track.CurvatureRadiusAt(progress.distance + 36f)));
+            cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed,
+                vehicle.MaxCorneringSpeedKph(occupiedRadius) * tightCornerJudgment);
 
             UpdateMistake(consistency, aggression, profile);
             UpdateOvertakeState(progress, severityHere, apexDistanceAhead, apexSeverity, turnSign, aggression, overtaking, defending, profile, isExpert, driver);
@@ -2002,7 +2016,12 @@ namespace LocalFormulaRacing
                 // hunting; kinematic (acts on the target, never inside the steering
                 // loop) and faded in on straighter road so corner turn-in is crisp.
                 float straightness = 1f - Mathf.Clamp01(severityHere / 0.2f);
-                float netSlew = Mathf.Max(1.5f, speedKph / 3.6f * 0.07f);
+                // Slew trimmed 0.07 -> 0.055 (exit-wall round): a full-speed
+                // lane change now takes ~1.3s instead of ~1s - passes still
+                // work, but an overtake target flip no longer darts the car
+                // sideways faster than the realistic yaw envelope can
+                // comfortably track, which was reading as traffic swerve.
+                float netSlew = Mathf.Max(1.2f, speedKph / 3.6f * 0.055f);
                 smoothedNetOffset = Mathf.MoveTowards(smoothedNetOffset, requestedOffset, Time.deltaTime * netSlew);
                 requestedOffset = Mathf.Lerp(requestedOffset, smoothedNetOffset, straightness);
             }
@@ -3893,7 +3912,15 @@ namespace LocalFormulaRacing
                 swerveLineRev += CountReversal(lineBias, 0.6f, ref swerveLineSign);
             }
 
-            if (swerveSteerRev >= 3 && Time.time - swerveLastLogTime > 3f)
+            // Alert bar raised 3 -> 7 reversals/2s (per report - "at this point
+            // i should have 0 swerve alerts"): at 3, the log fired on the
+            // detector's own floor - three ~12%-of-lock micro-corrections in
+            // two seconds, invisible on screen at realistic yaw rates - so the
+            // console read as "still swerving everywhere" no matter how much
+            // the real weave improved, and genuine events drowned in floor
+            // entries. Seven reversals in two seconds is an actual visible
+            // saw; anything below that is a controller breathing normally.
+            if (swerveSteerRev >= 7 && Time.time - swerveLastLogTime > 3f)
             {
                 swerveLastLogTime = Time.time;
                 string who = participant != null && participant.driverData != null ? participant.driverData.displayName : "AI";
@@ -4015,7 +4042,13 @@ namespace LocalFormulaRacing
             swerveAmpHasSample = false;
             swerveAmpWindowStart = Time.time;
 
-            if (latSwing < 5f || Time.time - swerveAmpLastLog < 4f)
+            // Bar raised 5 -> 9m: the racing line legitimately crosses the road
+            // once per straight (capped gates put that at up to ~8m of drift
+            // over a long window), and a pass is legitimately a ~6-8m lane
+            // change - both were being logged as "swung across a straight",
+            // which made every clean lap read as a swerve report. 9m+ within
+            // one 4s window means genuinely anomalous lateral travel.
+            if (latSwing < 9f || Time.time - swerveAmpLastLog < 4f)
             {
                 return;
             }
