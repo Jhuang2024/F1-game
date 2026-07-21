@@ -112,7 +112,19 @@ namespace LocalFormulaRacing
 
             followCamera.fieldOfView = baseFov;
             followCamera.nearClipPlane = 0.12f;
-            followCamera.farClipPlane = 2600f;
+            // 2600 -> 9000 (per report - "so much stuff loaded but none of
+            // that shows up"): the scenery build-out placed the mountain
+            // backdrop/skyline rings ~2-3km out, past the old far plane, so
+            // half the built world was clipped before fog even mattered.
+            followCamera.farClipPlane = 9000f;
+            // [SceneryDiag] one-line proof of the render envelope at start:
+            // if distant scenery is still missing, these numbers name the
+            // culprit (fog visibility vs draw distance) without guessing.
+            float diagDensity = RenderSettings.fog ? RenderSettings.fogDensity : 0f;
+            float diagHalfVisibility = diagDensity > 0f ? Mathf.Sqrt(0.693f) / diagDensity : float.PositiveInfinity;
+            Debug.Log("[SceneryDiag] farClip=" + followCamera.farClipPlane.ToString("0") +
+                      "m fog=" + RenderSettings.fog + " density=" + diagDensity.ToString("0.00000") +
+                      " (50% haze at ~" + diagHalfVisibility.ToString("0") + "m)");
             followCamera.allowHDR = true;
             followCamera.allowMSAA = true;
             followCamera.backgroundColor = RenderSettings.fogColor;

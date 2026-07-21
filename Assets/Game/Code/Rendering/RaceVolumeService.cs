@@ -101,7 +101,9 @@ namespace F1Game.Rendering
             {
                 RenderSettings.fogMode = FogMode.ExponentialSquared;
                 RenderSettings.fogColor = mood.fogColor;
-                RenderSettings.fogDensity = mood.fogDensity;
+                // Scenery-visibility clamp (same as LightingMoodApplier): the
+                // old 0.004-class densities fogged out everything past ~500m.
+                RenderSettings.fogDensity = Mathf.Min(mood.fogDensity, 0.0007f);
             }
         }
 

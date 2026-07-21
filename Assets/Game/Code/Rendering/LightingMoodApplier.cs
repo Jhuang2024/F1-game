@@ -34,7 +34,10 @@ namespace F1Game.Rendering
             {
                 RenderSettings.fogMode = FogMode.ExponentialSquared;
                 RenderSettings.fogColor = mood.fogColor;
-                RenderSettings.fogDensity = mood.fogDensity;
+                // Scenery-visibility clamp: mood assets carrying the old 0.004
+                // default were ~500m visibility soup - every building/mountain
+                // beyond the fence fogged out entirely.
+                RenderSettings.fogDensity = Mathf.Min(mood.fogDensity, 0.0007f);
             }
 
             RenderSettings.reflectionIntensity = mood.fogEnabled ? 0.7f : 0.85f;

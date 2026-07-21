@@ -73,7 +73,15 @@ namespace LocalFormulaRacing
             // distance - the ground plane met the sky as a hard line with no
             // aerial perspective at all. These values leave the first ~300m
             // crisp and fade the far scenery gently into the horizon haze.
-            RenderSettings.fogDensity = rainThreat ? 0.0011f : (mountain ? 0.0008f : 0.00065f);
+            // Scenery-visibility fix (per report - "so much stuff loaded but
+            // none of that shows up on the race track but the asphalt"): with
+            // exp-squared fog, 0.00065 leaves ~6% contrast at 2.6km - and the
+            // scenery build-out pushed the mountain backdrop/city skylines out
+            // to ~2-3km, so the entire backdrop fogged into the sky colour and
+            // "nothing showed up". Densities cut so the backdrop reads as real
+            // silhouettes (~35-60% contrast at 2.5km) while the near 400m stays
+            // crisp; rain keeps the heaviest haze but still shows shapes.
+            RenderSettings.fogDensity = rainThreat ? 0.0006f : (mountain ? 0.00042f : 0.00036f);
             Color dryFog = desert ? new Color(0.65f, 0.55f, 0.42f)
                 : (coastal ? new Color(0.5f, 0.62f, 0.68f)
                 : (mountain ? new Color(0.4f, 0.5f, 0.46f)

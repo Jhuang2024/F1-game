@@ -2053,11 +2053,12 @@ namespace LocalFormulaRacing
                 // it sat wedged.
                 string gatedReason;
                 DamageImpactType gatedType = ClassifyDamageCollision(collision, out gatedReason);
-                if (gatedType != DamageImpactType.None && gatedType != DamageImpactType.Car)
+                if ((gatedType != DamageImpactType.None && gatedType != DamageImpactType.Car) ||
+                    gatedReason == "non-obstacle track object")
                 {
                     ContactPoint gatedContact = collision.GetContact(0);
                     float gatedNormalKph = Mathf.Abs(Vector3.Dot(collision.relativeVelocity, gatedContact.normal)) * 3.6f;
-                    DampenWallContactResponse(gatedNormalKph, gatedContact.normal, true);
+                    DampenWallContactResponse(gatedNormalKph, gatedContact.normal, collision.collider, true);
                 }
 
                 return;
@@ -2069,6 +2070,19 @@ namespace LocalFormulaRacing
             string objectName = collision.collider.gameObject.name;
             if (impactType == DamageImpactType.None)
             {
+                // Anti-stick for undamaging solids (per report - "you can
+                // still very much get stuck"): scenery primitives (trees,
+                // lamp posts, building blocks, bridge supports...) are solid
+                // colliders that deliberately deal no damage - but they got
+                // NO glance/separation response either, so a car nosing one
+                // simply stopped and stayed. They now get the same peel-off
+                // physics as a wall; damage stays off for them.
+                if (classificationReason == "non-obstacle track object" || classificationReason == "unclassified solid object")
+                {
+                    float scenNormalKph = Mathf.Abs(Vector3.Dot(collision.relativeVelocity, contact.normal)) * 3.6f;
+                    DampenWallContactResponse(scenNormalKph, contact.normal, collision.collider, sustained);
+                }
+
                 LastDamageDebug = "ignored " + objectName + " " + classificationReason;
                 if (!sustained && IsSuspiciousIgnoredCollisionName(objectName))
                 {
@@ -2107,7 +2121,7 @@ namespace LocalFormulaRacing
             }
             else
             {
-                DampenWallContactResponse(normalSpeedKph, contact.normal, sustained);
+                DampenWallContactResponse(normalSpeedKph, contact.normal, collision.collider, sustained);
 
                 // Heavy-crash flag (per request - "if a car hits the barriers
                 // HARD they should just be out of the grand prix"): record the
@@ -2314,9 +2328,83 @@ namespace LocalFormulaRacing
         // unsettles and slows the car; it no longer bounces it like a pinball.
         void DampenWallContactResponse(float normalSpeedKph, Vector3 contactNormal, bool sustained)
         {
+            DampenWallContactResponse(normalSpeedKph, contactNormal, null, sustained);
+        }
+
+        // Fields for the [WallStickDiag] pin detector below.
+        float lastSustainedWallContactTime = -999f;
+        float sustainedWallContactStart;
+        float wallStickLastLogTime = -999f;
+
+        void DampenWallContactResponse(float normalSpeedKph, Vector3 contactNormal, Collider hitCollider, bool sustained)
+        {
             if (body == null || body.isKinematic)
             {
                 return;
+            }
+
+            // Seam-catch fix (per report - "you can still very much get stuck
+            // in the wall even if ur js scraping it"): barriers are CHAINS of
+            // box segments, and a car sliding along the wall face eventually
+            // clips the END face of the next segment. That contact's normal
+            // points along the road - against the car's travel - so the
+            // rebound cut below read the car's entire forward speed as
+            // "bounce" and erased it, and the along-wall restore projected
+            // onto the wrong plane: a scrape became a dead stop at every
+            // seam. For tracked barrier segments the effective wall plane now
+            // comes from the segment's own SIDE axis (box X = thickness -
+            // the broad face a car actually scrapes), with the sign chosen
+            // toward the car, so seam catches resolve exactly like the face
+            // scrape they physically are. Genuine broad-face hits produce
+            // the same normal either way.
+            Vector3 rawFlatNormal = new Vector3(contactNormal.x, 0f, contactNormal.z);
+            if (rawFlatNormal.sqrMagnitude > 0.0001f)
+            {
+                rawFlatNormal.Normalize();
+            }
+
+            TrackSolidObstacle segment = hitCollider == null ? null : hitCollider.GetComponentInParent<TrackSolidObstacle>();
+            if (segment != null)
+            {
+                Vector3 side = segment.transform.right;
+                side.y = 0f;
+                if (side.sqrMagnitude > 0.01f)
+                {
+                    side.Normalize();
+                    Vector3 toCar = transform.position - segment.transform.position;
+                    toCar.y = 0f;
+                    float sideSign = Vector3.Dot(toCar, side) >= 0f ? 1f : -1f;
+                    contactNormal = side * sideSign;
+                }
+            }
+
+            // [WallStickDiag] (per request - "either fix the issues or write
+            // code to diagnose the issue"): if a car spends >1.2s in sustained
+            // wall contact at crawling speed, log everything needed to name
+            // the mechanism - what it's pinned on, the raw vs corrected
+            // normal orientation against the car's nose, and the pedals.
+            if (sustained)
+            {
+                if (Time.time - lastSustainedWallContactTime > 0.6f)
+                {
+                    sustainedWallContactStart = Time.time;
+                }
+
+                lastSustainedWallContactTime = Time.time;
+                float pinnedSpeedKph = body.velocity.magnitude * 3.6f;
+                if (Time.time - sustainedWallContactStart > 1.2f && pinnedSpeedKph < 25f &&
+                    Time.time - wallStickLastLogTime > 5f)
+                {
+                    wallStickLastLogTime = Time.time;
+                    Vector3 usedFlat = new Vector3(contactNormal.x, 0f, contactNormal.z).normalized;
+                    Debug.LogWarning("[WallStickDiag] " + gameObject.name + " pinned on '" +
+                        (hitCollider != null ? hitCollider.gameObject.name : "?") + "' for " +
+                        (Time.time - sustainedWallContactStart).ToString("0.0") + "s speed=" + pinnedSpeedKph.ToString("0") +
+                        "kph throttle=" + EffectiveThrottle.ToString("0.00") + " brake=" + EffectiveBrake.ToString("0.00") +
+                        " rawNormal.fwd=" + Vector3.Dot(rawFlatNormal, transform.forward).ToString("0.00") +
+                        " usedNormal.fwd=" + Vector3.Dot(usedFlat, transform.forward).ToString("0.00") +
+                        " obstacle=" + (segment != null ? segment.obstacleType : "untracked"));
+                }
             }
 
             float severity = Mathf.Clamp01((normalSpeedKph - 20f) / 110f);

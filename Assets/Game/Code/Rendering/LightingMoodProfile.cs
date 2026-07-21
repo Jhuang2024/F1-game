@@ -28,7 +28,9 @@ namespace F1Game.Rendering
         [Header("Fog")]
         public bool fogEnabled;
         public Color fogColor = new Color(0.65f, 0.7f, 0.78f);
-        [Min(0f)] public float fogDensity = 0.004f;
+        // 0.004 -> 0.0005: the old default was ~500m visibility with
+        // exp-squared fog - the whole scenery build-out fogged out.
+        [Min(0f)] public float fogDensity = 0.0005f;
 
         [Header("Scene light shaping (applied by the race lighting builder)")]
         [Tooltip("Multiplier on the sun/main directional light intensity.")]
