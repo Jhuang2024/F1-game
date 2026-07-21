@@ -359,6 +359,14 @@ namespace LocalFormulaRacing
         int swerveTapeCount;
         float swerveTapeLastDump = -999f;
 
+        // [SwerveTape] round 3: continuous seconds the FINAL steering command
+        // has been pinned at (near) full lock at speed - the measured
+        // precursor of nearly every remaining wall hit (sustained understeer:
+        // the car cannot produce the yaw the line needs, drifts wide for
+        // seconds, and never slows down). Drives the understeer speed-shed
+        // reflex below.
+        float steerSaturationTimer;
+
         // Overtake-thrash guards ([SwerveDiag] - during passes the state machine
         // cycled Attacking->SideBySide->CompletingPass->Following->Attacking
         // several times a second, swinging aggressionOffset +-7m). enteredTime
@@ -1466,15 +1474,27 @@ namespace LocalFormulaRacing
             // steering + exit throttle) was ~zero, so elite cars still drifted
             // to the wall on exits. 0.90 leaves a real reserve at every tier.
             float tightCornerJudgment = Mathf.Lerp(0.82f, 0.90f, paceNorm);
+            // [SwerveTape] round 3 (the fast-sweeper crash signature): every
+            // wall-hit tape now shows the same thing - sev 0.1-0.35 corners
+            // taken at 350-390kph with the final steer PINNED at full lock for
+            // seconds (|steer|>0.98 up to 37% of the window) and no braking:
+            // the geometric caps below said the speed was fine, but they
+            // measure the CENTRELINE radius while the car actually follows
+            // the racing line, whose entry/exit sweeps are meaningfully
+            // tighter, and at 350+ the envelope leaves zero reserve for that
+            // difference. Above ~260kph the caps now demand a genuine margin
+            // (up to 14% by 380kph) - which also means these sweepers become
+            // real braking zones instead of flat-out zero-margin passes.
+            float highSpeedCorneringMargin = Mathf.Lerp(1f, 0.86f, Mathf.Clamp01((speedKph - 260f) / 120f));
             float apexGeoRadius = track.CurvatureRadiusAt(progress.distance + apexDistanceAhead);
             brakingApexSpeed = Mathf.Min(brakingApexSpeed,
-                vehicle.MaxCorneringSpeedKph(apexGeoRadius) * tightCornerJudgment);
+                vehicle.MaxCorneringSpeedKph(apexGeoRadius) * tightCornerJudgment * highSpeedCorneringMargin);
 
             float occupiedRadius = Mathf.Min(
                 track.CurvatureRadiusAt(progress.distance),
                 Mathf.Min(track.CurvatureRadiusAt(progress.distance + 18f), track.CurvatureRadiusAt(progress.distance + 36f)));
             cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed,
-                vehicle.MaxCorneringSpeedKph(occupiedRadius) * tightCornerJudgment);
+                vehicle.MaxCorneringSpeedKph(occupiedRadius) * tightCornerJudgment * highSpeedCorneringMargin);
 
             UpdateMistake(consistency, aggression, profile);
             UpdateOvertakeState(progress, severityHere, apexDistanceAhead, apexSeverity, turnSign, aggression, overtaking, defending, profile, isExpert, driver);
@@ -3144,6 +3164,35 @@ namespace LocalFormulaRacing
             // last remaining straight-line swerve. Layered on top of, not fed into,
             // the slew state.
             command.steer = Mathf.Clamp(command.steer - yawDampSteer, -1f, 1f);
+
+            // Understeer speed-shed reflex ([SwerveTape] round 3 - THE current
+            // wall-hit signature): tapes show cars holding FIN=+-1.00 for
+            // literal seconds at 300-390kph in sev 0.1-0.35 sweepers, yaw far
+            // below demand, drifting metres wide - and never braking, because
+            // the corner model believed the speed was legal. A real driver at
+            // full lock who is STILL running wide lifts and brakes until the
+            // car answers the wheel again; that reflex now exists. Gated well
+            // above hairpin speeds (full lock at 60-120kph is normal rotation,
+            // not understeer) and on a sustained 0.45s of saturation so a
+            // momentary correction spike never triggers it. Braking directly
+            // helps twice: it sheds the speed AND the yaw envelope rises as
+            // speed falls, so steering authority returns and the timer clears
+            // itself.
+            if (Mathf.Abs(command.steer) > 0.96f && speedKph > 150f)
+            {
+                steerSaturationTimer += Time.deltaTime;
+            }
+            else if (Mathf.Abs(command.steer) < 0.85f || speedKph < 130f)
+            {
+                steerSaturationTimer = 0f;
+            }
+
+            if (steerSaturationTimer > 0.45f)
+            {
+                float shed = Mathf.Clamp01((steerSaturationTimer - 0.45f) / 0.6f);
+                command.brake = Mathf.Max(command.brake, Mathf.Lerp(0.3f, 0.65f, shed));
+                command.throttle = Mathf.Min(command.throttle, 0.1f);
+            }
 
             // [WallDiag] black-box capture (see DescribeLateralState).
             bbFinalSteer = command.steer;

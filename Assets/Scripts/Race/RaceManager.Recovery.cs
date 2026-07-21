@@ -46,7 +46,13 @@ namespace LocalFormulaRacing
         // instantly ending the race. 240+ perpendicular remains an
         // unsurvivable head-on, and the damage model still retires a
         // repeatedly-crashing car via Collision damage.
-        const float HardWallRetireImpactKph = 240f;
+        // Raised again 240 -> 280 (second "way too easy to DNF" report - 8 of
+        // 22 OUT): the understeer speed-shed reflex and the high-speed
+        // cornering margin attack the crash mechanism itself, and instant
+        // retirement is now reserved for a genuinely flat-out perpendicular
+        // wall strike; everything below bounces off damaged and pays through
+        // the damage model (which still retires repeat crashers).
+        const float HardWallRetireImpactKph = 280f;
         const float HardWallRetireMinRaceSeconds = 25f;
 
         void UpdateResetGhost(RaceParticipant participant)
