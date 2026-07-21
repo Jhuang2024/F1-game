@@ -931,25 +931,34 @@ namespace LocalFormulaRacing
 
             if (settings.autoBrakeAssist && Track != null)
             {
-                float severity = EstimateUpcomingCorner(progress.distance);
-                float brakeSeverity = Mathf.Clamp01((severity - 0.18f) / 0.82f);
-                // THE 345-kph mystery, solved (per the [TopSpeed] log - target
-                // 380, car stuck at ~350): this curve used a FLAT 335 base, so
-                // even on a dead straight with zero corner severity the assist
-                // considered anything above 335 kph "too fast", injected brake
-                // ((v-335)/115) and cut throttle to 0.55 - pinning every car at
-                // ~345-355 regardless of its stat. It was tuned when all cars
-                // topped out ~350 and never visibly bound; the honest car-stat
-                // targets made it the binding cap, invisible in the target
-                // decomposition because it corrupts the pedal INPUTS. The
-                // straight-line end of the curve now sits safely above this
-                // car's own top-speed target, so the assist only ever slows the
-                // car for genuine corners.
-                float desiredSpeed = Mathf.Lerp(TargetTopSpeedKph + 40f, 108f, brakeSeverity * brakeSeverity);
-                if (speedKph > desiredSpeed)
+                // Envelope rebase (corner-speed realism pass): the old
+                // severity-shaped desiredSpeed curve was calibrated for the
+                // ~13-16g rotation authority, under which almost nothing
+                // needed brakes - with the envelope now at a real ~4-5.5g an
+                // assisted player following that curve would arrive at real
+                // corners 100+ kph too hot. The assist is now kinematic and
+                // reads the same physics the car actually has: scan the
+                // braking-range road ahead for the tightest radius, ask
+                // MaxCorneringSpeedKph what that radius supports, and brake so
+                // the car arrives AT that speed (26 m/s^2 trusted decel -
+                // slightly conservative next to the AI's ceiling, as an assist
+                // should be). On a straight every sample returns well above
+                // top speed and the assist never touches the pedals.
+                const float AssistDecelMs2 = 26f;
+                float assistTargetKph = float.MaxValue;
+                float scanEnd = Mathf.Max(80f, speedKph * 1.1f);
+                for (float ahead = 15f; ahead <= scanEnd; ahead += 15f)
                 {
-                    assisted.brake = Mathf.Max(assisted.brake, Mathf.Clamp01((speedKph - desiredSpeed) / 115f));
-                    assisted.throttle = Mathf.Min(assisted.throttle, Mathf.Lerp(0.55f, 0.18f, brakeSeverity));
+                    float cornerMs = MaxCorneringSpeedKph(Track.CurvatureRadiusAt(progress.distance + ahead)) * 0.97f / 3.6f;
+                    float allowedNowKph = Mathf.Sqrt(cornerMs * cornerMs + 2f * AssistDecelMs2 * ahead) * 3.6f;
+                    assistTargetKph = Mathf.Min(assistTargetKph, allowedNowKph);
+                }
+
+                if (speedKph > assistTargetKph)
+                {
+                    float overshoot = speedKph - assistTargetKph;
+                    assisted.brake = Mathf.Max(assisted.brake, Mathf.Clamp01(overshoot / 40f));
+                    assisted.throttle = Mathf.Min(assisted.throttle, overshoot > 12f ? 0.1f : 0.5f);
                 }
             }
 
@@ -1701,55 +1710,8 @@ namespace LocalFormulaRacing
 
         void ApplySteering(VehicleCommand activeCommand, float speedKph, float dt)
         {
-            float speedFactor = Mathf.Lerp(0.34f, 1f, Mathf.Clamp01(speedKph / 62f));
-            // Barrier-avoidance fix round 4: floor raised again (was 0.66) - the Slow
-            // corner-speed bucket now targets ~300-310kph, a genuinely tight corner's
-            // actual radius carried at essentially top-speed pace, and cars were
-            // running wide on corner exit because turning authority was still being
-            // cut by a third at that speed. More authority retained at genuine high
-            // speed again.
-            float highSpeedLimit = Mathf.Lerp(1f, 0.8f, Mathf.InverseLerp(90f, 320f, speedKph));
-            float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);
-            float turnRate = Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit * tyreGrip * Damage.HandlingMultiplier * (IsPlayerControlled || aiPitApproachNeutralize ? 1f : aiGripAssist * AiCorneringRotationBoost);
-            // Tight-corner authority: a genuine hairpin's real turn radius needs more
-            // rotational authority than cruising-speed turnRate provides even at
-            // speedFactor's max (1.0 is reached by ~62kph already, well above a real
-            // hairpin's actual radius requirement) - without this, cars physically
-            // could not tighten their arc enough and ran wide through the tightest
-            // corners no matter how low a speed the driver braked to.
-            // Medium/fast-corner extension: this used to fade out completely by
-            // 120kph, so a car carrying real medium/fast-corner speed (which the AI
-            // now legitimately targets, up to ~100% of straight-line pace) had no
-            // extra turning margin at all beyond the base curve - any small line
-            // error clipped the barrier instead of being correctable. Extended into
-            // a second, gentler taper through the medium-speed range instead of
-            // snapping straight to 1x, so cars can actually hold a tighter line at
-            // the higher speeds they're now carrying without needing to slow down
-            // further.
-            // Barrier-avoidance fix round 4: pushed again (was 1.5->1.2 low segment,
-            // 1.2->1.08 high segment) - the ~300-310kph Slow-bucket tight-corner
-            // target now sits well past the old high-speed segment's own range, so
-            // that segment needed real headroom above 1.08x, not just the low-speed
-            // segment.
-            // Rotation-authority raise (per report: "in tight corners the AI
-            // literally can't turn enough"): the yaw-rate math bears it out -
-            // at the old authority a car at 200 kph could hold a ~32m radius
-            // and at 300 kph only ~56m, while the VeryTight corner class spans
-            // ~25-44m. Both segments raised (1.65->1.85 low, 1.35->1.5 /
-            // 1.22->1.3 high, continuous at 120 kph): 180 kph now holds ~28m
-            // and ~280 kph holds ~54m, which the AI corner-speed floors in
-            // AiVehicleController are matched against so targeted speed and
-            // achievable rotation finally agree. Shared by player and AI.
-            // Round 2 (per request - cornering still far too slow): authority
-            // raised drastically again (1.85->2.4 low, 1.5->1.9 / 1.3->1.6
-            // high). The yaw math at this level: 200 kph rotates a ~24m radius,
-            // 250 kph ~33m, 300 kph ~43m - so genuinely tight street corners
-            // are drivable at 200+ and the AI corner floors are re-matched to
-            // those numbers. Shared by player and AI alike.
-            float tightCorneringBoost = speedKph <= 120f
-                ? Mathf.Lerp(2.4f, 1.9f, Mathf.Clamp01((speedKph - 35f) / 85f))
-                : Mathf.Lerp(1.9f, 1.6f, Mathf.Clamp01((speedKph - 120f) / 160f));
-            turnRate *= tightCorneringBoost;
+            float turnRate = MaxYawRateDegPerSec(speedKph)
+                * (IsPlayerControlled || aiPitApproachNeutralize ? 1f : aiGripAssist * AiCorneringRotationBoost);
             turnRate *= Mathf.Lerp(1.04f, 0.72f, UndersteerAmount);
             float steerAmount = activeCommand.steer * turnRate * dt;
             if (Mathf.Abs(steerAmount) > 0.0001f)
@@ -1758,19 +1720,61 @@ namespace LocalFormulaRacing
             }
         }
 
-        float EstimateUpcomingCorner(float distance)
+        // The car's maximum yaw rate at a given speed - the single authority
+        // both ApplySteering (above) and the AI's corner-speed targets consume,
+        // so targeted speed and achievable rotation can never diverge again
+        // (every historical wall-crash/crawl regression in this area came from
+        // the AI floor table and this envelope being hand-matched separately).
+        //
+        // Corner-speed realism pass (per report - "the tracks are way too
+        // easy... a lot of turns where i can go flat out, i rarely have to
+        // switch to anything but 8th gear"): the previous envelope granted the
+        // lateral equivalent of ~13-16g (300 kph could rotate a 43m radius),
+        // so nearly every corner on the calendar was flat-out and gears 2-6
+        // never happened outside a hairpin. Both taper segments cut hard so
+        // the implied lateral grip lands in a real F1-like ~4-5.5g band:
+        //   ~70 kph holds ~10m (hairpins, 2nd gear)
+        //   ~130 kph holds ~30m (very tight, 3rd)
+        //   ~200 kph holds ~57m (slow, 5th)
+        //   ~250 kph holds ~87m (medium, 6th)
+        //   ~300 kph holds ~140m (fast, 7th)
+        //   ~340 kph holds ~170m+ (only genuine kinks stay flat)
+        // The AI's apex targets are re-derived from this same function (see
+        // MaxCorneringSpeedKph below), so the whole field brakes for what the
+        // physics can actually rotate.
+        public float MaxYawRateDegPerSec(float speedKph)
         {
-            Vector3 pointA;
-            Vector3 forwardA;
-            Vector3 rightA;
-            Vector3 pointB;
-            Vector3 forwardB;
-            Vector3 rightB;
-            // Windows sized for normalized 4-5.6 km circuits: braking assist needs to
-            // see the corner from further out now that straights are full length.
-            Track.SampleAtDistance(distance + 26f, out pointA, out forwardA, out rightA);
-            Track.SampleAtDistance(distance + 98f, out pointB, out forwardB, out rightB);
-            return Mathf.Clamp01(Vector3.Angle(forwardA, forwardB) / 74f);
+            float speedFactor = Mathf.Lerp(0.34f, 1f, Mathf.Clamp01(speedKph / 62f));
+            float highSpeedLimit = Mathf.Lerp(1f, 0.8f, Mathf.InverseLerp(90f, 320f, speedKph));
+            float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);
+            // The 1.6 anchor below 35 kph is parking-lot/recovery authority
+            // (spin reorientation, grid fan-out, pit-box maneuvering) where
+            // corner realism is meaningless; the racing range starts fading
+            // from 35 kph and the hairpin band (~70 kph) still holds ~10m.
+            float tightCorneringBoost = speedKph <= 120f
+                ? Mathf.Lerp(1.6f, 0.85f, Mathf.Clamp01((speedKph - 35f) / 85f))
+                : Mathf.Lerp(0.85f, 0.45f, Mathf.Clamp01((speedKph - 120f) / 200f));
+            return Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit
+                * tyreGrip * Damage.HandlingMultiplier * tightCorneringBoost;
+        }
+
+        // Fastest speed this car can carry through a corner of the given
+        // radius under the yaw envelope above: solves v = omega(v) * r by
+        // damped fixed-point iteration (omega falls as v rises, so the
+        // iteration converges in a handful of steps). Weather/tyre/damage all
+        // flow in through MaxYawRateDegPerSec's own reads.
+        public float MaxCorneringSpeedKph(float radiusMeters)
+        {
+            float radius = Mathf.Max(6f, radiusMeters);
+            float speedKph = 150f;
+            for (int i = 0; i < 6; i++)
+            {
+                float omegaRad = MaxYawRateDegPerSec(speedKph) * Mathf.Deg2Rad;
+                float supported = Mathf.Clamp(omegaRad * radius * 3.6f, 20f, 420f);
+                speedKph = (speedKph + supported) * 0.5f;
+            }
+
+            return speedKph;
         }
 
         void StabilizeChassis(float dt)

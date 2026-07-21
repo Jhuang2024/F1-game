@@ -567,279 +567,67 @@ namespace LocalFormulaRacing
             return hairpinTurnAngleDegrees >= 168f ? CornerType.Hairpin : CornerType.VeryTight;
         }
 
-        // Per-tier apex speed curve instead of one flat Pow(severity, 1.4) eased
-        // toward the same hairpin floor for every corner. High-speed and medium
-        // corners get their own, much higher, floor so a confident driver carries
-        // speed close to trueApexSpeed's upper end through a flowing bend instead
-        // of being dragged toward hairpin pace the moment severity crosses one
-        // broad threshold. apexConfidence (already difficulty+driver derived)
-        // blends the floor upward for a sharper driver on the same corner.
-        //
-        // Corner-speed fix: the low-confidence base floors (0.84/0.58/1.15) are
-        // raised across the board (0.88/0.64/1.25) - AI was reading as too slow
-        // even on Easy/Medium, and "the issue is corner speed" was a general
-        // complaint, not only a difficulty-scaling one. skillTier (0-1, see
-        // CorneringSkillTier) replaces the flat isExpert bool so Hard now gets a
-        // genuine, partial share of the high-confidence ceiling/ease-power
-        // instead of none at all, while Easy/Medium are untouched at skillTier=0.
-        float EstimateApexSpeedForCornerType(CornerType type, float apexSeverity, float straightTargetSpeed, float hairpinSpeedKph, float gripMultiplier, float apexConfidence, float skillTier, float compoundSpeedOffsetKph)
+        // Envelope-derived apex speeds (corner-speed realism pass, per report -
+        // "the tracks are way too easy... a lot of turns where i can go flat
+        // out, i rarely have to switch to anything but 8th gear"). The old
+        // version was a hand-tuned kph floor table per corner class, raised
+        // and lowered across 20+ rounds while ApplySteering's rotation
+        // authority was retuned separately - every wall-crash and every
+        // crawling regression in this area came from those two hand-matched
+        // numbers drifting apart. The floor table is gone: the caller now
+        // measures the apex's true geometric radius (TrackRuntime.
+        // CurvatureRadiusAt) and asks the shared physics envelope
+        // (VehicleController.MaxCorneringSpeedKph) for the fastest speed the
+        // car can actually rotate through it - weather, tyre grip, damage and
+        // chassis stats all flow in through that one function. What remains
+        // here is pure DRIVER JUDGMENT: what fraction of the physical maximum
+        // this tier/driver commits to, slightly more conservative in tighter
+        // classes where the penalty for misjudging is a wall rather than a
+        // wide exit. The severity-eased blend toward straightTargetSpeed is
+        // gone too - the envelope already returns ~straight-line speed for
+        // gentle radii, so blending was redundant on kinks and dangerously
+        // optimistic on real corners. The AI-only rotation margin
+        // (AiCorneringRotationBoost, 1.1x) plus the understeer feedback in
+        // ApplySteering cover line imperfection on top of the <1.0 fractions.
+        float EstimateApexSpeedForCornerType(CornerType type, float straightTargetSpeed, float hairpinSpeedKph, float apexConfidence, float skillTier, float compoundSpeedOffsetKph, float corneringEnvelopeKph)
         {
-            float floorSpeed;
-            float easePower;
+            float envelopeFraction;
             switch (type)
             {
                 case CornerType.HighSpeed:
-                    // Cornering buff round 8: round 7 pushed this ceiling PAST 100% of
-                    // straightTargetSpeed (up to 1.22x) and then apexTargetSpeed below
-                    // multiplied the result by profile.cornerSpeedMultiplier (up to
-                    // 1.85x for Expert) on top of that - two independent
-                    // difficulty-scaled multipliers stacking on the same number. The
-                    // AI ended up targeting speeds meaningfully ABOVE its own
-                    // straight-line top speed through a corner with real curvature,
-                    // which is not achievable by any amount of steering authority -
-                    // it ran wide and hit the wall exactly as reported. A corner can
-                    // at best approach straight-line speed, never exceed it, so this
-                    // is now hard-capped at 1.0x and cornerSpeedMultiplier no longer
-                    // applies to any corner type (see apexTargetSpeed below) - skillTier
-                    // alone drives how close to that 1.0x ceiling a sharper difficulty
-                    // gets, with no second multiplier stacked on top.
-                    // Cornering buff round 9: pushed to the practical ceiling - Expert
-                    // (skillTier=1) now reaches essentially the full 1.0x cap with
-                    // barely any confidence-blend discount, and the new smoother
-                    // skillTier staircase (see CorneringSkillTier) means Easy/Medium/
-                    // Hard now step down from that in genuinely smaller increments
-                    // instead of Easy and Medium sharing the same low ceiling.
-                    // Tyre-difference pass: HighSpeed/Medium floors are proportional to
-                    // straightTargetSpeed, which already carries TyreState's flat
-                    // compound penalty (see VehicleController.CalculateTargetTopSpeedKph,
-                    // which straightTargetSpeed is read from) - no separate subtraction
-                    // needed here, or a slower compound would be double-penalized in
-                    // these two bucket types relative to a genuine straight.
-                    // Corner-speed calibration: +25kph on top of the ceiling above,
-                    // still hard-clamped at straightTargetSpeed (Mathf.Min) so the
-                    // "a corner can at best approach straight-line speed, never exceed
-                    // it" invariant from round 8 above is never reopened.
-                    // Round 2: another +20kph on top of that (+45kph total).
-                    // Round 3: another +10kph on top of that (+55kph total).
-                    // Round 4: another +15kph on top of that (+70kph total).
-                    // Round 5: another +20kph on top of that (+90kph total).
-                    // Round 6: another +10kph on top of that (+100kph total). HighSpeed
-                    // and Medium now diverge from each other for the first time here.
-                    // Round 7: another +7.5kph on top of that (+107.5kph total).
-                    // Round 8: another +15kph on top of that (+122.5kph total).
-                    // Round 9: another +15kph on top of that (+137.5kph total).
-                    // Round 10: another +20kph on top of that (+157.5kph total).
-                    // Round 11: another +20kph on top of that (+177.5kph total).
-                    // Round 12: another +10kph on top of that (+187.5kph total).
-                    // Round 13: another +10kph on top of that (+197.5kph total) -
-                    // turning-speed pass across every non-hairpin bucket except
-                    // hairpin, per request. (Restored: an earlier crash-fix lowered
-                    // these floors globally, but the AI only crashed at the Italy
-                    // hairpin, and was fine elsewhere, so the general turning speeds
-                    // are kept and the hairpin is handled specifically instead.)
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.94f, straightTargetSpeed * Mathf.Lerp(0.97f, 1.0f, skillTier), apexConfidence) + 197.5f);
-                    easePower = Mathf.Lerp(6f, 10f, skillTier);
+                    envelopeFraction = Mathf.Lerp(0.87f, Mathf.Lerp(0.93f, 0.99f, skillTier), apexConfidence);
                     break;
                 case CornerType.Medium:
-                    // Cornering buff round 9: pushed to the practical ceiling
-                    // alongside HighSpeed above - a "medium" corner still has real
-                    // curvature so it keeps a hair more margin under 1.0x than
-                    // HighSpeed, but Expert now gets essentially all of it.
-                    // Corner-speed calibration: +25kph, same clamp reasoning as
-                    // HighSpeed above.
-                    // Round 2: another +20kph on top of that (+45kph total).
-                    // Round 3: another +10kph on top of that (+55kph total).
-                    // Round 4: another +15kph on top of that (+70kph total).
-                    // Round 5: another +20kph on top of that (+90kph total).
-                    // Round 6: eased back down 5kph (+85kph total).
-                    // Round 7: another +7.5kph on top of that (+92.5kph total).
-                    // Round 8: another +5kph on top of that (+97.5kph total).
-                    // Round 9: another +15kph on top of that (+112.5kph total).
-                    // Round 10: another +15kph on top of that (+127.5kph total).
-                    // Round 11: another +15kph on top of that (+142.5kph total).
-                    // Round 12: another +20kph on top of that (+162.5kph total).
-                    // Round 13: another +20kph on top of that (+182.5kph total).
-                    // Round 14: another +10kph on top of that (+192.5kph total).
-                    // Round 15: another +10kph on top of that (+202.5kph total) -
-                    // turning-speed pass across every non-hairpin bucket except
-                    // hairpin, per request. (Restored - see HighSpeed note above.)
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Lerp(straightTargetSpeed * 0.72f, straightTargetSpeed * Mathf.Lerp(0.87f, 0.99f, skillTier), apexConfidence) + 202.5f);
-                    easePower = Mathf.Lerp(3.6f, 5.4f, skillTier);
+                    envelopeFraction = Mathf.Lerp(0.85f, Mathf.Lerp(0.92f, 0.985f, skillTier), apexConfidence);
                     break;
                 case CornerType.Slow:
-                    // Tight-corner speed calibration round 3: raised again from
-                    // ~250-300kph to ~300-310kph (apexConfidence still blends toward the
-                    // low end, skillTier still lifts the ceiling within that band) -
-                    // Mathf.Min against straightTargetSpeed keeps the same
-                    // overspeed/wall-crash guard for the rare case a car's own
-                    // straight-line pace is below this (e.g. under a safety car).
-                    // Tyre-difference pass: unlike HighSpeed/Medium above, this floor is
-                    // a fixed absolute kph target rather than a straightTargetSpeed
-                    // fraction, so it does NOT automatically inherit the compound
-                    // penalty from straightTargetSpeed - subtracted explicitly here
-                    // instead (and clamped so it can never go negative).
-                    // Tight-corner speed calibration round 4: raised another flat 50kph
-                    // (300-310kph -> 350-360kph) - Hairpin's own floor below is
-                    // deliberately untouched.
-                    // Round 5: brought back down 25kph (350-360kph -> 325-335kph).
-                    // Round 6: raised another flat 25kph (325-335kph -> 350-360kph).
-                    // Round 7: raised another flat 20kph (350-360kph -> 370-380kph).
-                    // Round 8: raised another flat 10kph (370-380kph -> 380-390kph).
-                    // Round 9: raised another flat 15kph (380-390kph -> 395-405kph).
-                    // Round 10: raised another flat 7.5kph (395-405kph -> 402.5-412.5kph).
-                    // Round 11: raised another flat 10kph (402.5-412.5kph -> 412.5-422.5kph).
-                    // Round 12: raised another flat 10kph (412.5-422.5kph -> 422.5-432.5kph).
-                    // Round 13: raised another flat 15kph (422.5-432.5kph -> 437.5-447.5kph).
-                    // Round 14: raised another flat 15kph (437.5-447.5kph -> 452.5-462.5kph).
-                    // Round 15: raised another flat 20kph (452.5-462.5kph -> 472.5-482.5kph).
-                    // Round 16: raised another flat 20kph (472.5-482.5kph -> 492.5-502.5kph).
-                    // Round 17: raised another flat 10kph (492.5-502.5kph -> 502.5-512.5kph).
-                    // Round 18: raised another flat 10kph (502.5-512.5kph -> 512.5-522.5kph) -
-                    // turning-speed pass across every non-hairpin bucket except
-                    // hairpin, per request. (Restored - see HighSpeed note above.)
-                    //
-                    // Wall-crash fix (round 19): the 18 rounds above had inflated this
-                    // floor to 512-522 kph - beyond any car's top speed - so the
-                    // Mathf.Min collapsed it to straightTargetSpeed and a "slow"
-                    // corner was taken FLAT OUT. With the braking model keyed off
-                    // (speed - apex target), zero demand ever fired and the only
-                    // thing left was the last-metres edge emergency brake: cars
-                    // drove straight into the barriers at every tight non-hairpin
-                    // corner (worst on street circuits). Restored to a real slow-
-                    // corner target; HighSpeed/Medium keep their fast floors.
-                    // Round 20 (turning-speed restore, per request): raised the
-                    // band ~35-50kph (115-150kph -> 150-200kph), staying below
-                    // straightTargetSpeed so braking demand wouldn't collapse to
-                    // zero the way round 18's value did.
-                    //
-                    // Round 21 (full revert, per request): confirmed by play-
-                    // testing that round 19's floor-collapse theory was NOT the
-                    // actual cause of the AI's corner-crashing - lowering this
-                    // floor didn't fix it - so there is no reason to leave
-                    // cornering pace degraded for a diagnosis that didn't hold.
-                    // Restored verbatim to round 18's value. The real crash
-                    // cause is still open; whatever it is, it isn't this floor.
-                    //
-                    // Round 23 - MATCHED TO ROTATION AUTHORITY (the resolution of
-                    // rounds 19-22's back-and-forth): the steering model yields a
-                    // maximum yaw rate, and yaw rate x radius = the fastest speed
-                    // a corner of that radius can physically be driven at. The
-                    // round-18 value (512+ kph, collapsing the Min to straight-
-                    // line speed) demanded a ~56m+ radius from corners this
-                    // bucket classifies at ~45-90m - cars could not rotate
-                    // enough at that speed no matter how they braked (the
-                    // "literally can't turn" report). The round-19/22 lowering
-                    // (150-200) was the opposite error: far below the ~54m
-                    // radius the (now raised) steering authority can hold at
-                    // ~280 kph, so cars crawled. 250-290 is the band the
-                    // boosted ApplySteering authority can genuinely deliver for
-                    // this bucket's radii.
-                    // Round 24: re-matched to the drastically raised rotation
-                    // authority (300 kph now holds ~43m - this bucket's radius
-                    // class floor), per the "way too slow through all corners"
-                    // report.
-                    // Difficulty round 4: ceilings pushed into the envelope
-                    // headroom (the geometry numbers assumed worst-case
-                    // understeer; a smooth AI mid-corner usually has more).
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(310f, Mathf.Lerp(330f, 350f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
-                    easePower = Mathf.Lerp(3.4f, 4.6f, skillTier);
+                    envelopeFraction = Mathf.Lerp(0.83f, Mathf.Lerp(0.91f, 0.98f, skillTier), apexConfidence);
                     break;
                 case CornerType.VeryTight:
-                    // "Very very tight" corners: a distinct tier between Slow's
-                    // ~300-310kph tight corner and Hairpin's ~50-75kph crawl - pinned to
-                    // an explicit ~150kph target (130 low-confidence base, 150-165
-                    // skill-scaled ceiling) rather than a range, since this tier is
-                    // meant to read as one consistent speed rather than a wide band.
-                    // Tyre-difference pass: explicit compound-penalty subtraction, same
-                    // reasoning as the Slow bucket above.
-                    // Very-tight-corner speed calibration round 2: raised another flat
-                    // 50kph (130-165kph -> 180-215kph) - Hairpin's own floor below is
-                    // deliberately untouched.
-                    // Round 3: raised another flat 25kph (180-215kph -> 205-240kph).
-                    // Round 4: raised another flat 20kph (205-240kph -> 225-260kph).
-                    // Round 5: raised another flat 10kph (225-260kph -> 235-270kph).
-                    // Round 6: raised another flat 15kph (235-270kph -> 250-285kph).
-                    // Round 7: raised another flat 7.5kph (250-285kph -> 257.5-292.5kph).
-                    // Round 8: raised another flat 10kph (257.5-292.5kph -> 267.5-302.5kph).
-                    // Round 9: raised another flat 10kph (267.5-302.5kph -> 277.5-312.5kph).
-                    // Round 10: raised another flat 5kph (277.5-312.5kph -> 282.5-317.5kph).
-                    // Round 11: raised another flat 10kph (282.5-317.5kph -> 292.5-327.5kph).
-                    // Round 12: raised another flat 10kph (292.5-327.5kph -> 302.5-337.5kph) -
-                    // turning-speed pass across every non-hairpin bucket except
-                    // hairpin, per request. (Restored - see HighSpeed note above.)
-                    //
-                    // Wall-crash fix (round 13): same failure as the Slow bucket
-                    // above - 302-337 kph is at/above top speed for most cars, so
-                    // the Min collapsed to straightTargetSpeed and the very-tight
-                    // tier carried full straight-line speed into corners the
-                    // hairpin gate (>=140 degrees) didn't catch. Restored to a real
-                    // very-tight target between Slow and the hairpin crawl.
-                    // Round 14 (turning-speed restore, per request): raised
-                    // ~25-30kph (82-110kph -> 110-140kph), same reasoning as the
-                    // Slow bucket's round 20 above.
-                    //
-                    // Round 15 (full revert, per request): same as the Slow
-                    // bucket's round 21 above - play-testing showed the floor-
-                    // collapse theory wasn't the actual corner-crash cause, so
-                    // restored verbatim to round 12's value instead of leaving
-                    // pace degraded for a fix that didn't work.
-                    //
-                    // Round 17 - MATCHED TO ROTATION AUTHORITY (see the Slow
-                    // bucket's round 23 note for the full reasoning): VeryTight
-                    // corners span ~25-44m radius; the raised steering authority
-                    // holds ~28m at 180 kph, and nothing holds these radii at
-                    // the round-12 302-337 kph values (which the Min collapsed
-                    // to full straight-line speed anyway - the cars sailed wide
-                    // with the wheel at full lock). 165-205 is the geometric
-                    // maximum for this bucket, comfortably above the too-slow
-                    // 110-140 attempt that got round 14 reverted.
-                    // Round 18: re-matched to the drastically raised rotation
-                    // authority (200 kph holds ~24m, 250 ~33m - the whole
-                    // 25-44m VeryTight radius class), per the "way too slow
-                    // through all corners" report.
-                    // Difficulty round 4: same headroom push as the Slow bucket.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, Mathf.Lerp(225f, Mathf.Lerp(255f, 285f, skillTier), apexConfidence) - compoundSpeedOffsetKph));
-                    easePower = Mathf.Lerp(2.8f, 3.8f, skillTier);
+                    envelopeFraction = Mathf.Lerp(0.81f, Mathf.Lerp(0.90f, 0.975f, skillTier), apexConfidence);
                     break;
                 default:
-                    // Hairpin floor: an explicit ~50-75kph target (a real hairpin
-                    // crawl) - this bucket's severity band is now narrowed (see
-                    // ClassifyUpcomingCorner) so it's only reached by corners that are
-                    // actually close to a 180-degree turn, not merely tight ones.
-                    // Mathf.Min against straightTargetSpeed keeps the same overspeed
-                    // guard as the tiers above.
-                    // Tight-corner fix round 2: easePower dropped from 1.2 to 0.45 - at
-                    // 1.2, only a corner at the literal severity ceiling (~1.0) actually
-                    // reached floorSpeed; anything else in the Hairpin bucket (severity
-                    // as low as ~0.75) still blended in enough straightTargetSpeed to
-                    // land well above the floor regardless of how low the floor itself
-                    // was set. A much smaller exponent pulls the whole Hairpin severity
-                    // band toward floorSpeed instead of only its very top.
-                    // Tyre-difference pass: explicit compound-penalty subtraction, same
-                    // reasoning as the Slow/VeryTight buckets above - in heavy rain this
-                    // can take a slick's hairpin floor down close to walking pace, which
-                    // is exactly the "incredibly slow" the tyre-difference request asked
-                    // for.
-                    floorSpeed = Mathf.Min(straightTargetSpeed, Mathf.Max(15f, hairpinSpeedKph - compoundSpeedOffsetKph));
-                    easePower = 0.45f;
+                    // Hairpin: same judgment-fraction idea, additionally capped
+                    // by the car-stat hairpin band (62-92 kph) so a hairpin
+                    // always reads as the deliberate 2nd-gear crawl it is even
+                    // if the smoothed radius sample runs a little generous.
+                    envelopeFraction = Mathf.Lerp(0.80f, Mathf.Lerp(0.90f, 0.97f, skillTier), apexConfidence);
                     break;
             }
 
-            float eased = Mathf.Pow(Mathf.Clamp01(apexSeverity), easePower);
-            float apexSpeed = Mathf.Lerp(straightTargetSpeed, floorSpeed, eased);
-            // Medium-corner buff (per request): +20% on the medium-speed-corner
-            // target, applied to the final blended speed rather than the floor
-            // above - that floor's +202.5kph offset already saturates the
-            // Mathf.Min(straightTargetSpeed, ...) clamp for most cars, so a
-            // floor-side buff would silently no-op. Still hard-clamped at
-            // straightTargetSpeed so the round-8 "a corner can at best approach
-            // straight-line speed, never exceed it" invariant stays closed.
-            if (type == CornerType.Medium)
+            float apexSpeed = corneringEnvelopeKph * envelopeFraction;
+            if (type == CornerType.Hairpin)
             {
-                apexSpeed = Mathf.Min(straightTargetSpeed, apexSpeed * 1.2f);
+                apexSpeed = Mathf.Min(apexSpeed, hairpinSpeedKph);
             }
 
-            return apexSpeed * gripMultiplier;
+            // Compound speed offset stays an explicit absolute subtraction so
+            // compounds still differentiate corner pace (the envelope's full
+            // grip read already carries some of this, so the double count is a
+            // few kph of extra caution on slower rubber - the safe direction);
+            // the straight-line Min keeps the "a corner can at best approach
+            // straight-line speed" invariant closed.
+            return Mathf.Min(straightTargetSpeed, Mathf.Max(15f, apexSpeed - compoundSpeedOffsetKph));
         }
 
         public void Initialize(RaceManager manager, RaceParticipant raceParticipant, TrackRuntime raceTrack)
@@ -1284,7 +1072,14 @@ namespace LocalFormulaRacing
             // old 42-83 crawl was far under the car's real capability).
             // Difficulty round 4: hairpin band up again (75-100 -> 85-110,
             // skill mult 1.3 -> 1.35).
-            float hairpinSpeedKph = Mathf.Lerp(85f, 110f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f)) * Mathf.Lerp(1f, 1.35f, skillTier);
+            // Corner-speed realism pass: re-based to the new ~4-5.5g yaw
+            // envelope (was 85-110 x up to 1.35 skill - tuned for the old
+            // arcade authority). A real hairpin (8-15m radius) supports
+            // ~60-80 kph under MaxYawRateDegPerSec, so the band is now 62-80
+            // with a modest skill lift; the envelope-derived floor in
+            // EstimateApexSpeedForCornerType Min()s against this anyway, so
+            // this acts as a cap/character number rather than a physics claim.
+            float hairpinSpeedKph = Mathf.Lerp(62f, 80f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f)) * Mathf.Lerp(1f, 1.15f, skillTier);
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
@@ -1292,7 +1087,16 @@ namespace LocalFormulaRacing
             float hairpinTurnAngle = MeasureHairpinTurnAngle(progress.distance + apexDistanceAhead);
             CornerType upcomingCornerType = ClassifyUpcomingCorner(apexSeverity, skillTier, hairpinTurnAngle);
             float compoundSpeedOffsetKph = vehicle.Tyres.CompoundSpeedOffsetKph(track.weather);
-            float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, straightTargetSpeed, hairpinSpeedKph, gripMultiplier, apexConfidence, skillTier, compoundSpeedOffsetKph);
+            // Physics-derived cornering ceiling: the fastest speed the shared
+            // yaw envelope can actually rotate through the apex's measured
+            // geometric radius. Every class floor in
+            // EstimateApexSpeedForCornerType is now a skill/confidence
+            // fraction of THIS number instead of a hand-tuned kph table, so
+            // the AI's target and the car's achievable rotation come from one
+            // function and cannot drift apart again.
+            float apexRadius = track.CurvatureRadiusAt(progress.distance + apexDistanceAhead);
+            float corneringEnvelopeKph = vehicle.MaxCorneringSpeedKph(apexRadius);
+            float trueApexSpeed = EstimateApexSpeedForCornerType(upcomingCornerType, straightTargetSpeed, hairpinSpeedKph, apexConfidence, skillTier, compoundSpeedOffsetKph, corneringEnvelopeKph);
 
             // Cornering buff round 8: profile.cornerSpeedMultiplier is no longer
             // applied here at all, for any corner type. It used to stack on top of
@@ -1446,7 +1250,19 @@ namespace LocalFormulaRacing
             // and widened further (1.39-1.81 -> 1.42-1.98) so the corner-entry
             // judgment ceiling separates by driver skill as hard as the
             // commitment band does.
-            float feasibilityCap = Mathf.Lerp(1.42f, 1.98f, paceNorm);
+            // Envelope rebase: 41 rounds widened this entry-speed judgment
+            // window to 1.42-1.98x - which was survivable only because the old
+            // apex targets were themselves saturated near straight-line speed
+            // (the extra never physically materialized). With apex targets now
+            // derived from the real ~4-5.5g yaw envelope, braking toward
+            // 1.4-2x the geometric apex means arriving 40-100% too hot at a
+            // corner the steering genuinely cannot rotate through - the exact
+            // recipe for the historical hairpin wall-crashes. Entry overshoot
+            // is now a trail-braking-sized judgment call: an elite driver
+            // carries ~12% over the apex number deep into the zone and washes
+            // the rest off inside the corner, a backmarker ~4%. Driver-skill
+            // ordering preserved, physics honored.
+            float feasibilityCap = Mathf.Lerp(1.04f, 1.12f, paceNorm);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
                 apexTargetSpeed * feasibilityCap);
@@ -1516,7 +1332,7 @@ namespace LocalFormulaRacing
             {
                 float paceCap = raceControlCap;
 
-                float trueApexSpeedUnderCap = EstimateApexSpeedForCornerType(upcomingCornerType, apexSeverity, paceCap, hairpinSpeedKph, gripMultiplier, apexConfidence, skillTier, compoundSpeedOffsetKph);
+                float trueApexSpeedUnderCap = EstimateApexSpeedForCornerType(upcomingCornerType, paceCap, hairpinSpeedKph, apexConfidence, skillTier, compoundSpeedOffsetKph, corneringEnvelopeKph);
                 float apexTargetSpeedUnderCap = Mathf.Lerp(trueApexSpeedUnderCap * 0.9f, trueApexSpeedUnderCap, apexConfidence);
 
                 straightTargetSpeed = paceCap;
@@ -1555,12 +1371,22 @@ namespace LocalFormulaRacing
             // real margin, an elite driver runs the geometry's edge. The top
             // of the band (30) is unchanged, so nobody exceeds what the
             // radius physically supports; difficulty-independent as always.
-            float tightCornerLateralBudget = Mathf.Lerp(24f, 30f, paceNorm);
+            // Envelope rebase: the flat 24-30 m/s^2 lateral budget predates the
+            // shared yaw envelope and was BOTH the wrong shape and the wrong
+            // size once that landed - it capped the AI to ~2.4-3g in exactly
+            // the tight corners where the player (on the same physics) can
+            // hold ~4-5g, quietly handing the player a free gap at every tight
+            // corner. The safety-net role stays (it reacts to LOCAL heading
+            // and so catches geometry the apex classifier misreads), but the
+            // number now comes from the same MaxCorneringSpeedKph the apex
+            // targets use, with the same judgment-fraction idea: a backmarker
+            // leaves margin, an elite driver runs the geometry's edge.
+            float tightCornerJudgment = Mathf.Lerp(0.88f, 0.99f, paceNorm);
             float apexLocalHeading = LocalHeadingChange(progress.distance + apexDistanceAhead);
             if (apexLocalHeading > 30f)
             {
-                float apexRadius = 32f / (apexLocalHeading * Mathf.Deg2Rad);
-                float radiusCapKph = Mathf.Sqrt(tightCornerLateralBudget * apexRadius) * 3.6f;
+                float tightApexRadius = 32f / (apexLocalHeading * Mathf.Deg2Rad);
+                float radiusCapKph = vehicle.MaxCorneringSpeedKph(tightApexRadius) * tightCornerJudgment;
                 brakingApexSpeed = Mathf.Min(brakingApexSpeed, radiusCapKph);
             }
 
@@ -1568,7 +1394,7 @@ namespace LocalFormulaRacing
             if (hereLocalHeading > 30f)
             {
                 float hereRadius = 32f / (hereLocalHeading * Mathf.Deg2Rad);
-                float hereCapKph = Mathf.Sqrt(tightCornerLateralBudget * hereRadius) * 3.6f;
+                float hereCapKph = vehicle.MaxCorneringSpeedKph(hereRadius) * tightCornerJudgment;
                 cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, hereCapKph);
             }
 

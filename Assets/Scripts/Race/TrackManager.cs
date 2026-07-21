@@ -1537,6 +1537,31 @@ namespace LocalFormulaRacing
             return halfWidth;
         }
 
+        // Geometric turn radius of the centreline at this distance, in metres
+        // (9999 on a straight). Reads the same box-smoothed curvatureRadius the
+        // width-vs-radius cap above uses, but takes the MINIMUM of a small
+        // window around the sample: the 6 smoothing passes smear a tight
+        // apex's true minimum upward, and a cornering-speed consumer must see
+        // the tightest radius it actually has to rotate through, not the
+        // smoothed average of apex and exit.
+        public float CurvatureRadiusAt(float distance)
+        {
+            if (curvatureRadius == null || curvatureRadius.Length == 0 || curvatureRadius.Length != centerLine.Count || length <= 0f)
+            {
+                return 9999f;
+            }
+
+            int count = curvatureRadius.Length;
+            int center = Mathf.Clamp(Mathf.FloorToInt(Mathf.Repeat(distance / length, 1f) * count), 0, count - 1);
+            float tightest = curvatureRadius[center];
+            for (int offset = -2; offset <= 2; offset++)
+            {
+                tightest = Mathf.Min(tightest, curvatureRadius[(center + offset + count) % count]);
+            }
+
+            return tightest;
+        }
+
         // Procedural per-section width variation for the hand-authored layouts,
         // which otherwise run at a single flat roadHalfWidth from start to finish
         // (per request - "why are all the track widths the same? some parts should
@@ -4855,7 +4880,7 @@ namespace LocalFormulaRacing
             // blocks, so the terrain humps are countryside-only.
             if (!streetTrack)
             {
-                int hillClusters = Mathf.Max(3, Mathf.RoundToInt(6f * Mathf.Clamp(sceneryDensity, 0.25f, 2f)));
+                int hillClusters = Mathf.Max(5, Mathf.RoundToInt(9f * Mathf.Clamp(sceneryDensity, 0.25f, 2f)));
                 for (int i = 0; i < hillClusters; i++)
                 {
                     Vector3 hillPos = new Vector3(center.x + Random.Range(-size.x, size.x) * 0.48f, groundTopY, center.z + Random.Range(-size.z, size.z) * 0.48f);
@@ -4877,8 +4902,10 @@ namespace LocalFormulaRacing
             // De-blob pass (per report - "nothing blob or dome shaped on any
             // track"): the cluster of individually-smooth domes is now one
             // irregular multi-lobe formation in the textured earthy tone.
-            float widthScale = 120f + (seed * 7) % 80;
-            float heightScale = 26f + (seed * 3) % 20;
+            // Terrain-scale pass (per report - "the hills... are way too
+            // small"): footprint and height both roughly doubled.
+            float widthScale = 220f + (seed * 7) % 140;
+            float heightScale = 60f + (seed * 3) % 40;
             Vector3 safePosition;
             if (!TryGetClearScenerySpot(center, widthScale * 0.6f, 12f, out safePosition))
             {
@@ -9721,10 +9748,19 @@ namespace LocalFormulaRacing
                 {
                     CreateDune(basePosition, i);
                     if (i % 5 == 0) CreateDune(basePosition + right * side * 38f, i + 3);
-                    // Sparse scrub/rock instead of a dense forest tree cluster - desert
-                    // circuits used to borrow the same canopy CreateTreeCluster gives
-                    // every other archetype, which fought the sun-baked dune/runoff read.
-                    if (i % 9 == 0) CreateDesertScrubCluster(basePosition - right * side * 22f, i);
+                    // Desert build-out (per report - "the desert track
+                    // backgrounds are very bland and theres nothing rlly to
+                    // look at"): the old dressing was two dune rows and a
+                    // scrub cluster every ninth sample - a near-empty verge.
+                    // The lap now layers a third dune row, much more frequent
+                    // scrub, real rock outcrops, and palm groups (an irrigated
+                    // Bahrain/Abu Dhabi-style oasis strip, not a forest), all
+                    // clearance-checked like every other archetype's scatter.
+                    if (i % 3 == 1) CreateDune(basePosition + right * side * (70f + (i % 4) * 12f), i + 7);
+                    if (i % 4 == 0) CreateDesertScrubCluster(basePosition - right * side * 22f, i);
+                    if (i % 4 == 2) CreateDesertScrubCluster(basePosition + right * side * 52f, i + 1);
+                    if (i % 6 == 3) CreateRockCluster(basePosition + right * side * 30f, i);
+                    if (i % 7 == 5) CreatePalmCluster(groundPoint + right * side * (Runtime.roadHalfWidth + 46f), i);
                 }
                 else
                 {
@@ -9762,7 +9798,11 @@ namespace LocalFormulaRacing
             // rows spawn at half rate - a real treeline thins with distance,
             // and it keeps the object count from doubling again.
             float density = Mathf.Clamp(sceneryDensity, 0.25f, 2f);
-            float spacing = Mathf.Lerp(34f, 15f, Mathf.InverseLerp(0.25f, 2f, density));
+            // Density pass (per report - "surrounding areas are vastly
+            // unpopulated"): belt spacing tightened ~25% across the density
+            // range, the cheapest meaningful win since belt trees are already
+            // the ~4-primitive economy build.
+            float spacing = Mathf.Lerp(26f, 12f, Mathf.InverseLerp(0.25f, 2f, density));
             int seed = 0;
             for (float d = 0f; d < Runtime.length; d += spacing)
             {
@@ -10060,7 +10100,7 @@ namespace LocalFormulaRacing
             // "every street circuit should have around 100 skyscrapers").
             if (streetTrack && !monacoTrack)
             {
-                BuildHighRiseSkyline(density, 100);
+                BuildHighRiseSkyline(density, 130);
             }
 
             if (parklandTrack)
@@ -10147,7 +10187,7 @@ namespace LocalFormulaRacing
 
             float ringRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) * 1.15f + 140f;
             Vector3 ringCenter = new Vector3(bounds.center.x, groundTopY, bounds.center.z);
-            int segments = Mathf.Max(6, Mathf.RoundToInt(10f * density));
+            int segments = Mathf.Max(8, Mathf.RoundToInt(14f * density));
             bool silhouetteBuildings = cityStreet || nightNeon || monacoTrack;
             for (int i = 0; i < segments; i++)
             {
@@ -10163,12 +10203,14 @@ namespace LocalFormulaRacing
 
                 if (silhouetteBuildings)
                 {
-                    float height = 16f + (i % 4) * 7f;
+                    // Terrain-scale pass: parallax skyline blocks doubled -
+                    // 16-37m at this radius read as sheds, not a city.
+                    float height = 36f + (i % 4) * 16f;
                     GameObject block = GameObject.CreatePrimitive(PrimitiveType.Cube);
                     block.name = "Distant parallax skyline block";
                     block.transform.SetParent(transform);
                     block.transform.position = new Vector3(safePosition.x, groundTopY + height * 0.5f, safePosition.z);
-                    block.transform.localScale = new Vector3(14f + (i % 3) * 4f, height, 12f);
+                    block.transform.localScale = new Vector3(20f + (i % 3) * 6f, height, 16f);
                     block.GetComponent<Renderer>().sharedMaterial = nightNeon ? glassMaterial : concreteMaterial;
                     MakeVisualOnly(block);
                 }
@@ -10177,8 +10219,10 @@ namespace LocalFormulaRacing
                     // De-blob pass (per report): irregular multi-lobe treeline
                     // formation, buried and terrain-anchored, in the hazy
                     // distant-forest tone (sand tone on deserts).
-                    float widthScale = 60f + (i % 4) * 20f;
-                    float heightScale = 14f + (i % 3) * 6f;
+                    // Terrain-scale pass: mid-ring hills more than doubled so
+                    // the middle depth plane actually registers as terrain.
+                    float widthScale = 120f + (i % 4) * 40f;
+                    float heightScale = 34f + (i % 3) * 14f;
                     CreateRidgeFormation(safePosition, widthScale, heightScale, widthScale * 0.55f,
                         desertTrack ? grassMaterial : distantForestMaterial, i);
                 }
@@ -10241,14 +10285,20 @@ namespace LocalFormulaRacing
 
             float ringRadius = Mathf.Max(bounds.extents.x, bounds.extents.z) * 1.55f + 220f;
             Vector3 ringCenter = new Vector3(bounds.center.x, groundTopY, bounds.center.z);
-            int segments = Mathf.Max(8, Mathf.RoundToInt(16f * density));
+            // Terrain-scale pass (per report - "the hills that you make are
+            // way too small"): the ring formations were 34-76m tall at 500m+
+            // out, which perspective flattens into a kerb-height smudge. Now
+            // genuinely mountain-scale (95-200m) and wider to match, with a
+            // denser ring so the horizon is a continuous range instead of
+            // isolated humps.
+            int segments = Mathf.Max(10, Mathf.RoundToInt(20f * density));
             for (int i = 0; i < segments; i++)
             {
                 float angle = (i / (float)segments) * Mathf.PI * 2f;
                 Vector3 direction = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
                 Vector3 desired = ringCenter + direction * ringRadius;
-                float widthScale = 140f + (i % 5) * 40f;
-                float heightScale = 34f + (i % 4) * 14f;
+                float widthScale = 260f + (i % 5) * 70f;
+                float heightScale = 95f + (i % 4) * 35f;
                 float objectRadius = widthScale * 0.5f;
                 Vector3 safePosition;
                 if (!TryGetClearScenerySpot(desired, objectRadius, 20f, out safePosition))
@@ -10268,7 +10318,12 @@ namespace LocalFormulaRacing
         {
             // More paddock structures at more offsets around the lap (was a fixed pair)
             // so the desert paddock reads as a real facility rather than two buildings.
-            int paddocks = Mathf.Max(2, Mathf.RoundToInt(4f * density));
+            // Desert build-out (per report - "very bland... nothing rlly to
+            // look at"): counts and formation sizes raised across this whole
+            // pass, plus two new identity layers below (rock mesas and palm
+            // oases) so the horizon reads as an actual desert landscape
+            // instead of a beige void.
+            int paddocks = Mathf.Max(3, Mathf.RoundToInt(6f * density));
             for (int i = 0; i < paddocks; i++)
             {
                 float t = (i + 0.5f) / paddocks;
@@ -10278,7 +10333,7 @@ namespace LocalFormulaRacing
 
             // Distant dune ridges far outside the corridor, standing in for desert
             // horizon terrain beyond the sparse near-road dunes BuildScenery scatters.
-            int distantDunes = Mathf.Max(4, Mathf.RoundToInt(10f * density));
+            int distantDunes = Mathf.Max(8, Mathf.RoundToInt(20f * density));
             for (int i = 0; i < distantDunes; i++)
             {
                 float t = (i + 0.5f) / distantDunes;
@@ -10287,18 +10342,64 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
                 int side = i % 2 == 0 ? -1 : 1;
-                Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 170f + (i % 3) * 40f);
+                Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 170f + (i % 3) * 45f);
                 Vector3 safePosition;
-                if (!TryGetClearScenerySpot(desired, 50f, 10f, out safePosition))
+                if (!TryGetClearScenerySpot(desired, 70f, 10f, out safePosition))
                 {
                     continue;
                 }
 
                 // De-blob pass (per report): irregular multi-lobe dune line
                 // instead of one smooth dome.
-                float widthScale = 90f + (i % 4) * 30f;
-                float heightScale = 16f + (i % 3) * 8f;
+                float widthScale = 150f + (i % 4) * 45f;
+                float heightScale = 34f + (i % 3) * 14f;
                 CreateRidgeFormation(safePosition, widthScale, heightScale, widthScale * 0.7f, grassMaterial, i);
+            }
+
+            // Rocky desert mesas/buttes further out than the dune ridges - the
+            // big sculptural horizon feature deserts were missing entirely.
+            int mesas = Mathf.Max(5, Mathf.RoundToInt(9f * density));
+            for (int i = 0; i < mesas; i++)
+            {
+                float t = (i + 0.2f) / mesas;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? 1 : -1;
+                Vector3 desired = point + right * side * (Runtime.roadHalfWidth + 280f + (i % 3) * 60f);
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(desired, 90f, 12f, out safePosition))
+                {
+                    continue;
+                }
+
+                float widthScale = 130f + (i % 4) * 40f;
+                float heightScale = 55f + (i % 3) * 22f;
+                CreateRidgeFormation(safePosition, widthScale, heightScale, widthScale * 0.5f, rockMaterial, i * 3 + 11);
+            }
+
+            // Palm oases dotted around the mid-ground: a tight palm group with
+            // scrub at its feet, the classic irrigated-circuit desert dressing.
+            int oases = Mathf.Max(4, Mathf.RoundToInt(7f * density));
+            for (int i = 0; i < oases; i++)
+            {
+                float t = (i + 0.7f) / oases;
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(Runtime.length * t, out point, out forward, out right);
+                int side = i % 2 == 0 ? -1 : 1;
+                Vector3 anchor = GroundedTrackPoint(point) + right * side * (Runtime.roadHalfWidth + 60f + (i % 3) * 18f);
+                Vector3 safePosition;
+                if (!TryGetClearScenerySpot(anchor, 12f, 6f, out safePosition))
+                {
+                    continue;
+                }
+
+                CreatePalmCluster(safePosition, i * 5);
+                CreatePalmCluster(safePosition + right * side * 9f + forward * 6f, i * 5 + 2);
+                CreateDesertScrubCluster(safePosition + forward * -7f, i * 5 + 3);
             }
 
             Material haze = CreateTranslucentMaterial("Runtime desert haze", new Color(0.85f, 0.72f, 0.5f), 0.12f);
@@ -10326,7 +10427,7 @@ namespace LocalFormulaRacing
             // Taller/varied floodlit modern circuit buildings, further back than the
             // paddock complexes above; twilight (Abu Dhabi) gets slightly taller, more
             // lit-glass massing to sell the "twilight finale" look with materials alone.
-            int circuitBuildings = Mathf.Max(2, Mathf.RoundToInt(4f * density));
+            int circuitBuildings = Mathf.Max(4, Mathf.RoundToInt(7f * density));
             for (int i = 0; i < circuitBuildings; i++)
             {
                 float t = (i + 0.3f) / circuitBuildings;
@@ -10388,7 +10489,7 @@ namespace LocalFormulaRacing
         {
             // Denser, taller, and pulled in closer (46f -> 38f margin) than the original
             // pass so the hillside street reads as a tight wall-canyon.
-            int clusters = Mathf.Max(4, Mathf.RoundToInt(8f * density));
+            int clusters = Mathf.Max(6, Mathf.RoundToInt(11f * density));
             for (int i = 0; i < clusters; i++)
             {
                 float t = (i + 0.5f) / clusters;
@@ -10431,7 +10532,7 @@ namespace LocalFormulaRacing
             // guaranteed to have a genuine straight, and exactly where a player is
             // driving fastest (and glancing at the skyline least, so the spectacle needs
             // to read big) rather than threading a technical corner.
-            int clusters = Mathf.Max(5, Mathf.RoundToInt(10f * density));
+            int clusters = Mathf.Max(7, Mathf.RoundToInt(13f * density));
             for (int i = 0; i < clusters; i++)
             {
                 float t = (i + 0.5f) / clusters;
@@ -10475,7 +10576,7 @@ namespace LocalFormulaRacing
             // every street circuit (per request - the other venues read
             // "mediocre" next to Jeddah), and Jeddah itself gets a denser row
             // here plus its own dedicated corniche high-rise pass at the end.
-            int clusters = Mathf.Max(4, Mathf.RoundToInt((jeddahTrack ? 13f : 9f) * density));
+            int clusters = Mathf.Max(6, Mathf.RoundToInt((jeddahTrack ? 17f : 12f) * density));
             for (int i = 0; i < clusters; i++)
             {
                 float t = (i + 0.5f) / clusters;
@@ -10778,7 +10879,7 @@ namespace LocalFormulaRacing
             // so the slab's tilt can't leave a base hanging off the edge; bases
             // sink slightly to absorb the tilt).
             float slabTopY = groundTopY + height * 0.18f + height * 0.5f;
-            int treeCount = 5 + seed % 3;
+            int treeCount = 8 + seed % 4;
             for (int t = 0; t < treeCount; t++)
             {
                 float angle = ((seed * 43 + t * 149) % 360) * Mathf.Deg2Rad;
@@ -10804,7 +10905,11 @@ namespace LocalFormulaRacing
         // already scatters.
         void BuildParklandBackdrop(float density)
         {
-            int rings = Mathf.Max(6, Mathf.RoundToInt(12f * density));
+            // Terrain-scale + density pass (per report - "surrounding areas
+            // are vastly unpopulated and the hills... are way too small"):
+            // more rings, and every hill roughly doubled in both footprint
+            // and height (near hills 50-80m tall, far layers up to ~120m).
+            int rings = Mathf.Max(8, Mathf.RoundToInt(16f * density));
             for (int i = 0; i < rings; i++)
             {
                 float t = (i + 0.5f) / rings;
@@ -10826,8 +10931,8 @@ namespace LocalFormulaRacing
                 // Blob fix (per report): the near hill is no longer one flat-green
                 // dome - CreateForestedHill builds an irregular earth-toned mound
                 // cluster with real trees planted over its crown and slopes.
-                float heightScale = 24f + (i % 3) * 8f;
-                CreateForestedHill(safePosition, i, 60f + (i % 4) * 12f, heightScale);
+                float heightScale = 50f + (i % 3) * 15f;
+                CreateForestedHill(safePosition, i, 110f + (i % 4) * 24f, heightScale);
 
                 if (i % 2 == 0)
                 {
@@ -10847,7 +10952,7 @@ namespace LocalFormulaRacing
             // reads with real depth instead of one flat treeline ring (third layer
             // added per report - "add some stuff in the near background and far
             // background too").
-            int farRings = Mathf.Max(4, Mathf.RoundToInt(8f * density));
+            int farRings = Mathf.Max(6, Mathf.RoundToInt(12f * density));
             for (int layer = 1; layer <= 3; layer++)
             {
                 for (int i = 0; i < farRings; i++)
@@ -10879,8 +10984,8 @@ namespace LocalFormulaRacing
                     // the track's sampled height.
                     // De-blob pass (per report): irregular multi-lobe formation
                     // instead of one smooth dome.
-                    float heightScale = (26f + layer * 14f) + (i % 3) * 8f;
-                    CreateRidgeFormation(safePosition, 70f + (i % 4) * 16f, heightScale, 50f + (i % 3) * 12f,
+                    float heightScale = (52f + layer * 24f) + (i % 3) * 14f;
+                    CreateRidgeFormation(safePosition, 130f + (i % 4) * 30f, heightScale, 95f + (i % 3) * 22f,
                         distantForestMaterial, i * 7 + layer);
                 }
             }
@@ -10893,7 +10998,7 @@ namespace LocalFormulaRacing
         // elevated sections instead of only a tinted ridge on the horizon.
         void BuildMountainCliffs(float density)
         {
-            int bands = Mathf.Max(4, Mathf.RoundToInt(8f * density));
+            int bands = Mathf.Max(6, Mathf.RoundToInt(12f * density));
             for (int i = 0; i < bands; i++)
             {
                 float d = Runtime.length * (i / (float)bands);
@@ -10918,7 +11023,7 @@ namespace LocalFormulaRacing
         // notional "sea" side instead of the desert's warm heat-haze.
         void BuildCoastalBackdrop(float density)
         {
-            int duneRings = Mathf.Max(6, Mathf.RoundToInt(12f * density));
+            int duneRings = Mathf.Max(8, Mathf.RoundToInt(16f * density));
             for (int i = 0; i < duneRings; i++)
             {
                 float t = (i + 0.5f) / duneRings;
@@ -10941,8 +11046,10 @@ namespace LocalFormulaRacing
 
                 // De-blob pass (per report): irregular multi-lobe dune line
                 // instead of one smooth dome.
-                float heightScale = 12f + (i % 3) * 6f;
-                CreateRidgeFormation(safePosition, 80f + (i % 4) * 20f, heightScale, 60f + (i % 3) * 14f, coastalSandMaterial, i);
+                // Terrain-scale pass: coastal dune ridges doubled to real
+                // Zandvoort-dune scale.
+                float heightScale = 26f + (i % 3) * 10f;
+                CreateRidgeFormation(safePosition, 130f + (i % 4) * 30f, heightScale, 95f + (i % 3) * 22f, coastalSandMaterial, i);
             }
 
             // Flattened boardwalk/promenade suggestion on the notional sea side.
@@ -11011,7 +11118,7 @@ namespace LocalFormulaRacing
             terrainMaterial.mainTexture = BuildNoiseTexture(256, new Color(0.9f, 0.9f, 0.84f), 0.16f);
             terrainMaterial.mainTextureScale = new Vector2(6f, 4f);
 
-            int banks = Mathf.Max(7, Mathf.RoundToInt(14f * density));
+            int banks = Mathf.Max(9, Mathf.RoundToInt(18f * density));
             for (int i = 0; i < banks; i++)
             {
                 float t = (i + 0.5f) / banks;
@@ -11029,8 +11136,10 @@ namespace LocalFormulaRacing
 
                 // De-blob pass (per report): irregular multi-lobe bank instead
                 // of one smooth dome.
-                float heightScale = 14f + (i % 3) * 6f;
-                CreateRidgeFormation(safePosition, 56f + (i % 4) * 12f, heightScale, 40f + (i % 3) * 10f, terrainMaterial, i);
+                // Terrain-scale pass: amphitheater banks doubled - a 14-26m
+                // bank at 70m+ out barely cleared the catch fencing.
+                float heightScale = 30f + (i % 3) * 12f;
+                CreateRidgeFormation(safePosition, 95f + (i % 4) * 22f, heightScale, 70f + (i % 3) * 16f, terrainMaterial, i);
 
                 if (i % 3 == 0)
                 {
@@ -11067,7 +11176,7 @@ namespace LocalFormulaRacing
         // from the flat cityStreet skyline bucket.
         void BuildUrbanHillsideBackdrop(float density)
         {
-            int clusters = Mathf.Max(6, Mathf.RoundToInt(11f * density));
+            int clusters = Mathf.Max(8, Mathf.RoundToInt(15f * density));
             for (int i = 0; i < clusters; i++)
             {
                 float t = (i + 0.5f) / clusters;
@@ -12292,8 +12401,12 @@ namespace LocalFormulaRacing
 
         void CreateDune(Vector3 position, int index)
         {
-            float width = 8f + index % 5;
-            float depth = 4.6f + index % 4;
+            // Desert build-out: the old 8x0.75m bumps read as speed humps, not
+            // dunes - roughly doubled footprint and a real sculpted height so
+            // the near-road desert actually undulates.
+            float width = 14f + (index % 6) * 3f;
+            float depth = 8f + (index % 5) * 2.2f;
+            float height = 1.7f + (index % 3) * 0.6f;
             float objectRadius = Mathf.Max(width, depth) * 0.5f;
             Vector3 safePosition;
             if (!TryGetClearScenerySpot(position, objectRadius, 6f, out safePosition))
@@ -12304,8 +12417,8 @@ namespace LocalFormulaRacing
             GameObject dune = GameObject.CreatePrimitive(PrimitiveType.Sphere);
             dune.name = "Sculpted runoff dune";
             dune.transform.SetParent(transform);
-            dune.transform.position = safePosition + Vector3.down * 0.28f;
-            dune.transform.localScale = new Vector3(width, 0.75f, depth);
+            dune.transform.position = safePosition + Vector3.down * height * 0.35f;
+            dune.transform.localScale = new Vector3(width, height, depth);
             dune.GetComponent<Renderer>().sharedMaterial = grassMaterial;
             MakeVisualOnly(dune);
         }
