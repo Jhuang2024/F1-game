@@ -2045,6 +2045,21 @@ namespace LocalFormulaRacing
 
             if (sustained && scrapeDamageCooldown > 0f)
             {
+                // The scrape cooldown rate-limits DAMAGE and telemetry, but the
+                // wall physics response must run EVERY contact tick (per report
+                // - "you can still get stuck in the walls; if you hit them you
+                // stop"): with the response gated to once per 0.45s, the drive
+                // forces pushed the car back into the wall between pushes and
+                // it sat wedged.
+                string gatedReason;
+                DamageImpactType gatedType = ClassifyDamageCollision(collision, out gatedReason);
+                if (gatedType != DamageImpactType.None && gatedType != DamageImpactType.Car)
+                {
+                    ContactPoint gatedContact = collision.GetContact(0);
+                    float gatedNormalKph = Mathf.Abs(Vector3.Dot(collision.relativeVelocity, gatedContact.normal)) * 3.6f;
+                    DampenWallContactResponse(gatedNormalKph, gatedContact.normal, true);
+                }
+
                 return;
             }
 
@@ -2345,10 +2360,36 @@ namespace LocalFormulaRacing
             {
                 flatNormal.Normalize();
                 float separation = Vector3.Dot(body.velocity, flatNormal);
-                float minSeparation = sustained ? 1.1f : 1.8f;
+                // Pushes strengthened (per report - "you can still get stuck
+                // in the walls"): the old 1.1 m/s sustained push lost to the
+                // drive forces shoving the car back in.
+                float minSeparation = sustained ? 2.2f : 2.6f;
                 if (separation < minSeparation)
                 {
                     body.velocity += flatNormal * (minSeparation - separation);
+                }
+
+                // Arcade wall glance (per report - "if you hit them you stop.
+                // that shouldnt happen"): the solver eats the car's momentum
+                // on contact; restore most of the ALONG-WALL component so a
+                // hit scrubs speed and grinds the wall but never stops the
+                // car dead. Retention scales with how shallow the approach
+                // was - a flat-out graze keeps nearly everything, and even a
+                // square hit keeps enough rolling speed to drive away.
+                Vector3 preTangential = Vector3.ProjectOnPlane(lastPrePhysicsVelocity, flatNormal);
+                preTangential.y = 0f;
+                float preTangentialSpeed = preTangential.magnitude;
+                if (preTangentialSpeed > 2f)
+                {
+                    float grazing = Mathf.Clamp01(preTangentialSpeed / Mathf.Max(0.1f, lastPrePhysicsVelocity.magnitude));
+                    float keep = Mathf.Lerp(0.45f, 0.93f, grazing * grazing) * (sustained ? 0.9f : 1f);
+                    Vector3 tangentialDir = preTangential / preTangentialSpeed;
+                    float currentTangential = Vector3.Dot(body.velocity, tangentialDir);
+                    float targetTangential = preTangentialSpeed * keep;
+                    if (currentTangential < targetTangential)
+                    {
+                        body.velocity += tangentialDir * (targetTangential - currentTangential);
+                    }
                 }
             }
         }
