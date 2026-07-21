@@ -38,6 +38,12 @@ namespace LocalFormulaRacing
         public float ErsBattery { get; private set; }
         public bool ErsDeploying { get; private set; }
         public bool ErsHarvesting { get; private set; }
+        // Set by RaceManager every frame while any caution is active (local
+        // yellow sector, VSC, safety car, red flag): no ERS branch may bank
+        // charge during a caution (per request - "the battery shouldnt
+        // recharge during yellow flags"), otherwise the field free-charges
+        // through every neutralized period. Deploying/drain is unaffected.
+        public bool ErsRechargeSuppressed;
         public bool DrsActive { get; private set; }
         // DRS speed boost, live only while the wing is genuinely open (DrsActive)
         // and the car is above DrsBoostThresholdKph. DRS fix: this used to be a
@@ -1375,7 +1381,7 @@ namespace LocalFormulaRacing
             // !ErsDeploying: harvest yields to an active deploy (see the
             // mutual-exclusivity note above ErsDeploying) so the battery can
             // never fill and drain in the same frame.
-            if (!ErsDeploying && activeCommand.brake > 0.1f)
+            if (!ErsDeploying && !ErsRechargeSuppressed && activeCommand.brake > 0.1f)
             {
                 ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.098f, 0.147f, CarData.ersEfficiency / 100f) * 1.3f * harvestModeMultiplier);
                 ErsHarvesting = true;
@@ -1402,7 +1408,7 @@ namespace LocalFormulaRacing
             // Round 12: cut a further 20% (per request), applied as an extra
             // multiplier so the prior 0.324 factor stays traceable -
             // braking-zone recharge above is unaffected.
-            else if (!ErsDeploying && !ersEmptyCooldownActive && activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
+            else if (!ErsDeploying && !ErsRechargeSuppressed && !ersEmptyCooldownActive && activeCommand.throttle < 0.08f && absoluteSpeedKph > 80f)
             {
                 // Non-braking regen raised 30% (per request) - the 1.3 factor is
                 // kept separate so the prior tuning stays traceable. Braking-zone
@@ -1413,7 +1419,7 @@ namespace LocalFormulaRacing
                 ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.324f * 0.8f * 1.3f * 1.3f * 0.7f * harvestModeMultiplier);
                 ErsHarvesting = true;
             }
-            else if (!ersEmptyCooldownActive && !ErsDeploying)
+            else if (!ersEmptyCooldownActive && !ErsDeploying && !ErsRechargeSuppressed)
             {
                 // ERS passive trickle: real ERS also recovers some energy outside of
                 // hard braking or a full lift-off coast (residual MGU-H/engine-driven

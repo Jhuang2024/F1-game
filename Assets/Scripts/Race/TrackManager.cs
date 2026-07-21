@@ -385,7 +385,31 @@ namespace LocalFormulaRacing
             // ~90m of road) - corner samples are exempt so apex pins and
             // turn-in geometry are untouched. Forward+backward passes keep
             // the limit symmetric instead of dragging everything one way.
-            float maxStraightStep = 0.09f * racingLineSpacing;
+            // Straight-section offset clamp ([SwerveTape] round 4 - the
+            // amplitude diagnostic repeatedly named "RACING LINE (drawn line
+            // runs edge-to-edge on this straight)" at the exact crash sites):
+            // on genuinely straight samples the line no longer runs out to the
+            // corridor edge at all - it keeps at least ~3.5m of standoff from
+            // the legal limit (floored at 2.5m from centre on narrow roads).
+            // Corner samples are untouched, so apexes still use full width;
+            // what goes away is the line parking itself against a wall at
+            // 350+kph on an 8-11m half-width straight, where any wobble,
+            // dodge, or grip deficit became a graze. The rate limiter below
+            // then smooths the corner-exit transition back inside this band.
+            for (int i = 0; i < count; i++)
+            {
+                if (Mathf.Abs(kappa[i]) <= cornerCurvature)
+                {
+                    float straightBound = Mathf.Max(2.5f, limits[i] - 3.5f);
+                    offsets[i] = Mathf.Clamp(offsets[i], -straightBound, straightBound);
+                }
+            }
+
+            // Rate 0.09 -> 0.05 m/m ([SwerveTape] round 4): even inside the
+            // standoff band the line could still cross the road faster than a
+            // 350kph car can comfortably track next to a wall; a full
+            // crossing now takes ~40% more road.
+            float maxStraightStep = 0.05f * racingLineSpacing;
             for (int pass = 0; pass < 2; pass++)
             {
                 for (int i = 1; i <= count; i++)

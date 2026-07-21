@@ -52,7 +52,11 @@ namespace LocalFormulaRacing
         // retirement is now reserved for a genuinely flat-out perpendicular
         // wall strike; everything below bounces off damaged and pays through
         // the damage model (which still retires repeat crashers).
-        const float HardWallRetireImpactKph = 280f;
+        // 280 -> 320 (third "too easy to DNF" report, 13/22 OUT): instant
+        // retirement is now reserved for an essentially unslowed max-speed
+        // head-on. Everything else damages the car and the damage model
+        // remains the only accumulating path out of the race.
+        const float HardWallRetireImpactKph = 320f;
         const float HardWallRetireMinRaceSeconds = 25f;
 
         void UpdateResetGhost(RaceParticipant participant)
@@ -108,6 +112,12 @@ namespace LocalFormulaRacing
             // density side contact plus random spins was most of the start
             // massacre on its own.
             participant.vehicle.ContactFlickEnabled = RaceElapsed > HardWallRetireMinRaceSeconds;
+
+            // ERS caution gate (per request - "the battery shouldnt recharge
+            // during yellow flags"): every caution state suppresses harvesting
+            // for every car; only genuine green racing banks charge.
+            participant.vehicle.ErsRechargeSuppressed =
+                CurrentRaceControlState != RaceControlState.Green || YellowFlagSector >= 0;
 
             float impactKph = participant.vehicle.PendingHardWallImpactKph;
             if (impactKph <= 0f)

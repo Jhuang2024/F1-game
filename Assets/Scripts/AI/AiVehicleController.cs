@@ -1485,7 +1485,10 @@ namespace LocalFormulaRacing
             // difference. Above ~260kph the caps now demand a genuine margin
             // (up to 14% by 380kph) - which also means these sweepers become
             // real braking zones instead of flat-out zero-margin passes.
-            float highSpeedCorneringMargin = Mathf.Lerp(1f, 0.86f, Mathf.Clamp01((speedKph - 260f) / 120f));
+            // Round 4: 0.86 -> 0.78 and engages from 240kph (13/22 OUT - the
+            // tapes still showed cruise sitting at 345-355 straight through
+            // sev 0.15-0.3 sweepers; the previous margin never actually bound).
+            float highSpeedCorneringMargin = Mathf.Lerp(1f, 0.78f, Mathf.Clamp01((speedKph - 240f) / 120f));
             float apexGeoRadius = track.CurvatureRadiusAt(progress.distance + apexDistanceAhead);
             brakingApexSpeed = Mathf.Min(brakingApexSpeed,
                 vehicle.MaxCorneringSpeedKph(apexGeoRadius) * tightCornerJudgment * highSpeedCorneringMargin);
@@ -3178,20 +3181,28 @@ namespace LocalFormulaRacing
             // helps twice: it sheds the speed AND the yaw envelope rises as
             // speed falls, so steering authority returns and the timer clears
             // itself.
-            if (Mathf.Abs(command.steer) > 0.96f && speedKph > 150f)
+            // Round 4 widening (13/22 OUT report): most crash tapes showed the
+            // wheel held at 0.75-0.95 - just UNDER the old 0.96-only trigger -
+            // while the car visibly drifted outward for seconds with no brake.
+            // The reflex now also fires on "steering hard AND still sliding
+            // toward the edge" (towardEdgeRate is the same filtered drift the
+            // wall-aversion band uses), starts sooner, and brakes harder.
+            bool steerAtLimit = Mathf.Abs(command.steer) > 0.96f ||
+                                 (Mathf.Abs(command.steer) > 0.82f && towardEdgeRate > 1.2f);
+            if (steerAtLimit && speedKph > 150f)
             {
                 steerSaturationTimer += Time.deltaTime;
             }
-            else if (Mathf.Abs(command.steer) < 0.85f || speedKph < 130f)
+            else if (Mathf.Abs(command.steer) < 0.7f || speedKph < 130f)
             {
                 steerSaturationTimer = 0f;
             }
 
-            if (steerSaturationTimer > 0.45f)
+            if (steerSaturationTimer > 0.35f)
             {
-                float shed = Mathf.Clamp01((steerSaturationTimer - 0.45f) / 0.6f);
-                command.brake = Mathf.Max(command.brake, Mathf.Lerp(0.3f, 0.65f, shed));
-                command.throttle = Mathf.Min(command.throttle, 0.1f);
+                float shed = Mathf.Clamp01((steerSaturationTimer - 0.35f) / 0.5f);
+                command.brake = Mathf.Max(command.brake, Mathf.Lerp(0.35f, 0.8f, shed));
+                command.throttle = Mathf.Min(command.throttle, 0.05f);
             }
 
             // [WallDiag] black-box capture (see DescribeLateralState).
