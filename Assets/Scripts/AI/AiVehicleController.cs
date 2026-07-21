@@ -2753,7 +2753,8 @@ namespace LocalFormulaRacing
                 tyreManagement / 100f, profile.tyreSavingBias, MapStintCompound(currentCompound));
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                 AiPitStrategyRules.ShouldPitRoutine(vehicle.Tyres.Wear, tyrePitThreshold) &&
-                participant.lapTracker.CompletedLaps > 0)
+                participant.lapTracker.CompletedLaps > 0 &&
+                !raceManager.AiVoluntaryStopsExhausted(participant))
             {
                 command.pitRequest = true;
             }
@@ -2827,7 +2828,8 @@ namespace LocalFormulaRacing
             // remaining, a hair before the 0.40 routine point so a well-timed plan
             // can still fire slightly ahead of pure wear). Destroyed-tyre/grip
             // safety nets above are unaffected and still force a stop when needed.
-            if (raceManager.ShouldAiPitByStrategyLap(participant) && AiPitStrategyRules.StrategyLapMayFire(vehicle.Tyres.Wear))
+            if (raceManager.ShouldAiPitByStrategyLap(participant) && AiPitStrategyRules.StrategyLapMayFire(vehicle.Tyres.Wear) &&
+                !raceManager.AiVoluntaryStopsExhausted(participant))
             {
                 command.pitRequest = true;
                 participant.pitRequestLapNumber = participant.lapTracker.CompletedLaps + 1;
@@ -2844,7 +2846,8 @@ namespace LocalFormulaRacing
 
             // Smarter AI strategy: jump a closely-followed rival that hasn't
             // stopped yet by taking this car's own pit window a lap or two early.
-            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.ShouldAiPitForUndercut(participant))
+            if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.ShouldAiPitForUndercut(participant) &&
+                !raceManager.AiVoluntaryStopsExhausted(participant))
             {
                 command.pitRequest = true;
             }
@@ -4085,6 +4088,21 @@ namespace LocalFormulaRacing
             // Whichever COMMAND swing most closely accounts for the car's swing.
             string verdict;
             float biggest = Mathf.Max(drawnSwing, Mathf.Max(lineSwing, aggSwing));
+
+            // Reference-frame artifact guard. progress.lateralDistance is measured
+            // against the racing-line reference, which itself curves; on some
+            // sections the matched centreline sweeps several metres even as the car
+            // tracks dead straight, so lateralDistance reports a large "swing" that
+            // no steering input produced (the tell: latSwing of 12-38m while every
+            // command swing - drawnLine/lineBias/overtakeOff - reads ~0). A real car
+            // at these steer amplitudes physically cannot translate this far sideways
+            // in 4s. When the biggest command swing can't account for at least half
+            // the measured lateral swing, it's the measurement lying, not the car
+            // weaving - stay silent instead of crying wolf.
+            if (latSwing > 6f && biggest < latSwing * 0.5f)
+            {
+                return;
+            }
             if (biggest < 2f)
             {
                 verdict = "STEERING CONTROLLER (no target moved - pursuit/slew/yaw limit cycle)";
@@ -4439,7 +4457,7 @@ namespace LocalFormulaRacing
                             Vector3 aheadLocalTow = transform.InverseTransformPoint(ahead.transform.position);
                             if (Mathf.Abs(aheadLocalTow.z) > 6f && Mathf.Abs(aheadLocalTow.x) > 0.6f)
                             {
-                                followTarget = Mathf.Clamp(aggressionOffset + aheadLocalTow.x, -legalLimit, legalLimit);
+                                followTarget = aggressionOffset + aheadLocalTow.x;
                             }
                             else
                             {
@@ -4450,6 +4468,13 @@ namespace LocalFormulaRacing
                         }
                     }
 
+                    // A follower only ever nudges a couple of metres into the tow -
+                    // it never chases a leader that is itself running wide across
+                    // the full track half-width. Without this, a leader on a wide
+                    // racing line drags the whole queue behind it edge-to-edge
+                    // (the reported agg=+-9m "weave" while merely Following).
+                    const float FollowTowLimit = 2.5f;
+                    followTarget = Mathf.Clamp(followTarget, -FollowTowLimit, FollowTowLimit);
                     aggressionOffset = Mathf.MoveTowards(aggressionOffset, followTarget, Time.deltaTime * 5f);
                     if (ahead != null && ahead.vehicle != null && raceManager.CanParticipantOvertake(participant, ahead))
                     {

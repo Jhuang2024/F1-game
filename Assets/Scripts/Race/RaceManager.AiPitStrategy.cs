@@ -190,6 +190,28 @@ namespace LocalFormulaRacing
             return currentLapNumber >= targetLap + 1;
         }
 
+        // Voluntary-stop cap: the fastest dry strategy for THIS race length and
+        // track temperature already says how many stops are actually worth making
+        // (a 5-lap race is a one-stopper, never a two). Once a car has made that
+        // many stops, the routine-wear / planned-strategy-lap / undercut triggers
+        // stop firing - only the genuine safety nets (destroyed tyre, collapsed
+        // grip, weather crossover, mandatory-under-SC) may still bring it in. This
+        // is what stops a whole field throwing away a second ~22s stop it never
+        // needed - the reported "why so many 2 stops" in short races.
+        public bool AiVoluntaryStopsExhausted(RaceParticipant participant)
+        {
+            if (participant == null)
+            {
+                return false;
+            }
+
+            float trackTempC = Track != null ? Track.trackTemperatureC : TyreStrategyRules.StandardTrackTempC;
+            int startCompound;
+            int optimalStops;
+            TyreStrategyRules.FastestDryStrategy(RaceLaps, trackTempC, out startCompound, out optimalStops);
+            return participant.pitStops >= optimalStops;
+        }
+
         // Deterministic, race-independent value in the 0-1 range derived from a
         // string - used to
         // give each driver a small, stable personality offset (pit-window jitter,
