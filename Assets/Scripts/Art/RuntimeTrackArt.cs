@@ -268,6 +268,45 @@ namespace F1Game.Art
                     if (Spawn(clutter[rng.Next(clutter.Length)], pos, Quaternion.Euler(0f, (float)rng.NextDouble() * 360f, 0f), propRoot)) props++;
                 }
             }
+
+            DiagnoseVisibility(barrierRoot);
+        }
+
+        /// <summary>
+        /// One-shot visibility diagnostic: compares a spawned barrier to the visible
+        /// road so we can tell position bugs from render-state bugs. Remove once art
+        /// is confirmed on-screen.
+        /// </summary>
+        void DiagnoseVisibility(Transform barrierRoot)
+        {
+            try
+            {
+                Debug.Log($"[RuntimeArt][diag] artRoot activeInHierarchy={gameObject.activeInHierarchy} " +
+                          $"worldPos={transform.position} scale={transform.lossyScale} barrierChildren={barrierRoot.childCount}");
+
+                MeshRenderer road = null;
+                foreach (var r in transform.parent.GetComponentsInChildren<MeshRenderer>(true))
+                    if (r.gameObject.name.StartsWith("Procedural road")) { road = r; break; }
+                if (road != null)
+                    Debug.Log($"[RuntimeArt][diag] ROAD boundsCenter={road.bounds.center} boundsSize={road.bounds.size} " +
+                              $"shader={(road.sharedMaterial != null ? road.sharedMaterial.shader.name : "null")}");
+
+                if (barrierRoot.childCount > 0)
+                {
+                    Transform b0 = barrierRoot.GetChild(0);
+                    var mr = b0.GetComponentInChildren<MeshRenderer>(true);
+                    var mf = b0.GetComponentInChildren<MeshFilter>(true);
+                    Debug.Log($"[RuntimeArt][diag] BARRIER0 name={b0.name} activeInHierarchy={b0.gameObject.activeInHierarchy} " +
+                              $"worldPos={b0.position} lossyScale={b0.lossyScale} layer={b0.gameObject.layer} " +
+                              $"hasRenderer={(mr != null)} rendererEnabled={(mr != null && mr.enabled)} " +
+                              $"mesh={(mf != null && mf.sharedMesh != null ? mf.sharedMesh.name : "null")} " +
+                              $"meshVerts={(mf != null && mf.sharedMesh != null ? mf.sharedMesh.vertexCount : 0)} " +
+                              $"shader={(mr != null && mr.sharedMaterial != null ? mr.sharedMaterial.shader.name : "null")} " +
+                              $"boundsCenter={(mr != null ? mr.bounds.center.ToString() : "n/a")} " +
+                              $"boundsSize={(mr != null ? mr.bounds.size.ToString() : "n/a")}");
+                }
+            }
+            catch (Exception e) { Debug.LogWarning("[RuntimeArt][diag] " + e.Message); }
         }
 
         // ---------------------------------------------------------------- helpers
