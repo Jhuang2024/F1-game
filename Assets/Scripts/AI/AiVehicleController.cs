@@ -1893,7 +1893,14 @@ namespace LocalFormulaRacing
                 // band keeps cars near centre where there is no corner to shape; the
                 // Lerp still restores the full authored line by severity 0.12, before
                 // any real corner turn-in.
-                float straightTrim = Mathf.Lerp(0.22f, 1f, Mathf.Clamp01(severityHere / 0.12f));
+                // Band widened /0.12 -> /0.2 ([SwerveDiag amplitude]: RACING LINE
+                // verdicts persisted at sections with severity just under the old
+                // 0.12 edge - there the ramp already restored ~80% of an 11m
+                // edge-to-edge line, so lineBias still swung ~8m on road that looks
+                // dead straight on screen. Full authority now returns by severity
+                // 0.2, matching the lateral governor's own straightness band; real
+                // corner turn-in (severity 0.18-0.34+) is past the ramp regardless.
+                float straightTrim = Mathf.Lerp(0.22f, 1f, Mathf.Clamp01(severityHere / 0.2f));
                 float optimalPursuit = drawnOffset * 0.94f * straightTrim + apexMissNoise * 0.4f;
                 // Latched holding lane (see heldLaneOffset): the target the car
                 // holds in traffic is a STABLE captured lane, not its live position.
@@ -3961,7 +3968,12 @@ namespace LocalFormulaRacing
             // steering/line, and that is not the swerve being reported.
             if (severityHere < 0.15f)
             {
-                swerveSteerRev += CountReversal(finalSteer, 0.045f, ref swerveSteerSign);
+                // Steer deadband raised 0.045 -> 0.12: at 0.045 the alarm fired on
+                // +-5-10%-of-lock micro-corrections - the normal breathing of any
+                // proportional controller, invisible on screen - and papered the
+                // console with steer=3 floor entries that drowned the real events.
+                // Only sawing past ~12% of lock (genuinely visible movement) counts.
+                swerveSteerRev += CountReversal(finalSteer, 0.12f, ref swerveSteerSign);
                 swerveAggRev += CountReversal(aggressionOffset, 0.35f, ref swerveAggSign);
                 swerveAdjustRev += CountReversal(smoothedSteerAdjust, 0.05f, ref swerveAdjustSign);
                 swerveLineRev += CountReversal(lineBias, 0.6f, ref swerveLineSign);
@@ -4487,7 +4499,15 @@ namespace LocalFormulaRacing
                     // (the reported agg=+-9m "weave" while merely Following).
                     const float FollowTowLimit = 2.5f;
                     followTarget = Mathf.Clamp(followTarget, -FollowTowLimit, FollowTowLimit);
-                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, followTarget, Time.deltaTime * 5f);
+                    // Tow-chase rate cut 5 -> 1.5 m/s ([SwerveDiag]: with the cap in,
+                    // Following agg pinned at exactly +-2.50 and FLIPPED SIGN as the
+                    // leader drifted across centre - the follower mirrored every
+                    // leader movement as its own 5m swerve, propagating one car's
+                    // wiggle down the whole train). Entering the tow is a patient
+                    // positioning drift, not a dodge; at 1.5 m/s a full cap-to-cap
+                    // flip takes ~3.3s and reads as a smooth lean, and a leader
+                    // wiggle faster than that simply gets averaged out.
+                    aggressionOffset = Mathf.MoveTowards(aggressionOffset, followTarget, Time.deltaTime * 1.5f);
                     if (ahead != null && ahead.vehicle != null && raceManager.CanParticipantOvertake(participant, ahead))
                     {
                         float gapSeconds = raceManager.GetIntervalToAheadSeconds(participant);
@@ -4821,6 +4841,18 @@ namespace LocalFormulaRacing
                     if (overtakeStateTimer <= 0f)
                     {
                         overtakeState = OvertakeState.Following;
+                        // THE ATTACK-CHURN FIX ([SwerveDiag]: overtakeStateChanges up
+                        // to 6/2s with agg slamming +-6.3m - the dominant remaining
+                        // on-screen weave). The re-attack cooldown was only ever set
+                        // on a SUCCESSFUL pass (-> CompletingPass); an ABORTED attack
+                        // paid nothing and re-launched the very next frame, so in a
+                        // dense pack where passes rarely stick every car looped
+                        // attack -> back-out -> attack forever, each cycle a full 6m
+                        // lateral swing and back. An abort now costs a longer
+                        // cooldown than a success: the situation that just failed
+                        // won't be different 0.2s later, so sit in the tow and wait
+                        // for a genuinely new opportunity instead of sawing at it.
+                        overtakeReattackCooldown = OvertakeReattackCooldownSeconds * 2f;
                     }
                     break;
             }
