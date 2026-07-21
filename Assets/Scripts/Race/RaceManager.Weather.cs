@@ -50,6 +50,14 @@ namespace LocalFormulaRacing
             float rate = target > trackWetness01 ? 1f / 90f : 1f / 150f;
             trackWetness01 = Mathf.MoveTowards(trackWetness01, target, rate * Time.deltaTime);
             TyreState.TrackWetness01 = trackWetness01;
+
+            // Lap length for the distance-normalized wear model (TyreState).
+            // Kept fresh here (cheap, once per tick, same shared-static
+            // pattern as the wetness line above) rather than at one session-
+            // start site, so every session type - race, quali, practice, time
+            // trial, quick race - is covered without hunting down each
+            // initialization path.
+            TyreState.TrackLengthMeters = Mathf.Max(500f, Track.length);
         }
 
         // Simple dynamic weather: on mixed-forecast races the conditions flip once

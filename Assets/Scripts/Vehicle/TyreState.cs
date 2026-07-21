@@ -40,10 +40,15 @@ namespace LocalFormulaRacing
         // shared by all cars, same pattern as RegulationWearMultiplier.
         public static float TrackWetness01 = 0f;
 
+        // Lap length of the current circuit, set once at session start by
+        // RaceManager (same shared-static pattern as TrackWetness01). The
+        // distance-normalized wear model below divides distance travelled by
+        // this to convert "metres driven" into "laps of tyre life consumed".
+        public static float TrackLengthMeters = 5000f;
+
         float targetMin;
         float targetMax;
         float baseGrip;
-        float baseWear;
         float warmup;
         // Explicit, self-consistent per-compound grip in each rain state, replacing
         // the old single wetPerformance value that got lerped against a shared
@@ -119,21 +124,6 @@ namespace LocalFormulaRacing
             if (compound == TyreCompound.Soft)
             {
                 baseGrip = 1f;
-                // Wear recalibration round 3 (per report - "softs last a bit
-                // more than 2 laps now but certainly not 3 which it says"):
-                // round 2's single shared driving constant was wrong - the
-                // compounds don't share one (grip differences change slip wear
-                // per compound), so each is now calibrated against its OWN
-                // observed data. Soft: ~2.4 laps observed at a displayed 3 with
-                // baseWear 2.0 -> 1.5 lands it on the displayed gradient.
-                // Wear recalibration round 5 (per report - "the tires on every
-                // softness/hardness last about a lap too long"): the corner-
-                // speed realism pass slowed the whole field through corners,
-                // which cut the wear model's speed/steer/slip inputs and
-                // quietly stretched every compound ~1 lap past its displayed
-                // life. baseWear scaled by displayed/(displayed-ish observed):
-                // soft ~4 observed vs 3 displayed -> 1.5 * 4/3 = 2.0.
-                baseWear = 2.0f;
                 targetMin = 82f;
                 targetMax = 105f;
                 warmup = 1.25f;
@@ -144,15 +134,6 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Medium)
             {
                 baseGrip = 0.82f;
-                // Wear recalibration round 4 (per report - "mediums claiming 3
-                // laps last ~2.5"): round 3's interpolated guess (1.35) ran
-                // ~20% hot against the first direct medium observation.
-                // 1.35 * 2.5/3.0 = 1.12 lands actual life on the displayed
-                // gradient. (Marginally above the hard's 1.1 - the temperature
-                // curve keeps the hard the longer-lived tyre at every temp.)
-                // Wear recalibration round 5 (see the soft's note): medium ~5
-                // observed vs 4 displayed -> 1.12 * 5/4 = 1.4.
-                baseWear = 1.4f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
@@ -163,12 +144,6 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Hard)
             {
                 baseGrip = 0.66f;
-                // Wear recalibration round 3: reverted to 1.1 - the hard was
-                // OBSERVED matching its display (5 laps at warm) at 1.1 before
-                // round 2's shared-constant raise broke it.
-                // Wear recalibration round 5 (see the soft's note): hard ~7
-                // observed vs 6 displayed -> 1.1 * 7/6 = 1.28.
-                baseWear = 1.28f;
                 targetMin = 74f;
                 targetMax = 100f;
                 warmup = 0.78f;
@@ -179,11 +154,9 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Intermediate)
             {
                 baseGrip = 0.74f;
-                // Mirrors the medium's durability at any temperature (per
-                // request) - same baseWear as Medium, and the track-temp wear
-                // multiplier in Tick maps Inter/Wet onto the Medium curve.
-                // Wear recalibration round 5: tracks the medium's 1.4.
-                baseWear = 1.4f;
+                // Durability mirrors the Medium at any temperature (per
+                // request): the distance-normalized wear model in Tick maps
+                // Inter/Wet onto the Medium life curve directly.
                 targetMin = 58f;
                 targetMax = 82f;
                 warmup = 1.05f;
@@ -197,11 +170,9 @@ namespace LocalFormulaRacing
             else
             {
                 baseGrip = 0.64f;
-                // Mirrors the medium's durability at any temperature (per
-                // request) - same baseWear as Medium, and the track-temp wear
-                // multiplier in Tick maps Inter/Wet onto the Medium curve.
-                // Wear recalibration round 5: tracks the medium's 1.4.
-                baseWear = 1.4f;
+                // Durability mirrors the Medium at any temperature (per
+                // request): the distance-normalized wear model in Tick maps
+                // Inter/Wet onto the Medium life curve directly.
                 targetMin = 45f;
                 targetMax = 70f;
                 warmup = 1.1f;
@@ -365,26 +336,48 @@ namespace LocalFormulaRacing
 
             float overheatWear = Mathf.Lerp(1f, 2.0f, Mathf.InverseLerp(targetMax - 2f, targetMax + 32f, Temperature));
             float wornHeatWear = Mathf.Lerp(1f, 1.3f, Mathf.InverseLerp(0.62f, 0.18f, Wear));
-            float slideWear = slipEnergy * 0.0016f;
-            float baselineWear = speedHeat * 0.00115f + Mathf.Abs(steer) * 0.0007f + brake * 0.00052f + slideWear;
-            baselineWear *= Mathf.Lerp(0.86f, 1.28f, Mathf.InverseLerp(110f, 315f, speedKph));
 
-            // Track-temperature wear gradient (per request - degradation varies
-            // with track temp, not a flat per-track rate). The baseWear values
-            // above are calibrated to the COOL (15C) stint targets, so the
-            // multiplier is exactly 1 there and scales wear UP as the track
-            // heats, shrinking stint life toward the hotter targets. It's
-            // compound-specific (softs are far more heat-sensitive than hards)
-            // and driven off the same ExpectedStintLapsAtTemp curve the AI
-            // strategy and pre-race screen read, so life on track matches what
-            // they plan for. Inter/Wet mirror the Medium curve.
+            // DISTANCE-NORMALIZED wear (round 6, the structural fix). Five
+            // rounds of baseWear recalibration all failed the same way: life
+            // was fully EMERGENT from driving-intensity inputs (speed, steer,
+            // brake, slip, heat), so every physics/AI behaviour change moved
+            // real stint length and invalidated the previous calibration -
+            // round 5 raised baseWear ~30% in the same commit that stopped
+            // the field-wide weaving, the weave turned out to be a bigger
+            // wear input than the raise, and tyres came out lasting LONGER
+            // (the reported "WOW youve made the tyres last even longer").
+            //
+            // The anchor is now structural: distance travelled divided by
+            // (displayed life x lap length) IS the baseline life consumption,
+            // so a stint lasts what the tyre screen says at this track temp
+            // BY CONSTRUCTION - the same ExpectedStintLapsAtTemp curve the
+            // strategy AI and the UI read. Driving intensity (braking,
+            // steering, sliding, overheating) modulates around 1.0 in a
+            // bounded band instead of defining the scale: pushing hard costs
+            // real life, cruising saves some, and no future handling change
+            // can silently double stint length again. tyreManagement and the
+            // compound-mismatch weather penalties keep their existing roles.
             int stintCompound = Compound == TyreCompound.Soft ? TyreStrategyRules.Compound.Soft
                 : (Compound == TyreCompound.Hard ? TyreStrategyRules.Compound.Hard : TyreStrategyRules.Compound.Medium);
-            float lifeAtTemp = TyreStrategyRules.ExpectedStintLapsAtTemp(stintCompound, trackTemperatureC);
-            float lifeAtCool = TyreStrategyRules.ExpectedStintLapsAtTemp(stintCompound, TyreStrategyRules.CoolTrackTempC);
-            float trackTempWear = lifeAtCool / Mathf.Max(0.1f, lifeAtTemp);
+            float lifeLapsAtTemp = Mathf.Max(0.5f, TyreStrategyRules.ExpectedStintLapsAtTemp(stintCompound, trackTemperatureC));
+            float lapsPerSecond = (speedKph / 3.6f) / Mathf.Max(500f, TrackLengthMeters);
+            float baseLifeFraction = lapsPerSecond / lifeLapsAtTemp;
 
-            float wearLoss = (baselineWear * baseWear * management * weatherWear * overheatWear * wornHeatWear * trackTempWear) + lockupWearRate;
+            // The 0.95 base is chosen so a TYPICAL racing lap (brake ~0.15,
+            // |steer| ~0.25, slip ~0.2, mild heat) times the average F1
+            // driver's management factor (~0.82 at stat ~82) lands at 1.0 -
+            // i.e. the displayed life holds for the average car driven
+            // normally; nursing stretches it ~25%, abuse shortens it ~30%.
+            float intensity = Mathf.Clamp(
+                0.95f
+                + brake * 0.22f
+                + Mathf.Abs(steer) * 0.18f
+                + slipEnergy * 0.45f
+                + (overheatWear - 1f) * 0.45f
+                + (wornHeatWear - 1f) * 0.4f,
+                0.7f, 2.0f);
+
+            float wearLoss = baseLifeFraction * intensity * management * weatherWear + lockupWearRate;
             Wear = Mathf.Clamp01(Wear - wearLoss * RegulationWearMultiplier * deltaTime);
         }
 
