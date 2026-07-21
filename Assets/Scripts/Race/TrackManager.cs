@@ -5327,19 +5327,16 @@ namespace LocalFormulaRacing
         // Also reused as the minimumClearance passed into TryPlaceSolidObstacle
         // so a curvature-triggered repair nudges a segment back to this same
         // tight distance instead of silently reintroducing a wide gap on bends.
-        // Racing-line clearance (per request): raised from 0.15m. Every edge
-        // barrier's track-facing face sits at HalfWidthAt + this, so a small
-        // value put the wall right on the paved edge - fine until the AI
-        // started working the full racing line and running the kerbs, where a
-        // car drifting to (or a touch over) the track edge had almost no room
-        // before the wall. At 0.9m (~half a car width plus rounding) there is
-        // now a genuine runoff strip between the paved edge/kerb and the
-        // barrier everywhere, so the optimal line - which itself stays a
-        // further ~2.3m inside the edge via LegalOffsetLimit - is never within
-        // half a car width of a barrier. The continuous barrier line has no
-        // gaps (it just sits further out uniformly), so this cannot let a car
-        // escape the circuit; it only adds margin.
-        const float EdgeBarrierClearance = 0.9f;
+        // Truly flush (per request - "no distance between the road and any
+        // barriers"): the 0.9m runoff strip is gone; every barrier's
+        // track-facing face now sits essentially ON the paved edge, with only
+        // a few centimetres left to absorb straight-chord-vs-true-arc rounding
+        // on curves so a segment can never physically overlap the tarmac.
+        // The consequences of living next to the wall are handled by physics
+        // now, not standoff: VehicleController's wall response guarantees a
+        // small clean bounce-off (never sticking/grinding pinned), and a
+        // genuinely HARD hit retires the car from a grand prix.
+        const float EdgeBarrierClearance = 0.05f;
         const float ArmcoHalfWidth = 0.08f;
         const float StreetWallHalfWidth = 0.225f;
         const float ConcreteWallHalfWidth = 0.25f;

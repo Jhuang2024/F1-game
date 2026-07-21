@@ -14,6 +14,86 @@ namespace LocalFormulaRacing
     /// </summary>
     public partial class RaceManager
     {
+        // Post-reset ghost window (per request): seconds a recovered car stays
+        // intangible to other cars, and how close another car may be when the
+        // window expires before it gets briefly extended (never rematerialise
+        // inside someone).
+        const float ResetGhostSeconds = 3f;
+        const float ResetGhostClearanceMeters = 3.5f;
+
+        // Heavy-crash DNF (per request - "if a car hits the barriers HARD they
+        // should just be out of the grand prix"): perpendicular wall-impact
+        // speed above which a race-session car retires on the spot.
+        const float HardWallRetireImpactKph = 110f;
+
+        void UpdateResetGhost(RaceParticipant participant)
+        {
+            if (participant == null || participant.resetGhostTimer <= 0f)
+            {
+                return;
+            }
+
+            participant.resetGhostTimer -= Time.deltaTime;
+            if (participant.resetGhostTimer > 0f)
+            {
+                return;
+            }
+
+            // Expiring: never rematerialise inside another car - hold the ghost
+            // a moment longer until the overlap clears. The actual collision
+            // toggle is owned by HandlePitService's SetCarToCarCollisionIgnored
+            // call, which reads this timer every tick.
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant other = Participants[i];
+                if (other == null || other == participant || other.retired || !other.gameObject.activeSelf)
+                {
+                    continue;
+                }
+
+                if ((other.transform.position - participant.transform.position).sqrMagnitude <
+                    ResetGhostClearanceMeters * ResetGhostClearanceMeters)
+                {
+                    participant.resetGhostTimer = 0.3f;
+                    return;
+                }
+            }
+
+            participant.resetGhostTimer = 0f;
+        }
+
+        // Consumes VehicleController's hardest-fresh-wall-impact flag each tick
+        // and retires the car when a genuinely heavy barrier crash happened in
+        // a race session. Time trial and qualifying keep their crash physics
+        // without ending the session; the launch seconds are excluded so grid
+        // jostle can never DNF anyone.
+        void HandleHeavyCrashRetirement(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null)
+            {
+                return;
+            }
+
+            float impactKph = participant.vehicle.PendingHardWallImpactKph;
+            if (impactKph <= 0f)
+            {
+                return;
+            }
+
+            participant.vehicle.PendingHardWallImpactKph = 0f;
+            bool raceSession = (CurrentSession == RaceWeekendSession.Race || CurrentSession == RaceWeekendSession.QuickRace) && !IsTimeTrial;
+            if (!raceSession || participant.retired || participant.finished || RaceElapsed < 5f)
+            {
+                return;
+            }
+
+            if (impactKph >= HardWallRetireImpactKph)
+            {
+                GameLog.Warn("[RaceControl] " + participant.driverName + " OUT - heavy barrier impact (" + impactKph.ToString("0") + "kph perpendicular).");
+                RetireParticipant(participant, "Heavy crash");
+            }
+        }
+
         void HandleFallRespawn(RaceParticipant participant)
         {
             if (participant == null || participant.vehicle == null || Track == null)
@@ -80,6 +160,7 @@ namespace LocalFormulaRacing
             }
 
             participant.fallRespawnCooldown = 2f;
+            participant.resetGhostTimer = ResetGhostSeconds;
             GameLog.Warn("[RoadPhysics] Recovered " + participant.driverName +
                              " from an invalid below-track position (offset=" + heightOffset.ToString("0.0") +
                              "m). respawn=" + respawnPosition);
@@ -150,6 +231,7 @@ namespace LocalFormulaRacing
             participant.wrongWayTimer = 0f;
             participant.stuckRepositionCooldown = StuckRepositionCooldownSeconds;
             participant.recoveryGraceTimer = RecoveryGraceSeconds;
+            participant.resetGhostTimer = ResetGhostSeconds;
 
             AiVehicleController ai = participant.GetComponent<AiVehicleController>();
             if (ai != null)
@@ -176,13 +258,17 @@ namespace LocalFormulaRacing
             }
 
             playerResetCooldown = 5f;
-            ResetParticipantToTrackCenter(participant);
+            // Rolling rejoin (per request - "when the player presses R they
+            // also start with speed like the AI do"): same 120kph the AI
+            // off-track auto-recovery rejoins at, so R no longer dumps the
+            // player at a standstill in live traffic.
+            ResetParticipantToTrackCenter(participant, 120f);
 
             // Penalty removed (per request - "pressing R should not give the
             // player a 5 second penalty"): the reset places the car at the road
-            // centre at its CURRENT distance with zero speed, so it can't gain
-            // time; the 5s reset cooldown above still prevents spamming. The AI
-            // get the identical free recovery (crash/off-track auto-reset in
+            // centre at its CURRENT distance, so it can't gain time; the 5s
+            // reset cooldown above still prevents spamming. The AI get the
+            // identical free recovery (crash/off-track auto-reset in
             // UpdateRaceControl), so this is symmetric.
             if (CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial)
             {
@@ -241,6 +327,9 @@ namespace LocalFormulaRacing
             participant.transform.position = respawnPosition;
             participant.transform.rotation = respawnRotation;
             participant.fallRespawnCooldown = 2f;
+            // Ghost window: a car that just materialised mid-track must not be
+            // T-boned by whoever was racing through that exact spot.
+            participant.resetGhostTimer = ResetGhostSeconds;
 
             // Clear the AI's transient recovery state (the real "slow from lap 2"
             // bug): without this a crash-recovered car kept executing its stale

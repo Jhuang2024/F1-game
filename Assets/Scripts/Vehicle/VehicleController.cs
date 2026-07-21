@@ -2053,11 +2053,22 @@ namespace LocalFormulaRacing
 
             if (impactType == DamageImpactType.Car)
             {
-                DampenCarContactResponse(normalSpeedKph, sustained);
+                DampenCarContactResponse(normalSpeedKph, contact.normal, sustained);
             }
             else
             {
                 DampenWallContactResponse(normalSpeedKph, contact.normal, sustained);
+
+                // Heavy-crash flag (per request - "if a car hits the barriers
+                // HARD they should just be out of the grand prix"): record the
+                // hardest fresh perpendicular wall impact; RaceManager consumes
+                // this each tick and retires the car when it crosses the DNF
+                // threshold in a race session. Fresh hits only - a sustained
+                // grind is exactly the case the bounce-off above resolves.
+                if (!sustained && normalSpeedKph > PendingHardWallImpactKph)
+                {
+                    PendingHardWallImpactKph = normalSpeedKph;
+                }
 
                 // [PitDiag] wall-contact telemetry (per report - "still get
                 // slammed into the walls when pitting", after multiple rounds
@@ -2158,11 +2169,40 @@ namespace LocalFormulaRacing
         // full-blown launch. Wall/barrier contact deliberately does NOT go
         // through this - a real impact there should still throw the car
         // around and matter physically.
-        void DampenCarContactResponse(float normalSpeedKph, bool sustained)
+        // Hardest fresh perpendicular wall/barrier impact since RaceManager
+        // last consumed it (kph). Written by ProcessDamageCollision, read and
+        // cleared by RaceManager's heavy-crash retirement check.
+        public float PendingHardWallImpactKph;
+
+        void DampenCarContactResponse(float normalSpeedKph, Vector3 contactNormal, bool sustained)
         {
             if (body == null || body.isKinematic)
             {
                 return;
+            }
+
+            // Wheel-to-wheel flick (per request - "wheel to wheel collisions
+            // should flip some cars turning the other direction"): a genuinely
+            // hard SIDE-ON car contact no longer just gets damped flat - some
+            // of them flick the car into a real rotation away from the contact,
+            // the way interlocking wheels launch a car around in real racing.
+            // Chance and violence both scale with how hard the side contact
+            // was; light rubs are unaffected and still just trade paint.
+            float sideDot = Vector3.Dot(contactNormal.sqrMagnitude > 0.001f ? contactNormal.normalized : Vector3.up, transform.right);
+            bool sideOn = Mathf.Abs(sideDot) > 0.55f;
+            if (!sustained && sideOn && normalSpeedKph > 42f)
+            {
+                float flickSeverity = Mathf.Clamp01((normalSpeedKph - 42f) / 70f);
+                if (Random.value < Mathf.Lerp(0.2f, 0.5f, flickSeverity))
+                {
+                    // Contact normal points from the other car toward us, so its
+                    // sign along our right axis says which side got hit; spin the
+                    // nose AWAY from the hit - hard cases carry the car right
+                    // around facing the other direction.
+                    float spin = Mathf.Sign(sideDot) * Mathf.Lerp(2.2f, 4.2f, flickSeverity);
+                    body.angularVelocity += Vector3.up * spin;
+                    return;
+                }
             }
 
             float severity = Mathf.Clamp01((normalSpeedKph - 30f) / 90f);
@@ -2225,6 +2265,27 @@ namespace LocalFormulaRacing
             {
                 float reboundCut = sustained ? Mathf.Lerp(0.45f, 0.7f, severity) : Mathf.Lerp(0.62f, 0.9f, severity);
                 body.velocity -= normal * reboundSpeed * reboundCut;
+            }
+
+            // Never stick to a barrier (per request - barriers are flush with
+            // the road now, so pressing/grinding against one must always
+            // resolve itself): guarantee a small MINIMUM separation velocity
+            // away from the wall along its contact normal. A fresh hit gets a
+            // visible little bounce-off; sustained contact gets a gentler but
+            // relentless push, so a car can never sit pinned/wedged on a wall
+            // - it always peels back onto the track. Applied to the horizontal
+            // component only (a wall normal with any upward tilt must not
+            // launch the car airborne).
+            Vector3 flatNormal = new Vector3(normal.x, 0f, normal.z);
+            if (flatNormal.sqrMagnitude > 0.01f)
+            {
+                flatNormal.Normalize();
+                float separation = Vector3.Dot(body.velocity, flatNormal);
+                float minSeparation = sustained ? 1.1f : 1.8f;
+                if (separation < minSeparation)
+                {
+                    body.velocity += flatNormal * (minSeparation - separation);
+                }
             }
         }
 

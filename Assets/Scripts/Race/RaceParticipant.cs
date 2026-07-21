@@ -228,6 +228,15 @@ namespace LocalFormulaRacing
         public Vector3 lastSafePosition;
         public Quaternion lastSafeRotation;
         public float fallRespawnCooldown;
+        // Post-reset ghost window (per request): any recovered/reset car - the
+        // player's R reset or an AI auto-recovery - is intangible to OTHER CARS
+        // for ~3s so nobody can plough into a car that just materialised on the
+        // racing line. Enforced through the same pairwise car-to-car
+        // IgnoreCollision path the pit sequence uses (HandlePitService owns the
+        // toggle); walls/ground still collide normally. RaceManager extends the
+        // window slightly at expiry if another car is physically overlapping so
+        // two cars can never rematerialise inside each other.
+        public float resetGhostTimer;
         // Tracks how long the car has been sitting notably below the intended
         // road height (e.g. settled on lower ground beneath an elevated section)
         // so recovery can trigger on a sustained mismatch, not only a hard fall.

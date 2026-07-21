@@ -777,6 +777,8 @@ namespace LocalFormulaRacing
                     }
                 }
 
+                UpdateResetGhost(participant);
+                HandleHeavyCrashRetirement(participant);
                 HandleFallRespawn(participant);
                 HandleStuckEscalation(participant);
                 HandleTrackLimits(participant);

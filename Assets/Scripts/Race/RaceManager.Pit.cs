@@ -41,7 +41,10 @@ namespace LocalFormulaRacing
             // pairwise Physics.IgnoreCollision - ground, kerbs and barriers
             // still collide normally, and the pairs are restored the moment
             // the car is fully back in the race.
-            SetCarToCarCollisionIgnored(participant, participant.pitPhase != PitPhase.None || participant.isPitting);
+            // Post-reset ghost (resetGhostTimer) shares the same pairwise
+            // ignore mechanism: a freshly recovered car is intangible to other
+            // cars until its window expires, exactly like a pitting one.
+            SetCarToCarCollisionIgnored(participant, participant.pitPhase != PitPhase.None || participant.isPitting || participant.resetGhostTimer > 0f);
 
             UpdateMissedPitEntryReset(participant);
 

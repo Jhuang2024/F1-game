@@ -529,7 +529,7 @@ namespace LocalFormulaRacing
                     defendCommitment = 0.30f,
                     ersDeploymentQuality = 0.70f,
                     drsUsageQuality = 0.80f,
-                    mistakeChancePerLap = 0.025f, // Error-reduction pass (was 0.08).
+                    mistakeChancePerLap = 0.012f, // Error-reduction pass 2 (0.08 -> 0.025 -> 0.012).
                     // Aggression pass (per request): every tier's caution cut so AI
                     // race for position instead of yielding it (was 1.35).
                     trafficAvoidanceCaution = 1.1f,
@@ -575,7 +575,7 @@ namespace LocalFormulaRacing
                     defendCommitment = 0.63f,
                     ersDeploymentQuality = 0.88f,
                     drsUsageQuality = 0.94f,
-                    mistakeChancePerLap = 0.013f, // Error-reduction pass (was 0.04).
+                    mistakeChancePerLap = 0.006f, // Error-reduction pass 2 (0.04 -> 0.013 -> 0.006).
                     // Aggression pass (per request): was 1.05.
                     trafficAvoidanceCaution = 0.85f,
                     wetWeatherCaution = 1.2f,
@@ -647,7 +647,7 @@ namespace LocalFormulaRacing
                     // and there are 21 AI cars - so even a low per-car rate reads
                     // as a constant stream of field-wide errors. Hard should look
                     // clean; a genuine slip stays possible but rare.
-                    mistakeChancePerLap = 0.0018f, // Error-reduction pass (was 0.005).
+                    mistakeChancePerLap = 0.0008f, // Error-reduction pass 2 (0.005 -> 0.0018 -> 0.0008).
                     // Aggression pass (per request): was 0.82.
                     // Natural-difficulty pass: trimmed again (0.62 -> 0.56) so Hard
                     // holds its line in a fight and makes the player find a way past,

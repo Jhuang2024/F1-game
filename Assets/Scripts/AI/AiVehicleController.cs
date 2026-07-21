@@ -4321,7 +4321,11 @@ namespace LocalFormulaRacing
                 // swerve). A mistake is now a believable wobble/correction, not a
                 // near lane-change; the real time-loss consequence is the
                 // braking-point error below, not the size of this steer blip.
-                mistakeSteer = Random.Range(-0.6f, 0.6f);
+                // Twitch cut again 0.6 -> 0.4 (per request, alongside halved
+                // mistake rates): with barriers now flush to the track edge a
+                // mistake twitch must never be big enough to carry a car into
+                // the wall on its own.
+                mistakeSteer = Random.Range(-0.4f, 0.4f);
                 mistakeTimer = Random.Range(0.5f, 1.2f);
 
                 // Consequence pass: a steer wobble alone is clamped back inside
