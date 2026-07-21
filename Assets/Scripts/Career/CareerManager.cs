@@ -2223,13 +2223,14 @@ namespace LocalFormulaRacing
         // historical record.
         void RepairProgressionScaleBias()
         {
-            if (Save.progressionScaleBiasRepairVersion >= 3)
+            if (Save.progressionScaleBiasRepairVersion >= 4)
             {
                 return;
             }
 
             bool runReset = Save.progressionScaleBiasRepairVersion < 2;
-            Save.progressionScaleBiasRepairVersion = 3;
+            bool runV3 = Save.progressionScaleBiasRepairVersion < 3;
+            Save.progressionScaleBiasRepairVersion = 4;
             Save.progressionScaleBiasRepaired = true;
 
             if (runReset)
@@ -2278,7 +2279,45 @@ namespace LocalFormulaRacing
             // per-stat reads still clamp to the 40-99 band, so drivers already
             // near the ceiling simply cap there.
             string playerId = Save.useExistingDriver ? Save.selectedDriverId : "player";
-            int boosted = 0;
+            if (runV3)
+            {
+                int boosted = 0;
+                for (int i = 0; i < data.Drivers.drivers.Count; i++)
+                {
+                    DriverData rosterDriver = data.Drivers.drivers[i];
+                    if (rosterDriver == null)
+                    {
+                        continue;
+                    }
+
+                    ApplyRepairStatBoost(rosterDriver.id, rosterDriver.id == playerId ? 12 : 5);
+                    boosted++;
+                }
+
+                if (!Save.useExistingDriver)
+                {
+                    ApplyRepairStatBoost("player", 12);
+                    boosted++;
+                }
+
+                Debug.Log("[ProgressionRepair] v3: field-wide rating raise applied to " + boosted +
+                    " drivers (+5 to pace/racecraft/qualifying/overtaking, ~+3 overall; player '" + playerId +
+                    "' +12, ~+7 overall = field raise + restoration of earned progression wiped by the v2 reset).");
+            }
+
+            // v4 (per request - "fix the ratings from last season too? boost
+            // everyone by another 4... including the user"): the season that
+            // rolled over BEFORE the field-relative scoring fix landed still
+            // dragged nearly the whole grid down (absolute-neutral overtaking/
+            // tyre/awareness scores - see GenerateDriverProgression), and that
+            // decline is baked into the saved modifiers. One-time restitution:
+            // +7 to the same four blend-heavy stats for EVERY driver, player
+            // included at the same amount this time (the player's rating never
+            // moved at all last rollover, so there is no extra wipe to restore
+            // beyond the shared field raise). The four stats carry 0.57 of the
+            // overall blend, so +7 stat points ~= +4 overall. Per-stat reads
+            // still clamp to 40-99, so anyone near the ceiling simply caps.
+            int raisedV4 = 0;
             for (int i = 0; i < data.Drivers.drivers.Count; i++)
             {
                 DriverData rosterDriver = data.Drivers.drivers[i];
@@ -2287,19 +2326,19 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
-                ApplyRepairStatBoost(rosterDriver.id, rosterDriver.id == playerId ? 12 : 5);
-                boosted++;
+                ApplyRepairStatBoost(rosterDriver.id, 7);
+                raisedV4++;
             }
 
             if (!Save.useExistingDriver)
             {
-                ApplyRepairStatBoost("player", 12);
-                boosted++;
+                ApplyRepairStatBoost("player", 7);
+                raisedV4++;
             }
 
-            Debug.Log("[ProgressionRepair] v3: field-wide rating raise applied to " + boosted +
-                " drivers (+5 to pace/racecraft/qualifying/overtaking, ~+3 overall; player '" + playerId +
-                "' +12, ~+7 overall = field raise + restoration of earned progression wiped by the v2 reset).");
+            Debug.Log("[ProgressionRepair] v4: last-season decline restitution applied to " + raisedV4 +
+                " drivers (+7 to pace/racecraft/qualifying/overtaking, ~+4 overall each, player '" + playerId +
+                "' included at the same amount).");
             Write();
         }
 
