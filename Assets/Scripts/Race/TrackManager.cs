@@ -287,7 +287,22 @@ namespace LocalFormulaRacing
 
                 float spanMeters = (b - a) * racingLineSpacing;
                 int gate = Mathf.RoundToInt(Mathf.Clamp(spanMeters * 0.9f, 40f, 160f) / racingLineSpacing);
-                knots.Add(new KeyValuePair<int, float>(apex, -sign * limits[apex]));
+                // Curvature-scaled apex pins (per [SwerveDiag amplitude] logs
+                // still showing drawnLine=9m+ swings after the gate cap): the
+                // corner detector counts anything under ~400m radius as a
+                // corner, and every apex was pinned to the FULL inside of the
+                // corridor - on the wide sections that is a 9m+ dive for a
+                // kink the cars take entirely flat (the AI's own severity
+                // scale calls that same road a straight, which is exactly why
+                // the diagnostic kept blaming "RACING LINE" on straights). A
+                // corner only earns its inside-apex commitment in proportion
+                // to how much geometry actually demands it: a flat-out kink
+                // (~400m radius) gets a ~15% nudge, a genuine corner (~130m
+                // and under) still uses the full inside. Gates scale down
+                // with the same factor so a kink doesn't get pointless
+                // outside-setup excursions either.
+                float apexPinDepth = Mathf.Clamp01(Mathf.InverseLerp(1f / 450f, 1f / 130f, apexCurvature));
+                knots.Add(new KeyValuePair<int, float>(apex, -sign * limits[apex] * Mathf.Lerp(0.15f, 1f, apexPinDepth)));
                 int entry = (a - gate + count * 2) % count;
                 int exit = (b + gate) % count;
                 // Gate cap in ABSOLUTE metres on top of the 0.55 fraction (per
@@ -300,8 +315,9 @@ namespace LocalFormulaRacing
                 // use a triple-wide road for setup: ~4m of offset buys nearly
                 // all the effective-radius gain. Apexes still pin to the full
                 // inside - only the outside setup excursion is capped.
-                float entryGateOffset = Mathf.Min(limits[entry] * gateOutsideScale, 4f);
-                float exitGateOffset = Mathf.Min(limits[exit] * gateOutsideScale, 4f);
+                float gateDepth = Mathf.Lerp(0.3f, 1f, apexPinDepth);
+                float entryGateOffset = Mathf.Min(limits[entry] * gateOutsideScale, 4f) * gateDepth;
+                float exitGateOffset = Mathf.Min(limits[exit] * gateOutsideScale, 4f) * gateDepth;
                 knots.Add(new KeyValuePair<int, float>(entry, sign * entryGateOffset));
                 knots.Add(new KeyValuePair<int, float>(exit, sign * exitGateOffset));
             }

@@ -2008,7 +2008,12 @@ namespace LocalFormulaRacing
                 // barriers flush to the paved edge, legalLimit IS the last safe
                 // lateral metre - a committed pass on a narrow track must not be
                 // allowed to command a target beyond it.
-                float baseBand = Mathf.Min(committedPass ? 5.5f : 3.5f, legalLimit);
+                // Pass band trimmed 5.5 -> 4.2 (amplitude logs: overtakeOff
+                // swings of 6.3-8.6m were the other big visible-swerve source;
+                // a pass needs about a car width plus margin of lateral
+                // clearance from the target's line, not five and a half
+                // metres of dart).
+                float baseBand = Mathf.Min(committedPass ? 4.2f : 3.5f, legalLimit);
                 float cornerOpen = Mathf.InverseLerp(0.18f, 0.34f, severityHere);
                 float safeBand = Mathf.Lerp(baseBand, Mathf.Max(baseBand, legalLimit), cornerOpen);
                 requestedOffset = Mathf.Clamp(requestedOffset, -safeBand, safeBand);

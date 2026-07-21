@@ -31,7 +31,14 @@ namespace LocalFormulaRacing
         // - the crash a real car doesn't drive away from - while fast glancing
         // wall contact scrubs off and bounces free like it should. The launch
         // exemption is widened to cover the whole opening scrum.
-        const float HardWallRetireImpactKph = 150f;
+        // Raised 150 -> 180 (per report - "cars being out are still a
+        // problem", ~10 of 22 OUT): while the realistic-grip transition
+        // settles, residual AI wall contacts remain more common than the DNF
+        // rule was tuned for, and each 150+ hit permanently removed a car.
+        // 180kph perpendicular is a genuinely unsurvivable head-on; anything
+        // below bounces off damaged (and pays through the damage model, which
+        // can still retire a repeatedly-crashing car via Collision damage).
+        const float HardWallRetireImpactKph = 180f;
         const float HardWallRetireMinRaceSeconds = 25f;
 
         void UpdateResetGhost(RaceParticipant participant)
