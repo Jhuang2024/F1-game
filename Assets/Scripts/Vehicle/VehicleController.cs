@@ -2174,6 +2174,12 @@ namespace LocalFormulaRacing
         // cleared by RaceManager's heavy-crash retirement check.
         public float PendingHardWallImpactKph;
 
+        // Set by RaceManager each tick: wheel-to-wheel flicks are disabled
+        // during the launch scrum (start-massacre fix - random spins at grid
+        // density fired cars into the walls en masse) and only arm once the
+        // field has begun to string out.
+        public bool ContactFlickEnabled;
+
         void DampenCarContactResponse(float normalSpeedKph, Vector3 contactNormal, bool sustained)
         {
             if (body == null || body.isKinematic)
@@ -2188,11 +2194,16 @@ namespace LocalFormulaRacing
             // the way interlocking wheels launch a car around in real racing.
             // Chance and violence both scale with how hard the side contact
             // was; light rubs are unaffected and still just trade paint.
+            // Threshold raised 42 -> 58kph and gated off during the launch
+            // (ContactFlickEnabled): in the grid scrum side contact is constant,
+            // so per-hit flick chances compounded into most of the field
+            // spinning inside the first corners - reserved for genuinely hard
+            // racing hits once the field is strung out.
             float sideDot = Vector3.Dot(contactNormal.sqrMagnitude > 0.001f ? contactNormal.normalized : Vector3.up, transform.right);
             bool sideOn = Mathf.Abs(sideDot) > 0.55f;
-            if (!sustained && sideOn && normalSpeedKph > 42f)
+            if (!sustained && sideOn && ContactFlickEnabled && normalSpeedKph > 58f)
             {
-                float flickSeverity = Mathf.Clamp01((normalSpeedKph - 42f) / 70f);
+                float flickSeverity = Mathf.Clamp01((normalSpeedKph - 58f) / 70f);
                 if (Random.value < Mathf.Lerp(0.2f, 0.5f, flickSeverity))
                 {
                     // Contact normal points from the other car toward us, so its

@@ -24,7 +24,15 @@ namespace LocalFormulaRacing
         // Heavy-crash DNF (per request - "if a car hits the barriers HARD they
         // should just be out of the grand prix"): perpendicular wall-impact
         // speed above which a race-session car retires on the spot.
-        const float HardWallRetireImpactKph = 110f;
+        // Start-massacre recalibration (18 of 21 AI OUT in 15s): at 350kph even
+        // a ~20-degree glancing brush along a flush wall carries a 110+kph
+        // perpendicular component, so the first-corner scrum mass-retired the
+        // field. 150kph perpendicular means a genuine head-on/deep-angle shunt
+        // - the crash a real car doesn't drive away from - while fast glancing
+        // wall contact scrubs off and bounces free like it should. The launch
+        // exemption is widened to cover the whole opening scrum.
+        const float HardWallRetireImpactKph = 150f;
+        const float HardWallRetireMinRaceSeconds = 25f;
 
         void UpdateResetGhost(RaceParticipant participant)
         {
@@ -74,6 +82,12 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // Wheel-to-wheel flicks stay disarmed through the launch scrum
+            // (see VehicleController.ContactFlickEnabled) - constant grid-
+            // density side contact plus random spins was most of the start
+            // massacre on its own.
+            participant.vehicle.ContactFlickEnabled = RaceElapsed > HardWallRetireMinRaceSeconds;
+
             float impactKph = participant.vehicle.PendingHardWallImpactKph;
             if (impactKph <= 0f)
             {
@@ -82,7 +96,7 @@ namespace LocalFormulaRacing
 
             participant.vehicle.PendingHardWallImpactKph = 0f;
             bool raceSession = (CurrentSession == RaceWeekendSession.Race || CurrentSession == RaceWeekendSession.QuickRace) && !IsTimeTrial;
-            if (!raceSession || participant.retired || participant.finished || RaceElapsed < 5f)
+            if (!raceSession || participant.retired || participant.finished || RaceElapsed < HardWallRetireMinRaceSeconds)
             {
                 return;
             }

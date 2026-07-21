@@ -4453,7 +4453,14 @@ namespace LocalFormulaRacing
             bool eitherUnderPitLimiter = vehicle.PitLimiterActive || (ahead != null && ahead.vehicle != null && ahead.vehicle.PitLimiterActive);
             // Blue flag: a car being lapped must not fight the traffic lapping
             // it (FlagRules.MustYield) - no new attacks while the flag is shown.
-            bool suppressAttackManeuvers = pitZoneNearby || eitherUnderPitLimiter || raceManager.IsShownBlueFlag(participant);
+            // Launch discipline (start-massacre fix - 18 of 21 AI out inside
+            // 15s): attack maneuvers had NO launch gating, so cars threw
+            // full-commitment 6m lateral swings from second zero at maximum
+            // grid density, spinning each other into the now-flush walls.
+            // Real drivers hold their lane and survive the opening scrum; no
+            // new attacks until the field has had a chance to string out.
+            bool launchScrum = raceManager.RaceElapsed < 12f && raceManager.CurrentSession != RaceWeekendSession.Qualifying;
+            bool suppressAttackManeuvers = pitZoneNearby || eitherUnderPitLimiter || launchScrum || raceManager.IsShownBlueFlag(participant);
             if (suppressAttackManeuvers && overtakeState != OvertakeState.Following && overtakeState != OvertakeState.BackingOut && overtakeState != OvertakeState.CompletingPass)
             {
                 overtakeState = OvertakeState.BackingOut;
