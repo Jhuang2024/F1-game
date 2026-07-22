@@ -2374,6 +2374,7 @@ namespace LocalFormulaRacing
             ResolveOverlappingBarrierColliders();
             ValidateBarrierPocketFree();
             ValidateNoSolidObstaclesInsideDrivingCorridors();
+            SweepPitRampEnvelopeClear();
             ValidateSceneryGrounding();
             DiagnoseRoadSurfaceMaterials();
             ValidateBarrierSmoothness();
@@ -6339,9 +6340,24 @@ namespace LocalFormulaRacing
         // being exactly this wall).
         float PitContainedRightLateral(float midDistance, float normalized, float baseLateral)
         {
-            const float maxPitBulgeMeters = 8f;
+            // Pit-entry slam fix (per report - "im still slamming into the
+            // barriers on pit entry and so are the AI"): the old 8m bulge cap
+            // (Min(pitMinimum, baseLateral + 8)) was meant to stop the Monza
+            // open-grass ballooning, but PitMinimumOuterLateral is the
+            // drivable pit surface's own outer edge at this EXACT distance -
+            // through the entry-ramp taper it legitimately reaches 15-25m
+            // past the centreline, so beyond mid-ramp the 8m cap won the Min
+            // and planted the "corner containment" wall INSIDE the drivable
+            // ramp. Every pitting car (player and AI alike - both follow the
+            // same ramp envelope) then drove the guided entry line straight
+            // into a wall. The drivable-surface floor is absolute: the
+            // contained wall may hug the corner, but never stand on the lane
+            // itself. The Monza case stays covered because pitMinimum tracks
+            // the envelope tightly - near the ramp's start it sits close to
+            // the flush track edge, so the wall only moves out exactly where
+            // (and as far as) the paved ramp actually exists beneath it.
             float pitMinimum = PitMinimumOuterLateral(midDistance, normalized);
-            return Mathf.Max(baseLateral, Mathf.Min(pitMinimum, baseLateral + maxPitBulgeMeters));
+            return Mathf.Max(baseLateral, pitMinimum);
         }
 
         // ---------- pit lane / track divider ----------
@@ -7787,6 +7803,110 @@ namespace LocalFormulaRacing
             {
                 GameLog.Warn("[TrackValidation] Removed " + removed + " intrusive solid obstacle(s) on " + Runtime.displayName + " in the post-build corridor sweep.");
             }
+        }
+
+        // Pit-ramp slam sweep (per report - "im still slamming into the
+        // barriers on pit entry and so are the AI"): physics-level companion
+        // to ValidateNoSolidObstaclesInsideDrivingCorridors. That sweep tests
+        // each registered obstacle's own SPARSE footprint samples against the
+        // corridors; a long wall segment crossing the ramp diagonally can
+        // thread between those samples and survive. This walks the drivable
+        // ramp envelope itself with OverlapBox at a fine step and demotes any
+        // barrier-family collider standing inside it - so a wall on the pit
+        // path becomes a named log line and a visual, never a crash.
+        void SweepPitRampEnvelopeClear()
+        {
+            if (Runtime == null || Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            Physics.SyncTransforms();
+            int demoted = 0;
+            // The entry sweep stops short of the corridor start so the pit
+            // divider's legitimate leading segment (which begins exactly
+            // there) is never swept up; the exit sweep starts past the
+            // divider's end for the same reason.
+            demoted += SweepPitRampWindow(PitZoneEntryRampStart, PitZoneEntryRampEnd, 8f);
+            demoted += SweepPitRampWindow(PitZoneExitRampStart, PitZoneExitRampEnd, 8f);
+            if (demoted > 0)
+            {
+                GameLog.Warn("[PitRampSweep] Demoted " + demoted + " barrier collider(s) standing inside the pit ramp envelopes on " + Runtime.displayName + ".");
+            }
+        }
+
+        int SweepPitRampWindow(float startNormalized, float endNormalized, float stepMeters)
+        {
+            float startDistance = Runtime.WrapDistance(startNormalized * Runtime.length);
+            float span = (endNormalized - startNormalized) * Runtime.length;
+            if (span <= 0f)
+            {
+                span += Runtime.length;
+            }
+
+            // Margin at both ends: the seam segments there (divider head,
+            // corridor walls) are legitimate boundary geometry.
+            const float endMargin = 7f;
+            int demoted = 0;
+            for (float d = endMargin; d < span - endMargin; d += stepMeters)
+            {
+                float distance = Runtime.WrapDistance(startDistance + d);
+                float normalized = distance / Runtime.length;
+                float rampLateral;
+                float rampHalfWidth;
+                PitRampEnvelopeAt(normalized, distance, out rampLateral, out rampHalfWidth);
+                // Inset from the envelope edge: the flush guide walls ALONG the
+                // ramp boundary are supposed to be there - only something
+                // genuinely inside the drivable width counts.
+                float boxHalfWidth = rampHalfWidth - 0.7f;
+                if (boxHalfWidth <= 0.4f)
+                {
+                    continue;
+                }
+
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(distance, out point, out forward, out right);
+                Vector3 center = point + right * rampLateral + Vector3.up * 1.0f;
+                Collider[] hits = Physics.OverlapBox(center, new Vector3(boxHalfWidth, 0.8f, stepMeters * 0.5f), Quaternion.LookRotation(forward, Vector3.up));
+                for (int i = 0; i < hits.Length; i++)
+                {
+                    if (hits[i] == null)
+                    {
+                        continue;
+                    }
+
+                    TrackSolidObstacle solid = hits[i].GetComponentInParent<TrackSolidObstacle>();
+                    if (solid == null || !solid.enabled)
+                    {
+                        continue;
+                    }
+
+                    string type = solid.obstacleType ?? "";
+                    bool barrierFamily = type.Contains("wall") || type.Contains("barrier") || type.Contains("rail") ||
+                                         type.Contains("divider") || type.Contains("fence") || type.Contains("auto-fill");
+                    if (!barrierFamily)
+                    {
+                        continue;
+                    }
+
+                    // Cross-deck guard (same idea as IsSolidObstaclePlacementValid):
+                    // a wall on a flyover leg high above/below the ramp is not on it.
+                    if (Mathf.Abs(solid.transform.position.y - point.y) > 4f)
+                    {
+                        continue;
+                    }
+
+                    GameLog.Warn("[PitRampSweep] Barrier collider '" + type + "' inside the pit ramp at norm " +
+                                 normalized.ToString("0.000") + " (lateral envelope " + (rampLateral - rampHalfWidth).ToString("0.0") +
+                                 ".." + (rampLateral + rampHalfWidth).ToString("0.0") + "m) - demoted to visual.");
+                    DemoteBarrierColliderToVisual(solid);
+                    demoted++;
+                }
+            }
+
+            return demoted;
         }
 
         // Real measured distance (metres) from a point on the true track edge
