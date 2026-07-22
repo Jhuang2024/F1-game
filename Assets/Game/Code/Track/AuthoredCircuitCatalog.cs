@@ -822,7 +822,20 @@ namespace F1Game.Track
                 sketchLength += Vector3.Distance(sketch[i], sketch[(i + 1) % sketch.Length]);
             }
 
-            float scale = sketchLength > 1f ? spec.TargetLengthMeters / sketchLength : 1f;
+            // Corner-tightening / pace fix. Authored circuits skip TrackManager's
+            // NormalizeTrackLength, so THIS scale is a track's final size - and it
+            // is applied UNIFORMLY, so shrinking length also shrinks every corner
+            // radius by the same factor. The per-track TargetLengthMeters were
+            // inflated (~8.3km Monza/Silverstone, 8.75km Spa) versus real circuits,
+            // which blew corner radii up to ~100-240m (real F1 hairpins ~15-30m) so
+            // the field held near-top-speed through them - [PaceDiag] showed lap
+            // AVERAGES of 280-360 km/h, physically impossible (real circuits average
+            // ~210-230). AuthoredCircuitLengthScale pulls every circuit back toward
+            // real proportions, tightening all corners by the same factor. Tune
+            // against the [PaceDiag] avgSpeed line; still far above the ~28m
+            // drivable-radius floor so nothing becomes uncornerable.
+            const float AuthoredCircuitLengthScale = 0.58f;
+            float scale = sketchLength > 1f ? (spec.TargetLengthMeters * AuthoredCircuitLengthScale) / sketchLength : 1f;
             // Same gentle elevation treatment the legacy normalize pass applied.
             float elevationScale = Mathf.Pow(scale, 0.55f);
 
