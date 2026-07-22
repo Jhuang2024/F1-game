@@ -201,7 +201,14 @@ namespace LocalFormulaRacing
                 // season's do. A backmarker now leaves ~28% of the car on the
                 // table (was 22%). Ceiling stays exactly 1.0 - the best AI use
                 // precisely the player's machinery, never more.
-                float gripUtilization = Mathf.Lerp(0.72f, 1f, skillNorm);
+                // Pulled back up 0.72 -> 0.84 (per report + [PaceDiag]: the
+                // elite tier already matches the player - 1:25.5 vs 1:25.2 -
+                // but the rest of the field sat 3-10s off, reading as
+                // "egregiously slow"). A backmarker now leaves ~16% of the
+                // car on the table: still a genuine, race-deciding skill
+                // spread, but the whole field races at a respectable level.
+                // Ceiling stays exactly 1.0 - never an unfair advantage.
+                float gripUtilization = Mathf.Lerp(0.84f, 1f, skillNorm);
                 controller.SetAiPerformanceAssist(0f, gripUtilization);
                 // Unconditional diagnostic ([PlayerCar]/[QualiSim] pattern, per
                 // report - "I don't know what you did with the skill level but

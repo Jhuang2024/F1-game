@@ -1525,7 +1525,13 @@ namespace LocalFormulaRacing
             // now runs at 98% of the physics envelope with the reflex/edge/
             // rescue nets as the backstop; the crash-prone pre-rework 0.99
             // ceiling stays untouched.
-            float tightCornerJudgment = Mathf.Lerp(0.91f, 0.98f, paceNorm);
+            // Floor 0.91 -> 0.94 ("make them faster naturally"): the spread
+            // was double-counted - gripUtilization already scales the physics
+            // envelope by skill, and this judgment band then took a second
+            // skill-scaled bite out of the already-reduced envelope. The
+            // ceiling stays 0.98; the floor compresses so the field's corner
+            // pace is respectable at every tier.
+            float tightCornerJudgment = Mathf.Lerp(0.94f, 0.98f, paceNorm);
             // [SwerveTape] round 3 (the fast-sweeper crash signature): every
             // wall-hit tape now shows the same thing - sev 0.1-0.35 corners
             // taken at 350-390kph with the final steer PINNED at full lock for
@@ -2639,7 +2645,17 @@ namespace LocalFormulaRacing
             // arrivals every frame and keeps ~12% headroom on top.
             // Overall-pace round: 24-38 -> 26-40, closing more of the gap to
             // the availableDecel envelope the closed-loop demand trusts.
-            float decelReference = Mathf.Lerp(26f, 40f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1.05f, 1.5f, skillTier);
+            // Low-grip round (per report - "the AI are still extremely
+            // terrible at handling the low grip especially when it starts
+            // raining on a dry track"): both this planning decel and the
+            // availableDecel below were FIXED dry-baseline numbers, while the
+            // physical brake force scales with Tyres.BrakingMultiplier - cold
+            // slicks at rain onset cut real capability ~30%, so the AI kept
+            // braking at dry distances and arrived hot at every single zone.
+            // Both now scale by the live factor, so brake points move out
+            // exactly as far as the car's real braking has shrunk.
+            float liveBrakeGrip = vehicle.LiveBrakingGripFactor;
+            float decelReference = Mathf.Lerp(26f, 40f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1.05f, 1.5f, skillTier) * liveBrakeGrip;
             // brakeConfidenceMultiplier folds in on top of brakeDistanceMultiplier so
             // Hard/Expert genuinely brake later/shorter, not just via the weaker base
             // multiplier alone: >1 shortens the effective distance (brakes later),
@@ -2728,7 +2744,8 @@ namespace LocalFormulaRacing
                 float remainingMeters = Mathf.Max(1.5f, apexDistanceAhead);
                 float requiredDecel = Mathf.Max(0f, v0 * v0 - v1 * v1) / (2f * remainingMeters);
                 float availableDecel = Mathf.Lerp(34f, 59f, Mathf.Clamp01(brakingStat / 100f))
-                    * Mathf.Lerp(1.05f, 1.4f, Mathf.InverseLerp(80f, 330f, speedKph));
+                    * Mathf.Lerp(1.05f, 1.4f, Mathf.InverseLerp(80f, 330f, speedKph))
+                    * liveBrakeGrip;
                 brakeDemand = Mathf.Clamp01(requiredDecel * 1.12f / Mathf.Max(8f, availableDecel));
             }
 

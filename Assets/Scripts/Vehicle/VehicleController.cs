@@ -971,13 +971,17 @@ namespace LocalFormulaRacing
                 // leaves a large physical reserve, the 0.92 corner-speed
                 // margin is untouched, and the strong pedal response ramps to
                 // full brake quickly if the gap is genuinely closing too fast.
-                const float AssistDecelMs2 = 32f;
+                // Low-grip round: scaled by the live braking capability - cold
+                // slicks at rain onset cut the real brake force ~30%, and a
+                // fixed trusted decel made the assist open its zones at dry
+                // distances exactly when the car could least afford it.
+                float assistDecelMs2 = 32f * LiveBrakingGripFactor;
                 float assistTargetKph = float.MaxValue;
                 float scanEnd = Mathf.Max(100f, speedKph * 1.25f);
                 for (float ahead = 15f; ahead <= scanEnd; ahead += 15f)
                 {
                     float cornerMs = MaxCorneringSpeedKph(Track.CurvatureRadiusAt(progress.distance + ahead)) * 0.92f / 3.6f;
-                    float allowedNowKph = Mathf.Sqrt(cornerMs * cornerMs + 2f * AssistDecelMs2 * ahead) * 3.6f;
+                    float allowedNowKph = Mathf.Sqrt(cornerMs * cornerMs + 2f * assistDecelMs2 * ahead) * 3.6f;
                     assistTargetKph = Mathf.Min(assistTargetKph, allowedNowKph);
                 }
 
@@ -1795,6 +1799,32 @@ namespace LocalFormulaRacing
         // damped fixed-point iteration (omega falls as v rises, so the
         // iteration converges in a handful of steps). Weather/tyre/damage all
         // flow in through MaxYawRateDegPerSec's own reads.
+        /// <summary>
+        /// Live braking capability relative to the fresh-tyre, in-window
+        /// baseline the AI's planning numbers and the brake assist were tuned
+        /// against. The PHYSICAL brake force already scales with
+        /// Tyres.BrakingMultiplier (temperature window, wear, flat spots) -
+        /// cold slicks when rain arrives on a dry track cut it by ~30% - but
+        /// the planners assumed the dry baseline and arrived hot at every
+        /// zone. Consumers multiply their trusted deceleration by this so
+        /// braking distances stretch exactly as far as the car's real
+        /// capability has shrunk.
+        /// </summary>
+        public float LiveBrakingGripFactor
+        {
+            get
+            {
+                if (Tyres == null)
+                {
+                    return 1f;
+                }
+
+                // 1.12 = BrakingMultiplier at fresh wear + in-window temps,
+                // i.e. the state the dry planning constants were tuned in.
+                return Mathf.Clamp(Tyres.BrakingMultiplier / 1.12f, 0.35f, 1.05f);
+            }
+        }
+
         public float MaxCorneringSpeedKph(float radiusMeters)
         {
             float radius = Mathf.Max(6f, radiusMeters);
