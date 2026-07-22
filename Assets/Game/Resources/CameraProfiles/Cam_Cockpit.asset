@@ -18,7 +18,7 @@ MonoBehaviour:
   followDamping: 0.0
   rotationDamping: 0.0
   horizonStability: 0.1
-  baseFov: 62
+  baseFov: 66
   fovSpeedWiden: 6
   fovDamping: 2.5
   impactImpulseScale: 1.2

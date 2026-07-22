@@ -218,13 +218,14 @@ namespace F1Game.Cameras
                     break;
                 case CameraProfile.Kind.Cockpit:
                     // Driver's eye line; head-space pieces are culled via
-                    // CockpitHiddenLayer (see SetActive). Raised and pulled
-                    // back a touch from (0.88, 0.38) per report - the lower/
-                    // forward point left the car's own nose bodywork walling
-                    // off the road ahead; from up here the view clears the
-                    // nose while the (input-animated) wheel and gloved hands
-                    // stay in the lower frame.
-                    localPosition = new Vector3(0f, 0.94f, 0.3f);
+                    // CockpitHiddenLayer (see SetActive). Re-framed per report
+                    // ("cant even see the steering wheel"): (0.94, 0.30) sat
+                    // exactly between the suit arms' rear ends and their bulk
+                    // buried the wheel; forward of the arm butts at z 0.40 the
+                    // arms drop below frame and the stronger mount down-tilt
+                    // below brings the wheel face into the lower frame while
+                    // the height keeps the nose off the sightline.
+                    localPosition = new Vector3(0f, 0.92f, 0.4f);
                     break;
                 case CameraProfile.Kind.Nose:
                     localPosition = new Vector3(0f, 0.35f, 2.7f);
@@ -236,12 +237,15 @@ namespace F1Game.Cameras
             var fallback = new GameObject("Runtime " + kind + " camera mount").transform;
             fallback.SetParent(car, false);
             fallback.localPosition = localPosition;
-            // Slight down-tilt on the onboard mounts so the wheel/hands (and
-            // from the T-cam, the helmet) sit properly in frame rather than
+            // Down-tilt on the onboard mounts so the wheel/hands (and from
+            // the T-cam, the helmet) sit properly in frame rather than
             // hugging the bottom edge; hard-locked vcams inherit the mount
-            // rotation verbatim (SameAsFollowTarget).
+            // rotation verbatim (SameAsFollowTarget). Cockpit 4.5 -> 9: with
+            // the eye re-framed forward the wheel face needs the stronger
+            // tilt to fill the lower frame ("cant even see the steering
+            // wheel" report).
             fallback.localRotation = kind == CameraProfile.Kind.Cockpit
-                ? Quaternion.Euler(4.5f, 0f, 0f)
+                ? Quaternion.Euler(9f, 0f, 0f)
                 : (kind == CameraProfile.Kind.TCam ? Quaternion.Euler(6f, 0f, 0f) : Quaternion.identity);
             Debug.LogWarning("[Cameras] Missing authored " + kind + " mount; using runtime fallback at " + localPosition + ".");
             return fallback;

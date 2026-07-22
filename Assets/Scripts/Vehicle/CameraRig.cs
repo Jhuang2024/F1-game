@@ -107,14 +107,26 @@ namespace LocalFormulaRacing
             new Vector3(0f, 4.1f, -11.4f),
             // Driver eye. Head-space clutter (helmet, visor stripe, halo
             // centre post, halo rim slab) is moved to CockpitHiddenLayer and
-            // culled from this view only. Raised and pulled back a touch from
-            // (0.88, 0.38) per report - from the lower/forward point the
-            // car's own nose bodywork walled off the road ahead; from up here
-            // the view clears the nose while the wheel and hands stay in the
-            // lower frame.
-            new Vector3(0f, 0.94f, 0.3f),
+            // culled from this view only. Re-framed per report ("cant even
+            // see the steering wheel"): the previous (0.94, 0.30) point sat
+            // exactly between the suit arms' rear ends (x +-0.14, z ~0.29) -
+            // two suit-coloured blocks filled the lower frame and buried the
+            // wheel. Forward of the arm butts at z 0.40 the arms fall below
+            // the frame edge and the wheel top + gloves read cleanly, and the
+            // stronger down-tilt (see the hard-mount branch) brings the wheel
+            // face properly into the lower frame while the height keeps the
+            // nose from walling off the road.
+            new Vector3(0f, 0.92f, 0.4f),
             new Vector3(0f, 1.16f, -0.52f),
-            new Vector3(0f, 2.02f, 1.55f),
+            // Halo cam, now a real ON-CAR mount (per report - "the third
+            // camera view is supposed to be on the car"): the old
+            // (0, 2.02, 1.55) point HOVERED two metres up and 1.5m ahead of
+            // the car looking back at it - the only angle in the onboard
+            // group not physically attached to anything. It now sits just
+            // above the halo rim looking forward, high/back enough that the
+            // halo centre post (top y=0.97, z 0.48-0.56) stays outside the
+            // 0.12m near plane instead of clipping through it.
+            new Vector3(0f, 1.06f, 0.38f),
             new Vector3(0f, 26f, -11f),
             new Vector3(0f, 0.58f, 2.3f),
             new Vector3(3.6f, 1.5f, -5.6f)
@@ -300,7 +312,8 @@ namespace LocalFormulaRacing
             {
                 // Driver-eye cockpit: wide enough to keep the wheel and both
                 // mirrorscape edges in frame, with gentle speed widening.
-                return baseFov + 6f + speed01 * 6f;
+                // +6 -> +8 with the re-framed eye point so wheel AND road fit.
+                return baseFov + 8f + speed01 * 6f;
             }
 
             if (mode == 2)
@@ -443,16 +456,18 @@ namespace LocalFormulaRacing
             Vector3 offset = offsets[mode];
             Vector3 desired;
             Quaternion desiredRotation;
-            if (mode == 1 || mode == 2)
+            if (mode == 1 || mode == 2 || mode == 3)
             {
-                // Driver-eye (1) and airbox (2) are rigid onboard mounts: the
-                // camera lives at a fixed point in car space and looks straight
-                // down the chassis with the car's own up vector, so it banks
-                // and pitches with the car exactly like a real onboard. The
-                // slight downward tilt keeps the wheel/helmet in frame - a bit
-                // more from the airbox since it sits higher and further back.
+                // Driver-eye (1), airbox (2) and halo (3) are rigid onboard
+                // mounts: the camera lives at a fixed point in car space and
+                // looks straight down the chassis with the car's own up
+                // vector, so it banks and pitches with the car exactly like a
+                // real onboard. Per-mount down-tilt frames each view: the
+                // driver-eye needs the most (the wheel sits well below the
+                // eye line), the airbox a little less, the halo in between.
                 desired = target.TransformPoint(offset);
-                desiredRotation = Quaternion.LookRotation(target.forward + target.up * (mode == 2 ? -0.10f : -0.08f), target.up);
+                float onboardTilt = mode == 1 ? -0.16f : (mode == 2 ? -0.10f : -0.12f);
+                desiredRotation = Quaternion.LookRotation(target.forward + target.up * onboardTilt, target.up);
             }
             else if (mode == 4)
             {
@@ -500,9 +515,9 @@ namespace LocalFormulaRacing
                 // behind the front-wheel turn-in.
                 smoothedCornerSignal = Mathf.Lerp(smoothedCornerSignal, rawCornerSignal, 1f - Mathf.Exp(-dt * 9.5f));
                 float cornerSignal = smoothedCornerSignal;
-                float cornerBiasScale = mode == 3 || mode == 5 ? Mathf.Lerp(0.12f, 0.5f, speed01) : Mathf.Lerp(0.25f, 1.4f, speed01);
+                float cornerBiasScale = mode == 5 ? Mathf.Lerp(0.12f, 0.5f, speed01) : Mathf.Lerp(0.25f, 1.4f, speed01);
                 Vector3 cornerBias = target.right * cornerSignal * cornerBiasScale;
-                Vector3 lookTarget = target.position + Vector3.up * 1.05f + velocitySmoothed * (mode == 3 ? 0.07f : 0.2f) + cornerBias;
+                Vector3 lookTarget = target.position + Vector3.up * 1.05f + velocitySmoothed * 0.2f + cornerBias;
                 Vector3 lookDirection = lookTarget - desired;
                 if (mode == 5)
                 {
@@ -519,7 +534,7 @@ namespace LocalFormulaRacing
 
                 // Corner lean from lateral velocity sells the load transfer, kept mild.
                 float lateral = Vector3.Dot(velocitySmoothed, target.right);
-                float rollClamp = mode == 3 ? 1.6f : 1.2f;
+                float rollClamp = 1.2f;
                 float targetRoll = Mathf.Clamp(-lateral * 0.05f, -rollClamp, rollClamp);
                 rollAngle = Mathf.Lerp(rollAngle, targetRoll, dt * 4f);
                 desiredRotation *= Quaternion.Euler(0f, 0f, rollAngle);
@@ -575,8 +590,8 @@ namespace LocalFormulaRacing
             // (that's what reads as fast on screen), but the floor is raised a
             // little from the old 5.6/6.6 so the camera never feels fully
             // detached from the car at v-max - just looser, not laggy.
-            float baseFollowRate = mode == 1 || mode == 2 ? 45f : (mode == 3 || mode == 5 ? 17f : (mode == 4 ? 3.2f : (mode == 6 ? Mathf.Lerp(4.6f, 3.4f, speed01) : Mathf.Lerp(11.5f, 6.4f, speed01))));
-            float baseRotRate = mode == 1 || mode == 2 ? 35f : (chaseLike ? Mathf.Lerp(9.6f, 7.2f, speed01) : (mode == 6 ? 5.4f : 8.2f));
+            float baseFollowRate = mode == 1 || mode == 2 || mode == 3 ? 45f : (mode == 5 ? 17f : (mode == 4 ? 3.2f : (mode == 6 ? Mathf.Lerp(4.6f, 3.4f, speed01) : Mathf.Lerp(11.5f, 6.4f, speed01))));
+            float baseRotRate = mode == 1 || mode == 2 || mode == 3 ? 35f : (chaseLike ? Mathf.Lerp(9.6f, 7.2f, speed01) : (mode == 6 ? 5.4f : 8.2f));
             float followRate = Mathf.Lerp(baseFollowRate * 0.35f, baseFollowRate, blendEase);
             float rotRate = Mathf.Lerp(baseRotRate * 0.35f, baseRotRate, blendEase);
 
@@ -590,7 +605,7 @@ namespace LocalFormulaRacing
             // rotRate, never the position followRate, so the camera still
             // tracks the car's location precisely through a spin - it just
             // stops snapping its facing to match every instant of rotation.
-            float spinRecoveryEase = mode == 4 || mode == 1 || mode == 2 ? 0f : spinRecoveryAmount;
+            float spinRecoveryEase = mode == 4 || mode == 1 || mode == 2 || mode == 3 ? 0f : spinRecoveryAmount;
             if (spinRecoveryEase > 0f)
             {
                 rotRate = Mathf.Lerp(rotRate, rotRate * 0.4f, spinRecoveryEase);
@@ -776,7 +791,7 @@ namespace LocalFormulaRacing
             // side cinematic shot is meant to feel like a composed camera
             // operator, not something bolted to the chassis, so it gets the
             // most damping of all.
-            float modeShakeMultiplier = mode == 5 ? 1.22f : (mode == 1 || mode == 2 ? 0.6f : (mode == 3 ? 0.85f : (mode == 6 ? 0.7f : 1f)));
+            float modeShakeMultiplier = mode == 5 ? 1.22f : (mode == 1 || mode == 2 || mode == 3 ? 0.6f : (mode == 6 ? 0.7f : 1f));
             return (rumbleOffset + judderOffset + offTrackOffset + impactOffset + clatterOffset) * shakeStrength * 1.6f * modeShakeMultiplier;
         }
 

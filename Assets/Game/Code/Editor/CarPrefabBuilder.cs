@@ -97,7 +97,7 @@ namespace F1Game.Editor
             // helmet + wheel + road, the cockpit cam at the driver's eye line
             // behind the wheel.
             Anchor(root, CarRigSpec.CamTCam, new Vector3(0f, 1.16f, -0.52f));
-            Anchor(root, CarRigSpec.CamCockpit, new Vector3(0f, 0.94f, 0.3f));
+            Anchor(root, CarRigSpec.CamCockpit, new Vector3(0f, 0.92f, 0.4f));
             Anchor(root, CarRigSpec.CamNose, new Vector3(0f, 0.35f, 2.7f));
 
             Anchor(root, CarRigSpec.AudioEngine, new Vector3(0f, 0.5f, -1.6f));
