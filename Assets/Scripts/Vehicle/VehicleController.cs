@@ -959,7 +959,15 @@ namespace LocalFormulaRacing
                 // 0.97 -> 0.92 (arrives with real reserve instead of exactly
                 // at the limit), a longer scan so 400kph runs see the corner
                 // sooner, and a stronger pedal response per kph of overshoot.
-                const float AssistDecelMs2 = 21f;
+                // Braking-point round (per report - "they brake SO EARLY...
+                // this applies to the assist as well"): 21 -> 32. The buff
+                // above overshot into molasses - the car can physically pull
+                // 60-90 m/s^2, so trusting 21 opened braking zones ~50%
+                // further out than even a cautious human line. 32 still
+                // leaves a large physical reserve, the 0.92 corner-speed
+                // margin is untouched, and the strong pedal response ramps to
+                // full brake quickly if the gap is genuinely closing too fast.
+                const float AssistDecelMs2 = 32f;
                 float assistTargetKph = float.MaxValue;
                 float scanEnd = Mathf.Max(100f, speedKph * 1.25f);
                 for (float ahead = 15f; ahead <= scanEnd; ahead += 15f)

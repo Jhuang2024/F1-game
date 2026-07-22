@@ -217,13 +217,14 @@ namespace F1Game.Cameras
                     localPosition = new Vector3(0f, 1.16f, -0.52f);
                     break;
                 case CameraProfile.Kind.Cockpit:
-                    // Driver's eye line, raised/advanced clear of the visor
-                    // stripe, halo stays and suit-arm tips (they all end
-                    // behind z=0.38); the helmet and halo slab pieces that
-                    // would still intrude are culled via CockpitHiddenLayer
-                    // (see SetActive). The (input-animated) wheel and gloved
-                    // hands fill the lower frame with the road beyond.
-                    localPosition = new Vector3(0f, 0.88f, 0.38f);
+                    // Driver's eye line; head-space pieces are culled via
+                    // CockpitHiddenLayer (see SetActive). Raised and pulled
+                    // back a touch from (0.88, 0.38) per report - the lower/
+                    // forward point left the car's own nose bodywork walling
+                    // off the road ahead; from up here the view clears the
+                    // nose while the (input-animated) wheel and gloved hands
+                    // stay in the lower frame.
+                    localPosition = new Vector3(0f, 0.94f, 0.3f);
                     break;
                 case CameraProfile.Kind.Nose:
                     localPosition = new Vector3(0f, 0.35f, 2.7f);

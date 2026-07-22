@@ -2598,6 +2598,19 @@ namespace LocalFormulaRacing
             // required delta approaches hairpin scale.
             float stopSizeKph = Mathf.Max(0f, speedKph - brakingApexSpeed);
             float bigStopBlend = Mathf.Clamp01((stopSizeKph - 120f) / 130f);
+            // Tight-corner braking round (per report - "they still brake SO
+            // EARLY especially into tight corners"): the big-stop path kept
+            // BOTH conservatisms at once - near-kinematic distance (the 1.02
+            // confidence cap below) AND the ordinary planning decel. Real
+            // drivers do the opposite on a hairpin-sized stop: they commit to
+            // near-maximum braking and hit the number. Planning decel now
+            // ramps up to +25% as the stop approaches hairpin scale, which
+            // pulls the brake point ~20% closer to the corner exactly where
+            // the early braking was most visible; the closed-loop demand
+            // below still measures the remaining distance every frame and
+            // saturates to full pedal (with the edge emergency brake and the
+            // speed-shed reflex behind it) if the arrival runs hot.
+            decelReference *= Mathf.Lerp(1f, 1.25f, bigStopBlend);
             // Entry-overshoot fix: this multiplier DIVIDES the kinematic
             // braking distance, and the per-tier confidence product ran to
             // ~1.4-1.7 - i.e. Hard/Expert began braking at ~60% of the
@@ -2609,7 +2622,10 @@ namespace LocalFormulaRacing
             float confidentMultiplier = Mathf.Min(
                 profile.brakeDistanceMultiplier * Mathf.Lerp(0.92f, 1.05f, experience / 100f) * profile.brakeConfidenceMultiplier,
                 Mathf.Lerp(1.03f, 1.08f, skillTier));
-            float effectiveBrakeMultiplier = Mathf.Max(0.55f, Mathf.Lerp(confidentMultiplier, Mathf.Min(confidentMultiplier, 1.02f), bigStopBlend));
+            // 1.02 -> 1.04 with the big-stop planning-decel lift above: the
+            // stop-size fade still strips most of the brake-later swagger on
+            // hairpin-scale stops, just no longer all of it.
+            float effectiveBrakeMultiplier = Mathf.Max(0.55f, Mathf.Lerp(confidentMultiplier, Mathf.Min(confidentMultiplier, 1.04f), bigStopBlend));
             // Active braking-point mistake (see UpdateMistake): the driver is
             // momentarily willing to carry more entry speed than the corner can
             // take. The edge emergency brake below still catches the car at the

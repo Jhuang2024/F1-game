@@ -105,13 +105,14 @@ namespace LocalFormulaRacing
         readonly Vector3[] offsets =
         {
             new Vector3(0f, 4.1f, -11.4f),
-            // Driver eye, raised and pushed forward of the head-space clutter
-            // (per report - "completely useless, so much clutter blocking
-            // it"): from here the visor stripe, halo stays and the rear tips
-            // of the suit arms all sit BEHIND the camera, and the helmet/halo
-            // slab pieces that would still intrude are moved to
-            // CockpitHiddenLayer and culled from this view only.
-            new Vector3(0f, 0.88f, 0.38f),
+            // Driver eye. Head-space clutter (helmet, visor stripe, halo
+            // centre post, halo rim slab) is moved to CockpitHiddenLayer and
+            // culled from this view only. Raised and pulled back a touch from
+            // (0.88, 0.38) per report - from the lower/forward point the
+            // car's own nose bodywork walled off the road ahead; from up here
+            // the view clears the nose while the wheel and hands stay in the
+            // lower frame.
+            new Vector3(0f, 0.94f, 0.3f),
             new Vector3(0f, 1.16f, -0.52f),
             new Vector3(0f, 2.02f, 1.55f),
             new Vector3(0f, 26f, -11f),
