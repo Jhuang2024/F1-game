@@ -1488,16 +1488,24 @@ namespace LocalFormulaRacing
             // Round 4: 0.86 -> 0.78 and engages from 240kph (13/22 OUT - the
             // tapes still showed cruise sitting at 345-355 straight through
             // sev 0.15-0.3 sweepers; the previous margin never actually bound).
-            float highSpeedCorneringMargin = Mathf.Lerp(1f, 0.78f, Mathf.Clamp01((speedKph - 240f) / 120f));
+            // Round 5 (per report - "AI extremely slow going into corners"):
+            // rounds 3/4 keyed the margin off the CAR'S CURRENT speed, so a
+            // hairpin approached at 340kph had its apex target cut by the full
+            // sweeper margin too - every braking zone entered from speed ended
+            // in a crawl. The margin's entire justification is fast sweepers
+            // whose racing line runs tighter than the measured centreline
+            // radius; it is now keyed off the CORNER'S own uncapped speed
+            // instead, so slow and medium corners are untouched while genuine
+            // 260+ sweepers keep the reserve that ended the wall crashes.
             float apexGeoRadius = track.CurvatureRadiusAt(progress.distance + apexDistanceAhead);
-            brakingApexSpeed = Mathf.Min(brakingApexSpeed,
-                vehicle.MaxCorneringSpeedKph(apexGeoRadius) * tightCornerJudgment * highSpeedCorneringMargin);
+            float rawApexCap = vehicle.MaxCorneringSpeedKph(apexGeoRadius) * tightCornerJudgment;
+            brakingApexSpeed = Mathf.Min(brakingApexSpeed, rawApexCap * SweeperCorneringMargin(rawApexCap));
 
             float occupiedRadius = Mathf.Min(
                 track.CurvatureRadiusAt(progress.distance),
                 Mathf.Min(track.CurvatureRadiusAt(progress.distance + 18f), track.CurvatureRadiusAt(progress.distance + 36f)));
-            cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed,
-                vehicle.MaxCorneringSpeedKph(occupiedRadius) * tightCornerJudgment * highSpeedCorneringMargin);
+            float rawCruiseCap = vehicle.MaxCorneringSpeedKph(occupiedRadius) * tightCornerJudgment;
+            cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, rawCruiseCap * SweeperCorneringMargin(rawCruiseCap));
 
             UpdateMistake(consistency, aggression, profile);
             UpdateOvertakeState(progress, severityHere, apexDistanceAhead, apexSeverity, turnSign, aggression, overtaking, defending, profile, isExpert, driver);
@@ -3210,8 +3218,17 @@ namespace LocalFormulaRacing
             // The reflex now also fires on "steering hard AND still sliding
             // toward the edge" (towardEdgeRate is the same filtered drift the
             // wall-aversion band uses), starts sooner, and brakes harder.
+            // Round 5 retune (per report - "AI extremely slow going into
+            // corners"): the round-4 widening (0.82 + drift 1.2) fired during
+            // ORDINARY hard turn-in - a committed corner entry routinely holds
+            // 0.85+ steer while the car still carries outward drift from its
+            // entry positioning - so the reflex brake-stomped healthy corner
+            // entries. The secondary trigger now demands both harder lock and
+            // a genuinely runaway drift, and the reflex arms a beat later. The
+            // primary full-lock trigger (the verified crash signature:
+            // seconds of pinned steering, no yaw response) is unchanged.
             bool steerAtLimit = Mathf.Abs(command.steer) > 0.96f ||
-                                 (Mathf.Abs(command.steer) > 0.82f && towardEdgeRate > 1.2f);
+                                 (Mathf.Abs(command.steer) > 0.9f && towardEdgeRate > 1.8f);
             if (steerAtLimit && speedKph > 150f)
             {
                 steerSaturationTimer += Time.deltaTime;
@@ -3221,9 +3238,9 @@ namespace LocalFormulaRacing
                 steerSaturationTimer = 0f;
             }
 
-            if (steerSaturationTimer > 0.35f)
+            if (steerSaturationTimer > 0.45f)
             {
-                float shed = Mathf.Clamp01((steerSaturationTimer - 0.35f) / 0.5f);
+                float shed = Mathf.Clamp01((steerSaturationTimer - 0.45f) / 0.5f);
                 command.brake = Mathf.Max(command.brake, Mathf.Lerp(0.35f, 0.8f, shed));
                 command.throttle = Mathf.Min(command.throttle, 0.05f);
             }
@@ -3265,6 +3282,18 @@ namespace LocalFormulaRacing
             DiagnoseSwerve(progress, severityHere, lineBias, command.steer);
             DiagnoseSwerveAmplitude(progress, severityHere, lineBias);
             vehicle.SetCommand(command);
+        }
+
+        // Margin the geometric corner caps demand of genuinely fast corners
+        // (see the round-3/4/5 history at the call sites): a corner whose own
+        // uncapped speed is 260kph or below is untouched; above that the
+        // racing line runs meaningfully tighter than the measured centreline
+        // radius the caps are built on, so the reserve ramps to 20% by 380.
+        // Keyed to the corner's speed, never the car's - approaching a slow
+        // corner fast must not shrink its apex target.
+        static float SweeperCorneringMargin(float cornerCapKph)
+        {
+            return Mathf.Lerp(1f, 0.8f, Mathf.Clamp01((cornerCapKph - 260f) / 120f));
         }
 
         // Controller-side compensation for the corner-speed realism pass. The

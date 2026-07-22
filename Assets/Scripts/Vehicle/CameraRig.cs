@@ -29,6 +29,19 @@ namespace LocalFormulaRacing
         // hairpin - see spinRecoveryAmount below.
         const float SpinYawRateThreshold = 2.3f;
 
+        // Layer reserved for the FOLLOWED car's head-space pieces (driver
+        // helmet, visor stripe, halo centre post, halo rim slab) so the
+        // cockpit view can cull them - at driver-eye distance they read as a
+        // wall of clutter, not a halo. Every other view (and other cars'
+        // pieces, which stay on their normal layer) renders them as usual.
+        // Must match RaceCameraDirector.CockpitHiddenLayer - the Cinemachine
+        // assembly cannot reference this one.
+        public const int CockpitHiddenLayer = 29;
+        static readonly string[] CockpitHiddenPieceNames =
+        {
+            "driver helmet", "helmet visor stripe", "halo center", "halo rim"
+        };
+
         Camera followCamera;
         Rigidbody targetBody;
         VehicleController targetVehicle;
@@ -92,11 +105,13 @@ namespace LocalFormulaRacing
         readonly Vector3[] offsets =
         {
             new Vector3(0f, 4.1f, -11.4f),
-            // Driver eye sits INSIDE the helmet sphere on purpose: a closed
-            // primitive is fully backface-culled from within, so the helmet
-            // vanishes and the view clears straight over the low aeroscreen
-            // deflector to the wheel, the driver's hands and the road.
-            new Vector3(0f, 0.84f, 0.3f),
+            // Driver eye, raised and pushed forward of the head-space clutter
+            // (per report - "completely useless, so much clutter blocking
+            // it"): from here the visor stripe, halo stays and the rear tips
+            // of the suit arms all sit BEHIND the camera, and the helmet/halo
+            // slab pieces that would still intrude are moved to
+            // CockpitHiddenLayer and culled from this view only.
+            new Vector3(0f, 0.88f, 0.38f),
             new Vector3(0f, 1.16f, -0.52f),
             new Vector3(0f, 2.02f, 1.55f),
             new Vector3(0f, 26f, -11f),
@@ -182,6 +197,7 @@ namespace LocalFormulaRacing
             listener.enabled = true;
 
             SnapToTarget();
+            ApplyCockpitVisibility();
 
             // Always-on rear-view mirror, pinned top-centre of the HUD in every
             // camera angle (it replaced the dedicated rear-chase angle). Child
@@ -225,10 +241,47 @@ namespace LocalFormulaRacing
             }
 
             mode = (mode + 1) % offsets.Length;
+            ApplyCockpitVisibility();
 
             // Start the blend timer fresh so the cut into the new angle eases
             // in over ModeBlendDuration instead of snapping straight there.
             modeBlend = 0f;
+        }
+
+        // Cockpit-view de-clutter: entering the driver-eye mode moves the
+        // followed car's head-space pieces onto CockpitHiddenLayer (done
+        // lazily here rather than at build time because the visor stripe is
+        // created later by VehicleVisuals' own detail pass) and culls that
+        // layer; every other mode renders it. Only the followed car is
+        // touched - other cars keep their helmets in every view.
+        void ApplyCockpitVisibility()
+        {
+            if (followCamera == null)
+            {
+                return;
+            }
+
+            bool cockpit = mode == 1;
+            if (cockpit && target != null)
+            {
+                for (int i = 0; i < CockpitHiddenPieceNames.Length; i++)
+                {
+                    Transform piece = target.Find(CockpitHiddenPieceNames[i]);
+                    if (piece != null)
+                    {
+                        piece.gameObject.layer = CockpitHiddenLayer;
+                    }
+                }
+            }
+
+            if (cockpit)
+            {
+                followCamera.cullingMask &= ~(1 << CockpitHiddenLayer);
+            }
+            else
+            {
+                followCamera.cullingMask |= 1 << CockpitHiddenLayer;
+            }
         }
 
         /// <summary>Look-back forwarding (Cinemachine path only).</summary>
@@ -398,7 +451,7 @@ namespace LocalFormulaRacing
                 // slight downward tilt keeps the wheel/helmet in frame - a bit
                 // more from the airbox since it sits higher and further back.
                 desired = target.TransformPoint(offset);
-                desiredRotation = Quaternion.LookRotation(target.forward + target.up * (mode == 2 ? -0.10f : -0.04f), target.up);
+                desiredRotation = Quaternion.LookRotation(target.forward + target.up * (mode == 2 ? -0.10f : -0.08f), target.up);
             }
             else if (mode == 4)
             {

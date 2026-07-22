@@ -30,6 +30,7 @@ namespace F1Game.Cameras
 
         CinemachineBrain brain;
         CinemachineImpulseSource impulseSource;
+        Camera outputCamera;
         Transform followTarget;
         System.Func<float> speed01Provider;
         int activeIndex;
@@ -59,6 +60,7 @@ namespace F1Game.Cameras
 
         void Build(Camera outputCamera, Transform car, System.Func<float> speed01)
         {
+            this.outputCamera = outputCamera;
             followTarget = car;
             speed01Provider = speed01;
 
@@ -215,13 +217,13 @@ namespace F1Game.Cameras
                     localPosition = new Vector3(0f, 1.16f, -0.52f);
                     break;
                 case CameraProfile.Kind.Cockpit:
-                    // Driver's eye line: helmet sits at (0, 0.88, 0.2), the
-                    // steering wheel at (0, 0.76, 0.62) - so from here the
-                    // (input-animated) wheel and the driver's gloved hands
-                    // fill the lower frame with the road beyond. Deliberately
-                    // INSIDE the helmet sphere: backface culling hides it
-                    // entirely from within.
-                    localPosition = new Vector3(0f, 0.84f, 0.3f);
+                    // Driver's eye line, raised/advanced clear of the visor
+                    // stripe, halo stays and suit-arm tips (they all end
+                    // behind z=0.38); the helmet and halo slab pieces that
+                    // would still intrude are culled via CockpitHiddenLayer
+                    // (see SetActive). The (input-animated) wheel and gloved
+                    // hands fill the lower frame with the road beyond.
+                    localPosition = new Vector3(0f, 0.88f, 0.38f);
                     break;
                 case CameraProfile.Kind.Nose:
                     localPosition = new Vector3(0f, 0.35f, 2.7f);
@@ -233,7 +235,13 @@ namespace F1Game.Cameras
             var fallback = new GameObject("Runtime " + kind + " camera mount").transform;
             fallback.SetParent(car, false);
             fallback.localPosition = localPosition;
-            fallback.localRotation = Quaternion.identity;
+            // Slight down-tilt on the onboard mounts so the wheel/hands (and
+            // from the T-cam, the helmet) sit properly in frame rather than
+            // hugging the bottom edge; hard-locked vcams inherit the mount
+            // rotation verbatim (SameAsFollowTarget).
+            fallback.localRotation = kind == CameraProfile.Kind.Cockpit
+                ? Quaternion.Euler(4.5f, 0f, 0f)
+                : (kind == CameraProfile.Kind.TCam ? Quaternion.Euler(6f, 0f, 0f) : Quaternion.identity);
             Debug.LogWarning("[Cameras] Missing authored " + kind + " mount; using runtime fallback at " + localPosition + ".");
             return fallback;
         }
@@ -266,12 +274,51 @@ namespace F1Game.Cameras
             SetActive((activeIndex + 1) % Mathf.Max(1, cameras.Count));
         }
 
+        // Layer for the followed car's head-space pieces (helmet, visor
+        // stripe, halo centre post, halo rim slab), culled from the cockpit
+        // view only - at driver-eye distance they read as a wall of clutter.
+        // Must match CameraRig.CockpitHiddenLayer (Assembly-CSharp, which this
+        // assembly cannot reference).
+        const int CockpitHiddenLayer = 29;
+        static readonly string[] CockpitHiddenPieceNames =
+        {
+            "driver helmet", "helmet visor stripe", "halo center", "halo rim"
+        };
+
         public void SetActive(int index)
         {
             activeIndex = Mathf.Clamp(index, 0, cameras.Count - 1);
             for (int i = 0; i < cameras.Count; i++)
             {
                 cameras[i].Priority = i == activeIndex ? 10 : 0;
+            }
+
+            // Cockpit de-clutter: tag the followed car's head-space pieces
+            // (lazily - the visor stripe is created by a later detail pass)
+            // and cull their layer only while the cockpit view is live.
+            bool cockpit = ActiveProfile != null && ActiveProfile.kind == CameraProfile.Kind.Cockpit;
+            if (cockpit && followTarget != null)
+            {
+                for (int i = 0; i < CockpitHiddenPieceNames.Length; i++)
+                {
+                    Transform piece = followTarget.Find(CockpitHiddenPieceNames[i]);
+                    if (piece != null)
+                    {
+                        piece.gameObject.layer = CockpitHiddenLayer;
+                    }
+                }
+            }
+
+            if (outputCamera != null)
+            {
+                if (cockpit)
+                {
+                    outputCamera.cullingMask &= ~(1 << CockpitHiddenLayer);
+                }
+                else
+                {
+                    outputCamera.cullingMask |= 1 << CockpitHiddenLayer;
+                }
             }
         }
 
