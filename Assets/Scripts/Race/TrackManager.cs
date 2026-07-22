@@ -3713,17 +3713,22 @@ namespace LocalFormulaRacing
                          targetLength.ToString("0") + "m (scale " + scale.ToString("0.00") + ")");
         }
 
-        // Speed-rebalance pass: AI/player cornering speed and ERS were buffed
-        // significantly elsewhere (AiVehicleController/VehicleController), which
-        // compressed lap times on these lengths far more than intended - laps got
-        // absurdly short relative to how fast cars now actually go. Every target
-        // here is scaled up ~25% (TrackLengthRebalanceScale) instead of tuning car
-        // speed back down, so the faster cars get the room (longer straights, more
-        // space between corners) they need without undoing the speed buffs.
-        // Round 2: stacked another 25% on top of the original 1.25x (1.25 * 1.25 =
-        // 1.5625x versus the pre-rebalance baseline) for the same reason - cars
-        // kept getting faster and the first pass wasn't enough room anymore.
-        const float TrackLengthRebalanceScale = 1.5625f;
+        // Speed-rebalance pass. History: cornering/ERS buffs made laps short, so
+        // instead of slowing the cars the whole track was stretched (1.25x, then
+        // 1.5625x). Because the centreline is normalized UNIFORMLY to this target,
+        // stretching the track also stretched every corner radius by the same
+        // factor - so at 1.5625x the tightest corners sat at ~100-240m radius
+        // (real F1 hairpins are ~15-30m) and the field could hold near-top-speed
+        // through them. [PaceDiag] confirmed it: lap AVERAGES of 288-356 km/h,
+        // physically impossible (that is near an F1 car's TOP speed as a mean;
+        // real circuits average ~210-230). The stretch, not the car speed, was
+        // the bug: it removed every corner the cars needed to brake for.
+        // Reversed to 1.0 - the base bands below (4.65-5.6km) are already
+        // realistic circuit lengths, so this returns tracks to real proportions
+        // and tightens every corner ~36% (still far above the ~28m drivable-radius
+        // floor in SmoothSharpKinks, so nothing becomes uncornerable). Watch the
+        // [PaceDiag] avgSpeed line to calibrate further if needed.
+        const float TrackLengthRebalanceScale = 1.0f;
 
         float TargetTrackLength(TrackRuntime runtime)
         {
