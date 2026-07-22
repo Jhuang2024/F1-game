@@ -910,6 +910,35 @@ statGridGo.transform.SetParent(content, false);
             RectTransform lapTwoRow = MakeStepperRow(content, "PitLapTwo", "Stop 2",
                 out ThemedButton lapTwoMinus, out ThemedButton lapTwoPlus, out TMP_Text lapTwoValue);
 
+            // Tyre-life comparison: the player's live plan next to the fastest plan
+            // the optimiser finds, each a stint-by-stint life chart. Two cards laid
+            // out side by side, matching the reference strategy screen.
+            CreateText(content, "TyreLifeLabel", TextStyle.Label, "TYRE LIFE");
+            var chartRowGo = new GameObject("StrategyCharts", typeof(RectTransform));
+            chartRowGo.transform.SetParent(content, false);
+            var chartLayout = chartRowGo.AddComponent<HorizontalLayoutGroup>();
+            chartLayout.spacing = theme.spacing.small;
+            chartLayout.childForceExpandWidth = true;
+            chartLayout.childControlWidth = true;
+            chartLayout.childControlHeight = true;
+            chartLayout.childForceExpandHeight = false;
+            chartRowGo.AddComponent<LayoutElement>().preferredHeight = 190f;
+            var plannedChart = Screens.PreRaceStrategy.TyreLifeChartView.Build(chartRowGo.transform, "Chart_Planned", 190f);
+            var optimalChart = Screens.PreRaceStrategy.TyreLifeChartView.Build(chartRowGo.transform, "Chart_Optimal", 190f);
+
+            // Context bar: track temperature, fuel load, fuel laps.
+            var contextBarGo = new GameObject("ContextBar", typeof(RectTransform));
+            contextBarGo.transform.SetParent(content, false);
+            var contextBarLayout = contextBarGo.AddComponent<HorizontalLayoutGroup>();
+            contextBarLayout.spacing = theme.spacing.small;
+            contextBarLayout.childForceExpandWidth = true;
+            contextBarLayout.childControlWidth = true;
+            contextBarLayout.childControlHeight = true;
+            contextBarGo.AddComponent<LayoutElement>().preferredHeight = 46f;
+            TMP_Text tempCell = MakeContextCell(contextBarGo.transform, "TrackTemp");
+            TMP_Text fuelCell = MakeContextCell(contextBarGo.transform, "FuelWeight");
+            TMP_Text fuelLapsCell = MakeContextCell(contextBarGo.transform, "FuelLaps");
+
             ThemedButton start = CreateButton(content, "Btn_StartRace", ThemedButton.Variant.Primary, "Start Race");
             ThemedButton back = CreateButton(content, "Btn_Back", ThemedButton.Variant.Tertiary, "Back");
 
@@ -919,6 +948,7 @@ statGridGo.transform.SetParent(content, false);
                 lapOneMinus, lapOnePlus, lapOneValue,
                 lapTwoMinus, lapTwoPlus, lapTwoValue, lapTwoRow.gameObject,
                 start, back);
+            view.BindCharts(plannedChart, optimalChart, tempCell, fuelCell, fuelLapsCell);
             return view;
         }
 
@@ -1030,6 +1060,28 @@ statGridGo.transform.SetParent(content, false);
             plus.gameObject.GetComponent<LayoutElement>().preferredWidth = 64f;
 
             return (RectTransform)rowGo.transform;
+        }
+
+        // A single boxed cell on the strategy context bar (track temp / fuel /
+        // fuel laps): a raised surface with a centred value the presenter fills.
+        static TMP_Text MakeContextCell(Transform parent, string name)
+        {
+            UiTheme theme = UiTheme.Active;
+            var cellGo = new GameObject("Cell_" + name, typeof(RectTransform));
+            cellGo.transform.SetParent(parent, false);
+            var bg = cellGo.AddComponent<Image>();
+            bg.color = theme.palette.surfaceRaised;
+            bg.raycastTarget = false;
+            var le = cellGo.AddComponent<LayoutElement>();
+            le.flexibleWidth = 1f;
+
+            TMP_Text value = CreateText(cellGo.transform, "Value", TextStyle.BodySmall, "");
+            Stretch(value.rectTransform, 6f);
+            value.alignment = TextAlignmentOptions.Center;
+            value.color = theme.palette.textPrimary;
+            value.raycastTarget = false;
+            value.enableWordWrapping = false;
+            return value;
         }
 
         static void SetUpDownNavigation(IReadOnlyList<Selectable> items)

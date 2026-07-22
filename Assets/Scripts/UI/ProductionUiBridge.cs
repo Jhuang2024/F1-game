@@ -1932,6 +1932,8 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            string weatherProfile = selectedEvent != null ? selectedEvent.weatherProfile : model.weatherHint;
+            string trackIdForTemp = selectedEvent != null ? selectedEvent.trackId : model.eventId;
             var strategyModel = new StrategyModel
             {
                 trackName = model.trackName,
@@ -1943,6 +1945,8 @@ namespace LocalFormulaRacing
                 plannedPitLapTwo = settings.Current.plannedPitLapTwo,
                 stopOneCompoundIndex = CompoundIndex(settings.Current.plannedStopOneCompound, 2),
                 stopTwoCompoundIndex = CompoundIndex(settings.Current.plannedStopTwoCompound, 1),
+                trackTempC = F1Game.Race.Rules.TyreStrategyRules.TrackTemperatureFor(weatherProfile, trackIdForTemp),
+                trackLengthKm = model.lengthKm,
             };
 
             shell.Router.Show(PreRaceStrategyView.Id);

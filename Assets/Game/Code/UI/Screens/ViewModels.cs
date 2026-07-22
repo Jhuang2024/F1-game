@@ -40,6 +40,46 @@ namespace F1Game.UI.Screens
         public int plannedPitLapTwo;
         public int stopOneCompoundIndex = 2;
         public int stopTwoCompoundIndex = 2;
+
+        // Session context used by the tyre-life chart and the context bar. The
+        // bridge fills these from the chosen event so the pre-race screen shows
+        // the same track temperature the wear model and the AI strategy use.
+        public float trackTempC = TyreStrategyDefaults.StandardTrackTempC;
+        public float trackLengthKm;
+    }
+
+    /// <summary>A single planned stint on a strategy, sized for the tyre-life chart.</summary>
+    [Serializable]
+    public class StintPlan
+    {
+        public int compoundIndex;   // 0 Soft, 1 Medium, 2 Hard, 3 Inter, 4 Wet
+        public int startLap;        // first race lap of the stint (1-based)
+        public int laps;            // stint length in laps
+        public float expectedLife;  // expected life of this compound in laps at temp
+        public string compoundShort; // "S" / "M" / "H" / "I" / "W"
+    }
+
+    /// <summary>
+    /// One strategy laid out as a sequence of stints plus an estimated total race
+    /// time, consumed by <c>TyreLifeChartView</c>. Two of these are compared on
+    /// the pre-race screen: the player's live plan and the fastest computed plan.
+    /// </summary>
+    [Serializable]
+    public class StrategyChartModel
+    {
+        public string title;        // "YOUR PLAN" / "FASTEST STRATEGY"
+        public string subtitle;     // "1 stop · Soft-Hard"
+        public string totalTime;    // estimated race time, e.g. "18:42.6"
+        public bool isRecommended;  // draw the highlight accent
+        public int raceLaps;
+        public List<StintPlan> stints = new List<StintPlan>();
+    }
+
+    // Mirror of TyreStrategyRules' standard-temp anchor so the view-model layer
+    // has a sane default without pulling the Race assembly into a field default.
+    static class TyreStrategyDefaults
+    {
+        public const float StandardTrackTempC = 22.5f;
     }
 
     /// <summary>The player's confirmed pre-race choices, handed back to the bridge.</summary>

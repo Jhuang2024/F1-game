@@ -29,6 +29,11 @@ namespace F1Game.UI.Screens.PreRaceStrategy
         [SerializeField] GameObject pitLapTwoGroup;
         [SerializeField] ThemedButton startRaceButton;
         [SerializeField] ThemedButton backButton;
+        [SerializeField] TyreLifeChartView plannedChart;
+        [SerializeField] TyreLifeChartView optimalChart;
+        [SerializeField] TMP_Text trackTempCell;
+        [SerializeField] TMP_Text fuelWeightCell;
+        [SerializeField] TMP_Text fuelLapsCell;
 
         public IReadOnlyList<ThemedButton> CompoundButtons => compoundButtons;
         public ThemedButton StopCountMinus => stopCountMinus;
@@ -67,6 +72,18 @@ namespace F1Game.UI.Screens.PreRaceStrategy
             SetDefaultSelection(startRace != null ? startRace.gameObject : null);
         }
 
+        /// <summary>Binds the tyre-life comparison charts and the context bar cells.</summary>
+        public void BindCharts(
+            TyreLifeChartView planned, TyreLifeChartView optimal,
+            TMP_Text trackTemp, TMP_Text fuelWeight, TMP_Text fuelLaps)
+        {
+            plannedChart = planned;
+            optimalChart = optimal;
+            trackTempCell = trackTemp;
+            fuelWeightCell = fuelWeight;
+            fuelLapsCell = fuelLaps;
+        }
+
         public void Render(StrategyModel model)
         {
             if (contextLine != null)
@@ -99,6 +116,42 @@ namespace F1Game.UI.Screens.PreRaceStrategy
             if (pitLapTwoGroup != null)
             {
                 pitLapTwoGroup.SetActive(model.plannedStopCount >= 2);
+            }
+
+            if (plannedChart != null)
+            {
+                plannedChart.Render(StrategyChartBuilder.BuildPlanned(model));
+            }
+
+            if (optimalChart != null)
+            {
+                optimalChart.Render(StrategyChartBuilder.BuildOptimal(model));
+            }
+
+            RenderContextBar(model);
+        }
+
+        // ~1.18 kg of fuel per race lap, loaded with a small margin - a plausible
+        // display figure so the context bar reads like the reference screen.
+        const float FuelKgPerLap = 1.18f;
+        const float FuelLapMargin = 0.7f;
+
+        void RenderContextBar(StrategyModel model)
+        {
+            if (trackTempCell != null)
+            {
+                trackTempCell.text = string.Format("TRACK {0:0.0}°C", model.trackTempC);
+            }
+
+            float fuelLaps = model.raceLaps + FuelLapMargin;
+            if (fuelWeightCell != null)
+            {
+                fuelWeightCell.text = string.Format("FUEL {0:0.0} kg", fuelLaps * FuelKgPerLap);
+            }
+
+            if (fuelLapsCell != null)
+            {
+                fuelLapsCell.text = string.Format("{0:0.0} laps", fuelLaps);
             }
         }
     }
