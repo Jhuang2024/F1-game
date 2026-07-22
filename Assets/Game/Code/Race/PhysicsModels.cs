@@ -185,8 +185,13 @@ namespace F1Game.Race.Physics
         // felt gain on a typical straight; drain range across throttle position
         // (see the long drain-rate history in VehicleController for how these
         // numbers were arrived at).
-        public const float MinErsBoostForce = 19f;
-        public const float MaxErsBoostForce = 30f;
+        // ERS nerf round (per request - "nerf ERS by about 35% for
+        // everything"): deploy force cut 35% across the whole band
+        // (was 19-30); the harvest rates in VehicleController take the same
+        // 35% cut, so the entire system - punch and recharge - scales down
+        // together for player and AI alike.
+        public const float MinErsBoostForce = 12.35f;
+        public const float MaxErsBoostForce = 19.5f;
         // Battery-cycle rebalance round 1: raised ~45% (was 0.0805-0.1140) to
         // stop the battery pinning at 100% once the harvest side was cut down
         // to match (see VehicleController's braking-harvest history). That

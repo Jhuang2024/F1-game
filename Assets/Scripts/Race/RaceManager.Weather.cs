@@ -96,6 +96,13 @@ namespace LocalFormulaRacing
 
             bool wasRaining = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
             WeatherState next = WeatherRules.NextIsRaining(wasRaining) ? WeatherState.LightRain : WeatherState.Cloudy;
+            // [WeatherDiag] (companion to the [PitStopDiag] recorders): every
+            // mid-race weather flip is a mass pit-crossover generator, so the
+            // timeline must be visible in the same log the stop records land
+            // in - a "2 stops for no reason" race with two of these lines is
+            // a double weather transition, not a strategy bug.
+            Debug.LogWarning("[WeatherDiag] Weather transition " + Track.weather + " -> " + next +
+                " on lap " + (completedLaps + 1) + "/" + RaceLaps + " (phase=" + phase + ") - expect a field-wide tyre crossover wave.");
             Track.weather = next;
             for (int i = 0; i < Participants.Count; i++)
             {

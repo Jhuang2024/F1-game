@@ -209,11 +209,16 @@ namespace LocalFormulaRacing
                 // was spawned with, so a scrambled running order can be checked
                 // against the actual numbers instead of inferred from a tower
                 // screenshot.
+                // tyre/weather appended (per the mass lap-2 stop-wave log):
+                // one glance now shows whether the grid's compounds matched
+                // the weather the race actually started with.
                 Debug.Log("[SkillDiag] " + (driver != null ? driver.displayName : "?") +
                           " pace=" + (driver != null ? driver.pace : -1) +
                           " skillNorm=" + skillNorm.ToString("0.00") +
                           " gripUtil=" + gripUtilization.ToString("0.000") +
-                          " car=" + (car != null ? car.id : "null"));
+                          " car=" + (car != null ? car.id : "null") +
+                          " startTyre=" + startCompound +
+                          " weather=" + (Track != null ? Track.weather.ToString() : "?"));
             }
             if (IsTimeTrial)
             {

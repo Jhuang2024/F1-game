@@ -3132,10 +3132,13 @@ namespace LocalFormulaRacing
                 command.pitRequest = false;
             }
 
-            // [PitStopDiag] extra-stop flight recorder: any surviving request
-            // for a SECOND-or-later stop logs which trigger(s) fired and every
-            // number the veto weighed, once per car per lap.
-            if (command.pitRequest && pitDiagTriggers != null && participant.pitStops >= 1 &&
+            // [PitStopDiag] flight recorder: any surviving voluntary request
+            // logs which trigger(s) fired and every number the veto weighed,
+            // once per car per lap. Round 2: extended from second-stop-only to
+            // ALL stops - the pasted [PaceDiag] showed the entire field taking
+            // ~30s laps (lap time + a stop) on lap 2, and FIRST stops left no
+            // trace in the recorder, so the mass-stop trigger was invisible.
+            if (command.pitRequest && pitDiagTriggers != null &&
                 participant.lapTracker.CompletedLaps != pitDiagLastLoggedLap)
             {
                 pitDiagLastLoggedLap = participant.lapTracker.CompletedLaps;

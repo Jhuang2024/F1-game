@@ -295,13 +295,15 @@ namespace LocalFormulaRacing
 
             // [PitStopDiag] commitment-side record (per report - "the 2 stop
             // problem still exists ... write code to diagnose it"): EVERY
-            // second-or-later stop that actually begins logs the full strategy
-            // state here, at the one choke point all pit entries pass through
-            // regardless of which trigger or system requested them. If a stop
-            // begins with NO matching request-side [PitStopDiag] line that
-            // lap, the request came from outside the AI strategy block - that
-            // absence is itself the diagnosis.
-            if (participant.pitStops >= 1 && participant.vehicle != null && participant.vehicle.Tyres != null && participant.lapTracker != null)
+            // stop that actually begins logs the full strategy state here, at
+            // the one choke point all pit entries pass through regardless of
+            // which trigger or system requested them. If a stop begins with
+            // NO matching request-side [PitStopDiag] line that lap, the
+            // request came from outside the AI strategy block - that absence
+            // is itself the diagnosis. Round 2: extended from second-stop-only
+            // to ALL stops after [PaceDiag] showed a mass lap-2 stop wave that
+            // the first-stop blind spot swallowed whole.
+            if (participant.vehicle != null && participant.vehicle.Tyres != null && participant.lapTracker != null)
             {
                 float diagTempC = Track != null ? Track.trackTemperatureC : TyreStrategyRules.StandardTrackTempC;
                 TyreCompound diagCompound = participant.vehicle.Tyres.Compound;

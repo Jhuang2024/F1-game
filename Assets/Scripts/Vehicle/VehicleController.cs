@@ -1403,7 +1403,11 @@ namespace LocalFormulaRacing
             // never fill and drain in the same frame.
             if (!ErsDeploying && !ErsRechargeSuppressed && activeCommand.brake > 0.1f)
             {
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.098f, 0.147f, CarData.ersEfficiency / 100f) * 1.3f * harvestModeMultiplier);
+                // ERS nerf (per request - "nerf ERS by about 35% for
+                // everything"): the trailing 0.65 on this and both non-braking
+                // branches below, matching the 35% deploy-force cut in
+                // PowertrainModel.
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.098f, 0.147f, CarData.ersEfficiency / 100f) * 1.3f * harvestModeMultiplier * 0.65f);
                 ErsHarvesting = true;
             }
             // Non-braking recharge fix round 3: both the off-throttle coasting rate
@@ -1436,7 +1440,7 @@ namespace LocalFormulaRacing
                 // Raised a further 30% (per request) - second 1.3 factor.
                 // Cut 30% (per request) - the 0.7 factor; braking-zone
                 // recharge above is unaffected.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.324f * 0.8f * 1.3f * 1.3f * 0.7f * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.324f * 0.8f * 1.3f * 1.3f * 0.7f * harvestModeMultiplier * 0.65f);
                 ErsHarvesting = true;
             }
             else if (!ersEmptyCooldownActive && !ErsDeploying && !ErsRechargeSuppressed)
@@ -1478,7 +1482,7 @@ namespace LocalFormulaRacing
                 // Raised a further 30% (per request) - second 1.3 factor.
                 // Cut 30% (per request) - the 0.7 factor; braking-zone
                 // recharge above is unaffected.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.324f * 0.85f * 0.8f * 1.3f * 1.3f * 0.7f * harvestModeMultiplier);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.324f * 0.85f * 0.8f * 1.3f * 1.3f * 0.7f * harvestModeMultiplier * 0.65f);
                 ErsHarvesting = true;
             }
 
