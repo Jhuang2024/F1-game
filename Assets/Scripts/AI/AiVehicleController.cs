@@ -1488,7 +1488,14 @@ namespace LocalFormulaRacing
             // flat 10-18% everywhere-cut was the main thing dragging corner
             // pace; the band comes most of the way back while staying under
             // the pre-trim 0.88-0.99 that genuinely crashed cars.
-            float tightCornerJudgment = Mathf.Lerp(0.87f, 0.95f, paceNorm);
+            // Round 2 ("the AI are WAY too easy - they simply dont have the
+            // pace"): 0.87-0.95 -> 0.91-0.98. This is the geometric cap that
+            // binds nearly every corner (the pace-multiplier targets sit far
+            // above it), so it is the honest lap-time lever. The elite tier
+            // now runs at 98% of the physics envelope with the reflex/edge/
+            // rescue nets as the backstop; the crash-prone pre-rework 0.99
+            // ceiling stays untouched.
+            float tightCornerJudgment = Mathf.Lerp(0.91f, 0.98f, paceNorm);
             // [SwerveTape] round 3 (the fast-sweeper crash signature): every
             // wall-hit tape now shows the same thing - sev 0.1-0.35 corners
             // taken at 350-390kph with the final steer PINNED at full lock for
@@ -2580,7 +2587,9 @@ namespace LocalFormulaRacing
             // the controller needed. Planning decel raised toward - never past
             // - that envelope; the closed-loop demand still self-corrects hot
             // arrivals every frame and keeps ~12% headroom on top.
-            float decelReference = Mathf.Lerp(24f, 38f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1.05f, 1.5f, skillTier);
+            // Overall-pace round: 24-38 -> 26-40, closing more of the gap to
+            // the availableDecel envelope the closed-loop demand trusts.
+            float decelReference = Mathf.Lerp(26f, 40f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1.05f, 1.5f, skillTier);
             // brakeConfidenceMultiplier folds in on top of brakeDistanceMultiplier so
             // Hard/Expert genuinely brake later/shorter, not just via the weaker base
             // multiplier alone: >1 shortens the effective distance (brakes later),
@@ -2994,8 +3003,15 @@ namespace LocalFormulaRacing
 
             // Smarter AI strategy: jump a closely-followed rival that hasn't
             // stopped yet by taking this car's own pit window a lap or two early.
+            // Round 9 ("theyre starting to do 2 stops for no reason again"):
+            // this was the one voluntary-stop path NOT gated by the
+            // reach-the-flag veto - an already-stopped car whose tyre finishes
+            // the race would still burn ~22s on an "undercut" that can never
+            // pay for itself (the rival it jumps still has a free stop in
+            // hand). Same gate as every other voluntary trigger now.
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && raceManager.ShouldAiPitForUndercut(participant) &&
-                !raceManager.AiVoluntaryStopsExhausted(participant))
+                !raceManager.AiVoluntaryStopsExhausted(participant) &&
+                !extraStopPointless)
             {
                 command.pitRequest = true;
             }
@@ -3324,14 +3340,17 @@ namespace LocalFormulaRacing
 
         // Margin the geometric corner caps demand of genuinely fast corners
         // (see the round-3/4/5 history at the call sites): a corner whose own
-        // uncapped speed is 260kph or below is untouched; above that the
+        // uncapped speed is 270kph or below is untouched; above that the
         // racing line runs meaningfully tighter than the measured centreline
-        // radius the caps are built on, so the reserve ramps to 20% by 380.
+        // radius the caps are built on, so the reserve ramps to 15% by 390.
         // Keyed to the corner's speed, never the car's - approaching a slow
         // corner fast must not shrink its apex target.
+        // Softened 0.8@380 -> 0.85@390 with the overall-pace round ("they
+        // simply dont have the pace") - the reflex and edge nets carry more
+        // of the fast-sweeper protection now.
         static float SweeperCorneringMargin(float cornerCapKph)
         {
-            return Mathf.Lerp(1f, 0.8f, Mathf.Clamp01((cornerCapKph - 260f) / 120f));
+            return Mathf.Lerp(1f, 0.85f, Mathf.Clamp01((cornerCapKph - 270f) / 120f));
         }
 
         // Controller-side compensation for the corner-speed realism pass. The
