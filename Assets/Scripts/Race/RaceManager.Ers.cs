@@ -227,9 +227,14 @@ namespace LocalFormulaRacing
                 // above already deploy freely down to the floor), and the battery
                 // refills under the very next braking zone, so this never bankrupts
                 // the car into a fight - it just stops hoarding when alone.
+                // True-ceiling round (player sandbagging report - the field
+                // needs genuine flat-out pace): bank thresholds lowered so
+                // the discretionary burst band spends more of each lap's
+                // harvest instead of hoarding it - a flat-out human empties
+                // the battery every lap; the AI now gets closer to that.
                 bool soloStint = aheadInterval > 4f && behind == null;
-                float startFloor = soloStint ? 0.42f : 0.6f;
-                float runFloor = soloStint ? 0.2f : 0.32f;
+                float startFloor = soloStint ? 0.36f : 0.5f;
+                float runFloor = soloStint ? 0.16f : 0.26f;
                 float pushLapFloor = alreadyDeploying ? runFloor : startFloor;
                 if (battery > pushLapFloor && cornerSeverity < 0.2f)
                 {

@@ -1364,7 +1364,11 @@ namespace LocalFormulaRacing
             // both exist specifically to convert an over-ambitious entry into
             // time loss instead of a wall, so entry judgment can afford a
             // touch more ambition than the immediate post-crash tuning.
-            float feasibilityCap = Mathf.Lerp(1.06f, 1.15f, paceNorm);
+            // True-ceiling round: 1.06-1.15 -> 1.07-1.18. Elite entry
+            // judgment carries more speed over the apex number and trail-
+            // brakes it off inside the corner - time loss on a misjudgment,
+            // never a wall (brake saturation + speed-shed catch it).
+            float feasibilityCap = Mathf.Lerp(1.07f, 1.18f, paceNorm);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
                 apexTargetSpeed * feasibilityCap);
@@ -1531,7 +1535,12 @@ namespace LocalFormulaRacing
             // skill-scaled bite out of the already-reduced envelope. The
             // ceiling stays 0.98; the floor compresses so the field's corner
             // pace is respectable at every tier.
-            float tightCornerJudgment = Mathf.Lerp(0.94f, 0.98f, paceNorm);
+            // Ceiling 0.98 -> 0.995 (per report - the player was TOYING with
+            // the elite tier; the "matching" laps were the player's cruise
+            // pace, not their limit): the best drivers now run at 99.5% of
+            // the physics envelope. The reflex/edge/rescue nets carry the
+            // residual risk; this is driving commitment, not extra machinery.
+            float tightCornerJudgment = Mathf.Lerp(0.94f, 0.995f, paceNorm);
             // [SwerveTape] round 3 (the fast-sweeper crash signature): every
             // wall-hit tape now shows the same thing - sev 0.1-0.35 corners
             // taken at 350-390kph with the final steer PINNED at full lock for
@@ -2654,8 +2663,11 @@ namespace LocalFormulaRacing
             // braking at dry distances and arrived hot at every single zone.
             // Both now scale by the live factor, so brake points move out
             // exactly as far as the car's real braking has shrunk.
+            // True-ceiling round: 26-40 -> 28-42. Elite braking now plans at
+            // ~76% of the physical envelope on the base band (the big-stop
+            // lift and closed-loop demand still cover the rest).
             float liveBrakeGrip = vehicle.LiveBrakingGripFactor;
-            float decelReference = Mathf.Lerp(26f, 40f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1.05f, 1.5f, skillTier) * liveBrakeGrip;
+            float decelReference = Mathf.Lerp(28f, 42f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1.05f, 1.5f, skillTier) * liveBrakeGrip;
             // brakeConfidenceMultiplier folds in on top of brakeDistanceMultiplier so
             // Hard/Expert genuinely brake later/shorter, not just via the weaker base
             // multiplier alone: >1 shortens the effective distance (brakes later),
@@ -3448,9 +3460,14 @@ namespace LocalFormulaRacing
         // Softened 0.8@380 -> 0.85@390 with the overall-pace round ("they
         // simply dont have the pace") - the reflex and edge nets carry more
         // of the fast-sweeper protection now.
+        // Softened again with the true-ceiling round (player was sandbagging;
+        // the whole field needs real pace): reserve tops out at 11% from
+        // 280kph corners up - the speed-shed reflex and edge nets are the
+        // fast-sweeper protection now, the blanket margin only takes the edge
+        // off the very fastest sweeps.
         static float SweeperCorneringMargin(float cornerCapKph)
         {
-            return Mathf.Lerp(1f, 0.85f, Mathf.Clamp01((cornerCapKph - 270f) / 120f));
+            return Mathf.Lerp(1f, 0.89f, Mathf.Clamp01((cornerCapKph - 280f) / 120f));
         }
 
         // Controller-side compensation for the corner-speed realism pass. The
