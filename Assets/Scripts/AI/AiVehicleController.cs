@@ -359,6 +359,20 @@ namespace LocalFormulaRacing
         int swerveTapeCount;
         float swerveTapeLastDump = -999f;
 
+        // [PitStopDiag] (per report - "the 2 stop problem still exists; if you
+        // dont know write code to diagnose it"): every voluntary pit trigger
+        // that fires for a car that has ALREADY stopped once logs, once per
+        // lap, exactly which trigger(s) fired and the full projection state
+        // (wear, laps left vs laps to flag, veto result) that let it through -
+        // so the next report names the guilty trigger instead of another
+        // round of guessing.
+        int pitDiagLastLoggedLap = -1;
+
+        static void AddPitTag(ref string tags, string tag)
+        {
+            tags = tags == null ? tag : tags + "+" + tag;
+        }
+
         // [SwerveTape] round 3: continuous seconds the FINAL steering command
         // has been pinned at (near) full lock at speed - the measured
         // precursor of nearly every remaining wall hit (sustained understeer:
@@ -2945,6 +2959,7 @@ namespace LocalFormulaRacing
             bool onWetCompoundNow = AiPitStrategyRules.IsWetCompound(MapStintCompound(currentCompound));
             bool weatherMismatchNow = trackWetNow != onWetCompoundNow;
             bool extraStopPointless = participant.pitStops >= 1 && tyreReachesFlag && !weatherMismatchNow;
+            string pitDiagTriggers = null;
 
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                 AiPitStrategyRules.ShouldPitRoutine(vehicle.Tyres.Wear, tyrePitThreshold) &&
@@ -2953,6 +2968,7 @@ namespace LocalFormulaRacing
                 !extraStopPointless)
             {
                 command.pitRequest = true;
+                AddPitTag(ref pitDiagTriggers, "routine-wear");
             }
 
             // Part A.9: never stay out on destroyed/near-destroyed tyres regardless of
@@ -2962,6 +2978,7 @@ namespace LocalFormulaRacing
                 AiPitStrategyRules.TyresEffectivelyGone(vehicle.Tyres.Wear))
             {
                 command.pitRequest = true;
+                AddPitTag(ref pitDiagTriggers, "tyres-gone");
             }
 
             // Short-stint predictive pit (per request - dynamic track-temperature
@@ -2989,6 +3006,7 @@ namespace LocalFormulaRacing
                 if (!tyreReachesFlag && vehicle.Tyres.Wear < wearPerLap * 1.15f + 0.04f)
                 {
                     command.pitRequest = true;
+                    AddPitTag(ref pitDiagTriggers, "short-stint");
                 }
             }
 
@@ -3004,6 +3022,7 @@ namespace LocalFormulaRacing
                 participant.lapTracker.CompletedLaps > 0)
             {
                 command.pitRequest = true;
+                AddPitTag(ref pitDiagTriggers, "grip-collapse");
             }
 
             // Off-by-one fix: used to compare raw CompletedLaps against
@@ -3025,6 +3044,7 @@ namespace LocalFormulaRacing
             {
                 command.pitRequest = true;
                 participant.pitRequestLapNumber = participant.lapTracker.CompletedLaps + 1;
+                AddPitTag(ref pitDiagTriggers, "strategy-lap");
             }
 
             // Safety car pit window (Part 6): an additional OR-condition alongside the
@@ -3035,6 +3055,7 @@ namespace LocalFormulaRacing
                 !extraStopPointless)
             {
                 command.pitRequest = true;
+                AddPitTag(ref pitDiagTriggers, "safety-car-window");
             }
 
             // Smarter AI strategy: jump a closely-followed rival that hasn't
@@ -3050,6 +3071,7 @@ namespace LocalFormulaRacing
                 !extraStopPointless)
             {
                 command.pitRequest = true;
+                AddPitTag(ref pitDiagTriggers, "undercut");
             }
 
             // Weather crossover under green: the safety-car window already reacts
@@ -3071,6 +3093,7 @@ namespace LocalFormulaRacing
                 if (AiPitStrategyRules.ShouldCrossover(trackWet, onWetCompound, weatherMismatchSeconds, reaction))
                 {
                     command.pitRequest = true;
+                    AddPitTag(ref pitDiagTriggers, "weather-crossover");
                 }
             }
             else
@@ -3107,6 +3130,27 @@ namespace LocalFormulaRacing
                 AiPitStrategyRules.FinalLapSuppressesNewRequest(participant.lapTracker.CompletedLaps, raceManager.RaceLaps))
             {
                 command.pitRequest = false;
+            }
+
+            // [PitStopDiag] extra-stop flight recorder: any surviving request
+            // for a SECOND-or-later stop logs which trigger(s) fired and every
+            // number the veto weighed, once per car per lap.
+            if (command.pitRequest && pitDiagTriggers != null && participant.pitStops >= 1 &&
+                participant.lapTracker.CompletedLaps != pitDiagLastLoggedLap)
+            {
+                pitDiagLastLoggedLap = participant.lapTracker.CompletedLaps;
+                Debug.LogWarning("[PitStopDiag] " + participant.driverName + " requests stop #" + (participant.pitStops + 1) +
+                    " lap " + (participant.lapTracker.CompletedLaps + 1) + "/" + raceManager.RaceLaps +
+                    " triggers=[" + pitDiagTriggers + "]" +
+                    " compound=" + currentCompound +
+                    " wear=" + vehicle.Tyres.Wear.ToString("0.00") +
+                    " tyreLapsLeft=" + tyreLapsLeft.ToString("0.0") +
+                    " lapsToFlag=" + lapsToFlag.ToString("0.0") +
+                    " reachesFlag=" + tyreReachesFlag +
+                    " expectedStint=" + expectedStintLaps.ToString("0.0") + "@" + pitTrackTempC.ToString("0") + "C" +
+                    " weather=" + currentWeather +
+                    " mismatch=" + weatherMismatchNow +
+                    " vetoActive=" + extraStopPointless);
             }
 
             ApplyDamageStrategy(ref command, damagePercent);

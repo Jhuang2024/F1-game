@@ -293,6 +293,36 @@ namespace LocalFormulaRacing
                           Mathf.Abs(participant.vehicle.CurrentSpeedKph).ToString("0") + "kph");
             }
 
+            // [PitStopDiag] commitment-side record (per report - "the 2 stop
+            // problem still exists ... write code to diagnose it"): EVERY
+            // second-or-later stop that actually begins logs the full strategy
+            // state here, at the one choke point all pit entries pass through
+            // regardless of which trigger or system requested them. If a stop
+            // begins with NO matching request-side [PitStopDiag] line that
+            // lap, the request came from outside the AI strategy block - that
+            // absence is itself the diagnosis.
+            if (participant.pitStops >= 1 && participant.vehicle != null && participant.vehicle.Tyres != null && participant.lapTracker != null)
+            {
+                float diagTempC = Track != null ? Track.trackTemperatureC : TyreStrategyRules.StandardTrackTempC;
+                TyreCompound diagCompound = participant.vehicle.Tyres.Compound;
+                int diagCode = diagCompound == TyreCompound.Soft ? TyreStrategyRules.Compound.Soft
+                    : (diagCompound == TyreCompound.Hard ? TyreStrategyRules.Compound.Hard : TyreStrategyRules.Compound.Medium);
+                float diagStintLaps = Mathf.Max(0.6f, TyreStrategyRules.ExpectedStintLapsAtTemp(diagCode, diagTempC));
+                float diagLapsToFlag = RaceLaps - participant.lapTracker.CompletedLaps - commitProgress.normalized;
+                float diagTyreLapsLeft = participant.vehicle.Tyres.Wear * diagStintLaps;
+                Debug.LogWarning("[PitStopDiag] " + participant.driverName + " BEGINS stop #" + (participant.pitStops + 1) +
+                    (participant.isPlayer ? " (PLAYER)" : "") +
+                    " lap " + (participant.lapTracker.CompletedLaps + 1) + "/" + RaceLaps +
+                    " source=" + participant.activePitRequestSource +
+                    " compound=" + diagCompound +
+                    " wear=" + participant.vehicle.Tyres.Wear.ToString("0.00") +
+                    " tyreLapsLeft=" + diagTyreLapsLeft.ToString("0.0") +
+                    " lapsToFlag=" + diagLapsToFlag.ToString("0.0") +
+                    " reachesFlag=" + (diagTyreLapsLeft >= diagLapsToFlag - 0.1f) +
+                    " expectedStint=" + diagStintLaps.ToString("0.0") + "@" + diagTempC.ToString("0") + "C" +
+                    " weather=" + (Track != null ? Track.weather.ToString() : "?"));
+            }
+
             participant.pitPhase = PitPhase.Entry;
             participant.pitEntryCommitted = true;
             // Cancellable-manual-pit-stop fix: this is the authoritative

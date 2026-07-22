@@ -170,6 +170,47 @@ namespace LocalFormulaRacing
                     dy = participant.transform.position.y - matchedPoint.y;
                 }
 
+                // [PitCrashDiag] (per report - "the same barrier crashing
+                // problem while pitting ... write code to diagnose it"): when
+                // the struck car is pit-bound, or the hit lands inside the pit
+                // entry/exit windows, append the entire pit context - the
+                // guided phase the car was in, where the drivable ramp
+                // envelope actually was at that norm, and where the car was
+                // relative to it. One line now answers "was the car off the
+                // envelope (guidance bug) or was something solid ON the
+                // envelope (geometry bug)".
+                string pitContext = "";
+                if (Track != null)
+                {
+                    bool carPitBound = participant.vehicle.PitRequested || participant.isPitting ||
+                                       participant.pitPhase != PitPhase.None || participant.pitLimiterUntilExit;
+                    bool inEntryWindow = hitNorm >= Track.PitEntryRampStartNormalized && hitNorm <= Track.PitCorridorStartNormalized;
+                    bool inExitWindow = hitNorm > Track.PitExitRampStartNormalized || hitNorm <= Track.PitExitRampEndNormalized;
+                    if (carPitBound || inEntryWindow)
+                    {
+                        float rampLateral;
+                        float rampHalfWidth;
+                        if (inExitWindow && !inEntryWindow)
+                        {
+                            Track.GetPitExitRampEnvelope(hitNorm, hitProgress.distance, out rampLateral, out rampHalfWidth);
+                        }
+                        else
+                        {
+                            Track.GetPitEntryRampEnvelope(hitNorm, hitProgress.distance, out rampLateral, out rampHalfWidth);
+                        }
+
+                        string envelopePosition = hitProgress.lateralDistance < rampLateral - rampHalfWidth ? "INSIDE-OF-RAMP(track side)"
+                            : (hitProgress.lateralDistance > rampLateral + rampHalfWidth ? "OUTSIDE-OF-RAMP" : "ON-RAMP-ENVELOPE");
+                        pitContext = " | [PitCrashDiag] pitBound=" + carPitBound +
+                            " phase=" + participant.pitPhase +
+                            " requested=" + participant.vehicle.PitRequested +
+                            " limiter=" + participant.vehicle.PitLimiterActive +
+                            " window=" + (inEntryWindow ? "entry" : (inExitWindow ? "exit" : "none")) +
+                            " ramp=[" + (rampLateral - rampHalfWidth).ToString("0.0") + ".." + (rampLateral + rampHalfWidth).ToString("0.0") + "]m" +
+                            " carLat=" + hitProgress.lateralDistance.ToString("0.0") + "m -> " + envelopePosition;
+                    }
+                }
+
                 AiVehicleController hitAi = participant.vehicle.GetComponent<AiVehicleController>();
                 Debug.LogWarning("[WallDiag] " + participant.driverName + " wall hit " + impactKph.ToString("0") +
                     "kph perpendicular at norm " + hitNorm.ToString("0.000") + " (" + phase +
@@ -181,6 +222,7 @@ namespace LocalFormulaRacing
                     " lateral=" + hitProgress.lateralDistance.ToString("0.0") +
                     "/halfW=" + (Track != null ? Track.HalfWidthAt(hitProgress.distance).ToString("0.0") : "?") +
                     " dy=" + dy.ToString("0.0") +
+                    pitContext +
                     (hitAi != null ? " | AI " + hitAi.DescribeLateralState() : ""));
                 // [SwerveTape] the most valuable dump of all: the full steering
                 // pipeline for the seconds BEFORE this wall contact.

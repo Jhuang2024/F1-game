@@ -2375,6 +2375,7 @@ namespace LocalFormulaRacing
             ValidateBarrierPocketFree();
             ValidateNoSolidObstaclesInsideDrivingCorridors();
             SweepPitRampEnvelopeClear();
+            DiagnosePitEntryGeometry();
             ValidateSceneryGrounding();
             DiagnoseRoadSurfaceMaterials();
             ValidateBarrierSmoothness();
@@ -7838,6 +7839,109 @@ namespace LocalFormulaRacing
             else
             {
                 Debug.Log("[PitRampSweep] Pit entry/exit ramp envelopes swept on " + Runtime.displayName + ": clear, no barrier colliders inside the drivable surface.");
+            }
+        }
+
+        // [PitGeoDiag] (per report - "the same barrier crashing problem while
+        // pitting ... write code to diagnose it"): one-shot build-time truth
+        // table of the whole pit approach. For every ~14m from 80m before the
+        // ramp opening to the corridor start, prints the road half-width, the
+        // drivable ramp envelope, and the MEASURED lateral of the nearest
+        // right-side barrier collider (a real raycast against the built
+        // physics, not the placement plan) - any sample where the wall stands
+        // inside the drivable envelope is flagged inline. Read together with
+        // the runtime [PitCrashDiag] wall-hit lines, this splits the problem
+        // cleanly: geometry bug (wall measured on the envelope here) vs
+        // guidance bug (cars hitting a correctly-placed wall off-envelope).
+        void DiagnosePitEntryGeometry()
+        {
+            if (Runtime == null || Runtime.length <= 1f)
+            {
+                return;
+            }
+
+            Physics.SyncTransforms();
+            float rampStartDistance = Runtime.PitEntryRampStartNormalized * Runtime.length;
+            float startDistance = Runtime.WrapDistance(rampStartDistance - 80f);
+            float endDistance = Runtime.PitCorridorStartNormalized * Runtime.length;
+            float span = endDistance - (rampStartDistance - 80f);
+            if (span <= 0f)
+            {
+                span += Runtime.length;
+            }
+
+            System.Text.StringBuilder table = new System.Text.StringBuilder();
+            table.Append("[PitGeoDiag] pit entry approach on ").Append(Runtime.displayName)
+                 .Append(" (norm | roadHalfW | ramp inner..outer | nearest right barrier):\n");
+            int intrusions = 0;
+            for (float d = 0f; d <= span; d += 14f)
+            {
+                float distance = Runtime.WrapDistance(startDistance + d);
+                float normalized = distance / Runtime.length;
+                float halfW = Runtime.HalfWidthAt(distance);
+                bool inWindow = normalized >= Runtime.PitEntryRampStartNormalized && normalized <= Runtime.PitCorridorStartNormalized;
+                float rampLateral = 0f;
+                float rampHalfWidth = 0f;
+                if (inWindow)
+                {
+                    Runtime.GetPitEntryRampEnvelope(normalized, distance, out rampLateral, out rampHalfWidth);
+                }
+
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(distance, out point, out forward, out right);
+                float nearestBarrierLateral = -1f;
+                string nearestBarrierType = "none<40m";
+                RaycastHit[] hits = Physics.RaycastAll(point + Vector3.up * 0.8f, right, 40f);
+                for (int i = 0; i < hits.Length; i++)
+                {
+                    TrackSolidObstacle solid = hits[i].collider != null ? hits[i].collider.GetComponentInParent<TrackSolidObstacle>() : null;
+                    if (solid == null || !solid.enabled)
+                    {
+                        continue;
+                    }
+
+                    string type = solid.obstacleType ?? "";
+                    if (!(type.Contains("wall") || type.Contains("barrier") || type.Contains("rail") ||
+                          type.Contains("divider") || type.Contains("fence") || type.Contains("auto-fill")))
+                    {
+                        continue;
+                    }
+
+                    if (nearestBarrierLateral < 0f || hits[i].distance < nearestBarrierLateral)
+                    {
+                        nearestBarrierLateral = hits[i].distance;
+                        nearestBarrierType = type;
+                    }
+                }
+
+                bool insideEnvelope = inWindow && nearestBarrierLateral >= 0f &&
+                                      nearestBarrierLateral > rampLateral - rampHalfWidth + 0.3f &&
+                                      nearestBarrierLateral < rampLateral + rampHalfWidth - 0.3f;
+                if (insideEnvelope)
+                {
+                    intrusions++;
+                }
+
+                table.Append("  ").Append(normalized.ToString("0.000"))
+                     .Append(" | ").Append(halfW.ToString("0.0"))
+                     .Append(" | ").Append(inWindow ? (rampLateral - rampHalfWidth).ToString("0.0") + ".." + (rampLateral + rampHalfWidth).ToString("0.0") : "pre-ramp")
+                     .Append(" | ").Append(nearestBarrierLateral >= 0f ? nearestBarrierLateral.ToString("0.0") + "m (" + nearestBarrierType + ")" : nearestBarrierType)
+                     .Append(insideEnvelope ? "  <<< WALL INSIDE DRIVABLE RAMP" : "")
+                     .Append('\n');
+            }
+
+            table.Append(intrusions > 0
+                ? "[PitGeoDiag] RESULT: " + intrusions + " sample(s) with a wall inside the drivable ramp - geometry bug confirmed."
+                : "[PitGeoDiag] RESULT: no wall inside the drivable ramp envelope - if pit crashes persist, they are guidance-side (see [PitCrashDiag] lines).");
+            if (intrusions > 0)
+            {
+                Debug.LogWarning(table.ToString());
+            }
+            else
+            {
+                Debug.Log(table.ToString());
             }
         }
 
