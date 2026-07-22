@@ -3046,8 +3046,25 @@ namespace LocalFormulaRacing
             // grip is several seconds a lap off the pace and becomes a rolling
             // roadblock no matter what the pre-race strategy said.
             // currentWeather declared alongside the reach-the-flag projection above.
+            // Round 10 (per report + [PitStopDiag] capture - "so many 2 stops
+            // still", race started wet then dried): the smoking-gun lines
+            // were "requests stop #2 ... compound=Medium wear=1.00
+            // triggers=[grip-collapse] vetoActive=True" - cars that had just
+            // fitted FRESH weather-correct slicks read as grip-collapsed
+            // anyway, because an out-lap tyre is stone cold on a 10-12C track
+            // still damp from the rain that just ended. Those are CONDITIONS,
+            // and a pit stop cannot fix conditions: the next set comes out
+            // just as cold onto the same damp track, so the unconditional
+            // collapse trigger sent the entire field straight back in for an
+            // identical tyre. Grip collapse is now only a pit trigger when a
+            // stop can actually CURE it: the tyre is meaningfully worn, or it
+            // is the wrong compound for the weather. A fresh, weather-correct
+            // tyre reading collapsed is something you drive through while it
+            // comes up to temperature and the track dries.
+            bool gripCollapseCurableByStop = vehicle.Tyres.Wear < 0.55f || weatherMismatchNow;
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                 AiPitStrategyRules.GripCollapsed(vehicle.Tyres.GripMultiplier(currentWeather)) &&
+                gripCollapseCurableByStop &&
                 participant.lapTracker.CompletedLaps > 0)
             {
                 command.pitRequest = true;
