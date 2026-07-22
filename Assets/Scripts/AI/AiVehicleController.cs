@@ -658,27 +658,34 @@ namespace LocalFormulaRacing
         // ApplySteering cover line imperfection on top of the <1.0 fractions.
         float EstimateApexSpeedForCornerType(CornerType type, float straightTargetSpeed, float hairpinSpeedKph, float apexConfidence, float skillTier, float compoundSpeedOffsetKph, float corneringEnvelopeKph)
         {
+            // Slow-corner pace round (per report - "ai go into slow corners
+            // way too slow still"): the low-confidence floors sat at 0.80-0.83
+            // of the envelope, and mid-field drivers live near those floors -
+            // a fifth of the corner speed given away before the geometric caps
+            // even spoke. Floors raised hardest on the slow/tight/hairpin
+            // tiers where the drag was reported; the skill ceilings barely
+            // move, so driver ordering is preserved.
             float envelopeFraction;
             switch (type)
             {
                 case CornerType.HighSpeed:
-                    envelopeFraction = Mathf.Lerp(0.87f, Mathf.Lerp(0.93f, 0.99f, skillTier), apexConfidence);
+                    envelopeFraction = Mathf.Lerp(0.90f, Mathf.Lerp(0.94f, 0.99f, skillTier), apexConfidence);
                     break;
                 case CornerType.Medium:
-                    envelopeFraction = Mathf.Lerp(0.85f, Mathf.Lerp(0.92f, 0.985f, skillTier), apexConfidence);
+                    envelopeFraction = Mathf.Lerp(0.88f, Mathf.Lerp(0.93f, 0.985f, skillTier), apexConfidence);
                     break;
                 case CornerType.Slow:
-                    envelopeFraction = Mathf.Lerp(0.83f, Mathf.Lerp(0.91f, 0.98f, skillTier), apexConfidence);
+                    envelopeFraction = Mathf.Lerp(0.88f, Mathf.Lerp(0.94f, 0.99f, skillTier), apexConfidence);
                     break;
                 case CornerType.VeryTight:
-                    envelopeFraction = Mathf.Lerp(0.81f, Mathf.Lerp(0.90f, 0.975f, skillTier), apexConfidence);
+                    envelopeFraction = Mathf.Lerp(0.86f, Mathf.Lerp(0.93f, 0.985f, skillTier), apexConfidence);
                     break;
                 default:
                     // Hairpin: same judgment-fraction idea, additionally capped
-                    // by the car-stat hairpin band (62-92 kph) so a hairpin
-                    // always reads as the deliberate 2nd-gear crawl it is even
-                    // if the smoothed radius sample runs a little generous.
-                    envelopeFraction = Mathf.Lerp(0.80f, Mathf.Lerp(0.90f, 0.97f, skillTier), apexConfidence);
+                    // by the car-stat hairpin band so a hairpin always reads as
+                    // the deliberate 2nd-gear corner it is even if the smoothed
+                    // radius sample runs a little generous.
+                    envelopeFraction = Mathf.Lerp(0.85f, Mathf.Lerp(0.92f, 0.98f, skillTier), apexConfidence);
                     break;
             }
 
@@ -1146,7 +1153,12 @@ namespace LocalFormulaRacing
             // with a modest skill lift; the envelope-derived floor in
             // EstimateApexSpeedForCornerType Min()s against this anyway, so
             // this acts as a cap/character number rather than a physics claim.
-            float hairpinSpeedKph = Mathf.Lerp(62f, 80f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f)) * Mathf.Lerp(1f, 1.15f, skillTier);
+            // Slow-corner pace round ("ai go into slow corners way too slow
+            // still"): 62-80 -> 70-88. A real 8-15m hairpin supports ~94kph
+            // under the current envelope, so the old band bound BELOW the
+            // physics for everyone but the elite; the envelope Min() in
+            // EstimateApexSpeedForCornerType still caps whatever this allows.
+            float hairpinSpeedKph = Mathf.Lerp(70f, 88f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f)) * Mathf.Lerp(1f, 1.15f, skillTier);
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a

@@ -389,13 +389,25 @@ namespace LocalFormulaRacing
             // life SLOWER than the screen says. Pushing (braking, sliding,
             // overheating) still costs extra on top; management/smoothness now
             // only ever claws back that extra, never stretches the baseline.
+            // Round 9 (per report - "the recommendations screen pre-race's
+            // tire wear and how long a tire lasts is still not accurate", plus
+            // the AI 2-stopping "for no reason"): the round-8 coefficients
+            // summed to ~1.3-1.5x under genuine race driving (braking zones,
+            // loaded steering, slip at racing pace, temps riding at/over
+            // target), so a "20 laps here" tyre really died around lap 14 -
+            // and the AI's second stops were then MODEL-JUSTIFIED, because the
+            // tyre genuinely could not reach the flag at that burn rate. The
+            // additive terms are recalibrated so a hard-driven lap lands at
+            // ~1.05-1.12x: the displayed number is now what actually happens
+            // on track, dying only slightly early when genuinely abused. The
+            // >= 1.0 floor (the contract: never LONGER than displayed) stays.
             float intensity = Mathf.Max(1f, Mathf.Clamp(
                 1.0f
-                + brake * 0.2f
-                + Mathf.Abs(steer) * 0.15f
-                + slipEnergy * 0.35f
-                + (overheatWear - 1f) * 0.4f
-                + (wornHeatWear - 1f) * 0.35f,
+                + brake * 0.08f
+                + Mathf.Abs(steer) * 0.06f
+                + slipEnergy * 0.18f
+                + (overheatWear - 1f) * 0.22f
+                + (wornHeatWear - 1f) * 0.2f,
                 0.9f, 2.0f) * managementRelief);
 
             float wearLoss = baseLifeFraction * intensity * weatherWear + lockupWearRate;
