@@ -1158,7 +1158,11 @@ namespace LocalFormulaRacing
             // under the current envelope, so the old band bound BELOW the
             // physics for everyone but the elite; the envelope Min() in
             // EstimateApexSpeedForCornerType still caps whatever this allows.
-            float hairpinSpeedKph = Mathf.Lerp(70f, 88f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f)) * Mathf.Lerp(1f, 1.15f, skillTier);
+            // Round 2 ("still WAY too slow going into hairpins"): 70-88 ->
+            // 76-94 - the band now brackets the ~94kph the physics envelope
+            // actually supports, acting as a car-stat/skill spread within it
+            // rather than a blanket crawl below it.
+            float hairpinSpeedKph = Mathf.Lerp(76f, 94f, Mathf.Clamp01((carBrakingStat + carCorneringStat) / 200f)) * Mathf.Lerp(1f, 1.15f, skillTier);
 
             // Classify the upcoming apex by type rather than treating one continuous
             // severity number the same everywhere - a flowing high-speed kink and a
@@ -1535,11 +1539,31 @@ namespace LocalFormulaRacing
             float rawApexCap = vehicle.MaxCorneringSpeedKph(apexGeoRadius) * tightCornerJudgment;
             brakingApexSpeed = Mathf.Min(brakingApexSpeed, rawApexCap * SweeperCorneringMargin(rawApexCap));
 
-            float occupiedRadius = Mathf.Min(
-                track.CurvatureRadiusAt(progress.distance),
-                Mathf.Min(track.CurvatureRadiusAt(progress.distance + 18f), track.CurvatureRadiusAt(progress.distance + 36f)));
-            float rawCruiseCap = vehicle.MaxCorneringSpeedKph(occupiedRadius) * tightCornerJudgment;
-            cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, rawCruiseCap * SweeperCorneringMargin(rawCruiseCap));
+            // Hairpin-entry crawl fix (per report - "the ai are WAY too slow
+            // going into hairpins"): this used to take the TIGHTEST radius of
+            // here/+18m/+36m and clamp cruise to that corner's final speed
+            // outright - so the instant a hairpin entered the 36m look-ahead,
+            // the car was commanded to already BE at hairpin apex speed,
+            // finishing its braking ~40m early and crawling the entire
+            // approach. A corner N metres ahead only justifies the speed you
+            // can no longer brake down from: each look-ahead sample now gets a
+            // kinematic braking allowance (v^2 = vCap^2 + 2*a*s at a
+            // conservative 24 m/s^2 - well under the planning decel, so the
+            // real braking model stays the binding authority in the zone).
+            // The here-sample keeps its exact cap, so mid-corner speed is
+            // unchanged; only the premature clamp on approach is gone.
+            float cruiseGeoCapKph = float.MaxValue;
+            for (int cruiseSample = 0; cruiseSample < 3; cruiseSample++)
+            {
+                float sampleAhead = cruiseSample * 18f;
+                float sampleCapKph = vehicle.MaxCorneringSpeedKph(track.CurvatureRadiusAt(progress.distance + sampleAhead)) * tightCornerJudgment;
+                sampleCapKph *= SweeperCorneringMargin(sampleCapKph);
+                float sampleCapMs = sampleCapKph / 3.6f;
+                float allowedNowKph = Mathf.Sqrt(sampleCapMs * sampleCapMs + 2f * 24f * sampleAhead) * 3.6f;
+                cruiseGeoCapKph = Mathf.Min(cruiseGeoCapKph, allowedNowKph);
+            }
+
+            cruiseTargetSpeed = Mathf.Min(cruiseTargetSpeed, cruiseGeoCapKph);
 
             UpdateMistake(consistency, aggression, profile);
             UpdateOvertakeState(progress, severityHere, apexDistanceAhead, apexSeverity, turnSign, aggression, overtaking, defending, profile, isExpert, driver);

@@ -7829,9 +7829,15 @@ namespace LocalFormulaRacing
             // divider's end for the same reason.
             demoted += SweepPitRampWindow(PitZoneEntryRampStart, PitZoneEntryRampEnd, 8f);
             demoted += SweepPitRampWindow(PitZoneExitRampStart, PitZoneExitRampEnd, 8f);
+            // Always log, even (especially) when clean - a silent pass is
+            // indistinguishable from the sweep never running at all.
             if (demoted > 0)
             {
                 GameLog.Warn("[PitRampSweep] Demoted " + demoted + " barrier collider(s) standing inside the pit ramp envelopes on " + Runtime.displayName + ".");
+            }
+            else
+            {
+                Debug.Log("[PitRampSweep] Pit entry/exit ramp envelopes swept on " + Runtime.displayName + ": clear, no barrier colliders inside the drivable surface.");
             }
         }
 
