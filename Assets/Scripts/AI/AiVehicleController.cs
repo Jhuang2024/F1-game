@@ -1329,7 +1329,12 @@ namespace LocalFormulaRacing
             // carries ~12% over the apex number deep into the zone and washes
             // the rest off inside the corner, a backmarker ~4%. Driver-skill
             // ordering preserved, physics honored.
-            float feasibilityCap = Mathf.Lerp(1.04f, 1.12f, paceNorm);
+            // Corner-entry pace round 2: nudged 1.04-1.12 -> 1.06-1.15. The
+            // closed-loop brake demand and the full-lock understeer reflex
+            // both exist specifically to convert an over-ambitious entry into
+            // time loss instead of a wall, so entry judgment can afford a
+            // touch more ambition than the immediate post-crash tuning.
+            float feasibilityCap = Mathf.Lerp(1.06f, 1.15f, paceNorm);
             float brakingApexSpeed = Mathf.Min(
                 apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
                 apexTargetSpeed * feasibilityCap);
@@ -1473,7 +1478,17 @@ namespace LocalFormulaRacing
             // feedback (which trims yaw authority ~8-10% under combined
             // steering + exit throttle) was ~zero, so elite cars still drifted
             // to the wall on exits. 0.90 leaves a real reserve at every tier.
-            float tightCornerJudgment = Mathf.Lerp(0.82f, 0.90f, paceNorm);
+            // Restored 0.82-0.90 -> 0.87-0.95 (per report - "AI still way too
+            // slow on entry and overall"): both trims above predate the
+            // layered protections that now exist downstream - the closed-loop
+            // brake-demand controller, the full-lock understeer speed-shed
+            // reflex, the corner-keyed sweeper margin, the reworked edge
+            // recovery, and wall contact being survivable (glance physics +
+            // rescue instead of retirement). With those nets in place this
+            // flat 10-18% everywhere-cut was the main thing dragging corner
+            // pace; the band comes most of the way back while staying under
+            // the pre-trim 0.88-0.99 that genuinely crashed cars.
+            float tightCornerJudgment = Mathf.Lerp(0.87f, 0.95f, paceNorm);
             // [SwerveTape] round 3 (the fast-sweeper crash signature): every
             // wall-hit tape now shows the same thing - sev 0.1-0.35 corners
             // taken at 350-390kph with the final steer PINNED at full lock for
@@ -2558,7 +2573,14 @@ namespace LocalFormulaRacing
             // raised to a realistic-but-conservative band (Expert ~50, still
             // ~25%+ under what the car can physically do, so the closed-loop
             // demand below always has reserve to correct with).
-            float decelReference = Mathf.Lerp(20f, 33f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1.05f, 1.5f, skillTier);
+            // Corner-entry pace round 2 (per report - "still way too slow on
+            // entry"): the band above still left a 35-65% reserve against the
+            // availableDecel the closed-loop demand actually trusts (34-59
+            // scaled up to 1.4x with speed), so zones opened far earlier than
+            // the controller needed. Planning decel raised toward - never past
+            // - that envelope; the closed-loop demand still self-corrects hot
+            // arrivals every frame and keeps ~12% headroom on top.
+            float decelReference = Mathf.Lerp(24f, 38f, Mathf.Clamp01(brakingStat / 100f)) * Mathf.Lerp(1.05f, 1.5f, skillTier);
             // brakeConfidenceMultiplier folds in on top of brakeDistanceMultiplier so
             // Hard/Expert genuinely brake later/shorter, not just via the weaker base
             // multiplier alone: >1 shortens the effective distance (brakes later),
