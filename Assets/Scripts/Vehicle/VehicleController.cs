@@ -216,6 +216,10 @@ namespace LocalFormulaRacing
         // Velocity at the top of the current physics tick (see ApplyForces /
         // SoftenCarContact) - the baseline for clamping car-car impulses.
         Vector3 lastPrePhysicsVelocity;
+        // Angular counterpart, captured at the same instant - the baseline the
+        // wall-glance response restores yaw toward so a barrier scrape can't
+        // leave the car pointing sideways (see DampenWallContactResponse).
+        Vector3 lastPrePhysicsAngularVelocity;
         // The driver's raw brake pedal this tick, pre-assist (see
         // GetAssistedCommand) - the DRS wing's brake sensor.
         float lastDriverBrakeInput;
@@ -1103,6 +1107,7 @@ namespace LocalFormulaRacing
             // clamp: captured at the top of the physics tick, before this
             // tick's drive/grip forces and any collision impulses land.
             lastPrePhysicsVelocity = body.velocity;
+            lastPrePhysicsAngularVelocity = body.angularVelocity;
             LastSteerInput = activeCommand.steer;
             float speedMps = body.velocity.magnitude;
             float forwardSpeed = Vector3.Dot(body.velocity, transform.forward);
@@ -2107,6 +2112,24 @@ namespace LocalFormulaRacing
                 normalSpeedKph = Mathf.Max(normalSpeedKph, body.velocity.magnitude * 3.6f * 0.18f);
             }
 
+            // Physics-spike clamp (per report - "wayyyy too easy to DNF by
+            // crashing into barriers"): relativeVelocity is a solver readout,
+            // and a deep-penetration ejection (a wall pin, a barrier seam
+            // catch, our own separation pushes) reports closing speeds far
+            // beyond anything physical - a 160kph shunt can read 380+ and trip
+            // the instant heavy-crash retirement plus a wildly inflated damage
+            // hit. Against a STATIC obstacle a car cannot hit harder than it
+            // was actually moving, so both readings cap at the measured
+            // pre-physics speed (small allowance for tick timing). Car-to-car
+            // keeps the raw relative velocity - two cars genuinely can close
+            // faster than either one moves.
+            if (impactType != DamageImpactType.Car)
+            {
+                float physicalCapKph = lastPrePhysicsVelocity.magnitude * 3.6f + 8f;
+                impactSpeedKph = Mathf.Min(impactSpeedKph, physicalCapKph);
+                normalSpeedKph = Mathf.Min(normalSpeedKph, physicalCapKph);
+            }
+
             if (impactType == DamageImpactType.Car)
             {
                 DampenCarContactResponse(normalSpeedKph, contact.normal, sustained);
@@ -2475,9 +2498,9 @@ namespace LocalFormulaRacing
                 Vector3 preTangential = Vector3.ProjectOnPlane(lastPrePhysicsVelocity, flatNormal);
                 preTangential.y = 0f;
                 float preTangentialSpeed = preTangential.magnitude;
+                float grazing = Mathf.Clamp01(preTangentialSpeed / Mathf.Max(0.1f, lastPrePhysicsVelocity.magnitude));
                 if (preTangentialSpeed > 2f)
                 {
-                    float grazing = Mathf.Clamp01(preTangentialSpeed / Mathf.Max(0.1f, lastPrePhysicsVelocity.magnitude));
                     float keep = Mathf.Lerp(0.45f, 0.93f, grazing * grazing) * (sustained ? 0.9f : 1f);
                     Vector3 tangentialDir = preTangential / preTangentialSpeed;
                     float currentTangential = Vector3.Dot(body.velocity, tangentialDir);
@@ -2487,6 +2510,21 @@ namespace LocalFormulaRacing
                         body.velocity += tangentialDir * (targetTangential - currentTangential);
                     }
                 }
+
+                // Yaw restore (per report - "hitting the barriers doesnt slow
+                // u down but it js turns you sideways"): with the momentum
+                // restore above, the one thing the solver still delivered in
+                // full was its yaw impulse - the car kept its speed but left
+                // the wall pointing the wrong way, trading the old dead-stop
+                // for an instant half-spin. Pull the yaw rate back toward its
+                // pre-contact value, hardest for shallow grazes (which
+                // physically shouldn't rotate the car much at all); a genuine
+                // square hit keeps most of its spin, and the angular damping
+                // above still settles that case.
+                Vector3 angular = body.angularVelocity;
+                float yawRestore = Mathf.Lerp(0.25f, 0.85f, grazing * grazing);
+                angular.y = Mathf.Lerp(angular.y, lastPrePhysicsAngularVelocity.y, yawRestore);
+                body.angularVelocity = angular;
             }
         }
 

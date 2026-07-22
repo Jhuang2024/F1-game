@@ -761,6 +761,17 @@ namespace LocalFormulaRacing
                         continue;
                     }
 
+                    // Per report ("way too easy to DNF by crashing into
+                    // barriers"): the red flag already teleports the whole
+                    // field to a restart grid - the PLAYER rejoins there
+                    // carrying their damage instead of losing the race to a
+                    // probability roll they never see. AI wrecks at the scene
+                    // still retire for the red flag's narrative to hold.
+                    if (involved.isPlayer)
+                    {
+                        continue;
+                    }
+
                     involvedNames += (involvedNames.Length > 0 ? (i == involvedDrivers.Count - 1 ? " and " : ", ") : "") + involved.driverName;
                     RetireParticipant(involved, "Red flag - race-ending accident");
                 }
