@@ -5695,7 +5695,25 @@ namespace LocalFormulaRacing
             float localHalfWidth = LocalHalfWidthAt(distance);
             float wallSafetyLimit = localHalfWidth - (track.IsNearTightFenceCorner(distance) ? 3.6f : 3.2f);
             float kerbBasedLimit = track.kerbStart > 0f ? track.kerbStart + 0.5f : wallSafetyLimit;
-            return Mathf.Max(0.75f, Mathf.Min(wallSafetyLimit, kerbBasedLimit));
+            // Absolute racing-ribbon cap (Britain flyover pinball fix - 224
+            // 'Bridge concrete wall' hits in one race, the amplitude diagnostic
+            // blaming RACING LINE / OVERTAKE OFFSET "runs edge-to-edge on this
+            // straight"): every commandable lateral target - drawn line, held
+            // lane, attack, defend, pit fan-out - clamps through this one gate,
+            // and it was purely (halfWidth - margin). On a normal ~7.5m-half
+            // circuit that is ~4m and nothing changes. But Britain's authored
+            // width balloons to 19-22m half on the flyover approaches, so the
+            // gate opened to +-16m and the AI legally scythed 30m+ across the
+            // wide straight - then the road necks to the elevated deck (~7.6m
+            // half) and the car, still 16m off centre, drove straight into the
+            // bridge wall. A real driver never uses 40m of width; the racing
+            // line lives on a normal ribbon down the middle. Cap the offset to
+            // that ribbon absolutely, so an over-wide section keeps cars
+            // central (arriving at the neck already lined up) while the
+            // wall-safety term still binds wherever the road is genuinely
+            // narrow. Min only - it can never widen the corridor past the wall.
+            const float AbsoluteRacingRibbon = 8.5f;
+            return Mathf.Max(0.75f, Mathf.Min(Mathf.Min(wallSafetyLimit, kerbBasedLimit), AbsoluteRacingRibbon));
         }
 
         float EstimateTurnDirection(float distance)
