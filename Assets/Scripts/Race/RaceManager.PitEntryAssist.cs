@@ -238,7 +238,24 @@ namespace LocalFormulaRacing
             // ~70m out (still comfortably before the ramp, and inside the
             // braking zone so the car is already at entry pace there).
             float proximityBlend = Mathf.InverseLerp(260f, 70f, metresToRamp);
-            float prePositionBlend = speedBlend * proximityBlend;
+            // Low-grip pit lockout fix (per report - "if it starts raining and
+            // you're on drys and you pit you physically can't get into the pit
+            // lane, same if your tyres are at 0%"): the commit test requires the
+            // car to be laterally ON the ramp (IsOnPitEntryRamp -> lateral >=
+            // edge-4.2m) inside the ~0.85-0.885 window. The pre-position blend
+            // that steers it there was speedBlend * proximityBlend, and
+            // speedBlend is ZERO above 280kph - so a car whose tyres can't brake
+            // it below 280 by the ramp (cold/wet slicks or 0% wear, exactly the
+            // reported conditions) was held at the ROAD CENTRE, never reached the
+            // edge, never committed, and got "box next lap" every lap forever.
+            // The speed gate exists only to stop diving to the pit-side edge at
+            // racing pace far UPSTREAM of the opening - so it must be overridden
+            // the moment the car is physically AT the ramp mouth. Once inside the
+            // final ~40m (or already past the ramp start), commit to the edge
+            // lane regardless of speed: entering hot is fine (the limiter clamps
+            // it on the ramp), being locked out of the pits is not.
+            float atRampCommit = Mathf.InverseLerp(40f, 0f, metresToRamp);
+            float prePositionBlend = Mathf.Max(speedBlend * proximityBlend, atRampCommit);
             Track.ComputePitEntryTargetPoint(progress.distance, steerLookAhead, prePositionBlend, out targetPoint, out targetRotation);
 
             Vector3 toTarget = targetPoint - participant.transform.position;

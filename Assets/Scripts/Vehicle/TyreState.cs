@@ -401,14 +401,30 @@ namespace LocalFormulaRacing
             // ~1.05-1.12x: the displayed number is now what actually happens
             // on track, dying only slightly early when genuinely abused. The
             // >= 1.0 floor (the contract: never LONGER than displayed) stays.
-            float intensity = Mathf.Max(1f, Mathf.Clamp(
-                1.0f
+            // Round 11 (per report - "the amount of time a tyre lasts on the
+            // pre-race screen is still not right" AND "still so many 2 stops"):
+            // rounds 6-10 deliberately set the CRUISE lap to 1.0x and let a
+            // driven lap ride at 1.05-1.15x, i.e. the design intent was for a
+            // tyre to die 5-15% BEFORE the displayed number. On the short
+            // sprints here that 5-15% is the whole margin - a "5-lap" tyre
+            // lasting ~4.5 means a second stint can't reach the flag, which
+            // both reads as the screen lying AND makes the AI's tyres-gone /
+            // short-stint triggers fire a model-justified second stop. The
+            // contract is now the honest one the player actually asked for:
+            // a NORMAL RACING lap consumes exactly the displayed life (base
+            // dropped 1.0 -> 0.92 so the ~0.08 of additive racing load lands on
+            // 1.0), genuine abuse (heavy braking, sliding, overheating) still
+            // shortens it, and smooth management can stretch it only a hair
+            // (floor 0.95, so never more than ~5% past the screen). Displayed
+            // life is now what a raced stint actually gets.
+            float intensity = Mathf.Max(0.95f, Mathf.Clamp(
+                0.92f
                 + brake * 0.08f
                 + Mathf.Abs(steer) * 0.06f
                 + slipEnergy * 0.18f
                 + (overheatWear - 1f) * 0.22f
                 + (wornHeatWear - 1f) * 0.2f,
-                0.9f, 2.0f) * managementRelief);
+                0.86f, 2.0f) * managementRelief);
 
             float wearLoss = baseLifeFraction * intensity * weatherWear + lockupWearRate;
             Wear = Mathf.Clamp01(Wear - wearLoss * RegulationWearMultiplier * deltaTime);

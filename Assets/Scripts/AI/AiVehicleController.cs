@@ -160,7 +160,16 @@ namespace LocalFormulaRacing
             // (see ComputePitEntryTargetPoint's blend param): hold the safe
             // centre while still at racing pace, slot into the edge lane as
             // the envelope brings the speed down.
-            float prePositionBlend = Mathf.InverseLerp(280f, 160f, Mathf.Abs(vehicle.CurrentSpeedKph));
+            // Low-grip pit lockout fix (mirrors the player assist - see
+            // RaceManager.BuildPitEntryAssistCommand): the speed-only blend is
+            // zero above 280kph, so a car that cannot brake below 280 by the
+            // ramp (cold/wet slicks, 0% wear) holds the road centre, never
+            // reaches the pit-side edge, and never satisfies IsOnPitEntryRamp -
+            // locked out of its stop. Once physically at the ramp mouth, commit
+            // to the edge lane regardless of speed.
+            float speedPre = Mathf.InverseLerp(280f, 160f, Mathf.Abs(vehicle.CurrentSpeedKph));
+            float atRampPre = Mathf.InverseLerp(40f, 0f, (track.PitEntryRampStartNormalized - fromProgress.normalized) * track.length);
+            float prePositionBlend = Mathf.Max(speedPre, atRampPre);
             track.ComputePitEntryTargetPoint(fromProgress.distance, lookAhead, prePositionBlend, out pitTargetPoint, out pitTargetRotation);
             return pitTargetPoint;
         }
@@ -1691,7 +1700,13 @@ namespace LocalFormulaRacing
                 // as missed - the AI stays at race pace and pits next lap
                 // (missedPitEntryThisLap suppresses the request until the lap
                 // completes, and clears automatically).
-                if (metresToRamp > 1f)
+                // Only reconsider while there is still real distance to the
+                // ramp. Once the car is essentially at the mouth (<= 25m), a low-
+                // grip car that could not slow in time must ENTER hot (the pit
+                // limiter then clamps it on the ramp) rather than abort and take
+                // a 0-stop penalty - being locked out of the pits is never the
+                // right answer once you have physically arrived at the opening.
+                if (metresToRamp > 25f)
                 {
                     // Abort criterion rebuilt (per the Britain [PitDiag] wall of
                     // "aborted pit entry" lines at 130-380 kph and the 0-stop
@@ -3081,10 +3096,20 @@ namespace LocalFormulaRacing
             // is the wrong compound for the weather. A fresh, weather-correct
             // tyre reading collapsed is something you drive through while it
             // comes up to temperature and the track dries.
+            // Grip collapse only triggers a stop a fresh tyre can actually CURE:
+            // Wear is REMAINING tread (1 = fresh, 0 = gone), so Wear < 0.55 means
+            // meaningfully worn, or it is the wrong compound for the weather. A
+            // fresh, weather-correct set reading collapsed (stone cold on a
+            // cooling track after wet->dry) is driven through, not pitted - that
+            // was the fresh-tyre 2-stop loop. Also honour the extra-stop veto: a
+            // worn-but-collapsed tyre that will still reach the flag in a short
+            // sprint can never win back a ~22s stop, so an already-stopped car
+            // does not throw away the race on a second stop it cannot amortise.
             bool gripCollapseCurableByStop = vehicle.Tyres.Wear < 0.55f || weatherMismatchNow;
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying &&
                 AiPitStrategyRules.GripCollapsed(vehicle.Tyres.GripMultiplier(currentWeather)) &&
                 gripCollapseCurableByStop &&
+                !extraStopPointless &&
                 participant.lapTracker.CompletedLaps > 0)
             {
                 command.pitRequest = true;
