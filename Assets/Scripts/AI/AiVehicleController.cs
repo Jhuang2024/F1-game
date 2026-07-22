@@ -1686,24 +1686,35 @@ namespace LocalFormulaRacing
                 float metresToRamp = (track.PitEntryRampStartNormalized - progress.normalized) * track.length;
 
                 // Late-decision abort (per report - "the AI cars are still able
-                // to dive into the pits a lot faster than I am"): the envelope
-                // below only caps the TARGET speed - an AI whose pit trigger
-                // latched mid-approach could be left needing far more than the
-                // envelope's 10 m/s^2 to make the ramp, and its controller
-                // happily brakes at full physics force to hit the reduced
-                // target, so it "dived" into the pit lane in a way nobody
-                // following the shared envelope ever could. If making the ramp
-                // from here would take more than 13 m/s^2, the entry is
-                // treated as missed: the AI stays at race pace and pits next
-                // lap, exactly like a real driver who missed the pit-entry
-                // decision point (missedPitEntryThisLap also suppresses the
-                // request until the lap completes, and clears automatically).
+                // to dive into the pits a lot faster than I am"): a request
+                // that genuinely latched too late to make the ramp is treated
+                // as missed - the AI stays at race pace and pits next lap
+                // (missedPitEntryThisLap suppresses the request until the lap
+                // completes, and clears automatically).
                 if (metresToRamp > 1f)
                 {
+                    // Abort criterion rebuilt (per the Britain [PitDiag] wall of
+                    // "aborted pit entry" lines at 130-380 kph and the 0-stop
+                    // field it produced): the old test demanded reaching the
+                    // 90 kph target BY the ramp start at <= 13 m/s^2 - but as
+                    // metresToRamp shrinks, that ratio blows up on ANY excess
+                    // speed, so a car at 130 kph 4 m from the mouth (trivially
+                    // makeable - the ramp itself is 70m+ of braking room at the
+                    // limiter) was scored "too late" and looped another lap.
+                    // Worn/wet tyres made it worse: the envelope assumed a decel
+                    // the physics couldn't deliver, cars converged on the target
+                    // a beat late every lap, and the whole field ground its
+                    // tyres to 0.00 aborting forever. The honest question is
+                    // feasibility: braking at the decel THIS car can actually
+                    // pull right now, how fast is it still going when the ramp
+                    // arrives? Only a genuinely unmakeable entry (arrival above
+                    // the speed the ramp turn-in can physically accept) aborts.
                     float speedMs = speedKph / 3.6f;
-                    float rampTargetMs = PitApproachTargetSpeedKph / 3.6f;
-                    float requiredDecel = (speedMs * speedMs - rampTargetMs * rampTargetMs) / (2f * metresToRamp);
-                    if (requiredDecel > 13f)
+                    float panicDecel = 26f * Mathf.Clamp(vehicle.LiveBrakingGripFactor, 0.35f, 1.05f);
+                    float arrivalSq = speedMs * speedMs - 2f * panicDecel * metresToRamp;
+                    float arrivalKph = arrivalSq > 0f ? Mathf.Sqrt(arrivalSq) * 3.6f : 0f;
+                    const float MaxMakeableRampArrivalKph = 170f;
+                    if (arrivalKph > MaxMakeableRampArrivalKph)
                     {
                         // Mirror RaceManager.HandlePitService's miss bookkeeping:
                         // record the lap so UpdateMissedPitEntryReset only clears
@@ -1719,9 +1730,10 @@ namespace LocalFormulaRacing
                         // Debug.LogWarning, not GameLog.Warn - GameLog is gated
                         // behind the Verbose flag and this log exists precisely
                         // to be visible when the field 0-stops.
-                        Debug.LogWarning("[PitDiag] " + participant.driverName + " aborted pit entry (too late to brake): speed=" +
+                        Debug.LogWarning("[PitDiag] " + participant.driverName + " aborted pit entry (unmakeable): speed=" +
                                          speedKph.ToString("0") + "kph metresToRamp=" + metresToRamp.ToString("0") +
-                                         "m requiredDecel=" + requiredDecel.ToString("0.0") + "m/s^2");
+                                         "m projectedArrival=" + arrivalKph.ToString("0") + "kph brakeGrip=" +
+                                         vehicle.LiveBrakingGripFactor.ToString("0.00"));
                     }
                 }
             }
@@ -1770,7 +1782,15 @@ namespace LocalFormulaRacing
 
                 float envelopeDistance = Mathf.Max(0f, metresToRampWrapped - PitApproachRampBufferMetres);
                 float pitTargetMs = PitApproachTargetSpeedKph / 3.6f;
-                float pitEnvelopeKph = Mathf.Sqrt(pitTargetMs * pitTargetMs + 2f * PitApproachBrakeDecelMs2 * envelopeDistance) * 3.6f;
+                // Grip-scaled envelope (the other half of the Britain 0-stop
+                // loop): the 10 m/s^2 plan assumed healthy tyres, but a car on
+                // worn wets on a drying track brakes at a fraction of that -
+                // it followed the envelope's line perfectly and still arrived
+                // hot every lap. The braking point now moves earlier in exact
+                // proportion to what the tyres can actually deliver, same as
+                // the corner-braking planner already does via decelReference.
+                float envelopeDecel = PitApproachBrakeDecelMs2 * Mathf.Clamp(vehicle.LiveBrakingGripFactor, 0.4f, 1f);
+                float pitEnvelopeKph = Mathf.Sqrt(pitTargetMs * pitTargetMs + 2f * envelopeDecel * envelopeDistance) * 3.6f;
                 // Queue behind any pit-bound car ahead (per report - cars
                 // "overtake each other while being in animation"): the shared
                 // headway cap the player assist also obeys, so an AI arriving

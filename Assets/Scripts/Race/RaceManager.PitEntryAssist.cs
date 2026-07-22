@@ -313,7 +313,13 @@ namespace LocalFormulaRacing
             // proximity gate).
             float envelopeDistance = Mathf.Max(0f, metresToRamp - PitApproachRampBufferMetres);
             float targetMs = alignedTargetKph / 3.6f;
-            float envelopeKph = Mathf.Sqrt(targetMs * targetMs + 2f * PitApproachBrakeDecelMs2 * envelopeDistance) * 3.6f;
+            // Grip-scaled, mirroring the AI's envelope exactly (parity by
+            // construction): on worn/wet rubber the 10 m/s^2 plan is a promise
+            // the physics can't keep - the braking point moves earlier in
+            // proportion to the live braking grip so the assist arrives at the
+            // ramp at the target speed instead of overshooting into the wall.
+            float envelopeDecel = PitApproachBrakeDecelMs2 * Mathf.Clamp(participant.vehicle.LiveBrakingGripFactor, 0.4f, 1f);
+            float envelopeKph = Mathf.Sqrt(targetMs * targetMs + 2f * envelopeDecel * envelopeDistance) * 3.6f;
             // Queue behind any pit-bound car ahead instead of catching it at
             // racing pace inside the corridor.
             envelopeKph = Mathf.Min(envelopeKph, PitApproachHeadwayCapKph(participant));

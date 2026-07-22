@@ -5573,6 +5573,19 @@ namespace LocalFormulaRacing
             public float segmentLength;
             public int side;
             public float lateral;
+            // Stair-step seam fix (Britain [WallDiag]: face-on 88-90deg hits on
+            // 'Bridge concrete wall'/'Armco guardrail' END FACES at halfW-0.6,
+            // including a 387kph DNF): every segment used ONE lateral for both
+            // of its ends, so wherever the plan's lateral changes between
+            // consecutive entries (width tapers, the pit fan-out, containment
+            // transitions) the wall stair-stepped and each step exposed a
+            // square segment end standing ACROSS the direction of travel - a
+            // car sliding along the wall face-planted into it. Each segment now
+            // spans from its own lateral at its start to the NEXT entry's
+            // lateral at its end (LinkBarrierLateralEndpoints), so consecutive
+            // segments share endpoints and the whole run is a continuous
+            // mitred polyline with no exposed end faces.
+            public float lateralEnd;
             public EdgeBarrierStyle style;
             public bool catchFence;
             public bool tyreStack;
@@ -5665,6 +5678,10 @@ namespace LocalFormulaRacing
             SmoothBarrierLateralSequence(leftPlan);
             SmoothBarrierLateralSequence(rightPlan);
 
+            // Must run AFTER smoothing - the endpoints link the final laterals.
+            LinkBarrierLateralEndpoints(leftPlan);
+            LinkBarrierLateralEndpoints(rightPlan);
+
             for (int i = 0; i < leftPlan.Count; i++)
             {
                 PlaceBarrierPlanEntry(leftPlan[i]);
@@ -5676,9 +5693,22 @@ namespace LocalFormulaRacing
             }
         }
 
+        // See BarrierPlanEntry.lateralEnd: each segment ends where its
+        // successor begins, closing every stair-step seam into a mitred joint.
+        // The lap is a closed loop, so the last entry links back to the first.
+        void LinkBarrierLateralEndpoints(List<BarrierPlanEntry> plan)
+        {
+            for (int i = 0; i < plan.Count; i++)
+            {
+                BarrierPlanEntry entry = plan[i];
+                entry.lateralEnd = plan[(i + 1) % plan.Count].lateral;
+                plan[i] = entry;
+            }
+        }
+
         void PlaceBarrierPlanEntry(BarrierPlanEntry entry)
         {
-            CreateEdgeBarrierSegment(entry.distance, entry.step, entry.side, entry.lateral, entry.segmentLength, entry.style, entry.catchFence, entry.tyreStack, entry.stripeIndex);
+            CreateEdgeBarrierSegment(entry.distance, entry.step, entry.side, entry.lateral, entry.lateralEnd, entry.segmentLength, entry.style, entry.catchFence, entry.tyreStack, entry.stripeIndex);
         }
 
         // Smooths the interior of one side's whole-lap lateral-offset sequence so no
@@ -5929,6 +5959,23 @@ namespace LocalFormulaRacing
                             tyreStack = false;
                         }
                     }
+                    // Ramp-mouth sawtooth fix (Britain [WallDiag]: 'Armco
+                    // guardrail' faces standing in the pit approach lane at
+                    // norm 0.90-0.936, hit face-on at 84-93kph by cars
+                    // correctly obeying the 90kph envelope): the drivable-pit-
+                    // surface floor below was only applied through the
+                    // containment blend, so on a gentle pit straight
+                    // (containBlend = 0) the fan-out eased from the flush edge
+                    // toward PitOuterLateral with NO floor - its early-blend
+                    // laterals sat ON the entry-ramp asphalt, every such
+                    // segment failed placement validation, and the push-repair
+                    // scattered them 0-4m outward (or destroyed them),
+                    // producing a sawtooth of exposed end faces exactly where
+                    // pitting cars pre-position. The floor is the pit lane's
+                    // own outer drivable edge at this exact point - it must
+                    // bind ALWAYS while the pit zone is active, not only near
+                    // corners.
+                    lateral = Mathf.Max(lateral, PitMinimumOuterLateral(midDistance, normalized));
                     if (containBlend > 0f)
                     {
                         // Barrier-gap fix ("no barriers on the outside line,
@@ -5981,7 +6028,7 @@ namespace LocalFormulaRacing
         // One barrier segment on one side, sampled along the local chord (the same
         // technique the old bridge-fence pass used) so tight corners get a tangent
         // segment instead of a straight line cutting across the corridor.
-        void CreateEdgeBarrierSegment(float distance, float step, int side, float lateral, float segmentLength, EdgeBarrierStyle style, bool wantsCatchFence, bool wantsTyreStack, int stripeIndex)
+        void CreateEdgeBarrierSegment(float distance, float step, int side, float lateral, float lateralEnd, float segmentLength, EdgeBarrierStyle style, bool wantsCatchFence, bool wantsTyreStack, int stripeIndex)
         {
             Vector3 a;
             Vector3 b;
@@ -6001,16 +6048,23 @@ namespace LocalFormulaRacing
             // longer arc than the centerline, so consecutive boxes cut at a fixed
             // centerline length spread apart and miter open (the missing barrier on the
             // hairpin's outside line). Spanning the real offset edge closes that gap on
-            // any tight corner. The length only ever grows (Max), so the inside of
-            // corners and straights - where the offset chord is equal or shorter - keep
-            // their existing overlap and are unchanged.
+            // any tight corner.
+            // Stair-step seam fix (see BarrierPlanEntry.lateralEnd): the segment's far
+            // end now uses the NEXT entry's lateral, so consecutive boxes share their
+            // endpoint and the run is a continuous mitred polyline - a changing plan
+            // lateral (pit fan-out, width taper) becomes a smooth diagonal instead of
+            // a stair-step whose exposed square end face a car slams into at 90deg.
+            // The box is centred on the real span, and the old symmetric overlap
+            // extension is capped small: with shared endpoints, coverage no longer
+            // depends on overlap - and a long extension past a mitred joint is itself
+            // a small protruding lip on an angled run.
             Vector3 aEdge = a + rightA * side * lateral;
-            Vector3 bEdge = b + rightB * side * lateral;
+            Vector3 bEdge = b + rightB * side * lateralEnd;
             Vector3 edgeChord = bEdge - aEdge;
             Vector3 chordForward = edgeChord.sqrMagnitude > 0.01f ? edgeChord.normalized : forward;
-            Vector3 basePosition = mid + right * side * lateral;
-            float overlapBudget = Mathf.Max(0f, segmentLength - step);
-            segmentLength = Mathf.Max(segmentLength, edgeChord.magnitude + overlapBudget);
+            Vector3 basePosition = (aEdge + bEdge) * 0.5f;
+            float overlapBudget = Mathf.Min(1.2f, Mathf.Max(0f, segmentLength - step));
+            segmentLength = Mathf.Max(1f, edgeChord.magnitude + overlapBudget);
 
             switch (style)
             {
@@ -6453,7 +6507,20 @@ namespace LocalFormulaRacing
             Vector3 chordForward = chord.sqrMagnitude > 0.01f ? chord.normalized : forward;
 
             float midDistance = distance + step * 0.5f;
-            float innerFace = Runtime.HalfWidthAt(midDistance) + EdgeBarrierClearance;
+            // Mass-rejection fix (Britain/China [TrackValidation]: every
+            // 'pit-divider' destroyed): the inner face sat at EXACTLY
+            // HalfWidthAt(mid) + EdgeBarrierClearance - the same formula the
+            // validity check tests every footprint sample against, with zero
+            // margin. On a curving pit straight the chord's corner samples sit
+            // a few centimetres closer to the centreline than the midpoint
+            // (sagitta), and the width profile slopes across the segment, so
+            // some sample always dipped under the knife edge and the WHOLE run
+            // was rejected. Key the face off the widest half-width across the
+            // segment's own span and stand off a further 0.25m so validation
+            // noise can never eat the entire divider again.
+            float spanHalfWidth = Mathf.Max(Runtime.HalfWidthAt(distance),
+                Mathf.Max(Runtime.HalfWidthAt(midDistance), Runtime.HalfWidthAt(distance + step)));
+            float innerFace = spanHalfWidth + EdgeBarrierClearance + 0.25f;
             float pitLaneInnerEdge = Runtime.PitLaneLateral - TrackRuntime.PitRampFullWidth * 0.5f;
             float outerFace = Mathf.Max(innerFace + PitDividerMinHalfWidth * 2f, pitLaneInnerEdge - PitDividerPitSideClearance);
             float wallHalfWidth = (outerFace - innerFace) * 0.5f;
@@ -6971,7 +7038,7 @@ namespace LocalFormulaRacing
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
                 for (int side = -1; side <= 1; side += 2)
                 {
-                    Vector3 expected = point + right * side * (Runtime.roadHalfWidth + 1.15f);
+                    Vector3 expected = point + right * side * (Runtime.HalfWidthAt(d) + 1.15f);
                     if (!HasSolidProtectionNear(expected, 26f))
                     {
                         unprotectedSamples++;
@@ -7045,9 +7112,15 @@ namespace LocalFormulaRacing
                 Vector3 right;
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
                 float normalized = d / Mathf.Max(1f, Runtime.length);
+                // Measure at the LOCAL drivable width, not the scalar base
+                // width: on an authored-wide or hairpin-widened stretch the
+                // real barriers stand at HalfWidthAt(d)+clearance, so probing
+                // at the (much smaller) scalar lateral read every widened
+                // section as a phantom gap and triggered auto-fill churn at
+                // positions the validator then had to reject.
                 float baseLateral = IsElevatedAtDistance(d)
-                    ? Runtime.roadHalfWidth + 1.15f
-                    : (streetTrack ? Runtime.roadHalfWidth + 2f : Runtime.roadHalfWidth + 2.6f);
+                    ? Runtime.HalfWidthAt(d) + 1.15f
+                    : (streetTrack ? Runtime.HalfWidthAt(d) + 2f : Runtime.HalfWidthAt(d) + 2.6f);
 
                 for (int side = -1; side <= 1; side += 2)
                 {
@@ -9185,7 +9258,15 @@ namespace LocalFormulaRacing
                 Vector3 forward;
                 Vector3 right;
                 Runtime.SampleAtDistance(d, out point, out forward, out right);
-                CreatePitWallSegment(point + right * (Runtime.roadHalfWidth + 2.4f), forward);
+                // Mass-rejection fix (Britain/China [TrackValidation]: EVERY
+                // 'pit-wall' placement destroyed as "footprint intruded into a
+                // drivable corridor"): this used the SCALAR base road width,
+                // but the authored width profile makes the pit-zone road far
+                // wider on some tracks (Britain ~22m half-width vs ~10m base),
+                // so the whole wall run landed 10m inside the actual road and
+                // the validator - correctly - deleted all of it, leaving the
+                // pit complex with no wall at all. Use the real local width.
+                CreatePitWallSegment(point + right * (Runtime.HalfWidthAt(d) + 2.4f), forward);
             }
 
             // One visible pit box per grid entrant, matched exactly to the indexed
