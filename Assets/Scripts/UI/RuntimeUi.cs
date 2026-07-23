@@ -3579,6 +3579,68 @@ namespace LocalFormulaRacing
             });
         }
 
+        // Maps a compound display name ("Soft"/"Medium"/.../"Wet") to the
+        // StrategyModel compound index used by the tyre-life chart.
+        static int StrategyCompoundIndex(string compoundName)
+        {
+            if (string.IsNullOrEmpty(compoundName)) return 1;
+            string n = compoundName.ToLowerInvariant();
+            if (n.StartsWith("soft")) return 0;
+            if (n.StartsWith("med")) return 1;
+            if (n.StartsWith("hard")) return 2;
+            if (n.StartsWith("inter")) return 3;
+            if (n.StartsWith("wet")) return 4;
+            return 1;
+        }
+
+        // Builds the two-card tyre-life comparison (player plan vs fastest plan)
+        // from the production chart widgets into the given legacy container. The
+        // career pre-race flow uses this legacy screen, not the production
+        // PreRaceStrategyView that normally hosts the graphs, so without this the
+        // charts never appear in career. Defensive: a chart failure logs and is
+        // skipped rather than taking out the whole tyre-select screen.
+        void BuildTyreLifeChart(RectTransform parent, CalendarEventData current, string weatherProfile,
+            GameSettingsStore settings, int raceLaps, int stopCount, float trackTempC)
+        {
+            try
+            {
+                var chartModel = new F1Game.UI.Screens.StrategyModel
+                {
+                    trackName = current.displayName,
+                    raceLaps = raceLaps,
+                    weatherForecast = WeatherProfileText(weatherProfile),
+                    selectedCompoundIndex = StrategyCompoundIndex(settings.Current.tyreCompound),
+                    plannedStopCount = stopCount,
+                    plannedPitLapOne = settings.Current.plannedPitLapOne,
+                    plannedPitLapTwo = settings.Current.plannedPitLapTwo,
+                    stopOneCompoundIndex = StrategyCompoundIndex(settings.Current.plannedStopOneCompound),
+                    stopTwoCompoundIndex = StrategyCompoundIndex(settings.Current.plannedStopTwoCompound),
+                    trackTempC = trackTempC,
+                };
+
+                UiFactory.CreateSubHeader(parent, "Tyre Life");
+                RectTransform chartRow = UiFactory.CreateRect(parent, "Tyre life chart row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                var chartLayout = chartRow.gameObject.AddComponent<HorizontalLayoutGroup>();
+                chartLayout.spacing = 16f;
+                chartLayout.childControlWidth = true;
+                chartLayout.childControlHeight = true;
+                chartLayout.childForceExpandWidth = true;
+                chartLayout.childForceExpandHeight = false;
+                var chartRowLayout = chartRow.gameObject.AddComponent<LayoutElement>();
+                chartRowLayout.preferredHeight = 196f;
+                chartRowLayout.minHeight = 196f;
+
+                var plannedChart = F1Game.UI.Screens.PreRaceStrategy.TyreLifeChartView.Build(chartRow, "Chart_Planned", 190f);
+                plannedChart.Render(F1Game.UI.Screens.PreRaceStrategy.StrategyChartBuilder.BuildPlanned(chartModel));
+                var optimalChart = F1Game.UI.Screens.PreRaceStrategy.TyreLifeChartView.Build(chartRow, "Chart_Optimal", 190f);
+                optimalChart.Render(F1Game.UI.Screens.PreRaceStrategy.StrategyChartBuilder.BuildOptimal(chartModel));
+            }
+            catch (System.Exception chartError)
+            {
+                Debug.LogWarning("[TyreChart] strategy chart skipped: " + chartError.Message);
+            }
+        }
+
         public void ShowRaceTyreSelect(GameDataRepository data, CareerManager career, GameSettingsStore settings, bool careerRace)
         {
             Clear();
@@ -3775,6 +3837,12 @@ namespace LocalFormulaRacing
             Text summary = UiFactory.CreateText(pitList, "Strategy summary", summaryLine, 15, UiFactory.TextPrimary, TextAnchor.UpperLeft);
             summary.verticalOverflow = VerticalWrapMode.Overflow;
             UiFactory.SetSize(summary, 900f, 26f);
+
+            // Tyre-life strategy graph, inside this scrollable pit card so it never
+            // overflows the fixed screen body (the career flow uses this legacy
+            // screen; the production PreRaceStrategyView that hosts the same charts
+            // is only reached from Quick Race).
+            BuildTyreLifeChart(pitList, current, profile, settings, raceLaps, stopCount, raceTrackTemp);
 
             // Stop-count guide now reports the FASTEST strategy for this race length
             // and track temperature (TyreStrategyRules.FastestDryStrategy weighs
