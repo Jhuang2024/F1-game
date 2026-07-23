@@ -26,8 +26,6 @@ namespace F1Game.UI.Screens.PreRaceStrategy
         TMP_Text totalTimeText;
         readonly List<GameObject> spawned = new List<GameObject>();
 
-        static readonly Color CriticalLife = new Color(0.85f, 0.12f, 0.10f);
-
         static Color CompoundColor(int compoundIndex)
         {
             switch (compoundIndex)
@@ -148,59 +146,106 @@ namespace F1Game.UI.Screens.PreRaceStrategy
                 accentBar.color = model.isRecommended ? theme.palette.positive : theme.palette.outline;
             }
 
+            var stints = model.stints;
             int laps = model.raceLaps > 0 ? model.raceLaps : 1;
-            float lapFrac = 1f / laps;
-
-            int lapCursor = 0;
-            for (int s = 0; s < model.stints.Count; s++)
+            if (stints == null || stints.Count == 0)
             {
-                StintPlan stint = model.stints[s];
-                Color baseColor = CompoundColor(stint.compoundIndex);
-                float life = stint.expectedLife > 0.1f ? stint.expectedLife : 1f;
+                return;
+            }
 
-                for (int j = 0; j < stint.laps; j++)
+            // FILLED AREA. Sub-sample the whole race into thin adjacent columns
+            // (many per lap, so a short race still reads smooth) and fill each from
+            // the baseline up to the tyre's remaining life at that point. Life falls
+            // linearly across a stint from 100% and resets to full at the next stint,
+            // so the top edge of the fill IS the compound-coloured life curve - the
+            // sawtooth the reference screen shows. A faint dotted line traces the
+            // grip warming up within each stint.
+            int cols = Mathf.Clamp(laps * 12, 96, 320);
+            int dotEvery = Mathf.Max(1, cols / Mathf.Max(1, laps * 2));
+            for (int c = 0; c < cols; c++)
+            {
+                float lapPos = (c + 0.5f) / cols * laps;
+
+                // Which stint this column falls in, and how far into it.
+                int si = stints.Count - 1;
+                float stintStartLap = 0f;
+                float acc = 0f;
+                for (int s = 0; s < stints.Count; s++)
                 {
-                    int g = lapCursor + j;
-                    if (g >= laps)
+                    float end = acc + stints[s].laps;
+                    if (lapPos < end || s == stints.Count - 1)
                     {
+                        si = s;
+                        stintStartLap = acc;
                         break;
                     }
 
-                    // Remaining life at the START of this lap; a stint driven past
-                    // its life drops toward the cliff (near-zero, deep red).
-                    float remaining = Mathf.Clamp01(1f - j / life);
-                    float height = Mathf.Lerp(0.06f, 1f, remaining);
-                    Color col = Color.Lerp(baseColor, CriticalLife, (1f - remaining) * 0.65f);
-
-                    float x0 = g * lapFrac;
-                    float x1 = (g + 1) * lapFrac;
-                    Image bar = MakeImage(chartBand, "Lap" + (g + 1),
-                        new Vector2(x0 + lapFrac * 0.08f, 0f),
-                        new Vector2(x1 - lapFrac * 0.08f, height), col);
-                    spawned.Add(bar.gameObject);
+                    acc = end;
                 }
 
-                lapCursor += stint.laps;
+                StintPlan st = stints[si];
+                float life = st.expectedLife > 0.1f ? st.expectedLife : 1f;
+                float within = lapPos - stintStartLap;
+                float remaining = Mathf.Clamp01(1f - within / life);
 
-                // Pit divider at the end of each stint but the last.
-                if (s < model.stints.Count - 1 && lapCursor < laps)
+                float x0 = (float)c / cols;
+                float x1 = (float)(c + 1) / cols;
+                Image bar = MakeImage(chartBand, "col" + c,
+                    new Vector2(x0, 0f), new Vector2(x1, Mathf.Max(0.04f, remaining)),
+                    CompoundColor(st.compoundIndex));
+                spawned.Add(bar.gameObject);
+
+                if (c % dotEvery == 0)
                 {
-                    float x = lapCursor * lapFrac;
-                    Image div = MakeImage(chartBand, "Pit" + lapCursor,
-                        new Vector2(x, 0f), new Vector2(x, 1f), theme.palette.accent);
-                    div.rectTransform.sizeDelta = new Vector2(2f, 0f);
-                    spawned.Add(div.gameObject);
+                    float grip = 0.32f + 0.30f * Mathf.Clamp01(within / (0.55f * life));
+                    float mid = (x0 + x1) * 0.5f;
+                    Image dot = MakeImage(chartBand, "grip" + c,
+                        new Vector2(mid, grip), new Vector2(mid, grip), new Color(1f, 1f, 1f, 0.8f));
+                    dot.rectTransform.sizeDelta = new Vector2(3f, 3f);
+                    spawned.Add(dot.gameObject);
                 }
+            }
 
-                // Axis label centred under the stint: compound + stint length.
-                float centre = (lapCursor - stint.laps * 0.5f) * lapFrac;
-                float halfW = Mathf.Max(0.12f, stint.laps * lapFrac * 0.5f);
+            // Pit dividers, cumulative pit times, pit-lap numbers, stint labels.
+            float cum = 0f;
+            for (int s = 0; s < stints.Count; s++)
+            {
+                StintPlan st = stints[s];
+                float startFrac = cum / laps;
+                cum += st.laps;
+                float endFrac = cum / laps;
+
+                float centre = (startFrac + endFrac) * 0.5f;
+                float halfW = Mathf.Max(0.1f, (endFrac - startFrac) * 0.5f);
                 TMP_Text label = MakeLabel(axisRow, "Stint" + s,
                     new Vector2(Mathf.Clamp01(centre - halfW), 0f),
                     new Vector2(Mathf.Clamp01(centre + halfW), 1f),
-                    UiScreenFactory.TextStyle.Caption, TextAlignmentOptions.Center, baseColor);
-                label.text = stint.compoundShort + " · " + stint.laps + "L";
+                    UiScreenFactory.TextStyle.Caption, TextAlignmentOptions.Center, CompoundColor(st.compoundIndex));
+                label.text = st.compoundShort + " · " + st.laps + "L";
                 spawned.Add(label.gameObject);
+
+                if (s < stints.Count - 1)
+                {
+                    Image div = MakeImage(chartBand, "Pit" + s,
+                        new Vector2(endFrac, 0f), new Vector2(endFrac, 1f), new Color(1f, 1f, 1f, 0.55f));
+                    div.rectTransform.sizeDelta = new Vector2(2f, 0f);
+                    spawned.Add(div.gameObject);
+
+                    if (!string.IsNullOrEmpty(st.pitTimeLabel))
+                    {
+                        TMP_Text tm = MakeLabel(chartBand, "PitTime" + s,
+                            new Vector2(Mathf.Clamp01(endFrac - 0.17f), 0.8f), new Vector2(Mathf.Clamp01(endFrac + 0.17f), 1f),
+                            UiScreenFactory.TextStyle.Caption, TextAlignmentOptions.Center, theme.palette.textPrimary);
+                        tm.text = st.pitTimeLabel;
+                        spawned.Add(tm.gameObject);
+                    }
+
+                    TMP_Text pitLap = MakeLabel(axisRow, "PitLap" + s,
+                        new Vector2(Mathf.Clamp01(endFrac - 0.09f), 0f), new Vector2(Mathf.Clamp01(endFrac + 0.09f), 1f),
+                        UiScreenFactory.TextStyle.Caption, TextAlignmentOptions.Center, theme.palette.textMuted);
+                    pitLap.text = Mathf.RoundToInt(cum).ToString();
+                    spawned.Add(pitLap.gameObject);
+                }
             }
         }
     }
