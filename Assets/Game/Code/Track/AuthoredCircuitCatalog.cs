@@ -458,8 +458,16 @@ namespace F1Game.Track
                 SketchAnchors = new[]
                 {
                     new Vector3(0f, 0f, 0f), new Vector3(142f, 18f, 0f), new Vector3(178f, 24f, 44f),
-                    new Vector3(126f, 20f, 78f), new Vector3(62f, 14f, 62f), new Vector3(104f, 8f, 28f),
-                    new Vector3(172f, 2f, 56f), new Vector3(238f, -2f, 104f), new Vector3(342f, -4f, 108f),
+                    // Anchors 5 & 6 formerly doubled back south (Z=28) which made the
+                    // esses self-intersect: segment 5->6 crossed segment 2->3, and at
+                    // the crossing the two road decks sat ~36m apart in height - the
+                    // "cliff"/wall players hit, with cars wedging in the overlap. The
+                    // downstream crossing repair could not fix it (one pass checks only
+                    // adjacent points; the other read the 36m gap as an intentional
+                    // flyover). Nudged north so the esses weaves without crossing;
+                    // heights are unchanged (the descending 20,14,8,2 profile is fine).
+                    new Vector3(126f, 20f, 78f), new Vector3(62f, 14f, 62f), new Vector3(82f, 8f, 66f),
+                    new Vector3(170f, 2f, 90f), new Vector3(238f, -2f, 104f), new Vector3(342f, -4f, 108f),
                     new Vector3(392f, -2f, 150f), new Vector3(340f, 3f, 192f), new Vector3(230f, 5f, 182f),
                     new Vector3(152f, 8f, 136f), new Vector3(78f, 6f, 154f), new Vector3(24f, 2f, 112f),
                     new Vector3(-42f, 0f, 56f), new Vector3(-150f, 0f, 8f)
