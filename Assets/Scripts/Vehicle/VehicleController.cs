@@ -1781,7 +1781,16 @@ namespace LocalFormulaRacing
         public float MaxYawRateDegPerSec(float speedKph)
         {
             float speedFactor = Mathf.Lerp(0.34f, 1f, Mathf.Clamp01(speedKph / 62f));
-            float highSpeedLimit = Mathf.Lerp(1f, 0.8f, Mathf.InverseLerp(90f, 320f, speedKph));
+            // High-speed cornering cap (average-pace fix). The field was railing
+            // fast sweepers at 280-330 km/h, giving impossible lap AVERAGES of
+            // 280-360 (real circuits average ~210-230). MaxCorneringSpeedKph - and
+            // therefore the AI's own corner-speed target - derives directly from
+            // this yaw envelope, so pulling the high-speed end down forces the
+            // whole field to actually brake for fast corners. The low-speed end
+            // (hairpins, <90 km/h) is deliberately untouched so slow corners keep
+            // full rotation and don't feel dead. This 0.5 anchor is the primary
+            // pace dial - lower it further if [PaceDiag] avgSpeed is still high.
+            float highSpeedLimit = Mathf.Lerp(1f, 0.5f, Mathf.InverseLerp(90f, 320f, speedKph));
             float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);
             // The 1.6 anchor below 35 kph is parking-lot/recovery authority
             // (spin reorientation, grid fan-out, pit-box maneuvering) where
