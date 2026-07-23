@@ -3619,7 +3619,16 @@ namespace LocalFormulaRacing
                 };
 
                 UiFactory.CreateSubHeader(parent, "Tyre Life");
-                RectTransform chartRow = UiFactory.CreateRect(parent, "Tyre life chart row", Vector2.zero, Vector2.zero, Vector2.zero, Vector2.zero);
+                // This scroll list is childControlHeight=false, so it sizes children
+                // from their own RectTransform, NOT from a LayoutElement. Mirror the
+                // working CreateSettingRow rows exactly: top-stretched anchors + an
+                // explicit sizeDelta height. (The earlier LayoutElement-only row was
+                // ignored and collapsed to a one-line strip, so the chart drew no
+                // bars.) A LayoutElement is added too as a belt-and-suspenders hint.
+                const float chartRowHeight = 200f;
+                RectTransform chartRow = UiFactory.CreateRect(parent, "Tyre life chart row", new Vector2(0f, 1f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
+                chartRow.pivot = new Vector2(0.5f, 1f);
+                chartRow.sizeDelta = new Vector2(0f, chartRowHeight);
                 var chartLayout = chartRow.gameObject.AddComponent<HorizontalLayoutGroup>();
                 chartLayout.spacing = 16f;
                 chartLayout.childControlWidth = true;
@@ -3627,8 +3636,8 @@ namespace LocalFormulaRacing
                 chartLayout.childForceExpandWidth = true;
                 chartLayout.childForceExpandHeight = false;
                 var chartRowLayout = chartRow.gameObject.AddComponent<LayoutElement>();
-                chartRowLayout.preferredHeight = 196f;
-                chartRowLayout.minHeight = 196f;
+                chartRowLayout.preferredHeight = chartRowHeight;
+                chartRowLayout.minHeight = chartRowHeight;
 
                 var plannedChart = F1Game.UI.Screens.PreRaceStrategy.TyreLifeChartView.Build(chartRow, "Chart_Planned", 190f);
                 plannedChart.Render(F1Game.UI.Screens.PreRaceStrategy.StrategyChartBuilder.BuildPlanned(chartModel));
