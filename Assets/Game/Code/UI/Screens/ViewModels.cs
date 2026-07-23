@@ -57,6 +57,7 @@ namespace F1Game.UI.Screens
         public int laps;            // stint length in laps
         public float expectedLife;  // expected life of this compound in laps at temp
         public string compoundShort; // "S" / "M" / "H" / "I" / "W"
+        public string pitTimeLabel;  // cumulative race time at this stint's pit stop (final total on the last stint)
     }
 
     /// <summary>

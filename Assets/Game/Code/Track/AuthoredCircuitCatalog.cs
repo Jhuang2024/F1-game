@@ -833,19 +833,18 @@ namespace F1Game.Track
                 sketchLength += Vector3.Distance(sketch[i], sketch[(i + 1) % sketch.Length]);
             }
 
-            // Corner-tightening / pace fix. Authored circuits skip TrackManager's
-            // NormalizeTrackLength, so THIS scale is a track's final size - and it
-            // is applied UNIFORMLY, so shrinking length also shrinks every corner
-            // radius by the same factor. The per-track TargetLengthMeters were
-            // inflated (~8.3km Monza/Silverstone, 8.75km Spa) versus real circuits,
-            // which blew corner radii up to ~100-240m (real F1 hairpins ~15-30m) so
-            // the field held near-top-speed through them - [PaceDiag] showed lap
-            // AVERAGES of 280-360 km/h, physically impossible (real circuits average
-            // ~210-230). AuthoredCircuitLengthScale pulls every circuit back toward
-            // real proportions, tightening all corners by the same factor. Tune
-            // against the [PaceDiag] avgSpeed line; still far above the ~28m
-            // drivable-radius floor so nothing becomes uncornerable.
-            const float AuthoredCircuitLengthScale = 0.58f;
+            // NOTE: do NOT shrink circuit length here as a pace lever. Road WIDTH
+            // (HalfWidthMeters) is authored in absolute metres and is NOT scaled with
+            // length, so shrinking the track while keeping the road the same width
+            // makes the road too wide for its now-tighter corners - the inner edge
+            // folds over itself and SmoothSharpKinks renders the fold as a wall
+            // across the corner (observed on US GP: "Relaxed 449 cusp/fold points",
+            // cars stuck, and length dropping below the 4.6km minimum). Pace is
+            // handled entirely by the high-speed cornering cap in
+            // VehicleController.MaxYawRateDegPerSec, which changes how fast corners
+            // are TAKEN without touching geometry. Kept as a 1.0 no-op dial only so
+            // the coupling is documented; anything below 1.0 corrupts the road.
+            const float AuthoredCircuitLengthScale = 1.0f;
             float scale = sketchLength > 1f ? (spec.TargetLengthMeters * AuthoredCircuitLengthScale) / sketchLength : 1f;
             // Same gentle elevation treatment the legacy normalize pass applied.
             float elevationScale = Mathf.Pow(scale, 0.55f);

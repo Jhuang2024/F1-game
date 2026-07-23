@@ -89,21 +89,29 @@ namespace F1Game.UI.Screens.PreRaceStrategy
             return string.Format("{0}:{1:00.0}", minutes, seconds);
         }
 
-        static float EstimateTotalSeconds(List<StintPlan> stints, int stopCount, float baseLap)
+        // Accumulates race time stint by stint, stamps each stint's pit time
+        // (the cumulative time at the moment it boxes - including that stop -, and
+        // the final race total on the last stint) and returns the total. Same time
+        // shape the optimiser uses: compound pace + quadratic in-stint degradation
+        // + the pit loss at each boundary.
+        static string StampTimesAndTotal(List<StintPlan> stints, float baseLap)
         {
-            float total = 0f;
+            float elapsed = 0f;
             for (int i = 0; i < stints.Count; i++)
             {
                 StintPlan s = stints[i];
                 int dry = DryCompound(s.compoundIndex);
-                total += s.laps * (baseLap + CompoundPaceSeconds(dry));
-                // Within-stint degradation grows with stint length (same shape the
-                // optimiser uses); an over-long stint is visibly penalised.
-                total += TyreStrategyRules.StintDegPenaltyCoeffSeconds * s.laps * s.laps;
+                elapsed += s.laps * (baseLap + CompoundPaceSeconds(dry));
+                elapsed += TyreStrategyRules.StintDegPenaltyCoeffSeconds * s.laps * s.laps;
+                if (i < stints.Count - 1)
+                {
+                    elapsed += TyreStrategyRules.PitStopLossSeconds; // boxes at this boundary
+                }
+
+                s.pitTimeLabel = FormatTime(elapsed);
             }
 
-            total += stopCount * TyreStrategyRules.PitStopLossSeconds;
-            return total;
+            return stints.Count > 0 ? stints[stints.Count - 1].pitTimeLabel : FormatTime(0f);
         }
 
         static StintPlan MakeStint(int uiCompoundIndex, int startLap, int laps, float trackTempC)
@@ -155,7 +163,7 @@ namespace F1Game.UI.Screens.PreRaceStrategy
             {
                 title = "YOUR PLAN",
                 subtitle = stops + (stops == 1 ? " stop · " : " stops · ") + subtitle,
-                totalTime = FormatTime(EstimateTotalSeconds(stints, stops, baseLap)),
+                totalTime = StampTimesAndTotal(stints, baseLap),
                 isRecommended = false,
                 raceLaps = laps,
                 stints = stints,
@@ -193,7 +201,7 @@ namespace F1Game.UI.Screens.PreRaceStrategy
             {
                 title = "FASTEST",
                 subtitle = stops + (stops == 1 ? " stop · " : " stops · ") + LongName(uiCompound),
-                totalTime = FormatTime(EstimateTotalSeconds(plan, stops, baseLap)),
+                totalTime = StampTimesAndTotal(plan, baseLap),
                 isRecommended = true,
                 raceLaps = laps,
                 stints = plan,
