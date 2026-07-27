@@ -13590,13 +13590,20 @@ namespace LocalFormulaRacing
             // Round 2: TrackLengthRebalanceScale stacked another 25% (now 1.5625x
             // total), so both the floor and ceiling move with it again - Spa's own
             // target is now ~8750m.
-            if (Runtime.length < 4625f)
+            // Bounds re-anchored to the REAL F1 calendar rather than to the old
+            // rebalance multipliers. Authored circuits are now scaled to genuine
+            // grand-prix dimensions (see AuthoredCircuitCatalog.AuthoredCircuitScale),
+            // which puts them at 3.8-5.4 km - entirely legal lengths that the old
+            // 4.625 km floor would have flagged as INVALID. Monaco is 3.34 km and
+            // Spa 7.0 km, so those are the real limits of plausibility; anything
+            // outside this band is a genuine generation bug.
+            if (Runtime.length < 3200f)
             {
-                report.Warn("track length " + Runtime.length.ToString("0") + "m is INVALID: circuits must normalize to at least 4.6 km for race pacing.");
+                report.Warn("track length " + Runtime.length.ToString("0") + "m is INVALID: circuits must normalize to at least 3.2 km (Monaco is 3.34 km).");
             }
-            else if (Runtime.length > 9375f)
+            else if (Runtime.length > 7600f)
             {
-                report.Warn("track length " + Runtime.length.ToString("0") + "m exceeds the expected normalization ceiling.");
+                report.Warn("track length " + Runtime.length.ToString("0") + "m exceeds the expected normalization ceiling (Spa, the longest real circuit, is 7.0 km).");
             }
 
             report.sharpEdgeCount = DetectSharpWidthChanges(report);

@@ -4316,6 +4316,51 @@ namespace LocalFormulaRacing
                 stuckInTrafficSeconds = 0f;
             }
 
+            // WALL-PIN ESCAPE ([WallStickDiag]: "George Russell pinned on 'Bridge
+            // concrete wall' for 5.3s speed=20kph throttle=1.00 brake=0.00", and a
+            // dozen more between 1.2s and 5.3s at 7-20 kph). The unstick above could
+            // never catch these: its gate is speedKph <= 10, and a car GRINDING along
+            // a barrier is still rolling at 15-20 kph - moving, going nowhere, and
+            // accumulating no unstick time whatsoever. Meanwhile it is flooring the
+            // throttle with the wheel turned into the wall, which is precisely what
+            // cancels the physics peel-off in VehicleController.DampenWallContactResponse
+            // (the guaranteed separation velocity is real, but it is re-pinned every
+            // tick by the drive force behind it).
+            //
+            // Sustained wall contact is therefore its own trigger, independent of the
+            // speed gate: point the nose along the escape normal, and - the part that
+            // actually matters - stop driving into the barrier so the peel-off wins.
+            // Deliberately NOT a reverse: at 15-20 kph the car still has rolling
+            // momentum to carry it out, and reversing into the pack behind is worse
+            // than the scrape. Under half a second of contact is an ordinary racing
+            // graze and is left completely alone.
+            // committingToPit excluded for the same reason the unstick above excludes
+            // it: a car on its pit-entry line is steering a deterministic trajectory
+            // that this override would drag it off, and its own guidance owns that.
+            float wallPinSeconds = vehicle != null ? vehicle.SustainedWallContactSeconds : 0f;
+            if (raceRunning && !committingToPit && wallPinSeconds > 0.5f && speedKph < 45f)
+            {
+                Vector3 escape = vehicle.SustainedWallEscapeNormal;
+                if (escape.sqrMagnitude > 0.01f)
+                {
+                    // Positive when the way out is to the car's right.
+                    float escapeSide = Vector3.Dot(escape, vehicle.transform.right);
+                    // Ramps in over the first half-second of the pin so a brief scrape
+                    // gets a hint of correction and a genuine 5-second wedge gets the
+                    // full commitment.
+                    float pinCommit = Mathf.Clamp01((wallPinSeconds - 0.5f) / 0.5f);
+                    command.steer = Mathf.Clamp(Mathf.Lerp(command.steer, Mathf.Sign(escapeSide), pinCommit), -1f, 1f);
+                    // Throttle eased rather than cut: enough drive to keep rolling out
+                    // along the wall, never enough to hold the car against it.
+                    command.throttle = Mathf.Min(command.throttle, Mathf.Lerp(1f, 0.3f, pinCommit));
+                    command.brake = 0f;
+                    brakeDemand = 0f;
+                    // The dodge/side-by-side nudge merged in at the end of this method
+                    // must not fight the way out - a barrier is not a car to dodge.
+                    steerAdjust = 0f;
+                }
+            }
+
             if (stuckInTrafficSeconds > 0.8f)
             {
                 // Root-cause fix (why cars crawl for 3s at all): flooring the
@@ -4395,6 +4440,31 @@ namespace LocalFormulaRacing
             }
 
             lineTrafficNearby = trafficNearNow || lineTrafficReleaseTimer > 0f;
+
+            // SEPARATION-NUDGE BUDGET ([SwerveTape] VERDICT, latest dump: trafficNudge
+            // is the #1 wheel-mover at final-steer reversals - 11 of 15 - and carries
+            // a MEAN magnitude of 0.48, i.e. half the car's entire steering authority
+            // permanently spent on dodging). Two problems, one clamp:
+            //
+            // 1) The dodge push (up to 0.85) and the side-by-side push (up to 0.52)
+            //    are ADDED, so the raw term could demand +-1.37 - 137% of full lock -
+            //    from separation alone, before the racing line has asked for anything.
+            //    Composed with a pursuit command that is itself authority-compensated,
+            //    that is guaranteed saturation, and the tapes show it: |steer|>0.98 on
+            //    60% of the frames leading into a wall hit. A car pinned at its
+            //    actuator limit is a bang-bang controller, not a driver - it cannot
+            //    proportionally correct anything, so it saws lock-to-lock and ends up
+            //    in the barrier. A nudge is by definition the SMALL correction layered
+            //    on top of the line; it now gets a bounded slice of the wheel and the
+            //    line keeps the rest.
+            // 2) The ceiling tightens with speed because the detection windows (9.5m
+            //    fore/aft, 7m lateral) are crossed in a blink at racing speed, so
+            //    neighbours flicker in and out of them - the tapes show the raw term
+            //    square-waving 0.00 <-> 0.30 between adjacent rows. The slew limiter
+            //    below smooths the EDGES of that square wave; capping its amplitude is
+            //    what stops it moving the car metres sideways each time it flickers.
+            float trafficNudgeCeiling = Mathf.Lerp(0.55f, 0.22f, Mathf.Clamp01((speedKph - 120f) / 180f));
+            steerAdjust = Mathf.Clamp(steerAdjust, -trafficNudgeCeiling, trafficNudgeCeiling);
 
             // Pit-entry queueing fix: while committing to a pit stop, braking/
             // throttle reduction for a car ahead (e.g. another car already queued

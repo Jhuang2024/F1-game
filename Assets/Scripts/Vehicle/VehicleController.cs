@@ -2410,6 +2410,38 @@ namespace LocalFormulaRacing
         float sustainedWallContactStart;
         float wallStickLastLogTime = -999f;
 
+        /// <summary>
+        /// How long this car has been in unbroken sustained contact with a wall or
+        /// barrier, 0 when it is not currently touching one. The contact must have
+        /// been refreshed within the last few physics ticks to count, so this drops
+        /// back to 0 the moment the car peels off.
+        /// </summary>
+        /// <remarks>
+        /// Exists because the physics peel-off in DampenWallContactResponse is not
+        /// self-sufficient: it guarantees a separation velocity away from the wall,
+        /// but a driver holding full throttle with the wheel turned into the barrier
+        /// simply re-applies the pin every tick, and the two fight to a standstill.
+        /// [WallStickDiag] caught exactly that - "pinned on 'Bridge concrete wall'
+        /// for 5.3s speed=20kph throttle=1.00". The escape has to come from the
+        /// driver, so the driver has to be able to see the pin.
+        /// </remarks>
+        public float SustainedWallContactSeconds
+        {
+            get
+            {
+                return Time.time - lastSustainedWallContactTime < 0.25f
+                    ? Time.time - sustainedWallContactStart
+                    : 0f;
+            }
+        }
+
+        /// <summary>
+        /// Horizontal unit normal of the wall currently being scraped, pointing away
+        /// from it - i.e. the direction out. Only meaningful while
+        /// <see cref="SustainedWallContactSeconds"/> is above zero.
+        /// </summary>
+        public Vector3 SustainedWallEscapeNormal { get; private set; }
+
         void DampenWallContactResponse(float normalSpeedKph, Vector3 contactNormal, Collider hitCollider, bool sustained)
         {
             if (body == null || body.isKinematic)
@@ -2466,11 +2498,17 @@ namespace LocalFormulaRacing
 
                 lastSustainedWallContactTime = Time.time;
                 float pinnedSpeedKph = body.velocity.magnitude * 3.6f;
+                Vector3 usedFlat = new Vector3(contactNormal.x, 0f, contactNormal.z).normalized;
+                // Published for the driver-side escape (see
+                // SustainedWallContactSeconds): the physics peel-off below can
+                // only win if whoever is holding the throttle stops driving back
+                // into the wall, so the driver needs to know it is pinned and
+                // which way is out.
+                SustainedWallEscapeNormal = usedFlat;
                 if (Time.time - sustainedWallContactStart > 1.2f && pinnedSpeedKph < 25f &&
                     Time.time - wallStickLastLogTime > 5f)
                 {
                     wallStickLastLogTime = Time.time;
-                    Vector3 usedFlat = new Vector3(contactNormal.x, 0f, contactNormal.z).normalized;
                     Debug.LogWarning("[WallStickDiag] " + gameObject.name + " pinned on '" +
                         (hitCollider != null ? hitCollider.gameObject.name : "?") + "' for " +
                         (Time.time - sustainedWallContactStart).ToString("0.0") + "s speed=" + pinnedSpeedKph.ToString("0") +

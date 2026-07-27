@@ -833,19 +833,47 @@ namespace F1Game.Track
                 sketchLength += Vector3.Distance(sketch[i], sketch[(i + 1) % sketch.Length]);
             }
 
-            // NOTE: do NOT shrink circuit length here as a pace lever. Road WIDTH
-            // (HalfWidthMeters) is authored in absolute metres and is NOT scaled with
-            // length, so shrinking the track while keeping the road the same width
-            // makes the road too wide for its now-tighter corners - the inner edge
-            // folds over itself and SmoothSharpKinks renders the fold as a wall
-            // across the corner (observed on US GP: "Relaxed 449 cusp/fold points",
-            // cars stuck, and length dropping below the 4.6km minimum). Pace is
-            // handled entirely by the high-speed cornering cap in
-            // VehicleController.MaxYawRateDegPerSec, which changes how fast corners
-            // are TAKEN without touching geometry. Kept as a 1.0 no-op dial only so
-            // the coupling is documented; anything below 1.0 corrupts the road.
-            const float AuthoredCircuitLengthScale = 1.0f;
-            float scale = sketchLength > 1f ? (spec.TargetLengthMeters * AuthoredCircuitLengthScale) / sketchLength : 1f;
+            // SINGLE UNIFORM SCALE for the whole circuit - length AND road width
+            // together. This is the pace fix, and the "together" is the whole point.
+            //
+            // The authored sketches were sized well past anything on the real
+            // calendar: 6.1-8.75 km long (real F1 is 3.3-7.0 km, averaging ~5.2)
+            // and 11-16 m HALF-width, i.e. 22-32 m of tarmac where a real circuit
+            // gives 12-15 m TOTAL. At that scale a "corner" is a ~200 m-radius
+            // sweeper, which the yaw envelope in VehicleController happily takes
+            // flat, so a whole lap was one long straight: [PaceDiag] avgSpeed
+            // 278-343 kph against a real F1 lap average of ~210-230.
+            //
+            // A previous attempt shrank ONLY the length and corrupted every track:
+            // width stayed in absolute metres, so the road became too wide for its
+            // now-tighter corners, the inner edge folded over itself, and
+            // SmoothSharpKinks rendered the fold as a wall across the corner
+            // ("Relaxed 449 cusp/fold points", cars stuck at US GP turn 2). That
+            // failure was specifically about the width/radius RATIO changing.
+            // Scaling both by the same factor leaves that ratio - and therefore
+            // every fold, kink and barrier-clearance property of the mesh - exactly
+            // as it was, while corner radii, and so corner speeds, come down with
+            // the track. 0.62 lands lengths at 3.8-5.4 km and half-widths at
+            // 6.9-9.9 m, both squarely in real F1 territory (Zandvoort 4.3 km,
+            // Hungaroring 4.4 km, Austin 5.5 km; 12-15 m of tarmac).
+            //
+            // Deliberately taken from the geometry rather than from the cornering
+            // envelope in VehicleController.MaxYawRateDegPerSec, even though that
+            // dial is right there: the envelope currently implies ~3.4g at 300 kph
+            // and ~4.5g through slow and medium corners, which is honest F1
+            // machinery. Pulling it down far enough to fix a 343 kph lap average
+            // would have meant ~2.6g at 300 - a car that grips like a road car -
+            // when the real fault was never the car. It was that a lap made of
+            // 200 m-radius sweepers has nothing to brake for.
+            //
+            // Secondary benefit worth knowing about: SmoothSharpKinks derives its
+            // minimum drivable radius as roadHalfWidth + 12 m, so narrowing the
+            // road also LOWERS the floor on how tight a corner is allowed to be
+            // (~28 m before, ~22 m now). Tighter corners survive the smoothing pass
+            // instead of being relaxed back open.
+            const float AuthoredCircuitScale = 0.62f;
+            float scale = sketchLength > 1f ? (spec.TargetLengthMeters * AuthoredCircuitScale) / sketchLength : 1f;
+            float halfWidthMeters = spec.HalfWidthMeters * AuthoredCircuitScale;
             // Same gentle elevation treatment the legacy normalize pass applied.
             float elevationScale = Mathf.Pow(scale, 0.55f);
 
@@ -856,7 +884,10 @@ namespace F1Game.Track
             asset.country = spec.Country;
             asset.environmentStyle = spec.EnvironmentStyle;
             asset.closedLoop = true;
-            asset.kerbStartOffset = spec.KerbStartMeters;
+            // Scales with the road (it is a lateral offset across it) - authored at
+            // ~0.59x the half-width, and left unscaled it would eat the kerb down to
+            // a sliver on the narrower circuits.
+            asset.kerbStartOffset = spec.KerbStartMeters * AuthoredCircuitScale;
             asset.anchorSubdivisions = spec.AnchorSubdivisions;
 
             for (int i = 0; i < sketch.Length; i++)
@@ -864,7 +895,7 @@ namespace F1Game.Track
                 asset.spline.Add(new TrackDefinitionAsset.SplinePoint
                 {
                     position = new Vector3(sketch[i].x * scale, sketch[i].y * elevationScale, sketch[i].z * scale),
-                    width = spec.HalfWidthMeters * 2f,
+                    width = halfWidthMeters * 2f,
                     camberDegrees = 0f,
                     kerbLeft = false,
                     kerbRight = false,
