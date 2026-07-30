@@ -420,17 +420,25 @@ namespace LocalFormulaRacing
             return true;
         }
 
-        // Stuck recovery: snap the player back to the last safe on-track pose.
-        // Costs five seconds in competitive race sessions so it cannot be exploited.
+        // Stuck recovery: snap the player back to the middle of the road at their
+        // current lap distance.
+        //
+        // No cooldown (per request - "why does the r for recovery have a cooldown?
+        // get rid of that"). The 5s lockout was anti-exploit, but there is nothing
+        // left to exploit: the reset places the car at the road centre at its CURRENT
+        // lap distance, so it never advances the player, and the rejoin speed matches
+        // the AI's own auto-recovery. All it actually achieved was leaving a player
+        // who pressed R a fraction too early - while still tumbling, or before the
+        // car had settled - stranded and unable to press it again, which is the exact
+        // situation the key exists for.
         public void ResetPlayerToSafePose(RaceParticipant participant)
         {
             if (participant == null || !participant.isPlayer || participant.vehicle == null || Track == null ||
-                participant.isPitting || participant.pitPhase != PitPhase.None || playerResetCooldown > 0f || !CanDrive)
+                participant.isPitting || participant.pitPhase != PitPhase.None || !CanDrive)
             {
                 return;
             }
 
-            playerResetCooldown = 5f;
             // Rolling rejoin (per request - "when the player presses R they
             // also start with speed like the AI do"): same 120kph the AI
             // off-track auto-recovery rejoins at, so R no longer dumps the

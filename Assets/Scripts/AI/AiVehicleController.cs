@@ -234,6 +234,19 @@ namespace LocalFormulaRacing
         // collision-avoidance response, just its frame-to-frame snappiness.
         float smoothedSteerAdjust;
 
+        // Committed side of the traffic nudge, and how long the raw demand has been
+        // arguing for the other one. This is what makes it safe to give car aversion
+        // real authority again (see the ceiling in ApplyTrafficAvoidance): swerve is
+        // a SIGN problem, not a magnitude problem - the tapes showed the raw nudge
+        // square-waving between opposite pushes as marginal neighbours crossed the
+        // detection windows, and it is the reversals, not the size, that read as
+        // swerving and that saturate the wheel. Once a direction is committed the
+        // opposite one has to earn the switch, so the amplitude can go back up
+        // without the flapping coming back with it.
+        float trafficNudgeLatchSide;
+        float trafficNudgeOpposeSeconds;
+        float trafficNudgeClearSeconds;
+
         // Traffic dodge-side memory so a car sitting near local.x==0 ahead of us
         // doesn't make the avoidance steer flicker frame to frame.
         float dodgeMemorySide;
@@ -2452,12 +2465,35 @@ namespace LocalFormulaRacing
             // steering did not arrest). The pure-position term for the final
             // ~1.2m before the hard edge is unaffected.
             bool beyondCorridor = Mathf.Abs(progress.lateralDistance) > legalLimit + 0.3f;
-            // Round 7 (wall-aversion): a genuine runaway now reads urgent from
-            // 2.0s out instead of 1.6 (still corridor-gated, so a car on its
-            // legal line is untouched), and the pure-position last-resort band
-            // starts 1.5m from the hard edge instead of 1.2.
-            float trajectoryUrgency = beyondCorridor ? Mathf.Clamp01(1f - timeToEdge / 2.0f) : 0f;
-            float positionUrgency = Mathf.Clamp01((Mathf.Abs(progress.lateralDistance) - (edgeHalfWidth - 1.5f)) / 1.5f);
+            // Round 8 (per request - "buff the wall and car aversion of ai without
+            // recreating the swerving issue"). The buff is bought entirely by seeing
+            // the wall EARLIER, never by pulling harder at the same moment, because
+            // every previous swerve regression in this file came from raising a gain
+            // at a fixed trigger point. A correction that starts sooner needs less
+            // amplitude to achieve the same avoidance, so this direction of change
+            // reduces peak steering demand rather than raising it - it takes pressure
+            // off the [-1,1] clamp instead of adding to it.
+            //
+            // Trajectory horizon 2.0s -> 2.8s (already corridor-gated), plus a WIDER
+            // position band that is itself corridor-gated: 2.6m of run-up instead of
+            // 1.5m, but only for a car that is already outside its legal corridor.
+            //
+            // The gate on the widened band is not optional. positionUrgency is a pure
+            // position term with no gate of its own, and the road's outer 2.6m is
+            // exactly where a correct racing line puts the car at every apex and every
+            // exit - so widening it ungated would have had edgeEmergencyBrake firing
+            // on healthy corner entries, which is the "AI extremely slow going into
+            // corners" regression this file has already been through once. The
+            // original 1.5m last-resort band therefore stays ungated and completely
+            // unchanged; the extra reach is layered on top for runaways only.
+            //
+            // The RESPONSE curves are deliberately untouched.
+            float trajectoryUrgency = beyondCorridor ? Mathf.Clamp01(1f - timeToEdge / 2.8f) : 0f;
+            float lastResortUrgency = Mathf.Clamp01((Mathf.Abs(progress.lateralDistance) - (edgeHalfWidth - 1.5f)) / 1.5f);
+            float earlyPositionUrgency = beyondCorridor
+                ? Mathf.Clamp01((Mathf.Abs(progress.lateralDistance) - (edgeHalfWidth - 2.6f)) / 2.6f)
+                : 0f;
+            float positionUrgency = Mathf.Max(lastResortUrgency, earlyPositionUrgency);
             float edgeUrgency = suppressOffTrackRecovery ? 0f : Mathf.Max(trajectoryUrgency, positionUrgency);
             // Grid-start fix: the wall-aversion boost below removed the old
             // emergency brake's built-in low-speed discount (0.7x floor ->
@@ -2529,8 +2565,15 @@ namespace LocalFormulaRacing
             // 0.36+ floor for merely entering the (road-wide) band. A car
             // genuinely running out of room still reaches the same full-force
             // ceiling, scaled up by real speed exactly as before.
+            // Round 8 wall-aversion buff, the half that CANNOT swerve. A brake demand
+            // is unsigned - there is no left or right to flap between - so unlike
+            // steering it can be strengthened freely without any oscillation risk,
+            // and shedding speed is strictly better wall avoidance than steering
+            // anyway: it buys the car more time AND, because the yaw envelope rises
+            // as speed falls, it hands back the steering authority needed to make the
+            // save. This is where the real aversion increase goes (1.17 -> 1.55).
             float edgeEmergencyBrake = edgeUrgency > 0f
-                ? Mathf.Clamp01(Mathf.Lerp(0f, 1.17f, edgeUrgency) * Mathf.Lerp(0.9f, 1.8f, edgeOverspeed) * wallAversionMultiplier) * wallAversionLaunchGate
+                ? Mathf.Clamp01(Mathf.Lerp(0f, 1.55f, edgeUrgency) * Mathf.Lerp(0.9f, 1.8f, edgeOverspeed) * wallAversionMultiplier) * wallAversionLaunchGate
                 : 0f;
             // Pure-pursuit gain is scheduled DOWN on straights ([SwerveDiag] root
             // cause - 70% of logged weave was steer=3, the detector's floor, in every
@@ -3615,6 +3658,12 @@ namespace LocalFormulaRacing
             smoothedLineBias = 0f;
             smoothedApexDistance = 400f;
             smoothedSteerAdjust = 0f;
+            // The committed dodge side is transient driving state like the rest of
+            // this: after a reposition/resync the neighbours it was chosen against
+            // are no longer where the car thinks they are.
+            trafficNudgeLatchSide = 0f;
+            trafficNudgeOpposeSeconds = 0f;
+            trafficNudgeClearSeconds = 0f;
         }
 
         // Race-control autopilot has just handed control back - see the call site
@@ -4480,13 +4529,71 @@ namespace LocalFormulaRacing
             //    in the barrier. A nudge is by definition the SMALL correction layered
             //    on top of the line; it now gets a bounded slice of the wheel and the
             //    line keeps the rest.
-            // 2) The ceiling tightens with speed because the detection windows (9.5m
-            //    fore/aft, 7m lateral) are crossed in a blink at racing speed, so
-            //    neighbours flicker in and out of them - the tapes show the raw term
-            //    square-waving 0.00 <-> 0.30 between adjacent rows. The slew limiter
-            //    below smooths the EDGES of that square wave; capping its amplitude is
-            //    what stops it moving the car metres sideways each time it flickers.
-            float trafficNudgeCeiling = Mathf.Lerp(0.55f, 0.22f, Mathf.Clamp01((speedKph - 120f) / 180f));
+            // 2) The detection windows (9.5m fore/aft, 7m lateral) are crossed in a
+            //    blink at racing speed, so neighbours flicker in and out of them - the
+            //    tapes show the raw term square-waving 0.00 <-> 0.30 between adjacent
+            //    rows, and at 300kph each flicker is metres of lateral movement.
+            //
+            // ROUND 2 (per request - "buff the car aversion without recreating the
+            // swerving issue"). The first pass bought calm purely by shrinking the
+            // ceiling, which also shrank genuine avoidance - too blunt. Swerve is a
+            // SIGN problem: what reads as swerving, and what saturates the wheel, is
+            // the REVERSALS, not the size of any one push. So the sign is committed
+            // and the amplitude goes back up.
+            //
+            // Once a side is chosen the opposite demand must argue for it for a
+            // sustained window before the car will follow it; until then the opposing
+            // push is suppressed rather than obeyed, so a marginal neighbour drifting
+            // across a detection edge cannot square-wave the wheel. A genuinely large
+            // opposing demand bypasses the latch outright and switches immediately -
+            // that is a car actually arriving on the committed side, and refusing to
+            // move for it would trade a swerve for a collision.
+            float rawNudgeSide = Mathf.Abs(steerAdjust) > 0.03f ? Mathf.Sign(steerAdjust) : 0f;
+            if (rawNudgeSide == 0f)
+            {
+                trafficNudgeOpposeSeconds = 0f;
+                trafficNudgeClearSeconds += Time.deltaTime;
+                // Release the commitment only after the road has genuinely been clear
+                // for a beat, so a momentary dropout does not un-commit the car
+                // mid-dodge and let the next frame pick the other way.
+                if (trafficNudgeClearSeconds > 0.6f)
+                {
+                    trafficNudgeLatchSide = 0f;
+                }
+            }
+            else
+            {
+                trafficNudgeClearSeconds = 0f;
+                if (trafficNudgeLatchSide == 0f)
+                {
+                    trafficNudgeLatchSide = rawNudgeSide;
+                    trafficNudgeOpposeSeconds = 0f;
+                }
+                else if (rawNudgeSide != trafficNudgeLatchSide)
+                {
+                    trafficNudgeOpposeSeconds += Time.deltaTime;
+                    bool emergencyReversal = Mathf.Abs(steerAdjust) > 0.6f;
+                    if (emergencyReversal || trafficNudgeOpposeSeconds > 0.35f)
+                    {
+                        trafficNudgeLatchSide = rawNudgeSide;
+                        trafficNudgeOpposeSeconds = 0f;
+                    }
+                    else
+                    {
+                        steerAdjust = 0f;
+                    }
+                }
+                else
+                {
+                    trafficNudgeOpposeSeconds = 0f;
+                }
+            }
+
+            // Ceiling raised well past the pre-swerve-fix authority now that the sign
+            // cannot flap (0.55/0.22 -> 0.9/0.45). It still eases with speed: at
+            // 300kph even a committed 0.45 moves the car several metres, and the
+            // racing line needs headroom under the shared [-1,1] clamp.
+            float trafficNudgeCeiling = Mathf.Lerp(0.9f, 0.45f, Mathf.Clamp01((speedKph - 120f) / 180f));
             steerAdjust = Mathf.Clamp(steerAdjust, -trafficNudgeCeiling, trafficNudgeCeiling);
 
             // Pit-entry queueing fix: while committing to a pit stop, braking/
@@ -4539,7 +4646,13 @@ namespace LocalFormulaRacing
             //    while at 350kph (where 0.3 steer moves the car metres in a
             //    blink and windows flicker most) the target is followed
             //    smoothly instead of square-wave.
-            float steerAdjustSlewRate = Mathf.Lerp(4f, 1.6f, Mathf.Clamp01((speedKph - 140f) / 220f));
+            // Round 2: rate raised (4/1.6 -> 6/3) alongside the sign latch above. The
+            // slow rate existed to smear out the square wave; with the sign committed
+            // there is no square wave left to smear, and a slow rate on a
+            // single-direction dodge is just a late reaction. This is the other half
+            // of the car-aversion buff - the response now arrives promptly, which
+            // again means less of it is needed.
+            float steerAdjustSlewRate = Mathf.Lerp(6f, 3f, Mathf.Clamp01((speedKph - 140f) / 220f));
             smoothedSteerAdjust = Mathf.MoveTowards(smoothedSteerAdjust, steerAdjust, Time.deltaTime * steerAdjustSlewRate);
         }
 

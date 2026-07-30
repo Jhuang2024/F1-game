@@ -123,7 +123,6 @@ namespace LocalFormulaRacing
             waitingForPlayerReaction = false;
             lastRecordedPlayerBestLap = 0f;
             ersRefillLapMarker = -1;
-            playerResetCooldown = 0f;
             ResetEngineerState();
             ResetRaceControlState();
             if (session == RaceWeekendSession.Qualifying && !preserveQualifyingState)

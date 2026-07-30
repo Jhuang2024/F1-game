@@ -1013,7 +1013,6 @@ namespace LocalFormulaRacing
         {
             engineerCooldown = Mathf.Max(0f, engineerCooldown - Time.deltaTime);
             reactionDisplayTimer = Mathf.Max(0f, reactionDisplayTimer - Time.deltaTime);
-            playerResetCooldown = Mathf.Max(0f, playerResetCooldown - Time.deltaTime);
             engineerDrsWarningCooldown = Mathf.Max(0f, engineerDrsWarningCooldown - Time.deltaTime);
             playerManualPitCancelMessageTimer = Mathf.Max(0f, playerManualPitCancelMessageTimer - Time.deltaTime);
 

@@ -607,7 +607,6 @@ namespace LocalFormulaRacing
         // can temporarily take manual control of the same camera the player was
         // just driving with, instead of creating a second competing camera.
         CameraRig playerCameraRig;
-        float playerResetCooldown;
         // Throughput fix: the global nextPitReleaseAllowedTime/
         // PitReleaseMinDebounceSeconds release-rate timer that used to sit
         // here has been removed entirely - it hard-capped release throughput
