@@ -104,12 +104,17 @@ namespace LocalFormulaRacing
             // grip and steering turn-rate (VehicleController), so a wider spread
             // makes the soft feel planted and darty and the hard feel heavy and
             // reluctant - a real, felt handling difference between compounds,
-            // not a rounding error. The AI's cornering TARGET-speed model reads
-            // GripConditionMultiplier (which neutralises baseGrip) plus the flat
-            // CompoundSpeedOffsetKph instead, so this spread changes the felt
-            // handling of every compound without re-tuning AI corner pace; the
-            // AI's own physics grip still gets its 1.0-1.25 grip assist on top,
-            // so a harder tyre's lower base never leaves an AI sliding off.
+            // not a rounding error.
+            // CORRECTION, and it matters: this used to claim the AI's cornering
+            // target model read the compound-neutral GripConditionMultiplier, so
+            // that widening this spread "changes felt handling without re-tuning AI
+            // corner pace". That was never true, and it is the reason the spread was
+            // allowed to grow until hards were unraceable. Every AI corner target is
+            // a fraction of VehicleController.MaxCorneringSpeedKph, which solves
+            // against MaxYawRateDegPerSec, which multiplies by the FULL
+            // GripMultiplier - baseGrip included. baseGrip therefore sets AI race
+            // pace directly and proportionally. Treat any change here as a change to
+            // the entire field's lap time.
             // Compound-contrast round 3 (per report - "softs are now way too
             // grippy; make the soft the 1.00 benchmark and rescale the rest"):
             // the whole grip scale is rebased so SOFT = 1.00 is the ceiling
@@ -121,6 +126,28 @@ namespace LocalFormulaRacing
             // compound spread from round 2 (via VehicleController's
             // lateral-force weighting) is preserved by the ratios, not the
             // absolute numbers.
+            // DRY SPREAD COMPRESSED (per report - the field has "absolutely no grip
+            // ... like they r sooo slow on hards"). It was Soft 1.00 / Medium 0.82 /
+            // Hard 0.66, and 0.66 is not a compound difference, it is a broken car.
+            // baseGrip feeds MaxYawRateDegPerSec, where achievable yaw rate scales
+            // with it LINEARLY, and the AI's whole cornering model is derived from
+            // that envelope via MaxCorneringSpeedKph - so a hard-shod car did not
+            // merely feel heavier, it was physically limited to ~66% of the soft's
+            // cornering speed at every corner on the lap, and the AI correctly (and
+            // catastrophically) planned around that. On a real weekend the soft-to-
+            // hard gap is well under a second on a ninety-second lap.
+            //
+            // Now a 10% spread soft-to-hard. That is still several times the real
+            // delta, deliberately, because the earlier ask in this same file was for
+            // compound choice to be FELT in the wheel ("soft incredibly easy to
+            // steer, medium less so, hard even less") - 10% of yaw authority is
+            // plainly noticeable turning in. What it no longer does is decide the
+            // race on its own. The straight-line half of the difference lives in
+            // CompoundSpeedOffsetKph and is trimmed to match.
+            //
+            // Rain grips are left alone: they REPLACE baseGrip outright in the wet
+            // (see GripMultiplier), so they encode wet-weather ordering between
+            // compounds and have nothing to do with the dry spread.
             if (compound == TyreCompound.Soft)
             {
                 baseGrip = 1f;
@@ -133,7 +160,7 @@ namespace LocalFormulaRacing
             }
             else if (compound == TyreCompound.Medium)
             {
-                baseGrip = 0.82f;
+                baseGrip = 0.95f;
                 targetMin = 78f;
                 targetMax = 102f;
                 warmup = 1f;
@@ -143,10 +170,15 @@ namespace LocalFormulaRacing
             }
             else if (compound == TyreCompound.Hard)
             {
-                baseGrip = 0.66f;
+                baseGrip = 0.9f;
                 targetMin = 74f;
                 targetMax = 100f;
-                warmup = 0.78f;
+                // Warm-up raised from 0.78. The hard also STARTS below its own
+                // window (68 vs a 74 minimum), so a slow warm-up rate compounded
+                // the low base grip with a cold-tyre penalty for the opening laps -
+                // two handicaps stacked on the one compound the AI runs longest.
+                // It still warms slowest of the three, just not punitively.
+                warmup = 0.9f;
                 heavyRainGrip = 0.13f;
                 lightRainGrip = 0.29f;
                 Temperature = 68f;
@@ -207,8 +239,15 @@ namespace LocalFormulaRacing
             // its lower grip). Soft stays the reference at 0; medium/hard now
             // cost a real but sane straight-line penalty. Shared by AI targets,
             // so field-wide consistency is preserved.
-            float dryOffset = Compound == TyreCompound.Medium ? 7f
-                : (Compound == TyreCompound.Hard ? 14f : 0f);
+            // Trimmed alongside the baseGrip compression above (Medium 7 -> 4,
+            // Hard 14 -> 8). These are the straight-line half of the compound
+            // difference and they stack on top of the cornering half; with the
+            // cornering half no longer crippling, a hard tyre giving up 14 kph of
+            // top speed as well was a second tax on the same choice. 8 kph is
+            // still inside the "5-10 kph compound difference" this was originally
+            // asked for, and remains clearly visible on a long straight.
+            float dryOffset = Compound == TyreCompound.Medium ? 4f
+                : (Compound == TyreCompound.Hard ? 8f : 0f);
 
             float heavyOffset;
             float lightOffset;

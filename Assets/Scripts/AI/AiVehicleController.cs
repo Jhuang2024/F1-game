@@ -1126,12 +1126,13 @@ namespace LocalFormulaRacing
             // profiles (corner commitment, reaction, mistakes) instead.
 
             bool wet = track.weather == WeatherState.LightRain || track.weather == WeatherState.HeavyRain;
-            // Tyre-difference pass: uses the compound-neutral condition multiplier
-            // (temperature/wear/lockup only) instead of the full GripMultiplier - the
-            // compound's own speed difference is applied separately and precisely via
-            // CompoundSpeedOffsetKph below, so folding the compound-specific ratio in
-            // here too would double-count the same tyre gap.
-            float gripMultiplier = vehicle.Tyres.GripConditionMultiplier(track.weather);
+            // (A compound-neutral GripConditionMultiplier used to be read here, from
+            // an era when this method scaled its own corner-speed table by grip. It
+            // had become dead - every corner target below is now a confidence
+            // fraction of MaxCorneringSpeedKph, which derives from the shared yaw
+            // envelope and therefore already carries the car's REAL tyre grip. Kept
+            // as a note because the comment it carried claimed the opposite and cost
+            // real time to disprove while chasing the hard-tyre pace report.)
             float minCornerConfidence = profile.minimumCornerSpeedConfidence;
             if (wet)
             {
@@ -2838,9 +2839,20 @@ namespace LocalFormulaRacing
                     throttleTarget = Mathf.Min(throttleTarget, Mathf.Lerp(1f, 0.5f, Mathf.Clamp01((vehicle.OversteerAmount - 0.4f) / 0.5f)));
                 }
 
-                if (vehicle.LastTyreGripMultiplier > 0f && vehicle.LastTyreGripMultiplier < 0.6f)
+                // Low-grip traction management. This is meant to catch genuinely
+                // treacherous conditions - rain, a dead tyre - but its 0.6 threshold
+                // was tripping on DRY HARDS: baseGrip 0.66 x an in-window ~1.05 put a
+                // fresh hard at 0.69, and the first bit of wear (wearGrip 0.82 by 65%
+                // life) dropped it to 0.57, so from mid-stint onward every hard-shod
+                // AI car drove the rest of its stint with the throttle capped below
+                // full - a second, invisible "no pace on hards" mechanism stacked on
+                // the grip deficit itself. The baseGrip compression in TyreState
+                // already lifts a worn hard clear of this, and the threshold moves to
+                // 0.45 so it can only be reached by real rain (slicks in the wet sit
+                // at 0.13-0.38) or a tyre genuinely off the cliff.
+                if (vehicle.LastTyreGripMultiplier > 0f && vehicle.LastTyreGripMultiplier < 0.45f)
                 {
-                    throttleTarget = Mathf.Min(throttleTarget, Mathf.Lerp(0.55f, 1f, vehicle.LastTyreGripMultiplier / 0.6f));
+                    throttleTarget = Mathf.Min(throttleTarget, Mathf.Lerp(0.55f, 1f, vehicle.LastTyreGripMultiplier / 0.45f));
                 }
 
                 // Fuel system pass: AI lift-and-coast - once the projected fuel
