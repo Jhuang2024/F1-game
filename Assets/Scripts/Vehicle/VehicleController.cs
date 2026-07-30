@@ -1746,8 +1746,7 @@ namespace LocalFormulaRacing
 
         void ApplySteering(VehicleCommand activeCommand, float speedKph, float dt)
         {
-            float turnRate = MaxYawRateDegPerSec(speedKph)
-                * (IsPlayerControlled || aiPitApproachNeutralize ? 1f : aiGripAssist * AiCorneringRotationBoost);
+            float turnRate = MaxYawRateDegPerSec(speedKph) * CorneringRotationFactor;
             turnRate *= Mathf.Lerp(1.04f, 0.72f, UndersteerAmount);
             float steerAmount = activeCommand.steer * turnRate * dt;
             if (Mathf.Abs(steerAmount) > 0.0001f)
@@ -1780,7 +1779,22 @@ namespace LocalFormulaRacing
         // physics can actually rotate.
         public float MaxYawRateDegPerSec(float speedKph)
         {
+            // The speed-dependent curves live in EnvelopeSpeedShape below (the
+            // high-speed cornering cap there is the primary pace dial).
             float speedFactor = Mathf.Lerp(0.34f, 1f, Mathf.Clamp01(speedKph / 62f));
+            float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);
+            return Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * EnvelopeSpeedShape(speedKph)
+                * tyreGrip * Damage.HandlingMultiplier;
+        }
+
+        // The purely SPEED-DEPENDENT shape of the yaw envelope, factored out of
+        // MaxYawRateDegPerSec so the AI's control-gain compensation can be expressed
+        // against it directly (see YawEnvelopeTuningRatio) instead of hand-copying
+        // these curves into AiVehicleController, where they silently rotted out of
+        // date and cost the field its low-grip composure. Nothing state-dependent
+        // belongs in here - no tyres, no damage, no chassis.
+        static float EnvelopeSpeedShape(float speedKph)
+        {
             // High-speed cornering cap (average-pace fix). The field was railing
             // fast sweepers at 280-330 km/h, giving impossible lap AVERAGES of
             // 280-360 (real circuits average ~210-230). MaxCorneringSpeedKph - and
@@ -1788,10 +1802,8 @@ namespace LocalFormulaRacing
             // this yaw envelope, so pulling the high-speed end down forces the
             // whole field to actually brake for fast corners. The low-speed end
             // (hairpins, <90 km/h) is deliberately untouched so slow corners keep
-            // full rotation and don't feel dead. This 0.5 anchor is the primary
-            // pace dial - lower it further if [PaceDiag] avgSpeed is still high.
+            // full rotation and don't feel dead.
             float highSpeedLimit = Mathf.Lerp(1f, 0.5f, Mathf.InverseLerp(90f, 320f, speedKph));
-            float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);
             // The 1.6 anchor below 35 kph is parking-lot/recovery authority
             // (spin reorientation, grid fan-out, pit-box maneuvering) where
             // corner realism is meaningless; the racing range starts fading
@@ -1799,8 +1811,68 @@ namespace LocalFormulaRacing
             float tightCorneringBoost = speedKph <= 120f
                 ? Mathf.Lerp(1.6f, 0.85f, Mathf.Clamp01((speedKph - 35f) / 85f))
                 : Mathf.Lerp(0.85f, 0.45f, Mathf.Clamp01((speedKph - 120f) / 200f));
-            return Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * highSpeedLimit
-                * tyreGrip * Damage.HandlingMultiplier * tightCorneringBoost;
+            return highSpeedLimit * tightCorneringBoost;
+        }
+
+        /// <summary>
+        /// How much stronger the yaw envelope the AI's steering gains were tuned
+        /// against was than the envelope the car actually has, at this speed. The
+        /// AI multiplies its pursuit command by this to restore the loop gain the
+        /// corner-realism envelope change took away.
+        /// </summary>
+        /// <remarks>
+        /// This is a ratio of SHAPES ONLY, and that is the whole point of it living
+        /// here. The AI used to compute its own reference from a hand-copied "old
+        /// envelope" expression that omitted tyre grip, damage and chassis balance,
+        /// while dividing it by the real MaxYawRateDegPerSec, which includes all
+        /// three. So the ratio inflated by exactly 1/grip: on softs in their window
+        /// it sat around 2.9 and worked as designed, on hards (baseGrip 0.66) it
+        /// wanted 4.4, and on slicks in the rain (0.19) it wanted 16 - all of which
+        /// hit the compensation's own x4 clamp and stuck there. Two failures came out
+        /// of that, and together they are why the field could not drive a low-grip
+        /// car: pinned at the clamp the compensation stops being proportional to
+        /// anything, so the steering command saturates and the controller degenerates
+        /// into full-lock sawing ([SwerveTape]: comp@max 100%, |steer|>0.98 on 60% of
+        /// frames before a wall hit); and compensating for grip is the wrong response
+        /// in the first place, because a car with less grip physically cannot rotate
+        /// faster no matter how much lock you ask for. Less grip means go slower, and
+        /// the corner-speed model already handles that - it reads the real envelope.
+        /// Every state-dependent term is therefore common to both sides here and
+        /// cancels by construction, so the compensation is identical on softs, on
+        /// worn hards and in the wet.
+        /// </remarks>
+        public static float YawEnvelopeTuningRatio(float speedKph)
+        {
+            // The envelope in place when the AI's gains, deadband and slew rates
+            // were tuned, before the corner-speed realism pass.
+            float tunedHighSpeedLimit = Mathf.Lerp(1f, 0.8f, Mathf.InverseLerp(90f, 320f, speedKph));
+            float tunedBoost = speedKph <= 120f
+                ? Mathf.Lerp(2.4f, 1.9f, Mathf.Clamp01((speedKph - 35f) / 85f))
+                : Mathf.Lerp(1.9f, 1.6f, Mathf.Clamp01((speedKph - 120f) / 160f));
+            return (tunedHighSpeedLimit * tunedBoost) / Mathf.Max(0.01f, EnvelopeSpeedShape(speedKph));
+        }
+
+        /// <summary>
+        /// Fraction of the bare yaw envelope this car's steering actually delivers -
+        /// 1 for the player, and the AI's own grip-utilisation and rotation
+        /// multipliers otherwise (see ApplySteering, which applies exactly this).
+        /// </summary>
+        /// <remarks>
+        /// Exists so MaxCorneringSpeedKph can plan against the rotation the car will
+        /// really produce. Without it a low-skill AI (grip utilisation 0.84, so 0.92
+        /// of the envelope after the rotation boost) planned every apex about 8%
+        /// faster than it could rotate, arrived understeering, and got dragged back
+        /// by its own edge-recovery brake - the target-versus-achievable divergence
+        /// this file's own comments blame for every historical wall-crash regression.
+        /// </remarks>
+        public float CorneringRotationFactor
+        {
+            get
+            {
+                return IsPlayerControlled || aiPitApproachNeutralize
+                    ? 1f
+                    : aiGripAssist * AiCorneringRotationBoost;
+            }
         }
 
         // Fastest speed this car can carry through a corner of the given
@@ -1838,9 +1910,12 @@ namespace LocalFormulaRacing
         {
             float radius = Mathf.Max(6f, radiusMeters);
             float speedKph = 150f;
+            // CorneringRotationFactor included so the answer is what THIS car can
+            // rotate, not what a bare envelope could - see the property's remarks.
+            float rotationFactor = CorneringRotationFactor;
             for (int i = 0; i < 6; i++)
             {
-                float omegaRad = MaxYawRateDegPerSec(speedKph) * Mathf.Deg2Rad;
+                float omegaRad = MaxYawRateDegPerSec(speedKph) * rotationFactor * Mathf.Deg2Rad;
                 float supported = Mathf.Clamp(omegaRad * radius * 3.6f, 20f, 420f);
                 speedKph = (speedKph + supported) * 0.5f;
             }

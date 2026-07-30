@@ -2839,17 +2839,17 @@ namespace LocalFormulaRacing
                     throttleTarget = Mathf.Min(throttleTarget, Mathf.Lerp(1f, 0.5f, Mathf.Clamp01((vehicle.OversteerAmount - 0.4f) / 0.5f)));
                 }
 
-                // Low-grip traction management. This is meant to catch genuinely
-                // treacherous conditions - rain, a dead tyre - but its 0.6 threshold
-                // was tripping on DRY HARDS: baseGrip 0.66 x an in-window ~1.05 put a
-                // fresh hard at 0.69, and the first bit of wear (wearGrip 0.82 by 65%
-                // life) dropped it to 0.57, so from mid-stint onward every hard-shod
-                // AI car drove the rest of its stint with the throttle capped below
-                // full - a second, invisible "no pace on hards" mechanism stacked on
-                // the grip deficit itself. The baseGrip compression in TyreState
-                // already lifts a worn hard clear of this, and the threshold moves to
-                // 0.45 so it can only be reached by real rain (slicks in the wet sit
-                // at 0.13-0.38) or a tyre genuinely off the cliff.
+                // Low-grip traction management, and an AI-ONLY one - the player has no
+                // equivalent throttle cap. Its 0.6 threshold was tripping on DRY
+                // HARDS: baseGrip 0.66 x an in-window ~1.05 puts a fresh hard at 0.69,
+                // and the first bit of wear (wearGrip 0.82 by 65% life) drops it to
+                // 0.57, so from mid-stint onward every hard-shod AI car drove the rest
+                // of its stint with the throttle capped below full while the player,
+                // on the same tyre, did not. The hard tyre's grip deficit is deliberate
+                // (see TyreState) and stays; an asymmetric penalty for the AI on top of
+                // it is not the same thing. Threshold moved to 0.45, where only real
+                // rain (slicks in the wet sit at 0.13-0.38) or a tyre genuinely off the
+                // cliff can reach it.
                 if (vehicle.LastTyreGripMultiplier > 0f && vehicle.LastTyreGripMultiplier < 0.45f)
                 {
                     throttleTarget = Mathf.Min(throttleTarget, Mathf.Lerp(0.55f, 1f, vehicle.LastTyreGripMultiplier / 0.45f));
@@ -3550,28 +3550,39 @@ namespace LocalFormulaRacing
         // SUSTAINED cornering, but this controller's constants were all tuned
         // against the old response.
         //
-        // Round 2 (per report - "the AI still cant handle the low grip"): the
-        // first version was a STATIC old-curve/new-curve ratio, which assumed
-        // nominal grip. On cold/worn tyres, in rain, or with damage the LIVE
-        // envelope drops further, the static ratio under-compensated by
-        // exactly that grip deficit, and the cars wandered worst precisely
-        // when grip was low. Now computed against the car's ACTUAL live yaw
-        // authority (vehicle.MaxYawRateDegPerSec reads grip/damage/weather
-        // itself), so the controller keeps its tuned response scale in every
-        // condition; the [-1,1] clamp and the physics envelope still bound
-        // what the car can really do.
+        // Round 2 made this GRIP-AWARE, dividing the tuned reference by the car's
+        // live MaxYawRateDegPerSec, on the reasoning that low grip shrinks the live
+        // envelope further and a static ratio would under-compensate exactly when
+        // grip was lowest. The loop-gain argument is sound and the intent was right,
+        // but it is the direct cause of the report it was meant to fix, and the
+        // mechanism runs straight through the understeer speed-shed reflex ~100 lines
+        // above:
+        //
+        //   hard tyres -> grip ~0.69 in window -> the ratio wants 4.4 -> it hits its
+        //   own x4 clamp and sticks there ([SwerveTape]: comp@max 100%) -> an ordinary
+        //   mid-corner pursuit error x4 saturates the command far below the car's real
+        //   limit (|steer|>0.98 on 60% of pre-crash frames) -> steerAtLimit latches ->
+        //   past 0.45s the reflex applies 0.35-0.8 brake and cuts throttle to 0.05.
+        //
+        // So on hards the field brake-stomped its way around the lap, and the reflex
+        // was doing precisely what it was designed to do - it had simply been fed a
+        // saturation signal that no longer meant "at the limit". That is the whole of
+        // "the AI genuinely just can't handle the low grip".
+        //
+        // The compensation is therefore grip-INVARIANT again (see
+        // VehicleController.YawEnvelopeTuningRatio, which cancels every state term by
+        // construction and lives beside the envelope so it cannot drift out of date
+        // the way this hand-copied curve did). Round 2's objection stands but is
+        // answered elsewhere and better: less grip genuinely does mean less yaw per
+        // unit of steer, and the correct response to that is to CORNER SLOWER, which
+        // MaxCorneringSpeedKph already delivers because it reads real grip. Restoring
+        // loop gain by 1/grip cannot conjure rotation the tyres will not produce - it
+        // only pushes the command into the clamp. What the car does instead now is run
+        // a slightly wider line on hards, which is what a real driver does, rather
+        // than braking mid-corner.
         float SteerAuthorityCompensation(float speedKph)
         {
-            // The response the controller's gains/deadband/slew were tuned
-            // for: the old envelope at nominal grip, mid-grid chassis.
-            float speedFactor = Mathf.Lerp(0.34f, 1f, Mathf.Clamp01(speedKph / 62f));
-            float highSpeedLimit = Mathf.Lerp(1f, 0.8f, Mathf.InverseLerp(90f, 320f, speedKph));
-            float oldBoost = speedKph <= 120f
-                ? Mathf.Lerp(2.4f, 1.9f, Mathf.Clamp01((speedKph - 35f) / 85f))
-                : Mathf.Lerp(1.9f, 1.6f, Mathf.Clamp01((speedKph - 120f) / 160f));
-            float referenceYawDegPerSec = 90f * speedFactor * highSpeedLimit * oldBoost;
-            float actualYawDegPerSec = Mathf.Max(6f, vehicle.MaxYawRateDegPerSec(speedKph));
-            return Mathf.Clamp(referenceYawDegPerSec / actualYawDegPerSec, 1f, 4f);
+            return Mathf.Clamp(VehicleController.YawEnvelopeTuningRatio(speedKph), 1f, 4f);
         }
 
         // Shared by every "something moved this car's transform out from under
