@@ -2333,6 +2333,10 @@ namespace LocalFormulaRacing
             // the geometry/width data is final so the corridor limits are correct;
             // AiVehicleController targets it via Runtime.RacingLineOffsetAt.
             Runtime.ComputeRacingLine();
+            // Before the barriers: their style choice reads IsElevatedAtDistance,
+            // which now answers "is this a flyover" rather than "is this high", and
+            // this pass is what makes the difference visible on the ground.
+            BuildHillEmbankments();
             BuildContinuousEdgeBarriers();
             BuildTrackMarkers();
             BuildDrsZoneBoards();
@@ -3338,6 +3342,9 @@ namespace LocalFormulaRacing
 
         void ResolveTrackCrossings(TrackRuntime runtime)
         {
+            // Rebuilt from scratch every layout - a stale crossing from a previous
+            // track would put a bridge in the middle of a hill on this one.
+            flyoverCrossings.Clear();
             List<Vector3> line = runtime.centerLine;
             if (line == null || line.Count < 16)
             {
@@ -3426,6 +3433,12 @@ namespace LocalFormulaRacing
                     int upperIndex = yA >= yB ? i : j;
                     float lowerY = Mathf.Min(yA, yB);
                     RaiseCrossingLeg(line, upperIndex, lowerY + CrossingClearanceMeters, Mathf.Abs(j - i));
+                    // Recorded so the rest of the build can tell a genuine flyover
+                    // from a hill (see IsElevatedAtDistance / FlyoverBlendAt). This
+                    // is the ONLY place a piece of road legitimately hangs in the
+                    // air with nothing under it; everywhere else, high road means
+                    // high ground.
+                    flyoverCrossings.Add(line[upperIndex]);
                     GameLog.Warn("[TrackValidation] Self-crossing centreline at points " + i + "/" + j +
                                  " (" + separation.ToString("0") + "m apart) on " + runtime.displayName +
                                  " - raised the higher leg into a flyover (+" + CrossingClearanceMeters + "m clearance).");
@@ -6862,13 +6875,149 @@ namespace LocalFormulaRacing
 
         // ---------- elevated-section safety ----------
 
+        // World positions where the lap genuinely passes over itself, recorded by
+        // ResolveTrackCrossings. Only these need a bridge.
+        readonly List<Vector3> flyoverCrossings = new List<Vector3>();
+
+        // Reach of a flyover deck either side of the crossing point, in metres of
+        // XZ distance: enough to cover the deck and its ramps, short enough that a
+        // hill 100m away is unaffected.
+        const float FlyoverDeckRadius = 90f;
+
+        /// <summary>
+        /// 1 where the road is a genuine flyover deck, easing to 0 away from any
+        /// self-crossing. Everywhere it reads 0, elevation is a LANDFORM - the
+        /// ground rises with the road.
+        /// </summary>
+        float FlyoverBlendAt(Vector3 point)
+        {
+            float best = 0f;
+            for (int i = 0; i < flyoverCrossings.Count; i++)
+            {
+                Vector3 crossing = flyoverCrossings[i];
+                float dx = point.x - crossing.x;
+                float dz = point.z - crossing.z;
+                float distance = Mathf.Sqrt(dx * dx + dz * dz);
+                float blend = 1f - Mathf.Clamp01((distance - FlyoverDeckRadius * 0.55f) / (FlyoverDeckRadius * 0.45f));
+                if (blend > best)
+                {
+                    best = blend;
+                }
+            }
+
+            return best;
+        }
+
+        /// <summary>
+        /// Height of the GROUND beneath a point on the road.
+        /// </summary>
+        /// <remarks>
+        /// Elevation does not have to mean a bridge (per request - "u do realize
+        /// elevation changes dont hv to be a bridge always right... it could be
+        /// going up a hill?"). It used to: the terrain is one flat slab at
+        /// groundTopY, AddProceduralElevation then rolls the centreline over it, and
+        /// anything more than ElevationThreshold above the slab was declared
+        /// elevated - which on these layouts is most of the lap. That is why the
+        /// logs are full of 'Bridge concrete wall': the tracks were not crossing
+        /// anything, they were going up hills, and every hill was being built as a
+        /// viaduct with concrete parapets, stilts and catch fencing.
+        ///
+        /// Away from a real crossing the ground now simply follows the road, so a
+        /// climb is a hill: elevation-above-ground is zero, no bridge furniture is
+        /// generated, and BuildHillEmbankments below builds the landform that makes
+        /// it true. Only within reach of a self-crossing does the ground stay at the
+        /// flat base plane and the road genuinely fly.
+        /// </remarks>
+        public float LandHeightAt(Vector3 point)
+        {
+            return Mathf.Lerp(point.y, groundTopY, FlyoverBlendAt(point));
+        }
+
         public float ElevationAboveGround(float distance)
         {
             Vector3 point;
             Vector3 forward;
             Vector3 right;
             Runtime.SampleAtDistance(distance, out point, out forward, out right);
-            return point.y - groundTopY;
+            return point.y - LandHeightAt(point);
+        }
+
+        /// <summary>
+        /// Builds the landform that makes <see cref="LandHeightAt"/> true: earth
+        /// under the road and a graded slope out to the surrounding plain, wherever
+        /// the road runs above the base terrain and is not a flyover deck.
+        /// </summary>
+        /// <remarks>
+        /// Purely visual (CreateVisualBox adds no collider) - the road keeps its own
+        /// collider and the flat terrain slab keeps its own beneath. This exists so
+        /// that declaring a climb to be a hill is honest: without it the road would
+        /// be level with a ground that visibly is not there.
+        /// </remarks>
+        void BuildHillEmbankments()
+        {
+            if (Runtime == null || Runtime.length < 1f)
+            {
+                return;
+            }
+
+            const float step = 16f;
+            // 1:4 - a natural graded embankment, the sort of thing a circuit is
+            // actually cut into. Steeper reads as a retaining wall, which is the
+            // look this whole pass exists to get away from.
+            const float skirtSlope = 4f;
+            for (float d = 0f; d < Runtime.length; d += step)
+            {
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                if (FlyoverBlendAt(point) > 0.35f)
+                {
+                    continue; // genuine deck - the bridge supports own this stretch
+                }
+
+                float height = point.y - groundTopY;
+                if (height < 0.35f)
+                {
+                    continue; // already at grade
+                }
+
+                float halfWidth = Runtime.HalfWidthAt(d);
+                Quaternion rotation = Quaternion.LookRotation(forward, Vector3.up);
+                // Overlap so consecutive blocks never leave a gap on a curve.
+                float segmentLength = step + 1.5f;
+
+                // Core fill, from the plain up to just under the road surface. Held
+                // 0.4m short so the road's own mesh always renders clear of it.
+                float coreHeight = height - 0.4f;
+                if (coreHeight > 0.2f)
+                {
+                    CreateVisualBox("Hillside", new Vector3(point.x, groundTopY + coreHeight * 0.5f, point.z),
+                        rotation, new Vector3(halfWidth * 2f + 1.2f, coreHeight, segmentLength), grassMaterial);
+                }
+
+                float run = height * skirtSlope;
+                float slopeAngle = Mathf.Atan2(height, run) * Mathf.Rad2Deg;
+                float slopeLength = Mathf.Sqrt(height * height + run * run);
+                bool pitZone = PitZoneBlend(d / Mathf.Max(1f, Runtime.length)) > 0f;
+                for (int side = -1; side <= 1; side += 2)
+                {
+                    // The pit complex owns the ground on its own side - it is graded
+                    // flat there by GroundPitZoneElevation and has its own aprons.
+                    if (pitZone && side > 0)
+                    {
+                        continue;
+                    }
+
+                    // Rotating about the forward axis tips the lateral axis: the
+                    // outboard end drops to the plain while the inboard end stays at
+                    // the road edge, so the two meet flush.
+                    Vector3 slopeCenter = point + right * side * (halfWidth + 0.6f + run * 0.5f) - Vector3.up * (height * 0.5f);
+                    Quaternion slopeRotation = rotation * Quaternion.Euler(0f, 0f, -side * slopeAngle);
+                    CreateVisualBox("Hillside slope", slopeCenter, slopeRotation,
+                        new Vector3(slopeLength, 0.5f, segmentLength), grassMaterial);
+                }
+            }
         }
 
         public bool IsElevatedAtDistance(float distance)

@@ -208,7 +208,27 @@ namespace LocalFormulaRacing
                 // car on the table: still a genuine, race-deciding skill
                 // spread, but the whole field races at a respectable level.
                 // Ceiling stays exactly 1.0 - never an unfair advantage.
-                float gripUtilization = Mathf.Lerp(0.84f, 1f, skillNorm);
+                // Floor 0.84 -> 0.93 (per report - "ai r still way too slow u need to
+                // make them better somehow in a natural way"). This is the single
+                // largest handicap in the system and the most natural place to give
+                // the pace back, because it is not a fake assist in either direction:
+                // it stays a driver-quality model, ceilinged at exactly 1.0, and the
+                // ordering it produces is unchanged. It is only calibrated now.
+                //
+                // aiGripAssist multiplies real lateral grip AND turn rate, so it is
+                // close to lap-time-linear through every corner: a 0.84 driver was
+                // giving up 16% of the car's cornering everywhere, which is not a
+                // driver difference, it is a different car. A real F1 grid spans
+                // roughly 2-3% in lap time from front to back. 7% here is still
+                // several times that - deliberately, so finishing order tracks driver
+                // quality firmly - while no longer leaving the midfield driving as if
+                // the track were wet.
+                //
+                // It also composes with the planning fix: CorneringRotationFactor is
+                // gripUtilization x 1.1, so at a 0.93 floor it lands at 1.02 instead
+                // of 0.92, and making MaxCorneringSpeedKph honest about the car's real
+                // rotation no longer costs a slow driver anything on top.
+                float gripUtilization = Mathf.Lerp(0.93f, 1f, skillNorm);
                 controller.SetAiPerformanceAssist(0f, gripUtilization);
                 // Unconditional diagnostic ([PlayerCar]/[QualiSim] pattern, per
                 // report - "I don't know what you did with the skill level but

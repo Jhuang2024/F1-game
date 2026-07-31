@@ -1142,7 +1142,16 @@ namespace LocalFormulaRacing
                 minCornerConfidence *= 1f - Mathf.Clamp01(profile.wetWeatherCaution * wetSkillRelief);
             }
 
-            float experienceConfidence = Mathf.Lerp(0.85f, 1.05f, consistency / 100f);
+            // Floor 0.85 -> 0.93, same calibration argument as gripUtilization in
+            // RaceManager.Grid, and for a reason visible only when you put the two
+            // side by side: they are two independent models of the SAME thing, and
+            // they multiply. A midfield driver was losing 16% of the car's grip to
+            // one and another 15% of its corner-speed target to the other, compounding
+            // to ~0.80 of the machinery - and then apexConfidence, the sweeper margin
+            // and tightCornerJudgment stacked on that. Driver quality should be
+            // expressed once, at a realistic spread, not accumulated across every
+            // system that has an opinion about it.
+            float experienceConfidence = Mathf.Lerp(0.93f, 1.05f, consistency / 100f);
             float apexConfidence = Mathf.Clamp01(minCornerConfidence * experienceConfidence);
 
             // Car-relative hairpin floor instead of one flat number for every car: a
