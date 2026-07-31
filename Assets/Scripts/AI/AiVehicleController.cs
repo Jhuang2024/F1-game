@@ -234,19 +234,6 @@ namespace LocalFormulaRacing
         // collision-avoidance response, just its frame-to-frame snappiness.
         float smoothedSteerAdjust;
 
-        // Committed side of the traffic nudge, and how long the raw demand has been
-        // arguing for the other one. This is what makes it safe to give car aversion
-        // real authority again (see the ceiling in ApplyTrafficAvoidance): swerve is
-        // a SIGN problem, not a magnitude problem - the tapes showed the raw nudge
-        // square-waving between opposite pushes as marginal neighbours crossed the
-        // detection windows, and it is the reversals, not the size, that read as
-        // swerving and that saturate the wheel. Once a direction is committed the
-        // opposite one has to earn the switch, so the amplitude can go back up
-        // without the flapping coming back with it.
-        float trafficNudgeLatchSide;
-        float trafficNudgeOpposeSeconds;
-        float trafficNudgeClearSeconds;
-
         // Traffic dodge-side memory so a car sitting near local.x==0 ahead of us
         // doesn't make the avoidance steer flicker frame to frame.
         float dodgeMemorySide;
@@ -3468,7 +3455,24 @@ namespace LocalFormulaRacing
             // job on the oscillation itself (the schedule is kept only for the mild
             // amplitude help it still gives).
             float steerStraightness = 1f - Mathf.Clamp01(severityHere / 0.12f);
-            float steerSlewRate = Mathf.Abs(edgeRecovery) > 0.05f ? 18f : Mathf.Lerp(18f, 4.5f, steerStraightness);
+            // THE SWERVE REGRESSION, and the reason the last aversion pass made things
+            // worse rather than better. This was a BINARY disable: any edgeRecovery at
+            // all above 0.05 threw the rate limiter wide open at 18/s, on the sound
+            // principle that the limiter must never slow a genuine save. But widening
+            // the wall-aversion bands to see walls earlier also made edgeRecovery
+            // non-zero far more of the time - so the widened bands did not just add
+            // avoidance, they switched OFF the single most effective anti-chatter
+            // mechanism in this controller across a much larger share of the lap. More
+            // aversion and more swerve, from one line.
+            //
+            // Now proportional: the limiter opens with urgency instead of flipping.
+            // A faint early nudge at the edge of the band keeps nearly all of the
+            // limiting (it has seconds of room - it does not need a fast wheel), and a
+            // genuine emergency still reaches the full 18/s exactly as before, so the
+            // "never slow a save" guarantee is intact where it actually matters.
+            float steerSlewRate = Mathf.Max(
+                Mathf.Lerp(18f, 4.5f, steerStraightness),
+                Mathf.Lerp(4.5f, 18f, edgeUrgency));
             command.steer = Mathf.MoveTowards(steerSlewPrev, command.steer, steerSlewRate * Time.deltaTime);
             // slewPrev tracks the slew-limited PURSUIT command only (pre-yaw-damp),
             // so the yaw damper's fast correction below never feeds back into the
@@ -3658,12 +3662,6 @@ namespace LocalFormulaRacing
             smoothedLineBias = 0f;
             smoothedApexDistance = 400f;
             smoothedSteerAdjust = 0f;
-            // The committed dodge side is transient driving state like the rest of
-            // this: after a reposition/resync the neighbours it was chosen against
-            // are no longer where the car thinks they are.
-            trafficNudgeLatchSide = 0f;
-            trafficNudgeOpposeSeconds = 0f;
-            trafficNudgeClearSeconds = 0f;
         }
 
         // Race-control autopilot has just handed control back - see the call site
@@ -4166,9 +4164,28 @@ namespace LocalFormulaRacing
                     // Car parked in our lane: commit to a stronger lateral move, and
                     // remember the chosen side for a short window so a car sitting near
                     // local.x==0 doesn't make the dodge flicker frame to frame.
-                    if (absX < 3.0f && local.z < forwardWindow * 0.7f)
+                    // THE SQUARE WAVE, source #1. This was a hard "absX < 3.0" gate on
+                    // a term worth up to 0.85 of full lock, so a neighbour hovering
+                    // near three metres of lateral offset - completely normal in a
+                    // pack - toggled a near-half-lock push on and off frame to frame.
+                    // Every previous round tried to smooth that downstream (a slew
+                    // limiter, then a lower ceiling, then a sign latch), each of which
+                    // cost real avoidance because the signal being smoothed was still
+                    // a square wave. The window now FADES: full strength inside the
+                    // original 3.0m, tapering to nothing by 4.2m. A car crossing the
+                    // boundary produces a continuous ramp instead of a step, so there
+                    // is nothing left to filter - and the wider reach means the dodge
+                    // begins earlier, which is the buff.
+                    if (absX < 4.2f && local.z < forwardWindow * 0.7f)
                     {
-                        carDirectlyAhead = true;
+                        float laneFade = Mathf.Clamp01(Mathf.InverseLerp(4.2f, 3.0f, absX));
+                        // The flag itself keeps its original footprint - it gates
+                        // braking and the don't-dodge-into-an-occupied-flank logic
+                        // elsewhere, which are decisions, not blendable pushes.
+                        if (absX < 3.0f)
+                        {
+                            carDirectlyAhead = true;
+                        }
                         // Pile-up fix ("one AI hits the barrier, the rest hit it
                         // too"): when the blocking car is dead-ahead (|local.x| <
                         // 0.4, e.g. exactly where a crash tends to leave a car
@@ -4206,7 +4223,7 @@ namespace LocalFormulaRacing
                         // report): when a car IS parked in this lane, the
                         // response the situation calls for is a decisive lateral
                         // move, not a brake-and-wait.
-                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.3f, 0.85f, dodgeStrength);
+                        steerAdjust += dodgeMemorySide * Mathf.Lerp(0.3f, 0.85f, dodgeStrength) * laneFade;
                     }
                 }
 
@@ -4224,15 +4241,30 @@ namespace LocalFormulaRacing
                 // 8.5/6.2) and the push-away response strengthened further (was
                 // 0.14-0.6) - catches a converging side-by-side pair (AI or player)
                 // earlier and pushes apart harder once detected.
-                if (Mathf.Abs(local.z) < 9.5f && absX < 7f)
+                // THE SQUARE WAVE, source #2. absX already tapers to zero at 7m, but
+                // the FORE-AFT edge did not: alongsideFactor below only fades a car
+                // that is behind, so a car ahead sat at full strength right up to
+                // local.z = 9.5 and then vanished. At racing closing speeds a
+                // neighbour crosses that boundary several times a second. The window
+                // now reaches 13m and fades in across the last 4 of them, so a car
+                // arriving alongside ramps up smoothly - earlier detection AND no
+                // step, from the same change.
+                if (Mathf.Abs(local.z) < 13f && absX < 7f)
                 {
-                    if (local.x < 0f)
+                    // The blocked flags keep their original 9.5m footprint: they are a
+                    // binary "is this flank occupied" decision feeding the dodge logic,
+                    // not a blendable push, and widening them would make cars refuse
+                    // dodges for neighbours that are not really alongside yet.
+                    if (Mathf.Abs(local.z) < 9.5f)
                     {
-                        blockedLeft = true;
-                    }
-                    else
-                    {
-                        blockedRight = true;
+                        if (local.x < 0f)
+                        {
+                            blockedLeft = true;
+                        }
+                        else
+                        {
+                            blockedRight = true;
+                        }
                     }
 
                     // Right-of-way fix (per report - "the AI ahead ALSO brakes
@@ -4248,7 +4280,10 @@ namespace LocalFormulaRacing
                     // (never dodge INTO an occupied flank, wherever the occupant
                     // sits fore-aft).
                     float alongsideFactor = Mathf.InverseLerp(-4.5f, -1f, local.z);
-                    float sideOverlap = Mathf.Clamp01(1f - absX / 7f) * alongsideFactor;
+                    // Matching fade at the FRONT of the window (see above): full
+                    // strength once a car is within 9m ahead, ramping from zero at 13m.
+                    float approachFactor = Mathf.Clamp01(Mathf.InverseLerp(13f, 9f, local.z));
+                    float sideOverlap = Mathf.Clamp01(1f - absX / 7f) * alongsideFactor * approachFactor;
                     steerAdjust += -Mathf.Sign(local.x) * Mathf.Lerp(0f, 0.52f, sideOverlap);
                     // Side-by-side throttle cutback suppressed during the race-start
                     // pack window - see raceStartPackWindow above. Every grid car
@@ -4534,65 +4569,25 @@ namespace LocalFormulaRacing
             //    tapes show the raw term square-waving 0.00 <-> 0.30 between adjacent
             //    rows, and at 300kph each flicker is metres of lateral movement.
             //
-            // ROUND 2 (per request - "buff the car aversion without recreating the
-            // swerving issue"). The first pass bought calm purely by shrinking the
-            // ceiling, which also shrank genuine avoidance - too blunt. Swerve is a
-            // SIGN problem: what reads as swerving, and what saturates the wheel, is
-            // the REVERSALS, not the size of any one push. So the sign is committed
-            // and the amplitude goes back up.
+            // ROUND 3. Round 2 committed the dodge SIDE and suppressed any opposing
+            // demand for 0.35s, which is why aversion got worse rather than better: a
+            // suppressed demand is not a calmer dodge, it is NO dodge. In a pack the
+            // threat genuinely does switch sides, and the latch spent a third of a
+            // second refusing to react each time it did - trading a cosmetic problem
+            // for a contact. Removed entirely, along with its state.
             //
-            // Once a side is chosen the opposite demand must argue for it for a
-            // sustained window before the car will follow it; until then the opposing
-            // push is suppressed rather than obeyed, so a marginal neighbour drifting
-            // across a detection edge cannot square-wave the wheel. A genuinely large
-            // opposing demand bypasses the latch outright and switches immediately -
-            // that is a car actually arriving on the committed side, and refusing to
-            // move for it would trade a swerve for a collision.
-            float rawNudgeSide = Mathf.Abs(steerAdjust) > 0.03f ? Mathf.Sign(steerAdjust) : 0f;
-            if (rawNudgeSide == 0f)
-            {
-                trafficNudgeOpposeSeconds = 0f;
-                trafficNudgeClearSeconds += Time.deltaTime;
-                // Release the commitment only after the road has genuinely been clear
-                // for a beat, so a momentary dropout does not un-commit the car
-                // mid-dodge and let the next frame pick the other way.
-                if (trafficNudgeClearSeconds > 0.6f)
-                {
-                    trafficNudgeLatchSide = 0f;
-                }
-            }
-            else
-            {
-                trafficNudgeClearSeconds = 0f;
-                if (trafficNudgeLatchSide == 0f)
-                {
-                    trafficNudgeLatchSide = rawNudgeSide;
-                    trafficNudgeOpposeSeconds = 0f;
-                }
-                else if (rawNudgeSide != trafficNudgeLatchSide)
-                {
-                    trafficNudgeOpposeSeconds += Time.deltaTime;
-                    bool emergencyReversal = Mathf.Abs(steerAdjust) > 0.6f;
-                    if (emergencyReversal || trafficNudgeOpposeSeconds > 0.35f)
-                    {
-                        trafficNudgeLatchSide = rawNudgeSide;
-                        trafficNudgeOpposeSeconds = 0f;
-                    }
-                    else
-                    {
-                        steerAdjust = 0f;
-                    }
-                }
-                else
-                {
-                    trafficNudgeOpposeSeconds = 0f;
-                }
-            }
-
-            // Ceiling raised well past the pre-swerve-fix authority now that the sign
-            // cannot flap (0.55/0.22 -> 0.9/0.45). It still eases with speed: at
-            // 300kph even a committed 0.45 moves the car several metres, and the
-            // racing line needs headroom under the shared [-1,1] clamp.
+            // The flicker is killed at its SOURCE instead, in the detection windows
+            // themselves (see the dodge and side-by-side terms above, both now faded
+            // in over a band instead of switching on at a hard threshold). A term that
+            // ramps up from zero as a neighbour approaches cannot square-wave however
+            // marginal that neighbour is, so no downstream suppression is needed and
+            // no avoidance is ever withheld. That also makes the windows genuinely
+            // WIDER, which is the aversion buff: threats are seen further out and
+            // answered earlier, so a smaller push does the same job.
+            //
+            // Ceiling stays raised past the pre-swerve-fix authority (0.9/0.45), still
+            // easing with speed because at 300kph even 0.45 moves the car several
+            // metres and the racing line needs headroom under the shared [-1,1] clamp.
             float trafficNudgeCeiling = Mathf.Lerp(0.9f, 0.45f, Mathf.Clamp01((speedKph - 120f) / 180f));
             steerAdjust = Mathf.Clamp(steerAdjust, -trafficNudgeCeiling, trafficNudgeCeiling);
 

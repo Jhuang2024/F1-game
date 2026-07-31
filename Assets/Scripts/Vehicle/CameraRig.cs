@@ -485,7 +485,20 @@ namespace LocalFormulaRacing
             }
             else
             {
-                desired = target.TransformPoint(offset);
+                // Chase/nose mounts hang on an arm metres behind the car, and unlike
+                // the rigid onboard mounts above they must NOT inherit its roll and
+                // pitch. TransformPoint used the FULL transform, so any rotation the
+                // chassis picked up swung the camera through an arc proportional to
+                // the arm length while LookRotation kept forcing world-up against it.
+                // Getting rear-ended is exactly the case that exposes it: the contact
+                // dumps angular velocity on all three axes, StabilizeChassis then
+                // slerps the car back to level over a few tenths of a second, and for
+                // that whole window the camera was being whipped around and rolled by
+                // a car attitude the player can barely see on the car itself. Anchored
+                // to the car's HEADING only, so a shunt moves the camera exactly as
+                // far as it moves the car and no further.
+                Quaternion levelRotation = Quaternion.Euler(0f, target.eulerAngles.y, 0f);
+                desired = target.position + levelRotation * offset;
 
                 // Steering and actual yaw rate both feed the corner look-ahead:
                 // steering alone can lead the turn before the car has really
@@ -517,12 +530,26 @@ namespace LocalFormulaRacing
                 float cornerSignal = smoothedCornerSignal;
                 float cornerBiasScale = mode == 5 ? Mathf.Lerp(0.12f, 0.5f, speed01) : Mathf.Lerp(0.25f, 1.4f, speed01);
                 Vector3 cornerBias = target.right * cornerSignal * cornerBiasScale;
-                Vector3 lookTarget = target.position + Vector3.up * 1.05f + velocitySmoothed * 0.2f + cornerBias;
+                // Look-ahead velocity is flattened and bounded. It exists to lead the
+                // car down the road, which is a horizontal job, and its raw value is
+                // whatever the physics solver produced this instant - a rear-end
+                // delivers a large spike, often with a vertical component as the cars
+                // ride over each other, and feeding that straight into the aim point
+                // pitched and yanked the camera for as long as the spike took to
+                // smooth out. Clamped to a sane cornering magnitude so it can still
+                // lead a fast corner but can never be dominated by one contact.
+                Vector3 lookVelocity = new Vector3(velocitySmoothed.x, 0f, velocitySmoothed.z);
+                lookVelocity = Vector3.ClampMagnitude(lookVelocity, 90f);
+                Vector3 lookTarget = target.position + Vector3.up * 1.05f + lookVelocity * 0.2f + cornerBias;
                 Vector3 lookDirection = lookTarget - desired;
                 if (mode == 5)
                 {
-                    // Nose cam hugs the tarmac and always looks down the road.
-                    lookDirection = target.forward * 12f + velocitySmoothed * 0.3f + cornerBias * 0.5f + Vector3.up * 0.1f;
+                    // Nose cam hugs the tarmac and always looks down the road. Heading,
+                    // not chassis forward, for the same reason the mount is levelled
+                    // above - a nose-down attitude after a shunt must not aim the
+                    // camera at the tarmac.
+                    Vector3 levelForward = levelRotation * Vector3.forward;
+                    lookDirection = levelForward * 12f + lookVelocity * 0.3f + cornerBias * 0.5f + Vector3.up * 0.1f;
                 }
 
                 if (lookDirection.sqrMagnitude < 0.01f)
@@ -533,7 +560,9 @@ namespace LocalFormulaRacing
                 desiredRotation = Quaternion.LookRotation(lookDirection, Vector3.up);
 
                 // Corner lean from lateral velocity sells the load transfer, kept mild.
-                float lateral = Vector3.Dot(velocitySmoothed, target.right);
+                // Reads the flattened, bounded velocity for the same reason the aim
+                // does - a sideways shunt is not load transfer.
+                float lateral = Vector3.Dot(lookVelocity, target.right);
                 float rollClamp = 1.2f;
                 float targetRoll = Mathf.Clamp(-lateral * 0.05f, -rollClamp, rollClamp);
                 rollAngle = Mathf.Lerp(rollAngle, targetRoll, dt * 4f);
