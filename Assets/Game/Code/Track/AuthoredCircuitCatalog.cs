@@ -169,7 +169,7 @@ namespace F1Game.Track
                 KerbStartMeters = 9.4f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.44f, 0.62f),
-                TargetLengthMeters = 8281.25f,
+                TargetLengthMeters = 5793f,
                 AnchorSubdivisions = 3,
                 // Final-corner rebuild ("Italy is completely broken"): the old last
                 // anchor was a single spike out to (-210,0,0) that forced the start
@@ -209,7 +209,7 @@ namespace F1Game.Track
                 KerbStartMeters = 8.87f,
                 DrsZoneOneNormalized = new Vector2(0.83f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.42f, 0.58f),
-                TargetLengthMeters = 8281.25f,
+                TargetLengthMeters = 5451f,
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
@@ -247,7 +247,7 @@ namespace F1Game.Track
                 KerbStartMeters = 7.63f,
                 DrsZoneOneNormalized = new Vector2(0.86f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.48f, 0.64f),
-                TargetLengthMeters = 6562.5f,
+                TargetLengthMeters = 5412f,
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
@@ -273,7 +273,7 @@ namespace F1Game.Track
                 KerbStartMeters = 7.74f,
                 DrsZoneOneNormalized = new Vector2(0.84f, 0.09f),
                 DrsZoneTwoNormalized = new Vector2(0.56f, 0.72f),
-                TargetLengthMeters = 7265.625f,
+                TargetLengthMeters = 4361f,
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
@@ -299,7 +299,7 @@ namespace F1Game.Track
                 KerbStartMeters = 8.66f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.5f, 0.65f),
-                TargetLengthMeters = 7265.625f,
+                TargetLengthMeters = 4657f,
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
@@ -325,7 +325,7 @@ namespace F1Game.Track
                 KerbStartMeters = 8.46f,
                 DrsZoneOneNormalized = new Vector2(0.86f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.18f, 0.36f),
-                TargetLengthMeters = 7265.625f,
+                TargetLengthMeters = 4318f,
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
@@ -350,7 +350,7 @@ namespace F1Game.Track
                 KerbStartMeters = 7.63f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.34f, 0.45f),
-                TargetLengthMeters = 6562.5f,
+                TargetLengthMeters = 4381f,
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
@@ -376,7 +376,7 @@ namespace F1Game.Track
                 KerbStartMeters = 7.52f,
                 DrsZoneOneNormalized = new Vector2(0.87f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.54f, 0.68f),
-                TargetLengthMeters = 6562.5f,
+                TargetLengthMeters = 4259f,
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
@@ -401,7 +401,7 @@ namespace F1Game.Track
                 KerbStartMeters = 7.22f,
                 DrsZoneOneNormalized = new Vector2(0.84f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.46f, 0.62f),
-                TargetLengthMeters = 6562.5f,
+                TargetLengthMeters = 5474f,
                 AnchorSubdivisions = 2,
                 SketchAnchors = new[]
                 {
@@ -427,7 +427,7 @@ namespace F1Game.Track
                 KerbStartMeters = 7.52f,
                 DrsZoneOneNormalized = new Vector2(0.78f, 0.1f),
                 DrsZoneTwoNormalized = new Vector2(0.52f, 0.67f),
-                TargetLengthMeters = 8281.25f,
+                TargetLengthMeters = 6003f,
                 AnchorSubdivisions = 2,
                 SketchAnchors = new[]
                 {
@@ -453,7 +453,7 @@ namespace F1Game.Track
                 KerbStartMeters = 8.87f,
                 DrsZoneOneNormalized = new Vector2(0.86f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.38f, 0.56f),
-                TargetLengthMeters = 7265.625f,
+                TargetLengthMeters = 5513f,
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
@@ -490,7 +490,7 @@ namespace F1Game.Track
                 KerbStartMeters = 8.57f,
                 DrsZoneOneNormalized = new Vector2(0.84f, 0.09f),
                 DrsZoneTwoNormalized = new Vector2(0.48f, 0.63f),
-                TargetLengthMeters = 7265.625f,
+                TargetLengthMeters = 4304f,
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
@@ -516,7 +516,7 @@ namespace F1Game.Track
                 KerbStartMeters = 7.84f,
                 DrsZoneOneNormalized = new Vector2(0.74f, 0.13f),
                 DrsZoneTwoNormalized = new Vector2(0.42f, 0.58f),
-                TargetLengthMeters = 8281.25f,
+                TargetLengthMeters = 6201f,
                 AnchorSubdivisions = 2,
                 SketchAnchors = new[]
                 {
@@ -542,7 +542,7 @@ namespace F1Game.Track
                 KerbStartMeters = 9.07f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.55f, 0.72f),
-                TargetLengthMeters = 8281.25f,
+                TargetLengthMeters = 5419f,
                 AnchorSubdivisions = 5,
                 // Self-intersection fix (per report - the whole field piled up
                 // at an at-grade crossing on lap 1): the old sketch's inner
@@ -579,7 +579,7 @@ namespace F1Game.Track
                 KerbStartMeters = 7.74f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.56f, 0.73f),
-                TargetLengthMeters = 8281.25f,
+                TargetLengthMeters = 6174f,
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
@@ -604,7 +604,7 @@ namespace F1Game.Track
                 KerbStartMeters = 6.5f,
                 DrsZoneOneNormalized = new Vector2(0.87f, 0.07f),
                 DrsZoneTwoNormalized = new Vector2(0.46f, 0.58f),
-                TargetLengthMeters = 6093.75f,
+                TargetLengthMeters = 3337f,
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
@@ -630,7 +630,7 @@ namespace F1Game.Track
                 KerbStartMeters = 7.93f,
                 DrsZoneOneNormalized = new Vector2(0.9f, 0.07f),
                 DrsZoneTwoNormalized = new Vector2(0.5f, 0.63f),
-                TargetLengthMeters = 8281.25f,
+                TargetLengthMeters = 5807f,
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
@@ -658,7 +658,7 @@ namespace F1Game.Track
                 KerbStartMeters = 9.28f,
                 DrsZoneOneNormalized = new Vector2(0.89f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.48f, 0.64f),
-                TargetLengthMeters = 8281.25f,
+                TargetLengthMeters = 5891f,
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
@@ -684,7 +684,7 @@ namespace F1Game.Track
                 KerbStartMeters = 8.98f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.07f),
                 DrsZoneTwoNormalized = new Vector2(0.18f, 0.36f),
-                TargetLengthMeters = 8750f,
+                TargetLengthMeters = 7004f,
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
@@ -710,7 +710,7 @@ namespace F1Game.Track
                 KerbStartMeters = 6.8f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.07f),
                 DrsZoneTwoNormalized = new Vector2(0.55f, 0.69f),
-                TargetLengthMeters = 6562.5f,
+                TargetLengthMeters = 4940f,
                 AnchorSubdivisions = 2,
                 SketchAnchors = new[]
                 {
@@ -735,7 +735,7 @@ namespace F1Game.Track
                 KerbStartMeters = 9.07f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.52f, 0.69f),
-                TargetLengthMeters = 7265.625f,
+                TargetLengthMeters = 5278f,
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
@@ -760,7 +760,7 @@ namespace F1Game.Track
                 KerbStartMeters = 7.84f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.62f, 0.79f),
-                TargetLengthMeters = 6562.5f,
+                TargetLengthMeters = 4309f,
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
@@ -785,7 +785,7 @@ namespace F1Game.Track
                 KerbStartMeters = 8.57f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.34f, 0.53f),
-                TargetLengthMeters = 7265.625f,
+                TargetLengthMeters = 5281f,
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
@@ -810,7 +810,7 @@ namespace F1Game.Track
                 KerbStartMeters = 8.15f,
                 DrsZoneOneNormalized = new Vector2(0.91f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.42f, 0.57f),
-                TargetLengthMeters = 7265.625f,
+                TargetLengthMeters = 5412f,
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
@@ -872,7 +872,23 @@ namespace F1Game.Track
             // (~28 m before, ~22 m now). Tighter corners survive the smoothing pass
             // instead of being relaxed back open.
             const float AuthoredCircuitScale = 0.62f;
-            float scale = sketchLength > 1f ? (spec.TargetLengthMeters * AuthoredCircuitScale) / sketchLength : 1f;
+            // TargetLengthMeters is now the REAL circuit length in metres, and the
+            // 0.62 authored scale is no longer applied to it.
+            //
+            // Previously the specs carried only six distinct length values shared
+            // across all 24 circuits, which the 0.62 scale then mapped into a
+            // 4.1-5.5 km band. The band itself was plausible, but the per-circuit
+            // character was flattened: Madrid, Miami and Spa came out ~20% short
+            // while Monaco came out ~15% LONG, so Monaco was not meaningfully the
+            // shortest circuit on the calendar and Spa was not meaningfully the
+            // longest - which is most of what makes those two circuits what they
+            // are. Real lengths also scale the sketch geometry, so corner radii now
+            // follow the real circuit's character too (Spa's sweepers open up,
+            // Monaco's corners tighten).
+            //
+            // The scale still applies to WIDTH and the kerb inset, which are
+            // authored on their own separate basis.
+            float scale = sketchLength > 1f ? spec.TargetLengthMeters / sketchLength : 1f;
             float halfWidthMeters = spec.HalfWidthMeters * AuthoredCircuitScale;
             // Same gentle elevation treatment the legacy normalize pass applied.
             float elevationScale = Mathf.Pow(scale, 0.55f);
@@ -912,6 +928,29 @@ namespace F1Game.Track
             // pushed the sector splits to 32.5/32.5/35.0% instead of even thirds.
             var sampler = new TrackSplineSampler();
             sampler.Build(asset.spline, true);
+
+            // `scale` above is derived from the CHORD polyline through the anchors,
+            // but the sampler measures the Catmull-Rom ARC, which runs 1.5-2.6%
+            // longer. Correct once so the finished circuit lands on its real length
+            // rather than consistently overshooting it.
+            if (sampler.Length > 1f && spec.TargetLengthMeters > 1f)
+            {
+                float correction = spec.TargetLengthMeters / sampler.Length;
+                if (Mathf.Abs(correction - 1f) > 0.002f)
+                {
+                    for (int i = 0; i < asset.spline.Count; i++)
+                    {
+                        TrackDefinitionAsset.SplinePoint point = asset.spline[i];
+                        point.position = new Vector3(
+                            point.position.x * correction,
+                            point.position.y * Mathf.Pow(correction, 0.55f),
+                            point.position.z * correction);
+                        asset.spline[i] = point;
+                    }
+
+                    sampler.Build(asset.spline, true);
+                }
+            }
 
             float length = sampler.Length;
             asset.startFinishDistance = 0f;
