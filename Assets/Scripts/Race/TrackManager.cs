@@ -5931,7 +5931,32 @@ namespace LocalFormulaRacing
         // the same "flush plus clearance" base.
         float FlushBarrierLateral(float distance, float barrierHalfThickness, float extraStandoff = 0f)
         {
-            return Runtime.HalfWidthAt(distance) + Runtime.RunoffWidthMeters + EdgeBarrierClearance + extraStandoff + barrierHalfThickness;
+            return Runtime.HalfWidthAt(distance) + RunoffWidthAt(distance) + EdgeBarrierClearance + extraStandoff + barrierHalfThickness;
+        }
+
+        /// <summary>
+        /// Runoff width at a lap distance. The circuit's own figure everywhere EXCEPT
+        /// through the pit zone, where it is zero.
+        ///
+        /// The pit lane sits only ~14 m outboard of the track edge, so applying a
+        /// 22 m permanent-circuit runoff along the pit straight would put the outer
+        /// barrier BEYOND the pit lane and leave a car running wide there driving
+        /// straight through the pit lane. Real pit straights have the pit wall right
+        /// at the track edge, which is exactly what zero runoff reproduces.
+        /// </summary>
+        float RunoffWidthAt(float distance)
+        {
+            if (Runtime == null || Runtime.length <= 0f)
+            {
+                return 0f;
+            }
+
+            float normalized = Runtime.WrapDistance(distance) / Runtime.length;
+            // The pit zone wraps the start/finish line: entry ramp through the
+            // corridor and out the exit ramp.
+            bool inPitZone = normalized >= Runtime.PitEntryRampStartNormalized ||
+                             normalized <= Runtime.PitExitRampEndNormalized;
+            return inPitZone ? 0f : Runtime.RunoffWidthMeters;
         }
 
         // Direct, undiscretized curvature reading at one point (degrees of

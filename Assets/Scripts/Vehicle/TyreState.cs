@@ -316,6 +316,13 @@ namespace LocalFormulaRacing
         public const float BlanketTemperatureC = 70f;
 
         /// <summary>
+        /// Converts normalised per-lap heat input into degrees above ambient. Tuned
+        /// so a normal racing lap settles near 95-100 C - i.e. inside the real
+        /// operating windows - rather than the ~75 C the old coefficient produced.
+        /// </summary>
+        const float TyreHeatCoefficient = 32f;
+
+        /// <summary>
         /// Snaps the tyre to the middle of its operating window. Only appropriate
         /// where there is no out-lap to speak of (time trial).
         /// </summary>
@@ -331,11 +338,39 @@ namespace LocalFormulaRacing
             float steerHeat = Mathf.Abs(steer) * speedHeat * 0.72f;
             float tractionHeat = throttle * slipEnergy * 0.58f;
             float slidingHeat = slipEnergy * speedHeat * 1.05f;
-            float ambient = weather == WeatherState.HeavyRain ? 34f : (weather == WeatherState.LightRain ? 44f : 64f);
-            float heatGain = (speedHeat + brakeHeat + steerHeat + tractionHeat + slidingHeat) * warmup;
-            float targetTemperature = ambient + heatGain * 9.2f;
+            // Ambient carcass baseline follows the TRACK temperature rather than a
+            // per-weather literal, so a hot Bahrain afternoon and a cold Spa morning
+            // genuinely differ. Rain pulls it down hard.
+            float ambient = trackTemperatureC + (weather == WeatherState.HeavyRain ? 10f
+                : (weather == WeatherState.LightRain ? 20f : 40f));
+
+            // `warmup` drives the RATE a tyre comes up to temperature, NOT its
+            // equilibrium. This is the important distinction: all four tyres on a
+            // car take broadly the same energy from the same lap, so the steady-state
+            // temperature is compound-independent - what differs is how fast each
+            // compound gets there and, crucially, where its WORKING WINDOW sits.
+            //
+            // It used to multiply the heat GAIN, which meant a harder compound both
+            // warmed slower AND settled cooler. Combined with the (now corrected)
+            // window ordering that was survivable; with realistic windows it is not.
+            // Worked through: the old model's equilibrium spanned only ~71-80 C
+            // against windows of 85-115, so EVERY compound sat permanently below its
+            // window and ran at a flat grip penalty for the whole race.
+            //
+            // The coefficient is scaled so a normal racing lap settles near 95-100 C,
+            // a slow//cold lap near 80 C and a hard push near 110 C. Against the real
+            // windows that gives exactly the right behaviour: the soft is in its
+            // window immediately and overheats when pushed, the medium is happy
+            // across the range, and the hard only reaches its window when the driver
+            // genuinely leans on it - the "I can't get the hards switched on"
+            // phenomenon, which is now a real consequence rather than a comment.
+            float heatGainRaw = speedHeat + brakeHeat + steerHeat + tractionHeat + slidingHeat;
+            float targetTemperature = ambient + heatGainRaw * TyreHeatCoefficient;
             float cooling = speedKph < 75f && throttle < 0.25f ? 1.55f : 1f;
-            Temperature = Mathf.MoveTowards(Temperature, targetTemperature, deltaTime * (2.45f + heatGain * 3.1f) * cooling);
+            Temperature = Mathf.MoveTowards(
+                Temperature,
+                targetTemperature,
+                deltaTime * (2.45f + heatGainRaw * 3.1f) * warmup * cooling);
 
             UpdateLockup(speedKph, brake, steer, weather, tyreManagement, deltaTime);
 
