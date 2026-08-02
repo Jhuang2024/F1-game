@@ -99,7 +99,7 @@ namespace LocalFormulaRacing
                 results[i].finishingPosition = i + 1;
                 results[i].points = points;
                 ApplyDriverPoints(results[i], points);
-                ApplyConstructorPoints(results[i].teamId, points);
+                ApplyConstructorPoints(results[i].teamId, points, results[i].finishingPosition);
             }
 
             Save.raceResults.Add(new RaceResultRecord
@@ -146,6 +146,7 @@ namespace LocalFormulaRacing
             }
 
             entry.points += points;
+            entry.RecordFinish(result.finishingPosition);
             if (result.finishingPosition == 1)
             {
                 entry.wins++;
@@ -157,7 +158,7 @@ namespace LocalFormulaRacing
             }
         }
 
-        void ApplyConstructorPoints(string teamId, int points)
+        void ApplyConstructorPoints(string teamId, int points, int finishingPosition)
         {
             if (string.IsNullOrEmpty(teamId))
             {
@@ -178,13 +179,35 @@ namespace LocalFormulaRacing
             }
 
             entry.points += points;
+            // Constructor wins/podiums and the countback histogram were never
+            // recorded here at all, so the legends constructors' table showed 0 in
+            // both columns all season and any points tie fell straight through to
+            // the (previously unstable) sort order.
+            entry.RecordFinish(finishingPosition);
+            if (finishingPosition == 1)
+            {
+                entry.wins++;
+            }
+
+            if (finishingPosition <= 3)
+            {
+                entry.podiums++;
+            }
         }
 
         static void Sort(List<StandingEntry> standings)
         {
-            standings.Sort((a, b) => F1Game.Race.Rules.ChampionshipPoints.CompareStandings(
-                a.points, a.wins, a.podiums,
-                b.points, b.wins, b.podiums));
+            standings.Sort((a, b) =>
+            {
+                // Same real countback as the career championship, plus the same
+                // deterministic final tiebreak - this used to call the points/wins/
+                // podiums comparator with no stable fallback, so a legends title
+                // decided on a tie was settled by introsort partitioning.
+                int ranked = F1Game.Race.Rules.ChampionshipPoints.CompareStandingsWithCountback(
+                    a.points, a.finishCounts,
+                    b.points, b.finishCounts);
+                return ranked != 0 ? ranked : string.CompareOrdinal(a.id, b.id);
+            });
         }
 
         void Write()

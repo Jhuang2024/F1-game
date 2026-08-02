@@ -257,17 +257,16 @@ namespace LocalFormulaRacing
             }
             else
             {
-                // Tyre blankets for the whole field at every session start
-                // (skill-order fix, per report - the opening-lap running order
-                // scrambled against driver skill): everyone used to launch on
-                // COLD tyres (below-window temps cost up to ~34% grip), and a
-                // low-skill driver's extra sliding heated their tyres into the
-                // window FASTER - so for the first laps a backmarker could
-                // genuinely out-grip a cold-tyred elite and the field shuffled
-                // against skill. Real cars leave the grid on blanket-warmed
-                // rubber; now so does everyone here (player and AI alike), so
-                // the grip-utilization skill spread applies from lights out.
-                controller.PreheatTyres();
+                // Tyre blankets for the whole field at every session start. Real
+                // blankets are regulated to 70 C, which is BELOW the operating
+                // window - so the field leaves the grid warm but not switched on,
+                // and the opening lap genuinely brings the tyre in. This used to
+                // snap every car to the exact centre of its window, i.e. perfect
+                // grip from lights out, which deleted the warm-up phase entirely.
+                // The original concern this addressed still holds: everyone gets
+                // the same blanket treatment, so the opening-lap order is not
+                // scrambled by cold-tyre luck.
+                controller.ApplyTyreBlankets();
             }
 
             // Fuel system pass: session-specific start fuel instead of the old flat

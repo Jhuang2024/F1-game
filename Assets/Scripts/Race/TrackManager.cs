@@ -1940,8 +1940,9 @@ namespace LocalFormulaRacing
 
         public const int GridSlotCount = 22;
         public const float GridStartOffset = 52f;
-        public const float GridRowSpacing = 19f;
-        public const float GridStaggerOffset = 9f;
+        public const float GridRowSpacing = 16f;
+        // Real F1 grid boxes are staggered 8 m apart measured along the track.
+        public const float GridStaggerOffset = 8f;
 
         public float GridLaneWidth
         {

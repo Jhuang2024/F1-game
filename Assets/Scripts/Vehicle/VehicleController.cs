@@ -273,7 +273,16 @@ namespace LocalFormulaRacing
         // stat-honesty fix in CalculateTargetTopSpeedKph) - generous enough
         // that a heavily upgraded career car (~415 stat) keeps its full edge,
         // while still bounding data errors.
-        const float StatTopSpeedCeilingKph = 435f;
+// Ceiling on the car's own top-speed STAT. 435 was well past anything an F1
+        // car has ever done before any bonus was even added.
+        const float StatTopSpeedCeilingKph = 360f;
+
+        /// <summary>
+        /// Absolute physical top-speed ceiling after every bonus. Real race top
+        /// speeds are 320-345 km/h, reaching ~350-360 with DRS at the fastest
+        /// circuits; the outright record in anger is ~378 km/h.
+        /// </summary>
+        const float AbsoluteTopSpeedCeilingKph = 360f;
         // Player-only straightline speed buff - never applies to AI (see
         // CalculateTargetTopSpeedKph, gated on IsPlayerControlled). Raised
         // from 4 to 9 (an additional +5), then lowered by 2 to 7, then
@@ -349,7 +358,10 @@ namespace LocalFormulaRacing
         // so it never does anything at pit-lane/low-corner speed and ends the
         // instant the wing closes (brake, zone exit, availability lost).
         const float DrsBoostThresholdKph = 150f;
-        const float DrsBoostAmountKph = 30f;
+// Real DRS is worth about +10-15 km/h on a straight. 30 was more than
+        // double that, and it was added AFTER every ceiling clamp so it stacked
+        // without limit. Now 12, and applied inside the cap below.
+        const float DrsBoostAmountKph = 12f;
         // Dedicated additive force (same reasoning as playerTopSpeedBoost/
         // aiTopSpeedBoost/ersBoost above) so the raised target is actually
         // reached quickly rather than being aspirational against drag.
@@ -379,13 +391,28 @@ namespace LocalFormulaRacing
         const float AutoShiftHysteresisKph = 7f;
 
         /// <summary>
+        /// Minimum car mass in kg, including the driver and excluding fuel. The
+        /// announced 2026 figure is 768 kg (it was 798 kg in 2024 and 800 kg in
+        /// 2025). Was a bare 760f literal, below every one of those.
+        /// </summary>
+        const float MinimumCarMassKg = 768f;
+
+        /// <summary>Regulated maximum race fuel load, kg.</summary>
+        const float MaximumFuelKg = 110f;
+
+        /// <summary>
         /// How long the DRS wing stays open after leaving a zone (braking still
         /// closes it immediately). Shared by the player input path and the AI so
-        /// both run the identical rule - it lived as a private constant in
-        /// PlayerVehicleInput, which is how the player ended up with an
-        /// ~10.8s post-zone DRS package that no AI car ever received.
+        /// both run the identical rule.
+        ///
+        /// ZERO, because that is the real behaviour: the flap closes automatically
+        /// at the end of the activation zone, or the instant the driver touches the
+        /// brake. This was 10.8 seconds - about 960 m of extra open-wing running at
+        /// 320 km/h, carrying the full DRS package well past the zone. (It was also
+        /// player-only until earlier in this branch, which made it an outright
+        /// advantage; it is now correct AND symmetric.)
         /// </summary>
-        public const float DrsAutoHoldSeconds = 10.8f;
+        public const float DrsAutoHoldSeconds = 0f;
 
         // Career development clamps every developable car stat to 125
         // (CareerManager.ApplyUpgradeSet), and has a bespoke redistribution pass
@@ -429,7 +456,7 @@ namespace LocalFormulaRacing
             settings = gameSettings;
             IsPlayerControlled = playerControlled;
             body = GetComponent<Rigidbody>();
-            body.mass = 760f + fuelKg;
+            body.mass = MinimumCarMassKg + fuelKg;
             body.drag = 0.004f;
             body.angularDrag = 4.8f;
             body.centerOfMass = new Vector3(0f, -0.42f, 0.05f);
@@ -473,7 +500,7 @@ namespace LocalFormulaRacing
             LiftAndCoastEvents = 0;
             if (body != null)
             {
-                body.mass = 760f + fuelKg;
+                body.mass = MinimumCarMassKg + fuelKg;
             }
         }
 
@@ -497,6 +524,21 @@ namespace LocalFormulaRacing
             if (Tyres != null)
             {
                 Tyres.WarmToOptimal();
+            }
+        }
+
+        /// <summary>
+        /// Grid start: bring the tyres up to TYRE-BLANKET temperature (70 C), which
+        /// is deliberately below the operating window - the formation and opening
+        /// laps are what actually switch the tyre on. Every session used to snap the
+        /// whole field to the centre of the window instead, which handed everyone
+        /// perfect grip on lap 1 and removed the warm-up phase from race starts.
+        /// </summary>
+        public void ApplyTyreBlankets()
+        {
+            if (Tyres != null)
+            {
+                Tyres.WarmToBlanketTemperature();
             }
         }
 
@@ -941,7 +983,7 @@ namespace LocalFormulaRacing
             float fuelPerMeter = fuelPerLapEstimateKg > 0f ? fuelPerLapEstimateKg / trackLength : 1.5f / 4650f;
             const float PitLaneThrottleBurnMultiplier = 0.55f;
             fuelKg = Mathf.Max(0f, fuelKg - fuelPerMeter * metresTravelled * PitLaneThrottleBurnMultiplier);
-            body.mass = 760f + fuelKg;
+            body.mass = MinimumCarMassKg + fuelKg;
         }
 
         void UpdateFuel(VehicleCommand assisted, float absoluteSpeedKph, TrackProgress progress, float dt)
@@ -963,7 +1005,7 @@ namespace LocalFormulaRacing
             float throttleBurnMultiplier = Mathf.Lerp(0.5f, 1.17f, Mathf.Clamp01(assisted.throttle));
             float burnKg = fuelPerMeter * distanceThisFrame * throttleBurnMultiplier;
             fuelKg = Mathf.Max(0f, fuelKg - burnKg);
-            body.mass = 760f + fuelKg;
+            body.mass = MinimumCarMassKg + fuelKg;
 
             fuelStarved = fuelKg <= 0f;
             fuelStarvedTimer = fuelStarved ? fuelStarvedTimer + dt : 0f;
@@ -1417,7 +1459,13 @@ namespace LocalFormulaRacing
             // per kg), so a light-fueled car is genuinely, visibly quicker than
             // a heavy one all race, and every car naturally picks up pace as the
             // tank burns down. Applies to AI and player alike (shared path).
-            float fuelPenalty = Mathf.Lerp(1f, 0.75f, Mathf.Clamp01(fuelKg / 120f));
+            // Real F1 fuel weight costs roughly 0.03 s/lap per kg - about 3 s/lap for a
+            // full 110 kg load, on a ~90 s lap, i.e. a few per cent. This used to be
+            // Lerp(1, 0.75, fuel/120): a 25% DRIVE-FORCE cut at a full tank, which put
+            // an under-fuelled car in a different performance class entirely and made
+            // the fuel gamble dominate car and driver quality. Sized so a full tank
+            // costs ~3.5% of drive force, which lands near the real per-lap figure.
+            float fuelPenalty = Mathf.Lerp(1f, 0.965f, Mathf.Clamp01(fuelKg / MaximumFuelKg));
             // Harvest mode banks charge faster at the cost of a weaker deploy punch;
             // Attack mode hits harder on deploy but recovers charge more slowly. Only
             // the human player's own strategy dial drives this - AI cars run their
@@ -1646,10 +1694,8 @@ namespace LocalFormulaRacing
             }
 
             float highSpeedPower = Mathf.Lerp(1.2f, 0.82f, speedRatio);
-            if (DrsActive)
-            {
-                highSpeedPower += 0.1f;
-            }
+            // DRS does NOT add engine power. It only removes drag - the +10% engine
+            // power that used to be applied here has no counterpart in the real car.
 
             // Flat DRS boost force: DrsBoostActive (see ApplyForces' timer above)
             // already grants an uncapped +DrsBoostAmountKph to TargetTopSpeedKph
@@ -1658,7 +1704,12 @@ namespace LocalFormulaRacing
             // ERS/slipstream/top-speed-buff's own dedicated additive terms below.
             // No speed ramp here on purpose: the request is a flat, on/off boost
             // above DrsBoostThresholdKph, not a gradual build like the old model.
-            float drsBoostForce = DrsBoostActive ? DrsBoostForceAccel : 0f;
+            // No additive DRS thrust. DRS is a DRAG REDUCTION, not a push: the old
+            // 45 m/s^2 (4.6 g) shove had no physical counterpart at all and, with the
+            // uncapped +kph ceiling below, made DRS worth several times its real
+            // ~10-15 km/h. The drag cut in AeroModel now produces the speed delta on
+            // its own.
+            float drsBoostForce = 0f;
 
             // Slipstream force: same reasoning as DRS above - a raised top-speed
             // ceiling alone may not be reachable before the straight ends, so this
@@ -1673,7 +1724,7 @@ namespace LocalFormulaRacing
             // 16-30) to match SlipstreamTopSpeedBonusKph's own reduction.
             float slipstreamSpeedRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(130f, 255f, forwardSpeedKph));
             float slipstreamBoost = slipstreamStrength > 0.05f
-                ? StatLerp(12f, 22.5f, CarData.aeroEfficiency) * slipstreamStrength * slipstreamSpeedRamp
+                ? 0f * slipstreamStrength * slipstreamSpeedRamp   // additive tow thrust removed - the tow is a drag reduction plus a raised ceiling, not a push
                 : 0f;
 
             // Player straightline speed buff, round 2: PlayerTopSpeedBonusKph
@@ -2290,15 +2341,20 @@ namespace LocalFormulaRacing
 
             float cappedTarget = Mathf.Min(Mathf.Max(target, 60f), ceiling);
 
-            // Flat DRS speed boost: deliberately added AFTER every ceiling clamp
-            // above (the 350 base ceiling and the 405 shared safety cap both) so
-            // it is never absorbed by them - a genuinely uncapped +DrsBoostAmountKph
-            // on top of whatever the car could otherwise reach, exactly as
-            // requested, for as long as DrsBoostActive holds (see ApplyForces).
+            // DRS speed bonus, applied INSIDE the ceiling. It used to be added after
+            // every clamp so it could never be absorbed by them - which, stacked with
+            // the ERS and tow bonuses on a developed career car, produced achievable
+            // top speeds around 430-490 km/h. Real F1 race top speeds are 320-345
+            // km/h, about 350-360 with DRS at Monza/Baku/Las Vegas; nothing has ever
+            // exceeded ~378 km/h even in a qualifying tow.
             if (DrsBoostActive)
             {
                 cappedTarget += DrsBoostAmountKph;
             }
+
+            // Hard physical ceiling. Nothing - stats, ERS, tow, DRS or any
+            // combination - may put a car past what an F1 car can actually do.
+            cappedTarget = Mathf.Min(cappedTarget, AbsoluteTopSpeedCeilingKph);
 
             // Puncture (per request): a tyre at 0% remaining is gone - every
             // speed source above (base pace, tow, ERS ceiling, even an open

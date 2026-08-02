@@ -135,10 +135,19 @@ namespace LocalFormulaRacing
             // drives a low-grip car COMPETENTLY: see SteerAuthorityCompensation in
             // AiVehicleController (which used to saturate its own steering the moment
             // grip dropped) and MaxCorneringSpeedKph below.
+            // OPERATING WINDOWS: harder compounds work HOTTER. This was inverted -
+            // the soft was given the highest window (82-105) and the hard the lowest
+            // (74-100), so the hard came up to temperature soonest and easiest. In
+            // reality it is the opposite and it is the defining characteristic of the
+            // hard tyre: C1/C2 rubber has the highest working range and is notoriously
+            // hard to "switch on", which is why drivers complain about no grip on the
+            // hards for the first two laps of a stint and on a cold out-lap. Combined
+            // with the hard's already-slowest `warmup`, the hard is now genuinely
+            // difficult to bring in, and the soft lights up almost immediately.
             if (compound == TyreCompound.Soft)
             {
                 baseGrip = 1f;
-                targetMin = 82f;
+                targetMin = 85f;
                 targetMax = 105f;
                 warmup = 1.25f;
                 heavyRainGrip = 0.19f;
@@ -148,8 +157,8 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Medium)
             {
                 baseGrip = 0.82f;
-                targetMin = 78f;
-                targetMax = 102f;
+                targetMin = 90f;
+                targetMax = 110f;
                 warmup = 1f;
                 heavyRainGrip = 0.16f;
                 lightRainGrip = 0.34f;
@@ -158,8 +167,8 @@ namespace LocalFormulaRacing
             else if (compound == TyreCompound.Hard)
             {
                 baseGrip = 0.66f;
-                targetMin = 74f;
-                targetMax = 100f;
+                targetMin = 95f;
+                targetMax = 115f;
                 warmup = 0.78f;
                 heavyRainGrip = 0.13f;
                 lightRainGrip = 0.29f;
@@ -288,6 +297,28 @@ namespace LocalFormulaRacing
         // single flying lap never generates enough heat to reach the window from the
         // cold starting temperature (Soft starts at 78C but its window is 82-105C),
         // so grip felt permanently low. Full grip from the first corner.
+        /// <summary>
+        /// Brings the tyre to TYRE-BLANKET temperature, not to its operating window.
+        ///
+        /// Blankets are regulated to 70 C, which is well BELOW the ~85-115 C working
+        /// range - a car leaves the grid warm but not switched on, and that is
+        /// precisely why the formation lap exists and why lap-1 grip is a real
+        /// variable. This used to snap the tyre to the exact centre of its window,
+        /// which handed every car perfect grip on the opening lap and deleted the
+        /// warm-up phase from the race start entirely.
+        /// </summary>
+        public void WarmToBlanketTemperature()
+        {
+            Temperature = Mathf.Min(BlanketTemperatureC, (targetMin + targetMax) * 0.5f);
+        }
+
+        /// <summary>Regulated tyre-blanket temperature, degrees C.</summary>
+        public const float BlanketTemperatureC = 70f;
+
+        /// <summary>
+        /// Snaps the tyre to the middle of its operating window. Only appropriate
+        /// where there is no out-lap to speak of (time trial).
+        /// </summary>
         public void WarmToOptimal()
         {
             Temperature = (targetMin + targetMax) * 0.5f;

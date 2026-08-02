@@ -29,10 +29,18 @@ namespace F1Game.Race.Rules
         // Race build-up: first light after a short beat, then one per step.
         // The total duration includes a randomized hold after all five lights
         // are lit, so a launch cannot be timed by rhythm alone.
-        public const float FirstLightDelaySeconds = 0.55f;
-        public const float LightStepSeconds = 0.48f;
-        public const float MinRaceSequenceSeconds = 5.4f;
-        public const float MaxRaceSequenceSeconds = 6.8f;
+        // The real gantry lights the five reds ONE PER SECOND, then extinguishes
+        // them all after a hold of between 0.2 and 3 seconds. The build-up used to
+        // run at 0.48s per light - roughly twice real speed - which made the most
+        // recognisable rhythm in the sport read as a generic countdown.
+        public const float FirstLightDelaySeconds = 1f;
+        public const float LightStepSeconds = 1f;
+        public const float MinHoldSeconds = 0.2f;
+        public const float MaxHoldSeconds = 3f;
+        // All five lit at FirstLightDelay + 4 steps, then the randomised hold.
+        public const float AllLightsLitSeconds = FirstLightDelaySeconds + LightStepSeconds * 4f;
+        public const float MinRaceSequenceSeconds = AllLightsLitSeconds + MinHoldSeconds;
+        public const float MaxRaceSequenceSeconds = AllLightsLitSeconds + MaxHoldSeconds;
 
         // Qualifying / time trial: a short fixed hold, no light sequence.
         public const float NonRaceSequenceSeconds = 1.5f;

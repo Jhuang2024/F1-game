@@ -61,7 +61,12 @@ namespace F1Game.Race.Physics
         // These are the shipped arcade-model coefficients; the car's stats,
         // gear and damage scale them at the boundary.
         public const float DrsClosedDragCoefficient = 0.00054f;
-        public const float DrsOpenDragCoefficient = 0.00025f;
+        // Opening the rear-wing flap cuts TOTAL CAR drag by roughly 10-15% - the
+        // wing's own drag falls much further, but the wing is only part of the car.
+        // 0.00025 against a 0.00054 closed figure was a 53.7% total-car drag cut,
+        // about four times the real effect, which is why DRS behaved like a
+        // teleport. 0.000475 is a ~12% cut, in the real band.
+        public const float DrsOpenDragCoefficient = 0.000475f;
         public const float DrsDragReductionFraction = 1f - DrsOpenDragCoefficient / DrsClosedDragCoefficient;
         public const float DownforceCoefficient = 0.0022f;
 

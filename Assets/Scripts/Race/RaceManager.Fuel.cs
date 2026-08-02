@@ -21,7 +21,12 @@ namespace LocalFormulaRacing
         // VehicleController.SetStartFuel) and just burns/reports against whatever
         // it's told here.
         const float MinimumRaceFuelKg = 4.5f;
-        const float MaximumRaceFuelKg = 220f;
+        // The regulated maximum race fuel load is 110 kg, and the tank is sized to it.
+        // 220 kg is not a legal load under any modern F1 ruleset, and it meant the
+        // fuel-weight curve was calibrated over a range that cannot exist. Note
+        // refuelling has been banned since 2010 and is correctly absent here, so this
+        // is the entire race's fuel.
+        const float MaximumRaceFuelKg = 110f;
         // Fuel-strategy contrast pass (per request): the reserve was 1.2 kg
         // (~0.8 laps) on top of a deliberately conservative per-lap estimate,
         // which is why even an underfueled car cruised to the flag with roughly
