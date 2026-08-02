@@ -1881,9 +1881,15 @@ namespace LocalFormulaRacing
 
         public void GetGridSlot(int gridIndex, out float distance, out float lateralOffset)
         {
+            // Clamp before the row/side split. A negative index used to truncate to
+            // row 0 with `gridIndex % 2 == -1`, silently aliasing onto slot 1's
+            // pose (two cars spawned on one box), and an index past the grid ran
+            // off the back of the formation unchecked. Same guard PitBoxDistance
+            // already applies.
+            gridIndex = Mathf.Clamp(gridIndex, 0, GridSlotCount - 1);
             int row = gridIndex / 2;
             bool leftSlot = gridIndex % 2 == 0;
-            distance = length - GridStartOffset - row * GridRowSpacing - (leftSlot ? 0f : GridStaggerOffset);
+            distance = WrapDistance(length - GridStartOffset - row * GridRowSpacing - (leftSlot ? 0f : GridStaggerOffset));
             lateralOffset = leftSlot ? -GridLaneWidth : GridLaneWidth;
         }
 

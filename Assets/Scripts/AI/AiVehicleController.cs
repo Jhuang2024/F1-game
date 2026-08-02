@@ -248,6 +248,8 @@ namespace LocalFormulaRacing
         // zone), so a one-frame availability blip mid-zone can't make a committed
         // driver suddenly "forget" DRS (or an uncommitted one remember it).
         float drsIllegalSeconds = 10f;
+        // Post-zone hold-open grace, mirroring PlayerVehicleInput.drsAutoHoldTimer.
+        float drsAutoHoldTimer;
 
         // Weather-crossover watch: how long this car has been on the wrong
         // class of rubber for the track state (AiPitStrategyRules decides when
@@ -3392,7 +3394,25 @@ namespace LocalFormulaRacing
             }
             drsIllegalSeconds = drsLegal ? 0f : drsIllegalSeconds + Time.deltaTime;
             wasDrsLegalLastFrame = drsLegal;
-            command.drs = drsLegal && drsCommittedThisZone;
+
+            // Hold-open grace, matching the player exactly. PlayerVehicleInput keeps
+            // the wing open for DrsAutoHoldSeconds past the end of a zone (closing
+            // early on braking), which carries the full DRS package with it: the
+            // +kph ceiling, the boost force and the ~54% drag cut. The AI had no
+            // equivalent, so the player alone got that package on the run out of
+            // every zone - a straight, invisible, one-sided advantage on every lap.
+            // Same duration, same brake-closes-it rule, same source constant.
+            if (drsLegal)
+            {
+                drsAutoHoldTimer = VehicleController.DrsAutoHoldSeconds;
+            }
+            else
+            {
+                drsAutoHoldTimer = Mathf.Max(0f, drsAutoHoldTimer - Time.deltaTime);
+            }
+
+            bool drsHeldOpen = (drsLegal || drsAutoHoldTimer > 0f) && command.brake <= 0.2f;
+            command.drs = drsHeldOpen && drsCommittedThisZone;
 
             ApplySafetyCarFollowing(ref command);
 

@@ -903,9 +903,20 @@ namespace F1Game.Track
                 asset.racingLineOffsets.Add(0f);
             }
 
-            float length = asset.ComputeLength();
+            // Build the sampler FIRST and take the lap length from it. ComputeLength()
+            // sums straight chords between control points, but every consumer
+            // (sectors, DRS, pit, surfaces, cameras) compares against distances the
+            // sampler produces along the Catmull-Rom ARC, which is 0.7-2.6% longer.
+            // Deriving the windows from the chord length left the last 36-122m of
+            // every lap outside all of them - no surface zone, no camera node - and
+            // pushed the sector splits to 32.5/32.5/35.0% instead of even thirds.
+            var sampler = new TrackSplineSampler();
+            sampler.Build(asset.spline, true);
+
+            float length = sampler.Length;
             asset.startFinishDistance = 0f;
             asset.sectorBoundaryDistances = new[] { length / 3f, length * 2f / 3f };
+            BuildApexBiasedRacingLine(asset, halfWidthMeters);
 
             asset.surfaces.Add(new TrackDefinitionAsset.SurfaceZone
             {
@@ -917,9 +928,6 @@ namespace F1Game.Track
 
             AddDrsZone(asset, spec.DrsZoneOneNormalized, length);
             AddDrsZone(asset, spec.DrsZoneTwoNormalized, length);
-
-            var sampler = new TrackSplineSampler();
-            sampler.Build(asset.spline, true);
 
             var stalls = new List<Vector3>();
             TrackSplineSampler.Sample pitAnchor = sampler.AtDistance(0f);
@@ -937,10 +945,23 @@ namespace F1Game.Track
                 stallPositions = stalls.ToArray(),
             };
 
+            // Grid slots run BACKWARDS from the start/finish line: slot 0 is pole and
+            // must sit at the greatest lap distance (furthest around the lap = ahead),
+            // with the field stacked behind it. This used to be `30 + i * 8`, which
+            // put pole 168m BEHIND P22 and formed the entire grid up-road of the
+            // line. Matches the legacy TrackRuntime.GetGridSlot convention: staggered
+            // pairs, one row per two cars.
+            const float gridStartOffset = 52f;
+            const float gridRowSpacing = 19f;
+            const float gridStaggerOffset = 8f;
             for (int i = 0; i < 22; i++)
             {
-                TrackSplineSampler.Sample s = sampler.AtDistance(30f + i * 8f);
-                float side = (i % 2 == 0) ? -2.5f : 2.5f;
+                int row = i / 2;
+                bool leftSlot = (i % 2) == 0;
+                float slotDistance = sampler.WrapDistance(
+                    length - gridStartOffset - row * gridRowSpacing - (leftSlot ? 0f : gridStaggerOffset));
+                TrackSplineSampler.Sample s = sampler.AtDistance(slotDistance);
+                float side = leftSlot ? -2.5f : 2.5f;
                 asset.gridSlots.Add(new TrackDefinitionAsset.GridSlot
                 {
                     position = s.Position + s.Normal * side,
@@ -973,6 +994,82 @@ namespace F1Game.Track
             }
 
             return asset;
+        }
+
+        /// <summary>
+        /// Gives every authored circuit a real racing line instead of the centerline.
+        /// racingLineOffsets used to be filled with 0f for every point on all 24
+        /// circuits, so AiLineRuntime.RacingLinePoint returned dead centre of the road
+        /// everywhere - the AI had no apex to aim at on the entire calendar.
+        ///
+        /// This is an apex bias, not a full lap optimiser: each control point is
+        /// pushed toward the inside of its own turn in proportion to how sharp that
+        /// turn is, then circularly smoothed so the line sweeps in and out over
+        /// several points rather than stepping. That yields inside-at-the-apex with
+        /// a natural widening on entry and exit, which is what the AI's line
+        /// following actually needs.
+        /// </summary>
+        static void BuildApexBiasedRacingLine(TrackDefinitionAsset asset, float halfWidthMeters)
+        {
+            int count = asset.spline.Count;
+            if (count < 4)
+            {
+                return;
+            }
+
+            const float saturationDegrees = 25f;
+            var raw = new float[count];
+            for (int i = 0; i < count; i++)
+            {
+                Vector3 previous = asset.spline[((i - 1) % count + count) % count].position;
+                Vector3 here = asset.spline[i].position;
+                Vector3 next = asset.spline[(i + 1) % count].position;
+
+                Vector3 inbound = here - previous;
+                Vector3 outbound = next - here;
+                inbound.y = 0f;
+                outbound.y = 0f;
+                if (inbound.sqrMagnitude < 0.0001f || outbound.sqrMagnitude < 0.0001f)
+                {
+                    continue;
+                }
+
+                inbound = inbound.normalized;
+                outbound = outbound.normalized;
+
+                // Right of travel, same convention as TrackSplineSampler.Normal.
+                Vector3 right = Vector3.Cross(Vector3.up, inbound);
+                float turnSign = Mathf.Sign(Vector3.Dot(outbound, right));
+                float turnDegrees = Vector3.Angle(inbound, outbound);
+                // Apex of a right-hand turn is on the right, i.e. a positive offset.
+                raw[i] = turnSign * Mathf.Clamp01(turnDegrees / saturationDegrees);
+            }
+
+            // Circular box smoothing - the sweep in and out of the corner comes from
+            // here, so it must wrap across the start/finish seam like everything else.
+            var smoothed = new float[count];
+            const int smoothingPasses = 3;
+            for (int pass = 0; pass < smoothingPasses; pass++)
+            {
+                for (int i = 0; i < count; i++)
+                {
+                    float a = raw[((i - 1) % count + count) % count];
+                    float b = raw[i];
+                    float c = raw[(i + 1) % count];
+                    smoothed[i] = (a + b * 2f + c) * 0.25f;
+                }
+
+                System.Array.Copy(smoothed, raw, count);
+            }
+
+            // Stay inside the white lines: the line never asks for more than ~55% of
+            // the half-width, leaving room for the car's own width and for defending.
+            float maxOffset = halfWidthMeters * 0.55f;
+            asset.racingLineOffsets.Clear();
+            for (int i = 0; i < count; i++)
+            {
+                asset.racingLineOffsets.Add(Mathf.Clamp(raw[i], -1f, 1f) * maxOffset);
+            }
         }
 
         static void AddDrsZone(TrackDefinitionAsset asset, Vector2 normalizedStartEnd, float length)

@@ -28,6 +28,12 @@ namespace F1Game.Track
         public float Length { get; private set; }
         public bool ClosedLoop { get; private set; }
 
+        // The even spacing the samples were actually laid down at. AtDistance
+        // maps a lap distance straight to an index with this; deriving the index
+        // from Length/(Count-1) instead is wrong, because the final sample sits
+        // at floor(Length/spacing)*spacing, not at Length.
+        public float Spacing { get; private set; } = 3f;
+
         // Default resample spacing 3m (was 6m): halves the chord length the
         // road ribbon is built from, which is what keeps authored corner arcs
         // round instead of visibly faceted. Callers that need the old density
@@ -37,6 +43,10 @@ namespace F1Game.Track
             samples.Clear();
             Length = 0f;
             ClosedLoop = closedLoop;
+            // A caller passing 0 or a negative spacing used to spin the resample
+            // loop below forever (target never advances). Floor it instead.
+            spacing = Mathf.Max(0.05f, spacing);
+            Spacing = spacing;
             if (control == null || control.Count < 4)
             {
                 return;
@@ -87,16 +97,52 @@ namespace F1Game.Track
                 }
             }
 
-            Length = cumulative;
             if (dense.Count < 2)
             {
+                Length = cumulative;
                 return;
             }
 
-            // Even-spacing resample with tangent/normal.
+            // Close the loop. The dense pass emits t in [0, 1) per segment, so the
+            // final sample sits one substep short of the start point and the
+            // closing chord was never measured: Length came out 12-22m short on
+            // the authored circuits and the centerline jumped that far at the
+            // start/finish seam. Append an explicit seam sample - geometrically
+            // identical to sample 0, but carrying the full lap distance - so the
+            // resample below interpolates across the seam instead of collapsing
+            // every target past the last dense sample onto it.
+            if (closedLoop)
+            {
+                cumulative += Vector3.Distance(previous, dense[0].Position);
+                Sample seam = dense[0];
+                seam.Distance = cumulative;
+                dense.Add(seam);
+            }
+            else
+            {
+                // Open spline: the same t in [0, 1) truncation drops the final
+                // control point entirely. Emit it explicitly.
+                int lastSeg = segments - 1;
+                Vector3 endPos = control[Wrap(lastSeg + 1, count, false)].position;
+                cumulative += Vector3.Distance(previous, endPos);
+                dense.Add(new Sample
+                {
+                    Position = endPos,
+                    Width = control[Wrap(lastSeg + 1, count, false)].width,
+                    CamberDeg = control[Wrap(lastSeg + 1, count, false)].camberDegrees,
+                    Distance = cumulative,
+                });
+            }
+
+            Length = cumulative;
+
+            // Even-spacing resample with tangent/normal. On a closed loop the
+            // sample at exactly Length is the same point as the sample at 0, so
+            // stop just short of it rather than emitting a duplicate.
+            float limit = closedLoop ? Length - 0.001f : Length;
             float target = 0f;
             int cursor = 0;
-            while (target <= Length)
+            while (target <= limit)
             {
                 while (cursor < dense.Count - 1 && dense[cursor + 1].Distance < target)
                 {
@@ -136,7 +182,12 @@ namespace F1Game.Track
             }
 
             distance = WrapDistance(distance);
-            int index = Mathf.Clamp(Mathf.RoundToInt(distance / Mathf.Max(0.0001f, Length) * (samples.Count - 1)), 0, samples.Count - 1);
+            // Samples are laid down at exact multiples of Spacing, so the index is
+            // distance/Spacing. Deriving it from Length instead (as this used to)
+            // is a different scale: the last sample sits at floor(Length/Spacing)*
+            // Spacing, not at Length, so that mapping drifted by up to a sample
+            // and skewed every authored-track query by ~a metre.
+            int index = Mathf.Clamp(Mathf.RoundToInt(distance / Spacing), 0, samples.Count - 1);
             return samples[index];
         }
 

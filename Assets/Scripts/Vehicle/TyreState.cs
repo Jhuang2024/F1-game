@@ -393,7 +393,10 @@ namespace LocalFormulaRacing
             //   an honest +-8% (a stat, not a second wear model); its bigger
             //   gameplay lever remains the lockup/temperature behaviour it
             //   also feeds.
-            float managementRelief = Mathf.Lerp(1.08f, 0.92f, Mathf.Clamp01(tyreManagement / 100f));
+            // Clamp01 made every point of tyreManagement above 100 inert, exactly as
+            // Mathf.Lerp's own clamp did for the car stats in VehicleController.
+            // Career development builds this stat to 125; extrapolate to the same cap.
+            float managementRelief = Mathf.LerpUnclamped(1.08f, 0.92f, Mathf.Clamp(tyreManagement / 100f, 0f, 1.25f));
             // Round 8 (per report - "the recommendations screen is lying about
             // how long the tires last"): the 0.9 intensity floor times the 0.92
             // management relief let a smooth, well-managed car consume as
@@ -486,7 +489,7 @@ namespace LocalFormulaRacing
             float wearFactor = Mathf.Lerp(1f, 2.2f, wearNorm);
             float tempPenalty = Mathf.Clamp01(1f - TemperatureWindowScore);
             float steerFactor = Mathf.Lerp(1f, 1.6f, Mathf.Abs(steer));
-            float managementFactor = Mathf.Lerp(1.3f, 0.7f, Mathf.Clamp01(tyreManagement / 100f));
+            float managementFactor = Mathf.LerpUnclamped(1.3f, 0.7f, Mathf.Clamp(tyreManagement / 100f, 0f, 1.25f));
             float flatSpotFactor = Mathf.Lerp(1f, 1.35f, Mathf.Clamp01(FlatSpotLevel));
             // Soak blend (per report - the dry-to-wet flip): a slick's extra
             // lockup risk fades in with track wetness instead of arriving whole

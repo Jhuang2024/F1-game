@@ -42,7 +42,12 @@ namespace F1Game.Race.Rules
         public static float RoutinePitThreshold(float tyreManagement01, float tyreSavingBias, StintCompound compound)
         {
             float management = Clamp01(tyreManagement01);
-            float threshold = 0.20f + (0.16f - 0.20f) * management + tyreSavingBias * 0.01f + CompoundThresholdShift(compound) * 0.25f;
+            // tyreSavingBias had the wrong sign: a HIGHER threshold means pitting
+            // with MORE life left, i.e. earlier. Adding the bias therefore made the
+            // tyre-saving profiles (Easy 0.35 ... Expert 0.07) pit soonest - the
+            // exact inverse of the field name and of the "only ever push the stop
+            // LATER" contract in the summary above. It now subtracts.
+            float threshold = 0.20f + (0.16f - 0.20f) * management - Clamp01(tyreSavingBias) * 0.01f + CompoundThresholdShift(compound) * 0.25f;
             return threshold < 0.12f ? 0.12f : (threshold > 0.2f ? 0.2f : threshold);
         }
 

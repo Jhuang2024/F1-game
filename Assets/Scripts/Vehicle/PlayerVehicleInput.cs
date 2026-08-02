@@ -26,7 +26,9 @@ namespace LocalFormulaRacing
         // shut at the zone boundary. Refreshed every frame DRS is available, then
         // counts down once it isn't; braking still closes it immediately.
         float drsAutoHoldTimer;
-        const float DrsAutoHoldSeconds = 10.8f;
+        // Single source of truth, shared with the AI path (AiVehicleController)
+        // so the hold-open grace is symmetric.
+        const float DrsAutoHoldSeconds = VehicleController.DrsAutoHoldSeconds;
         // Tracks the reset key between frames so a single PRESS (the false->true
         // edge) fires the recovery exactly once - no hold required.
         bool resetKeyWasHeld;

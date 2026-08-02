@@ -24,7 +24,15 @@ namespace F1Game.Track
         /// <summary>Grip multiplier for the surface at a lap distance (1 = baseline).</summary>
         float SurfaceGrip(float distance);
 
-        /// <summary>Active DRS zone index at a lap distance, or -1.</summary>
+        /// <summary>
+        /// Active DRS zone at a lap distance as a ONE-BASED index (1 or 2), or 0
+        /// when the distance is not in a zone. This matches TrackRuntime.
+        /// GetDrsZoneIndex and the sentinel DrsRules.IsAvailable tests against.
+        /// The two implementations of this interface used to disagree here - the
+        /// legacy adapter returned 1-based with -1 for none, the authored adapter
+        /// returned 0-based with -1 for none - so wiring the authored path to the
+        /// rulebook would have read zone one as "no zone" and zone two as "zone one".
+        /// </summary>
         int DrsZoneAt(float distance);
 
         /// <summary>1-based sector at a lap distance.</summary>

@@ -21,7 +21,9 @@ namespace F1Game.Track
 
         public float SurfaceGrip(float distance) => runtime.Surface.GripMultiplierAt(distance);
 
-        public int DrsZoneAt(float distance) => runtime.Drs.ZoneIndexAt(distance);
+        // ZoneIndexAt is 0-based with -1 for "none"; the interface contract is
+        // 1-based with 0 for "none", so this converts exactly like SectorAt below.
+        public int DrsZoneAt(float distance) => runtime.Drs.ZoneIndexAt(distance) + 1;
 
         public int SectorAt(float distance) => runtime.Sectors.SectorAt(distance) + 1;
 

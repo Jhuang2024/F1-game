@@ -372,7 +372,12 @@ namespace LocalFormulaRacing
 
             float dt = Mathf.Max(Time.deltaTime, 0.0001f);
             Vector3 targetVelocity = targetBody != null ? targetBody.velocity : Vector3.zero;
-            velocitySmoothed = Vector3.Lerp(velocitySmoothed, targetVelocity, dt * 4.5f);
+            // Frame-rate independent damping, same exponential form the rest of this
+            // file already uses. `dt * rate` as a lerp factor is NOT a rate: at 60fps
+            // it gave 0.075/frame vs 0.15 at 30fps, so the camera responded twice as
+            // fast on a slower machine, and past dt = 0.22s the factor exceeded 1 and
+            // overshot outright.
+            velocitySmoothed = Vector3.Lerp(velocitySmoothed, targetVelocity, 1f - Mathf.Exp(-dt * 4.5f));
 
             // Speed comes straight from the vehicle (kph, sign-aware so
             // reversing doesn't read as flat-out) rather than re-derived from
@@ -388,7 +393,7 @@ namespace LocalFormulaRacing
             // high-speed follow for a beat into the braking zone and visibly
             // lags the car settling into the corner.
             float speedSmoothRate = rawSpeedKph < smoothedSpeedKph ? 7.5f : 4.5f;
-            smoothedSpeedKph = Mathf.Lerp(smoothedSpeedKph, rawSpeedKph, dt * speedSmoothRate);
+            smoothedSpeedKph = Mathf.Lerp(smoothedSpeedKph, rawSpeedKph, 1f - Mathf.Exp(-dt * speedSmoothRate));
             // Same FOV-pump fix as the director path: stable base top speed,
             // not the damage/puncture-sensitive live target.
             float topSpeedKph = targetVehicle != null && targetVehicle.CarData != null ? Mathf.Max(200f, targetVehicle.CarData.topSpeed) : 316f;
@@ -565,7 +570,7 @@ namespace LocalFormulaRacing
                 float lateral = Vector3.Dot(lookVelocity, target.right);
                 float rollClamp = 1.2f;
                 float targetRoll = Mathf.Clamp(-lateral * 0.05f, -rollClamp, rollClamp);
-                rollAngle = Mathf.Lerp(rollAngle, targetRoll, dt * 4f);
+                rollAngle = Mathf.Lerp(rollAngle, targetRoll, 1f - Mathf.Exp(-dt * 4f));
                 desiredRotation *= Quaternion.Euler(0f, 0f, rollAngle);
             }
 
@@ -678,7 +683,7 @@ namespace LocalFormulaRacing
             }
 
             float fovBlendRate = Mathf.Lerp(1.4f, 3f, blendEase);
-            float desiredFov = Mathf.Lerp(followCamera.fieldOfView, fovTarget, dt * fovBlendRate);
+            float desiredFov = Mathf.Lerp(followCamera.fieldOfView, fovTarget, 1f - Mathf.Exp(-dt * fovBlendRate));
             followCamera.fieldOfView = Mathf.Clamp(desiredFov, 40f, 100f);
             followCamera.transform.localPosition = Vector3.zero;
             followCamera.transform.localRotation = Quaternion.identity;

@@ -56,7 +56,13 @@ namespace F1Game.Track
                 });
             }
 
-            float length = asset.ComputeLength();
+            // Length comes from the sampler's arc, not ComputeLength()'s chord sum -
+            // the two differ by ~1-2.5% and every distance below is consumed against
+            // sampler distances. See the same fix in AuthoredCircuitCatalog.
+            var sampler = new TrackSplineSampler();
+            sampler.Build(asset.spline, true);
+
+            float length = sampler.Length;
             asset.startFinishDistance = 0f;
             asset.sectorBoundaryDistances = new[] { length / 3f, length * 2f / 3f };
 
@@ -105,14 +111,20 @@ namespace F1Game.Track
                 stallPositions = stalls.ToArray(),
             };
 
-            // Grid: two-by-two-ish along the main straight, staggered.
+            // Grid: staggered pairs running BACKWARDS from the start/finish line, so
+            // slot 0 (pole) sits at the greatest lap distance and the field stacks up
+            // behind it. `30 + i * 8` put pole at the back and the grid past the line.
+            const float gridStartOffset = 52f;
+            const float gridRowSpacing = 19f;
+            const float gridStaggerOffset = 8f;
             for (int i = 0; i < 22; i++)
             {
-                float d = 30f + i * 8f;
-                TrackSplineSampler sampler = new TrackSplineSampler();
-                sampler.Build(asset.spline, true);
+                int row = i / 2;
+                bool leftSlot = (i % 2) == 0;
+                float d = sampler.WrapDistance(
+                    length - gridStartOffset - row * gridRowSpacing - (leftSlot ? 0f : gridStaggerOffset));
                 TrackSplineSampler.Sample s = sampler.AtDistance(d);
-                float side = (i % 2 == 0) ? -2.5f : 2.5f;
+                float side = leftSlot ? -2.5f : 2.5f;
                 asset.gridSlots.Add(new TrackDefinitionAsset.GridSlot
                 {
                     position = s.Position + s.Normal * side,
@@ -124,8 +136,6 @@ namespace F1Game.Track
             for (int i = 0; i < 8; i++)
             {
                 float frac = i / 8f;
-                var sampler = new TrackSplineSampler();
-                sampler.Build(asset.spline, true);
                 TrackSplineSampler.Sample s = sampler.AtDistance(frac * length);
                 asset.cameraNodes.Add(new TrackDefinitionAsset.TrackCameraNode
                 {

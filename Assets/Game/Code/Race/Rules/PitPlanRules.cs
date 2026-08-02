@@ -16,17 +16,22 @@ namespace F1Game.Race.Rules
         /// </summary>
         public static int NextPlannedStopIndex(int pitStopsMade, int plannedStopCount)
         {
-            if (pitStopsMade <= 0)
+            // Two defects in the previous hard-coded form: a ZERO-stop plan
+            // reported a pending first stop (pitStopsMade <= 0 returned 1 before
+            // plannedStopCount was ever consulted), and any plan of three or more
+            // silently dropped every stop past the second. Both were masked only
+            // by the [1,2] clamp the settings layer happens to apply today.
+            if (plannedStopCount <= 0)
             {
-                return 1;
+                return 0;
             }
 
-            if (pitStopsMade == 1 && plannedStopCount >= 2)
+            if (pitStopsMade < 0)
             {
-                return 2;
+                pitStopsMade = 0;
             }
 
-            return 0;
+            return pitStopsMade >= plannedStopCount ? 0 : pitStopsMade + 1;
         }
 
         /// <summary>Whether any planned stop is still outstanding.</summary>

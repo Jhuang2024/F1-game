@@ -13,6 +13,27 @@ namespace F1Game.Track
         public Vector3 Tangent;
     }
 
+    /// <summary>
+    /// Inclusive [start, end] test over a closed lap. A window whose start is
+    /// greater than its end wraps through the start/finish line - which is the
+    /// normal case for a pit-straight DRS zone or a start/finish surface band.
+    /// Every distance-window query on the lap must go through this: testing
+    /// "d >= start &amp;&amp; d &lt;= end" directly is unsatisfiable for a wrapping window,
+    /// which is what silently disabled DRS zone one on every authored circuit.
+    /// </summary>
+    public static class LapWindow
+    {
+        public static bool Contains(float distance, float start, float end)
+        {
+            if (start <= end)
+            {
+                return distance >= start && distance <= end;
+            }
+
+            return distance >= start || distance <= end;
+        }
+    }
+
     /// <summary>Surface classification queries over the authored surface zones.</summary>
     public sealed class TrackSurfaceRuntime
     {
@@ -27,7 +48,7 @@ namespace F1Game.Track
         {
             for (int i = 0; i < zones.Count; i++)
             {
-                if (distance >= zones[i].startDistance && distance <= zones[i].endDistance)
+                if (LapWindow.Contains(distance, zones[i].startDistance, zones[i].endDistance))
                 {
                     return zones[i].kind;
                 }
@@ -40,7 +61,7 @@ namespace F1Game.Track
         {
             for (int i = 0; i < zones.Count; i++)
             {
-                if (distance >= zones[i].startDistance && distance <= zones[i].endDistance)
+                if (LapWindow.Contains(distance, zones[i].startDistance, zones[i].endDistance))
                 {
                     return zones[i].gripMultiplier <= 0f ? 1f : zones[i].gripMultiplier;
                 }
@@ -136,7 +157,7 @@ namespace F1Game.Track
         {
             for (int i = 0; i < zones.Count; i++)
             {
-                if (distance >= zones[i].activationDistance && distance <= zones[i].endDistance)
+                if (LapWindow.Contains(distance, zones[i].activationDistance, zones[i].endDistance))
                 {
                     return i;
                 }
@@ -152,7 +173,15 @@ namespace F1Game.Track
             for (int i = 0; i < zones.Count; i++)
             {
                 float d = zones[i].detectionDistance;
-                if (previousDistance < d && distance >= d)
+                // A plain "previous < d <= distance" misses the crossing on the
+                // frame the car passes start/finish (previous is near the lap
+                // length, distance near zero), which is exactly where a zone-one
+                // detection point sits. Test the travelled arc instead: on a
+                // wrapping step the covered range is (previous, length] u [0, distance].
+                bool crossed = previousDistance <= distance
+                    ? previousDistance < d && distance >= d
+                    : previousDistance < d || distance >= d;
+                if (crossed)
                 {
                     return true;
                 }
@@ -267,7 +296,7 @@ namespace F1Game.Track
         {
             for (int i = 0; i < nodes.Count; i++)
             {
-                if (distance >= nodes[i].coverageStartDistance && distance <= nodes[i].coverageEndDistance)
+                if (LapWindow.Contains(distance, nodes[i].coverageStartDistance, nodes[i].coverageEndDistance))
                 {
                     return i;
                 }

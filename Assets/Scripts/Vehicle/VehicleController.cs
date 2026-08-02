@@ -212,7 +212,25 @@ namespace LocalFormulaRacing
         // The mode the player actually had selected when the low-battery
         // failsafe forced Harvest, restored once the battery recovers (the
         // failsafe used to hard-reset to Balanced instead).
-        int ersModeBeforeForcedHarvest = (int)ErsStrategyMode.Balanced;
+        /// <summary>
+        /// The ERS strategy mode the car actually runs this frame: the player's own
+        /// selected mode, with the low-battery Harvest failsafe applied as a
+        /// transient overlay on top. Keeping the overlay here rather than writing
+        /// it into `settings` is what stops a drained battery from persisting
+        /// Harvest into the player's settings file.
+        /// </summary>
+        int EffectiveErsMode
+        {
+            get
+            {
+                if (lowBatteryForcedHarvest)
+                {
+                    return (int)ErsStrategyMode.Harvest;
+                }
+
+                return settings != null ? settings.ersMode : (int)ErsStrategyMode.Balanced;
+            }
+        }
         // Velocity at the top of the current physics tick (see ApplyForces /
         // SoftenCarContact) - the baseline for clamping car-car impulses.
         Vector3 lastPrePhysicsVelocity;
@@ -296,13 +314,21 @@ namespace LocalFormulaRacing
         // matched approach speed target.
         bool aiPitApproachNeutralize;
         // AI rotation authority (per request - "the AI need better rotation
-        // when turning"): a dedicated AI-only yaw-rate multiplier applied to
-        // turnRate but NOT to grip, so the AI turns in crisper / rotates into
-        // the corner rather than washing out into understeer, without handing
-        // it extra grip-limited corner speed (that lever, aiGripAssist, is
-        // being trimmed at the same time). Neutralised in the pit approach
-        // alongside the grip assist so pit-entry parity holds.
-        const float AiCorneringRotationBoost = 1.1f;
+        // when turning"): an AI-only yaw-rate multiplier applied to turnRate.
+        //
+        // Set to 1.0 - i.e. parity. The claim in the original note, that this
+        // affects turn-in crispness "without handing it extra grip-limited corner
+        // speed", is contradicted by the model in this same file: corner speed here
+        // IS yaw-rate-limited. MaxCorneringSpeedKph solves v = omega(v) * r and
+        // includes rotationFactor in that solve, so a 10% higher omega at the same
+        // radius is directly a ~10% higher corner speed. At max AI skill the factor
+        // reached 1.0 * 1.1, giving front-running AI ~10% more corner speed than the
+        // player in identical machinery - invisible on the difficulty screen because
+        // it was a hard-coded constant rather than the exposed grip dial, and
+        // flatly at odds with RaceManager.Grid's "ceiling stays exactly 1.0 - never
+        // an unfair advantage" comment. AI pace separation is expressed through
+        // aiGripAssist (<= 1.0) and the driver profiles, which are the honest levers.
+        const float AiCorneringRotationBoost = 1f;
 
         /// <summary>Difficulty-scaled AI performance advantage (AI cars only):
         /// straight-line top-speed bonus in kph and a grip/turn multiplier.</summary>
@@ -345,6 +371,52 @@ namespace LocalFormulaRacing
         // through this and gear/physics behaviour is unaffected.
         public static System.Collections.Generic.IReadOnlyList<float> AutoShiftUpSchedule => AutoShiftUpKph;
         static readonly float[] GearTorqueMultipliers = { 1.72f, 1.52f, 1.34f, 1.18f, 1.05f, 0.94f, 0.84f, 0.76f };
+
+        // Deadband on the auto-shift schedule so a car sitting at a boundary speed
+        // can't machine-gun between two gears (see UpdateGear).
+        const float AutoShiftHysteresisKph = 7f;
+
+        /// <summary>
+        /// How long the DRS wing stays open after leaving a zone (braking still
+        /// closes it immediately). Shared by the player input path and the AI so
+        /// both run the identical rule - it lived as a private constant in
+        /// PlayerVehicleInput, which is how the player ended up with an
+        /// ~10.8s post-zone DRS package that no AI car ever received.
+        /// </summary>
+        public const float DrsAutoHoldSeconds = 10.8f;
+
+        // Career development clamps every developable car stat to 125
+        // (CareerManager.ApplyUpgradeSet), and has a bespoke redistribution pass
+        // to avoid "wasting" points that land on a maxed stat.
+        const float MaxStatNormalized = 1.25f;
+
+        /// <summary>
+        /// Maps a 0-100(-125) car stat onto its physical range.
+        ///
+        /// Every consumer used to write Mathf.Lerp(atZero, atHundred, stat/100f).
+        /// Mathf.Lerp CLAMPS t to [0,1], so a stat of 101 and a stat of 125
+        /// produced byte-identical physics: cornering, acceleration, engine
+        /// power, braking, aero, chassis balance and ERS efficiency all stopped
+        /// responding to development after the first upgrade cycle or two, and
+        /// only topSpeed (which goes through Mathf.Clamp, not Lerp) kept
+        /// improving. The stat bars moved on the career screen and the car did
+        /// not get faster - the "are the car stats even applied?" report.
+        ///
+        /// LerpUnclamped extrapolates the same linear relationship past 100, with
+        /// t bounded to the career cap so no data error can run away with it.
+        /// Behaviour for stats in 0-100 is unchanged.
+        /// </summary>
+        static float StatLerp(float atZero, float atHundred, float stat)
+        {
+            float t = Mathf.Clamp(stat / 100f, 0f, MaxStatNormalized);
+            return Mathf.LerpUnclamped(atZero, atHundred, t);
+        }
+
+        /// <summary>Normalized 0..1.25 stat for models that take a 0-1 fraction.</summary>
+        static float StatNormalized(float stat)
+        {
+            return Mathf.Clamp(stat / 100f, 0f, MaxStatNormalized);
+        }
 
         public void Initialize(CarPerformanceData carData, TrackRuntime track, TyreCompound compound, bool useManualGears, GameSettingsData gameSettings, bool playerControlled)
         {
@@ -499,12 +571,32 @@ namespace LocalFormulaRacing
             TrackGripMultiplier = value;
         }
 
+        // Manual-shift edge latches. shiftUp/shiftDown arrive from Input.GetKeyDown,
+        // which is true for exactly one Update frame, but gears are applied in
+        // FixedUpdate. Reading command.shiftUp directly there dropped ~65% of
+        // presses at 144fps (most frames run no FixedUpdate, and the next Update
+        // overwrote the flag with false) and applied the same press twice at 30fps
+        // (two fixed steps inside one frame). Latch on the Update edge, consume and
+        // clear in UpdateGear - the same pattern pitRequest already uses.
+        bool pendingShiftUp;
+        bool pendingShiftDown;
+
         public void SetCommand(VehicleCommand newCommand)
         {
             command = newCommand;
             if (newCommand.pitRequest)
             {
                 PitRequested = true;
+            }
+
+            if (newCommand.shiftUp)
+            {
+                pendingShiftUp = true;
+            }
+
+            if (newCommand.shiftDown)
+            {
+                pendingShiftDown = true;
             }
         }
 
@@ -1001,20 +1093,21 @@ namespace LocalFormulaRacing
             // visible deploy/harvest/deploy cycle around the 24-28% band that
             // the player never asked for. It now remembers and restores the
             // player's own mode instead.
+            // The failsafe is now a pure overlay (see EffectiveErsMode) and never
+            // writes to `settings`. It used to assign settings.ersMode directly -
+            // but `settings` is the live GameSettingsData that GameSettingsStore
+            // PERSISTS to disk, so quitting with a drained battery wrote the
+            // player's saved ERS mode permanently to Harvest. It also raced the
+            // manual mode cycle on the DRS button: cycling the dial while the
+            // latch was held meant the restore at 28% silently reinstated the
+            // stale pre-latch value over the player's new choice.
             if (ErsBattery < 0.02f)
             {
-                if (!lowBatteryForcedHarvest)
-                {
-                    ersModeBeforeForcedHarvest = settings.ersMode;
-                }
-
                 lowBatteryForcedHarvest = true;
-                settings.ersMode = (int)ErsStrategyMode.Harvest;
             }
             else if (lowBatteryForcedHarvest && ErsBattery > 0.28f)
             {
                 lowBatteryForcedHarvest = false;
-                settings.ersMode = ersModeBeforeForcedHarvest;
             }
 
             // ERS mode governs when the car deploys automatically, but holding the
@@ -1038,7 +1131,7 @@ namespace LocalFormulaRacing
             // mode behaviour - an explicit player choice - while Balanced and
             // Harvest only ever deploy on the manual override key.
             bool autoDeployRequested = false;
-            if (settings.ersMode == (int)ErsStrategyMode.Attack && ErsBattery > 0.06f &&
+            if (EffectiveErsMode == (int)ErsStrategyMode.Attack && ErsBattery > 0.06f &&
                 raw.throttle > (autoDeployLatched ? 0.38f : 0.55f))
             {
                 autoDeployRequested = true;
@@ -1211,7 +1304,7 @@ namespace LocalFormulaRacing
             LastTyreGripMultiplier = tyreGrip;
             LastPowerMultiplier = Damage.PowerMultiplier;
             LastGearTorqueMultiplier = GearTorqueMultiplier(absoluteSpeedKph);
-            float gripStat = Mathf.Lerp(0.9f, 1.28f, CarData.cornering / 100f);
+            float gripStat = StatLerp(0.9f, 1.28f, CarData.cornering);
             float grip = tyreGrip * gripStat * Damage.HandlingMultiplier * setupGripMultiplier * (IsPlayerControlled || aiPitApproachNeutralize ? 1f : aiGripAssist);
             // Dirty-air cornering penalty (switch-gated, default off): a close car
             // ahead robs front-end grip in the corners only, via AeroModel's decay
@@ -1222,7 +1315,15 @@ namespace LocalFormulaRacing
                 grip *= 1f - AeroModel.DirtyAirLoss(dirtyAirGapCarLengths) * DirtyAirGripShare;
             }
 
-            ActiveSlowdownReason = "NONE";
+            // Don't clobber a reason already set earlier this tick. The reset used to
+            // be unconditional, which meant "RECOVERY REVERSE" (set a few lines
+            // above, in the reverseAssist branch) could never be observed by the HUD
+            // or the [DriveDebug] log - the one state the string existed to report.
+            if (!activeCommand.reverseAssist)
+            {
+                ActiveSlowdownReason = "NONE";
+            }
+
             if (Tyres.Punctured)
             {
                 // Puncture (per request): the wear-grip curve already bottoms
@@ -1245,7 +1346,19 @@ namespace LocalFormulaRacing
             Vector3 lateralVelocity = Vector3.Dot(body.velocity, transform.right) * transform.right;
             float lateralSlip = Mathf.Clamp01(lateralVelocity.magnitude / Mathf.Max(6f, speedMps * 0.38f));
             UndersteerAmount = Mathf.Clamp01(Mathf.Abs(activeCommand.steer) * Mathf.InverseLerp(120f, 310f, absoluteSpeedKph) * Mathf.Lerp(0.45f, 1.25f, lateralSlip) * (activeCommand.throttle > 0.35f ? 1.1f : 0.8f));
-            OversteerAmount = Mathf.Clamp01(lateralSlip * Mathf.Lerp(0.4f, 1.2f, activeCommand.throttle) * (1f - Mathf.Clamp01(tyreGrip)));
+            // Oversteer is slip measured AGAINST the grip available to contain it.
+            // The old form was lateralSlip * (1 - Clamp01(tyreGrip)), which had two
+            // problems: it read more grip as less oversteer regardless of how far
+            // the car was actually sliding, and - because TemperatureGripMultiplier
+            // returns 1.03-1.08 in the working window - it evaluated to EXACTLY
+            // zero on a fresh soft or medium. You could spin the car through 360
+            // degrees with no wheelspin visual, no smoke, no scrub audio, and with
+            // the AI's corner-exit throttle cut (OversteerAmount > 0.4) and its ERS
+            // traction gate both permanently disabled on their main race compound.
+            // Dividing by the grip headroom keeps the intended "low grip slides
+            // more" direction while staying live at every grip level.
+            float gripHeadroom = Mathf.Max(0.35f, tyreGrip);
+            OversteerAmount = Mathf.Clamp01(lateralSlip / gripHeadroom * Mathf.Lerp(0.4f, 1.2f, activeCommand.throttle));
             // Compound-contrast fix (per report - "grip difference between tyre
             // types is not nearly noticeable enough"): this used to be
             // (10 + grip*18) - the flat 10 base meant more than a third of the
@@ -1259,8 +1372,8 @@ namespace LocalFormulaRacing
             float lateralGripForce = (5f + grip * 23f) * Mathf.Lerp(1.12f, 0.78f, UndersteerAmount);
             body.AddForce(-lateralVelocity * lateralGripForce, ForceMode.Acceleration);
 
-            float accelerationStat = Mathf.Lerp(11.4f, 20.4f, CarData.acceleration / 100f);
-            float engineStat = Mathf.Lerp(0.96f, 1.24f, CarData.enginePower / 100f);
+            float accelerationStat = StatLerp(11.4f, 20.4f, CarData.acceleration);
+            float engineStat = StatLerp(0.96f, 1.24f, CarData.enginePower);
             // Fuel-weight fix: this was Lerp(1, 0.94, fuelKg/startFuelKg) - a
             // penalty RELATIVE to the car's own starting load, so an underfueled
             // and an overfueled car both started at the identical full penalty
@@ -1280,12 +1393,12 @@ namespace LocalFormulaRacing
             float deployModeMultiplier = 1f;
             if (IsPlayerControlled && settings != null)
             {
-                if (settings.ersMode == (int)ErsStrategyMode.Harvest)
+                if (EffectiveErsMode == (int)ErsStrategyMode.Harvest)
                 {
                     harvestModeMultiplier = 1.9f;
                     deployModeMultiplier = 0.82f;
                 }
-                else if (settings.ersMode == (int)ErsStrategyMode.Attack)
+                else if (EffectiveErsMode == (int)ErsStrategyMode.Attack)
                 {
                     harvestModeMultiplier = 0.8f;
                     deployModeMultiplier = 1.2f;
@@ -1338,7 +1451,7 @@ namespace LocalFormulaRacing
                 // (F1Game.Race.Physics) - the boost is tuned for a 15-20 km/h
                 // felt gain on a typical straight, and the drain range carries
                 // nine rounds of play-tuning history (see the model).
-                ersBoost = PowertrainModel.ErsBoostForce(CarData.ersEfficiency / 100f, deployModeMultiplier);
+                ersBoost = PowertrainModel.ErsBoostForce(StatNormalized(CarData.ersEfficiency), deployModeMultiplier);
                 float ersBefore = ErsBattery;
                 ErsBattery = Mathf.Clamp01(ErsBattery - dt * PowertrainModel.ErsDrainPerSecond(activeCommand.throttle));
                 // Unconditional diagnostic (not GameLog.Info, which is silently
@@ -1357,7 +1470,7 @@ namespace LocalFormulaRacing
                         Debug.Log("[ErsDrain] battery " + (ersBefore * 100f).ToString("0.0") + "% -> " +
                                   (ErsBattery * 100f).ToString("0.0") + "% drsActive=" + DrsActive +
                                   " drsBoostActive=" + DrsBoostActive + " throttle=" + activeCommand.throttle.ToString("0.00") +
-                                  " ersMode=" + (settings != null ? settings.ersMode : -1));
+                                  " ersMode=" + (settings != null ? EffectiveErsMode : -1));
                     }
                 }
             }
@@ -1411,7 +1524,7 @@ namespace LocalFormulaRacing
                 // everything"): the trailing 0.65 on this and both non-braking
                 // branches below, matching the 35% deploy-force cut in
                 // PowertrainModel.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * Mathf.Lerp(0.098f, 0.147f, CarData.ersEfficiency / 100f) * 1.3f * harvestModeMultiplier * 0.65f);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * activeCommand.brake * activeCommand.brake * StatLerp(0.098f, 0.147f, CarData.ersEfficiency) * 1.3f * harvestModeMultiplier * 0.65f);
                 ErsHarvesting = true;
             }
             // Non-braking recharge fix round 3: both the off-throttle coasting rate
@@ -1444,7 +1557,7 @@ namespace LocalFormulaRacing
                 // Raised a further 30% (per request) - second 1.3 factor.
                 // Cut 30% (per request) - the 0.7 factor; braking-zone
                 // recharge above is unaffected.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0612f, 0.1357f, CarData.ersEfficiency / 100f) * 0.324f * 0.8f * 1.3f * 1.3f * 0.7f * harvestModeMultiplier * 0.65f);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * StatLerp(0.0612f, 0.1357f, CarData.ersEfficiency) * 0.324f * 0.8f * 1.3f * 1.3f * 0.7f * harvestModeMultiplier * 0.65f);
                 ErsHarvesting = true;
             }
             else if (!ersEmptyCooldownActive && !ErsDeploying && !ErsRechargeSuppressed)
@@ -1486,7 +1599,7 @@ namespace LocalFormulaRacing
                 // Raised a further 30% (per request) - second 1.3 factor.
                 // Cut 30% (per request) - the 0.7 factor; braking-zone
                 // recharge above is unaffected.
-                ErsBattery = Mathf.Clamp01(ErsBattery + dt * Mathf.Lerp(0.0192f, 0.0407f, CarData.ersEfficiency / 100f) * 0.324f * 0.85f * 0.8f * 1.3f * 1.3f * 0.7f * harvestModeMultiplier * 0.65f);
+                ErsBattery = Mathf.Clamp01(ErsBattery + dt * StatLerp(0.0192f, 0.0407f, CarData.ersEfficiency) * 0.324f * 0.85f * 0.8f * 1.3f * 1.3f * 0.7f * harvestModeMultiplier * 0.65f);
                 ErsHarvesting = true;
             }
 
@@ -1527,7 +1640,7 @@ namespace LocalFormulaRacing
             // 16-30) to match SlipstreamTopSpeedBonusKph's own reduction.
             float slipstreamSpeedRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(130f, 255f, forwardSpeedKph));
             float slipstreamBoost = slipstreamStrength > 0.05f
-                ? Mathf.Lerp(12f, 22.5f, CarData.aeroEfficiency / 100f) * slipstreamStrength * slipstreamSpeedRamp
+                ? StatLerp(12f, 22.5f, CarData.aeroEfficiency) * slipstreamStrength * slipstreamSpeedRamp
                 : 0f;
 
             // Player straightline speed buff, round 2: PlayerTopSpeedBonusKph
@@ -1556,7 +1669,7 @@ namespace LocalFormulaRacing
             // player. Held to exactly the player's force curve so the shared
             // ceiling is reachable for both without a hidden AI edge.
             float aiTopSpeedBoost = !IsPlayerControlled
-                ? Mathf.Lerp(10f, 16f, Mathf.Clamp01(CarData.aeroEfficiency / 100f)) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph)) * (aiTopSpeedBonusKph / 5f)
+                ? StatLerp(10f, 16f, CarData.aeroEfficiency) * Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(120f, 260f, forwardSpeedKph)) * (aiTopSpeedBonusKph / 5f)
                 : 0f;
 
             // Stat-honesty part 2 (per report - "my 360-stat car only reaches
@@ -1613,7 +1726,15 @@ namespace LocalFormulaRacing
             // removed; launchGatesOpen/the AddForce call go with them since
             // there's nothing left to gate.
 
-            float limiterWindow = speedCapEngaged ? 11f / 3.6f : 0.7f;
+            // Taper window for the top-speed governor. 0.7 m/s was far too narrow to
+            // be stable: DRS alone pushes 45 m/s^2, which at a 50Hz fixed step is
+            // 0.9 m/s in ONE tick - more than the whole window - so the car punched
+            // through the ceiling, had all thrust cut by the gate below, coasted
+            // back down over several ticks and repeated, oscillating a few km/h at
+            // ~10Hz. The window must exceed maxAccel*fixedDeltaTime for the taper to
+            // converge; with DRS+ERS+tow stacked that is ~2 m/s, so 3 m/s leaves
+            // margin and gives a smooth asymptotic approach to v-max.
+            float limiterWindow = speedCapEngaged ? 11f / 3.6f : 3f;
             float speedLimiter = Mathf.Clamp01((topSpeed + limiterWindow - forwardSpeed) / limiterWindow);
             if (!IsHeldInPit && activeCommand.throttle > 0.01f && speedLimiter > 0.01f)
             {
@@ -1643,7 +1764,22 @@ namespace LocalFormulaRacing
                     ActiveSlowdownReason = "FUEL STARVATION";
                 }
 
-                body.AddForce(transform.forward * activeCommand.throttle * ((driveAcceleration * speedLimiter) + ersBoost * ersSpeedRamp + drsBoostForce + slipstreamBoost + playerTopSpeedBoost + aiTopSpeedBoost + statTopSpeedBoost * speedLimiter) * starvationPower, ForceMode.Acceleration);
+                // EVERY thrust term is tapered by speedLimiter, not just the base
+                // drive force. ersBoost/drsBoostForce/slipstreamBoost/aiTopSpeedBoost
+                // used to apply at full strength right up to the ceiling and then be
+                // switched off by the gate above - an on/off cliff across a couple of
+                // km/h. Tapering them is correct because TargetTopSpeedKph ALREADY
+                // includes the ceiling bonus each of these boosts earns
+                // (CalculateTargetTopSpeedKph), so the boost's job is only to get the
+                // car to that raised ceiling, never to push past it.
+                float thrust = driveAcceleration
+                    + ersBoost * ersSpeedRamp
+                    + drsBoostForce
+                    + slipstreamBoost
+                    + playerTopSpeedBoost
+                    + aiTopSpeedBoost
+                    + statTopSpeedBoost;
+                body.AddForce(transform.forward * activeCommand.throttle * speedLimiter * thrust * starvationPower, ForceMode.Acceleration);
                 if (activeCommand.brake < 0.05f && !IsOffTrackSlowdown && forwardSpeedKph < TargetTopSpeedKph - 6f)
                 {
                     float pullThrough = Mathf.Lerp(5.6f, 2.0f, speedRatio) * activeCommand.throttle * speedLimiter;
@@ -1663,7 +1799,7 @@ namespace LocalFormulaRacing
             // than a gripping one - this is why lockups cost you time in real racing.
             // Scales continuously with LockupSeverity rather than a binary cliff.
             float lockupBrakeFactor = Tyres.LockupSeverity > 0f ? Mathf.Lerp(1f, 0.55f, Tyres.LockupSeverity) : 1f;
-            float brakeStat = Mathf.Lerp(33f, 56f, CarData.braking / 100f) *
+            float brakeStat = StatLerp(33f, 56f, CarData.braking) *
                               Tyres.BrakingMultiplier *
                               Mathf.Lerp(1.04f, 1.42f, Mathf.InverseLerp(80f, 330f, absoluteSpeedKph)) *
                               Damage.HandlingMultiplier *
@@ -1700,7 +1836,7 @@ namespace LocalFormulaRacing
             // this block only applies the car's live modifiers - efficiency stat,
             // gear, damage and the slipstream tow - to the base coefficient.
             float dragCoefficient = AeroModel.DrsClosedDragCoefficient;
-            dragCoefficient *= Mathf.Lerp(1.1f, 0.84f, CarData.aeroEfficiency / 100f);
+            dragCoefficient *= StatLerp(1.1f, 0.84f, CarData.aeroEfficiency);
             dragCoefficient *= Mathf.Lerp(1.02f, 0.88f, Mathf.InverseLerp(1, GearCount, CurrentGear));
             dragCoefficient /= Mathf.Max(0.55f, Damage.AeroMultiplier);
             if (slipstreamStrength > 0.05f)
@@ -1718,7 +1854,7 @@ namespace LocalFormulaRacing
 
             float downforce = AeroModel.Downforce(
                 speedMps,
-                AeroModel.DownforceCoefficient * Mathf.Lerp(0.85f, 1.18f, CarData.aeroEfficiency / 100f),
+                AeroModel.DownforceCoefficient * StatLerp(0.85f, 1.18f, CarData.aeroEfficiency),
                 1f,
                 Damage.AeroMultiplier);
             body.AddForce(Vector3.down * downforce, ForceMode.Acceleration);
@@ -1783,7 +1919,7 @@ namespace LocalFormulaRacing
             // high-speed cornering cap there is the primary pace dial).
             float speedFactor = Mathf.Lerp(0.34f, 1f, Mathf.Clamp01(speedKph / 62f));
             float tyreGrip = Tyres.GripMultiplier(Weather, TrackGripMultiplier);
-            return Mathf.Lerp(68f, 112f, CarData.chassisBalance / 100f) * speedFactor * EnvelopeSpeedShape(speedKph)
+            return StatLerp(68f, 112f, CarData.chassisBalance) * speedFactor * EnvelopeSpeedShape(speedKph)
                 * tyreGrip * Damage.HandlingMultiplier;
         }
 
@@ -1946,23 +2082,35 @@ namespace LocalFormulaRacing
         {
             if (manualGears)
             {
-                if (command.shiftUp)
+                if (pendingShiftUp)
                 {
                     CurrentGear = Mathf.Clamp(CurrentGear + 1, 1, GearCount);
                 }
 
-                if (command.shiftDown)
+                if (pendingShiftDown)
                 {
                     CurrentGear = Mathf.Clamp(CurrentGear - 1, 1, GearCount);
                 }
 
+                pendingShiftUp = false;
+                pendingShiftDown = false;
                 return;
             }
 
+            // Auto-shift with hysteresis. A bare `speedKph > AutoShiftUpKph[i]`
+            // has no deadband, so cruising at a boundary speed (62/102/142/186/
+            // 232/282/322) flipped the gear every physics tick - swinging torque
+            // ~12%, and firing a camera shake, an FOV pulse and a shift sound on
+            // every single flip. Downshifts now need the speed to fall a margin
+            // below the upshift point that raised the gear.
             int gear = 1;
             for (int i = 1; i < AutoShiftUpKph.Length; i++)
             {
-                if (speedKph > AutoShiftUpKph[i])
+                float upshiftAt = AutoShiftUpKph[i];
+                // Hold the current gear until speed drops clearly under its own
+                // upshift point; require the full point to climb into it.
+                float threshold = CurrentGear > i ? upshiftAt - AutoShiftHysteresisKph : upshiftAt;
+                if (speedKph > threshold)
                 {
                     gear = i + 1;
                 }
@@ -1975,7 +2123,39 @@ namespace LocalFormulaRacing
         {
             int index = Mathf.Clamp(CurrentGear - 1, 0, GearCount - 1);
             float topFade = Mathf.Lerp(1f, 0.72f, Mathf.InverseLerp(260f, RaceSpeedCeilingKph, speedKph));
-            return GearTorqueMultipliers[index] * topFade;
+            return GearTorqueMultipliers[index] * topFade * OverrevFade(speedKph);
+        }
+
+        /// <summary>
+        /// Power fade past the gear's own upshift speed - the rev limiter the
+        /// gearbox never had. Without it the torque table (1.72x in 1st down to
+        /// 0.76x in 8th) was purely a function of the selected gear, with no
+        /// speed-dependent cost, so in manual mode the fastest possible strategy
+        /// was to select 1st and never shift: ~2.26x the drive force at any speed,
+        /// including at v-max, against a drag penalty worth a fraction of that.
+        /// Shifting up was a self-handicap and the AI (which uses the auto
+        /// schedule) could not be caught in reverse.
+        ///
+        /// Beyond the gear's upshift speed the engine is past peak revs and torque
+        /// collapses; by ~35% over it the gear delivers almost nothing, which makes
+        /// upshifting strictly correct without adding a hard cutoff the player
+        /// would feel as a wall.
+        /// </summary>
+        float OverrevFade(float speedKph)
+        {
+            int index = Mathf.Clamp(CurrentGear - 1, 0, GearCount - 1);
+            // AutoShiftUpKph[i] is the speed at which gear i upshifts, so the
+            // ceiling for the CURRENT gear is the next entry along.
+            int ceilingIndex = Mathf.Clamp(index + 1, 0, AutoShiftUpKph.Length - 1);
+            float gearCeiling = AutoShiftUpKph[ceilingIndex];
+            if (index >= AutoShiftUpKph.Length - 1 || gearCeiling <= 1f || speedKph <= gearCeiling)
+            {
+                // Top gear has no gear above it to fade toward; the existing
+                // topFade plus the top-speed governor already handle it.
+                return 1f;
+            }
+
+            return Mathf.Lerp(1f, 0.12f, Mathf.InverseLerp(gearCeiling, gearCeiling * 1.35f, speedKph));
         }
 
         float CalculateTargetTopSpeedKph(VehicleCommand activeCommand)
