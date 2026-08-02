@@ -9918,7 +9918,8 @@ namespace LocalFormulaRacing
             text.transform.position = signBase + Vector3.up * 1.85f - forward.normalized * 0.09f;
             text.transform.rotation = Quaternion.LookRotation(forward, Vector3.up);
             TextMesh textMesh = text.AddComponent<TextMesh>();
-            textMesh.text = "80";
+            // Painted pit speed-limit roundel - reads the live rule, not a literal.
+            textMesh.text = Mathf.RoundToInt(F1Game.Race.Rules.PitServiceRules.PitLaneSpeedLimitKph).ToString();
             textMesh.fontSize = 46;
             textMesh.characterSize = 0.28f;
             textMesh.anchor = TextAnchor.MiddleCenter;

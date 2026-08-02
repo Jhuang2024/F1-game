@@ -965,6 +965,30 @@ namespace LocalFormulaRacing
         public int points;
         public int wins;
         public int podiums;
+        // Histogram of finishing positions, index 0 = P1, for the REAL championship
+        // countback. F1 breaks a points tie on most wins, then most 2nd places, then
+        // most 3rds, and so on down the order - it does not stop at "podiums". With
+        // only wins/podiums stored, two drivers level on points and wins with 5x P2
+        // against 5x P3 were indistinguishable, and the sort fell through to an
+        // alphabetical tiebreak. Sized to a full grid; positions beyond it are not
+        // countback-relevant in practice.
+        public int[] finishCounts = new int[CountbackPositions];
+
+        public const int CountbackPositions = 22;
+
+        /// <summary>Record a classified finishing position for the countback.</summary>
+        public void RecordFinish(int finishingPosition)
+        {
+            if (finishCounts == null || finishCounts.Length < CountbackPositions)
+            {
+                finishCounts = new int[CountbackPositions];
+            }
+
+            if (finishingPosition >= 1 && finishingPosition <= CountbackPositions)
+            {
+                finishCounts[finishingPosition - 1]++;
+            }
+        }
     }
 
     [Serializable]
@@ -1001,6 +1025,13 @@ namespace LocalFormulaRacing
     [Serializable]
     public class RaceResultEntry
     {
+        // Real-regulation classification state. `classified` is the 90% rule (a car
+        // must complete at least 90% of the winner's laps); `disqualified` is a DSQ,
+        // e.g. failing the two-compound dry-tyre rule. Neither scores championship
+        // points - previously EVERY entry paid points off its list index, so a
+        // lap-1 retirement could score in a high-attrition race.
+        public bool classified = true;
+        public bool disqualified;
         public string driverId;
         public string driverName;
         public string teamId;

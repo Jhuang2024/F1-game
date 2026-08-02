@@ -13,6 +13,21 @@ namespace LocalFormulaRacing
     /// </summary>
     public partial class RaceManager
     {
+        /// <summary>
+        /// True once the race has run in wet conditions at any point. The real
+        /// two-compound rule is voided in a wet race, so this is what exempts a
+        /// driver from it (alongside actually having fitted a wet-weather tyre).
+        /// </summary>
+        public bool RaceDeclaredWet { get; private set; }
+
+        void NoteWeatherForRuleExemptions()
+        {
+            if (Track != null && (Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain))
+            {
+                RaceDeclaredWet = true;
+            }
+        }
+
         bool weatherTransitionDone;
         bool weatherSecondTransitionDone;
         bool trackEvolutionHalfwayMessageSent;
@@ -40,6 +55,7 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            NoteWeatherForRuleExemptions();
             bool raining = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
             float target = raining ? 1f : 0f;
             if (trackWetness01 < 0f)

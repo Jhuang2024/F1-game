@@ -152,18 +152,18 @@ namespace LocalFormulaRacing
                     : "Time trial. No local record yet, set a benchmark lap.";
             }
 
-            // Sprint races carry no mandatory stop (see PenaltyRules) - the
-            // brief says so instead of promising a rule that won't be enforced.
-            if (RaceLaps < F1Game.Race.Rules.PenaltyRules.MandatoryPitMinimumRaceLaps)
+            // Very short races are exempt from the two-compound rule - the brief
+            // says so instead of promising a rule that won't be enforced.
+            if (RaceLaps < F1Game.Race.Rules.PenaltyRules.TwoCompoundMinimumRaceLaps)
             {
-                return "Weather is " + weather + ". Sprint race - no mandatory stop. Push from lights to flag.";
+                return "Weather is " + weather + ". Short race - no tyre-rule requirement. Push from lights to flag.";
             }
 
             string planLine = GetPlannedStopCount() >= 2
                 ? "Two-stop plan. First window around lap " + GetPlannedPitLapForStop(1) + " for " + GetPlannedCompoundForStop(1) +
                   "s, second around lap " + GetPlannedPitLapForStop(2) + " for " + GetPlannedCompoundForStop(2) + "s."
                 : "One-stop plan. Target window around lap " + GetPlannedPitLapForStop(1) + " for " + GetPlannedCompoundForStop(1) + "s.";
-            return "Weather is " + weather + ". Mandatory stop is active. " + planLine;
+            return "Weather is " + weather + ". Two different dry compounds required. " + planLine;
         }
 
         string WeatherStateLabel(WeatherState weather)
@@ -825,7 +825,7 @@ namespace LocalFormulaRacing
                     TyreCompound plannedCompound = NextPlannedPitCompoundFor(PlayerParticipant);
                     float undercutGap = GetIntervalToAheadSeconds(PlayerParticipant);
                     string undercut = undercutGap > 0f && undercutGap < 2.5f ? " The undercut on the car ahead is live." : "";
-                    string requirement = mandatoryStopStillOwed ? "Mandatory stop still required." : "Second stop window is here.";
+                    string requirement = mandatoryStopStillOwed ? "We still need a second dry compound." : "Second stop window is here.";
                     // Recommendation reason: the requirement/undercut clauses above
                     // already cover "mandatory rule" and "undercut threat" - this
                     // adds the other two most common real reasons (tyre wear, rain

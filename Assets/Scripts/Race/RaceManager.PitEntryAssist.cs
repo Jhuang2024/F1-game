@@ -72,7 +72,7 @@ namespace LocalFormulaRacing
         // Round 3 (per request): eased back, 150 -> 125.
         // Round 4 (per request): eased back again, 125 -> 110.
         // Round 5 (per request): 110 -> 105.
-        const float PitEntryAssistTargetSpeedKph = 105f;
+        const float PitEntryAssistTargetSpeedKph = PitServiceRules.PitLaneSpeedLimitKph;
 
         // Speed cap that keeps a pit-bound car from running into the pit-bound
         // car ahead during the approach (per report - "the pitting procedure

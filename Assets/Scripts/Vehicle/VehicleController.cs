@@ -19,20 +19,19 @@ namespace LocalFormulaRacing
         // entry. Paired with the player-only rail entry pace in
         // RaceManager.Pit (UpdatePitRail) and the 100 kph pit-entry assist
         // target so the whole player entry sequence runs at the same speed.
-        // Matches the player's cap. The rail now runs both at the same entry pace
-        // (RaceManager.Pit.PitEntryPaceKph), so holding the AI's physical limiter at
-        // 80 would just have the limiter fight the rail on AI cars only.
-        const float AiPitEntryLimiterCapKph = 105f;
+        // The real pit lane limit, shared by player and AI. See
+        // PitServiceRules.PitLaneSpeedLimitKph for why there is only one number.
+        const float AiPitEntryLimiterCapKph = F1Game.Race.Rules.PitServiceRules.PitLaneSpeedLimitKph;
         // Round 2 (per request): raised again, 100 -> 150.
         // Round 3 (per request): eased back, 150 -> 125.
         // Round 4 (per request): eased back again, 125 -> 110.
         // Round 5 (per request): 110 -> 105.
-        const float PlayerPitEntryLimiterCapKph = 105f;
+        const float PlayerPitEntryLimiterCapKph = F1Game.Race.Rules.PitServiceRules.PitLaneSpeedLimitKph;
         float PitEntryLimiterCapKph
         {
             get { return IsPlayerControlled ? PlayerPitEntryLimiterCapKph : AiPitEntryLimiterCapKph; }
         }
-        const float PitExitLimiterCapKph = 108f;
+        const float PitExitLimiterCapKph = F1Game.Race.Rules.PitServiceRules.PitLaneSpeedLimitKph;
 
         public TyreState Tyres { get; private set; }
         public DamageState Damage { get; private set; }

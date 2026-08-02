@@ -47,6 +47,25 @@ namespace F1Game.Race.Rules
         }
 
         /// <summary>
+        /// The 90% rule: a car must complete at least 90% of the number of laps
+        /// completed by the winner (rounded down to a whole lap) to be CLASSIFIED.
+        /// An unclassified car scores no championship points.
+        ///
+        /// This was missing entirely - every entry, including a lap-1 retirement,
+        /// was sorted into a dense 1..N order and paid points off its index, so in a
+        /// high-attrition race a car that retired on the opening lap could score.
+        /// </summary>
+        public static bool IsClassified(int lapsCompleted, int winnerLapsCompleted)
+        {
+            if (winnerLapsCompleted <= 0)
+            {
+                return false;
+            }
+
+            return lapsCompleted >= (int)Math.Floor(winnerLapsCompleted * 0.9);
+        }
+
+        /// <summary>
         /// Sorts <paramref name="results"/> by (total time + penalty seconds) ascending
         /// and stamps 1-based finishing positions — the exact FinishRace ordering.
         /// </summary>
@@ -58,6 +77,39 @@ namespace F1Game.Race.Rules
         {
             results.Sort((a, b) =>
             {
+                float aTime = totalTimeSeconds(a) + penaltySeconds(a);
+                float bTime = totalTimeSeconds(b) + penaltySeconds(b);
+                return aTime.CompareTo(bTime);
+            });
+
+            for (int i = 0; i < results.Count; i++)
+            {
+                setFinishingPosition(results[i], i + 1);
+            }
+        }
+
+        /// <summary>
+        /// As <see cref="AssignFinishingOrder{T}"/>, but disqualified cars are moved
+        /// behind every other entry first. A DSQ is excluded from the classification
+        /// in real F1; ordering them last is the closest thing that keeps a single
+        /// dense results list for the UI.
+        /// </summary>
+        public static void AssignFinishingOrder<T>(
+            List<T> results,
+            Func<T, float> totalTimeSeconds,
+            Func<T, float> penaltySeconds,
+            Func<T, bool> isDisqualified,
+            Action<T, int> setFinishingPosition)
+        {
+            results.Sort((a, b) =>
+            {
+                bool aDsq = isDisqualified(a);
+                bool bDsq = isDisqualified(b);
+                if (aDsq != bDsq)
+                {
+                    return aDsq ? 1 : -1;
+                }
+
                 float aTime = totalTimeSeconds(a) + penaltySeconds(a);
                 float bTime = totalTimeSeconds(b) + penaltySeconds(b);
                 return aTime.CompareTo(bTime);

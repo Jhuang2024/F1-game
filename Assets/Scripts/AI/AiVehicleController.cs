@@ -1783,7 +1783,7 @@ namespace LocalFormulaRacing
             // the two brake at the same point by construction. Corner targets
             // still win via the Min below, and the shared hard limiter on the
             // ramp itself is untouched.
-            const float PitApproachTargetSpeedKph = 90f;
+            const float PitApproachTargetSpeedKph = F1Game.Race.Rules.PitServiceRules.PitLaneSpeedLimitKph;
             const float PitApproachBrakeDecelMs2 = 10f;
             // Buffer raised 80 -> 140m (matching the player assist): lateral
             // positioning happens entirely at the settled target speed.
@@ -3336,16 +3336,27 @@ namespace LocalFormulaRacing
             // stops at all"): every trigger above is gated on wear, grip, plan
             // window or opportunity - on a short race (or with durable rubber)
             // none of them ever fire, and the AI simply ate the +10s no-stop
-            // penalty. A car still owing its mandatory stop now boxes
+            // penalty. A car still owing a second dry compound now boxes
             // unconditionally once ~62% of the race is done (same lap gate as
-            // PenaltyRules.ShouldApplyMandatoryPitPenalty; a 5-lap race boxes
+            // PenaltyRules.ShouldDisqualifyForTwoCompoundRule; a 5-lap race boxes
             // at the end of lap 4 - normally the wear triggers have fired long
             // before this).
+            // Backstop is now keyed to the REAL rule: has this car actually run two
+            // different DRY specifications? Checking pitStops == 0 was the old
+            // "mandatory stop" test and would let a car that pitted soft->soft sit
+            // out, which is now a disqualification. A wet race voids the rule.
             if (raceManager.CurrentSession != RaceWeekendSession.Qualifying && !raceManager.IsTimeTrial &&
-                raceManager.RaceLaps >= PenaltyRules.MandatoryPitMinimumRaceLaps && participant.pitStops == 0 &&
+                !raceManager.RaceDeclaredWet &&
+                raceManager.RaceLaps >= PenaltyRules.TwoCompoundMinimumRaceLaps &&
                 participant.lapTracker.CompletedLaps + 1 >= Mathf.Max(2, Mathf.CeilToInt(raceManager.RaceLaps * 0.62f)))
             {
-                command.pitRequest = true;
+                int distinctDry;
+                bool usedWet;
+                participant.CountDryCompoundsUsed(out distinctDry, out usedWet);
+                if (!usedWet && distinctDry < 2)
+                {
+                    command.pitRequest = true;
+                }
             }
 
             // Never pit on the final lap (per request), whatever the tyre wear:

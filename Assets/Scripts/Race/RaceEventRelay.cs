@@ -418,7 +418,9 @@ namespace LocalFormulaRacing
             {
                 // Player entry limiter is 105 (player pit-entry buff); this line
                 // only ever renders for the player.
-                int limiterCapKph = vehicle.PitExitFastLimiter ? 108 : 105;
+                // One pit-lane limit, read off the rulebook (was 105/108 against an
+                // on-track sign reading 80).
+                int limiterCapKph = Mathf.RoundToInt(F1Game.Race.Rules.PitServiceRules.PitLaneSpeedLimitKph);
                 return (player.pitLimiterUntilExit ? "PIT EXIT  LIMITER " : "PIT APPROACH  LIMITER ") + limiterCapKph;
             }
 

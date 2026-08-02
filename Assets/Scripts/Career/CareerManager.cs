@@ -365,7 +365,14 @@ namespace LocalFormulaRacing
 
             for (int i = 0; i < results.Count; i++)
             {
-                int points = F1Game.Race.Rules.ChampionshipPoints.ForPosition(i + 1);
+                // Only CLASSIFIED cars score. Points used to be paid off the list
+                // index unconditionally, so with enough retirements a car that
+                // parked on lap 1 took championship points - and, in the degenerate
+                // all-retire case, the "win". The 90% rule and disqualification are
+                // both resolved in RaceManager.FinishRace before this runs.
+                int points = results[i].classified
+                    ? F1Game.Race.Rules.ChampionshipPoints.ForPosition(i + 1)
+                    : 0;
                 results[i].finishingPosition = i + 1;
                 results[i].points = points;
                 ApplyDriverPoints(results[i], points);
@@ -1843,6 +1850,18 @@ namespace LocalFormulaRacing
             }
 
             entry.points += points;
+            // Only a CLASSIFIED finish counts toward wins, podiums or the countback
+            // histogram - an unclassified car has no finishing position in the real
+            // classification at all.
+            if (!result.classified)
+            {
+                return;
+            }
+
+            // Full finish histogram for the real countback tiebreak (most wins, then
+            // most 2nds, then most 3rds ...). wins/podiums are kept because the
+            // season-review and archive screens display them.
+            entry.RecordFinish(result.finishingPosition);
             if (result.finishingPosition == 1)
             {
                 entry.wins++;
@@ -1870,6 +1889,7 @@ namespace LocalFormulaRacing
             }
 
             entry.points += points;
+            entry.RecordFinish(position);
             if (position == 1)
             {
                 entry.wins++;
@@ -1885,9 +1905,12 @@ namespace LocalFormulaRacing
         {
             standings.Sort((a, b) =>
             {
-                int ranked = F1Game.Race.Rules.ChampionshipPoints.CompareStandings(
-                    a.points, a.wins, a.podiums,
-                    b.points, b.wins, b.podiums);
+                // Real F1 countback: points, then most wins, then most 2nds, then
+                // most 3rds, and so on - not "podiums", which lumps 2nd and 3rd
+                // together and called five P2s equal to five P3s.
+                int ranked = F1Game.Race.Rules.ChampionshipPoints.CompareStandingsWithCountback(
+                    a.points, a.finishCounts,
+                    b.points, b.finishCounts);
                 if (ranked != 0)
                 {
                     return ranked;

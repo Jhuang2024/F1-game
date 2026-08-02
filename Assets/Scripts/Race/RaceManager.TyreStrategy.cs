@@ -101,7 +101,31 @@ namespace LocalFormulaRacing
             // so the cast is exact.
             int lapsRemainingAfterStop = participant.lapTracker == null ? RaceLaps : Mathf.Max(0, RaceLaps - participant.lapTracker.CompletedLaps);
             float trackTempC = Track != null ? Track.trackTemperatureC : TyreStrategyRules.StandardTrackTempC;
-            return (TyreCompound)TyreStrategyRules.NextDryCompound(lapsRemainingAfterStop, trackTempC);
+            TyreCompound pick = (TyreCompound)TyreStrategyRules.NextDryCompound(lapsRemainingAfterStop, trackTempC);
+
+            // Two-compound rule compliance. NextDryCompound picks purely on stint
+            // life and has no idea what this car has already run, so on a long-life
+            // circuit it would hand a car the SAME compound it started on - which
+            // satisfies no rule and, now that the real regulation is enforced, is a
+            // disqualification. If this car still owes a second dry specification,
+            // shift the pick to the nearest different one.
+            if (!RaceDeclaredWet && RaceLaps >= PenaltyRules.TwoCompoundMinimumRaceLaps)
+            {
+                int distinctDry;
+                bool usedWet;
+                participant.CountDryCompoundsUsed(out distinctDry, out usedWet);
+                if (!usedWet && distinctDry < 2 && pick == participant.startingCompound)
+                {
+                    // One step harder is the safe default (longer stint, and it is
+                    // what a real team does when covering off the rule late);
+                    // fall back to one step softer if we started on the hardest.
+                    pick = participant.startingCompound == TyreCompound.Hard
+                        ? TyreCompound.Medium
+                        : (participant.startingCompound == TyreCompound.Medium ? TyreCompound.Hard : TyreCompound.Medium);
+                }
+            }
+
+            return pick;
         }
 
     }

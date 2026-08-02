@@ -93,7 +93,7 @@ namespace LocalFormulaRacing
             // one either, or the PreRacePlan assist would pit the player into
             // a stop nobody else makes. Manual stops (P key) and the
             // wear/weather auto triggers still work when the rubber demands.
-            if (RaceLaps < PenaltyRules.MandatoryPitMinimumRaceLaps)
+            if (RaceLaps < PenaltyRules.TwoCompoundMinimumRaceLaps)
             {
                 return -1;
             }

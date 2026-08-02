@@ -296,6 +296,42 @@ namespace LocalFormulaRacing
         // the compound the car happened to finish on.
         public List<string> compoundStints = new List<string>();
         public TyreCompound startingCompound = TyreCompound.Medium;
+        // Two-compound rule bookkeeping (see RaceManager.ApplyTwoCompoundRule).
+        public bool twoCompoundRuleChecked;
+        public bool disqualified;
+
+        /// <summary>
+        /// How many DISTINCT dry specifications this car actually ran, and whether it
+        /// ran any wet-weather tyre. The starting set counts - the real rule is about
+        /// specifications used, not stops made.
+        /// </summary>
+        public void CountDryCompoundsUsed(out int distinctDryCompounds, out bool usedWetOrIntermediate)
+        {
+            bool soft = false, medium = false, hard = false;
+            usedWetOrIntermediate = false;
+            AccumulateCompound(startingCompound, ref soft, ref medium, ref hard, ref usedWetOrIntermediate);
+            for (int i = 0; i < compoundStints.Count; i++)
+            {
+                TyreCompound parsed;
+                if (System.Enum.TryParse(compoundStints[i], out parsed))
+                {
+                    AccumulateCompound(parsed, ref soft, ref medium, ref hard, ref usedWetOrIntermediate);
+                }
+            }
+
+            distinctDryCompounds = (soft ? 1 : 0) + (medium ? 1 : 0) + (hard ? 1 : 0);
+        }
+
+        static void AccumulateCompound(TyreCompound compound, ref bool soft, ref bool medium, ref bool hard, ref bool wet)
+        {
+            switch (compound)
+            {
+                case TyreCompound.Soft: soft = true; break;
+                case TyreCompound.Medium: medium = true; break;
+                case TyreCompound.Hard: hard = true; break;
+                default: wet = true; break;
+            }
+        }
         // Fuel system pass: the fuel-load plan this car actually raced with (player's
         // own pre-race choice, or the AI's per-driver roll - see
         // RaceManager.ResolveAiFuelChoice). Defaults to Target so a participant that
@@ -392,6 +428,7 @@ namespace LocalFormulaRacing
 
             return new RaceResultEntry
             {
+                disqualified = disqualified,
                 driverId = driverId,
                 driverName = driverName,
                 teamId = teamId,

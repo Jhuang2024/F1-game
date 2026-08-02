@@ -87,30 +87,36 @@ namespace LocalFormulaRacing
                 return offerLabel + " PIT WINDOW OPEN  PRESS P TO BOX";
             }
 
-            // Sprint races carry no mandatory stop (see
-            // PenaltyRules.MandatoryPitMinimumRaceLaps) - showing "MANDATORY
-            // STOP REQUIRED" on one would demand a stop the rulebook never
-            // enforces.
-            if (RaceLaps < F1Game.Race.Rules.PenaltyRules.MandatoryPitMinimumRaceLaps)
+            // Very short arcade races are exempt from the two-compound rule (see
+            // PenaltyRules.TwoCompoundMinimumRaceLaps).
+            if (RaceLaps < F1Game.Race.Rules.PenaltyRules.TwoCompoundMinimumRaceLaps)
             {
                 return "";
             }
 
-            // The mandatory-stop RULE is discharged by a single stop -
-            // PenaltyRules.ShouldApplyMandatoryPitPenalty tests only pitStops > 0.
-            // This text also required no planned stop to remain, so a player on a
-            // 2-stop plan who had already made their mandatory stop stared at
-            // "MANDATORY STOP REQUIRED" for the rest of the race and believed they
-            // were still facing the 30s penalty. Report the rule, and mention a
-            // remaining PLANNED stop separately - it is a strategy note, not a rule.
-            if (participant.pitStops > 0)
+            // Reports the REAL rule: two different dry compounds, not "have you
+            // stopped". A wet race voids it entirely.
+            if (RaceDeclaredWet)
             {
-                return NextPlannedPitLapFor(participant) > 0
-                    ? "MANDATORY STOP COMPLETE  PLANNED STOP PENDING"
-                    : "MANDATORY STOP COMPLETE";
+                return "";
             }
 
-            return "MANDATORY STOP REQUIRED";
+            int distinctDry;
+            bool usedWet;
+            participant.CountDryCompoundsUsed(out distinctDry, out usedWet);
+            if (usedWet)
+            {
+                return "";
+            }
+
+            if (distinctDry >= 2)
+            {
+                return NextPlannedPitLapFor(participant) > 0
+                    ? "TYRE RULE MET  PLANNED STOP PENDING"
+                    : "TYRE RULE MET";
+            }
+
+            return "TWO COMPOUNDS REQUIRED";
         }
 
         public float PitStopProgress01(RaceParticipant participant)

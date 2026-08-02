@@ -169,7 +169,7 @@ namespace LocalFormulaRacing
                     if (participant.isPlayer && !engineerPitRequestConfirmed)
                     {
                         engineerPitRequestConfirmed = true;
-                        PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is 105 km/h.", true, RaceAudioCue.PitConfirm);
+                        PostEngineerMessage("Pit request confirmed. Slow for pit entry, limiter is " + PitServiceRules.PitLaneSpeedLimitKph.ToString("0") + " km/h.", true, RaceAudioCue.PitConfirm);
                     }
 
                     BeginPitEntry(participant, actualProgress);
@@ -449,13 +449,16 @@ namespace LocalFormulaRacing
         // (TrackRuntime.PitEntryRampStartLeadMetres etc.), the rail pace runs at
         // the realistic 80 km/h pit-speed-limit ballpark instead of the old
         // crawl - a full stop is now ~20s (entry+service+exit) on every track.
-        // Shared pit-lane ENTRY pace (commit -> box), player and AI alike. Set to
-        // the value the player's own entry was tuned to across five rounds; the AI
-        // used to be held at 75 on the same stretch, which was a player-only
-        // advantage that scaled with grid position. See UpdatePitRail.
-        const float PitEntryPaceKph = 105f;
-        const float PitLanePaceKph = 75f;
-        const float PitExitPaceKph = 106f;
+        // ONE pit-lane speed, from the pit entry line to the pit exit line, for
+        // player and AI alike - which is how the real regulation reads. The game
+        // used to run four different figures (105 entry / 75 past the boxes / 106
+        // exit / 108 cap), none of them the real 80 km/h, while the painted sign on
+        // track said "80" and the radio said "limiter is 105 km/h". Pit-lane time
+        // loss is the input to every undercut and safety-car stop decision, so this
+        // being ~30% fast systematically over-valued pit stops.
+        const float PitEntryPaceKph = PitServiceRules.PitLaneSpeedLimitKph;
+        const float PitLanePaceKph = PitServiceRules.PitLaneSpeedLimitKph;
+        const float PitExitPaceKph = PitServiceRules.PitLaneSpeedLimitKph;
         const float PitGuideLateralRateMetersPerSecond = 9f;
         const float PitGuideChaseSpeed = 45f;
         const float PitGuideChaseRotateSpeed = 260f;

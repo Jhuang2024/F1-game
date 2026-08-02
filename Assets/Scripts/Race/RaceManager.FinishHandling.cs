@@ -6,10 +6,10 @@ namespace LocalFormulaRacing
 {
     /// <summary>
     /// RaceManager per-participant finish + penalty subsystem (partial). Handles a
-    /// car crossing the line for the last time (HandleFinish - mandatory-pit
-    /// penalty, State.OnParticipantFinished, the player podium radio and the finish
-    /// camera flourish), the finish-position radio line, the mandatory-pit penalty
-    /// (gated by the unit-tested PenaltyRules), and the shared AddPenalty utility
+    /// car crossing the line for the last time (HandleFinish - the two-compound
+    /// rule check, State.OnParticipantFinished, the player podium radio and the
+    /// finish camera flourish), the finish-position radio line, the two-compound
+    /// dry-tyre rule (gated by the unit-tested PenaltyRules), and the AddPenalty utility
     /// (penalty seconds/reason, the PenaltyIssuedEvent and the player-only timeline
     /// entry). Split out of the RaceManager monolith verbatim - same class, same
     /// members, identical penalty values and call order; callers resolve in-class.
@@ -25,7 +25,7 @@ namespace LocalFormulaRacing
 
             if (participant.lapTracker.CompletedRace)
             {
-                ApplyMandatoryPitPenalty(participant);
+                ApplyTwoCompoundRule(participant);
                 State.OnParticipantFinished(participant, RaceElapsed);
 
                 if (participant.isPlayer && !engineerPodiumMessageSent)
@@ -70,30 +70,57 @@ namespace LocalFormulaRacing
             return "P" + position + " at the flag. We'll take the data and come back stronger.";
         }
 
-        void ApplyMandatoryPitPenalty(RaceParticipant participant)
+        /// <summary>
+        /// Enforces the REAL dry-race tyre regulation: at least two different dry
+        /// specifications must be used, on pain of disqualification.
+        ///
+        /// This replaces a "mandatory pit stop" rule carrying a +30s time penalty,
+        /// which does not exist in F1. That rule never inspected which compounds
+        /// were fitted (soft->soft complied), applied in wet races where the real
+        /// requirement is void, and by making non-compliance a survivable time loss
+        /// turned a hard rule into a strategy option.
+        /// </summary>
+        void ApplyTwoCompoundRule(RaceParticipant participant)
         {
-            // Gates (incl. the RaceLaps<=3 short-race exemption) live in the
-            // unit-tested rulebook - see PenaltyRules.ShouldApplyMandatoryPitPenalty.
-            if (!PenaltyRules.ShouldApplyMandatoryPitPenalty(
-                    CurrentSession == RaceWeekendSession.Qualifying,
-                    IsTimeTrial,
-                    RaceLaps,
-                    participant.pitStops,
-                    participant.mandatoryPitPenaltyApplied))
+            if (participant == null || participant.twoCompoundRuleChecked)
             {
                 return;
             }
 
-            participant.mandatoryPitPenaltyApplied = true;
-            AddPenalty(participant, PenaltyRules.MandatoryPitPenaltySeconds, PenaltyRules.MandatoryPitReason);
+            participant.twoCompoundRuleChecked = true;
+
+            int distinctDry;
+            bool usedWet;
+            participant.CountDryCompoundsUsed(out distinctDry, out usedWet);
+
+            if (!PenaltyRules.ShouldDisqualifyForTwoCompoundRule(
+                    CurrentSession == RaceWeekendSession.Qualifying,
+                    IsTimeTrial,
+                    RaceDeclaredWet,
+                    usedWet,
+                    RaceLaps,
+                    distinctDry,
+                    participant.retired))
+            {
+                return;
+            }
+
+            participant.disqualified = true;
+            participant.penaltyReason = PenaltyRules.AppendPenaltyReason(participant.penaltyReason, PenaltyRules.TwoCompoundReason);
+            GameEvents.Publish(new PenaltyIssuedEvent(
+                participant.driverId,
+                PenaltyKind.Disqualification,
+                0f,
+                PenaltyRules.TwoCompoundReason));
+
+            GameLog.Warn("[RaceControl] " + participant.driverName +
+                " disqualified: only " + distinctDry + " dry compound(s) used.");
+
             if (participant.isPlayer)
             {
-                // Read the tariff off the constant rather than hard-coding it. The
-                // literal here still said +10s after MandatoryPitPenaltySeconds was
-                // raised to 30, so the player was told 10, the race-control timeline
-                // said 30, and the results were computed with 30 - a one-to-two
-                // position discrepancy they had no way to account for.
-                SessionMessage = "No mandatory stop: +" + PenaltyRules.MandatoryPitPenaltySeconds.ToString("0") + "s";
+                SessionMessage = "DISQUALIFIED: you must use two different dry compounds";
+                PostEngineerMessage("We've been disqualified - the rules require two different dry compounds and we only ran one.", true, RaceAudioCue.Penalty);
+                LogRaceControlHistory("DSQ", PenaltyRules.TwoCompoundReason);
             }
         }
 

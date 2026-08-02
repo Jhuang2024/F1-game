@@ -2351,7 +2351,10 @@ namespace LocalFormulaRacing
                 // the entry-grade approach limiter (80) - a hardcoded "80"
                 // here would silently under-report the real speed once the
                 // car is actually released and driving out.
-                int limiterCapKph = car.PitExitFastLimiter ? 108 : 105;
+                // One pit-lane limit, read off the rulebook so the HUD can never drift
+                // from the rule again (it used to report 105/108 while the painted
+                // sign on track said 80).
+                int limiterCapKph = Mathf.RoundToInt(F1Game.Race.Rules.PitServiceRules.PitLaneSpeedLimitKph);
                 pitStatusValue.text = (player.pitLimiterUntilExit ? "PIT EXIT  LIMITER " : "PIT APPROACH  LIMITER ") + limiterCapKph;
             }
             else

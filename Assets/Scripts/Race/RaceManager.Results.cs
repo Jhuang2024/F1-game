@@ -30,15 +30,12 @@ namespace LocalFormulaRacing
             for (int i = 0; i < State.SortedOrder.Count; i++)
             {
                 RaceParticipant participant = State.SortedOrder[i];
-                // The mandatory-stop rule only applies to cars that reach the flag.
-                // This used to run before the retired check below, and
-                // ShouldApplyMandatoryPitPenalty has no retirement test of its own,
-                // so every DNF was handed a +30s penalty and a reason reading
-                // "DNF Damage, No mandatory stop" - for a stop it obviously could
-                // never have made after retiring on lap 2.
+                // The two-compound rule only applies to cars that reach the flag;
+                // ShouldDisqualifyForTwoCompoundRule takes `retired` and bails, but
+                // keep the guard explicit here too.
                 if (!participant.retired)
                 {
-                    ApplyMandatoryPitPenalty(participant);
+                    ApplyTwoCompoundRule(participant);
                 }
 
                 participant.finishingPosition = i + 1;
@@ -75,11 +72,30 @@ namespace LocalFormulaRacing
                 results.Add(entry);
             }
 
+            // Disqualified cars sort behind everything else.
             RaceClassifier.AssignFinishingOrder(
                 results,
                 entry => entry.totalTime,
                 entry => entry.penaltiesSeconds,
+                entry => entry.disqualified,
                 (entry, position) => entry.finishingPosition = position);
+
+            // The 90% rule: a car must complete at least 90% of the winner's laps to
+            // be classified. Unclassified cars and DSQs score no points.
+            int winnerLaps = 0;
+            for (int i = 0; i < results.Count; i++)
+            {
+                if (!results[i].disqualified && results[i].completedLaps > winnerLaps)
+                {
+                    winnerLaps = results[i].completedLaps;
+                }
+            }
+
+            for (int i = 0; i < results.Count; i++)
+            {
+                results[i].classified = !results[i].disqualified &&
+                    RaceClassifier.IsClassified(results[i].completedLaps, winnerLaps);
+            }
 
             if (IsCareerRace)
             {

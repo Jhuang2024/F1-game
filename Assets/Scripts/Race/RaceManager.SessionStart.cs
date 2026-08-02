@@ -125,6 +125,7 @@ namespace LocalFormulaRacing
             ersRefillLapMarker = -1;
             ResetEngineerState();
             ResetRaceControlState();
+            RaceDeclaredWet = false;
             if (session == RaceWeekendSession.Qualifying && !preserveQualifyingState)
             {
                 qualifyingPhase = 1;
