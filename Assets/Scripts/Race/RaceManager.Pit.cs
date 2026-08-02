@@ -1032,11 +1032,22 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            // Only inside the lane itself. The exit merge (Release/Exit) is where the
-            // limiter legally comes off, so it is not policed here; the entry rail and
-            // the box are.
-            bool inPitLane = participant.pitPhase == PitPhase.Entry || participant.pitPhase == PitPhase.Service;
-            if (!inPitLane)
+            // Only where the DRIVER controls the speed.
+            //
+            // This used to police PitPhase.Entry/Service, which flagged every car in
+            // the field: the whole guided sequence is driven by the pit rail, which
+            // places the car at a sampled pose each tick and reports its speed as a
+            // frame-to-frame position delta. The snap onto the rail at commit, and the
+            // mismatch between the Update-rate rail step and the FixedUpdate-rate speed
+            // measurement, both read as speed the driver never asked for - and a car
+            // being carried along a rail cannot speed by choice in the first place.
+            //
+            // The genuinely driver-controlled window is: past the pit-entry limiter
+            // line, with the limiter engaged, and NOT yet handed to the rail. That is
+            // the only place a real offence can happen, so it is the only place this
+            // looks.
+            bool driverControlled = participant.vehicle.PitLimiterActive && !participant.vehicle.IsPitGuided;
+            if (!driverControlled)
             {
                 participant.pitLaneOverspeedTimer = 0f;
                 if (participant.pitPhase == PitPhase.None)

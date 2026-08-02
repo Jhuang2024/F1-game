@@ -15,72 +15,80 @@ namespace F1Game.Tests
         const int Soft = 0, Medium = 1, Hard = 2;
 
         const float Cool = TyreStrategyRules.CoolTrackTempC;         // 15C
-        const float Standard = TyreStrategyRules.StandardTrackTempC; // 22.5C
-        const float Hot = TyreStrategyRules.HotTrackTempC;           // 30C
+        const float Standard = TyreStrategyRules.StandardTrackTempC; // 35C
+        const float Hot = TyreStrategyRules.HotTrackTempC;           // 55C
+
+        // Every lap-based assertion below pins an explicit lap length, because stint
+        // life is a DISTANCE and the lap count depends on the circuit. 5 km is the
+        // reference, so soft/medium/hard are 15/25/35 laps at standard temperature.
+        const float Ref = TyreStrategyRules.ReferenceLapLengthMeters;
 
         [Test]
         public void StintLifeMatchesTheTemperatureGradient()
         {
-            // Recalibrated anchors (matching observed live wear): 15C 4/5/6,
-            // 22.5C 3/4/6, 30C 2/3/4.
-            Assert.AreEqual(4, TyreStrategyRules.StintLapsForPlanning(Soft, Cool));
-            Assert.AreEqual(5, TyreStrategyRules.StintLapsForPlanning(Medium, Cool));
-            Assert.AreEqual(6, TyreStrategyRules.StintLapsForPlanning(Hard, Cool));
+            // Real Pirelli stint DISTANCES: soft 95/75/50 km, medium 155/125/88,
+            // hard 215/175/125 across cool/standard/hot. At the 5 km reference lap
+            // that is 19/31/43 laps cool, 15/25/35 standard, 10/17/25 hot - a grand
+            // prix is the one-to-two stop race it should be.
+            Assert.AreEqual(19, TyreStrategyRules.StintLapsForPlanning(Soft, Cool, Ref));
+            Assert.AreEqual(31, TyreStrategyRules.StintLapsForPlanning(Medium, Cool, Ref));
+            Assert.AreEqual(43, TyreStrategyRules.StintLapsForPlanning(Hard, Cool, Ref));
 
-            Assert.AreEqual(3, TyreStrategyRules.StintLapsForPlanning(Soft, Standard));
-            Assert.AreEqual(4, TyreStrategyRules.StintLapsForPlanning(Medium, Standard));
-            Assert.AreEqual(6, TyreStrategyRules.StintLapsForPlanning(Hard, Standard));
+            Assert.AreEqual(15, TyreStrategyRules.StintLapsForPlanning(Soft, Standard, Ref));
+            Assert.AreEqual(25, TyreStrategyRules.StintLapsForPlanning(Medium, Standard, Ref));
+            Assert.AreEqual(35, TyreStrategyRules.StintLapsForPlanning(Hard, Standard, Ref));
 
-            Assert.AreEqual(2, TyreStrategyRules.StintLapsForPlanning(Soft, Hot));
-            Assert.AreEqual(3, TyreStrategyRules.StintLapsForPlanning(Medium, Hot));
-            Assert.AreEqual(4, TyreStrategyRules.StintLapsForPlanning(Hard, Hot));
+            Assert.AreEqual(10, TyreStrategyRules.StintLapsForPlanning(Soft, Hot, Ref));
+            Assert.AreEqual(17, TyreStrategyRules.StintLapsForPlanning(Medium, Hot, Ref));
+            Assert.AreEqual(25, TyreStrategyRules.StintLapsForPlanning(Hard, Hot, Ref));
         }
 
         [Test]
         public void StintLifeInterpolatesBetweenAnchorsAndClampsTheEnds()
         {
-            // Halfway between cool and standard: soft halfway between 4 and 3.
-            Assert.AreEqual(3.5f, TyreStrategyRules.ExpectedStintLapsAtTemp(Soft, (Cool + Standard) * 0.5f), 0.01f);
+            // Halfway between cool and standard: soft halfway between 95 and 75 km.
+            Assert.AreEqual(85f, TyreStrategyRules.ExpectedStintKmAtTemp(Soft, (Cool + Standard) * 0.5f), 0.01f);
             // Below/above the defined range holds flat at the end anchors.
-            Assert.AreEqual(4f, TyreStrategyRules.ExpectedStintLapsAtTemp(Soft, 5f), 0.01f);
-            Assert.AreEqual(2f, TyreStrategyRules.ExpectedStintLapsAtTemp(Soft, 45f), 0.01f);
+            Assert.AreEqual(95f, TyreStrategyRules.ExpectedStintKmAtTemp(Soft, 5f), 0.01f);
+            Assert.AreEqual(50f, TyreStrategyRules.ExpectedStintKmAtTemp(Soft, 75f), 0.01f);
         }
 
         [Test]
         public void PlanningStintIsAboutOneLapShorterThanRawLife()
         {
-            // A car pits once a lap, so usable planning laps trail the raw life by
-            // ~1 (raw soft 3/med 4/hard 6 at 22.5C -> usable 2/3/5).
-            Assert.AreEqual(2, TyreStrategyRules.PlanningStintLaps(Soft, Standard));
-            Assert.AreEqual(3, TyreStrategyRules.PlanningStintLaps(Medium, Standard));
-            Assert.AreEqual(5, TyreStrategyRules.PlanningStintLaps(Hard, Standard));
-            // Cool: raw 4/5/6 -> usable 3/4/5.
-            Assert.AreEqual(3, TyreStrategyRules.PlanningStintLaps(Soft, Cool));
-            Assert.AreEqual(5, TyreStrategyRules.PlanningStintLaps(Hard, Cool));
+            // A car can only pit once a lap, so usable planning laps trail the raw
+            // life. Raw soft 15 / medium 25 / hard 35 at standard temp on a 5 km lap.
+            Assert.Less(TyreStrategyRules.PlanningStintLaps(Soft, Standard, Ref),
+                        TyreStrategyRules.StintLapsForPlanning(Soft, Standard, Ref));
+            Assert.AreEqual(12, TyreStrategyRules.PlanningStintLaps(Soft, Standard, Ref));
+            Assert.AreEqual(21, TyreStrategyRules.PlanningStintLaps(Medium, Standard, Ref));
+            Assert.AreEqual(29, TyreStrategyRules.PlanningStintLaps(Hard, Standard, Ref));
         }
 
         [Test]
         public void PicksSoftestCompoundThatReachesTheFlagAtStandardTemp()
         {
-            // At 22.5C usable planning stint is soft 2 / medium 3 / hard 5.
-            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(1, Standard));
-            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(2, Standard));
-            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(3, Standard));
-            // 4+ laps left: soft and medium both fall short, so the hard.
-            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(4, Standard));
-            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(5, Standard));
+            // At standard temp on a 5 km lap the usable stint is soft 12 / medium 21
+            // / hard 29.
+            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(10, Standard, Ref));
+            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(12, Standard, Ref));
+            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(18, Standard, Ref));
+            // Past the medium's reach: the hard.
+            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(25, Standard, Ref));
+            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(40, Standard, Ref));
         }
 
         [Test]
         public void HotTrackPushesOntoHarderCompoundsSooner()
         {
-            // At 30C usable planning stint collapses to soft 1 / medium 2 / hard 3.
-            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(1, Hot));
-            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(2, Hot));
-            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(3, Hot));
+            // At the top of the gradient the usable stint collapses to soft 8 /
+            // medium 15 / hard 21 on a 5 km lap.
+            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(8, Hot, Ref));
+            Assert.AreEqual(Medium, TyreStrategyRules.NextDryCompound(12, Hot, Ref));
+            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(18, Hot, Ref));
 
-            // The same 2 laps on a cool track (usable soft 3) can still take a soft.
-            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(2, Cool));
+            // The same 12 laps on a cool track can still take a soft.
+            Assert.AreEqual(Soft, TyreStrategyRules.NextDryCompound(12, Cool, Ref));
         }
 
         [Test]
@@ -90,14 +98,20 @@ namespace F1Game.Tests
             int stops;
             // A hot track forces short stints, so the fastest plan takes more stops
             // than the same race on a cool track.
-            TyreStrategyRules.FastestDryStrategy(8, Cool, out startCompound, out stops);
+            TyreStrategyRules.FastestDryStrategy(57, Cool, out startCompound, out stops, Ref);
             int coolStops = stops;
-            TyreStrategyRules.FastestDryStrategy(8, Hot, out startCompound, out stops);
+            TyreStrategyRules.FastestDryStrategy(57, Hot, out startCompound, out stops, Ref);
             int hotStops = stops;
             Assert.Greater(hotStops, coolStops);
 
+            // A real grand prix distance is a one-to-two stop race on a cool track,
+            // not the five-stopper a 3-lap tyre model produced.
+            TyreStrategyRules.FastestDryStrategy(57, Cool, out startCompound, out stops, Ref);
+            Assert.GreaterOrEqual(stops, 1);
+            Assert.LessOrEqual(stops, 2);
+
             // A 4+ lap race always carries at least the mandatory stop.
-            TyreStrategyRules.FastestDryStrategy(5, Cool, out startCompound, out stops);
+            TyreStrategyRules.FastestDryStrategy(5, Cool, out startCompound, out stops, Ref);
             Assert.GreaterOrEqual(stops, 1);
         }
 
@@ -106,8 +120,8 @@ namespace F1Game.Tests
         {
             // More laps left than even a hard covers: still the hard, to minimise
             // how many further stops remain.
-            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(8, Standard));
-            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(20, Cool));
+            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(40, Standard, Ref));
+            Assert.AreEqual(Hard, TyreStrategyRules.NextDryCompound(60, Cool, Ref));
         }
 
         [Test]

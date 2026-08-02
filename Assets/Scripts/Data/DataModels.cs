@@ -170,6 +170,10 @@ namespace LocalFormulaRacing
         // prix. Only the rounds that actually hold a sprint have this set; 0 means the
         // weekend has no sprint (see CareerManager/RaceWeekendSession.Sprint).
         public int lapsSprint;
+        // Real circuit length in metres. Tyre life is a DISTANCE, so the pre-race
+        // strategy screens need the lap length to turn it into laps - otherwise the
+        // number they print disagrees with what the car actually does on track.
+        public float lapLengthMeters;
         public string weatherProfile;
     }
 

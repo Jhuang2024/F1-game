@@ -10,6 +10,7 @@
       "laps25Percent": 14,
       "lapsFull": 58,
       "lapsSprint": 0,
+      "lapLengthMeters": 5278,
       "weatherProfile": "mixed"
     },
     {
@@ -22,6 +23,7 @@
       "laps25Percent": 14,
       "lapsFull": 56,
       "lapsSprint": 19,
+      "lapLengthMeters": 5451,
       "weatherProfile": "cloudy_mild"
     },
     {
@@ -34,6 +36,7 @@
       "laps25Percent": 13,
       "lapsFull": 53,
       "lapsSprint": 0,
+      "lapLengthMeters": 5807,
       "weatherProfile": "mixed"
     },
     {
@@ -46,6 +49,7 @@
       "laps25Percent": 14,
       "lapsFull": 57,
       "lapsSprint": 0,
+      "lapLengthMeters": 5412,
       "weatherProfile": "clear_hot"
     },
     {
@@ -58,6 +62,7 @@
       "laps25Percent": 12,
       "lapsFull": 50,
       "lapsSprint": 0,
+      "lapLengthMeters": 6174,
       "weatherProfile": "clear_warm"
     },
     {
@@ -70,6 +75,7 @@
       "laps25Percent": 14,
       "lapsFull": 57,
       "lapsSprint": 19,
+      "lapLengthMeters": 5412,
       "weatherProfile": "clear_warm"
     },
     {
@@ -82,6 +88,7 @@
       "laps25Percent": 18,
       "lapsFull": 70,
       "lapsSprint": 24,
+      "lapLengthMeters": 4361,
       "weatherProfile": "mixed"
     },
     {
@@ -94,6 +101,7 @@
       "laps25Percent": 20,
       "lapsFull": 78,
       "lapsSprint": 0,
+      "lapLengthMeters": 3337,
       "weatherProfile": "clear_mild"
     },
     {
@@ -106,6 +114,7 @@
       "laps25Percent": 16,
       "lapsFull": 66,
       "lapsSprint": 0,
+      "lapLengthMeters": 4657,
       "weatherProfile": "clear_warm"
     },
     {
@@ -118,6 +127,7 @@
       "laps25Percent": 18,
       "lapsFull": 71,
       "lapsSprint": 0,
+      "lapLengthMeters": 4318,
       "weatherProfile": "mixed"
     },
     {
@@ -130,6 +140,7 @@
       "laps25Percent": 13,
       "lapsFull": 52,
       "lapsSprint": 17,
+      "lapLengthMeters": 5891,
       "weatherProfile": "mixed"
     },
     {
@@ -142,6 +153,7 @@
       "laps25Percent": 11,
       "lapsFull": 44,
       "lapsSprint": 0,
+      "lapLengthMeters": 7004,
       "weatherProfile": "mixed_wet"
     },
     {
@@ -154,6 +166,7 @@
       "laps25Percent": 18,
       "lapsFull": 70,
       "lapsSprint": 0,
+      "lapLengthMeters": 4381,
       "weatherProfile": "clear_hot"
     },
     {
@@ -166,6 +179,7 @@
       "laps25Percent": 18,
       "lapsFull": 72,
       "lapsSprint": 25,
+      "lapLengthMeters": 4259,
       "weatherProfile": "mixed"
     },
     {
@@ -178,6 +192,7 @@
       "laps25Percent": 13,
       "lapsFull": 53,
       "lapsSprint": 0,
+      "lapLengthMeters": 5793,
       "weatherProfile": "clear_warm"
     },
     {
@@ -190,6 +205,7 @@
       "laps25Percent": 14,
       "lapsFull": 57,
       "lapsSprint": 0,
+      "lapLengthMeters": 5474,
       "weatherProfile": "clear_warm"
     },
     {
@@ -202,6 +218,7 @@
       "laps25Percent": 13,
       "lapsFull": 51,
       "lapsSprint": 0,
+      "lapLengthMeters": 6003,
       "weatherProfile": "clear_warm"
     },
     {
@@ -214,6 +231,7 @@
       "laps25Percent": 16,
       "lapsFull": 62,
       "lapsSprint": 21,
+      "lapLengthMeters": 4940,
       "weatherProfile": "humid_night"
     },
     {
@@ -226,6 +244,7 @@
       "laps25Percent": 14,
       "lapsFull": 56,
       "lapsSprint": 0,
+      "lapLengthMeters": 5513,
       "weatherProfile": "clear_warm"
     },
     {
@@ -238,6 +257,7 @@
       "laps25Percent": 18,
       "lapsFull": 71,
       "lapsSprint": 0,
+      "lapLengthMeters": 4304,
       "weatherProfile": "clear_mild"
     },
     {
@@ -250,6 +270,7 @@
       "laps25Percent": 18,
       "lapsFull": 71,
       "lapsSprint": 0,
+      "lapLengthMeters": 4309,
       "weatherProfile": "mixed"
     },
     {
@@ -262,6 +283,7 @@
       "laps25Percent": 12,
       "lapsFull": 50,
       "lapsSprint": 0,
+      "lapLengthMeters": 6201,
       "weatherProfile": "clear_night"
     },
     {
@@ -274,6 +296,7 @@
       "laps25Percent": 14,
       "lapsFull": 57,
       "lapsSprint": 0,
+      "lapLengthMeters": 5419,
       "weatherProfile": "clear_hot"
     },
     {
@@ -286,6 +309,7 @@
       "laps25Percent": 14,
       "lapsFull": 58,
       "lapsSprint": 0,
+      "lapLengthMeters": 5281,
       "weatherProfile": "clear_twilight"
     }
   ]

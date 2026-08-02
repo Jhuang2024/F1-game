@@ -3391,6 +3391,7 @@ namespace LocalFormulaRacing
             // the track's climate - the actual race rolls around it and runs
             // cooler in the wet - so the number is the shared gradient anchor the
             // recommendation and typical on-track wear read from.
+            ApplySessionLapLength(current);
             float trackTemp = TyreStrategyRules.TrackTemperatureFor(current.weatherProfile, current.trackId);
             string conditionsBody =
                 "Track Temp   ~" + trackTemp.ToString("0") + "°C (forecast)\n" +
@@ -3549,6 +3550,7 @@ namespace LocalFormulaRacing
 
             string profile = current.weatherProfile.ToLower();
             string condition = WeatherProfileText(profile);
+            ApplySessionLapLength(current);
             float trackTemp = TyreStrategyRules.TrackTemperatureFor(current.weatherProfile, current.trackId);
             float airTemp = trackTemp - 8f;
 
@@ -3708,6 +3710,7 @@ namespace LocalFormulaRacing
 
             string profile = current.weatherProfile == null ? "" : current.weatherProfile.ToLowerInvariant();
             string currentCompound = settings.Current.tyreCompound;
+            ApplySessionLapLength(current);
             float raceTrackTemp = TyreStrategyRules.TrackTemperatureFor(current.weatherProfile, current.trackId);
 
             // Top row: briefing (left) + tyre selection (right).
@@ -3890,6 +3893,7 @@ namespace LocalFormulaRacing
             }
             else
             {
+                ApplySessionLapLength(current);
                 float stratTemp = TyreStrategyRules.TrackTemperatureFor(current == null ? null : current.weatherProfile, current == null ? null : current.trackId);
                 int softL = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Soft, stratTemp);
                 int medL = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Medium, stratTemp);
@@ -4277,6 +4281,18 @@ namespace LocalFormulaRacing
             }
 
             return RaceLapsRungs[0];
+        }
+
+        // Pre-race screens work out tyre life before the track exists, and tyre life
+        // is a DISTANCE - so they have to tell the rules layer which circuit they are
+        // talking about, or the laps they print are for a 5 km reference lap instead
+        // of this one. Monaco and Spa differ by more than a factor of two.
+        static void ApplySessionLapLength(CalendarEventData raceEvent)
+        {
+            if (raceEvent != null && raceEvent.lapLengthMeters > 500f)
+            {
+                TyreStrategyRules.SessionLapLengthMeters = raceEvent.lapLengthMeters;
+            }
         }
 
         int ResolveRaceLengthLaps(CalendarEventData raceEvent, int preset)
@@ -7423,6 +7439,7 @@ namespace LocalFormulaRacing
             // Track temp from the shared wear gradient (with its per-track offset)
             // so the briefing's temperature, its recommendation and the on-track
             // wear all agree; air temp trails it by ~7C as before.
+            ApplySessionLapLength(current);
             float trackTempC = TyreStrategyRules.TrackTemperatureFor(profile, current == null ? null : current.trackId);
             int track = Mathf.RoundToInt(trackTempC);
             int air = track - 7;

@@ -50,10 +50,9 @@ namespace F1Game.Tests
         [Test]
         public void MechanicalFlagAndTerminalSuspensionThresholds()
         {
-            Assert.IsFalse(DamagePerformance.RequiresMechanicalBlackOrange(0f, 0f, 0f));
-            Assert.IsTrue(DamagePerformance.RequiresMechanicalBlackOrange(0f, 0f, 0.5f));   // suspension
-            Assert.IsTrue(DamagePerformance.RequiresMechanicalBlackOrange(0.75f, 0f, 0f));  // hanging front wing
-            Assert.IsTrue(DamagePerformance.RequiresMechanicalBlackOrange(0f, 0.75f, 0f));  // hanging rear wing
+            Assert.IsFalse(DamagePerformance.RequiresMechanicalBlackOrange(0f, 0f));
+            Assert.IsTrue(DamagePerformance.RequiresMechanicalBlackOrange(0.75f, 0f));  // hanging front wing
+            Assert.IsTrue(DamagePerformance.RequiresMechanicalBlackOrange(0f, 0.75f));  // hanging rear wing
 
             Assert.IsFalse(DamagePerformance.SuspensionIsTerminal(0.5f));
             Assert.IsTrue(DamagePerformance.SuspensionIsTerminal(0.9f));

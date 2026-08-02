@@ -130,27 +130,67 @@ namespace F1Game.Race.Rules
         }
 
         /// <summary>
-        /// Expected stint life in LAPS for a compound at a given track temperature,
-        /// piecewise-linear through the calibrated gradient (see the temp anchors).
-        /// Continuous, so the wear model can derive an exact multiplier from it and
-        /// the planner/UI can round it. Intermediate and Wet aren't dry compounds -
-        /// they always mirror the Medium curve (per request: "inters and wets
-        /// reflect the medium tyre's durability at any temperature"); the caller
-        /// passes Compound.Medium for them. Temp is clamped to [15, 30] so a very
-        /// cold or very hot session never runs off the ends of the gradient.
+        /// Lap length the lap-based helpers below assume when the caller does not
+        /// know the circuit. Close to the calendar mean.
         /// </summary>
-        public static float ExpectedStintLapsAtTemp(int compound, float trackTempC)
+        public const float ReferenceLapLengthMeters = 5000f;
+
+        /// <summary>
+        /// Lap length of the circuit currently being raced or previewed. Set by the
+        /// race layer when the track is built, and by the pre-race screens from the
+        /// calendar, so every lap-based figure below - the AI's plan, the wear model
+        /// and the number printed on the tyre screen - reads the same circuit. Every
+        /// helper takes an explicit override too; 0 means "use this".
+        /// </summary>
+        public static float SessionLapLengthMeters = ReferenceLapLengthMeters;
+
+        static float ResolveLapKm(float trackLengthMeters)
+        {
+            float meters = trackLengthMeters > 500f
+                ? trackLengthMeters
+                : (SessionLapLengthMeters > 500f ? SessionLapLengthMeters : ReferenceLapLengthMeters);
+            return meters / 1000f;
+        }
+
+        /// <summary>
+        /// Expected stint life as a DISTANCE in kilometres, piecewise-linear through
+        /// the temperature gradient. Intermediate and Wet aren't dry compounds - they
+        /// mirror the Medium curve; the caller passes Compound.Medium for them.
+        ///
+        /// Life is anchored in DISTANCE, not laps, because that is what a tyre
+        /// actually wears out over - and because a lap-count anchor silently depends
+        /// on race length. It used to be 2-6 LAPS flat: calibrated when a "race" was
+        /// 3, 5 or 14 laps, and completely wrong the moment races run their real 44-78.
+        /// A field on 3-lap tyres pits at the end of lap two, all of it, every time -
+        /// which is exactly what a 30-second lead after two laps looks like.
+        ///
+        /// These are real Pirelli stint distances: a soft is worth roughly 75 km on a
+        /// normal track surface, a medium 125, a hard 175, moving about +/-30% with
+        /// track temperature. At the 5 km reference that is 15 / 25 / 35 laps, so a
+        /// grand prix is the one-to-two stop race it should be.
+        /// </summary>
+        public static float ExpectedStintKmAtTemp(int compound, float trackTempC)
         {
             switch (compound)
             {
                 case Compound.Soft:
-                    return LifeGradient(trackTempC, 4f, 3f, 2f);
+                    return LifeGradient(trackTempC, 95f, 75f, 50f);
                 case Compound.Hard:
-                    return LifeGradient(trackTempC, 6f, 6f, 4f);
+                    return LifeGradient(trackTempC, 215f, 175f, 125f);
                 default:
                     // Medium (and Intermediate/Wet, mapped here by the caller).
-                    return LifeGradient(trackTempC, 5f, 4f, 3f);
+                    return LifeGradient(trackTempC, 155f, 125f, 88f);
             }
+        }
+
+        /// <summary>
+        /// Expected stint life in LAPS at this circuit: the distance life above
+        /// divided by the lap length. A short circuit therefore gets MORE laps out of
+        /// the same tyre, which is why Monaco is a one-stop and Spa is not.
+        /// </summary>
+        public static float ExpectedStintLapsAtTemp(int compound, float trackTempC, float trackLengthMeters = 0f)
+        {
+            return ExpectedStintKmAtTemp(compound, trackTempC) / ResolveLapKm(trackLengthMeters);
         }
 
         // Two-segment linear interpolation across the cool/standard/hot anchors,
@@ -175,9 +215,9 @@ namespace F1Game.Race.Rules
         /// below plans against PlanningStintLaps instead, which also accounts for
         /// the once-a-lap pit window. Always at least 1.
         /// </summary>
-        public static int StintLapsForPlanning(int compound, float trackTempC)
+        public static int StintLapsForPlanning(int compound, float trackTempC, float trackLengthMeters = 0f)
         {
-            int laps = (int)System.Math.Floor(ExpectedStintLapsAtTemp(compound, trackTempC));
+            int laps = (int)System.Math.Floor(ExpectedStintLapsAtTemp(compound, trackTempC, trackLengthMeters));
             return laps < 1 ? 1 : laps;
         }
 
@@ -190,9 +230,9 @@ namespace F1Game.Race.Rules
         /// recommended stop count matches what really happens on track. Always at
         /// least 1.
         /// </summary>
-        public static int PlanningStintLaps(int compound, float trackTempC)
+        public static int PlanningStintLaps(int compound, float trackTempC, float trackLengthMeters = 0f)
         {
-            float life = ExpectedStintLapsAtTemp(compound, trackTempC);
+            float life = ExpectedStintLapsAtTemp(compound, trackTempC, trackLengthMeters);
             int usable = (int)System.Math.Floor(0.85f * life + 0.15f);
             return usable < 1 ? 1 : usable;
         }
@@ -209,14 +249,14 @@ namespace F1Game.Race.Rules
         /// far from the end), the hard is still the right call - the most durable
         /// tyre minimises how many further stops remain.
         /// </summary>
-        public static int NextDryCompound(int lapsRemainingAfterStop, float trackTempC)
+        public static int NextDryCompound(int lapsRemainingAfterStop, float trackTempC, float trackLengthMeters = 0f)
         {
-            if (lapsRemainingAfterStop <= PlanningStintLaps(Compound.Soft, trackTempC))
+            if (lapsRemainingAfterStop <= PlanningStintLaps(Compound.Soft, trackTempC, trackLengthMeters))
             {
                 return Compound.Soft;
             }
 
-            if (lapsRemainingAfterStop <= PlanningStintLaps(Compound.Medium, trackTempC))
+            if (lapsRemainingAfterStop <= PlanningStintLaps(Compound.Medium, trackTempC, trackLengthMeters))
             {
                 return Compound.Medium;
             }
@@ -263,12 +303,13 @@ namespace F1Game.Race.Rules
         /// out as a two- or three-stopper, while a cool track can one-stop on softs.
         /// A 4+ lap race carries the mandatory pit (min one stop).
         /// </summary>
-        public static void FastestDryStrategy(int raceLaps, float trackTempC, out int startCompound, out int stopCount)
+        public static void FastestDryStrategy(int raceLaps, float trackTempC, out int startCompound, out int stopCount,
+            float trackLengthMeters = 0f)
         {
             int laps = raceLaps > 0 ? raceLaps : 5;
-            int softLife = PlanningStintLaps(Compound.Soft, trackTempC);
-            int medLife = PlanningStintLaps(Compound.Medium, trackTempC);
-            int hardLife = PlanningStintLaps(Compound.Hard, trackTempC);
+            int softLife = PlanningStintLaps(Compound.Soft, trackTempC, trackLengthMeters);
+            int medLife = PlanningStintLaps(Compound.Medium, trackTempC, trackLengthMeters);
+            int hardLife = PlanningStintLaps(Compound.Hard, trackTempC, trackLengthMeters);
 
             int minStops = laps >= 4 ? 1 : 0;
 
@@ -336,10 +377,10 @@ namespace F1Game.Race.Rules
         /// have AI starting on a soft that must pit on lap 1). At the top of the
         /// gradient the soft drops out and the field starts on mediums and hards.
         /// </summary>
-        public static int DryStartCompoundFromRoll(int roll, float trackTempC)
+        public static int DryStartCompoundFromRoll(int roll, float trackTempC, float trackLengthMeters = 0f)
         {
             int pick = DryStartCompoundFromRoll(roll);
-            if (pick == Compound.Soft && PlanningStintLaps(Compound.Soft, trackTempC) < 2)
+            if (pick == Compound.Soft && PlanningStintLaps(Compound.Soft, trackTempC, trackLengthMeters) < 2)
             {
                 return Compound.Medium;
             }

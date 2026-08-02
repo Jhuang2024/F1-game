@@ -438,7 +438,7 @@ namespace LocalFormulaRacing
             // compound-mismatch weather penalties keep their existing roles.
             int stintCompound = Compound == TyreCompound.Soft ? TyreStrategyRules.Compound.Soft
                 : (Compound == TyreCompound.Hard ? TyreStrategyRules.Compound.Hard : TyreStrategyRules.Compound.Medium);
-            float lifeLapsAtTemp = Mathf.Max(0.5f, TyreStrategyRules.ExpectedStintLapsAtTemp(stintCompound, trackTemperatureC));
+            float lifeLapsAtTemp = Mathf.Max(0.5f, TyreStrategyRules.ExpectedStintLapsAtTemp(stintCompound, trackTemperatureC, TrackLengthMeters));
             float lapsPerSecond = (speedKph / 3.6f) / Mathf.Max(500f, TrackLengthMeters);
             float baseLifeFraction = lapsPerSecond / lifeLapsAtTemp;
 

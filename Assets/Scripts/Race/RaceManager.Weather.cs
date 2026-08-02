@@ -101,6 +101,10 @@ namespace LocalFormulaRacing
             // trial, quick race - is covered without hunting down each
             // initialization path.
             TyreState.TrackLengthMeters = Mathf.Max(500f, Track.length);
+            // Tyre life is a distance, so every lap-based figure - the AI's plan, the
+            // wear model, the tyre screen - has to know how long a lap of THIS circuit
+            // is. Same shared-static pattern, same tick.
+            TyreStrategyRules.SessionLapLengthMeters = Mathf.Max(500f, Track.length);
         }
 
         // Simple dynamic weather: on mixed-forecast races the conditions flip once

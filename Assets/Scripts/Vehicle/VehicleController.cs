@@ -395,7 +395,14 @@ namespace LocalFormulaRacing
         // real job is ACCELERATION out of the corner, which is the deploy FORCE
         // (ErsBoostForce), not this ceiling. Overstating it here also crowded out
         // DRS and the tow, both of which are genuinely bigger top-end effects.
-        const float ErsTopSpeedBonusKph = 8f;
+        //
+        // Cut to 8 in that pass, then raised to 15 after a play report that the AI had
+        // gone soft. 8 is defensible in isolation, but the AI leans on ERS for most of
+        // its straight-line pace - the [CornerDiag] history already showed its straight
+        // deficit was ERS-boost-sized - so a 22 km/h cut landed almost entirely on the
+        // field and not on the player. 15 keeps Override and the tow worth having while
+        // giving the AI its straights back.
+        const float ErsTopSpeedBonusKph = 15f;
 
         /// <summary>
         /// True while the race layer has Override Mode armed for this car (within a

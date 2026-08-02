@@ -52,6 +52,10 @@ namespace LocalFormulaRacing
             get { return F1Game.Race.Rules.DamagePerformance.IsDestroyed(OverallPercent); }
         }
 
+        // Normalized impact severity below which nothing at all reaches the
+        // suspension. See the accumulation below.
+        const float SuspensionImpactThreshold = 0.35f;
+
         public float AddImpact(float impactSpeedKph, float normalSpeedKph, Vector3 localPoint, DamageImpactType impactType, bool sustainedScrape, float externalScale = 1f)
         {
             if (impactType == DamageImpactType.None)
@@ -147,14 +151,18 @@ namespace LocalFormulaRacing
             engineWear += energy * 0.07f;
             gearboxWear += energy * 0.055f;
 
-            // Suspension takes load from SHARP impacts, not from scraping along a
-            // wall: a sustained graze loads the bodywork, a sudden hit loads the
-            // wishbones. Car-to-car contact is the classic way to break it - a wheel
-            // over a wheel - so it is not discounted the way bodywork damage is.
-            if (!sustainedScrape)
+            // Suspension takes load from a genuinely SHARP, HARD impact - a kerb
+            // strike, a wheel over a wheel, a square hit on a wall. It is explicitly
+            // not loaded by scraping along a barrier or by routine wheel-to-wheel
+            // rubbing, both of which load bodywork instead: a real suspension failure
+            // is one big hit, not the sum of twenty small ones. The ramp starts well
+            // up the impact curve for exactly that reason - below it, contact costs
+            // bodywork and nothing else.
+            if (!sustainedScrape && normalized > SuspensionImpactThreshold)
             {
-                float suspensionShare = impactType == DamageImpactType.Car ? 0.34f : 0.22f;
-                suspension += energy * suspensionShare * Mathf.Clamp01(normalized * 1.6f);
+                float suspensionShare = impactType == DamageImpactType.Car ? 0.30f : 0.20f;
+                suspension += energy * suspensionShare *
+                    Mathf.InverseLerp(SuspensionImpactThreshold, 1f, normalized);
             }
 
             ClampAll();
@@ -185,7 +193,7 @@ namespace LocalFormulaRacing
         /// </summary>
         public bool RequiresMechanicalFlag
         {
-            get { return F1Game.Race.Rules.DamagePerformance.RequiresMechanicalBlackOrange(frontWing, rearWing, suspension); }
+            get { return F1Game.Race.Rules.DamagePerformance.RequiresMechanicalBlackOrange(frontWing, rearWing); }
         }
 
         /// <summary>Broken suspension - not something a pit stop fixes.</summary>

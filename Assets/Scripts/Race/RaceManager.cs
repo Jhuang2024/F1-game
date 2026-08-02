@@ -36,14 +36,14 @@ namespace LocalFormulaRacing
         public string ActivePracticeProgramId;
         public RaceWeekendSession CurrentSession { get; private set; }
 
-        /// <summary>
-        /// True only for a session that runs to a chequered flag and publishes a
-        /// classification - i.e. an actual grand prix. Qualifying has its own flow,
-        /// and Practice/Time Trial are open-ended running with no result to award.
-        /// </summary>
         /// <summary>Sprint race: scored, but not the grand prix.</summary>
         public bool IsSprintRace { get { return CurrentSession == RaceWeekendSession.Sprint; } }
 
+        /// <summary>
+        /// True only for a session that runs to a chequered flag and publishes a
+        /// classification - a grand prix or a sprint. Qualifying has its own flow, and
+        /// Practice/Time Trial are open-ended running with no result to award.
+        /// </summary>
         public bool IsScoredRaceSession
         {
             get
@@ -855,6 +855,7 @@ namespace LocalFormulaRacing
 
             ResolveLowSpeedStacks();
             SortRunningOrder();
+            LogFieldHealthDiagnostics();
             CheckIllegalOvertakesUnderYellow();
             UpdateOvertakeAndFastestLapNotifications();
             UpdatePlayerLapGapRadio();

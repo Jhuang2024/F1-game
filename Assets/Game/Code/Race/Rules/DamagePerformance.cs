@@ -50,27 +50,27 @@ namespace F1Game.Race.Rules
         public static bool IsDestroyed(float overallPercent) => overallPercent >= 98f;
 
         /// <summary>
-        /// Suspension damage past this point is a mechanical failure the team cannot
-        /// send the car back out with - the black-and-orange threshold, and past the
-        /// terminal bar below, a retirement.
+        /// Suspension damage past this point ends the car's race. There is deliberately
+        /// no black-and-orange threshold for suspension: the flag means "come in and
+        /// have it put right", and a pit stop cannot put suspension right. Flagging it
+        /// would order a car in for a repair that does not exist, leave the flag
+        /// permanently unclearable, and black-flag the whole field two laps later.
         /// </summary>
-        public const float SuspensionBlackOrangeThreshold = 0.45f;
         public const float SuspensionTerminalThreshold = 0.82f;
 
         /// <summary>
-        /// Bodywork hanging off the car - a loose front or rear wing endplate - is the
-        /// other black-and-orange case: the car is not slow enough to retire, it is
-        /// dangerous to everyone behind it.
+        /// Bodywork hanging off the car - a loose front or rear wing endplate. THIS is
+        /// the black-and-orange case, and the only one: the car is not slow enough to
+        /// retire, it is dangerous to everyone behind it, and a stop genuinely fixes it.
         /// </summary>
         public const float BodyworkBlackOrangeThreshold = 0.7f;
 
         /// <summary>
         /// Whether the car must be shown the black-and-orange flag: report to the pits
-        /// immediately to have the damage put right. Suspension past its threshold or
-        /// either wing hanging off qualifies.
+        /// to have the loose bodywork put right. Repairable damage only, by design -
+        /// see SuspensionTerminalThreshold.
         /// </summary>
-        public static bool RequiresMechanicalBlackOrange(float frontWing, float rearWing, float suspension) =>
-            suspension >= SuspensionBlackOrangeThreshold ||
+        public static bool RequiresMechanicalBlackOrange(float frontWing, float rearWing) =>
             frontWing >= BodyworkBlackOrangeThreshold ||
             rearWing >= BodyworkBlackOrangeThreshold;
 
