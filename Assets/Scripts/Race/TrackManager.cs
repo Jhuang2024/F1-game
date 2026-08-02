@@ -2440,6 +2440,7 @@ namespace LocalFormulaRacing
             canadaTrack = trackId.Contains("canada");
             jeddahTrack = trackId.Contains("jeddah") || trackId.Contains("saudi");
             CreateMaterials();
+            BuildRunoffClampProfile();
             BuildGround();
             BuildContinuousSafetyFloor();
             BuildRoadMesh();
@@ -5381,7 +5382,12 @@ namespace LocalFormulaRacing
                     Vector3 right;
                     Runtime.SampleAtDistance(distance, out point, out forward, out right);
                     float inner = Runtime.HalfWidthAt(distance);
+                    // ProtectionLineLateral already carries the elevation-crossing
+                    // clamp (see BuildRunoffClampProfile), so the apron, the barriers
+                    // standing at its outer edge and both validators agree by
+                    // construction on where the runoff ends.
                     float outer = ProtectionLineLateral(distance) + EdgeBarrierClearance;
+
                     // Slightly UNDER the road so the two never z-fight and a surface
                     // query on the racing line can only ever hit the road mesh.
                     Vector3 lift = Vector3.up * 0.008f;
@@ -6072,7 +6078,93 @@ namespace LocalFormulaRacing
             // corridor and out the exit ramp.
             bool inPitZone = normalized >= Runtime.PitEntryRampStartNormalized ||
                              normalized <= Runtime.PitExitRampEndNormalized;
-            return inPitZone ? 0f : Runtime.RunoffWidthMeters;
+            return inPitZone ? 0f : Mathf.Min(Runtime.RunoffWidthMeters, RunoffClampAt(distance));
+        }
+
+        // Per-distance ceiling on how far the runoff may extend before it would reach
+        // over a LOWER part of the circuit. Sampled every RunoffClampStepMeters and
+        // shared by everything that reads RunoffWidthAt - barriers, both validators,
+        // the apron mesh, gravel traps and trackside scenery - so an elevated layout
+        // cannot end up with the wall in one place and the validator's idea of it in
+        // another. See BuildRunoffClampProfile.
+        const float RunoffClampStepMeters = 10f;
+        // Horizontal room left between the outer edge of the runoff and the road
+        // passing underneath it.
+        const float RunoffCrossingMarginMeters = 14f;
+        float[] runoffClampProfile;
+
+        float RunoffClampAt(float distance)
+        {
+            if (runoffClampProfile == null || runoffClampProfile.Length == 0 || Runtime == null || Runtime.length <= 0f)
+            {
+                return float.MaxValue;
+            }
+
+            int index = Mathf.Clamp(
+                Mathf.RoundToInt(Runtime.WrapDistance(distance) / RunoffClampStepMeters),
+                0,
+                runoffClampProfile.Length - 1);
+            return runoffClampProfile[index];
+        }
+
+        /// <summary>
+        /// Precomputes RunoffClampAt. On a flat circuit every entry is unbounded and
+        /// nothing changes; on an elevated one - a flyover, a hillside section running
+        /// above a valley - the runoff is pulled in so neither the apron surface nor
+        /// the barriers standing at its outer edge hang over the road below. This is
+        /// the same class of defect BuildContinuousSafetyFloor's own intrusion clamp
+        /// exists for: geometry belonging to the upper section sitting at windscreen
+        /// height across the lower one.
+        /// </summary>
+        void BuildRunoffClampProfile()
+        {
+            runoffClampProfile = null;
+            if (Runtime == null || Runtime.length <= 1f || Runtime.RunoffWidthMeters <= 0.25f)
+            {
+                return;
+            }
+
+            int samples = Mathf.Max(8, Mathf.CeilToInt(Runtime.length / RunoffClampStepMeters) + 1);
+            Vector3[] road = new Vector3[samples];
+            float[] halfWidths = new float[samples];
+            for (int i = 0; i < samples; i++)
+            {
+                float d = Mathf.Min(i * RunoffClampStepMeters, Runtime.length);
+                Vector3 point;
+                Vector3 forward;
+                Vector3 right;
+                Runtime.SampleAtDistance(d, out point, out forward, out right);
+                road[i] = point;
+                halfWidths[i] = Runtime.HalfWidthAt(d);
+            }
+
+            float[] clamp = new float[samples];
+            for (int i = 0; i < samples; i++)
+            {
+                clamp[i] = float.MaxValue;
+                for (int j = 0; j < samples; j++)
+                {
+                    // Only a section genuinely BELOW this one can be driven into.
+                    if (road[i].y - road[j].y < 2.2f)
+                    {
+                        continue;
+                    }
+
+                    float dx = road[j].x - road[i].x;
+                    float dz = road[j].z - road[i].z;
+                    float flat = Mathf.Sqrt(dx * dx + dz * dz);
+                    // Side-agnostic (the tightest of the two sides wins) - a symmetric
+                    // clamp keeps every consumer able to ask for "the runoff here"
+                    // without also having to know which side it is asking about.
+                    float allowed = flat - RunoffCrossingMarginMeters - halfWidths[i];
+                    if (allowed < clamp[i])
+                    {
+                        clamp[i] = Mathf.Max(0f, allowed);
+                    }
+                }
+            }
+
+            runoffClampProfile = clamp;
         }
 
         /// <summary>
