@@ -463,6 +463,13 @@ namespace LocalFormulaRacing
         // Small per-stat multiplier delta applied evenly across the car's
         // performance stats, e.g. 0.04 = a noticeable but modest step forward.
         public float performanceDelta;
+        // The ENGINE-side delta, which is mostly the power-unit manufacturer's swing
+        // rather than this team's own (see PowerUnitRules). Applied to enginePower and
+        // ersEfficiency instead of performanceDelta, so every customer of a supplier
+        // moves with it. A save written before this field existed leaves it at 0;
+        // ApplyTeamPerformanceModifier falls back to performanceDelta in that case, so
+        // old careers keep behaving exactly as they did.
+        public float engineDelta;
         public int reputationDelta;
         public string trendLabel;
     }

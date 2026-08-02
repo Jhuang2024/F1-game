@@ -4304,6 +4304,36 @@ namespace LocalFormulaRacing
             return driver.pace <= 0 || driver.qualifying <= 0 || driver.consistency <= 0 || driver.experience <= 0;
         }
 
+        // One development swing per POWER-UNIT MANUFACTURER for the season, rolled
+        // lazily the first time a team on that supplier is evaluated and then reused
+        // for every other team on it. Keyed by supplier so the whole customer set
+        // rises and falls together, which is what actually happens: a bad engine year
+        // is a bad year for everyone who bought it.
+        readonly System.Collections.Generic.Dictionary<string, float> supplierSeasonDeltas =
+            new System.Collections.Generic.Dictionary<string, float>();
+        int supplierSeasonDeltasSeason = -1;
+
+        float SupplierPerformanceDelta(string teamId)
+        {
+            if (supplierSeasonDeltasSeason != Save.currentSeason)
+            {
+                supplierSeasonDeltasSeason = Save.currentSeason;
+                supplierSeasonDeltas.Clear();
+            }
+
+            string supplier = F1Game.Race.Rules.PowerUnitRules.SupplierForTeam(teamId);
+            float delta;
+            if (!supplierSeasonDeltas.TryGetValue(supplier, out delta))
+            {
+                // Engine regulations swing a manufacturer harder than an ordinary
+                // season does a chassis - a PU step is a step for a whole customer set.
+                delta = Mathf.Clamp(Random.Range(-0.05f, 0.05f), -0.09f, 0.09f);
+                supplierSeasonDeltas[supplier] = delta;
+            }
+
+            return delta;
+        }
+
         void GenerateTeamPerformanceEvolution(SeasonArchive completedSeason)
         {
             List<StandingEntry> previousConstructorStandings = completedSeason != null ? completedSeason.finalConstructorStandings : null;
@@ -4331,6 +4361,15 @@ namespace LocalFormulaRacing
                     teamId = team.id,
                     season = Save.currentSeason,
                     performanceDelta = delta,
+                    // Engine development belongs to the MANUFACTURER, not the team.
+                    // Seven of the eleven teams are customers running someone else's
+                    // power unit, and this used to drift per team, so a customer could
+                    // out-develop the works team it buys its engine from. Every team on
+                    // a supplier now moves with that supplier (see PowerUnitRules).
+                    engineDelta = F1Game.Race.Rules.PowerUnitRules.EngineDeltaForTeam(
+                        SupplierPerformanceDelta(team.id),
+                        delta,
+                        F1Game.Race.Rules.PowerUnitRules.IsWorksTeam(team.id)),
                     reputationDelta = Mathf.RoundToInt(delta * 40f),
                     trendLabel = delta > 0.02f ? "Gained ground over the winter" : (delta < -0.02f ? "Lost ground over the winter" : "Held steady over the winter")
                 });
@@ -4408,6 +4447,13 @@ namespace LocalFormulaRacing
             }
 
             float scale = 1f + modifier.performanceDelta;
+            // Engine stats follow the POWER UNIT's own swing, which is shared with
+            // every other team running that manufacturer's PU. Saves written before
+            // engineDelta existed carry 0, and fall back to the chassis swing so an
+            // in-progress career is untouched.
+            float engineScale = 1f + (Mathf.Abs(modifier.engineDelta) > 0.0001f
+                ? modifier.engineDelta
+                : modifier.performanceDelta);
             CarPerformanceData tuned = new CarPerformanceData
             {
                 id = baseCar.id,
@@ -4426,11 +4472,11 @@ namespace LocalFormulaRacing
                 cornering = Mathf.RoundToInt(baseCar.cornering * scale),
                 braking = Mathf.RoundToInt(baseCar.braking * scale),
                 reliability = Mathf.RoundToInt(baseCar.reliability * scale),
-                ersEfficiency = Mathf.RoundToInt(baseCar.ersEfficiency * scale),
+                ersEfficiency = Mathf.RoundToInt(baseCar.ersEfficiency * engineScale),
                 tyreManagement = Mathf.RoundToInt(baseCar.tyreManagement * scale),
                 aeroEfficiency = Mathf.RoundToInt(baseCar.aeroEfficiency * scale),
                 chassisBalance = Mathf.RoundToInt(baseCar.chassisBalance * scale),
-                enginePower = Mathf.RoundToInt(baseCar.enginePower * scale)
+                enginePower = Mathf.RoundToInt(baseCar.enginePower * engineScale)
             };
 
             tuned.topSpeed = Mathf.Clamp(tuned.topSpeed, 310, 362);
@@ -5420,7 +5466,20 @@ namespace LocalFormulaRacing
                 stats.Sort((a, b) => a.Value.CompareTo(b.Value));
                 for (int i = 0; i < Mathf.Min(2, stats.Count); i++)
                 {
-                    report.upgradeRecommendations.Add("Prioritise " + stats[i].Key + " development - currently the car's weakest area (" + stats[i].Value + ").");
+                    string advice = "Prioritise " + stats[i].Key + " development - currently the car's weakest area (" + stats[i].Value + ").";
+                    // A customer team cannot develop its way out of an engine deficit -
+                    // the power unit belongs to whoever builds it, and the whole
+                    // customer set moves with them (see PowerUnitRules). Saying so is
+                    // the difference between useful advice and misleading advice.
+                    if ((stats[i].Key == "Power Unit" || stats[i].Key == "ERS") &&
+                        !F1Game.Race.Rules.PowerUnitRules.IsWorksTeam(Save.playerTeamId))
+                    {
+                        advice += " We run a customer " +
+                            F1Game.Race.Rules.PowerUnitRules.SupplierDisplayName(Save.playerTeamId) +
+                            " power unit, so that step has to come from the manufacturer - our own work there is installation and cooling.";
+                    }
+
+                    report.upgradeRecommendations.Add(advice);
                 }
             }
 
