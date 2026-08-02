@@ -57,6 +57,27 @@ namespace LocalFormulaRacing
         int GetQualifyingPhasePosition(QualifyingSimEntry target, int phase)
         {
             List<QualifyingSimEntry> active = ActiveQualifyingEntries(phase);
+            // The caller is usually asking about a driver who has JUST been
+            // eliminated in this phase - CompleteQualifyingRun records the phase (which
+            // applies elimination and stamps eliminatedIn) and only then builds the
+            // feedback card. ActiveQualifyingEntries filters on an EMPTY eliminatedIn
+            // for phase >= 2, so the just-eliminated driver was not in the list, the
+            // loop never matched, and it fell through to "active.Count" - the
+            // survivor count, i.e. a flat 10 after a Q2 cut. The end-of-Q2 card
+            // therefore always read "You qualified P10 in Q2 / Eliminated in Q2",
+            // self-contradictory and identical whether the player was 11th or 16th.
+            // Include anyone eliminated in THIS phase so they are ranked among the
+            // field that actually ran it.
+            string phaseLabel = "Q" + phase;
+            for (int i = 0; i < qualifyingEntries.Count; i++)
+            {
+                QualifyingSimEntry entry = qualifyingEntries[i];
+                if (entry != null && entry.eliminatedIn == phaseLabel && !active.Contains(entry))
+                {
+                    active.Add(entry);
+                }
+            }
+
             active.Sort((a, b) => GetQualifyingPhaseTime(a, phase).CompareTo(GetQualifyingPhaseTime(b, phase)));
             for (int i = 0; i < active.Count; i++)
             {
@@ -231,9 +252,27 @@ namespace LocalFormulaRacing
         void ApplyQualifyingElimination(List<QualifyingSimEntry> active, int phase)
         {
             active.Sort((a, b) => GetQualifyingPhaseTime(a, phase).CompareTo(GetQualifyingPhaseTime(b, phase)));
+            string phaseLabel = "Q" + phase;
             for (int i = 0; i < active.Count; i++)
             {
-                active[i].session = "Q" + phase;
+                // Never overwrite a driver who was eliminated in a DIFFERENT phase.
+                //
+                // BuildFinalQualifyingResults calls EnsureQualifyingPhaseComplete(1)
+                // first, and ActiveQualifyingEntries(1) returns a copy of EVERY
+                // entry - including drivers already knocked out in Q2. This loop then
+                // stamped session = "Q1" and finalTime = their Q1 time over the top.
+                // The Q2 pass could not repair it either, because
+                // ActiveQualifyingEntries(2) filters out anything already eliminated.
+                // The published result took its TIME from Q1 while its ORDER came
+                // from Q2, so P11-P16 showed times that were slower than they should
+                // be, tagged "Q1", and not even in ascending order - and career
+                // storage recorded the same wrong times.
+                if (!string.IsNullOrEmpty(active[i].eliminatedIn) && active[i].eliminatedIn != phaseLabel)
+                {
+                    continue;
+                }
+
+                active[i].session = phaseLabel;
                 active[i].finalTime = GetQualifyingPhaseTime(active[i], phase);
             }
 

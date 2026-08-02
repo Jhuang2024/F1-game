@@ -825,11 +825,32 @@ namespace LocalFormulaRacing
             return Mathf.Abs(progress.lateralDistance) <= HalfWidthAt(progress.distance);
         }
 
+        // The painted kerb occupies roughly the outermost this-many metres of road.
+        // Derived from where BuildKerbs actually puts the blocks: centred at
+        // (localHalfWidth - 0.75) with a ~1.15m block width, i.e. spanning about
+        // [halfWidth - 1.33, halfWidth - 0.18].
+        public const float KerbBandWidthMeters = 1.5f;
+
         public bool IsOnKerb(Vector3 worldPosition)
         {
             TrackProgress progress = GetProgress(worldPosition);
             float lateral = Mathf.Abs(progress.lateralDistance);
-            return lateral >= kerbStart && lateral <= HalfWidthAt(progress.distance) + 1.3f;
+            float halfWidth = HalfWidthAt(progress.distance);
+            // The inner edge of the kerb is measured from the LOCAL road edge, not
+            // from the lap-constant kerbStart scalar.
+            //
+            // kerbStart is a single number for the whole circuit, but HalfWidthAt
+            // varies from a 7m floor to ~1.45x the base after the procedural width
+            // profile - so on a typical authored circuit (kerbStart 5.83, half-width
+            // up to 14.37) the old test reported "on kerb" across ~7m of perfectly
+            // clean tarmac in the wide sections, applying a grip penalty, an
+            // oscillating lateral force, sparks, camera shake and scrub audio to a
+            // car nowhere near a kerb; while in narrow sections (half-width 7) the
+            // band started outside the road entirely and riding the real kerb did
+            // nothing at all. kerbStart is still used for barrier standoff limits,
+            // where a lap-constant value is appropriate.
+            float kerbInner = Mathf.Max(0f, halfWidth - KerbBandWidthMeters);
+            return lateral >= kerbInner && lateral <= halfWidth + 1.3f;
         }
 
         public bool IsInDrsZone(float normalizedProgress)
@@ -1616,11 +1637,59 @@ namespace LocalFormulaRacing
             // and this is exactly that behaviour emerging from geometry.
             if (curvatureRadius != null && curvatureRadius.Length == centerLine.Count && length > 0f)
             {
-                int radiusIndex = Mathf.Clamp(Mathf.FloorToInt(Mathf.Repeat(distance / length, 1f) * curvatureRadius.Length), 0, curvatureRadius.Length - 1);
+                // Arc-length vertex lookup, not a proportional map - see
+                // VertexIndexAtDistance for why the two are not the same here.
+                int radiusIndex = Mathf.Clamp(VertexIndexAtDistance(distance), 0, curvatureRadius.Length - 1);
                 halfWidth = Mathf.Min(halfWidth, Mathf.Max(8f, curvatureRadius[radiusIndex] - 7f));
             }
 
             return halfWidth;
+        }
+
+        /// <summary>
+        /// Centreline VERTEX index at a lap distance, by binary search over
+        /// cumulativeDistances (true arc length).
+        ///
+        /// The per-vertex arrays (curvatureRadius in particular) used to be indexed
+        /// with FloorToInt(distance / length * count), which is only the right vertex
+        /// if every segment is the same length. The build pipeline makes sure they
+        /// are not: SmoothSharpKinks runs up to 240 Laplacian relaxation passes and
+        /// its own comment notes they "bunch points tightly at high curvature - at
+        /// ~2m local spacing" against a 12m nominal resample, and
+        /// CollapseCenterlineMicroLoop and SmoothVerticalKinks add more
+        /// non-uniformity. So on exactly the layouts where corners matter most, the
+        /// proportional map read the radius of a DIFFERENT corner - the AI braked
+        /// hard on a straight and arrived at a real hairpin unbraked, and the
+        /// width-vs-radius cap narrowed the road in the wrong place.
+        ///
+        /// Note RecalculateHairpinWidening already stores hairpinCenters correctly as
+        /// cumulativeDistances[i]; only its sibling output was being read the wrong way.
+        /// </summary>
+        public int VertexIndexAtDistance(float distance)
+        {
+            int count = centerLine == null ? 0 : centerLine.Count;
+            if (count < 2 || cumulativeDistances == null || cumulativeDistances.Length < count || length <= 0f)
+            {
+                return 0;
+            }
+
+            float wrapped = WrapDistance(distance);
+            int lo = 0;
+            int hi = count - 1;
+            while (lo < hi)
+            {
+                int mid = (lo + hi) >> 1;
+                if (cumulativeDistances[mid + 1] < wrapped)
+                {
+                    lo = mid + 1;
+                }
+                else
+                {
+                    hi = mid;
+                }
+            }
+
+            return Mathf.Clamp(lo, 0, count - 1);
         }
 
         // Geometric turn radius of the centreline at this distance, in metres
@@ -1638,7 +1707,7 @@ namespace LocalFormulaRacing
             }
 
             int count = curvatureRadius.Length;
-            int center = Mathf.Clamp(Mathf.FloorToInt(Mathf.Repeat(distance / length, 1f) * count), 0, count - 1);
+            int center = VertexIndexAtDistance(distance);
             float tightest = curvatureRadius[center];
             for (int offset = -2; offset <= 2; offset++)
             {
@@ -2299,6 +2368,24 @@ namespace LocalFormulaRacing
             // layouts otherwise all run at one flat width. Runs before the road
             // mesh, racing line and barriers below, which all sample HalfWidthAt.
             Runtime.GenerateProceduralWidthProfile();
+            // Must run AFTER the widths are FINAL, and the procedural profile above
+            // is the last thing that changes them - it REPLACES authoredHalfWidthProfile
+            // wholesale. This call used to sit at the end of CreateLayout, i.e. before
+            // that replacement, so every width the anchor sweep measured was stale.
+            //
+            // That was not an occasional mismatch: in GenerateProceduralWidthProfile
+            // section 0 is always the WIDE band, and the section blend at u -> 1
+            // interpolates back toward section 0, so the pit zone (u ~ 0.94-1.0) is
+            // always blending into it. On a typical authored circuit the anchor
+            // recorded ~9.9m while the real half-width at the line ended up as much
+            // as 14.4m - so the pit lane's inner edge sat INSIDE the live tarmac and
+            // the pit/track divider wall ended up inside the pit corridor. The
+            // intended ~3.8m of clearance collapsed to between 1.8m and negative,
+            // depending on the per-track hash: barriers and the pit wall failed
+            // placement validation and got culled, and pit-exiting cars merged into
+            // a wall or into open air. This is exactly the failure the anchor was
+            // added to prevent (its own comment cites the "pit-wall massacre").
+            AnchorPitLaneToPitZonePavement(Runtime);
             string trackId = Runtime.trackId ?? "";
             string weatherProfile = eventData != null && eventData.weatherProfile != null ? eventData.weatherProfile.ToLowerInvariant() : "";
             // Night/twilight now follow the calendar's own weatherProfile ("humid_night",
@@ -2671,12 +2758,9 @@ namespace LocalFormulaRacing
             // a second repair pass above), so this must run after that and after
             // RecalculateDistances so cumulativeDistances line up with centerLine.
             runtime.RecalculateHairpinWidening();
-            // Must run AFTER the widths are final (authored profile applied,
-            // hairpin widening and the width-vs-radius cap computed above): the
-            // pit lane keeps a constant lateral offset, but that offset now
-            // clears the WIDEST real pavement in the pit zone instead of the
-            // flat scalar - see TrackRuntime.pitLaneAnchorHalfWidth.
-            AnchorPitLaneToPitZonePavement(runtime);
+            // NOTE: the pit-lane anchor is deliberately NOT taken here. It must run
+            // after GenerateProceduralWidthProfile, which Build() calls once this
+            // method has returned - see the call site there.
             return runtime;
         }
 
@@ -3008,6 +3092,18 @@ namespace LocalFormulaRacing
 
             runtime.drsZoneOne = new Vector2(Mathf.Repeat(runtime.drsZoneOne.x - shiftNorm, 1f), Mathf.Repeat(runtime.drsZoneOne.y - shiftNorm, 1f));
             runtime.drsZoneTwo = new Vector2(Mathf.Repeat(runtime.drsZoneTwo.x - shiftNorm, 1f), Mathf.Repeat(runtime.drsZoneTwo.y - shiftNorm, 1f));
+            // The DETECTION points have to be re-based by the same shift as the zones
+            // they belong to. ValidateLayout derives them from the zone starts, but it
+            // runs inside AddLayoutPoints - i.e. before this rotation - and is never
+            // re-run, so they used to keep their pre-rotation values and ended up
+            // shiftNorm * length metres away from where they belong: an arbitrary
+            // fraction of the lap, often mid-corner or after the zone had already
+            // started. Since DRS eligibility is latched ONCE at the detection point
+            // and then held for the whole zone, a rotated circuit either never
+            // granted DRS in a zone the car had earned, or granted it off a gap
+            // measured half a lap earlier.
+            runtime.drsDetectionOne = Mathf.Repeat(runtime.drsDetectionOne - shiftNorm, 1f);
+            runtime.drsDetectionTwo = Mathf.Repeat(runtime.drsDetectionTwo - shiftNorm, 1f);
 
             Debug.LogWarning("[PitStraightRotation] " + runtime.displayName + ": rotated lap start by " +
                              (shiftNorm * total).ToString("0") + "m (norm " + shiftNorm.ToString("0.000") +

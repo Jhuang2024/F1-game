@@ -43,6 +43,20 @@ namespace LocalFormulaRacing
                     return SafetyCarTargetSpeedKph;
                 case RaceControlState.SafetyCarInThisLap:
                     return SafetyCarTargetSpeedKph + 15f;
+                case RaceControlState.RedFlagged:
+                    // A red flag had NO case here at all, so it fell through to the
+                    // default - which returns 9999 unless the state is exactly
+                    // YellowSector. FlagRules.RequiresPaceControl doesn't cover Red
+                    // either, so IsRaceControlPaceLimited was false and the player's
+                    // soft limiter never engaged. The only thing holding the field
+                    // was the autopilot flag, and UpdateSafetyCar's upkeep loop
+                    // strips that from any car with a queued pit request on the very
+                    // next frame - so a car that had merely pressed P (pitPhase is
+                    // still None until it reaches the ramp) was left completely
+                    // un-neutralised and came flying through the stationary pack at
+                    // full racing speed for the whole hold, before being teleported
+                    // onto the restart grid anyway.
+                    return RedFlagSpeedCapKph;
                 case RaceControlState.Restart:
                     // Limiter-duration fix: the restart phase (safety car in,
                     // green not yet flown) used to fall through to the default

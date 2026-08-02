@@ -31,6 +31,10 @@ namespace F1Game.Race.Rules
         // these two are constants of the rulebook.
         public const float VirtualSafetyCarSpeedCapKph = 190f;
         public const float LocalYellowSpeedCapKph = 210f;
+        // Red flag: the field must come to a controlled stop and form up for a
+        // standing restart. Deliberately well below the VSC cap - this is a
+        // "slow right down", not a delta pace.
+        public const float RedFlagSpeedCapKph = 80f;
 
         // Blue-flag detection: shown to a car about to be lapped once the
         // lapping car closes within this time gap behind it. A car a full lap
@@ -64,9 +68,14 @@ namespace F1Game.Race.Rules
         /// <summary>A car must reduce to a delta pace under these flags.</summary>
         public static bool RequiresPaceControl(RaceFlag flag)
         {
+            // Red belongs here: a red flag is the strongest pace restriction there
+            // is, but it was omitted, so IsRaceControlPaceLimited was false during a
+            // red and the player's soft limiter (and the overspeed penalty timer)
+            // never engaged for it.
             return flag == RaceFlag.VirtualSafetyCar
                 || flag == RaceFlag.SafetyCar
-                || flag == RaceFlag.FullCourseYellow;
+                || flag == RaceFlag.FullCourseYellow
+                || flag == RaceFlag.Red;
         }
 
         /// <summary>Blue flag: the shown car must let faster (lapping) traffic by.</summary>

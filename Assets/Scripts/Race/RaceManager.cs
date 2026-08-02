@@ -108,6 +108,7 @@ namespace LocalFormulaRacing
         // number, the same way the full Safety Car branch already clamps to
         // SafetyCarTargetSpeedKph rather than scaling it.
         public const float VirtualSafetyCarSpeedCapKph = FlagRules.VirtualSafetyCarSpeedCapKph;
+        public const float RedFlagSpeedCapKph = FlagRules.RedFlagSpeedCapKph;
         public bool IsPitLaneOpen { get; private set; } = true;
 
         // Single mapping from the live race-control state machine to the

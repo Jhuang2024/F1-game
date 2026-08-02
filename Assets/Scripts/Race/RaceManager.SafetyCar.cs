@@ -242,7 +242,14 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            if (p.vehicle != null && p.vehicle.PitRequested)
+            // A queued pit request releases a car from the convoy so it can peel off
+            // toward the pit lane - but NOT under a red flag, where the whole field
+            // must stop and form up. This exemption used to apply unconditionally,
+            // and since pitPhase stays None until the car actually reaches the ramp,
+            // a car that had merely pressed P kept full control (and, before the
+            // RedFlagged speed cap was added, full speed) through the entire hold.
+            if (p.vehicle != null && p.vehicle.PitRequested &&
+                CurrentRaceControlState != RaceControlState.RedFlagged)
             {
                 return false;
             }
@@ -521,8 +528,22 @@ namespace LocalFormulaRacing
                 // A car under race-control's own convoy autopilot can never
                 // "illegally" pass the safety car - its movement is race
                 // control's own doing, not a driver decision to penalize.
+                // A car with a queued pit request is likewise exempt. During a full
+                // SC the upkeep loop puts essentially the whole field on autopilot,
+                // and the ONLY cars ShouldQueueUnderRaceControl leaves off it are
+                // those with a pit request whose pitPhase is still None - i.e.
+                // precisely the state that accepting race control's own "box now,
+                // this is close to a free stop" radio offer puts you in. Those cars
+                // are then driven at the SC cap toward the pit entry while the
+                // physical safety car slows for corners and drops to its pickup
+                // speed, so they close on it and crossed the gap test. The penalty
+                // could therefore only ever fire against a driver doing exactly what
+                // race control had just instructed - it punished compliance and
+                // nothing else.
+                bool pitBound = participant != null && participant.vehicle != null && participant.vehicle.PitRequested;
                 if (participant == null || participant.vehicle == null || participant.retired || participant.finished ||
-                    participant.isPitting || participant.pitPhase != PitPhase.None || participant.isRaceControlAutopilot)
+                    participant.isPitting || participant.pitPhase != PitPhase.None || participant.isRaceControlAutopilot ||
+                    pitBound)
                 {
                     aheadOfSafetyCarLastTick.Remove(participant);
                     continue;
