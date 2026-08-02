@@ -41,6 +41,9 @@ namespace LocalFormulaRacing
         /// classification - i.e. an actual grand prix. Qualifying has its own flow,
         /// and Practice/Time Trial are open-ended running with no result to award.
         /// </summary>
+        /// <summary>Sprint race: scored, but not the grand prix.</summary>
+        public bool IsSprintRace { get { return CurrentSession == RaceWeekendSession.Sprint; } }
+
         public bool IsScoredRaceSession
         {
             get
@@ -908,7 +911,25 @@ namespace LocalFormulaRacing
             // GameBootstrap.StartCareerPractice / EvaluatePracticeSession, which
             // score the session from telemetry once the player manually ends it
             // rather than from a lap-count finish.
-            get { return (IsTimeTrial || CurrentSession == RaceWeekendSession.Practice) ? 999 : Mathf.Max(3, Settings.Current.laps); }
+            get
+            {
+                if (IsTimeTrial || CurrentSession == RaceWeekendSession.Practice)
+                {
+                    return 999;
+                }
+
+                // A sprint is a fixed ~100 km, not whatever race length the player
+                // picked for the grand prix - that is what makes it a sprint.
+                if (CurrentSession == RaceWeekendSession.Sprint)
+                {
+                    int sprintLaps = EventData != null ? EventData.lapsSprint : 0;
+                    return sprintLaps > 0
+                        ? sprintLaps
+                        : Mathf.Max(3, Mathf.RoundToInt(Mathf.Max(3, Settings.Current.laps) / 3f));
+                }
+
+                return Mathf.Max(3, Settings.Current.laps);
+            }
         }
 
         // UpdateWeatherTransition + UpdateTrackEvolution live in the

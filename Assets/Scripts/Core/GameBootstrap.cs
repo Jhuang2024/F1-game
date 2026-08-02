@@ -367,6 +367,34 @@ namespace LocalFormulaRacing
             ui.ShowRaceTyreSelect(data, career, settings, true);
         }
 
+        /// <summary>
+        /// Sprint race on a sprint weekend: a short standalone race, scored on its own
+        /// points table, that does NOT advance the round. Runs straight from the grid
+        /// the qualifying result already set - there is no separate sprint shootout
+        /// here, and a sprint has no mandatory stop, so there is no tyre choice screen
+        /// to sit in front of it either.
+        /// </summary>
+        public void StartCareerSprint()
+        {
+            CalendarEventData sprintEvent = career.CurrentEvent();
+            if (sprintEvent == null || sprintEvent.lapsSprint <= 0 || career.HasSprintResultForCurrentRound())
+            {
+                return;
+            }
+
+            SimpleAudioManager.ApplySettings(settings.Current);
+            raceManager.StartSession(
+                data,
+                career,
+                settings,
+                ui,
+                sprintEvent,
+                career.Save.playerDriverName,
+                career.Save.playerTeamId,
+                true,
+                RaceWeekendSession.Sprint);
+        }
+
         public void BeginCareerRace()
         {
             CalendarEventData raceEvent = career.CurrentEvent();

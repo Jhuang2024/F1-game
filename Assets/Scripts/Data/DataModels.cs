@@ -1014,6 +1014,10 @@ namespace LocalFormulaRacing
         public int season;
         public int round;
         public string eventName;
+        // A sprint and the grand prix share a round, so the round number alone is no
+        // longer enough to tell two stored results apart. Older records were all
+        // grand prix results and leave this false, which is exactly right.
+        public bool isSprint;
         public List<RaceResultEntry> results = new List<RaceResultEntry>();
     }
 
@@ -1374,7 +1378,13 @@ namespace LocalFormulaRacing
         // that never auto-finishes on lap count - the player ends it manually
         // from the pause menu once satisfied, and RaceManager.EvaluatePracticeSession
         // scores the selected program from real session telemetry.
-        Practice
+        Practice,
+        // Sprint: a short standalone race on six rounds of the calendar, run to
+        // roughly 100 km with no mandatory pit stop and its own 8-7-6-5-4-3-2-1
+        // points scale. It scores into the same championship as the grand prix but
+        // is NOT the grand prix - it must not advance the round or count as a win.
+        // Distance comes from CalendarEventData.lapsSprint.
+        Sprint
     }
 
     public enum ErsStrategyMode

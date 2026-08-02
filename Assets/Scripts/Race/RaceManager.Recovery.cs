@@ -234,7 +234,7 @@ namespace LocalFormulaRacing
 
             participant.vehicle.PendingWallHitColliderName = "";
             participant.vehicle.PendingWallHitNormal = Vector3.zero;
-            bool raceSession = (CurrentSession == RaceWeekendSession.Race || CurrentSession == RaceWeekendSession.QuickRace) && !IsTimeTrial;
+            bool raceSession = IsScoredRaceSession;
             if (!raceSession || participant.retired || participant.finished || RaceElapsed < HardWallRetireMinRaceSeconds)
             {
                 return;

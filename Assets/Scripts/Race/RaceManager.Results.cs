@@ -33,7 +33,10 @@ namespace LocalFormulaRacing
                 // The two-compound rule only applies to cars that reach the flag;
                 // ShouldDisqualifyForTwoCompoundRule takes `retired` and bails, but
                 // keep the guard explicit here too.
-                if (!participant.retired)
+                // A sprint has no mandatory pit stop and no two-compound requirement -
+                // that is one of the things that makes it a sprint - so applying the
+                // rule there would disqualify the entire field.
+                if (!participant.retired && !IsSprintRace)
                 {
                     ApplyTwoCompoundRule(participant);
                 }
@@ -111,7 +114,8 @@ namespace LocalFormulaRacing
                 // race could generate a "188 recorded incidents, utter chaos" story. Passing
                 // RaceControlIncidentCount instead (genuine yellow/VSC/SC/red-flag actions only)
                 // makes the narrative match what race control actually did.
-                Career.ApplyRaceResults(EventData, results, RaceControlIncidentCount, SafetyCarDeploymentCount, AiOvertakesCompletedCount, RedFlagCount, RedFlagReason);
+                Career.ApplyRaceResults(EventData, results, RaceControlIncidentCount, SafetyCarDeploymentCount,
+                    AiOvertakesCompletedCount, RedFlagCount, RedFlagReason, BuildRaceScoring());
             }
             else if (IsLegendsRace && Legends != null)
             {
@@ -392,10 +396,55 @@ namespace LocalFormulaRacing
             }
         }
 
+        /// <summary>
+        /// How this session's championship points are scored: the full table for a
+        /// grand prix run to the flag, the 8-7-6-5-4-3-2-1 sprint table for a sprint,
+        /// and the FIA's sliding scale for a race suspended and never resumed.
+        ///
+        /// Both of the latter two were unreachable: the sprint table and the
+        /// suspended-race tables existed in ChampionshipPoints with no caller at all,
+        /// so a red-flagged race that never restarted still paid a full 25 for the
+        /// win, and there was no sprint to pay the sprint table.
+        /// </summary>
+        CareerManager.RaceScoring BuildRaceScoring()
+        {
+            if (IsSprintRace)
+            {
+                return CareerManager.RaceScoring.Sprint;
+            }
+
+            if (!RaceAbandonedBeforeDistance)
+            {
+                return CareerManager.RaceScoring.FullGrandPrix;
+            }
+
+            int leaderLaps = 0;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant participant = Participants[i];
+                if (participant != null && participant.lapTracker != null)
+                {
+                    leaderLaps = Mathf.Max(leaderLaps, participant.lapTracker.CompletedLaps);
+                }
+            }
+
+            float fraction = RaceLaps > 0 ? Mathf.Clamp01(leaderLaps / (float)RaceLaps) : 1f;
+            return CareerManager.RaceScoring.Suspended(fraction, leaderLaps);
+        }
+
         void RecordPlayerRaceStats(List<RaceResultEntry> results)
         {
             RaceResultEntry playerResult = results == null ? null : results.Find(entry => entry.isPlayer);
             if (playerResult == null)
+            {
+                return;
+            }
+
+            // A sprint win is not a grand prix win. Career records track grands prix,
+            // so a sprint scores its championship points and nothing else - otherwise
+            // a sprint weekend would inflate the career win/podium totals by a whole
+            // extra race.
+            if (IsSprintRace)
             {
                 return;
             }

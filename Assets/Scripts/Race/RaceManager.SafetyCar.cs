@@ -1025,6 +1025,19 @@ namespace LocalFormulaRacing
                     // reformation) so a car needing repairs can route there
                     // while the field is held.
                     IsPitLaneOpen = true;
+                    // Abandonment. A red flag does not always lead to a restart: if
+                    // the circuit is unraceable (a genuine downpour) or the race has
+                    // already been stopped repeatedly, race control declares it over
+                    // where it stands. Both are real outcomes - Spa 2021 and Imola
+                    // 2023 - and neither had any representation here, which is why the
+                    // FIA's suspended-race points scale had no caller: every red flag
+                    // eventually restarted and every race paid full points.
+                    if (ShouldAbandonRace())
+                    {
+                        AbandonRace();
+                        break;
+                    }
+
                     redFlagTimer -= Time.deltaTime;
                     if (redFlagTimer <= 0f)
                     {

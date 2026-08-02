@@ -68,7 +68,10 @@ namespace F1Game.Tests
                         Assert.Less(point.width, 60f, trackId + " road too wide");
                     }
 
-                    Assert.AreEqual(2, definition.drsZones.Count, trackId + " DRS zone count");
+                    // Zone count is per circuit now, not a constant two: Monaco and
+                    // Suzuka have one activation zone, several circuits have three.
+                    Assert.GreaterOrEqual(definition.drsZones.Count, 1, trackId + " DRS zone count");
+                    Assert.LessOrEqual(definition.drsZones.Count, 3, trackId + " DRS zone count");
                     foreach (TrackDefinitionAsset.DrsZone zone in definition.drsZones)
                     {
                         Assert.GreaterOrEqual(zone.activationDistance, 0f, trackId);

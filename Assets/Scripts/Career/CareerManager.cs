@@ -152,6 +152,31 @@ namespace LocalFormulaRacing
             return data.FindEventForRound(Save.currentRound);
         }
 
+        /// <summary>
+        /// Whether this round's sprint has already been run. A sprint shares its round
+        /// with the grand prix, so it is identified by the isSprint flag on the stored
+        /// result rather than by the round number alone.
+        /// </summary>
+        public bool HasSprintResultForCurrentRound()
+        {
+            if (Save == null || Save.raceResults == null)
+            {
+                return false;
+            }
+
+            for (int i = 0; i < Save.raceResults.Count; i++)
+            {
+                RaceResultRecord record = Save.raceResults[i];
+                if (record != null && record.isSprint &&
+                    record.season == Save.currentSeason && record.round == Save.currentRound)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
         public bool HasQualifyingForCurrentRound()
         {
             if (Save == null || Save.qualifyingResults == null)
@@ -355,6 +380,60 @@ namespace LocalFormulaRacing
 
         public void ApplyRaceResults(CalendarEventData raceEvent, List<RaceResultEntry> results, int incidentCount, int safetyCarDeploymentCount, int aiOvertakesCompletedCount, int redFlagCount, string redFlagReason)
         {
+            ApplyRaceResults(raceEvent, results, incidentCount, safetyCarDeploymentCount,
+                aiOvertakesCompletedCount, redFlagCount, redFlagReason, RaceScoring.FullGrandPrix);
+        }
+
+        /// <summary>
+        /// How a session's points are scored. A grand prix run to the flag pays the
+        /// full table; a SPRINT pays 8-7-6-5-4-3-2-1 and is not a grand prix (it must
+        /// not advance the round or count as a win); a race SUSPENDED and never
+        /// resumed pays the FIA's sliding scale by how far the leader actually got.
+        /// All three used to pay the full table unconditionally.
+        /// </summary>
+        public struct RaceScoring
+        {
+            public bool isSprint;
+            // Leader's completed distance as a fraction of the scheduled distance,
+            // and their completed lap count. Only read when the race did not reach
+            // the scheduled distance.
+            public float distanceFraction;
+            public int leaderLaps;
+
+            public static RaceScoring FullGrandPrix
+            {
+                get { return new RaceScoring { isSprint = false, distanceFraction = 1f, leaderLaps = int.MaxValue }; }
+            }
+
+            public static RaceScoring Sprint
+            {
+                get { return new RaceScoring { isSprint = true, distanceFraction = 1f, leaderLaps = int.MaxValue }; }
+            }
+
+            public static RaceScoring Suspended(float fraction, int leaderLaps)
+            {
+                return new RaceScoring { isSprint = false, distanceFraction = fraction, leaderLaps = leaderLaps };
+            }
+
+            public int PointsFor(int finishingPosition)
+            {
+                if (isSprint)
+                {
+                    return F1Game.Race.Rules.ChampionshipPoints.ForSprintPosition(finishingPosition);
+                }
+
+                if (distanceFraction >= 0.75f)
+                {
+                    return F1Game.Race.Rules.ChampionshipPoints.ForPosition(finishingPosition);
+                }
+
+                return F1Game.Race.Rules.ChampionshipPoints.ForPosition(
+                    finishingPosition, distanceFraction, leaderLaps);
+            }
+        }
+
+        public void ApplyRaceResults(CalendarEventData raceEvent, List<RaceResultEntry> results, int incidentCount, int safetyCarDeploymentCount, int aiOvertakesCompletedCount, int redFlagCount, string redFlagReason, RaceScoring scoring)
+        {
             // Snapshot the player's standing before this race's points land, so
             // the post-race report can show actual movement rather than just an
             // after-the-fact total (Part 2 report / Championship Impact card).
@@ -370,9 +449,7 @@ namespace LocalFormulaRacing
                 // parked on lap 1 took championship points - and, in the degenerate
                 // all-retire case, the "win". The 90% rule and disqualification are
                 // both resolved in RaceManager.FinishRace before this runs.
-                int points = results[i].classified
-                    ? F1Game.Race.Rules.ChampionshipPoints.ForPosition(i + 1)
-                    : 0;
+                int points = results[i].classified ? scoring.PointsFor(i + 1) : 0;
                 results[i].finishingPosition = i + 1;
                 results[i].points = points;
                 ApplyDriverPoints(results[i], points);
@@ -383,7 +460,8 @@ namespace LocalFormulaRacing
             {
                 season = Save.currentSeason,
                 round = Save.currentRound,
-                eventName = raceEvent != null ? raceEvent.displayName : "Prototype GP",
+                eventName = (raceEvent != null ? raceEvent.displayName : "Prototype GP") + (scoring.isSprint ? " Sprint" : ""),
+                isSprint = scoring.isSprint,
                 results = results
             };
             Save.raceResults.Add(record);
@@ -416,9 +494,15 @@ namespace LocalFormulaRacing
             }
 
             UpdateDriverSeasonPerformanceFromRace(raceEvent, results);
-            AdvanceUpgradeProjects();
-            AdvanceAiTeamDevelopment();
-            SyncPlayerTeamDevelopmentState();
+            // Development advances once per ROUND, not once per session. A sprint
+            // weekend would otherwise give every team on the grid two rounds' worth
+            // of upgrade progress.
+            if (!scoring.isSprint)
+            {
+                AdvanceUpgradeProjects();
+                AdvanceAiTeamDevelopment();
+                SyncPlayerTeamDevelopmentState();
+            }
 
             // Capture the post-race championship snapshot HERE, before the season
             // rollover below can replace the standings. BeginNewSeason swaps in
@@ -442,7 +526,13 @@ namespace LocalFormulaRacing
                 constructorPositionAfter = FindStandingPosition(Save.constructorStandings, playerEntry.teamId);
             }
 
-            Save.currentRound++;
+            // A sprint is part of the SAME round as the grand prix, so it must not
+            // advance it - doing so would skip the grand prix entirely and score the
+            // sprint as if it were the race.
+            if (!scoring.isSprint)
+            {
+                Save.currentRound++;
+            }
             if (Save.currentRound > data.Calendar.events.Count)
             {
                 // Season-end root-cause fix: this used to silently roll straight

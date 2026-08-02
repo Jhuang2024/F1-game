@@ -141,6 +141,73 @@ namespace LocalFormulaRacing
             RetireParticipant(participant, "Black flagged");
         }
 
+        // ---- Race abandonment ------------------------------------------------
+
+        /// <summary>
+        /// True once race control has declared the race over at a red flag without
+        /// restarting it. Read by FinishRace to score the classification on the FIA's
+        /// suspended-race points scale instead of the full table.
+        /// </summary>
+        public bool RaceAbandonedBeforeDistance { get; private set; }
+
+        /// <summary>
+        /// Third red flag in one race, or a red flag thrown in a genuine downpour.
+        /// Both are how a real race actually ends early.
+        /// </summary>
+        const int RedFlagsBeforeAbandonment = 3;
+
+        bool ShouldAbandonRace()
+        {
+            if (RaceAbandonedBeforeDistance || !IsScoredRaceSession)
+            {
+                return false;
+            }
+
+            if (RedFlagCount >= RedFlagsBeforeAbandonment)
+            {
+                return true;
+            }
+
+            // Unraceable conditions: the circuit is under heavy rain and the race has
+            // already run far enough to be classifiable. Stopping a race on lap two
+            // for weather and calling it a result would be worse than restarting it.
+            bool downpour = Track != null && Track.weather == WeatherState.HeavyRain;
+            return downpour && LeaderCompletedLaps() >= 2;
+        }
+
+        int LeaderCompletedLaps()
+        {
+            int laps = 0;
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant participant = Participants[i];
+                if (participant != null && participant.lapTracker != null)
+                {
+                    laps = Mathf.Max(laps, participant.lapTracker.CompletedLaps);
+                }
+            }
+
+            return laps;
+        }
+
+        void AbandonRace()
+        {
+            if (RaceAbandonedBeforeDistance)
+            {
+                return;
+            }
+
+            RaceAbandonedBeforeDistance = true;
+            string reason = RedFlagCount >= RedFlagsBeforeAbandonment
+                ? "Race abandoned after " + RedFlagCount + " red flags"
+                : "Race abandoned - conditions unraceable";
+            GameLog.Warn("[RaceControl] " + reason + " on lap " + LeaderCompletedLaps() + "/" + RaceLaps);
+            LogRaceControlHistory("RACE ABANDONED", reason);
+            PostEngineerMessage("That's it - the race has been abandoned. " + reason + ".", true, RaceAudioCue.RedFlag);
+            SessionMessage = reason;
+            FinishRace();
+        }
+
         /// <summary>
         /// The flag this car is currently being shown for its own mechanical state,
         /// or Green. HUD-facing; layered on top of the course-wide flag rather than

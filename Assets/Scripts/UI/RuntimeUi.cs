@@ -3443,6 +3443,27 @@ namespace LocalFormulaRacing
                 hasQualifying ? "Grid is set. Re-run to replace the result." : "Drive the session yourself, or simulate it.",
                 "Go to Qualifying", bootstrap.StartCareerQualifying, "Sim Qualifying", bootstrap.StartCareerSimQualifying);
 
+            // Sprint weekends. Six rounds of the calendar hold a sprint - a short
+            // standalone race on its own 8-7-6-5-4-3-2-1 points scale - and the game
+            // had no way to run one at all, which is why that points table had no
+            // caller. The group only appears on the rounds that actually have one
+            // (CalendarEventData.lapsSprint), and disappears once it has been run.
+            CalendarEventData weekendEvent = career.CurrentEvent();
+            if (weekendEvent != null && weekendEvent.lapsSprint > 0)
+            {
+                bool sprintDone = career.HasSprintResultForCurrentRound();
+                UnityEngine.Events.UnityAction sprintAction = sprintDone
+                    ? (UnityEngine.Events.UnityAction)delegate { }
+                    : new UnityEngine.Events.UnityAction(bootstrap.StartCareerSprint);
+                CreateWeekendActionGroup(actions, "Sprint",
+                    sprintDone
+                        ? "Sprint complete. Points are already in the championship."
+                        : weekendEvent.lapsSprint + " laps, no mandatory stop, 8-7-6-5-4-3-2-1.",
+                    sprintDone ? "Sprint Complete" : "Go to Sprint",
+                    sprintAction,
+                    null, null);
+            }
+
             if (settings.Current.practiceProgramsEnabled)
             {
                 CreateWeekendActionGroup(actions, "Practice", "Optional programs for resource points.",
@@ -4173,7 +4194,7 @@ namespace LocalFormulaRacing
             UiFactory.SetSize(titleText, 380f, 26f);
 
             Text metaText = UiFactory.CreateText(card, "Quick race card meta",
-                raceEvent.country + "   ·   " + WeatherProfileText(raceEvent.weatherProfile).ToUpperInvariant() + "   ·   " + raceEvent.laps25Percent + " LAPS TYPICAL",
+                raceEvent.country + "   ·   " + WeatherProfileText(raceEvent.weatherProfile).ToUpperInvariant() + "   ·   " + (raceEvent.lapsFull > 0 ? raceEvent.lapsFull : raceEvent.laps25Percent * 4) + " LAPS",
                 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
             SetTopLeft(metaText.rectTransform, 16f, 46f);
             UiFactory.SetSize(metaText, 380f, 20f);
@@ -4225,9 +4246,8 @@ namespace LocalFormulaRacing
         // Configurable race length presets (#99): 3/5 lap presets prefer the
         // track's own tuned laps3/laps5 values over a flat literal, since those
         // already account for that circuit's own lap length; 10 laps is a flat
-        // literal per the requested preset list; 25/50/Full derive from the
-        // track's existing laps25Percent (50% = double, Full = quadruple - the
-        // only distances derivable from a single quarter-distance data point).
+        // literal per the requested preset list; 25/50/Full derive from the circuit's
+        // real grand prix distance (lapsFull).
         const int RaceLengthPresetCount = 6;
 
         string RaceLengthPresetLabel(int preset)
@@ -4738,7 +4758,7 @@ namespace LocalFormulaRacing
             SetTopLeft(titleText.rectTransform, 16f, 14f);
             UiFactory.SetSize(titleText, 380f, 26f);
 
-            Text metaText = UiFactory.CreateText(card, "Track meta", raceEvent.country + "   ·   " + raceEvent.laps25Percent + " LAPS", 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text metaText = UiFactory.CreateText(card, "Track meta", raceEvent.country + "   ·   " + (raceEvent.lapsFull > 0 ? raceEvent.lapsFull : raceEvent.laps25Percent * 4) + " LAPS", 14, UiFactory.TextMuted, TextAnchor.UpperLeft);
             SetTopLeft(metaText.rectTransform, 16f, 46f);
             UiFactory.SetSize(metaText, 380f, 20f);
 
