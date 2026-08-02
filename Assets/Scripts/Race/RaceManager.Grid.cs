@@ -96,6 +96,9 @@ namespace LocalFormulaRacing
         // roster minus anyone already eliminated). Used to space the out-lap spread
         // evenly around the lap - see SpawnParticipant.
         int aiQualifyingFieldSize = 19;
+        // Running count of AI placed on their out lap in the current qualifying
+        // segment; reset with the field in SpawnRaceGrid.
+        int qualifyingSpawnOrdinal;
 
         /// <summary>Pit box index for a team - one garage per constructor.</summary>
         int ResolvePitBoxIndex(string teamId)
@@ -167,7 +170,12 @@ namespace LocalFormulaRacing
                     // is actually for - rivals to catch, traffic to find a gap in, a tow
                     // on the straights - which is the substance a qualifying session
                     // ran on an empty circuit was missing.
-                    int slot = Mathf.Max(0, gridIndex);
+                    // A dedicated spawn ordinal, NOT gridIndex: grid indices are the
+                    // qualifying order and can run past the number of cars actually
+                    // taking part in this segment, so spacing them modulo the field
+                    // size would place two cars on the same spot - two rigidbodies
+                    // inside each other at t=0.
+                    int slot = qualifyingSpawnOrdinal++;
                     float spacing = Track.length / Mathf.Max(1, aiQualifyingFieldSize + 1);
                     float outLapDistance = Track.WrapDistance(gridDistance + spacing * (slot + 1));
                     Track.SampleAtDistance(outLapDistance, out point, out forward, out right);
@@ -643,6 +651,7 @@ namespace LocalFormulaRacing
             // Known before the loop so the qualifying out-lap spread in
             // SpawnParticipant can space the field evenly around the whole lap.
             aiQualifyingFieldSize = aiDrivers.Count;
+            qualifyingSpawnOrdinal = 0;
             int aiFallbackSlot = 0;
             for (int i = 0; i < aiDrivers.Count; i++)
             {
