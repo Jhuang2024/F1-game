@@ -291,6 +291,12 @@ namespace LocalFormulaRacing
         // Two-compound rule bookkeeping (see RaceManager.ApplyTwoCompoundRule).
         public bool twoCompoundRuleChecked;
         public bool disqualified;
+        // Black-and-orange flag state (RaceManager.UpdateMechanicalFlags): shown when
+        // the car has a mechanical problem or loose bodywork race control wants fixed,
+        // withdrawn once a pit stop has repaired it, and escalated to the black flag
+        // if the car keeps circulating with it. -1 = not currently shown.
+        public bool blackOrangeShown;
+        public int blackOrangeShownLap = -1;
 
         /// <summary>
         /// How many DISTINCT dry specifications this car actually ran, and whether it

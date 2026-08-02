@@ -14,7 +14,13 @@ namespace LocalFormulaRacing
     public class DamageState
     {
         public float frontWing;
+        // Rear wing and suspension were missing entirely: a rear-end hit was filed
+        // under "floor", and suspension - the damage that most often actually ends a
+        // real grand prix, and the one a pit stop cannot fix - had nowhere to go at
+        // all. See DamagePerformance for what each one costs.
+        public float rearWing;
         public float floor;
+        public float suspension;
         public float engineWear;
         public float gearboxWear;
 
@@ -23,12 +29,12 @@ namespace LocalFormulaRacing
         // the impact accumulation and just reads through.
         public float AeroMultiplier
         {
-            get { return F1Game.Race.Rules.DamagePerformance.AeroMultiplier(frontWing, floor); }
+            get { return F1Game.Race.Rules.DamagePerformance.AeroMultiplier(frontWing, rearWing, floor); }
         }
 
         public float HandlingMultiplier
         {
-            get { return F1Game.Race.Rules.DamagePerformance.HandlingMultiplier(frontWing, floor); }
+            get { return F1Game.Race.Rules.DamagePerformance.HandlingMultiplier(frontWing, rearWing, floor, suspension); }
         }
 
         public float PowerMultiplier
@@ -38,7 +44,7 @@ namespace LocalFormulaRacing
 
         public float OverallPercent
         {
-            get { return F1Game.Race.Rules.DamagePerformance.OverallPercent(frontWing, floor, engineWear, gearboxWear); }
+            get { return F1Game.Race.Rules.DamagePerformance.OverallPercent(frontWing, rearWing, floor, suspension, engineWear, gearboxWear); }
         }
 
         public bool IsDestroyed
@@ -121,9 +127,16 @@ namespace LocalFormulaRacing
             energy *= CollisionDamageScale * Mathf.Max(0f, externalScale);
 
             float before = OverallPercent;
+            // Where the car was hit decides what broke. A rear-end impact used to be
+            // credited to the floor, so being rear-ended cost cornering grip and no
+            // straight-line speed - the wrong way round.
             if (localPoint.z > 0.1f)
             {
                 frontWing += energy * 0.46f;
+            }
+            else if (localPoint.z < -0.1f)
+            {
+                rearWing += energy * 0.42f;
             }
             else
             {
@@ -133,6 +146,17 @@ namespace LocalFormulaRacing
             floor += energy * (sustainedScrape ? 0.08f : 0.05f);
             engineWear += energy * 0.07f;
             gearboxWear += energy * 0.055f;
+
+            // Suspension takes load from SHARP impacts, not from scraping along a
+            // wall: a sustained graze loads the bodywork, a sudden hit loads the
+            // wishbones. Car-to-car contact is the classic way to break it - a wheel
+            // over a wheel - so it is not discounted the way bodywork damage is.
+            if (!sustainedScrape)
+            {
+                float suspensionShare = impactType == DamageImpactType.Car ? 0.34f : 0.22f;
+                suspension += energy * suspensionShare * Mathf.Clamp01(normalized * 1.6f);
+            }
+
             ClampAll();
             return Mathf.Max(0f, OverallPercent - before);
         }
@@ -151,7 +175,23 @@ namespace LocalFormulaRacing
         /// </summary>
         public float RepairablePercent
         {
-            get { return Mathf.Clamp01((frontWing + floor) * 0.5f) * 100f; }
+            get { return Mathf.Clamp01((frontWing + rearWing + floor) / 3f) * 100f; }
+        }
+
+        /// <summary>
+        /// Whether race control must show this car the black-and-orange flag: a
+        /// mechanical problem or hanging bodywork that has to be put right before it
+        /// may continue. See RaceManager.UpdateMechanicalFlags.
+        /// </summary>
+        public bool RequiresMechanicalFlag
+        {
+            get { return F1Game.Race.Rules.DamagePerformance.RequiresMechanicalBlackOrange(frontWing, rearWing, suspension); }
+        }
+
+        /// <summary>Broken suspension - not something a pit stop fixes.</summary>
+        public bool SuspensionIsTerminal
+        {
+            get { return F1Game.Race.Rules.DamagePerformance.SuspensionIsTerminal(suspension); }
         }
 
         public void RepairPitDamage()
@@ -165,7 +205,12 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // A nose change is quick and near-total; a rear wing change is slower and
+            // rarer, so it is repaired less completely. Suspension is deliberately NOT
+            // repaired - a broken wishbone is a retirement, not a pit stop, which is
+            // what makes it worth modelling separately at all.
             frontWing = Mathf.Max(0f, frontWing - 0.75f);
+            rearWing = Mathf.Max(0f, rearWing - 0.55f);
             floor = Mathf.Max(0f, floor - 0.25f);
             ClampAll();
         }
@@ -173,7 +218,9 @@ namespace LocalFormulaRacing
         void ClampAll()
         {
             frontWing = Mathf.Clamp01(frontWing);
+            rearWing = Mathf.Clamp01(rearWing);
             floor = Mathf.Clamp01(floor);
+            suspension = Mathf.Clamp01(suspension);
             engineWear = Mathf.Clamp01(engineWear);
             gearboxWear = Mathf.Clamp01(gearboxWear);
         }

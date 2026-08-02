@@ -3980,6 +3980,16 @@ namespace LocalFormulaRacing
                 command.pitRequest = true;
             }
 
+            // Black and orange flag: this is not a strategy call. Race control has
+            // ordered the car in to have the damage put right, and ignoring it is a
+            // black flag (see RaceManager.UpdateMechanicalFlags), so it overrides
+            // every suppression above including the final-lap one - a disqualification
+            // costs more than any track position a last lap could hold.
+            if (participant.blackOrangeShown)
+            {
+                command.pitRequest = true;
+            }
+
             damageDecisionTimer -= Time.deltaTime;
             if (damageDecisionTimer > 0f)
             {

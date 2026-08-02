@@ -811,6 +811,7 @@ namespace LocalFormulaRacing
                 HandlePitService(participant);
                 HandleFinish(participant);
                 UpdateFuelState(participant);
+                UpdateMechanicalFlags(participant);
                 UpdateDrsEligibility(participant);
 
                 if (participant.vehicle != null)
