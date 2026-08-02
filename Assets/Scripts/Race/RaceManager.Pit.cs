@@ -71,6 +71,7 @@ namespace LocalFormulaRacing
             SetCarToCarCollisionIgnored(participant, participant.pitPhase != PitPhase.None || participant.isPitting || participant.resetGhostTimer > 0f);
 
             UpdateMissedPitEntryReset(participant);
+            EnforcePitLaneSpeedLimit(participant);
 
             TrackProgress currentProgress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
             float normalized = currentProgress.normalized;
@@ -1012,6 +1013,70 @@ namespace LocalFormulaRacing
                 }
             }
         }
+        /// <summary>
+        /// FIA pit-lane speed limit enforcement: 80 km/h, +1 km/h of measurement
+        /// tolerance, 5 seconds added to the race time for exceeding it.
+        ///
+        /// PitServiceRules has carried the limit, the tolerance and the penalty for a
+        /// while, but nothing ever read the last two - the game set the limiter and
+        /// assumed compliance. The limiter is not a guarantee: a car can arrive in the
+        /// lane carrying speed before the rail takes it, slide in, or be pushed, and a
+        /// player can be over the line before the limiter engages. This bills exactly
+        /// what the real rule bills, once per pit visit, for player and AI alike.
+        /// </summary>
+        void EnforcePitLaneSpeedLimit(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null || participant.retired ||
+                CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
+            {
+                return;
+            }
+
+            // Only inside the lane itself. The exit merge (Release/Exit) is where the
+            // limiter legally comes off, so it is not policed here; the entry rail and
+            // the box are.
+            bool inPitLane = participant.pitPhase == PitPhase.Entry || participant.pitPhase == PitPhase.Service;
+            if (!inPitLane)
+            {
+                participant.pitLaneOverspeedTimer = 0f;
+                if (participant.pitPhase == PitPhase.None)
+                {
+                    // Re-armed for the next visit once the car is fully back racing.
+                    participant.pitLaneSpeedingPenaltyApplied = false;
+                }
+
+                return;
+            }
+
+            float limit = PitServiceRules.PitLaneSpeedLimitKph + PitServiceRules.PitLaneSpeedToleranceKph;
+            if (participant.vehicle.CurrentSpeedKph <= limit)
+            {
+                participant.pitLaneOverspeedTimer = 0f;
+                return;
+            }
+
+            // A brief spike as the limiter grabs the car is not a speeding offence -
+            // the real system measures a sustained overspeed through the lane.
+            participant.pitLaneOverspeedTimer += Time.deltaTime;
+            if (participant.pitLaneOverspeedTimer < PitLaneOverspeedGraceSeconds || participant.pitLaneSpeedingPenaltyApplied)
+            {
+                return;
+            }
+
+            participant.pitLaneSpeedingPenaltyApplied = true;
+            AddPenalty(participant, PitServiceRules.PitLaneSpeedingPenaltySeconds, "Speeding in the pit lane");
+            if (participant.isPlayer)
+            {
+                SessionMessage = "Speeding in the pit lane: +" +
+                    PitServiceRules.PitLaneSpeedingPenaltySeconds.ToString("0") + "s";
+                PostEngineerMessage("That's a pit lane speeding penalty - five seconds. Watch the limiter.", true, RaceAudioCue.Penalty);
+            }
+        }
+
+        // How long a car must be continuously over the pit-lane limit before it counts
+        // as a speeding offence rather than a limiter-engagement spike.
+        const float PitLaneOverspeedGraceSeconds = 0.6f;
+
         void SetCarToCarCollisionIgnored(RaceParticipant participant, bool ignored)
         {
             if (participant == null || participant.carToCarCollisionIgnored == ignored)
@@ -1029,6 +1094,15 @@ namespace LocalFormulaRacing
                     continue;
                 }
 
+                // A collision-ignore pair is shared state between TWO cars, so it
+                // must reflect what BOTH of them want. This used to write `ignored`
+                // straight through: with two cars serviced at once (a double-stack,
+                // or simply two teams' boxes side by side), the first one to leave
+                // its box re-enabled collisions against a car that was still being
+                // worked on - so the still-stationary car could be punted out of its
+                // pit box by the next car coming down the lane. The pair stays
+                // ignored while EITHER end still wants it ignored.
+                bool pairIgnored = ignored || other.carToCarCollisionIgnored;
                 Collider[] otherColliders = other.GetComponentsInChildren<Collider>(false);
                 for (int a = 0; a < ownColliders.Length; a++)
                 {
@@ -1044,7 +1118,7 @@ namespace LocalFormulaRacing
                             continue;
                         }
 
-                        Physics.IgnoreCollision(ownColliders[a], otherColliders[b], ignored);
+                        Physics.IgnoreCollision(ownColliders[a], otherColliders[b], pairIgnored);
                     }
                 }
             }

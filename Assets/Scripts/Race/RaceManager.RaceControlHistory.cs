@@ -10,10 +10,26 @@ namespace LocalFormulaRacing
     /// </summary>
     public partial class RaceManager
     {
+        // Lifetime totals per label. The history list itself is a ROLLING window
+        // pruned to MaxRaceControlHistoryEntries, so counting it under-reported the
+        // moment a busy race pushed the earliest events off the front - the post-race
+        // report and CareerManager's news narrative would then describe fewer yellows
+        // and penalties than the race actually had, and the number would silently
+        // shrink as the race went on. These counters are never pruned.
+        readonly System.Collections.Generic.Dictionary<string, int> raceControlLabelCounts =
+            new System.Collections.Generic.Dictionary<string, int>();
+
         void LogRaceControlHistory(string label, string detail)
         {
             int lap = PlayerParticipant != null && PlayerParticipant.lapTracker != null ? PlayerParticipant.lapTracker.DisplayLap : 0;
             raceControlHistory.Add(new RaceControlHistoryEntry { label = label, detail = detail, raceTimeSeconds = RaceElapsed, lap = lap });
+            if (!string.IsNullOrEmpty(label))
+            {
+                int existing;
+                raceControlLabelCounts.TryGetValue(label, out existing);
+                raceControlLabelCounts[label] = existing + 1;
+            }
+
             // Every race-control event is a replay timeline marker (single hook).
             replayCapture.AddFlagMarker(RaceElapsed, label);
             if (raceControlHistory.Count > MaxRaceControlHistoryEntries)
@@ -22,18 +38,16 @@ namespace LocalFormulaRacing
             }
         }
 
+        void ResetRaceControlHistory()
+        {
+            raceControlHistory.Clear();
+            raceControlLabelCounts.Clear();
+        }
+
         int CountRaceControlHistoryLabel(string label)
         {
-            int count = 0;
-            for (int i = 0; i < raceControlHistory.Count; i++)
-            {
-                if (raceControlHistory[i].label == label)
-                {
-                    count++;
-                }
-            }
-
-            return count;
+            int count;
+            return raceControlLabelCounts.TryGetValue(label, out count) ? count : 0;
         }
 
     }

@@ -21,7 +21,12 @@ namespace F1Game.Race.Rules
 
         // Rubber ramps in slowly over green running and is scrubbed off fast when
         // the track is soaked (heavy rain keeps none of the built-up line).
-        public const float RubberBuildRampSpeed = 0.012f;
+        // Full track evolution over ~40 minutes of green running, not 83 seconds.
+        // At 0.012/s the track reached maximum rubber before the end of lap 1, so
+        // the entire evolution effect was over before the race began and the
+        // "halfway" radio call fired on the opening lap. Real evolution runs across
+        // a whole weekend and is worth 1.5-3 s/lap from FP1 to Q3.
+        public const float RubberBuildRampSpeed = 0.0004f;
         public const float RubberWashRampSpeed = 0.3f;
 
         /// <summary>
@@ -61,6 +66,21 @@ namespace F1Game.Race.Rules
         public static bool NextIsRaining(bool currentlyRaining)
         {
             return !currentlyRaining;
+        }
+
+        /// <summary>
+        /// Whether an arriving shower is HEAVY. `unitRandom` in [0,1].
+        ///
+        /// The transition target used to be hard-coded to LightRain, so
+        /// WeatherState.HeavyRain was unreachable from any mid-race change and the
+        /// full wet tyre could only ever be used in a race that STARTED wet. A dry
+        /// race hit by a downpour - the single most dramatic scenario in the sport -
+        /// could not occur.
+        /// </summary>
+        public static bool ArrivingRainIsHeavy(float unitRandom, int weatherVariability)
+        {
+            float chance = weatherVariability >= 3 ? 0.4f : (weatherVariability >= 2 ? 0.25f : 0.12f);
+            return unitRandom < chance;
         }
 
         /// <summary>

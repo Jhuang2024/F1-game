@@ -30,9 +30,13 @@ namespace F1Game.Race.Rules
         // to the same anchors so life on track matches what is displayed and
         // planned. Everything below reads off these so the wear model
         // (TyreState), the AI strategy and the pre-race screen all agree.
+        // Real F1 track surface temperature runs ~15 C (Las Vegas at night, a cold
+        // Spa) to 55-60 C (Bahrain, Qatar, Miami in the day). The old 15/22.5/30
+        // gradient clamped away the entire upper half of the real range - which is
+        // exactly where thermal degradation, blistering and overheating live.
         public const float CoolTrackTempC = 15f;
-        public const float StandardTrackTempC = 22.5f;
-        public const float HotTrackTempC = 30f;
+        public const float StandardTrackTempC = 35f;
+        public const float HotTrackTempC = 55f;
 
         /// <summary>
         /// Session track-surface temperature (C) on the calibrated 15-30 gradient,

@@ -52,8 +52,22 @@ namespace LocalFormulaRacing
 
         void Update()
         {
-            if (raceManager == null || raceManager.IsRaceFinished)
+            if (raceManager == null)
             {
+                return;
+            }
+
+            // Chequered flag: bailing out bare here left VehicleController holding
+            // the last command the player gave - flat out, into whatever the next
+            // corner was - for the whole results/podium sequence. Hand the car a
+            // slow-down-lap command instead so it coasts to a stop.
+            if (raceManager.IsRaceFinished)
+            {
+                if (vehicle != null)
+                {
+                    vehicle.SetCommand(new VehicleCommand { throttle = 0f, brake = 0.3f, steer = 0f });
+                }
+
                 return;
             }
 
@@ -73,6 +87,16 @@ namespace LocalFormulaRacing
             if (cameraRig != null)
             {
                 cameraRig.SetLookBack(input.LookBackHeld);
+            }
+
+            // Retired: the car stays in the world (RetireParticipant no longer
+            // deactivates it, so this component keeps polling the pause key) but it
+            // must not be driveable any more. Pause/camera above still work; the
+            // driving read below is skipped and the car holds the parked command
+            // RetireParticipant applied.
+            if (participant != null && participant.retired)
+            {
+                return;
             }
 
             // Track test: cycle to the next calendar circuit while in a time trial.

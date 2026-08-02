@@ -376,7 +376,7 @@ namespace LocalFormulaRacing
                 results[i].finishingPosition = i + 1;
                 results[i].points = points;
                 ApplyDriverPoints(results[i], points);
-                ApplyConstructorPoints(results[i].teamId, points, results[i].finishingPosition);
+                ApplyConstructorPoints(results[i].teamId, points, results[i].finishingPosition, results[i].classified);
             }
 
             RaceResultRecord record = new RaceResultRecord
@@ -1873,7 +1873,7 @@ namespace LocalFormulaRacing
             }
         }
 
-        void ApplyConstructorPoints(string teamId, int points, int position)
+        void ApplyConstructorPoints(string teamId, int points, int position, bool classified)
         {
             StandingEntry entry = Save.constructorStandings.Find(item => item.id == teamId);
             TeamData team = data.FindTeam(teamId);
@@ -1889,6 +1889,16 @@ namespace LocalFormulaRacing
             }
 
             entry.points += points;
+            // Mirror of ApplyDriverPoints: only a CLASSIFIED finish counts toward
+            // constructor wins, podiums or the countback histogram. This guard was
+            // missing on the constructor side, so a car unclassified in P3 gave its
+            // team a podium and a P3 countback entry that its own driver did not get
+            // - the two tables could disagree about the same race.
+            if (!classified)
+            {
+                return;
+            }
+
             entry.RecordFinish(position);
             if (position == 1)
             {

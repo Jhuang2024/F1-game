@@ -124,7 +124,13 @@ namespace F1Game.UI.Navigation
             EnterTransition?.Invoke(view);
             view.OnEntered(args);
 
-            if (pushToStack)
+            // Never push a screen onto itself. Show() always pushed, and several
+            // screens re-present themselves after a mutation (buying an R&D upgrade,
+            // re-sorting driver ratings, switching the championship chart mode,
+            // cycling language) - so the back stack filled with duplicates of the
+            // screen you were already on and Back had to be pressed once per
+            // interaction before it did anything visible.
+            if (pushToStack && !string.Equals(fromId, screenId))
             {
                 stack.Push(screenId, args);
             }

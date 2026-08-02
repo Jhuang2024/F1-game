@@ -35,6 +35,21 @@ namespace LocalFormulaRacing
         // when the player ends the session from the pause menu.
         public string ActivePracticeProgramId;
         public RaceWeekendSession CurrentSession { get; private set; }
+
+        /// <summary>
+        /// True only for a session that runs to a chequered flag and publishes a
+        /// classification - i.e. an actual grand prix. Qualifying has its own flow,
+        /// and Practice/Time Trial are open-ended running with no result to award.
+        /// </summary>
+        public bool IsScoredRaceSession
+        {
+            get
+            {
+                return !IsTimeTrial &&
+                       CurrentSession != RaceWeekendSession.Practice &&
+                       CurrentSession != RaceWeekendSession.Qualifying;
+            }
+        }
         public float StartCountdown { get; private set; }
         public bool CanDrive { get { return StartCountdown <= 0f && !IsPaused && !IsRaceFinished && !qualifyingTransitionPending; } }
         public string SessionMessage { get; private set; }
@@ -643,6 +658,11 @@ namespace LocalFormulaRacing
         // 4 timed attempts, same as real quali) so qualifying's best-of-many is
         // actually comparable to the race's.
         const int QualifyingSessionLapCap = 5;
+        // AI lap cap for a qualifying segment. Deliberately unreachable inside one
+        // segment: the segment ends when the PLAYER's run does, and an AI whose lap
+        // tracker latches "completed" stops timing laps and turns into a ghost that
+        // is still physically on track (see SpawnParticipant).
+        const int AiQualifyingLapCap = 200;
         const string SectorPurple = "#B86CFF";
         const string SectorGreen = "#63FF82";
         const string SectorYellow = "#FFD45C";
@@ -845,8 +865,17 @@ namespace LocalFormulaRacing
                     CompleteQualifyingRun();
                 }
             }
-            else if (!IsRaceFinished && PlayerParticipant != null && PlayerParticipant.finished)
+            else if (!IsRaceFinished && IsScoredRaceSession && PlayerParticipant != null && PlayerParticipant.finished)
             {
+                // IsScoredRaceSession guard: Practice and Time Trial are free-run
+                // sessions with RaceLaps = 999, so the player is never meant to
+                // "finish" one - but a retirement (fuel starvation, heavy crash,
+                // terminal damage) marks the participant finished through
+                // State.OnParticipantFinished all the same. Without this guard,
+                // stopping a career Practice session with an off ran the full
+                // race-finish path: a classification was published, championship
+                // points were awarded for a session that awards none, and
+                // Save.currentRound was advanced - skipping the actual grand prix.
                 // Re-entrancy fix: PlayerParticipant.finished is never cleared back to
                 // false once set, and this whole method runs every frame - without this
                 // guard, FinishRace() (which awards championship points via

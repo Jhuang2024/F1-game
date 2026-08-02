@@ -105,6 +105,18 @@ namespace LocalFormulaRacing
             recording?.AddMarker(raceElapsed, ReplayRecording.MarkerKind.Incident, carIndex, label);
         }
 
+        /// <summary>
+        /// An overtake. Nothing ever created one of these, so the replay timeline's
+        /// OvertakeCount was permanently zero - and that count is what the results
+        /// screen prints, so every race reported "0 overtakes" directly above a
+        /// highlight list of the passes that actually happened. It also made the
+        /// auto-director's overtake priority unreachable.
+        /// </summary>
+        public void AddOvertakeMarker(float raceElapsed, int carIndex, string label)
+        {
+            recording?.AddMarker(raceElapsed, ReplayRecording.MarkerKind.Overtake, carIndex, label);
+        }
+
         public void AddLapMarker(float raceElapsed, int carIndex, string label)
         {
             recording?.AddMarker(raceElapsed, ReplayRecording.MarkerKind.LapComplete, carIndex, label);

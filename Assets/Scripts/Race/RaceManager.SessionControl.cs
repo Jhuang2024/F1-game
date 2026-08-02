@@ -57,6 +57,14 @@ namespace LocalFormulaRacing
             IsTimeTrial = false;
             State = null;
             PlayerParticipant = null;
+            // TrackRuntime is a PLAIN C# class, not a MonoBehaviour, so destroying
+            // raceWorld below does not give it Unity's fake-null behaviour - the
+            // reference stayed live and valid-looking forever, pointing at a runtime
+            // whose colliders and meshes no longer exist. Everything that tests
+            // `Track == null` to detect teardown (RaceEventRelay's watermark reset is
+            // the clearest case) could therefore never detect it, and the next
+            // session started diffing against the previous session's state.
+            Track = null;
             if (raceWorld != null)
             {
                 Destroy(raceWorld);
@@ -72,6 +80,12 @@ namespace LocalFormulaRacing
             ghostRecordedLapNumber = -1;
             playerCameraRig = null;
             ActivePracticeProgramId = null;
+            // The AI diagnostic maps are keyed on RaceParticipant components that this
+            // teardown has just destroyed. RaceManager itself survives between
+            // sessions, so without this every session left its whole field behind as
+            // dead keys - the maps grew for the lifetime of the process and each
+            // lookup walked more destroyed entries than live ones.
+            ClearAiDiagnosticState();
 
             SimpleAudioManager.SetRain(false);
             SimpleAudioManager.SetRaceAmbience(false);

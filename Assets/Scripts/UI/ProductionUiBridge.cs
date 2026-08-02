@@ -1481,8 +1481,14 @@ namespace LocalFormulaRacing
                             trackName = raceEvent.displayName,
                             country = raceEvent.country,
                             laps = settings != null ? settings.Current.laps : raceEvent.laps5,
-                            isDone = i < career.Save.currentRound,
-                            isNext = i == career.Save.currentRound,
+                            // currentRound is ONE-based (starts at 1, matching
+                            // calendar.json's `round`); `i` is a zero-based index.
+                            // Comparing them directly marked the UPCOMING race as DONE
+                            // and the one after it as NEXT - at a fresh career,
+                            // Australia showed DONE and China showed NEXT, and at the
+                            // final round nothing was marked NEXT at all.
+                            isDone = i + 1 < career.Save.currentRound,
+                            isNext = i + 1 == career.Save.currentRound,
                         });
                     }
                 }

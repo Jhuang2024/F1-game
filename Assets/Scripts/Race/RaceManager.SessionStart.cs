@@ -216,12 +216,17 @@ namespace LocalFormulaRacing
             }
 
             SpawnRaceGrid(playerName, playerTeamId, careerRace);
+            // Set BEFORE the replay begins. RaceElapsed is derived from raceStartTime,
+            // so starting the capture first stamped the replay's SessionStart marker
+            // with the PREVIOUS session's elapsed time - every replay of a second or
+            // later session in the same run opened at a timestamp that did not exist
+            // on its own timeline.
+            raceStartTime = Time.time + StartCountdown;
             replayCapture.Begin(Participants, RaceElapsed);
             telemetryCapture.Begin();
             SpawnGhostIfAvailable();
             PostEngineerMessage(OpeningEngineerMessage(), true);
             engineerWeatherSent = true;
-            raceStartTime = Time.time + StartCountdown;
             // Exactly one HUD: the production HudRoot when the production UI owns
             // the frontend, otherwise the legacy RaceHud. Never both.
             if (!ProductionSessionUi.TryShowRaceHud())

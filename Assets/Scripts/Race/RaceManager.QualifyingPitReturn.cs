@@ -48,10 +48,19 @@ namespace LocalFormulaRacing
 
         void UpdateQualifyingPitReturn(RaceParticipant participant)
         {
-            // Each car returns to its own garage box, never a shared stack point.
+            // Each car returns to its TEAM's garage box. Boxes are shared by both of a
+            // team's cars (pitBoxIndex is a constructor index, not a grid slot), so
+            // the second car parks back down the lane rather than being driven into
+            // its teammate - the same offset SpawnParticipant applies when it places
+            // the player's car in the box at the start of a segment.
             Vector3 servicePosition;
             Quaternion serviceRotation;
             Track.GetPitServicePose(participant.pitBoxIndex, out servicePosition, out serviceRotation);
+            if (IsSecondCarOfTeam(participant.driverId, participant.teamId))
+            {
+                servicePosition -= serviceRotation * Vector3.forward * 6f;
+            }
+
             participant.vehicle.SetPitLimiter(true);
             participant.vehicle.SetPitServiceHold(true);
             participant.vehicle.SetPitGuidance(true);

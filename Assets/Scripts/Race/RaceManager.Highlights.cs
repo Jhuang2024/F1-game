@@ -114,6 +114,11 @@ namespace LocalFormulaRacing
                     overtakeHighlightPairTimes[pairKey] = RaceElapsed;
 
                     recordedOvertakes.Add(BuildRatedOvertake(mover, passed, c + 1, currentOrder.Count, battleRepass));
+                    // Feed the replay timeline too - this is the only place a genuine
+                    // pass is detected, and OvertakeCount (printed on the results
+                    // screen) is derived from these markers.
+                    replayCapture.AddOvertakeMarker(RaceElapsed, ReplayCarIndex(mover),
+                        mover.driverName + " on " + passed.driverName);
                 }
             }
         }

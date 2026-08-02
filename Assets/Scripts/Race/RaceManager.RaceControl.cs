@@ -1221,7 +1221,7 @@ namespace LocalFormulaRacing
             recentCatastrophicIncidents.Clear();
             recentCatastrophicIncidentTimes.Clear();
             recentCatastrophicIncidentDistances.Clear();
-            raceControlHistory.Clear();
+            ResetRaceControlHistory();
             raceControlCheckTimer = 0f;
             safetyCarTimer = 0f;
             restartControlTimer = 0f;

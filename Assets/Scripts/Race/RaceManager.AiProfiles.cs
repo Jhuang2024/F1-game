@@ -747,5 +747,27 @@ namespace LocalFormulaRacing
                 throttleAggressionMultiplier = 1.85f
             };
         }
+
+        /// <summary>
+        /// Drops every per-participant diagnostic map. Called from CleanupRaceWorld:
+        /// these are keyed on RaceParticipant components that the teardown destroys,
+        /// and RaceManager outlives the session, so anything left here is a dead key
+        /// that accumulates for the whole run of the game.
+        /// </summary>
+        void ClearAiDiagnosticState()
+        {
+            if (paceDiagLastLaps != null) paceDiagLastLaps.Clear();
+            if (cornerDiagCurTime != null) cornerDiagCurTime.Clear();
+            if (cornerDiagCurMinSpeed != null) cornerDiagCurMinSpeed.Clear();
+            if (cornerDiagBestTime != null) cornerDiagBestTime.Clear();
+            if (cornerDiagBestMinSpeed != null) cornerDiagBestMinSpeed.Clear();
+            if (cornerDiagBestLap != null) cornerDiagBestLap.Clear();
+            if (cornerDiagLastLaps != null) cornerDiagLastLaps.Clear();
+            if (ersCmpDeploy != null) ersCmpDeploy.Clear();
+            if (ersCmpTotal != null) ersCmpTotal.Clear();
+            if (ersCmpFastDeploy != null) ersCmpFastDeploy.Clear();
+            if (ersCmpFastTotal != null) ersCmpFastTotal.Clear();
+            if (ersCmpBatterySum != null) ersCmpBatterySum.Clear();
+        }
     }
 }

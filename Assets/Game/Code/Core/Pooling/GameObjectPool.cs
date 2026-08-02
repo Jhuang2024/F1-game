@@ -46,6 +46,13 @@ namespace F1Game.Core.Pooling
             }
 
             Transform t = instance.transform;
+            // Detach from the parking root BEFORE activating. The root is held
+            // inactive so parked instances stay invisible, but a child of an
+            // inactive parent has activeInHierarchy == false no matter what
+            // SetActive says - so every pooled effect was invisible, never ticked
+            // its lifetime, was never returned, and the pool Instantiated a fresh
+            // object on every single Take.
+            t.SetParent(null, true);
             t.SetPositionAndRotation(position, rotation);
             instance.SetActive(true);
             live.Add(instance);

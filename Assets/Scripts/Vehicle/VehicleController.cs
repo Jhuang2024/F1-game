@@ -266,6 +266,7 @@ namespace LocalFormulaRacing
         float setupBrakeMultiplier = 1f;
         float setupKerbGrip = 0.92f;
         float setupWearBias = 1f;
+        float setupAeroBalance;
 
         const int GearCount = 8;
         const float RaceSpeedCeilingKph = 350f;
@@ -273,16 +274,26 @@ namespace LocalFormulaRacing
         // stat-honesty fix in CalculateTargetTopSpeedKph) - generous enough
         // that a heavily upgraded career car (~415 stat) keeps its full edge,
         // while still bounding data errors.
-// Ceiling on the car's own top-speed STAT. 435 was well past anything an F1
-        // car has ever done before any bonus was even added.
-        const float StatTopSpeedCeilingKph = 360f;
+        // Ceiling on the car's own top-speed STAT, i.e. the terminal velocity of the
+        // car in clean air with no ERS deploy, no tow and the wing shut. Real race
+        // trim is 320-345 km/h, so 355 is the most a fully developed car may reach
+        // unassisted - and it MUST sit meaningfully below the absolute ceiling
+        // below, otherwise every bonus is absorbed by the clamp (see next).
+        const float StatTopSpeedCeilingKph = 355f;
 
         /// <summary>
         /// Absolute physical top-speed ceiling after every bonus. Real race top
         /// speeds are 320-345 km/h, reaching ~350-360 with DRS at the fastest
-        /// circuits; the outright record in anger is ~378 km/h.
+        /// circuits; the outright record in anger is ~372 km/h (Bottas, Mexico
+        /// 2016, full tow plus DRS at altitude).
+        ///
+        /// This used to be 360 - the same number as the stat ceiling - which meant
+        /// any car already deploying ERS (target = stat + ERS bonus) was sitting on
+        /// the cap before DRS was even considered, so opening the wing was worth
+        /// exactly 0 km/h in the one situation DRS exists for. The gap between the
+        /// two ceilings is deliberately the headroom the bonuses live in.
         /// </summary>
-        const float AbsoluteTopSpeedCeilingKph = 360f;
+        const float AbsoluteTopSpeedCeilingKph = 372f;
         // Player-only straightline speed buff - never applies to AI (see
         // CalculateTargetTopSpeedKph, gated on IsPlayerControlled). Raised
         // from 4 to 9 (an additional +5), then lowered by 2 to 7, then
@@ -376,7 +387,15 @@ namespace LocalFormulaRacing
         // verified working end to end via [ErsDiag]; 30kph is a real, sizable
         // deploy gain without tipping into arcade territory. The stacking safety
         // cap in CalculateTargetTopSpeedKph still bounds ERS + DRS + tow together.
-        const float ErsTopSpeedBonusKph = 30f;
+        //
+        // Realism pass: 30 km/h was never a defensible top-speed figure for ERS.
+        // The MGU-K is 120 kW against ~750 kW of ICE and it is rate-limited to
+        // 4 MJ/lap, so at terminal velocity - where the whole budget is fighting
+        // drag that scales with v^2 - deploy is worth single digits of km/h. Its
+        // real job is ACCELERATION out of the corner, which is the deploy FORCE
+        // (ErsBoostForce), not this ceiling. Overstating it here also crowded out
+        // DRS and the tow, both of which are genuinely bigger top-end effects.
+        const float ErsTopSpeedBonusKph = 8f;
         static readonly float[] AutoShiftUpKph = { 0f, 62f, 102f, 142f, 186f, 232f, 282f, 322f };
 
         // Read-only view of the authoritative auto-shift speed schedule (index g = the
@@ -581,12 +600,26 @@ namespace LocalFormulaRacing
             setupBrakeMultiplier = 1f;
             setupKerbGrip = 0.92f;
             setupWearBias = 1f;
-            if (!IsPlayerControlled || settings == null)
+            // Setup is applied to EVERY car, not just the player's. Returning early
+            // for AI meant all 21 rivals ran neutral defaults at every circuit all
+            // season, so the garage was a player-only system. AI cars use the
+            // player's settings object as a stand-in team baseline until per-team
+            // setups exist - the point is that they are no longer pinned to neutral.
+            if (settings == null)
             {
                 return;
             }
 
-            float wing = (settings.setupFrontWing + settings.setupRearWing) * 0.5f - 3f; // -2 .. +2
+            // Total downforce level: the SUM of the two wings drives the classic
+            // drag-vs-grip trade.
+            float wing = (settings.setupFrontWing + settings.setupRearWing) * 0.5f - 3f;
+            // AERO BALANCE: front minus rear. This is the single most important
+            // setup axis in real F1 and it did nothing at all - the two wings were
+            // averaged into one number, so front 5 / rear 1 behaved identically to
+            // front 3 / rear 3 and the understeer/oversteer axis was unreachable
+            // from the garage. Positive = front-biased (sharper turn-in, looser
+            // rear); negative = rear-biased (stable, more understeer).
+            setupAeroBalance = (settings.setupFrontWing - settings.setupRearWing) * 0.5f; // -2 .. +2
             float bias = settings.setupBrakeBias - 3f;
             float stiffness = settings.setupSuspension - 3f;
             float ride = settings.setupRideHeight - 3f; // negative = low
@@ -1420,7 +1453,10 @@ namespace LocalFormulaRacing
 
             Vector3 lateralVelocity = Vector3.Dot(body.velocity, transform.right) * transform.right;
             float lateralSlip = Mathf.Clamp01(lateralVelocity.magnitude / Mathf.Max(6f, speedMps * 0.38f));
-            UndersteerAmount = Mathf.Clamp01(Mathf.Abs(activeCommand.steer) * Mathf.InverseLerp(120f, 310f, absoluteSpeedKph) * Mathf.Lerp(0.45f, 1.25f, lateralSlip) * (activeCommand.throttle > 0.35f ? 1.1f : 0.8f));
+            // Aero balance shifts the understeer/oversteer axis: a front-biased wing
+            // setup sharpens turn-in (less understeer) at the cost of rear stability.
+            float balanceUndersteerShift = 1f - setupAeroBalance * 0.06f;
+            UndersteerAmount = Mathf.Clamp01(balanceUndersteerShift * Mathf.Abs(activeCommand.steer) * Mathf.InverseLerp(120f, 310f, absoluteSpeedKph) * Mathf.Lerp(0.45f, 1.25f, lateralSlip) * (activeCommand.throttle > 0.35f ? 1.1f : 0.8f));
             // Oversteer is slip measured AGAINST the grip available to contain it.
             // The old form was lateralSlip * (1 - Clamp01(tyreGrip)), which had two
             // problems: it read more grip as less oversteer regardless of how far
@@ -1433,7 +1469,7 @@ namespace LocalFormulaRacing
             // Dividing by the grip headroom keeps the intended "low grip slides
             // more" direction while staying live at every grip level.
             float gripHeadroom = Mathf.Max(0.35f, tyreGrip);
-            OversteerAmount = Mathf.Clamp01(lateralSlip / gripHeadroom * Mathf.Lerp(0.4f, 1.2f, activeCommand.throttle));
+            OversteerAmount = Mathf.Clamp01((2f - balanceUndersteerShift) * lateralSlip / gripHeadroom * Mathf.Lerp(0.4f, 1.2f, activeCommand.throttle));
             // Compound-contrast fix (per report - "grip difference between tyre
             // types is not nearly noticeable enough"): this used to be
             // (10 + grip*18) - the flat 10 base meant more than a third of the
@@ -1722,10 +1758,12 @@ namespace LocalFormulaRacing
             // doubles alongside the higher ceiling it can now reach.
             // Max slipstream effect decreased to 15kph - scaled down 0.75x (was
             // 16-30) to match SlipstreamTopSpeedBonusKph's own reduction.
-            float slipstreamSpeedRamp = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(130f, 255f, forwardSpeedKph));
-            float slipstreamBoost = slipstreamStrength > 0.05f
-                ? 0f * slipstreamStrength * slipstreamSpeedRamp   // additive tow thrust removed - the tow is a drag reduction plus a raised ceiling, not a push
-                : 0f;
+            // Additive tow thrust removed outright: a slipstream is a DRAG REDUCTION
+            // plus the raised top-speed ceiling above, not a push. Kept as a named
+            // zero rather than deleted because the term still reads through the force
+            // sum below and its absence there would be harder to follow than its
+            // presence here.
+            const float slipstreamBoost = 0f;
 
             // Player straightline speed buff, round 2: PlayerTopSpeedBonusKph
             // above only ever raised CalculateTargetTopSpeedKph's target/ceiling

@@ -846,8 +846,22 @@ namespace LocalFormulaRacing
 
         void Update()
         {
-            if (vehicle == null || track == null || raceManager == null || raceManager.IsPaused || raceManager.IsRaceFinished)
+            if (vehicle == null || track == null || raceManager == null || raceManager.IsPaused)
             {
+                return;
+            }
+
+            // Chequered flag: this used to just `return`, which leaves the LAST
+            // command latched in VehicleController forever - i.e. whatever the AI
+            // was doing as it crossed the line (usually full throttle, mid-corner
+            // steering lock) kept being applied for as long as the world stayed up
+            // behind the results screen. The field drove itself into the barriers
+            // during the podium sequence and the replay recorded it. Cars now do
+            // what they do in real life: lift, brake gently and straighten up for
+            // the slow-down lap.
+            if (raceManager.IsRaceFinished)
+            {
+                vehicle.SetCommand(new VehicleCommand { throttle = 0f, brake = 0.3f, steer = 0f });
                 return;
             }
 
@@ -3357,6 +3371,17 @@ namespace LocalFormulaRacing
                 {
                     command.pitRequest = true;
                 }
+            }
+
+            // Qualifying has no strategy stops - a car comes in at the end of its run,
+            // which UpdateQualifyingPitReturn drives, not through a pit REQUEST. Most
+            // individual triggers above are already session-gated, but the wear and
+            // strategy-lap ones were not, so on a short race-lap setting an AI could
+            // decide mid-Q2 that it was due a stop. One blanket suppression rather
+            // than a gate per trigger, so a trigger added later can't reopen this.
+            if (raceManager.CurrentSession == RaceWeekendSession.Qualifying)
+            {
+                command.pitRequest = false;
             }
 
             // Never pit on the final lap (per request), whatever the tyre wear:

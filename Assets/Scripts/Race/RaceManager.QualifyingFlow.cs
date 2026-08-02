@@ -253,6 +253,23 @@ namespace LocalFormulaRacing
             ApplyQualifyingElimination(active, phase);
         }
 
+        /// <summary>
+        /// True when this driver has already been knocked out of the qualifying
+        /// session, so should not be put back on track for the following segment.
+        /// Safe to call outside qualifying (always false - nobody is eliminated).
+        /// </summary>
+        bool IsEliminatedFromQualifying(string driverId)
+        {
+            if (CurrentSession != RaceWeekendSession.Qualifying || qualifyingEntries == null ||
+                qualifyingPhase <= 1 || string.IsNullOrEmpty(driverId))
+            {
+                return false;
+            }
+
+            QualifyingSimEntry entry = qualifyingEntries.Find(item => item != null && item.driverId == driverId);
+            return entry != null && !string.IsNullOrEmpty(entry.eliminatedIn);
+        }
+
         List<QualifyingSimEntry> ActiveQualifyingEntries(int phase)
         {
             if (phase == 1)

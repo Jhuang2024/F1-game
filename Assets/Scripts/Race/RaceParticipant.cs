@@ -349,7 +349,11 @@ namespace LocalFormulaRacing
         public TyreCompound requestedPitCompound = TyreCompound.Medium;
         public bool requestedPitCompoundSet;
         public bool pitTyreSelectionActive;
-        public bool mandatoryPitPenaltyApplied;
+        // Pit-lane speeding (see RaceManager.EnforcePitLaneSpeedLimit). Seconds spent
+        // continuously above the limit, and a once-per-visit latch so one overspeed
+        // cannot be billed every frame.
+        public float pitLaneOverspeedTimer;
+        public bool pitLaneSpeedingPenaltyApplied;
         // Automatic pit stop fix: distinguishes a pit request the strategy
         // plan triggered on its own from one the player actively called (P
         // key) or picked a tyre for, purely so the HUD can tell the player

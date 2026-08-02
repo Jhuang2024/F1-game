@@ -95,11 +95,19 @@ namespace LocalFormulaRacing
 
             for (int i = 0; i < results.Count; i++)
             {
-                int points = F1Game.Race.Rules.ChampionshipPoints.ForPosition(i + 1);
+                // Only CLASSIFIED cars score, exactly as in the career championship
+                // (CareerManager.ApplyRaceResults). The legends table paid points off
+                // the finishing index unconditionally, so a car that retired on lap 1
+                // still took championship points here - and with enough retirements it
+                // could take the "win". RaceManager.FinishRace has already resolved
+                // the 90% distance rule and any disqualification before this runs.
+                int points = results[i].classified
+                    ? F1Game.Race.Rules.ChampionshipPoints.ForPosition(i + 1)
+                    : 0;
                 results[i].finishingPosition = i + 1;
                 results[i].points = points;
                 ApplyDriverPoints(results[i], points);
-                ApplyConstructorPoints(results[i].teamId, points, results[i].finishingPosition);
+                ApplyConstructorPoints(results[i].teamId, points, results[i].finishingPosition, results[i].classified);
             }
 
             Save.raceResults.Add(new RaceResultRecord
@@ -146,6 +154,13 @@ namespace LocalFormulaRacing
             }
 
             entry.points += points;
+            // An unclassified car has no finishing position in the real
+            // classification, so it records no win, podium or countback entry.
+            if (!result.classified)
+            {
+                return;
+            }
+
             entry.RecordFinish(result.finishingPosition);
             if (result.finishingPosition == 1)
             {
@@ -158,7 +173,7 @@ namespace LocalFormulaRacing
             }
         }
 
-        void ApplyConstructorPoints(string teamId, int points, int finishingPosition)
+        void ApplyConstructorPoints(string teamId, int points, int finishingPosition, bool classified)
         {
             if (string.IsNullOrEmpty(teamId))
             {
@@ -183,6 +198,11 @@ namespace LocalFormulaRacing
             // recorded here at all, so the legends constructors' table showed 0 in
             // both columns all season and any points tie fell straight through to
             // the (previously unstable) sort order.
+            if (!classified)
+            {
+                return;
+            }
+
             entry.RecordFinish(finishingPosition);
             if (finishingPosition == 1)
             {

@@ -249,7 +249,10 @@ namespace LocalFormulaRacing
 
         void HandleFallRespawn(RaceParticipant participant)
         {
-            if (participant == null || participant.vehicle == null || Track == null)
+            // A retired car is parked where it stopped and must stay there - it is
+            // not a running car that fell off the world, and putting it back on the
+            // racing line would drop a dead car into live traffic.
+            if (participant == null || participant.vehicle == null || Track == null || participant.retired)
             {
                 return;
             }
@@ -438,7 +441,18 @@ namespace LocalFormulaRacing
         /// </summary>
         bool PlayerNeedsRecovery(RaceParticipant participant)
         {
-            if (participant == null || participant.vehicle == null || Track == null)
+            if (participant == null || participant.vehicle == null || Track == null || participant.lapTracker == null)
+            {
+                return false;
+            }
+
+            // Race-start exemption: the low-speed branch below fires on any car under
+            // 42 kph, and a car on the grid is doing 0. CanDrive goes true the instant
+            // the lights go out, so R was still a free 120 kph launch plus three
+            // seconds of collision immunity through the first corner. A car that is
+            // genuinely stranded off the line will trip one of the other branches
+            // (or the stuck timer) within a few seconds anyway.
+            if (RaceElapsed < RecoveryStartGraceSeconds && CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial)
             {
                 return false;
             }
@@ -480,6 +494,9 @@ namespace LocalFormulaRacing
         // Set above the slowest genuine racing speed (a first-gear hairpin exit) so
         // recovery can never be used as a rolling-start boost on the racing line.
         const float PlayerRecoverySpeedThresholdKph = 42f;
+        // How long after lights out the "crawling" recovery branch stays disabled, so
+        // the standing start itself cannot be recovered out of. See PlayerNeedsRecovery.
+        const float RecoveryStartGraceSeconds = 8f;
 
         public void ResetPlayerToSafePose(RaceParticipant participant)
         {

@@ -20,6 +20,32 @@ namespace LocalFormulaRacing
         /// </summary>
         public bool RaceDeclaredWet { get; private set; }
 
+        // Baseline dry track temperature for this event, captured at build time.
+        float dryBaseTrackTemperatureC = -1f;
+
+        /// <summary>
+        /// Track temperature follows conditions. It used to be written once at track
+        /// build and never touched again - so when rain arrived mid-race the tyres
+        /// kept degrading at the dry-track rate, and the wet crossover the wetness
+        /// model exists for was only half modelled. A real shower drops track temp
+        /// 10-20 C within minutes.
+        /// </summary>
+        void UpdateTrackTemperature()
+        {
+            if (Track == null)
+            {
+                return;
+            }
+
+            if (dryBaseTrackTemperatureC < 0f)
+            {
+                dryBaseTrackTemperatureC = Track.trackTemperatureC;
+            }
+
+            float target = dryBaseTrackTemperatureC - 14f * Mathf.Clamp01(trackWetness01);
+            Track.trackTemperatureC = Mathf.MoveTowards(Track.trackTemperatureC, target, Time.deltaTime * 1.2f);
+        }
+
         void NoteWeatherForRuleExemptions()
         {
             if (Track != null && (Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain))
@@ -56,6 +82,7 @@ namespace LocalFormulaRacing
             }
 
             NoteWeatherForRuleExemptions();
+            UpdateTrackTemperature();
             bool raining = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
             float target = raining ? 1f : 0f;
             if (trackWetness01 < 0f)
@@ -111,7 +138,12 @@ namespace LocalFormulaRacing
             }
 
             bool wasRaining = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
-            WeatherState next = WeatherRules.NextIsRaining(wasRaining) ? WeatherState.LightRain : WeatherState.Cloudy;
+            // An arriving shower can be HEAVY. This used to be hard-coded to
+            // LightRain, so HeavyRain was unreachable from any mid-race change and a
+            // dry race could never be hit by a downpour.
+            WeatherState next = WeatherRules.NextIsRaining(wasRaining)
+                ? (WeatherRules.ArrivingRainIsHeavy(Random.value, variability) ? WeatherState.HeavyRain : WeatherState.LightRain)
+                : WeatherState.Cloudy;
             // [WeatherDiag] (companion to the [PitStopDiag] recorders): every
             // mid-race weather flip is a mass pit-crossover generator, so the
             // timeline must be visible in the same log the stop records land

@@ -92,6 +92,11 @@ namespace LocalFormulaRacing
             return false;
         }
 
+        // Number of AI actually taking part in the current qualifying segment (the
+        // roster minus anyone already eliminated). Used to space the out-lap spread
+        // evenly around the lap - see SpawnParticipant.
+        int aiQualifyingFieldSize = 19;
+
         /// <summary>Pit box index for a team - one garage per constructor.</summary>
         int ResolvePitBoxIndex(string teamId)
         {
@@ -131,17 +136,46 @@ namespace LocalFormulaRacing
             Quaternion spawnRotation = Quaternion.LookRotation(forward, Vector3.up);
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
-                // Qualifying runs launch from the TEAM's garage. Boxes are now shared
-                // by both of a team's cars, so the second car is offset back along the
-                // lane rather than spawned inside its teammate.
-                int boxIndex = ResolvePitBoxIndex(teamId);
-                Track.GetPitServicePose(boxIndex, out spawnPosition, out spawnRotation);
-                if (IsSecondCarOfTeam(driverId, teamId))
+                if (player)
                 {
-                    spawnPosition -= spawnRotation * Vector3.forward * 6f;
-                }
+                    // The player's qualifying run launches from their TEAM's garage.
+                    // Boxes are shared by both of a team's cars, so the second car is
+                    // offset back along the lane rather than spawned inside its
+                    // teammate.
+                    int boxIndex = ResolvePitBoxIndex(teamId);
+                    Track.GetPitServicePose(boxIndex, out spawnPosition, out spawnRotation);
+                    if (IsSecondCarOfTeam(driverId, teamId))
+                    {
+                        spawnPosition -= spawnRotation * Vector3.forward * 6f;
+                    }
 
-                spawnPosition += Vector3.up * 0.1f;
+                    spawnPosition += Vector3.up * 0.1f;
+                }
+                else
+                {
+                    // AI join the session already out on circuit, spread evenly around
+                    // the lap, NOT parked in a garage.
+                    //
+                    // AiVehicleController has no pit-lane egress behaviour at all - the
+                    // pit rail is only ever seeded by BeginPitEntry, and between the
+                    // garages and the racing surface sits the solid pit wall. An AI
+                    // spawned in its box has no route out: it drives at the wall, reads
+                    // itself as off-track, and falls into stuck recovery. The player
+                    // gets the garage because a human can simply drive down the lane.
+                    //
+                    // Spreading the field around the lap also gives the session what it
+                    // is actually for - rivals to catch, traffic to find a gap in, a tow
+                    // on the straights - which is the substance a qualifying session
+                    // ran on an empty circuit was missing.
+                    int slot = Mathf.Max(0, gridIndex);
+                    float spacing = Track.length / Mathf.Max(1, aiQualifyingFieldSize + 1);
+                    float outLapDistance = Track.WrapDistance(gridDistance + spacing * (slot + 1));
+                    Track.SampleAtDistance(outLapDistance, out point, out forward, out right);
+                    float lateralStagger = (slot % 2 == 0 ? 1f : -1f) * 2.4f;
+                    bool onRoad;
+                    spawnPosition = FindRoadSpawnPosition(point + right * lateralStagger, driverName, out onRoad);
+                    spawnRotation = Quaternion.LookRotation(forward, Vector3.up);
+                }
             }
 
             GameObject carObject = ProductionCarSpawner.SpawnCar(driverName, team.PrimaryUnityColor, team.SecondaryUnityColor);
@@ -362,7 +396,18 @@ namespace LocalFormulaRacing
                 VehicleEffects effects = carObject.AddComponent<VehicleEffects>();
                 effects.Initialize(controller);
             }
-            lapTracker.Initialize(Track, CurrentSession == RaceWeekendSession.Qualifying ? QualifyingSessionLapCap : RaceLaps);
+            // The qualifying lap cap is the PLAYER's run length - it is what
+            // ShouldCompleteQualifyingRun ends the segment on. Applying it to the AI
+            // as well made every rival latch CompletedRace five laps in: their lap
+            // tracker stopped ticking, their best time froze, and they dropped out of
+            // FindCarAhead/FindCarBehind (which correctly ignore finished cars, whose
+            // progress distance is frozen) while still physically circulating - so for
+            // most of the segment the rivals were invisible ghosts to DRS, traffic and
+            // the timing tower. The AI get a cap they cannot reach inside a segment.
+            int lapCap = CurrentSession == RaceWeekendSession.Qualifying
+                ? (player ? QualifyingSessionLapCap : AiQualifyingLapCap)
+                : RaceLaps;
+            lapTracker.Initialize(Track, lapCap);
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
                 lapTracker.ConfigureQualifyingOutLap();
@@ -569,8 +614,8 @@ namespace LocalFormulaRacing
                 // lap - and left a timing tower that could never move.
                 //
                 // Falls through to the shared spawn loop, which is session-agnostic;
-                // SpawnParticipant already places qualifying cars in their team
-                // garage rather than on a grid slot.
+                // SpawnParticipant places the player in their team garage and spreads
+                // the AI around the lap on their out lap (see its qualifying branch).
             }
 
             if (IsTimeTrial)
@@ -578,7 +623,26 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            List<DriverData> aiDrivers = GetDefensiveAiRoster(playerTeamId, playerName);
+            List<DriverData> rosterDrivers = GetDefensiveAiRoster(playerTeamId, playerName);
+            // Q2/Q3 run a shorter field. Each qualifying segment tears the world down
+            // (CleanupRaceWorld) and rebuilds it through this same loop, and the AI
+            // roster is the full field regardless of segment - so once the AI were put
+            // on track for real, every driver knocked out in Q1 came straight back out
+            // for Q2 and Q3. That is both wrong on the rules and wrong on the road: a
+            // Q3 that should hold 10 cars sharing the circuit with all 20, generating
+            // traffic and yellows for drivers who are not in the session any more.
+            List<DriverData> aiDrivers = new List<DriverData>(rosterDrivers.Count);
+            for (int i = 0; i < rosterDrivers.Count; i++)
+            {
+                if (rosterDrivers[i] != null && !IsEliminatedFromQualifying(rosterDrivers[i].id))
+                {
+                    aiDrivers.Add(rosterDrivers[i]);
+                }
+            }
+
+            // Known before the loop so the qualifying out-lap spread in
+            // SpawnParticipant can space the field evenly around the whole lap.
+            aiQualifyingFieldSize = aiDrivers.Count;
             int aiFallbackSlot = 0;
             for (int i = 0; i < aiDrivers.Count; i++)
             {

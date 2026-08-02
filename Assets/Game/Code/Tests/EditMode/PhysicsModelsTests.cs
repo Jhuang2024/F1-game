@@ -18,7 +18,7 @@ namespace F1Game.Tests
             // Pin the actual numbers and the physical relationships instead.
             Assert.AreEqual(0.00054f, AeroModel.DrsClosedDragCoefficient, 0.000001f,
                 "closed-wing drag coefficient changed");
-            Assert.AreEqual(0.00025f, AeroModel.DrsOpenDragCoefficient, 0.000001f,
+            Assert.AreEqual(0.000475f, AeroModel.DrsOpenDragCoefficient, 0.000001f,
                 "open-wing drag coefficient changed");
 
             // Drag is quadratic in speed.

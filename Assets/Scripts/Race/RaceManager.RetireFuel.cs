@@ -48,10 +48,21 @@ namespace LocalFormulaRacing
             participant.pitAwaitingRelease = false;
             participant.pitLaneHeldByOccupancy = false;
 
-            participant.gameObject.SetActive(false);
             if (participant.isPlayer)
             {
+                // The player's car is NOT deactivated. PlayerVehicleInput.Update is
+                // the only thing that polls the pause key, and it lives on this
+                // GameObject - switching the object off took the pause menu with it,
+                // so a retirement in a free-running session (Practice, where there is
+                // no race-finish screen to fall through to) left the player looking
+                // at a dead car with no way out of the session at all. The car is
+                // already braked and grid-held above, so it stays parked where it
+                // stopped, which is also what a retired car actually does.
                 SessionMessage = "Retired: " + participant.retirementReason;
+            }
+            else
+            {
+                participant.gameObject.SetActive(false);
             }
         }
 

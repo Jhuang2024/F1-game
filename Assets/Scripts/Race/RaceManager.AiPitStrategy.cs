@@ -74,7 +74,14 @@ namespace LocalFormulaRacing
                 }
 
                 bool otherOccupyingBox = other.pitPhase == PitPhase.Service || other.pitPhase == PitPhase.Entry;
-                if (otherOccupyingBox && Mathf.Abs(other.pitBoxIndex - participant.pitBoxIndex) <= 1)
+                // Same box only. This used to be `Abs(difference) <= 1`, which meant
+                // "physically adjacent box" back when pitBoxIndex was a grid slot -
+                // but it is now a TEAM index (one garage per constructor), so +/-1 is
+                // two entirely unrelated constructors whose boxes are 20 m apart. That
+                // let up to six of the other cars veto this car's safety-car stop for
+                // no reason, and it suppressed precisely the teammate double-stack the
+                // pit code now supports. Only a car genuinely in THIS car's box blocks.
+                if (otherOccupyingBox && other.pitBoxIndex == participant.pitBoxIndex)
                 {
                     return false;
                 }

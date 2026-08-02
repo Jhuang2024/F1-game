@@ -183,7 +183,13 @@ namespace LocalFormulaRacing
                 UseMphUnits = race.Settings != null && race.Settings.Current.useMphUnits,
                 CompactHud = race.Settings != null && race.Settings.Current.compactHud,
                 Gear = vehicle.CurrentGear,
-                Rpm01 = Mathf.Clamp01(speed01 * 0.9f + (vehicle.CurrentGear > 0 ? 0.1f : 0f)),
+                // True per-gear RPM, not a rescaled speedometer. The old expression made
+                // the needle never drop on an upshift and never sweep within a gear -
+                // in 1st at 60 km/h it read ~20% while the engine was on the limiter,
+                // and it disagreed with the rev-limiter audio cue, which already used
+                // this same model.
+                Rpm01 = F1Game.Race.Physics.AudioRpmModel.NormalizedRpm(
+                    Mathf.Abs(vehicle.CurrentSpeedKph), vehicle.CurrentGear, VehicleController.AutoShiftUpSchedule),
                 Ers01 = Mathf.Clamp01(ers),
                 DrsActive = vehicle.DrsActive,
                 DrsAvailable = race.IsDrsAvailable(player),

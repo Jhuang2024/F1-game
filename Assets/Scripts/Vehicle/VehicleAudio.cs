@@ -78,7 +78,17 @@ namespace LocalFormulaRacing
             else
             {
                 engineSource.mute = !enabledAudio || categoryVolume <= 0f;
-                engineSource.pitch = Mathf.Lerp(0.65f, 1.95f, speed01) + vehicle.CurrentGear * 0.035f;
+                // Pitch follows ENGINE RPM, not road speed. Driving it from speed meant
+            // there was no rev drop on an upshift at all, and the `+ CurrentGear *
+            // 0.035f` term actually raised the pitch on every upshift - exactly
+            // backwards. AudioRpmModel already reconstructs true per-gear normalised
+            // RPM from the gearbox's own shift schedule and was only being used for a
+            // HUD cue.
+            float rpm01 = F1Game.Race.Physics.AudioRpmModel.NormalizedRpm(
+                Mathf.Abs(vehicle.CurrentSpeedKph),
+                vehicle.CurrentGear,
+                VehicleController.AutoShiftUpSchedule);
+            engineSource.pitch = Mathf.Lerp(0.65f, 1.95f, rpm01);
                 engineSource.volume = Mathf.Lerp(0.18f, 0.5f, speed01) * carVolumeScale * 2f * categoryVolume;
             }
             if (lastGear != 0 && vehicle.CurrentGear != lastGear)
