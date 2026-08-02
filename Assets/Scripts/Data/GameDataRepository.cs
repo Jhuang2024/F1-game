@@ -127,6 +127,18 @@ namespace LocalFormulaRacing
                 }
             }
 
+            // Fallback kept (callers assume a non-null team), but no longer SILENT.
+            // An id that matches no team used to resolve quietly to whichever team
+            // happens to be first, which is how the legendary roster's "aston" -
+            // teams.json uses "aston_martin" - put Raikkonen and Damon Hill in
+            // McLaren cars, gave a Legends grid four McLarens and no Aston Martin,
+            // and wrote orphan standings rows no constructor would ever match.
+            if (!string.IsNullOrEmpty(id))
+            {
+                GameLog.Warn("[Data] Unknown team id '" + id + "' - falling back to '" +
+                    (Teams.teams.Count > 0 ? Teams.teams[0].id : "<none>") + "'.");
+            }
+
             return Teams.teams.Count > 0 ? Teams.teams[0] : null;
         }
 

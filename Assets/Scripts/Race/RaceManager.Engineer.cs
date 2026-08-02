@@ -17,6 +17,11 @@ namespace LocalFormulaRacing
     /// </summary>
     public partial class RaceManager
     {
+        // A planned stop may never follow the previous one this closely. Purely a
+        // guard against the scheduler double-stopping; wear/weather/damage triggers
+        // elsewhere can still bring a genuine emergency stop forward at any time.
+        const int MinimumLapsBetweenPlannedStops = 3;
+
         // Radio message stacking fix: every message that fires becomes its own
         // independently-timed stack entry (newest inserted at index 0, so
         // RaceHud's newest-on-top rendering just walks the list in order)
@@ -634,6 +639,23 @@ namespace LocalFormulaRacing
             int completedLaps = PlayerParticipant.lapTracker.CompletedLaps;
             int currentLapNumber = completedLaps + 1;
             if (currentLapNumber < targetLap)
+            {
+                return;
+            }
+
+            // Minimum stint. GetPlannedPitLapForStop clamps stop 2 to at least
+            // stopOneLap + 1, so a short race can legitimately schedule stops on
+            // consecutive laps (a 5-lap 2-stop plan lands on laps 3 and 4), and the
+            // same thing happens on any length whenever the first stop ends up at or
+            // after the planned second-stop lap - a missed entry, a manual stop, or
+            // an accepted safety-car offer consuming plan slot 1. With no
+            // laps-since-last-stop check, the second request latched on the very tick
+            // after the handoff: the car exited the pits and the HUD immediately read
+            // "AUTO-PIT QUEUED", dragging the player back in on 1-lap-old tyres and
+            // throwing away ~20s for nothing. (VehicleController.pitCooldown was
+            // written for exactly this and is never read by anything.)
+            if (PlayerParticipant.lastPitLapNumber > 0 &&
+                currentLapNumber - PlayerParticipant.lastPitLapNumber < MinimumLapsBetweenPlannedStops)
             {
                 return;
             }

@@ -160,7 +160,22 @@ namespace LocalFormulaRacing
 
             command.ers = input.ErsDeployHeld;
             command.drs = drsLatched;
-            command.pitRequest = input.PitPressed;
+            // Never latch a pit request while a stop is already under way.
+            // VehicleController.SetCommand turns command.pitRequest into the
+            // persistent PitRequested flag with no pit-state guard of its own, and
+            // OpenPlayerPitTyreSelector's own isPitting bail-out happens too late to
+            // stop it - so a P press any time between the tyres going on and the
+            // physics handoff (the whole release wait plus the exit leg) survived the
+            // stop. On the next tick the car read as pit-bound again on brand-new
+            // tyres, and because activePitRequestSource was never set to Manual,
+            // PitRequestRules.CanCancel returned false: the HUD showed "PIT REQUEST
+            // QUEUED" with a cancel button that did nothing, and the player was
+            // either dragged into a pointless second stop or told "pit entry missed"
+            // every lap for the rest of the race.
+            command.pitRequest = input.PitPressed &&
+                                 participant != null &&
+                                 !participant.isPitting &&
+                                 participant.pitPhase == PitPhase.None;
             if (command.pitRequest)
             {
                 // VSC/SC interactive pit-window offer: while the radio's offer is

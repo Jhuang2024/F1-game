@@ -108,6 +108,22 @@ namespace LocalFormulaRacing
             {
                 Save.driverStandings.RemoveAll(entry => entry.id == selected.id);
             }
+
+            // A fresh career has nothing to repair. RepairProgressionScaleBias (via
+            // EnsureRndState, below) exists to undo damage done by older builds, and
+            // it keys off progressionScaleBiasRepairVersion - which is 0 on a new
+            // save, so every retro-repair block used to fire on a career that had
+            // never been touched by those builds. That was not a repair but a pure
+            // buff: it created season-1 rating modifiers for all 22 roster drivers
+            // (+12 pace/racecraft/qualifying/overtaking and +5 across the support
+            // stats for the AI, +19 on the first four for the player's seat), so the
+            // player started ~4 overall points clear of equivalent AI for free and
+            // ClampRating pinned every authored stat at or above 87 to exactly 99 -
+            // erasing the authored differentiation at the top of the grid on turn
+            // one and making the Driver Ratings screen disagree with drivers.json.
+            // Stamping the current generation up front makes them all no-ops.
+            Save.progressionScaleBiasRepairVersion = ProgressionScaleBiasRepairVersion;
+            Save.progressionScaleBiasRepaired = true;
             EnsureRndState();
 
             // The rival exists from race one, so say who it is - without this
@@ -397,6 +413,28 @@ namespace LocalFormulaRacing
             AdvanceAiTeamDevelopment();
             SyncPlayerTeamDevelopmentState();
 
+            // Capture the post-race championship snapshot HERE, before the season
+            // rollover below can replace the standings. BeginNewSeason swaps in
+            // freshly zeroed driverStandings/constructorStandings, and the report
+            // used to read its "after" values further down - i.e. off the NEW
+            // season's empty table. driverPointsAfter was therefore structurally 0
+            // for the last race of every season, and the position was whatever an
+            // unstable sort of an all-zero list produced, so the finale always
+            // showed something like "P4 -> P1, 0 points" and could publish a news
+            // article claiming the player climbed to P1 "on 0 points".
+            SortStandings(Save.driverStandings);
+            SortStandings(Save.constructorStandings);
+            ValidateCurrentSeasonStandingsIntegrity();
+            int driverPositionAfter = 0;
+            int driverPointsAfter = 0;
+            int constructorPositionAfter = 0;
+            if (playerEntry != null)
+            {
+                driverPositionAfter = FindStandingPosition(Save.driverStandings, playerEntry.driverId);
+                driverPointsAfter = FindStandingPoints(Save.driverStandings, playerEntry.driverId);
+                constructorPositionAfter = FindStandingPosition(Save.constructorStandings, playerEntry.teamId);
+            }
+
             Save.currentRound++;
             if (Save.currentRound > data.Calendar.events.Count)
             {
@@ -442,11 +480,10 @@ namespace LocalFormulaRacing
 
             Save.lastQualifyingResults = new List<QualifyingResultEntry>();
 
+            // Standings-drift repair for the CURRENT (possibly new) season. The
+            // report's own "after" figures were captured above, before any rollover.
             SortStandings(Save.driverStandings);
             SortStandings(Save.constructorStandings);
-            // Standings-drift fix: catch and repair any constructor/driver
-            // mismatch immediately after every race is applied, before the
-            // post-race report reads "after" standings positions below.
             ValidateCurrentSeasonStandingsIntegrity();
 
             if (playerEntry != null)
@@ -454,9 +491,9 @@ namespace LocalFormulaRacing
                 report.standings.driverPositionBefore = driverPositionBefore;
                 report.standings.driverPointsBefore = driverPointsBefore;
                 report.standings.constructorPositionBefore = constructorPositionBefore;
-                report.standings.driverPositionAfter = FindStandingPosition(Save.driverStandings, playerEntry.driverId);
-                report.standings.driverPointsAfter = FindStandingPoints(Save.driverStandings, playerEntry.driverId);
-                report.standings.constructorPositionAfter = FindStandingPosition(Save.constructorStandings, playerEntry.teamId);
+                report.standings.driverPositionAfter = driverPositionAfter;
+                report.standings.driverPointsAfter = driverPointsAfter;
+                report.standings.constructorPositionAfter = constructorPositionAfter;
                 GenerateStandingsMovementNews(report.standings, raceEvent);
             }
 
@@ -836,7 +873,24 @@ namespace LocalFormulaRacing
 
         public void ApplyQualifyingResults(CalendarEventData raceEvent, List<QualifyingResultEntry> results)
         {
+            // Qualifying is deliberately re-runnable ("Grid is set. Re-run to replace
+            // the result."), but every reward and every history write here used to be
+            // unconditional and APPEND-only, with no check that this round had
+            // already been qualified. Because the sim path is instant and seeded
+            // deterministically, clicking "Sim Qualifying" from pole paid ~38 RP a
+            // click, forever - trivially funding every R&D project and facility level
+            // - while also adding +1 reputation per click, inflating the teammate and
+            // rival head-to-head tallies, reporting N poles for one round in the
+            // season review (BuildSeasonArchive counts records), and skewing the
+            // whole field's season performance accumulators.
+            //
+            // The grid may still be replaced as many times as the player likes; the
+            // record is now overwritten rather than appended, and the one-time
+            // effects are paid only on the first run of a given round.
+            bool alreadyQualifiedThisRound = HasQualifyingForCurrentRound();
             Save.lastQualifyingResults = results;
+            Save.qualifyingResults.RemoveAll(record => record != null &&
+                record.season == Save.currentSeason && record.round == Save.currentRound);
             Save.qualifyingResults.Add(new QualifyingResultRecord
             {
                 season = Save.currentSeason,
@@ -844,6 +898,13 @@ namespace LocalFormulaRacing
                 eventName = raceEvent != null ? raceEvent.displayName : "Prototype GP",
                 results = results
             });
+
+            if (alreadyQualifiedThisRound)
+            {
+                // Grid replaced; no repeat payouts, tallies or accumulator writes.
+                Write();
+                return;
+            }
 
             // Part 2/10: save qualifying performance for every driver into this
             // season's accumulator - ratings are not touched yet, only at
@@ -1822,9 +1883,28 @@ namespace LocalFormulaRacing
 
         void SortStandings(List<StandingEntry> standings)
         {
-            standings.Sort((a, b) => F1Game.Race.Rules.ChampionshipPoints.CompareStandings(
-                a.points, a.wins, a.podiums,
-                b.points, b.wins, b.podiums));
+            standings.Sort((a, b) =>
+            {
+                int ranked = F1Game.Race.Rules.ChampionshipPoints.CompareStandings(
+                    a.points, a.wins, a.podiums,
+                    b.points, b.wins, b.podiums);
+                if (ranked != 0)
+                {
+                    return ranked;
+                }
+
+                // Deterministic final tiebreak. List<T>.Sort is an unstable
+                // introsort, and with 22 entries it partitions rather than falling
+                // into the stable insertion-sort path - so two drivers equal on
+                // points, wins and podiums compared as 0 and their relative order
+                // was an artifact of partitioning. The standings are re-sorted
+                // several times per race, so tied midfield drivers visibly swapped
+                // championship positions between screens with no race in between,
+                // and a season decided on such a tie crowned an arbitrary champion
+                // that BuildSeasonArchive then froze permanently. This does not
+                // change any genuine ordering - it only makes ties repeatable.
+                return string.CompareOrdinal(a.id, b.id);
+            });
         }
 
         // Standings-drift fix: the single canonical answer to "what team is this
@@ -2221,9 +2301,13 @@ namespace LocalFormulaRacing
         // touched - that is all GetEffectiveDriver ever reads, and what next
         // season's progression chains from; older seasons' entries stay as
         // historical record.
+        // Current repair generation. A brand-new career is stamped with this
+        // immediately (see StartNewCareer) so the retro-repairs below never run on it.
+        internal const int ProgressionScaleBiasRepairVersion = 5;
+
         void RepairProgressionScaleBias()
         {
-            if (Save.progressionScaleBiasRepairVersion >= 5)
+            if (Save.progressionScaleBiasRepairVersion >= ProgressionScaleBiasRepairVersion)
             {
                 return;
             }
@@ -2231,7 +2315,7 @@ namespace LocalFormulaRacing
             bool runReset = Save.progressionScaleBiasRepairVersion < 2;
             bool runV3 = Save.progressionScaleBiasRepairVersion < 3;
             bool runV4 = Save.progressionScaleBiasRepairVersion < 4;
-            Save.progressionScaleBiasRepairVersion = 5;
+            Save.progressionScaleBiasRepairVersion = ProgressionScaleBiasRepairVersion;
             Save.progressionScaleBiasRepaired = true;
 
             if (runReset)
@@ -3635,7 +3719,22 @@ namespace LocalFormulaRacing
                     perf.finishVsExpectedSamples.Add(finishVsExpected);
                 }
 
-                perf.sumPositionsGained += entry.gridPosition - entry.finishingPosition;
+                // A mechanical retirement must not cost racecraft rating. A retired
+                // car is classified last, so a hydraulics failure from pole recorded
+                // gridPosition - finishingPosition of about -21 - and
+                // avgPositionsGained carries weight 0.3 inside racecraftScore, so a
+                // season with a few engine failures from the front produced a visible
+                // "Racecraft -2" at rollover. This line sat OUTSIDE the isRetirement
+                // guard that sumFinishVsExpected, sumWetPositionsGained and the
+                // teammate head-to-head are all correctly protected by, contradicting
+                // the documented rule ("retirements the driver didn't cause never
+                // reduce a rating"). A driver-caused retirement still counts, and is
+                // separately penalised above.
+                if (!mechanical)
+                {
+                    perf.sumPositionsGained += entry.gridPosition - entry.finishingPosition;
+                }
+
                 perf.overtakesMade += entry.overtakesMade;
                 perf.lockups += entry.lockups;
                 perf.trackLimitWarnings += entry.trackLimitWarnings;

@@ -96,6 +96,23 @@ namespace LocalFormulaRacing
         // players don't lose their plan.
         void MigrateLegacyStrategyFields()
         {
+            // Run ONCE per settings file. This had no completion flag, so it
+            // executed on every single Load() and both branches stayed
+            // re-satisfiable forever - there was no way to tell "this is the legacy
+            // default" from "the player deliberately chose this". The compound
+            // branch was the visible one: plannedStopOneCompound defaults to "Hard"
+            // and plannedSecondCompound defaults to "Medium" and is written by no UI
+            // anywhere, so a player who set their first stop to Hard found it
+            // silently back on Medium at the next launch, every time. The lap branch
+            // had the same shape: with a legacy plannedPitLap set, stop 1 could
+            // never be returned to lap 0 ("engineer's choice").
+            if (Current.legacyStrategyFieldsMigrated)
+            {
+                return;
+            }
+
+            Current.legacyStrategyFieldsMigrated = true;
+
             if (Current.plannedPitLapOne <= 0 && Current.plannedPitLap > 0)
             {
                 Current.plannedPitLapOne = Current.plannedPitLap;

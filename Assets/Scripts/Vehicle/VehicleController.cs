@@ -19,7 +19,10 @@ namespace LocalFormulaRacing
         // entry. Paired with the player-only rail entry pace in
         // RaceManager.Pit (UpdatePitRail) and the 100 kph pit-entry assist
         // target so the whole player entry sequence runs at the same speed.
-        const float AiPitEntryLimiterCapKph = 80f;
+        // Matches the player's cap. The rail now runs both at the same entry pace
+        // (RaceManager.Pit.PitEntryPaceKph), so holding the AI's physical limiter at
+        // 80 would just have the limiter fight the rail on AI cars only.
+        const float AiPitEntryLimiterCapKph = 105f;
         // Round 2 (per request): raised again, 100 -> 150.
         // Round 3 (per request): eased back, 150 -> 125.
         // Round 4 (per request): eased back again, 125 -> 110.
@@ -911,6 +914,37 @@ namespace LocalFormulaRacing
         // Old behaviour used to floor fuel at 4kg (Mathf.Max(4f, ...)) - cars could
         // never actually run out. Fuel can now reach true zero; see fuelStarved
         // below and ApplyForces' starvation power cut.
+        /// <summary>
+        /// Burns fuel for a stretch of track covered while the car is NOT under
+        /// physics - i.e. the kinematic pit rail. Called by RaceManager.UpdatePitRail.
+        ///
+        /// A pit stop used to be entirely free of fuel, twice over: FixedUpdate
+        /// returns early while IsPitGuided so UpdateFuel never ran at all, and even
+        /// if it had, SetPitGuidance goes kinematic and zeroes body.velocity while
+        /// the rail moves the transform directly - so the distance-based burn would
+        /// have measured zero metres anyway. The corridor is ~495m, and
+        /// RaceManager.RetireFuel keeps counting that as race distance covered, so
+        /// every stop refunded roughly 10% of a lap's fuel to the player and to
+        /// every AI. A fuel-marginal car could fix a negative fuel target simply by
+        /// pitting, and the engineer would then report "fuel is safe now" for it.
+        ///
+        /// Charged at the light-load end of the throttle curve, which is what a car
+        /// at 75-106 km/h on the limiter actually uses.
+        /// </summary>
+        public void ConsumeGuidedFuel(float metresTravelled)
+        {
+            if (fuelBurnDisabled || metresTravelled <= 0f || CarData == null)
+            {
+                return;
+            }
+
+            float trackLength = Track != null && Track.length > 1f ? Track.length : 4650f;
+            float fuelPerMeter = fuelPerLapEstimateKg > 0f ? fuelPerLapEstimateKg / trackLength : 1.5f / 4650f;
+            const float PitLaneThrottleBurnMultiplier = 0.55f;
+            fuelKg = Mathf.Max(0f, fuelKg - fuelPerMeter * metresTravelled * PitLaneThrottleBurnMultiplier);
+            body.mass = 760f + fuelKg;
+        }
+
         void UpdateFuel(VehicleCommand assisted, float absoluteSpeedKph, TrackProgress progress, float dt)
         {
             if (fuelBurnDisabled)

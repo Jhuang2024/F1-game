@@ -137,8 +137,34 @@ namespace LocalFormulaRacing
             return Mathf.Max(0f, OverallPercent - before);
         }
 
+        /// <summary>
+        /// The share of damage a pit stop can actually do something about, as a
+        /// 0..100 percentage: bodywork only.
+        ///
+        /// Repair TIME used to be priced off OverallPercent, which is the mean of
+        /// all four components - but RepairPitDamage only touches frontWing and
+        /// floor; engineWear and gearboxWear are never repaired. So a car whose
+        /// damage was mostly engine/gearbox paid the full 3-7.5s repair hold on
+        /// every single stop, came out with essentially the same damage percentage
+        /// on the HUD, and was charged again at the next stop - while the radio
+        /// announced "we're repairing that damage too - longer stop".
+        /// </summary>
+        public float RepairablePercent
+        {
+            get { return Mathf.Clamp01((frontWing + floor) * 0.5f) * 100f; }
+        }
+
         public void RepairPitDamage()
         {
+            // Below the threshold no repair time is charged
+            // (PitServiceRules.RepairSeconds returns 0), so no repair may be
+            // performed either - this used to silently wipe 75% of front-wing and
+            // 25% of floor damage for free on any stop under 12%.
+            if (RepairablePercent < F1Game.Race.Rules.PitServiceRules.RepairDamageThresholdPercent)
+            {
+                return;
+            }
+
             frontWing = Mathf.Max(0f, frontWing - 0.75f);
             floor = Mathf.Max(0f, floor - 0.25f);
             ClampAll();

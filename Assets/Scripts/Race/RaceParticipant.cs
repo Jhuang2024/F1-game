@@ -285,6 +285,12 @@ namespace LocalFormulaRacing
         // the CompletingPass transition) - surfaced in the post-race diagnostics log.
         public int overtakesCompleted;
         public int pitStops;
+        // Lap number on which the most recent stop was actually served (-1 = none).
+        // Used to enforce a minimum stint so the planned-stop scheduler can never
+        // drag a car back in on the lap after it pitted - see
+        // RaceManager.UpdatePlayerAutoPitStrategy. VehicleController.pitCooldown was
+        // meant to do this job but is written and decremented and never read.
+        public int lastPitLapNumber = -1;
         // Post-race report (Part 2): compound fitted at each stop, in order, so
         // the strategy summary can read "Medium -> Hard -> Soft" instead of just
         // the compound the car happened to finish on.

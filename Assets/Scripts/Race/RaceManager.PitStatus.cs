@@ -26,10 +26,9 @@ namespace LocalFormulaRacing
 
             if (participant.pitPhase == PitPhase.Entry)
             {
-                // Player entry runs the raised 105 kph pace (player pit-entry
-                // buff); AI keep 80 - this text is only ever shown for the
-                // player's own HUD.
-                return "PIT LANE  TO BOX " + (participant.pitBoxIndex + 1) + "  LIMITER 105";
+                // Shared entry pace for player and AI alike; read off the live
+                // constant so the HUD can't drift from the rule again.
+                return "PIT LANE  TO BOX " + (participant.pitBoxIndex + 1) + "  LIMITER " + PitEntryPaceKph.ToString("0");
             }
 
             if (participant.pitPhase == PitPhase.Service)
@@ -45,7 +44,10 @@ namespace LocalFormulaRacing
 
             if (participant.pitPhase == PitPhase.Release)
             {
-                return "PIT RELEASE  LIMITER 80";
+                // Reads the live constant instead of a stale literal: release/exit
+                // run at PitExitPaceKph (106), so the HUD said 80 while the
+                // speedometer showed 106.
+                return "PIT RELEASE  LIMITER " + PitExitPaceKph.ToString("0");
             }
 
             if (participant.pitPhase == PitPhase.ExitMerge)
@@ -55,7 +57,7 @@ namespace LocalFormulaRacing
 
             if (participant.pitLimiterUntilExit)
             {
-                return "PIT EXIT  LIMITER 80";
+                return "PIT EXIT  LIMITER " + PitExitPaceKph.ToString("0");
             }
 
             if (participant.pitTyreSelectionActive && participant.vehicle != null && participant.vehicle.PitRequested)
@@ -94,9 +96,18 @@ namespace LocalFormulaRacing
                 return "";
             }
 
-            if (participant.pitStops > 0 && NextPlannedPitLapFor(participant) <= 0)
+            // The mandatory-stop RULE is discharged by a single stop -
+            // PenaltyRules.ShouldApplyMandatoryPitPenalty tests only pitStops > 0.
+            // This text also required no planned stop to remain, so a player on a
+            // 2-stop plan who had already made their mandatory stop stared at
+            // "MANDATORY STOP REQUIRED" for the rest of the race and believed they
+            // were still facing the 30s penalty. Report the rule, and mention a
+            // remaining PLANNED stop separately - it is a strategy note, not a rule.
+            if (participant.pitStops > 0)
             {
-                return "MANDATORY STOP COMPLETE";
+                return NextPlannedPitLapFor(participant) > 0
+                    ? "MANDATORY STOP COMPLETE  PLANNED STOP PENDING"
+                    : "MANDATORY STOP COMPLETE";
             }
 
             return "MANDATORY STOP REQUIRED";

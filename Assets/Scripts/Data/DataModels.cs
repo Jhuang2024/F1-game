@@ -1144,6 +1144,12 @@ namespace LocalFormulaRacing
         // migrates these into the stop-indexed fields below on first load.
         public int plannedPitLap;
         public string plannedSecondCompound = "Medium";
+        // Set once the legacy->stop-indexed migration has run for this settings
+        // file. Without it the migration re-ran on EVERY load and its condition
+        // stayed permanently re-satisfiable, so it silently reverted the player's
+        // own stop-1 compound choice on each launch. See
+        // GameSettingsStore.MigrateLegacyStrategyFields.
+        public bool legacyStrategyFieldsMigrated;
 
         // Full 1-stop/2-stop strategy plan. plannedStopCount selects how many
         // planned stops the engineer will call for; pit lap 0 for a stop means

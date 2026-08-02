@@ -449,17 +449,11 @@ namespace LocalFormulaRacing
         // (TrackRuntime.PitEntryRampStartLeadMetres etc.), the rail pace runs at
         // the realistic 80 km/h pit-speed-limit ballpark instead of the old
         // crawl - a full stop is now ~20s (entry+service+exit) on every track.
-        const float PitEntryPaceKph = 75f;
-        // Player pit-entry buff (per request - "up my speed to 100 kph in the
-        // pit entry lane"): the player's rail runs the entire entry leg
-        // (commit -> box) at this pace while the AI keep the 75 pace, matching
-        // the player's raised entry limiter (VehicleController). Exit and
-        // service paces stay shared.
-        // Round 2 (per request): raised again, 100 -> 150.
-        // Round 3 (per request): eased back, 150 -> 125.
-        // Round 4 (per request): eased back again, 125 -> 110.
-        // Round 5 (per request): 110 -> 105.
-        const float PlayerPitEntryPaceKph = 105f;
+        // Shared pit-lane ENTRY pace (commit -> box), player and AI alike. Set to
+        // the value the player's own entry was tuned to across five rounds; the AI
+        // used to be held at 75 on the same stretch, which was a player-only
+        // advantage that scaled with grid position. See UpdatePitRail.
+        const float PitEntryPaceKph = 105f;
         const float PitLanePaceKph = 75f;
         const float PitExitPaceKph = 106f;
         const float PitGuideLateralRateMetersPerSecond = 9f;
@@ -684,6 +678,9 @@ namespace LocalFormulaRacing
                     participant.pitRailStopServed = true;
                     participant.vehicle.CompletePitStop(participant.nextPitCompound);
                     participant.pitStops++;
+                    participant.lastPitLapNumber = participant.lapTracker != null
+                        ? participant.lapTracker.CompletedLaps + 1
+                        : -1;
                     participant.compoundStints.Add(participant.nextPitCompound.ToString());
                     participant.requestedPitCompoundSet = false;
                     participant.pitTyreSelectionActive = false;
@@ -720,8 +717,21 @@ namespace LocalFormulaRacing
             // --- rolling: entry leg (commit -> box) or exit leg (box -> handoff).
             bool beforeBox = !participant.pitRailServiceStarted;
             float normalizedHere = participant.pitGuideDistance / Mathf.Max(1f, Track.length);
+            // Entry pace is now the SAME for the player and the AI.
+            //
+            // It used to be 105 kph for the player and 75 for everyone else - a 40%
+            // advantage on a shared, mandatory, rule-governed stretch. Worse, the
+            // entry leg runs from the commit point all the way to the car's own box,
+            // and pitBoxIndex is the grid index, so the size of the advantage grew
+            // with how far back the player qualified: ~1.4s from box 1, ~4-5s from
+            // box 20. Undercuts that should sometimes fail always worked. (The AI
+            // side of that ternary was also dead code - PitEntryPaceKph and
+            // PitLanePaceKph are both 75, so both branches returned the same value.)
+            //
+            // Levelled UP rather than down, so the player's pit stops stay as quick
+            // as the previous rounds of tuning made them and the AI simply matches.
             float paceKph = beforeBox
-                ? (participant.isPlayer ? PlayerPitEntryPaceKph : (Track.IsInPitEntryRampWindow(normalizedHere) ? PitEntryPaceKph : PitLanePaceKph))
+                ? PitEntryPaceKph
                 : (participant.pitRailTraveled >= participant.pitRailReleaseS ? PitExitPaceKph : PitLanePaceKph);
             participant.pitPhase = beforeBox
                 ? PitPhase.Entry
@@ -764,6 +774,15 @@ namespace LocalFormulaRacing
             // never needs to freeze for live traffic at all, which means it
             // can never compression-lock.
             participant.pitLaneHeldByOccupancy = blocker != null && step <= 0.0001f;
+            // Charge fuel for the rail distance. The car is kinematic here, so its
+            // own distance-based burn in VehicleController.UpdateFuel sees zero
+            // metres (and is skipped entirely while pit-guided) - the whole ~495m
+            // corridor was covered free while still counting as race distance.
+            if (participant.vehicle != null)
+            {
+                participant.vehicle.ConsumeGuidedFuel(step);
+            }
+
             participant.pitRailTraveled += step;
             participant.pitGuideDistance = Track.WrapDistance(participant.pitGuideDistance + step);
             participant.pitGuideLateral = Mathf.MoveTowards(participant.pitGuideLateral, RailLateralTarget(participant), PitGuideLateralRateMetersPerSecond * Time.deltaTime);
@@ -855,6 +874,12 @@ namespace LocalFormulaRacing
 
             participant.vehicle.SetPitGuidance(false, PitExitPaceKph / 3.6f);
             participant.vehicle.SetPitServiceHold(false);
+            // Belt-and-braces against a stray request surviving the stop: the
+            // vehicle-side flag is cleared at BeginPitEntry/BeginPitStop but nothing
+            // cleared it at the END of the sequence, so anything that latched it
+            // mid-stop (see PlayerVehicleInput's pit press guard) left the car
+            // reading as pit-bound the moment it was handed back to physics.
+            participant.vehicle.ClearPitRequest();
             participant.pitPhase = PitPhase.None;
             participant.isPitting = false;
             participant.hasPitGuideState = false;
@@ -905,7 +930,10 @@ namespace LocalFormulaRacing
             // timer and the animation always finish together), plus repair time
             // when the car arrived damaged - the stop is also what repairs it
             // (VehicleController.CompletePitStop) - plus a rare crew fumble.
-            float damagePercent = participant.vehicle.Damage == null ? 0f : participant.vehicle.Damage.OverallPercent;
+            // Price the repair off what the crew can actually fix (bodywork), not
+            // off total damage - engine and gearbox wear are never repaired by a
+            // stop, so charging for them billed time for work that never happened.
+            float damagePercent = participant.vehicle.Damage == null ? 0f : participant.vehicle.Damage.RepairablePercent;
             float tyreSeconds = PitServiceRules.TyreChangeSeconds(participant.isPlayer, Random.value);
             float repairSeconds = PitServiceRules.RepairSeconds(damagePercent, Random.value);
             float fumbleSeconds = PitServiceRules.CrewErrorSeconds(Random.value, Random.value);
