@@ -5414,8 +5414,18 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            const float RunoffMeshStepMeters = 4f;
-            int count = Mathf.Max(16, Mathf.CeilToInt(Runtime.length / RunoffMeshStepMeters));
+            // The apron MUST be sampled on exactly the same schedule as the road mesh
+            // (BuildRoadMesh's RoadMeshStepMeters / vertex count), so its inner edge
+            // vertices land on the road's outer edge vertices EXACTLY.
+            //
+            // It was sampled every 4 m against the road's 3 m. On any undulating
+            // section the two ribbons then chord the elevation profile differently, so
+            // between shared points the apron's inner edge could sit ABOVE the road
+            // surface - a lip a couple of centimetres proud, repeating all the way
+            // round the lap, right on the track edge where a car actually races. That
+            // is a wheel-catcher, and it punishes whoever runs closest to the edge.
+            const float RoadMeshStepMeters = 3f;
+            int count = Mathf.Max(Runtime.centerLine.Count, Mathf.CeilToInt(Runtime.length / RoadMeshStepMeters));
             float step = Runtime.length / count;
 
             Material apronMaterial = CreateMaterial("Runtime Runoff Asphalt", new Color(0.36f, 0.36f, 0.38f), 0f, 0.22f);
@@ -5443,11 +5453,15 @@ namespace LocalFormulaRacing
                     // construction on where the runoff ends.
                     float outer = ProtectionLineLateral(distance) + EdgeBarrierClearance;
 
-                    // Slightly UNDER the road so the two never z-fight and a surface
-                    // query on the racing line can only ever hit the road mesh.
-                    Vector3 lift = Vector3.up * 0.008f;
-                    vertices[i * 2] = point + right * side * inner + lift;
-                    vertices[i * 2 + 1] = point + right * side * Mathf.Max(inner, outer) + lift;
+                    // Inner edge: the road mesh's own outer-edge vertex, to the
+                    // millimetre (BuildRoadMesh lifts by 0.015). Matching it exactly is
+                    // what guarantees the apron can never stand proud of the track. The
+                    // outer edge drops 4 cm so the two surfaces cannot z-fight and a
+                    // surface query on the racing line can only ever hit the road.
+                    Vector3 innerLift = Vector3.up * 0.015f;
+                    Vector3 outerLift = Vector3.up * (0.015f - 0.04f);
+                    vertices[i * 2] = point + right * side * inner + innerLift;
+                    vertices[i * 2 + 1] = point + right * side * Mathf.Max(inner, outer) + outerLift;
                     float v = distance / 14f;
                     uvs[i * 2] = new Vector2(0f, v);
                     uvs[i * 2 + 1] = new Vector2(1f, v);
