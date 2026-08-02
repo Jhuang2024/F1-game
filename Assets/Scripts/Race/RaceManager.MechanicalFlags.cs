@@ -67,9 +67,13 @@ namespace LocalFormulaRacing
 
                 participant.blackOrangeShown = true;
                 participant.blackOrangeShownLap = participant.lapTracker.CompletedLaps;
+                // Warning, not TimePenalty: the black-and-orange costs no time by
+                // itself - it is an order to come in, and only ignoring it is
+                // punished. Publishing it as a 0-second time penalty would put a
+                // meaningless "+0s" in the penalty feed.
                 GameEvents.Publish(new PenaltyIssuedEvent(
                     participant.driverId,
-                    PenaltyKind.TimePenalty,
+                    PenaltyKind.Warning,
                     0f,
                     "Black and orange flag - report to the pits"));
                 GameLog.Warn("[RaceControl] " + participant.driverName +

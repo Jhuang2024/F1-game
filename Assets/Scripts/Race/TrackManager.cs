@@ -1713,7 +1713,7 @@ namespace LocalFormulaRacing
         public int VertexIndexAtDistance(float distance)
         {
             int count = centerLine == null ? 0 : centerLine.Count;
-            if (count < 2 || cumulativeDistances == null || cumulativeDistances.Length < count || length <= 0f)
+            if (count < 2 || cumulativeDistances == null || cumulativeDistances.Count < count + 1 || length <= 0f)
             {
                 return 0;
             }
