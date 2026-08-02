@@ -156,7 +156,8 @@ namespace F1Game.Track
             public float HalfWidthMeters;
             public float KerbStartMeters;
             public Vector2 DrsZoneOneNormalized;   // (start, end), wrap allowed
-            public Vector2 DrsZoneTwoNormalized;
+            public Vector2 DrsZoneTwoNormalized;   // Vector2.zero = this circuit has only one
+            public Vector2 DrsZoneThreeNormalized; // Vector2.zero = this circuit has fewer than three
             public float TargetLengthMeters;
             public int AnchorSubdivisions;
             public Vector3[] SketchAnchors;
@@ -242,6 +243,8 @@ namespace F1Game.Track
                 KerbStartMeters = 7.63f,
                 DrsZoneOneNormalized = new Vector2(0.86f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.48f, 0.64f),
+                // Real activation-zone count: THREE.
+                DrsZoneThreeNormalized = new Vector2(0.24f, 0.34f),
                 TargetLengthMeters = 5412f,
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
@@ -269,6 +272,8 @@ namespace F1Game.Track
                 KerbStartMeters = 7.74f,
                 DrsZoneOneNormalized = new Vector2(0.84f, 0.09f),
                 DrsZoneTwoNormalized = new Vector2(0.56f, 0.72f),
+                // Real activation-zone count: THREE.
+                DrsZoneThreeNormalized = new Vector2(0.24f, 0.33f),
                 TargetLengthMeters = 4361f,
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
@@ -323,6 +328,8 @@ namespace F1Game.Track
                 KerbStartMeters = 8.46f,
                 DrsZoneOneNormalized = new Vector2(0.86f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.18f, 0.36f),
+                // Real activation-zone count: THREE.
+                DrsZoneThreeNormalized = new Vector2(0.66f, 0.76f),
                 TargetLengthMeters = 4318f,
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
@@ -485,6 +492,8 @@ namespace F1Game.Track
                 KerbStartMeters = 8.57f,
                 DrsZoneOneNormalized = new Vector2(0.84f, 0.09f),
                 DrsZoneTwoNormalized = new Vector2(0.48f, 0.63f),
+                // Real activation-zone count: THREE.
+                DrsZoneThreeNormalized = new Vector2(0.7f, 0.8f),
                 TargetLengthMeters = 4304f,
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
@@ -577,6 +586,8 @@ namespace F1Game.Track
                 KerbStartMeters = 7.74f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.56f, 0.73f),
+                // Real activation-zone count: THREE.
+                DrsZoneThreeNormalized = new Vector2(0.76f, 0.84f),
                 TargetLengthMeters = 6174f,
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
@@ -603,7 +614,9 @@ namespace F1Game.Track
                 HalfWidthMeters = 11.14f,
                 KerbStartMeters = 6.5f,
                 DrsZoneOneNormalized = new Vector2(0.87f, 0.07f),
-                DrsZoneTwoNormalized = new Vector2(0.46f, 0.58f),
+                // Real activation-zone count: ONE. This circuit has no second
+                // activation zone, and inventing one changes what the lap is.
+                DrsZoneTwoNormalized = Vector2.zero,
                 TargetLengthMeters = 3337f,
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
@@ -631,7 +644,9 @@ namespace F1Game.Track
                 HalfWidthMeters = 13.61f,
                 KerbStartMeters = 7.93f,
                 DrsZoneOneNormalized = new Vector2(0.9f, 0.07f),
-                DrsZoneTwoNormalized = new Vector2(0.5f, 0.63f),
+                // Real activation-zone count: ONE. This circuit has no second
+                // activation zone, and inventing one changes what the lap is.
+                DrsZoneTwoNormalized = Vector2.zero,
                 TargetLengthMeters = 5807f,
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
@@ -716,6 +731,8 @@ namespace F1Game.Track
                 KerbStartMeters = 6.8f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.07f),
                 DrsZoneTwoNormalized = new Vector2(0.55f, 0.69f),
+                // Real activation-zone count: THREE.
+                DrsZoneThreeNormalized = new Vector2(0.72f, 0.82f),
                 TargetLengthMeters = 4940f,
                 AnchorSubdivisions = 2,
                 SketchAnchors = new[]
@@ -743,6 +760,8 @@ namespace F1Game.Track
                 KerbStartMeters = 9.07f,
                 DrsZoneOneNormalized = new Vector2(0.88f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.52f, 0.69f),
+                // Real activation-zone count: THREE.
+                DrsZoneThreeNormalized = new Vector2(0.73f, 0.82f),
                 TargetLengthMeters = 5278f,
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
@@ -824,6 +843,8 @@ namespace F1Game.Track
                 KerbStartMeters = 8.15f,
                 DrsZoneOneNormalized = new Vector2(0.91f, 0.08f),
                 DrsZoneTwoNormalized = new Vector2(0.42f, 0.57f),
+                // Real activation-zone count: THREE.
+                DrsZoneThreeNormalized = new Vector2(0.63f, 0.71f),
                 TargetLengthMeters = 5412f,
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
@@ -989,8 +1010,13 @@ namespace F1Game.Track
                 gripMultiplier = 1f,
             });
 
+            // Zone COUNT is per circuit, not a constant two. Monaco and Suzuka run a
+            // single activation zone; Bahrain, Jeddah, Miami, Austria, Mexico and
+            // Singapore run three. AddDrsZone skips a Vector2.zero entry, so the spec
+            // expresses the real count directly.
             AddDrsZone(asset, spec.DrsZoneOneNormalized, length);
             AddDrsZone(asset, spec.DrsZoneTwoNormalized, length);
+            AddDrsZone(asset, spec.DrsZoneThreeNormalized, length);
 
             var stalls = new List<Vector3>();
             TrackSplineSampler.Sample pitAnchor = sampler.AtDistance(0f);

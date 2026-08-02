@@ -171,17 +171,23 @@ namespace LocalFormulaRacing
             float aheadInterval = GetIntervalToAheadSeconds(participant);
             RaceParticipant behind = FindCarBehind(participant, 70f);
             bool attacking = aheadInterval < 1.6f;
-            bool behindHasDrs = behind != null && IsDrsAvailable(behind);
+            // 2026: "the car behind has the wing open" stopped being a threat signal
+            // the moment the whole field got movable aero in every activation zone -
+            // IsDrsAvailable is now true for everyone on a straight, so this read as a
+            // permanent attack and the defence trigger never rested. The real threat
+            // signal is the car behind having OVERRIDE armed: within a second, past
+            // the opening laps, with budget left.
+            bool behindHasOverride = behind != null && IsOverrideAvailable(behind);
             bool isExpert = IsExpertDifficulty;
 
             // Part A.4: Expert's defend trigger is far more sensitive - a chasing car
-            // with DRS, a healthily-charged battery, or simply closing fast all count
+            // with Override armed, a healthily-charged battery, or simply closing fast all count
             // as a real threat, not only a comfortably-charged battery alone.
             // Defend-deploy round 2 (per request - "make it so that AI use ERS
             // when defending as well"): the closing-attacker detection was
             // Expert-ONLY, and the non-Expert battery threshold (0.32) meant
             // lower tiers mostly ignored a live attack unless the attacker had
-            // DRS. Every tier now reacts to a genuinely closing car, with the
+            // Override. Every tier now reacts to a genuinely closing car, with the
             // detection threshold scaled by ERS craft (a sharp driver responds
             // to a ~4kph closure, a weak one only notices a ~10kph rush), and
             // the defend battery bar is low enough that banked charge (see the
@@ -191,7 +197,7 @@ namespace LocalFormulaRacing
             bool closingFast = behind != null && behind.vehicle != null &&
                 (Mathf.Abs(behind.vehicle.CurrentSpeedKph) - Mathf.Abs(participant.vehicle.CurrentSpeedKph)) > Mathf.Lerp(10f, 4f, ersQuality);
             float defendBatteryThreshold = isExpert ? 0.15f : 0.22f;
-            bool defending = behind != null && (battery > defendBatteryThreshold || behindHasDrs || closingFast);
+            bool defending = behind != null && (battery > defendBatteryThreshold || behindHasOverride || closingFast);
 
             if (!attacking && !defending)
             {

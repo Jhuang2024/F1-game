@@ -815,6 +815,9 @@ namespace LocalFormulaRacing
 
                 if (participant.vehicle != null)
                 {
+                    // Push the 2026 Override Mode state down to the physics every
+                    // frame, the same way track grip and weather are pushed.
+                    participant.vehicle.SetOverrideModeArmed(IsOverrideAvailable(participant));
                     participant.trackedTickFrameCount++;
                     if (participant.vehicle.ErsDeploying) participant.ersDeployFrameCount++;
                     if (participant.vehicle.DrsActive) participant.drsActiveFrameCount++;

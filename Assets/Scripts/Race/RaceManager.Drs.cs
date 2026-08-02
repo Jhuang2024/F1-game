@@ -7,30 +7,29 @@ using UnityEngine;
 namespace LocalFormulaRacing
 {
     /// <summary>
-    /// RaceManager DRS-eligibility subsystem (partial). Owns the detection-point
-    /// gap evaluation (checked once as a car crosses the detection line, then held
-    /// for the whole following zone), the DRS zone lookup, the availability gate
-    /// and the HUD state text. The pure eligibility policy lives in the engine-free
-    /// DrsRules; this partial owns the live per-frame evaluation and the track
-    /// queries. Split out of the RaceManager monolith verbatim - same class, same
-    /// members, identical behaviour and call order; IsDrsAvailable/DrsStateText
-    /// stay public so external callers resolve in-class. The LocalHalfWidthAt
-    /// geometry helper stays in the main partial (shared well beyond DRS).
+    /// RaceManager movable-aero subsystem (partial) for the 2026 regulations. Owns
+    /// the activation-zone lookup, the wing (X-mode) availability gate, the Override
+    /// Mode gap evaluation and energy budget, and the HUD state text. The pure policy
+    /// lives in the engine-free ActiveAeroRules; this partial owns the live per-frame
+    /// evaluation and the track queries.
+    ///
+    /// This used to be the DRS subsystem, with a whole detection-point eligibility
+    /// machine behind it: cross a detection line, check you are within a second of the
+    /// car ahead, and only then may the flap open, for that zone only. Under the 2026
+    /// rules the movable wings are not an overtaking aid at all - the entire field has
+    /// them in the activation zones - and the overtaking aid is Override Mode, which
+    /// is extra electrical deployment and is not tied to a zone. The two are now
+    /// modelled as the two separate things they are.
     /// </summary>
     public partial class RaceManager
     {
-        // DRS fix: the 1-second gap requirement is evaluated ONCE, at each zone's own
-        // detection point (a short distance before the zone starts - see
-        // TrackRuntime.drsDetectionOne/Two), not continuously through the whole
-        // activation zone. Real DRS works the same way: the gap is checked as you
-        // cross the detection line, and if you're within a second you get DRS for
-        // the ENTIRE following zone even if the gap opens back up past a second
-        // halfway down the straight. The old code called GetIntervalToAheadSeconds
-        // every frame inside the zone, so DRS would flicker off the instant the live
-        // gap crept past 1.0s - which is exactly why it "did not stay open long
-        // enough". Runs unconditionally every frame per participant (not just while
-        // DRS-eligible) so a car approaching a zone always gets evaluated the moment
-        // it crosses the detection point, regardless of what it was doing before.
+        /// <summary>
+        /// Per-frame Override Mode bookkeeping: arms it when the car is within a
+        /// second of the car ahead, drains its budget while it is being used, and
+        /// refills the budget each lap. Replaces UpdateDrsEligibility, whose whole
+        /// job - earning a zone at a detection point and holding that decision for
+        /// the length of the zone - is a rule that no longer exists.
+        /// </summary>
         void UpdateDrsEligibility(RaceParticipant participant)
         {
             if (participant == null || participant.lapTracker == null || Track == null || participant.vehicle == null)
@@ -38,104 +37,57 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            TrackProgress progress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
-            float currentNormalized = progress.normalized;
-
             if (participant.retired || participant.finished || participant.isPitting || participant.pitPhase != PitPhase.None)
             {
-                participant.drsEligibleZoneOne = false;
-                participant.drsEligibleZoneTwo = false;
-                participant.drsZoneEntryRacePosition = -1;
-                participant.previousDrsProgressNormalized = currentNormalized;
+                participant.overrideArmed = false;
                 return;
             }
 
-            if (participant.previousDrsProgressNormalized < 0f)
+            // Budget refills at the start of each lap, like the per-lap deployment
+            // allowance it represents.
+            int lap = participant.lapTracker.CompletedLaps;
+            if (participant.overrideBudgetLap != lap)
             {
-                participant.previousDrsProgressNormalized = currentNormalized;
-                return;
+                participant.overrideBudgetLap = lap;
+                participant.overrideEnergy01 = 1f;
             }
 
-            float previousNormalized = participant.previousDrsProgressNormalized;
+            bool isWet = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
+            bool qualiOrTt = CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial;
+            float interval = qualiOrTt ? 999f : GetIntervalToAheadSeconds(participant);
+            participant.overrideArmed = ActiveAeroRules.OverrideAvailable(
+                isWet,
+                drsRestartCooldownTimer > 0f,
+                FlagRules.DrsAllowed(FlagForParticipant(participant)),
+                qualiOrTt,
+                lap,
+                interval,
+                participant.overrideEnergy01);
 
-            if (Track.CrossedDrsDetectionPoint(previousNormalized, currentNormalized, 1))
+            // Deploying costs budget. The driver (or the AI) has to choose when to
+            // spend it - held down all lap, there is nothing left for the move.
+            if (participant.overrideArmed && participant.vehicle.ErsDeploying)
             {
-                participant.drsEligibleZoneOne = EvaluateDrsDetectionGap(participant);
-                participant.drsEligibilityLapZoneOne = participant.lapTracker.CompletedLaps;
+                participant.overrideEnergy01 = Mathf.Max(
+                    0f,
+                    participant.overrideEnergy01 - ActiveAeroRules.OverrideDrainPerSecond01 * Time.deltaTime);
             }
+        }
 
-            if (Track.CrossedDrsDetectionPoint(previousNormalized, currentNormalized, 2))
-            {
-                participant.drsEligibleZoneTwo = EvaluateDrsDetectionGap(participant);
-                participant.drsEligibilityLapZoneTwo = participant.lapTracker.CompletedLaps;
-            }
+        /// <summary>
+        /// True while this car is close enough to the car ahead to use Override Mode
+        /// and still has budget for it. Read by VehicleController for the extra
+        /// deployment and by the AI when deciding whether an attack is on.
+        /// </summary>
+        public bool IsOverrideAvailable(RaceParticipant participant)
+        {
+            return participant != null && participant.overrideArmed && CanDrive;
+        }
 
-            // Latch the race position held at the moment the car ENTERS a DRS
-            // zone (passed-leader fix - see the gate below). Checked against
-            // both zones with one flag since the zones never overlap.
-            bool inAnyZoneNow = Track.IsInDrsZone(1, currentNormalized) || Track.IsInDrsZone(2, currentNormalized);
-            bool inAnyZoneBefore = Track.IsInDrsZone(1, previousNormalized) || Track.IsInDrsZone(2, previousNormalized);
-            if (inAnyZoneNow && !inAnyZoneBefore)
-            {
-                participant.drsZoneEntryRacePosition = GetPosition(participant);
-            }
-            else if (!inAnyZoneNow)
-            {
-                participant.drsZoneEntryRacePosition = -1;
-            }
-
-            // Live in-zone earning ("DRS is broken" fix): the detection-point
-            // check above is a snapshot - a car that was 3-4s back at the line
-            // but catches the car ahead mid-zone (routine here, where closing
-            // speeds are far larger than real F1's) used to get nothing for the
-            // whole zone, which in practice meant DRS almost never activated in
-            // a race at all. A car inside a zone that has NOT yet earned it now
-            // re-checks the same gap rule continuously and earns the zone the
-            // moment it comes within the activation gap. Earning stays sticky
-            // ("once earned it holds for the whole zone" is unchanged - the gap
-            // opening back up never revokes it), and the zone-exit clearing
-            // below still resets everything for the next pass.
-            // Passed-leader gate (per report - "if I'm leading across the DRS
-            // detection line and the AI behind me gets DRS and passes me on
-            // that straight... I get DRS too???"): live earning exists for a
-            // car CATCHING the one ahead, but a car that got PASSED inside the
-            // zone also suddenly has a car ahead within the gap and used to
-            // earn DRS retroactively. A car may only live-earn while it still
-            // holds (or has improved on) the position it entered the zone with
-            // - losing a place inside the zone forfeits live earning for the
-            // rest of that zone, exactly like real DRS where the decision was
-            // already made at the detection line. The detection-point latch
-            // above is untouched.
-            bool heldPositionSinceZoneEntry = participant.drsZoneEntryRacePosition < 0 ||
-                GetPosition(participant) <= participant.drsZoneEntryRacePosition;
-            if (Track.IsInDrsZone(1, currentNormalized) && !participant.drsEligibleZoneOne &&
-                heldPositionSinceZoneEntry && EvaluateDrsDetectionGap(participant))
-            {
-                participant.drsEligibleZoneOne = true;
-                participant.drsEligibilityLapZoneOne = participant.lapTracker.CompletedLaps;
-            }
-
-            if (Track.IsInDrsZone(2, currentNormalized) && !participant.drsEligibleZoneTwo &&
-                heldPositionSinceZoneEntry && EvaluateDrsDetectionGap(participant))
-            {
-                participant.drsEligibleZoneTwo = true;
-                participant.drsEligibilityLapZoneTwo = participant.lapTracker.CompletedLaps;
-            }
-
-            // Clear a zone's own eligibility once the car has actually left it, so a
-            // stale "eligible" flag can never linger into some later, unrelated pass
-            // through the same normalized band (e.g. after a forced reposition).
-            if (Track.IsInDrsZone(1, previousNormalized) && !Track.IsInDrsZone(1, currentNormalized))
-            {
-                participant.drsEligibleZoneOne = false;
-            }
-
-            if (Track.IsInDrsZone(2, previousNormalized) && !Track.IsInDrsZone(2, currentNormalized))
-            {
-                participant.drsEligibleZoneTwo = false;
-            }
-
-            participant.previousDrsProgressNormalized = currentNormalized;
+        /// <summary>Override Mode budget left this lap, 0..1. HUD-facing.</summary>
+        public float OverrideEnergyRemaining01(RaceParticipant participant)
+        {
+            return participant == null ? 0f : Mathf.Clamp01(participant.overrideEnergy01);
         }
 
         // ---- Track-query seam (Phase C consumer migration) ----------------
@@ -160,23 +112,13 @@ namespace LocalFormulaRacing
             return Track.GetDrsZoneIndex(progress.normalized);
         }
 
-        // The actual 1-second-gap decision, made once at the detection point.
-        // Qualifying/time trial never require a gap at all - every zone is always
-        // available with no car-ahead requirement.
-        bool EvaluateDrsDetectionGap(RaceParticipant participant)
-        {
-            // Qualifying/time trial earn every zone with no gap requirement, so the
-            // heavier interval scan is only run on the race path (matching the
-            // original short-circuit exactly).
-            if (CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial)
-            {
-                return DrsRules.EarnsDetectionEligibility(true, participant.lapTracker.CompletedLaps, 0f);
-            }
-
-            return DrsRules.EarnsDetectionEligibility(
-                false, participant.lapTracker.CompletedLaps, GetIntervalToAheadSeconds(participant));
-        }
-
+        /// <summary>
+        /// Whether this car's movable wings may go to low-drag mode right now. Kept
+        /// under the old name because every caller (HUD, AI, player input) is asking
+        /// exactly this question, but the RULE is the 2026 one: no car-ahead gap, no
+        /// earned zone eligibility, just "am I in an activation zone and is race
+        /// control allowing movable aero".
+        /// </summary>
         public bool IsDrsAvailable(RaceParticipant participant)
         {
             if (participant == null || participant.lapTracker == null || Track == null)
@@ -189,31 +131,18 @@ namespace LocalFormulaRacing
                 return false;
             }
 
-            // DRS permission under flags is FlagRules' call. FlagForParticipant
-            // folds the sector-local yellow (and its near-incident fallback
-            // window) into the global flag, and this is checked continuously
-            // (every frame, not just at the detection point) so a yellow that
-            // comes out AFTER a car already earned zone eligibility still shuts
-            // DRS off immediately, matching the real rule. The restart cooldown
-            // is race-layer state (real F1 rule: no DRS for a spell after a
-            // restart) layered on top. The zone-eligibility ordering (wet/
-            // cooldown/flag → in-zone → session → laps → earned) lives in
-            // DrsRules; RaceManager resolves the live state here. The earned gap
-            // itself is NOT re-checked against the live gap - once earned at the
-            // detection point it holds for the whole zone.
+            // Movable-aero permission under flags is FlagRules' call. FlagForParticipant
+            // folds the sector-local yellow (and its near-incident fallback window) into
+            // the global flag, so a yellow shuts the wings immediately. The restart
+            // cooldown is race-layer state (no movable aero for a spell after a restart)
+            // layered on top.
             bool isWet = Track.weather == WeatherState.LightRain || Track.weather == WeatherState.HeavyRain;
             TrackProgress progress = State == null ? participant.lapTracker.CurrentProgress : State.GetCurrentProgress(participant);
-            int zoneIndex = DrsZoneIndexAt(progress);
-            bool qualiOrTt = CurrentSession == RaceWeekendSession.Qualifying || IsTimeTrial;
-            return DrsRules.IsAvailable(
+            return ActiveAeroRules.WingModeAvailable(
                 isWet,
                 drsRestartCooldownTimer > 0f,
                 FlagRules.DrsAllowed(FlagForParticipant(participant)),
-                zoneIndex,
-                qualiOrTt,
-                participant.lapTracker.CompletedLaps,
-                participant.drsEligibleZoneOne,
-                participant.drsEligibleZoneTwo);
+                DrsZoneIndexAt(progress));
         }
 
         public string DrsStateText(RaceParticipant participant)

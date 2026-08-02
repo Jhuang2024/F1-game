@@ -396,6 +396,24 @@ namespace LocalFormulaRacing
         // (ErsBoostForce), not this ceiling. Overstating it here also crowded out
         // DRS and the tow, both of which are genuinely bigger top-end effects.
         const float ErsTopSpeedBonusKph = 8f;
+
+        /// <summary>
+        /// True while the race layer has Override Mode armed for this car (within a
+        /// second of the car ahead, past the opening-lap gate, budget remaining).
+        /// Set every frame by RaceManager; false for a car with no race layer.
+        /// </summary>
+        public bool OverrideModeArmed { get; private set; }
+
+        public void SetOverrideModeArmed(bool armed)
+        {
+            OverrideModeArmed = armed;
+        }
+
+        // Override multiplies the deploy FORCE (the acceleration out of the corner
+        // and up the straight) and raises the top-speed ceiling. Both are needed:
+        // force alone cannot beat the governor, and ceiling alone cannot be reached.
+        const float OverrideBoostMultiplier = 1.5f;
+        const float OverrideTopSpeedBonusKph = 10f;
         static readonly float[] AutoShiftUpKph = { 0f, 62f, 102f, 142f, 186f, 232f, 282f, 322f };
 
         // Read-only view of the authoritative auto-shift speed schedule (index g = the
@@ -1569,6 +1587,17 @@ namespace LocalFormulaRacing
                 // felt gain on a typical straight, and the drain range carries
                 // nine rounds of play-tuning history (see the model).
                 ersBoost = PowertrainModel.ErsBoostForce(StatNormalized(CarData.ersEfficiency), deployModeMultiplier);
+                // 2026 Override Mode: the overtaking aid. Standard deployment tapers
+                // off well before top speed; a driver within a second of the car
+                // ahead may hold near-full MGU-K power much closer to it. Modelled as
+                // a straight multiplier on the deploy force here plus the higher
+                // top-speed ceiling in CalculateTargetTopSpeedKph. The race layer owns
+                // whether it is armed, including its per-lap energy budget (see
+                // RaceManager.IsOverrideAvailable / ActiveAeroRules).
+                if (OverrideModeArmed)
+                {
+                    ersBoost *= OverrideBoostMultiplier;
+                }
                 float ersBefore = ErsBattery;
                 ErsBattery = Mathf.Clamp01(ErsBattery - dt * PowertrainModel.ErsDrainPerSecond(activeCommand.throttle));
                 // Unconditional diagnostic (not GameLog.Info, which is silently
@@ -2341,8 +2370,15 @@ namespace LocalFormulaRacing
             // DRS or not.
             if (activeCommand.ers && ErsBattery > 0.01f)
             {
-                target += ErsTopSpeedBonusKph;
-                ceiling += ErsTopSpeedBonusKph;
+                // Override Mode holds deployment to a much higher speed than the
+                // standard taper, so it is worth several times the ordinary ERS
+                // top-end contribution - this is the 2026 overtaking aid, and it has
+                // to be worth using.
+                float ersTopSpeed = OverrideModeArmed
+                    ? ErsTopSpeedBonusKph + OverrideTopSpeedBonusKph
+                    : ErsTopSpeedBonusKph;
+                target += ersTopSpeed;
+                ceiling += ersTopSpeed;
             }
 
             // Slipstream: a genuine top-speed bonus (see SlipstreamBonusKph), same

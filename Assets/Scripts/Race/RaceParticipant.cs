@@ -190,26 +190,18 @@ namespace LocalFormulaRacing
         // Lightweight per-race ERS/DRS usage counters for post-session diagnostics.
         public int ersDeployFrameCount;
         public int drsActiveFrameCount;
-        // DRS fix: eligibility is decided once, at each zone's own detection point
-        // (RaceManager.UpdateDrsEligibility/TrackRuntime.CrossedDrsDetectionPoint),
-        // and then held for that whole activation zone rather than re-checked every
-        // frame - see RaceManager.IsDrsAvailable. lapZone* records which lap the
-        // decision was made on purely so a stale eligibility flag from a previous
-        // lap's pass through the same zone can never leak into this lap's pass.
-        public bool drsEligibleZoneOne;
-        public bool drsEligibleZoneTwo;
-        public int drsEligibilityLapZoneOne = -1;
-        public int drsEligibilityLapZoneTwo = -1;
-        public float previousDrsProgressNormalized = -1f;
-        // Race position latched the moment this car entered its current DRS
-        // zone (per report - "the AI passed me on that straight... I get DRS
-        // too???"): live in-zone earning (RaceManager.UpdateDrsEligibility)
-        // is only for a car CATCHING the one ahead; a car that got passed
-        // inside the zone now sits behind the car that just passed it, which
-        // used to satisfy the gap check and retroactively hand the passed
-        // leader DRS. Live earning is gated on not having LOST position since
-        // zone entry. -1 = not currently in a zone.
-        public int drsZoneEntryRacePosition = -1;
+        // Override Mode state (2026 rules - see RaceManager.UpdateDrsEligibility and
+        // the engine-free ActiveAeroRules). Replaces the old per-zone DRS eligibility
+        // latches, which modelled a rule that no longer exists: eligibility earned at
+        // a detection point and held for the length of one activation zone. The
+        // movable wings now need no eligibility at all, and the overtaking aid is a
+        // gap-gated, energy-limited electrical boost that is not tied to a zone.
+        //   overrideArmed      - within a second of the car ahead, with budget left
+        //   overrideEnergy01   - deployment budget remaining this lap, 0..1
+        //   overrideBudgetLap  - the lap the budget was last refilled on
+        public bool overrideArmed;
+        public float overrideEnergy01 = 1f;
+        public int overrideBudgetLap = -1;
         // Denominator for the two counters above (post-race telemetry report -
         // see RuntimeUi.BuildDrivingTelemetryCard) - only counts frames this
         // participant was actually ticked (on track, not mid-pit-guide/finished),

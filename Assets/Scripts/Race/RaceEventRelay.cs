@@ -193,6 +193,8 @@ namespace LocalFormulaRacing
                 Ers01 = Mathf.Clamp01(ers),
                 DrsActive = vehicle.DrsActive,
                 DrsAvailable = race.IsDrsAvailable(player),
+                OverrideArmed = race.IsOverrideAvailable(player),
+                OverrideEnergy01 = race.OverrideEnergyRemaining01(player),
                 Fuel01 = vehicle.StartFuelKg > 0.01f ? Mathf.Clamp01(vehicle.FuelKg / vehicle.StartFuelKg) : 0f,
                 FuelLapsRemaining = vehicle.FuelPerLapEstimateKg > 0.01f ? vehicle.FuelKg / vehicle.FuelPerLapEstimateKg : 0f,
                 TyreCompound = compound,

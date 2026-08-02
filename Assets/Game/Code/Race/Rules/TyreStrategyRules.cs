@@ -73,20 +73,60 @@ namespace F1Game.Race.Rules
                 baseTemp = StandardTrackTempC;
             }
 
-            float offset = 0f;
-            if (!string.IsNullOrEmpty(trackId))
-            {
-                int hash = 17;
-                for (int i = 0; i < trackId.Length; i++)
-                {
-                    hash = unchecked(hash * 31 + trackId[i]);
-                }
+            float temp = baseTemp + CircuitTemperatureOffsetC(trackId);
+            return temp < CoolTrackTempC ? CoolTrackTempC : (temp > HotTrackTempC ? HotTrackTempC : temp);
+        }
 
-                offset = ((hash & 0x7fffffff) % 1001) / 1000f * 5f - 2.5f;
+        /// <summary>
+        /// Real per-circuit surface-temperature bias in C, on top of the weather
+        /// profile. This used to be a HASH of the track id - a deterministic random
+        /// number in [-2.5, +2.5] that carried no information at all, so Las Vegas in
+        /// November could come out hotter than Bahrain in April purely because of how
+        /// its name hashed. These are the actual character of each round: desert and
+        /// tropical circuits bake, night races and the European autumn are cool, and
+        /// altitude (Mexico) and coastal wind (Zandvoort) pull the surface down.
+        /// </summary>
+        public static float CircuitTemperatureOffsetC(string trackId)
+        {
+            if (string.IsNullOrEmpty(trackId))
+            {
+                return 0f;
             }
 
-            float temp = baseTemp + offset;
-            return temp < CoolTrackTempC ? CoolTrackTempC : (temp > HotTrackTempC ? HotTrackTempC : temp);
+            switch (trackId)
+            {
+                // Genuinely hot rounds - desert, tropical, or midsummer continental.
+                case "bahrain_desert": return 6f;
+                case "qatar_high_speed": return 6f;
+                case "jeddah_fast_street": return 4f;
+                case "miami_park_street": return 5f;
+                case "hungary_technical": return 5f;
+                case "singapore_night": return 3f;      // night, but tropical and humid
+                case "austin_rollercoaster": return 2f;
+                case "barcelona_flowing": return 2f;
+                case "madrid_hybrid_street": return 3f; // inland Spain, September
+                case "abu_dhabi_finale": return 1f;     // twilight start bleeds the heat off
+                case "baku_fast_street": return 1f;
+                case "interlagos_short_flowing": return 1f;
+
+                // Neutral.
+                case "monza_low_downforce": return 0f;
+                case "monaco_tight_street": return 0f;
+                case "china_suzuka_technical": return 0f;
+                case "austria_hillside": return 0f;
+                case "canada_stop_go": return 0f;
+
+                // Cool - altitude, coast, high latitude, or a night race in a desert
+                // winter, which is a genuinely cold track surface.
+                case "melbourne_park": return -1f;
+                case "suzuka_figure_eight": return -1f;
+                case "zandvoort_coastal": return -2f;   // North Sea wind
+                case "silverstone_high_speed": return -3f;
+                case "spa_flowing": return -4f;         // Ardennes, its own microclimate
+                case "mexico_high_altitude": return -3f;
+                case "las_vegas_street": return -7f;    // November, in the desert, at night
+                default: return 0f;
+            }
         }
 
         /// <summary>

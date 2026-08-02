@@ -179,9 +179,13 @@ namespace F1Game.UI.Screens.RaceHudShell
 
             if (drs != null)
             {
-                if (t.DrsActive) drs.Set("DRS OPEN", StatusChip.Tone.Positive);
-                else if (t.DrsAvailable) drs.Set("DRS READY", StatusChip.Tone.Accent);
-                else drs.Set("DRS", StatusChip.Tone.Neutral);
+                // 2026: the chip reports the two separate systems that replaced DRS.
+                // Override is the one that decides a fight, so it wins the chip when
+                // it is armed; the wing is ordinary aero the whole field has.
+                if (t.OverrideArmed) drs.Set($"OVERRIDE {t.OverrideEnergy01 * 100f:0}%", StatusChip.Tone.Positive);
+                else if (t.DrsActive) drs.Set("X-MODE", StatusChip.Tone.Positive);
+                else if (t.DrsAvailable) drs.Set("AERO READY", StatusChip.Tone.Accent);
+                else drs.Set("AERO", StatusChip.Tone.Neutral);
             }
         }
     }

@@ -27,7 +27,7 @@ namespace F1Game.Track
         /// <summary>
         /// Active DRS zone at a lap distance as a ONE-BASED index (1 or 2), or 0
         /// when the distance is not in a zone. This matches TrackRuntime.
-        /// GetDrsZoneIndex and the sentinel DrsRules.IsAvailable tests against.
+        /// GetDrsZoneIndex and the sentinel ActiveAeroRules.WingModeAvailable tests against.
         /// The two implementations of this interface used to disagree here - the
         /// legacy adapter returned 1-based with -1 for none, the authored adapter
         /// returned 0-based with -1 for none - so wiring the authored path to the

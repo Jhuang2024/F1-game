@@ -53,6 +53,12 @@ namespace LocalFormulaRacing
         }
         public Vector2 drsZoneOne = new Vector2(0.13f, 0.29f);
         public Vector2 drsZoneTwo = new Vector2(0.64f, 0.82f);
+        // Third activation zone. Every circuit used to get exactly TWO, which is
+        // wrong at both ends of the calendar: Monaco and Suzuka have one, while
+        // Bahrain, Austria, Jeddah, Miami, Mexico and Singapore have three. A zone
+        // left at Vector2.zero is simply absent - IsInZone can never be true for it -
+        // so this doubles as the "one zone only" case for the circuits that need it.
+        public Vector2 drsZoneThree = Vector2.zero;
         // DRS fix: detection points, a short distance before each zone's own start
         // (see TrackManager.ValidateLayout, right after the zones themselves are
         // validated). A real DRS system decides eligibility once, at the detection
@@ -61,6 +67,7 @@ namespace LocalFormulaRacing
         // behavior) is why DRS used to deploy for way too short a time.
         public float drsDetectionOne;
         public float drsDetectionTwo;
+        public float drsDetectionThree;
         public WeatherState weather = WeatherState.Clear;
         // Session track-surface temperature (C), derived once from the event's
         // weather profile (plus a small per-track offset) - drives the
@@ -876,7 +883,9 @@ namespace LocalFormulaRacing
 
         public bool IsInDrsZone(float normalizedProgress)
         {
-            return IsInZone(normalizedProgress, drsZoneOne) || IsInZone(normalizedProgress, drsZoneTwo);
+            return IsInZone(normalizedProgress, drsZoneOne) ||
+                   IsInZone(normalizedProgress, drsZoneTwo) ||
+                   IsInZone(normalizedProgress, drsZoneThree);
         }
 
         // DRS fix: 1-indexed zone the car is currently inside (1 or 2), or 0 if in
@@ -894,6 +903,11 @@ namespace LocalFormulaRacing
                 return 2;
             }
 
+            if (IsInZone(normalizedProgress, drsZoneThree))
+            {
+                return 3;
+            }
+
             return 0;
         }
 
@@ -909,11 +923,21 @@ namespace LocalFormulaRacing
                 return IsInZone(normalizedProgress, drsZoneTwo);
             }
 
+            if (zoneIndex == 3)
+            {
+                return IsInZone(normalizedProgress, drsZoneThree);
+            }
+
             return false;
         }
 
         public float GetDrsDetectionPoint(int zoneIndex)
         {
+            if (zoneIndex == 3)
+            {
+                return drsDetectionThree;
+            }
+
             return zoneIndex == 2 ? drsDetectionTwo : drsDetectionOne;
         }
 
@@ -3122,6 +3146,10 @@ namespace LocalFormulaRacing
 
             runtime.drsZoneOne = new Vector2(Mathf.Repeat(runtime.drsZoneOne.x - shiftNorm, 1f), Mathf.Repeat(runtime.drsZoneOne.y - shiftNorm, 1f));
             runtime.drsZoneTwo = new Vector2(Mathf.Repeat(runtime.drsZoneTwo.x - shiftNorm, 1f), Mathf.Repeat(runtime.drsZoneTwo.y - shiftNorm, 1f));
+            if (runtime.drsZoneThree != Vector2.zero)
+            {
+                runtime.drsZoneThree = new Vector2(Mathf.Repeat(runtime.drsZoneThree.x - shiftNorm, 1f), Mathf.Repeat(runtime.drsZoneThree.y - shiftNorm, 1f));
+            }
             // The DETECTION points have to be re-based by the same shift as the zones
             // they belong to. ValidateLayout derives them from the zone starts, but it
             // runs inside AddLayoutPoints - i.e. before this rotation - and is never
@@ -3134,6 +3162,7 @@ namespace LocalFormulaRacing
             // measured half a lap earlier.
             runtime.drsDetectionOne = Mathf.Repeat(runtime.drsDetectionOne - shiftNorm, 1f);
             runtime.drsDetectionTwo = Mathf.Repeat(runtime.drsDetectionTwo - shiftNorm, 1f);
+            runtime.drsDetectionThree = Mathf.Repeat(runtime.drsDetectionThree - shiftNorm, 1f);
 
             Debug.LogWarning("[PitStraightRotation] " + runtime.displayName + ": rotated lap start by " +
                              (shiftNorm * total).ToString("0") + "m (norm " + shiftNorm.ToString("0.000") +
@@ -4078,6 +4107,20 @@ namespace LocalFormulaRacing
                     Mathf.Repeat(definition.drsZones[1].activationDistance / authoredLength, 1f),
                     Mathf.Repeat(definition.drsZones[1].endDistance / authoredLength, 1f));
             }
+            else
+            {
+                // A single-zone circuit (Monaco, Suzuka) must actually END UP with one
+                // zone. The runtime field carries a two-zone default, so leaving it
+                // untouched silently handed the circuit a second activation zone it
+                // does not have.
+                runtime.drsZoneTwo = Vector2.zero;
+            }
+
+            runtime.drsZoneThree = authoredLength > 1f && definition.drsZones.Count > 2
+                ? new Vector2(
+                    Mathf.Repeat(definition.drsZones[2].activationDistance / authoredLength, 1f),
+                    Mathf.Repeat(definition.drsZones[2].endDistance / authoredLength, 1f))
+                : Vector2.zero;
 
             // Converted circuits keep the smoothing density their legacy
             // layout used, so the built shape matches.
@@ -4188,6 +4231,7 @@ namespace LocalFormulaRacing
 
             ValidateDrsZone(runtime, ref runtime.drsZoneOne, "DRS zone 1");
             ValidateDrsZone(runtime, ref runtime.drsZoneTwo, "DRS zone 2");
+            ValidateDrsZone(runtime, ref runtime.drsZoneThree, "DRS zone 3");
 
             // DRS fix: detection points sit a short distance before each zone's own
             // start, wrapping correctly for a zone that starts near/after the
@@ -4196,8 +4240,10 @@ namespace LocalFormulaRacing
             // fall outside the previous zone/corner.
             float detectionOneOffset = DrsZoneSpan(runtime.drsZoneOne) < 0.06f ? 0.02f : 0.035f;
             float detectionTwoOffset = DrsZoneSpan(runtime.drsZoneTwo) < 0.06f ? 0.02f : 0.035f;
+            float detectionThreeOffset = DrsZoneSpan(runtime.drsZoneThree) < 0.06f ? 0.02f : 0.035f;
             runtime.drsDetectionOne = Mathf.Repeat(runtime.drsZoneOne.x - detectionOneOffset, 1f);
             runtime.drsDetectionTwo = Mathf.Repeat(runtime.drsZoneTwo.x - detectionTwoOffset, 1f);
+            runtime.drsDetectionThree = Mathf.Repeat(runtime.drsZoneThree.x - detectionThreeOffset, 1f);
         }
 
         float DrsZoneSpan(Vector2 zone)
@@ -4207,6 +4253,15 @@ namespace LocalFormulaRacing
 
         void ValidateDrsZone(TrackRuntime runtime, ref Vector2 zone, string label)
         {
+            // Vector2.zero means "this circuit does not have this zone" (Monaco and
+            // Suzuka run a single zone). Leave it alone - the span check below would
+            // otherwise read the absent zone as a malformed one and invent a real
+            // 14%-of-a-lap activation zone on a circuit that has no business having it.
+            if (zone == Vector2.zero)
+            {
+                return;
+            }
+
             zone.x = Mathf.Repeat(zone.x, 1f);
             zone.y = Mathf.Repeat(zone.y, 1f);
             float span = zone.x <= zone.y ? zone.y - zone.x : (1f - zone.x) + zone.y;
@@ -9598,6 +9653,10 @@ namespace LocalFormulaRacing
         {
             CreateDrsZoneBoard(Runtime.length * Runtime.drsZoneOne.x);
             CreateDrsZoneBoard(Runtime.length * Runtime.drsZoneTwo.x);
+            if (Runtime.drsZoneThree != Vector2.zero)
+            {
+                CreateDrsZoneBoard(Runtime.length * Runtime.drsZoneThree.x);
+            }
         }
 
         // Distinct blue DRS marker at zone start, separate from the generic braking
@@ -11616,11 +11675,21 @@ namespace LocalFormulaRacing
                 CreateProceduralBuildingCluster(anchor, forward, 3, 30f + (i % 4) * 11f, true);
             }
 
-            float[] straightCenters =
+            List<float> straightCenterList = new List<float>
             {
-                Mathf.Repeat((Runtime.drsZoneOne.x + Runtime.drsZoneOne.y) * 0.5f, 1f),
-                Mathf.Repeat((Runtime.drsZoneTwo.x + Runtime.drsZoneTwo.y) * 0.5f, 1f)
+                Mathf.Repeat((Runtime.drsZoneOne.x + Runtime.drsZoneOne.y) * 0.5f, 1f)
             };
+            if (Runtime.drsZoneTwo != Vector2.zero)
+            {
+                straightCenterList.Add(Mathf.Repeat((Runtime.drsZoneTwo.x + Runtime.drsZoneTwo.y) * 0.5f, 1f));
+            }
+
+            if (Runtime.drsZoneThree != Vector2.zero)
+            {
+                straightCenterList.Add(Mathf.Repeat((Runtime.drsZoneThree.x + Runtime.drsZoneThree.y) * 0.5f, 1f));
+            }
+
+            float[] straightCenters = straightCenterList.ToArray();
             for (int s = 0; s < straightCenters.Length; s++)
             {
                 Vector3 point;

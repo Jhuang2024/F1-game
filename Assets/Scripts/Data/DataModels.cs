@@ -160,6 +160,16 @@ namespace LocalFormulaRacing
         public int laps3;
         public int laps5;
         public int laps25Percent;
+        // The circuit's REAL grand prix distance in laps - the FIA's "fewest laps
+        // exceeding 305 km" (260 km at Monaco). Full/50%/25% race lengths derive from
+        // this. They used to be built by multiplying laps25Percent, which is a rounded
+        // quarter, so "Full Race" at Australia ran 60 laps against a real 58 and every
+        // circuit was out by a lap or two in whichever direction its quarter rounded.
+        public int lapsFull;
+        // Sprint distance in laps - the FIA's ~100 km, so roughly a third of the grand
+        // prix. Only the rounds that actually hold a sprint have this set; 0 means the
+        // weekend has no sprint (see CareerManager/RaceWeekendSession.Sprint).
+        public int lapsSprint;
         public string weatherProfile;
     }
 
@@ -1098,7 +1108,12 @@ namespace LocalFormulaRacing
     [Serializable]
     public class GameSettingsData
     {
-        public int laps = 5;
+        // Live lap count for the session being started. Rewritten from
+        // raceLengthPreset every time a race is entered (see
+        // RuntimeUi.ResolveRaceLengthLaps); this initialiser is only the value a
+        // brand-new settings file carries before the first race, and 5 laps is not a
+        // grand prix. Set to a typical full distance instead.
+        public int laps = 57;
         public int difficultyIndex = 1;
         public bool manualGears;
         public bool cameraShake = true;
@@ -1119,7 +1134,12 @@ namespace LocalFormulaRacing
         public float brakeSensitivity = 1f;
         public float controllerDeadzone = 0.12f;
         public int ersMode;
-        public int raceLengthPreset = 1;
+        // Full grand prix distance by default. This used to default to the 5-lap
+        // preset, so out of the box a "race" was five laps of a circuit whose real
+        // event is 44-78 - no tyre stint worth planning, no fuel decision, no pit
+        // window, and a two-compound rule that could not be satisfied. Every shorter
+        // preset is still there for anyone who wants one.
+        public int raceLengthPreset = 5;
 
         // Added fields: field initializers act as backwards-compatible defaults, because
         // JsonUtility keeps them when the key is absent from an older save file.

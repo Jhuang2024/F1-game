@@ -114,20 +114,35 @@ namespace F1Game.Tests
         public void TrackTemperatureBandsFromWeatherProfile()
         {
             // Hot events sit at the top of the gradient, wet/cool at the bottom, a
-            // plain clear day in the middle - within the +/-2.5C per-track spread.
-            Assert.That(TyreStrategyRules.TrackTemperatureFor("clear_hot", "bahrain"), Is.InRange(Hot - 2.5f, Hot));
-            Assert.That(TyreStrategyRules.TrackTemperatureFor("wet", "spa"), Is.InRange(Cool, Cool + 2.5f));
-            Assert.That(TyreStrategyRules.TrackTemperatureFor("clear", "monza"), Is.InRange(Standard - 2.5f, Standard + 2.5f));
+            // plain clear day in the middle. The per-circuit offset is a real climate
+            // bias now, not a hash, so it is asserted against the true track ids.
+            Assert.That(TyreStrategyRules.TrackTemperatureFor("clear_hot", "bahrain_desert"), Is.EqualTo(Hot));
+            Assert.That(TyreStrategyRules.TrackTemperatureFor("wet", "spa_flowing"), Is.EqualTo(Cool));
+            Assert.That(TyreStrategyRules.TrackTemperatureFor("clear", "monza_low_downforce"), Is.EqualTo(Standard));
         }
 
         [Test]
         public void SameProfileDifferentTrackWearsDifferently()
         {
-            // The per-track offset means two clear-weather circuits don't land on
-            // an identical temperature (so degradation varies track to track).
-            float a = TyreStrategyRules.TrackTemperatureFor("clear", "monza");
-            float b = TyreStrategyRules.TrackTemperatureFor("clear", "silverstone");
-            Assert.AreNotEqual(a, b);
+            // The per-circuit offset means two clear-weather circuits don't land on an
+            // identical temperature, and the ORDER is meaningful: Monza in the Italian
+            // late summer runs hotter than Silverstone.
+            float monza = TyreStrategyRules.TrackTemperatureFor("clear", "monza_low_downforce");
+            float silverstone = TyreStrategyRules.TrackTemperatureFor("clear", "silverstone_high_speed");
+            Assert.Greater(monza, silverstone);
+        }
+
+        [Test]
+        public void ColdestAndHottestCircuitsAreTheRealOnes()
+        {
+            // Las Vegas is a November night race in a desert: the coldest surface on
+            // the calendar. Bahrain and Qatar are the hottest. A hashed offset had no
+            // way to express either.
+            Assert.Less(TyreStrategyRules.CircuitTemperatureOffsetC("las_vegas_street"),
+                        TyreStrategyRules.CircuitTemperatureOffsetC("spa_flowing"));
+            Assert.Greater(TyreStrategyRules.CircuitTemperatureOffsetC("bahrain_desert"),
+                           TyreStrategyRules.CircuitTemperatureOffsetC("monza_low_downforce"));
+            Assert.AreEqual(0f, TyreStrategyRules.CircuitTemperatureOffsetC("not_a_real_circuit"));
         }
 
         [Test]

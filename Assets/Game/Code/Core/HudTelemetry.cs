@@ -23,8 +23,13 @@ namespace F1Game.Core
         public float Rpm01;
 
         public float Ers01;       // battery charge
+        // 2026 movable aero: DrsActive/DrsAvailable are the low-drag wing mode, which
+        // the whole field has in an activation zone. Override is the separate
+        // gap-gated overtaking aid, with its own per-lap energy budget.
         public bool DrsActive;
         public bool DrsAvailable;
+        public bool OverrideArmed;
+        public float OverrideEnergy01;
 
         public float Fuel01;
         public float FuelLapsRemaining;

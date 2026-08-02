@@ -2142,9 +2142,13 @@ namespace LocalFormulaRacing
 
             RectTransform lapsControl;
             UiFactory.CreateSettingRow(list, "Race Laps", "Shorter for quick sessions, longer for a full-length race.", out lapsControl);
+            // The ladder used to stop at 14 laps, so this control could not express a
+            // real grand prix at all - and it silently fought the Race Length preset,
+            // which writes this same field from the circuit's true distance. The rungs
+            // now run up to a full-length race so the two agree on what is reachable.
             UiFactory.CreateCycleControl(lapsControl, settings.Current.laps.ToString(), () =>
             {
-                settings.Current.laps = settings.Current.laps == 3 ? 5 : (settings.Current.laps == 5 ? 14 : 3);
+                settings.Current.laps = NextRaceLapsRung(settings.Current.laps);
                 settings.Save();
                 ShowSettings(data, career, settings);
             });
@@ -4239,17 +4243,40 @@ namespace LocalFormulaRacing
             }
         }
 
+        // Rungs for the Race Laps cycle control, reaching a genuine grand prix distance.
+        static readonly int[] RaceLapsRungs = { 3, 5, 10, 15, 25, 35, 44, 57, 71, 78 };
+
+        static int NextRaceLapsRung(int current)
+        {
+            for (int i = 0; i < RaceLapsRungs.Length; i++)
+            {
+                if (RaceLapsRungs[i] > current)
+                {
+                    return RaceLapsRungs[i];
+                }
+            }
+
+            return RaceLapsRungs[0];
+        }
+
         int ResolveRaceLengthLaps(CalendarEventData raceEvent, int preset)
         {
-            int quarter = raceEvent != null && raceEvent.laps25Percent > 0 ? raceEvent.laps25Percent : 12;
+            // Percentage distances derive from the circuit's REAL grand prix distance
+            // (lapsFull - the FIA's "fewest laps exceeding 305 km", 260 km at Monaco),
+            // not from a rounded quarter multiplied back up. Quadrupling laps25Percent
+            // gave Australia a 60-lap "full race" against a real 58, and every circuit
+            // was out by a lap or two in whichever direction its quarter had rounded.
+            int fullLaps = raceEvent != null && raceEvent.lapsFull > 0
+                ? raceEvent.lapsFull
+                : (raceEvent != null && raceEvent.laps25Percent > 0 ? raceEvent.laps25Percent * 4 : 50);
             switch (((preset % RaceLengthPresetCount) + RaceLengthPresetCount) % RaceLengthPresetCount)
             {
                 case 0: return Mathf.Max(3, raceEvent != null && raceEvent.laps3 > 0 ? raceEvent.laps3 : 3);
                 case 1: return Mathf.Max(3, raceEvent != null && raceEvent.laps5 > 0 ? raceEvent.laps5 : 5);
                 case 2: return Mathf.Max(3, 10);
-                case 3: return Mathf.Max(3, quarter);
-                case 4: return Mathf.Max(3, quarter * 2);
-                default: return Mathf.Max(3, quarter * 4);
+                case 3: return Mathf.Max(3, Mathf.RoundToInt(fullLaps * 0.25f));
+                case 4: return Mathf.Max(3, Mathf.RoundToInt(fullLaps * 0.5f));
+                default: return Mathf.Max(3, fullLaps);
             }
         }
 
