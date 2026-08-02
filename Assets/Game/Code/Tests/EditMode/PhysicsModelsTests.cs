@@ -8,13 +8,29 @@ namespace F1Game.Tests
         [Test]
         public void DragMatchesTheLiveCoefficients()
         {
-            // Closed wing: plain v²c.
-            Assert.AreEqual(50f * 50f * AeroModel.DrsClosedDragCoefficient,
-                AeroModel.Drag(50f, AeroModel.DrsClosedDragCoefficient, false, AeroModel.DrsDragReductionFraction), 0.0005f);
+            // NOTE: both assertions here used to be tautologies that could not fail.
+            // The first restated "speed squared times c" verbatim. The second was an
+            // algebraic identity by construction - DrsDragReductionFraction is
+            // DEFINED as 1 - open/closed, so closed * (1 - that) == open for ANY two
+            // nonzero coefficients. Both coefficients could have been changed to
+            // anything at all and the test still passed, so it pinned nothing.
+            //
+            // Pin the actual numbers and the physical relationships instead.
+            Assert.AreEqual(0.00054f, AeroModel.DrsClosedDragCoefficient, 0.000001f,
+                "closed-wing drag coefficient changed");
+            Assert.AreEqual(0.00025f, AeroModel.DrsOpenDragCoefficient, 0.000001f,
+                "open-wing drag coefficient changed");
 
-            // Open wing reproduces the live DRS coefficient from the reduction fraction.
-            Assert.AreEqual(50f * 50f * AeroModel.DrsOpenDragCoefficient,
-                AeroModel.Drag(50f, AeroModel.DrsClosedDragCoefficient, true, AeroModel.DrsDragReductionFraction), 0.0005f);
+            // Drag is quadratic in speed.
+            float atFifty = AeroModel.Drag(50f, AeroModel.DrsClosedDragCoefficient, false, AeroModel.DrsDragReductionFraction);
+            float atHundred = AeroModel.Drag(100f, AeroModel.DrsClosedDragCoefficient, false, AeroModel.DrsDragReductionFraction);
+            Assert.AreEqual(4f, atHundred / atFifty, 0.001f, "drag must scale with the square of speed");
+
+            // Opening the wing must genuinely reduce drag, by the documented share.
+            float open = AeroModel.Drag(50f, AeroModel.DrsClosedDragCoefficient, true, AeroModel.DrsDragReductionFraction);
+            Assert.Less(open, atFifty);
+            Assert.AreEqual(AeroModel.DrsOpenDragCoefficient / AeroModel.DrsClosedDragCoefficient,
+                open / atFifty, 0.001f);
         }
 
         [Test]

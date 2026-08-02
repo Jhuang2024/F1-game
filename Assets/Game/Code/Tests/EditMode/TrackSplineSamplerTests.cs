@@ -71,5 +71,48 @@ namespace F1Game.Tests
             // Cumulative distance is measured from the start/finish line.
             Assert.AreEqual(0f, start.Distance, 0.001f);
         }
+
+        [Test]
+        public void ClosedLoopActuallyCloses()
+        {
+            // The invariant that matters and was never asserted: sampling just
+            // before the lap length must land next to sampling at zero. The dense
+            // pass emitted t in [0,1) per segment and never measured the closing
+            // chord, so Length came out short and the centreline jumped 12-22m at
+            // the start/finish seam on the real circuits - a car crossing the line
+            // teleported its reference by that much, once per lap, and every
+            // distance-based gap glitched with it.
+            var sampler = new TrackSplineSampler();
+            sampler.Build(Square(), closedLoop: true, spacing: 3f);
+
+            Vector3 atStart = sampler.AtDistance(0f).Position;
+            Vector3 justBeforeEnd = sampler.AtDistance(sampler.Length - 1f).Position;
+            Assert.Less(Vector3.Distance(atStart, justBeforeEnd), 6f,
+                "closed loop does not close - seam gap at start/finish");
+        }
+
+        [Test]
+        public void ClosedLoopLengthCoversTheWholePerimeter()
+        {
+            // A 100x100 square routed through Catmull-Rom rounds the corners, so the
+            // arc is somewhat under the 400m chord perimeter but must not be far
+            // under it. Before the closing chord was measured, Length was short by a
+            // whole segment's tail.
+            var sampler = new TrackSplineSampler();
+            sampler.Build(Square(), closedLoop: true, spacing: 3f);
+            Assert.Greater(sampler.Length, 330f, "closed-loop length is missing the closing segment");
+            Assert.Less(sampler.Length, 420f);
+        }
+
+        [Test]
+        public void BuildDoesNotHangOnNonPositiveSpacing()
+        {
+            // The resample loop advances `target` by `spacing`, so 0 or a negative
+            // value never terminated.
+            var sampler = new TrackSplineSampler();
+            sampler.Build(Square(), closedLoop: true, spacing: 0f);
+            Assert.Greater(sampler.Samples.Count, 0);
+            Assert.Greater(sampler.Spacing, 0f);
+        }
     }
 }

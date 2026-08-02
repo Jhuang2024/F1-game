@@ -11,6 +11,11 @@ namespace LocalFormulaRacing
         private Dictionary<RaceParticipant, SectorSnapshot> sectorSnapshots = new Dictionary<RaceParticipant, SectorSnapshot>();
         private Dictionary<RaceParticipant, TimingSnapshot> timingSnapshots = new Dictionary<RaceParticipant, TimingSnapshot>();
         private float[] overallBestSectors = new float[3];
+        // Rolling (time, distance) history per car, used to answer gaps as real
+        // TIME gaps rather than metres divided by somebody's current speed.
+        // See RaceProgressHistory for the full rationale.
+        readonly RaceProgressHistory progressHistory = new RaceProgressHistory();
+        public RaceProgressHistory ProgressHistory => progressHistory;
         
         public RaceWeekendSession CurrentSession { get; private set; }
         public int QualifyingPhase { get; private set; } = 1;
@@ -31,6 +36,7 @@ namespace LocalFormulaRacing
             timingSnapshots.Clear();
             FinishedCount = 0;
             classifiedFinishCount = 0;
+            progressHistory.Clear();
             for (int i = 0; i < 3; i++) overallBestSectors[i] = 0f;
         }
 
@@ -52,6 +58,7 @@ namespace LocalFormulaRacing
 
         public void RefreshTimingSnapshots()
         {
+            float now = Time.time;
             for (int i = 0; i < Participants.Count; i++)
             {
                 RaceParticipant participant = Participants[i];
@@ -61,6 +68,10 @@ namespace LocalFormulaRacing
                 }
 
                 timingSnapshots[participant] = BuildTimingSnapshot(participant);
+                if (!participant.retired && !participant.finished)
+                {
+                    progressHistory.Sample(participant, now, GetProgressDistance(participant));
+                }
             }
         }
 

@@ -3,11 +3,14 @@ using System;
 namespace F1Game.Race.Rules
 {
     /// <summary>
-    /// Pure lapped-gap maths, extracted verbatim from the duplicated blocks in
-    /// RaceManager.GapToLeaderText / IntervalAheadText so the "is this car a lap or
-    /// more down, and how many laps" decision is stated and tested in one place. No
-    /// engine dependency. The caller still owns the null-track guard, the live
-    /// distance/speed reads and the string formatting.
+    /// Pure lapped-gap maths.
+    ///
+    /// SUPERSEDED for live timing. Lapped status is a lap-COUNT question, and
+    /// answering it from a distance gap is wrong in both directions: a car on the
+    /// lead lap but 0.93 laps adrift trips IsLapDownGap, while a car genuinely a lap
+    /// down but running physically ahead of the leader does not. The race layer now
+    /// uses RaceStateManager.GetCompletedLaps (see RaceManager.LapsDownBetween).
+    /// Retained for the estimate-from-distance cases that have no lap counter.
     /// </summary>
     public static class GapMath
     {
@@ -22,15 +25,24 @@ namespace F1Game.Race.Rules
         }
 
         /// <summary>
-        /// How many whole laps down a distance gap represents, extracted verbatim:
-        /// the gap divided by a track length (floored at 1 m to avoid a divide-by-
-        /// zero), rounded to the nearest lap and floored at 1. Rounding matches
-        /// UnityEngine.Mathf.RoundToInt (round half to even).
+        /// How many whole laps down a distance gap represents: the gap divided by
+        /// the track length, rounded to the nearest lap and floored at 1. Rounding
+        /// matches UnityEngine.Mathf.RoundToInt (round half to even). Returns 0 for a
+        /// degenerate (sub-metre) track length, meaning "no meaningful answer".
         /// </summary>
         public static int LapsDown(float deltaMeters, float trackLength)
         {
-            float denom = trackLength < 1f ? 1f : trackLength;
-            int laps = RoundToInt(deltaMeters / denom);
+            // A degenerate track length has no meaningful answer. This used to fall
+            // back on a 1m denominator, which avoided the divide-by-zero but then
+            // reported a 3m gap on a zero-length track as "3 laps down" - a
+            // plausible-looking number the HUD would happily render as "+3 L". Return
+            // 0 ("unknown / not lapped") so a caller can tell the difference.
+            if (trackLength < 1f)
+            {
+                return 0;
+            }
+
+            int laps = RoundToInt(deltaMeters / trackLength);
             return laps < 1 ? 1 : laps;
         }
 

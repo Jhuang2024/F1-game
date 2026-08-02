@@ -49,7 +49,13 @@ namespace F1Game.Tests
                 try
                 {
                     Assert.AreEqual(trackId, definition.trackId, trackId);
-                    Assert.GreaterOrEqual(definition.spline.Count, 8, trackId + " spline too coarse");
+                    // Was a bare ">= 8" while TrackDefinitionAsset.Validate() demanded
+                    // 16 - two different "valid" standards, with the weaker one being
+                    // what the suite actually enforced and Validate() never called at
+                    // all. Run the real validator instead.
+                    Assert.GreaterOrEqual(definition.spline.Count, TrackDefinitionAsset.MinimumSplinePoints, trackId + " spline too coarse");
+                    List<string> problems = definition.Validate();
+                    Assert.IsEmpty(problems, trackId + " failed Validate(): " + string.Join("; ", problems));
                     Assert.IsTrue(definition.closedLoop, trackId);
 
                     float length = definition.ComputeLength();
@@ -71,10 +77,50 @@ namespace F1Game.Tests
                         Assert.LessOrEqual(zone.endDistance, length, trackId);
                     }
 
+                    // Zone one is authored as a WRAPPING window on every circuit
+                    // (e.g. Monza 0.88 -> 0.08), so activation > end is expected and
+                    // legal. What must hold is that the runtime treats it as wrapping
+                    // rather than as an unsatisfiable range - the previous assertions
+                    // only bounds-checked the two endpoints, which is why zone one
+                    // silently never activated on any circuit. Probe the runtime.
+                    var drs = new DrsRuntime(definition.drsZones);
+                    foreach (TrackDefinitionAsset.DrsZone zone in definition.drsZones)
+                    {
+                        float insideStart = zone.activationDistance + 1f;
+                        float insideEnd = Mathf.Max(0f, zone.endDistance - 1f);
+                        Assert.GreaterOrEqual(drs.ZoneIndexAt(insideStart), 0,
+                            trackId + " DRS zone not active just after its activation point");
+                        Assert.GreaterOrEqual(drs.ZoneIndexAt(insideEnd), 0,
+                            trackId + " DRS zone not active just before its end point");
+                    }
+
                     Assert.AreEqual(2, definition.sectorBoundaryDistances.Length, trackId);
                     Assert.Greater(definition.sectorBoundaryDistances[1], definition.sectorBoundaryDistances[0], trackId);
 
                     Assert.AreEqual(22, definition.gridSlots.Count, trackId + " grid slots");
+                    // Pole must be AHEAD of the back of the grid, and the whole grid
+                    // must sit behind the start/finish line. The suite previously only
+                    // counted the slots, which is why a generator that ran the grid
+                    // forwards from the line - putting pole 168m behind P22 - passed.
+                    var sampler = new TrackSplineSampler();
+                    sampler.Build(definition.spline, true);
+                    float poleDistance = sampler.NearestDistance(definition.gridSlots[0].position);
+                    float backDistance = sampler.NearestDistance(definition.gridSlots[21].position);
+                    Assert.Greater(poleDistance, backDistance, trackId + " pole must start ahead of the last slot");
+                    Assert.Greater(poleDistance, sampler.Length * 0.5f, trackId + " grid must form up behind the line");
+
+                    // The racing line must actually be a line, not the centreline.
+                    bool anyOffset = false;
+                    for (int i = 0; i < definition.racingLineOffsets.Count; i++)
+                    {
+                        if (Mathf.Abs(definition.racingLineOffsets[i]) > 0.25f)
+                        {
+                            anyOffset = true;
+                            break;
+                        }
+                    }
+
+                    Assert.IsTrue(anyOffset, trackId + " racing line is flat - AI would have no apex to aim at");
                     Assert.AreEqual(22, definition.pitLane.stallCount, trackId + " pit stalls");
                     Assert.AreEqual(definition.spline.Count, definition.racingLineOffsets.Count, trackId + " racing-line offsets");
                 }

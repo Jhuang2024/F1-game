@@ -143,13 +143,23 @@ namespace F1Game.Track
             return length;
         }
 
+        /// <summary>Fewest control points a usable closed layout may be authored with.</summary>
+        public const int MinimumSplinePoints = 12;
+
         /// <summary>Cheap authoring validation used by the editor tool and tests.</summary>
         public List<string> Validate()
         {
             var problems = new List<string>();
-            if (spline.Count < 16)
+            // 12, not 16. Eight shipped circuits are authored with 13-15 anchors
+            // (Austria 13, Interlagos 13, Zandvoort 14, Jeddah 14, Singapore 14,
+            // Qatar 15, Melbourne 15, Abu Dhabi 15), and TrackRuntimeBuilder files
+            // this as a warning only - so the "minimum" was one no shipped track had
+            // to meet and it silently reported problems for valid content. Anchor
+            // count is not the resolution that matters anyway: the sampler subdivides
+            // 32x per segment and then resamples to an even 3m spacing.
+            if (spline.Count < MinimumSplinePoints)
             {
-                problems.Add("Spline has fewer than 16 points.");
+                problems.Add("Spline has fewer than " + MinimumSplinePoints + " points.");
             }
 
             for (int i = 0; i < spline.Count; i++)

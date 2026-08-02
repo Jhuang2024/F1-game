@@ -14,6 +14,55 @@ namespace LocalFormulaRacing
     /// </summary>
     public partial class RaceManager
     {
+        /// <summary>
+        /// Time gap in seconds between two cars: how long ago the car AHEAD passed
+        /// the point the car BEHIND is standing on now. Positive when
+        /// <paramref name="ahead"/> is genuinely ahead; 0 when it is not.
+        ///
+        /// This replaces the old "metres / one car's instantaneous speed" form used
+        /// by every gap in the game. That form is not a time gap at all: speed
+        /// varies 4-5x around a lap, so a constant 60m gap read anywhere between
+        /// ~0.7s and ~2.7s purely from where the reference car was, and since each
+        /// call site chose a different reference car (the participant here, the car
+        /// behind in GapBehindText, the leader in the production timing tower) the
+        /// same pair of cars was given different gaps at the same instant. The whole
+        /// tower pulsed every time the leader braked, and DRS - a 1.0s test - turned
+        /// on whether the detection point sat before or after a braking zone.
+        /// </summary>
+        public float GapSecondsBetween(RaceParticipant ahead, RaceParticipant behind)
+        {
+            if (ahead == null || behind == null || ahead == behind ||
+                ahead.lapTracker == null || behind.lapTracker == null)
+            {
+                return 0f;
+            }
+
+            float aheadDistance = State == null ? ahead.lapTracker.TotalProgressDistance : State.GetProgressDistance(ahead);
+            float behindDistance = State == null ? behind.lapTracker.TotalProgressDistance : State.GetProgressDistance(behind);
+            float deltaMeters = aheadDistance - behindDistance;
+            if (deltaMeters <= 0f)
+            {
+                return 0f;
+            }
+
+            // Preferred: when did the car ahead actually pass this point?
+            float passedAt;
+            if (State != null && State.ProgressHistory != null &&
+                State.ProgressHistory.TryGetTimeAtDistance(ahead, behindDistance, out passedAt))
+            {
+                return Mathf.Max(0f, Time.time - passedAt);
+            }
+
+            // Fallback for the opening seconds of a session, a car that has just
+            // rejoined, or a gap deeper than the retained history. Uses the MEAN of
+            // both cars' speeds so at least it is symmetric - the same answer
+            // whichever car asks - rather than depending on one car's corner phase.
+            float aheadSpeed = ahead.vehicle == null ? 0f : Mathf.Abs(ahead.vehicle.CurrentSpeedKph) / 3.6f;
+            float behindSpeed = behind.vehicle == null ? 0f : Mathf.Abs(behind.vehicle.CurrentSpeedKph) / 3.6f;
+            float referenceSpeed = Mathf.Max(24f, (aheadSpeed + behindSpeed) * 0.5f);
+            return deltaMeters / referenceSpeed;
+        }
+
         public string GapAheadText(RaceParticipant participant)
         {
             RaceParticipant ahead = FindCarAhead(participant, 9999f);
@@ -22,11 +71,7 @@ namespace LocalFormulaRacing
                 return "--";
             }
 
-            float aheadDistance = State == null ? ahead.lapTracker.TotalProgressDistance : State.GetProgressDistance(ahead);
-            float selfDistance = State == null ? participant.lapTracker.TotalProgressDistance : State.GetProgressDistance(participant);
-            float deltaMeters = aheadDistance - selfDistance;
-            float speed = Mathf.Max(18f, participant.vehicle == null ? 32f : participant.vehicle.CurrentSpeedKph / 3.6f);
-            return (deltaMeters / speed).ToString("0.0") + "s";
+            return GapSecondsBetween(ahead, participant).ToString("0.0") + "s";
         }
 
         public float GetIntervalToAheadSeconds(RaceParticipant participant)
@@ -37,11 +82,7 @@ namespace LocalFormulaRacing
                 return 999f;
             }
 
-            float aheadDistance = State == null ? ahead.lapTracker.TotalProgressDistance : State.GetProgressDistance(ahead);
-            float participantDistance = State == null ? participant.lapTracker.TotalProgressDistance : State.GetProgressDistance(participant);
-            float deltaMeters = aheadDistance - participantDistance;
-            float speed = Mathf.Max(24f, participant.vehicle == null ? 36f : Mathf.Abs(participant.vehicle.CurrentSpeedKph) / 3.6f);
-            return Mathf.Max(0f, deltaMeters / speed);
+            return GapSecondsBetween(ahead, participant);
         }
 
         // Generic gap-in-seconds between any two participants (not necessarily
@@ -56,9 +97,29 @@ namespace LocalFormulaRacing
 
             float aDistance = State == null ? a.lapTracker.TotalProgressDistance : State.GetProgressDistance(a);
             float bDistance = State == null ? b.lapTracker.TotalProgressDistance : State.GetProgressDistance(b);
-            float deltaMeters = aDistance - bDistance;
-            float refSpeed = Mathf.Max(24f, a.vehicle == null ? 36f : Mathf.Abs(a.vehicle.CurrentSpeedKph) / 3.6f);
-            return deltaMeters / refSpeed;
+            // Signed, and symmetric: negating the argument order negates the result.
+            return aDistance >= bDistance ? GapSecondsBetween(a, b) : -GapSecondsBetween(b, a);
+        }
+
+        /// <summary>
+        /// How many laps <paramref name="behind"/> is down on <paramref name="ahead"/>,
+        /// or 0 if on the same lap.
+        ///
+        /// Lapped status is a LAP-COUNT question, and the code used to answer it with
+        /// a distance threshold (GapMath.IsLapDownGap: raw gap >= 92% of a lap). Those
+        /// are different quantities and it was wrong in both directions - a car on the
+        /// lead lap but 0.93 laps adrift was shown "+1L", while a car genuinely a lap
+        /// down but running physically AHEAD of the leader showed a plain "+42.9s".
+        /// RaceStateManager.GetCompletedLaps has the exact answer.
+        /// </summary>
+        int LapsDownBetween(RaceParticipant ahead, RaceParticipant behind)
+        {
+            if (State == null || ahead == null || behind == null)
+            {
+                return 0;
+            }
+
+            return Mathf.Max(0, State.GetCompletedLaps(ahead) - State.GetCompletedLaps(behind));
         }
 
         public string GapToLeaderText(RaceParticipant participant)
@@ -70,18 +131,13 @@ namespace LocalFormulaRacing
             }
 
             RaceParticipant leader = State.SortedOrder[0];
-            float leaderDistance = State.GetProgressDistance(leader);
-            float participantDistance = State.GetProgressDistance(participant);
-            float deltaMeters = leaderDistance - participantDistance;
-            // Lapped-gap detection/count is the engine-free GapMath (the null-track
-            // guard and the live length read stay here).
-            if (Track != null && GapMath.IsLapDownGap(deltaMeters, Track.length))
+            int lapsDown = LapsDownBetween(leader, participant);
+            if (lapsDown > 0)
             {
-                return "+" + GapMath.LapsDown(deltaMeters, Track.length) + "L";
+                return "+" + lapsDown + "L";
             }
 
-            float speed = Mathf.Max(24f, participant.vehicle == null ? 36f : Mathf.Abs(participant.vehicle.CurrentSpeedKph) / 3.6f);
-            return "+" + (Mathf.Max(0f, deltaMeters) / speed).ToString("0.0") + "s";
+            return "+" + GapSecondsBetween(leader, participant).ToString("0.0") + "s";
         }
 
         public string IntervalAheadText(RaceParticipant participant)
@@ -95,18 +151,13 @@ namespace LocalFormulaRacing
             }
 
             RaceParticipant ahead = State.SortedOrder[index - 1];
-            float aheadDistance = State.GetProgressDistance(ahead);
-            float participantDistance = State.GetProgressDistance(participant);
-            float deltaMeters = aheadDistance - participantDistance;
-            // Same lapped-gap detection/count as GapToLeaderText, now shared via the
-            // engine-free GapMath.
-            if (Track != null && GapMath.IsLapDownGap(deltaMeters, Track.length))
+            int lapsDown = LapsDownBetween(ahead, participant);
+            if (lapsDown > 0)
             {
-                return "+" + GapMath.LapsDown(deltaMeters, Track.length) + "L";
+                return "+" + lapsDown + "L";
             }
 
-            float speed = Mathf.Max(24f, participant.vehicle == null ? 36f : Mathf.Abs(participant.vehicle.CurrentSpeedKph) / 3.6f);
-            return (Mathf.Max(0f, deltaMeters) / speed).ToString("0.0") + "s";
+            return GapSecondsBetween(ahead, participant).ToString("0.0") + "s";
         }
 
         public string GapBehindText(RaceParticipant participant)
@@ -117,11 +168,7 @@ namespace LocalFormulaRacing
                 return "--";
             }
 
-            float participantDistance = State == null ? participant.lapTracker.TotalProgressDistance : State.GetProgressDistance(participant);
-            float behindDistance = State == null ? behind.lapTracker.TotalProgressDistance : State.GetProgressDistance(behind);
-            float deltaMeters = participantDistance - behindDistance;
-            float speed = Mathf.Max(18f, behind.vehicle == null ? 32f : behind.vehicle.CurrentSpeedKph / 3.6f);
-            return (deltaMeters / speed).ToString("0.0") + "s";
+            return GapSecondsBetween(participant, behind).ToString("0.0") + "s";
         }
 
         // Structured qualifying timing tower row so RaceHud renders directly into

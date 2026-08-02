@@ -30,8 +30,11 @@ namespace F1Game.Tests
             Assert.AreEqual(2, GapMath.LapsDown(10000f, 5000f));
             // Floored at 1 even when the rounded value would be 0.
             Assert.AreEqual(1, GapMath.LapsDown(100f, 5000f));
-            // Degenerate track length uses a 1 m floor rather than dividing by zero.
-            Assert.AreEqual(3, GapMath.LapsDown(3f, 0f));
+            // Degenerate track length has no meaningful lap count. The old
+            // behaviour - a 1 m denominator - turned a 3 m gap on a zero-length
+            // track into "3 laps down", and this test asserted that nonsense as
+            // correct. A sentinel 0 lets the caller tell "unknown" from "lapped".
+            Assert.AreEqual(0, GapMath.LapsDown(3f, 0f));
         }
 
         [Test]
