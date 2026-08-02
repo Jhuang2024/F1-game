@@ -101,6 +101,8 @@ namespace F1Game.Track
         public bool closedLoop = true;
         [Tooltip("Lateral distance from centerline where trackside kerbs begin (0 = derive from width).")]
         public float kerbStartOffset;
+        /// <summary>Metres of runoff between the paved edge and the barrier line.</summary>
+        public float runoffMeters = 18f;
         [Tooltip("Catmull-Rom subdivisions per anchor segment when the world builder smooths this spline (0 = builder default). Converted legacy circuits keep their original smoothing density here.")]
         public int anchorSubdivisions;
 

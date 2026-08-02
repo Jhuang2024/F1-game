@@ -142,6 +142,11 @@ namespace F1Game.Track
 
         // ---- Legacy-sketch conversion ---------------------------------------
 
+        // Street circuits keep the walls close (a couple of metres of kerb and
+        // apron); permanent circuits get real asphalt/gravel runoff.
+        const float StreetRunoffMeters = 2.5f;
+        const float PermanentRunoffMeters = 22f;
+
         public struct LegacyCircuitSpec
         {
             public string TrackId;
@@ -185,14 +190,14 @@ namespace F1Game.Track
                 // and no two parts of the road come within a road-width of each other.
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(230f, 0f, 0f), new Vector3(272f, 0f, 26f),
-                    new Vector3(246f, 0f, 58f), new Vector3(194f, 0f, 48f), new Vector3(238f, 0f, 92f),
-                    new Vector3(252f, 0f, 148f), new Vector3(196f, 0f, 184f), new Vector3(92f, 0f, 190f),
-                    new Vector3(20f, 0f, 164f), new Vector3(-42f, 0f, 174f), new Vector3(-86f, 0f, 132f),
-                    new Vector3(-48f, 0f, 86f), new Vector3(62f, 0f, 76f), new Vector3(112f, 0f, 42f),
-                    new Vector3(74f, 0f, 14f),
-                    new Vector3(-90f, 0f, 48f), new Vector3(-175f, 0f, 25f), new Vector3(-215f, 0f, -35f),
-                    new Vector3(-175f, 0f, -85f), new Vector3(-95f, 0f, -70f), new Vector3(-40f, 0f, -30f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 620f), new Vector3(14f, 0f, 660f),
+                    new Vector3(46f, 0f, 690f), new Vector3(96f, 0f, 806f), new Vector3(150f, 0f, 900f),
+                    new Vector3(214f, 0f, 962f), new Vector3(238f, 0f, 996f), new Vector3(214f, 0f, 1024f),
+                    new Vector3(262f, 0f, 1096f), new Vector3(300f, 0f, 1140f), new Vector3(322f, 0f, 1082f),
+                    new Vector3(300f, 0f, 1020f), new Vector3(256f, 0f, 940f), new Vector3(224f, 0f, 860f),
+                    new Vector3(300f, 0f, 742f), new Vector3(352f, 0f, 690f), new Vector3(330f, 0f, 652f),
+                    new Vector3(368f, 0f, 610f), new Vector3(392f, 0f, 470f), new Vector3(392f, 0f, 250f),
+                    new Vector3(330f, 0f, 96f), new Vector3(196f, 0f, 20f), new Vector3(74f, 0f, 0f)
                 },
             };
         }
@@ -213,24 +218,14 @@ namespace F1Game.Track
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
-                    // Stuck-spot fix: the snail-exit anchor used to be (220, 88),
-                    // which sits ON the snail-entry arc between (224,72) and
-                    // (184,124) - the exit leg TERMINATED tangentially against
-                    // the entry leg (measured 1.8m between centrelines), so the
-                    // two roads and their barriers overlapped into a physical
-                    // trap the flyover system cannot bridge (it only raises
-                    // decisive crossings). Moved to (250, 70): the exit now
-                    // crosses the entry rise once at a clean ~50 degree angle
-                    // (verified offline: exactly one crossing, ~140m minimum
-                    // gap everywhere else, lap length and corner radii
-                    // preserved), which ResolveTrackCrossings raises into a
-                    // proper 9m flyover like Shanghai's real bridge section.
-                    new Vector3(0f, 0f, 0f), new Vector3(138f, 0f, 0f), new Vector3(206f, 0f, 22f),
-                    new Vector3(224f, 0f, 72f), new Vector3(184f, 0f, 124f), new Vector3(114f, 0f, 114f),
-                    new Vector3(72f, 0f, 68f), new Vector3(78f, 0f, 28f), new Vector3(140f, 0f, 48f),
-                    new Vector3(250f, 0f, 70f), new Vector3(334f, 0f, 92f), new Vector3(382f, 0f, 128f),
-                    new Vector3(352f, 0f, 174f), new Vector3(262f, 0f, 184f), new Vector3(164f, 0f, 156f),
-                    new Vector3(66f, 0f, 132f), new Vector3(-62f, 0f, 54f), new Vector3(-152f, 0f, 8f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 300f), new Vector3(40f, 0f, 360f),
+                    new Vector3(80f, 0f, 390f), new Vector3(110f, 0f, 360f), new Vector3(120f, 0f, 310f),
+                    new Vector3(90f, 0f, 280f), new Vector3(60f, 0f, 300f), new Vector3(80f, 0f, 360f),
+                    new Vector3(140f, 0f, 420f), new Vector3(210f, 0f, 450f), new Vector3(270f, 0f, 420f),
+                    new Vector3(300f, 0f, 360f), new Vector3(330f, 0f, 420f), new Vector3(390f, 0f, 520f),
+                    new Vector3(430f, 0f, 600f), new Vector3(400f, 0f, 650f), new Vector3(340f, 0f, 640f),
+                    new Vector3(300f, 0f, 570f), new Vector3(250f, 0f, 470f), new Vector3(180f, 0f, 360f),
+                    new Vector3(100f, 0f, 220f), new Vector3(40f, 0f, 90f)
                 },
             };
         }
@@ -251,12 +246,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(152f, 0f, 0f), new Vector3(210f, 0f, 34f),
-                    new Vector3(184f, 0f, 78f), new Vector3(126f, 0f, 88f), new Vector3(176f, 0f, 126f),
-                    new Vector3(276f, 0f, 130f), new Vector3(330f, 0f, 170f), new Vector3(294f, 0f, 212f),
-                    new Vector3(198f, 0f, 204f), new Vector3(122f, 0f, 166f), new Vector3(44f, 0f, 178f),
-                    new Vector3(-24f, 0f, 132f), new Vector3(-52f, 0f, 78f), new Vector3(-102f, 0f, 34f),
-                    new Vector3(-164f, 0f, 6f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 420f), new Vector3(40f, 0f, 480f),
+                    new Vector3(100f, 0f, 500f), new Vector3(160f, 0f, 480f), new Vector3(180f, 0f, 420f),
+                    new Vector3(160f, 0f, 360f), new Vector3(200f, 0f, 320f), new Vector3(260f, 0f, 310f),
+                    new Vector3(310f, 0f, 340f), new Vector3(330f, 0f, 400f), new Vector3(310f, 0f, 460f),
+                    new Vector3(350f, 0f, 500f), new Vector3(400f, 0f, 490f), new Vector3(420f, 0f, 430f),
+                    new Vector3(400f, 0f, 340f), new Vector3(350f, 0f, 230f), new Vector3(280f, 0f, 130f),
+                    new Vector3(180f, 0f, 50f)
                 },
             };
         }
@@ -277,12 +273,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(136f, 0f, 0f), new Vector3(182f, 0f, 26f),
-                    new Vector3(150f, 0f, 62f), new Vector3(84f, 0f, 52f), new Vector3(38f, 0f, 88f),
-                    new Vector3(92f, 0f, 126f), new Vector3(186f, 0f, 126f), new Vector3(260f, 0f, 166f),
-                    new Vector3(232f, 0f, 210f), new Vector3(136f, 0f, 214f), new Vector3(62f, 0f, 176f),
-                    new Vector3(-28f, 0f, 152f), new Vector3(-84f, 0f, 104f), new Vector3(-54f, 0f, 54f),
-                    new Vector3(-136f, 0f, 10f)
+                    new Vector3(0f, 0f, 0f), new Vector3(30f, 0f, 80f), new Vector3(0f, 0f, 120f),
+                    new Vector3(20f, 0f, 200f), new Vector3(60f, 0f, 340f), new Vector3(100f, 0f, 470f),
+                    new Vector3(140f, 0f, 560f), new Vector3(190f, 0f, 600f), new Vector3(240f, 0f, 570f),
+                    new Vector3(250f, 0f, 510f), new Vector3(210f, 0f, 470f), new Vector3(240f, 0f, 410f),
+                    new Vector3(300f, 0f, 340f), new Vector3(340f, 0f, 250f), new Vector3(360f, 0f, 150f),
+                    new Vector3(330f, 0f, 70f), new Vector3(270f, 0f, 20f), new Vector3(180f, 0f, -10f),
+                    new Vector3(90f, 0f, -10f)
                 },
             };
         }
@@ -303,12 +300,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(176f, 0f, 0f), new Vector3(238f, 0f, 34f),
-                    new Vector3(220f, 0f, 92f), new Vector3(154f, 0f, 120f), new Vector3(82f, 0f, 110f),
-                    new Vector3(34f, 0f, 144f), new Vector3(82f, 0f, 184f), new Vector3(178f, 0f, 190f),
-                    new Vector3(230f, 0f, 150f), new Vector3(196f, 0f, 104f), new Vector3(122f, 0f, 88f),
-                    new Vector3(40f, 0f, 58f), new Vector3(-44f, 0f, 78f), new Vector3(-108f, 0f, 38f),
-                    new Vector3(-164f, 0f, 8f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 300f), new Vector3(50f, 0f, 350f),
+                    new Vector3(110f, 0f, 350f), new Vector3(150f, 0f, 300f), new Vector3(140f, 0f, 240f),
+                    new Vector3(180f, 0f, 190f), new Vector3(250f, 0f, 180f), new Vector3(310f, 0f, 220f),
+                    new Vector3(330f, 0f, 290f), new Vector3(300f, 0f, 350f), new Vector3(340f, 0f, 410f),
+                    new Vector3(400f, 0f, 440f), new Vector3(440f, 0f, 400f), new Vector3(430f, 0f, 330f),
+                    new Vector3(390f, 0f, 260f), new Vector3(340f, 0f, 170f), new Vector3(270f, 0f, 90f),
+                    new Vector3(180f, 0f, 30f), new Vector3(80f, 0f, 0f)
                 },
             };
         }
@@ -329,11 +327,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(160f, 7f, 0f), new Vector3(226f, 14f, 34f),
-                    new Vector3(194f, 18f, 82f), new Vector3(104f, 16f, 96f), new Vector3(34f, 10f, 76f),
-                    new Vector3(-22f, 5f, 108f), new Vector3(26f, 1f, 148f), new Vector3(126f, -2f, 142f),
-                    new Vector3(174f, -5f, 98f), new Vector3(118f, -4f, 42f), new Vector3(34f, -2f, 38f),
-                    new Vector3(-104f, 0f, 8f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 340f), new Vector3(40f, 20f, 400f),
+                    new Vector3(90f, 35f, 400f), new Vector3(120f, 40f, 350f), new Vector3(160f, 55f, 270f),
+                    new Vector3(230f, 60f, 200f), new Vector3(290f, 55f, 180f), new Vector3(330f, 45f, 220f),
+                    new Vector3(320f, 35f, 280f), new Vector3(270f, 30f, 320f), new Vector3(300f, 20f, 380f),
+                    new Vector3(360f, 15f, 420f), new Vector3(410f, 10f, 390f), new Vector3(400f, 5f, 320f),
+                    new Vector3(350f, 3f, 240f), new Vector3(280f, 2f, 140f), new Vector3(190f, 1f, 60f),
+                    new Vector3(90f, 0f, 10f)
                 },
             };
         }
@@ -354,12 +354,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(116f, 0f, 0f), new Vector3(146f, 0f, 36f),
-                    new Vector3(104f, 0f, 68f), new Vector3(48f, 0f, 56f), new Vector3(18f, 0f, 92f),
-                    new Vector3(76f, 0f, 124f), new Vector3(142f, 0f, 106f), new Vector3(178f, 0f, 144f),
-                    new Vector3(132f, 0f, 178f), new Vector3(58f, 0f, 162f), new Vector3(8f, 0f, 196f),
-                    new Vector3(-54f, 0f, 166f), new Vector3(-26f, 0f, 118f), new Vector3(-88f, 0f, 82f),
-                    new Vector3(-72f, 0f, 34f), new Vector3(-136f, 0f, 8f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 300f), new Vector3(40f, -10f, 360f),
+                    new Vector3(90f, -15f, 370f), new Vector3(120f, -10f, 320f), new Vector3(90f, -5f, 270f),
+                    new Vector3(120f, 0f, 220f), new Vector3(180f, 5f, 190f), new Vector3(240f, 10f, 210f),
+                    new Vector3(280f, 15f, 260f), new Vector3(260f, 20f, 320f), new Vector3(210f, 22f, 350f),
+                    new Vector3(240f, 20f, 410f), new Vector3(300f, 15f, 440f), new Vector3(340f, 10f, 410f),
+                    new Vector3(330f, 5f, 340f), new Vector3(290f, 3f, 260f), new Vector3(230f, 2f, 170f),
+                    new Vector3(150f, 1f, 90f), new Vector3(70f, 0f, 30f)
                 },
             };
         }
@@ -380,11 +381,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(126f, 2f, 0f), new Vector3(168f, 4f, 38f),
-                    new Vector3(128f, 7f, 82f), new Vector3(58f, 8f, 74f), new Vector3(24f, 5f, 116f),
-                    new Vector3(78f, 2f, 154f), new Vector3(156f, 0f, 150f), new Vector3(210f, -1f, 108f),
-                    new Vector3(168f, -2f, 62f), new Vector3(90f, -1f, 48f), new Vector3(30f, 0f, 72f),
-                    new Vector3(-46f, 1f, 48f), new Vector3(-116f, 0f, 8f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 260f), new Vector3(40f, 5f, 320f),
+                    new Vector3(90f, 8f, 330f), new Vector3(120f, 5f, 290f), new Vector3(100f, 3f, 240f),
+                    new Vector3(140f, 2f, 200f), new Vector3(200f, 4f, 180f), new Vector3(260f, 6f, 200f),
+                    new Vector3(300f, 8f, 250f), new Vector3(290f, 10f, 310f), new Vector3(240f, 8f, 340f),
+                    new Vector3(270f, 5f, 390f), new Vector3(330f, 3f, 410f), new Vector3(370f, 2f, 370f),
+                    new Vector3(350f, 1f, 300f), new Vector3(300f, 1f, 220f), new Vector3(230f, 0f, 140f),
+                    new Vector3(140f, 0f, 60f)
                 },
             };
         }
@@ -405,12 +408,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 2,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(154f, 0f, 0f), new Vector3(210f, 0f, 38f),
-                    new Vector3(190f, 0f, 78f), new Vector3(238f, 0f, 118f), new Vector3(306f, 0f, 112f),
-                    new Vector3(342f, 0f, 154f), new Vector3(300f, 0f, 190f), new Vector3(210f, 0f, 176f),
-                    new Vector3(146f, 0f, 138f), new Vector3(82f, 0f, 154f), new Vector3(34f, 0f, 112f),
-                    new Vector3(58f, 0f, 72f), new Vector3(-18f, 0f, 46f), new Vector3(-104f, 0f, 28f),
-                    new Vector3(-168f, 0f, 6f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 320f), new Vector3(40f, 0f, 380f),
+                    new Vector3(100f, 0f, 400f), new Vector3(160f, 0f, 380f), new Vector3(190f, 0f, 330f),
+                    new Vector3(170f, 0f, 280f), new Vector3(200f, 0f, 230f), new Vector3(260f, 0f, 210f),
+                    new Vector3(320f, 0f, 240f), new Vector3(350f, 0f, 300f), new Vector3(330f, 0f, 360f),
+                    new Vector3(370f, 0f, 420f), new Vector3(430f, 0f, 430f), new Vector3(460f, 0f, 380f),
+                    new Vector3(440f, 0f, 300f), new Vector3(390f, 0f, 200f), new Vector3(310f, 0f, 110f),
+                    new Vector3(200f, 0f, 40f), new Vector3(90f, 0f, 0f)
                 },
             };
         }
@@ -431,12 +435,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 2,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(220f, 0f, 0f), new Vector3(346f, 0f, 18f),
-                    new Vector3(382f, 0f, 56f), new Vector3(340f, 0f, 92f), new Vector3(260f, 0f, 84f),
-                    new Vector3(224f, 0f, 124f), new Vector3(250f, 0f, 160f), new Vector3(204f, 0f, 194f),
-                    new Vector3(148f, 0f, 166f), new Vector3(118f, 0f, 112f), new Vector3(62f, 0f, 116f),
-                    new Vector3(28f, 0f, 160f), new Vector3(-48f, 0f, 142f), new Vector3(-86f, 0f, 86f),
-                    new Vector3(-48f, 0f, 42f), new Vector3(-178f, 0f, 8f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 520f), new Vector3(30f, 0f, 580f),
+                    new Vector3(80f, 0f, 600f), new Vector3(130f, 0f, 570f), new Vector3(140f, 0f, 510f),
+                    new Vector3(120f, 0f, 460f), new Vector3(160f, 0f, 420f), new Vector3(210f, 0f, 430f),
+                    new Vector3(230f, 0f, 480f), new Vector3(210f, 0f, 530f), new Vector3(240f, 0f, 580f),
+                    new Vector3(300f, 0f, 600f), new Vector3(340f, 0f, 560f), new Vector3(330f, 0f, 480f),
+                    new Vector3(300f, 0f, 380f), new Vector3(260f, 0f, 260f), new Vector3(200f, 0f, 150f),
+                    new Vector3(120f, 0f, 60f)
                 },
             };
         }
@@ -457,23 +462,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(142f, 18f, 0f), new Vector3(178f, 24f, 44f),
-                    // Esses reshape (cliff / stuck-car fix). Anchors 3-6 formerly
-                    // zig-zagged so hard (x: 178->126->62->82->170) that even after
-                    // the raw anchors stopped crossing, the Catmull-Rom curve through
-                    // them still self-intersected and pinched to ~9m - two road decks
-                    // ~27m apart in height stacked at the same spot, i.e. the vertical
-                    // "cliff"/wall, with cars wedging in the overlap. Reshaped into a
-                    // single clean S that always advances forward (z: 44->68->84->96
-                    // ->100->104) with a gentle left-right weave (x: 178->150->110
-                    // ->150->200->238), keeping the descending 24->20->14->8->2->-2
-                    // elevation. Verified: zero smoothed-curve self-crossings and a
-                    // 43m minimum ribbon gap (was 1 crossing / ~9m).
-                    new Vector3(150f, 20f, 68f), new Vector3(110f, 14f, 84f), new Vector3(150f, 8f, 96f),
-                    new Vector3(200f, 2f, 100f), new Vector3(238f, -2f, 104f), new Vector3(342f, -4f, 108f),
-                    new Vector3(392f, -2f, 150f), new Vector3(340f, 3f, 192f), new Vector3(230f, 5f, 182f),
-                    new Vector3(152f, 8f, 136f), new Vector3(78f, 6f, 154f), new Vector3(24f, 2f, 112f),
-                    new Vector3(-42f, 0f, 56f), new Vector3(-150f, 0f, 8f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 10f, 180f), new Vector3(-30f, 28f, 240f),
+                    new Vector3(20f, 20f, 300f), new Vector3(70f, 15f, 360f), new Vector3(120f, 12f, 420f),
+                    new Vector3(170f, 10f, 470f), new Vector3(230f, 8f, 500f), new Vector3(290f, 6f, 520f),
+                    new Vector3(350f, 5f, 490f), new Vector3(390f, 4f, 430f), new Vector3(370f, 3f, 370f),
+                    new Vector3(330f, 3f, 310f), new Vector3(380f, 2f, 250f), new Vector3(440f, 2f, 180f),
+                    new Vector3(420f, 1f, 110f), new Vector3(360f, 1f, 60f), new Vector3(280f, 0f, 30f),
+                    new Vector3(190f, 0f, 10f), new Vector3(90f, 0f, 0f)
                 },
             };
         }
@@ -494,12 +489,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(210f, 0f, 0f), new Vector3(268f, 0f, 34f),
-                    new Vector3(236f, 0f, 70f), new Vector3(176f, 0f, 58f), new Vector3(218f, 0f, 110f),
-                    new Vector3(292f, 0f, 142f), new Vector3(252f, 0f, 184f), new Vector3(172f, 0f, 174f),
-                    new Vector3(126f, 0f, 132f), new Vector3(78f, 0f, 158f), new Vector3(38f, 0f, 122f),
-                    new Vector3(74f, 0f, 82f), new Vector3(14f, 0f, 52f), new Vector3(-72f, 0f, 30f),
-                    new Vector3(-168f, 0f, 6f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 520f), new Vector3(40f, 0f, 570f),
+                    new Vector3(90f, 0f, 570f), new Vector3(110f, 0f, 520f), new Vector3(90f, 0f, 470f),
+                    new Vector3(130f, 0f, 430f), new Vector3(190f, 0f, 410f), new Vector3(250f, 0f, 430f),
+                    new Vector3(280f, 0f, 480f), new Vector3(260f, 0f, 530f), new Vector3(300f, 0f, 560f),
+                    new Vector3(350f, 0f, 540f), new Vector3(360f, 0f, 470f), new Vector3(330f, 0f, 390f),
+                    new Vector3(300f, 0f, 300f), new Vector3(250f, 0f, 200f), new Vector3(180f, 0f, 110f),
+                    new Vector3(90f, 0f, 40f)
                 },
             };
         }
@@ -520,12 +516,12 @@ namespace F1Game.Track
                 AnchorSubdivisions = 2,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(260f, 0f, 0f), new Vector3(388f, 0f, 22f),
-                    new Vector3(428f, 0f, 66f), new Vector3(380f, 0f, 102f), new Vector3(278f, 0f, 94f),
-                    new Vector3(222f, 0f, 134f), new Vector3(272f, 0f, 174f), new Vector3(358f, 0f, 168f),
-                    new Vector3(404f, 0f, 206f), new Vector3(350f, 0f, 240f), new Vector3(218f, 0f, 222f),
-                    new Vector3(106f, 0f, 170f), new Vector3(14f, 0f, 154f), new Vector3(-64f, 0f, 92f),
-                    new Vector3(-34f, 0f, 44f), new Vector3(-184f, 0f, 6f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 600f), new Vector3(30f, 0f, 660f),
+                    new Vector3(90f, 0f, 680f), new Vector3(160f, 0f, 680f), new Vector3(220f, 0f, 650f),
+                    new Vector3(240f, 0f, 590f), new Vector3(240f, 0f, 480f), new Vector3(270f, 0f, 420f),
+                    new Vector3(330f, 0f, 400f), new Vector3(390f, 0f, 410f), new Vector3(420f, 0f, 360f),
+                    new Vector3(420f, 0f, 260f), new Vector3(390f, 0f, 170f), new Vector3(330f, 0f, 90f),
+                    new Vector3(250f, 0f, 30f), new Vector3(150f, 0f, 0f), new Vector3(60f, 0f, -10f)
                 },
             };
         }
@@ -558,11 +554,13 @@ namespace F1Game.Track
                 // non-adjacent sections.
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(170f, 0f, 0f), new Vector3(232f, 0f, 36f),
-                    new Vector3(280f, 0f, 58f), new Vector3(318f, 0f, 120f), new Vector3(300f, 0f, 178f),
-                    new Vector3(248f, 0f, 202f), new Vector3(136f, 0f, 190f), new Vector3(150f, 0f, 148f),
-                    new Vector3(118f, 0f, 96f), new Vector3(70f, 0f, 120f), new Vector3(42f, 0f, 158f),
-                    new Vector3(-38f, 0f, 92f), new Vector3(-98f, 0f, 36f), new Vector3(-166f, 0f, 6f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 380f), new Vector3(40f, 0f, 440f),
+                    new Vector3(100f, 0f, 460f), new Vector3(160f, 0f, 440f), new Vector3(190f, 0f, 390f),
+                    new Vector3(180f, 0f, 330f), new Vector3(220f, 0f, 290f), new Vector3(280f, 0f, 280f),
+                    new Vector3(330f, 0f, 310f), new Vector3(350f, 0f, 370f), new Vector3(330f, 0f, 430f),
+                    new Vector3(370f, 0f, 470f), new Vector3(420f, 0f, 460f), new Vector3(440f, 0f, 400f),
+                    new Vector3(420f, 0f, 320f), new Vector3(370f, 0f, 220f), new Vector3(300f, 0f, 130f),
+                    new Vector3(200f, 0f, 50f)
                 },
             };
         }
@@ -583,11 +581,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(150f, 0f, 0f), new Vector3(238f, 0f, 24f),
-                    new Vector3(318f, 0f, 72f), new Vector3(336f, 0f, 122f), new Vector3(302f, 0f, 156f),
-                    new Vector3(226f, 0f, 168f), new Vector3(152f, 0f, 150f), new Vector3(92f, 0f, 172f),
-                    new Vector3(34f, 0f, 150f), new Vector3(-18f, 0f, 102f), new Vector3(-24f, 0f, 50f),
-                    new Vector3(-76f, 0f, 20f), new Vector3(-164f, 0f, 10f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 560f), new Vector3(30f, 0f, 620f),
+                    new Vector3(80f, 0f, 650f), new Vector3(140f, 0f, 650f), new Vector3(180f, 0f, 610f),
+                    new Vector3(190f, 0f, 550f), new Vector3(210f, 0f, 490f), new Vector3(260f, 0f, 460f),
+                    new Vector3(310f, 0f, 470f), new Vector3(340f, 0f, 510f), new Vector3(330f, 0f, 570f),
+                    new Vector3(360f, 0f, 620f), new Vector3(410f, 0f, 630f), new Vector3(440f, 0f, 580f),
+                    new Vector3(430f, 0f, 500f), new Vector3(400f, 0f, 400f), new Vector3(350f, 0f, 290f),
+                    new Vector3(270f, 0f, 170f), new Vector3(170f, 0f, 70f), new Vector3(70f, 0f, 10f)
                 },
             };
         }
@@ -608,12 +608,14 @@ namespace F1Game.Track
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(58f, 1.2f, 0f), new Vector3(82f, 4.5f, 30f),
-                    new Vector3(72f, 7.2f, 68f), new Vector3(36f, 8.4f, 92f), new Vector3(8f, 7.7f, 78f),
-                    new Vector3(-14f, 5.1f, 45f), new Vector3(-38f, 2.8f, 44f), new Vector3(-54f, 1.2f, 82f),
-                    new Vector3(-32f, 0.4f, 126f), new Vector3(24f, 0f, 138f), new Vector3(78f, 0f, 120f),
-                    new Vector3(94f, 0f, 76f), new Vector3(58f, 0f, 52f), new Vector3(14f, 0f, 38f),
-                    new Vector3(-52f, 0f, 12f), new Vector3(-104f, 0f, 4f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 180f), new Vector3(28f, 0f, 220f),
+                    new Vector3(60f, 0f, 296f), new Vector3(98f, 0f, 330f), new Vector3(150f, 0f, 336f),
+                    new Vector3(178f, 0f, 300f), new Vector3(196f, 0f, 262f), new Vector3(172f, 0f, 236f),
+                    new Vector3(196f, 0f, 214f), new Vector3(178f, 0f, 186f), new Vector3(216f, 0f, 150f),
+                    new Vector3(268f, 0f, 110f), new Vector3(316f, 0f, 70f), new Vector3(330f, 0f, 36f),
+                    new Vector3(300f, 0f, 18f), new Vector3(276f, 0f, 44f), new Vector3(240f, 0f, 30f),
+                    new Vector3(210f, 0f, -6f), new Vector3(156f, 0f, -22f), new Vector3(104f, 0f, -16f),
+                    new Vector3(60f, 0f, -30f), new Vector3(24f, 0f, -18f)
                 },
             };
         }
@@ -634,14 +636,14 @@ namespace F1Game.Track
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(158f, 0f, 0f), new Vector3(216f, 1f, 30f),
-                    new Vector3(232f, 3f, 84f), new Vector3(186f, 4f, 120f), new Vector3(124f, 5f, 108f),
-                    new Vector3(92f, 6f, 148f), new Vector3(128f, 7f, 188f), new Vector3(188f, 7f, 212f),
-                    new Vector3(204f, 6f, 266f), new Vector3(156f, 5f, 300f), new Vector3(92f, 4f, 290f),
-                    new Vector3(56f, 3f, 326f), new Vector3(70f, 2f, 372f), new Vector3(108f, 1f, 394f),
-                    new Vector3(96f, 1f, 416f), new Vector3(30f, 1f, 404f), new Vector3(-70f, 0.5f, 368f),
-                    new Vector3(-108f, 0f, 296f), new Vector3(-86f, -1f, 228f), new Vector3(-118f, -1f, 156f),
-                    new Vector3(-90f, 0f, 86f), new Vector3(-150f, 0f, 12f)
+                    new Vector3(0f, 0f, 0f), new Vector3(60f, 0f, 90f), new Vector3(110f, 0f, 160f),
+                    new Vector3(150f, 0f, 240f), new Vector3(200f, 0f, 290f), new Vector3(240f, 0f, 350f),
+                    new Vector3(280f, 0f, 400f), new Vector3(330f, 0f, 430f), new Vector3(390f, 0f, 440f),
+                    new Vector3(430f, 0f, 400f), new Vector3(400f, 0f, 360f), new Vector3(360f, 0f, 330f),
+                    new Vector3(400f, 0f, 290f), new Vector3(470f, 0f, 260f), new Vector3(520f, 0f, 200f),
+                    new Vector3(500f, 0f, 140f), new Vector3(440f, 0f, 130f), new Vector3(400f, 0f, 180f),
+                    new Vector3(330f, 0f, 220f), new Vector3(250f, 0f, 200f), new Vector3(180f, 0f, 140f),
+                    new Vector3(120f, 0f, 60f), new Vector3(60f, 0f, 10f)
                 },
             };
         }
@@ -662,12 +664,14 @@ namespace F1Game.Track
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(162f, 0f, 0f), new Vector3(230f, 0f, 36f),
-                    new Vector3(252f, 0f, 92f), new Vector3(206f, 0f, 146f), new Vector3(118f, 0f, 158f),
-                    new Vector3(42f, 0f, 132f), new Vector3(-18f, 0f, 158f), new Vector3(-88f, 0f, 134f),
-                    new Vector3(-116f, 0f, 82f), new Vector3(-76f, 0f, 42f), new Vector3(-14f, 0f, 52f),
-                    new Vector3(48f, 0f, 88f), new Vector3(120f, 0f, 80f), new Vector3(158f, 0f, 28f),
-                    new Vector3(82f, 0f, -22f), new Vector3(-20f, 0f, -85f), new Vector3(-148f, 0f, -15f)
+                    new Vector3(0f, 0f, 0f), new Vector3(60f, 0f, 120f), new Vector3(120f, 0f, 150f),
+                    new Vector3(200f, 0f, 130f), new Vector3(250f, 0f, 80f), new Vector3(230f, 0f, 30f),
+                    new Vector3(180f, 0f, 10f), new Vector3(240f, 0f, -80f), new Vector3(300f, 0f, -140f),
+                    new Vector3(270f, 0f, -190f), new Vector3(210f, 0f, -200f), new Vector3(170f, 0f, -160f),
+                    new Vector3(130f, 0f, -120f), new Vector3(60f, 0f, -160f), new Vector3(-40f, 0f, -240f),
+                    new Vector3(-120f, 0f, -300f), new Vector3(-200f, 0f, -330f), new Vector3(-300f, 0f, -300f),
+                    new Vector3(-340f, 0f, -230f), new Vector3(-300f, 0f, -160f), new Vector3(-220f, 0f, -120f),
+                    new Vector3(-140f, 0f, -60f), new Vector3(-70f, 0f, -20f)
                 },
             };
         }
@@ -688,12 +692,14 @@ namespace F1Game.Track
                 AnchorSubdivisions = 5,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(124f, 0f, 0f), new Vector3(170f, 4.5f, 34f),
-                    new Vector3(196f, 13f, 94f), new Vector3(260f, 19f, 142f), new Vector3(352f, 17f, 158f),
-                    new Vector3(414f, 10f, 122f), new Vector3(388f, 5f, 72f), new Vector3(302f, 2f, 72f),
-                    new Vector3(242f, -1f, 112f), new Vector3(164f, -4f, 126f), new Vector3(80f, 0f, 106f),
-                    new Vector3(26f, 0f, 146f), new Vector3(-54f, 0f, 126f), new Vector3(-104f, 0f, 70f),
-                    new Vector3(-84f, 0f, 22f), new Vector3(-162f, 0f, 4f)
+                    new Vector3(0f, 0f, 0f), new Vector3(40f, 0f, 60f), new Vector3(20f, 0f, 96f),
+                    new Vector3(-20f, 0f, 150f), new Vector3(-10f, 45f, 260f), new Vector3(30f, 70f, 430f),
+                    new Vector3(70f, 75f, 560f), new Vector3(110f, 72f, 620f), new Vector3(80f, 70f, 660f),
+                    new Vector3(40f, 68f, 690f), new Vector3(-30f, 60f, 760f), new Vector3(-120f, 50f, 840f),
+                    new Vector3(-200f, 40f, 900f), new Vector3(-300f, 30f, 930f), new Vector3(-380f, 20f, 880f),
+                    new Vector3(-420f, 15f, 800f), new Vector3(-380f, 10f, 720f), new Vector3(-300f, 6f, 660f),
+                    new Vector3(-200f, 4f, 600f), new Vector3(-120f, 2f, 480f), new Vector3(-80f, 1f, 300f),
+                    new Vector3(-60f, 0f, 140f), new Vector3(-40f, 0f, 60f), new Vector3(-20f, 0f, 20f)
                 },
             };
         }
@@ -714,11 +720,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 2,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(108f, 0f, 0f), new Vector3(128f, 0f, 28f),
-                    new Vector3(96f, 0f, 54f), new Vector3(124f, 0f, 86f), new Vector3(96f, 0f, 120f),
-                    new Vector3(36f, 0f, 118f), new Vector3(24f, 0f, 158f), new Vector3(-24f, 0f, 164f),
-                    new Vector3(-62f, 0f, 130f), new Vector3(-42f, 0f, 92f), new Vector3(-86f, 0f, 70f),
-                    new Vector3(-72f, 0f, 32f), new Vector3(-112f, 0f, 4f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 300f), new Vector3(40f, 0f, 350f),
+                    new Vector3(100f, 0f, 360f), new Vector3(150f, 0f, 330f), new Vector3(160f, 0f, 270f),
+                    new Vector3(200f, 0f, 230f), new Vector3(260f, 0f, 220f), new Vector3(300f, 0f, 250f),
+                    new Vector3(300f, 0f, 310f), new Vector3(340f, 0f, 350f), new Vector3(400f, 0f, 350f),
+                    new Vector3(430f, 0f, 300f), new Vector3(420f, 0f, 230f), new Vector3(380f, 0f, 150f),
+                    new Vector3(320f, 0f, 80f), new Vector3(240f, 0f, 30f), new Vector3(140f, 0f, 0f),
+                    new Vector3(60f, 0f, -10f)
                 },
             };
         }
@@ -739,11 +747,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(188f, 0f, 0f), new Vector3(260f, 0f, 36f),
-                    new Vector3(246f, 0f, 104f), new Vector3(306f, 0f, 162f), new Vector3(248f, 0f, 232f),
-                    new Vector3(132f, 0f, 236f), new Vector3(54f, 0f, 196f), new Vector3(-46f, 0f, 214f),
-                    new Vector3(-144f, 0f, 164f), new Vector3(-170f, 0f, 96f), new Vector3(-118f, 0f, 52f),
-                    new Vector3(-28f, 0f, 48f), new Vector3(-108f, 0f, 18f), new Vector3(-224f, 0f, -34f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 340f), new Vector3(40f, 0f, 390f),
+                    new Vector3(90f, 0f, 380f), new Vector3(120f, 0f, 330f), new Vector3(180f, 0f, 300f),
+                    new Vector3(250f, 0f, 320f), new Vector3(310f, 0f, 370f), new Vector3(340f, 0f, 430f),
+                    new Vector3(320f, 0f, 490f), new Vector3(260f, 0f, 510f), new Vector3(200f, 0f, 480f),
+                    new Vector3(150f, 0f, 500f), new Vector3(110f, 0f, 560f), new Vector3(60f, 0f, 570f),
+                    new Vector3(20f, 0f, 520f), new Vector3(-20f, 0f, 440f), new Vector3(-30f, 0f, 320f),
+                    new Vector3(-20f, 0f, 180f), new Vector3(0f, 0f, 60f)
                 },
             };
         }
@@ -764,11 +774,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(116f, -1f, 0f), new Vector3(144f, -4f, 34f),
-                    new Vector3(102f, -7f, 70f), new Vector3(42f, -8f, 54f), new Vector3(12f, -6f, 92f),
-                    new Vector3(52f, -2f, 128f), new Vector3(118f, 2f, 118f), new Vector3(154f, 4f, 72f),
-                    new Vector3(102f, 3f, 32f), new Vector3(34f, 2f, 42f), new Vector3(-52f, 1f, 24f),
-                    new Vector3(-136f, 0f, 4f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 10f, 240f), new Vector3(-30f, 4f, 290f),
+                    new Vector3(10f, 0f, 330f), new Vector3(70f, -4f, 380f), new Vector3(140f, -6f, 410f),
+                    new Vector3(200f, -4f, 390f), new Vector3(230f, 0f, 340f), new Vector3(210f, 4f, 290f),
+                    new Vector3(170f, 6f, 250f), new Vector3(210f, 8f, 200f), new Vector3(270f, 10f, 180f),
+                    new Vector3(310f, 12f, 220f), new Vector3(300f, 14f, 280f), new Vector3(250f, 16f, 320f),
+                    new Vector3(190f, 18f, 290f), new Vector3(130f, 16f, 220f), new Vector3(70f, 10f, 130f),
+                    new Vector3(20f, 4f, 50f)
                 },
             };
         }
@@ -789,11 +801,13 @@ namespace F1Game.Track
                 AnchorSubdivisions = 3,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(126f, 0f, 0f), new Vector3(166f, 0f, 26f),
-                    new Vector3(150f, 0f, 70f), new Vector3(206f, 0f, 102f), new Vector3(284f, 0f, 96f),
-                    new Vector3(320f, 0f, 132f), new Vector3(286f, 0f, 176f), new Vector3(202f, 0f, 174f),
-                    new Vector3(152f, 0f, 138f), new Vector3(88f, 0f, 150f), new Vector3(34f, 0f, 116f),
-                    new Vector3(62f, 0f, 76f), new Vector3(22f, 0f, 42f), new Vector3(-126f, 0f, 4f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 340f), new Vector3(40f, 0f, 400f),
+                    new Vector3(90f, 0f, 410f), new Vector3(120f, 0f, 370f), new Vector3(110f, 0f, 310f),
+                    new Vector3(150f, 0f, 270f), new Vector3(220f, 0f, 260f), new Vector3(280f, 0f, 290f),
+                    new Vector3(300f, 0f, 350f), new Vector3(280f, 0f, 410f), new Vector3(320f, 0f, 450f),
+                    new Vector3(380f, 0f, 450f), new Vector3(410f, 0f, 400f), new Vector3(400f, 0f, 320f),
+                    new Vector3(360f, 0f, 220f), new Vector3(300f, 0f, 130f), new Vector3(220f, 0f, 60f),
+                    new Vector3(120f, 0f, 10f)
                 },
             };
         }
@@ -814,12 +828,14 @@ namespace F1Game.Track
                 AnchorSubdivisions = 4,
                 SketchAnchors = new[]
                 {
-                    new Vector3(0f, 0f, 0f), new Vector3(190f, 0f, 0f), new Vector3(230f, 0f, 18f),
-                    new Vector3(222f, 0f, 54f), new Vector3(162f, 0.5f, 75f), new Vector3(108f, 1.4f, 51f),
-                    new Vector3(72f, 1.2f, 16f), new Vector3(34f, 0.3f, 24f), new Vector3(22f, -0.2f, 74f),
-                    new Vector3(66f, -0.1f, 115f), new Vector3(142f, 0.3f, 122f), new Vector3(200f, 0.8f, 154f),
-                    new Vector3(184f, 0.4f, 204f), new Vector3(104f, -0.4f, 216f), new Vector3(22f, -0.8f, 184f),
-                    new Vector3(-62f, -0.6f, 132f), new Vector3(-92f, -0.2f, 74f), new Vector3(-138f, 0f, 14f)
+                    new Vector3(0f, 0f, 0f), new Vector3(0f, 0f, 420f), new Vector3(30f, 0f, 470f),
+                    new Vector3(70f, 0f, 470f), new Vector3(90f, 0f, 420f), new Vector3(70f, 0f, 370f),
+                    new Vector3(110f, 0f, 320f), new Vector3(190f, 0f, 300f), new Vector3(260f, 0f, 340f),
+                    new Vector3(300f, 0f, 400f), new Vector3(280f, 0f, 450f), new Vector3(230f, 0f, 470f),
+                    new Vector3(260f, 0f, 530f), new Vector3(330f, 0f, 560f), new Vector3(400f, 0f, 530f),
+                    new Vector3(420f, 0f, 460f), new Vector3(380f, 0f, 400f), new Vector3(400f, 0f, 300f),
+                    new Vector3(400f, 0f, 160f), new Vector3(340f, 0f, 60f), new Vector3(240f, 0f, 10f),
+                    new Vector3(120f, 0f, -10f)
                 },
             };
         }
@@ -904,6 +920,14 @@ namespace F1Game.Track
             // ~0.59x the half-width, and left unscaled it would eat the kerb down to
             // a sliver on the narrower circuits.
             asset.kerbStartOffset = spec.KerbStartMeters * AuthoredCircuitScale;
+            // Runoff. A street circuit is defined by its walls being right there; a
+            // permanent circuit is defined by having somewhere to go. Every circuit
+            // used to get a wall 5 cm from the white line, which erased that
+            // distinction entirely and left a mistake nowhere to go.
+            bool streetCircuit = !string.IsNullOrEmpty(spec.EnvironmentStyle) &&
+                (spec.EnvironmentStyle.ToLowerInvariant().Contains("street") ||
+                 spec.EnvironmentStyle.ToLowerInvariant().Contains("harbour"));
+            asset.runoffMeters = streetCircuit ? StreetRunoffMeters : PermanentRunoffMeters;
             asset.anchorSubdivisions = spec.AnchorSubdivisions;
 
             for (int i = 0; i < sketch.Length; i++)

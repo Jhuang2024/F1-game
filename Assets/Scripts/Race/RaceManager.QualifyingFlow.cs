@@ -118,7 +118,21 @@ namespace LocalFormulaRacing
                 {
                     if (GetQualifyingPhaseTime(entry, qualifyingPhase) <= 0f)
                     {
-                        SetAiQualifyingPhaseTime(entry, qualifyingPhase, SimulateAiQualifyingTime(entry, qualifyingPhase));
+                        // Prefer the lap the AI car ACTUALLY drove. The AI now run the
+                        // session on track (see SpawnRaceGrid), so a real, physics-driven
+                        // best lap exists for anyone who completed one - and it responds
+                        // to traffic, tows, weather and mistakes the way the player's does.
+                        // The simulated time is now only the fallback for a car that set
+                        // no valid lap, and for the fully-simulated weekend path.
+                        RaceParticipant car = entry.participant;
+                        float drivenBest = car != null && car.lapTracker != null && car.lapTracker.ValidLapsCompleted > 0
+                            ? car.lapTracker.BestLapTime
+                            : 0f;
+
+                        SetAiQualifyingPhaseTime(
+                            entry,
+                            qualifyingPhase,
+                            drivenBest > 0f ? drivenBest : SimulateAiQualifyingTime(entry, qualifyingPhase));
                     }
                 }
             }

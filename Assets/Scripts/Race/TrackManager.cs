@@ -30,6 +30,27 @@ namespace LocalFormulaRacing
         // per-point width without further changes.
         public float[] authoredHalfWidthProfile;
         public float kerbStart = 6.77f;
+
+        /// <summary>
+        /// Metres of RUNOFF between the paved edge and the barrier line.
+        ///
+        /// Every barrier in the game used to sit at HalfWidthAt + 0.05 m - a
+        /// continuous wall five centimetres from the white line, on every circuit.
+        /// That made Monza and Silverstone identical in character to Monaco, gave a
+        /// mistake nowhere to go but into a wall, and made track limits
+        /// unenforceable because you physically could not run wide. It is also the
+        /// root of the whole "car wedged against a barrier" family of recovery bugs:
+        /// there was no off-track to run to.
+        ///
+        /// Permanent circuits get generous asphalt/gravel runoff; street circuits
+        /// keep their walls close, which is what makes them street circuits.
+        /// </summary>
+        public float runoffMeters = 18f;
+
+        public float RunoffWidthMeters
+        {
+            get { return Mathf.Max(0f, runoffMeters); }
+        }
         public Vector2 drsZoneOne = new Vector2(0.13f, 0.29f);
         public Vector2 drsZoneTwo = new Vector2(0.64f, 0.82f);
         // DRS fix: detection points, a short distance before each zone's own start
@@ -3995,6 +4016,7 @@ namespace LocalFormulaRacing
             runtime.roadHalfWidth = Mathf.Max(6f, averageHalfWidth);
             // Authored kerb inset when declared; otherwise the same inset the
             // hand-authored layouts use relative to their width.
+            runtime.runoffMeters = definition.runoffMeters;
             runtime.kerbStart = definition.kerbStartOffset > 0.01f
                 ? definition.kerbStartOffset
                 : Mathf.Max(4f, runtime.roadHalfWidth - 5.67f);
@@ -5909,7 +5931,7 @@ namespace LocalFormulaRacing
         // the same "flush plus clearance" base.
         float FlushBarrierLateral(float distance, float barrierHalfThickness, float extraStandoff = 0f)
         {
-            return Runtime.HalfWidthAt(distance) + EdgeBarrierClearance + extraStandoff + barrierHalfThickness;
+            return Runtime.HalfWidthAt(distance) + Runtime.RunoffWidthMeters + EdgeBarrierClearance + extraStandoff + barrierHalfThickness;
         }
 
         // Direct, undiscretized curvature reading at one point (degrees of

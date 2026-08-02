@@ -554,9 +554,23 @@ namespace LocalFormulaRacing
 
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
+                // The qualifying ENTRY LIST (used for the timing tower, elimination
+                // and the simulated fallback times) is built first...
                 BuildQualifyingField(playerTeamId);
                 PrepareAiQualifyingTargetsForPhase();
-                return;
+                // ...and then the AI are spawned and actually run the session.
+                //
+                // This used to `return` here, so the AI spawn loop below was never
+                // reached in qualifying: the player ran alone on an empty circuit and
+                // every rival time was invented before the car left the box. That
+                // removed the substance of qualifying - traffic, the out-lap queue at
+                // the pit exit, finding a gap for a clear lap, tows on the straights,
+                // being baulked, a rival's off bringing out a yellow that kills your
+                // lap - and left a timing tower that could never move.
+                //
+                // Falls through to the shared spawn loop, which is session-agnostic;
+                // SpawnParticipant already places qualifying cars in their team
+                // garage rather than on a grid slot.
             }
 
             if (IsTimeTrial)
@@ -587,6 +601,43 @@ namespace LocalFormulaRacing
                     car,
                     ResolveGridIndex(driver.id, aiFallbackSlot));
                 aiFallbackSlot++;
+            }
+
+            if (CurrentSession == RaceWeekendSession.Qualifying)
+            {
+                LinkQualifyingEntriesToParticipants();
+            }
+        }
+
+        /// <summary>
+        /// Points each qualifying entry at the car that is actually driving for it,
+        /// so RecordQualifyingPhase can read a real lap time off the LapTracker
+        /// instead of falling back to the simulated one. Only the player's entry was
+        /// ever linked, because only the player used to be on track.
+        /// </summary>
+        void LinkQualifyingEntriesToParticipants()
+        {
+            if (qualifyingEntries == null)
+            {
+                return;
+            }
+
+            for (int i = 0; i < qualifyingEntries.Count; i++)
+            {
+                QualifyingSimEntry entry = qualifyingEntries[i];
+                if (entry == null || entry.isPlayer || entry.participant != null)
+                {
+                    continue;
+                }
+
+                for (int p = 0; p < Participants.Count; p++)
+                {
+                    if (Participants[p] != null && Participants[p].driverId == entry.driverId)
+                    {
+                        entry.participant = Participants[p];
+                        break;
+                    }
+                }
             }
         }
 
