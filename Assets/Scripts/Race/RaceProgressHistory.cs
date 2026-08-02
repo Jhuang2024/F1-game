@@ -34,9 +34,11 @@ namespace LocalFormulaRacing
         // gap and enough depth to still resolve a car more than a lap down.
         const float SampleIntervalSeconds = 0.08f;
         const float HistoryWindowSeconds = 120f;
-        const int Capacity = (int)(HistoryWindowSeconds / SampleIntervalSeconds) + 8;
+        // 120s / 0.08s, plus a little headroom. Spelled out rather than computed
+        // so it stays an unambiguous integer constant.
+        const int Capacity = 1508;
 
-        sealed class Track
+        sealed class CarHistory
         {
             public readonly float[] times = new float[Capacity];
             public readonly float[] distances = new float[Capacity];
@@ -65,11 +67,11 @@ namespace LocalFormulaRacing
             }
         }
 
-        readonly Dictionary<RaceParticipant, Track> tracks = new Dictionary<RaceParticipant, Track>();
+        readonly Dictionary<RaceParticipant, CarHistory> tracks = new Dictionary<RaceParticipant, CarHistory>();
 
         public void Clear()
         {
-            foreach (KeyValuePair<RaceParticipant, Track> pair in tracks)
+            foreach (KeyValuePair<RaceParticipant, CarHistory> pair in tracks)
             {
                 pair.Value.Clear();
             }
@@ -84,10 +86,10 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            Track track;
+            CarHistory track;
             if (!tracks.TryGetValue(participant, out track))
             {
-                track = new Track();
+                track = new CarHistory();
                 tracks[participant] = track;
             }
 
@@ -110,7 +112,7 @@ namespace LocalFormulaRacing
         public bool TryGetTimeAtDistance(RaceParticipant participant, float distance, out float time)
         {
             time = 0f;
-            Track track;
+            CarHistory track;
             if (participant == null || !tracks.TryGetValue(participant, out track) || track.count < 2)
             {
                 return false;
