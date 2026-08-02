@@ -15,7 +15,7 @@ namespace F1Game.Race.Rules
     /// - SUSPENSION. A kerb strike, a wheel-to-wheel launch or a heavy compression
     ///   breaks suspension, and it is the damage that is NOT repairable in a pit stop -
     ///   in reality it is a retirement. Modelling it separately is what lets a
-    ///   black-and-orange flag mean something (see FlagRules.MechanicalBlackOrange).
+    ///   black-and-orange flag mean something (see RaceFlag.MechanicalBlackOrange).
     /// </summary>
     public static class DamagePerformance
     {
