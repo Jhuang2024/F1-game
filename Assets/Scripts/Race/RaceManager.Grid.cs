@@ -454,7 +454,17 @@ namespace LocalFormulaRacing
                 // A jump-starting AI car whose rolled window has arrived stays
                 // free - its physical launch and penalty are handled in the
                 // countdown tick (see the StartCountdown block in Update).
-                if (held && !participant.isPlayer && participant.aiJumpStartWindowSeconds > 0f &&
+                //
+                // The `StartCountdown > 0f` term is load-bearing: aiJumpStartWindowSeconds
+                // is rolled once at spawn and never cleared, so once the race is
+                // under way StartCountdown is permanently 0 and the old condition
+                // (StartCountdown <= window) was trivially true forever. This
+                // exemption then leaked into the red-flag standing restart, which
+                // relies on HoldGridCars(true) to pin every car to its teleported
+                // slot - one AI would drive away from its grid box while the other
+                // 21 sat frozen, and reach the green several car lengths up the road.
+                if (held && StartCountdown > 0f && !participant.isPlayer &&
+                    participant.aiJumpStartWindowSeconds > 0f &&
                     StartCountdown <= participant.aiJumpStartWindowSeconds)
                 {
                     continue;

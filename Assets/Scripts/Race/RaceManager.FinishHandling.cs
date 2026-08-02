@@ -88,7 +88,12 @@ namespace LocalFormulaRacing
             AddPenalty(participant, PenaltyRules.MandatoryPitPenaltySeconds, PenaltyRules.MandatoryPitReason);
             if (participant.isPlayer)
             {
-                SessionMessage = "No mandatory stop: +10s";
+                // Read the tariff off the constant rather than hard-coding it. The
+                // literal here still said +10s after MandatoryPitPenaltySeconds was
+                // raised to 30, so the player was told 10, the race-control timeline
+                // said 30, and the results were computed with 30 - a one-to-two
+                // position discrepancy they had no way to account for.
+                SessionMessage = "No mandatory stop: +" + PenaltyRules.MandatoryPitPenaltySeconds.ToString("0") + "s";
             }
         }
 

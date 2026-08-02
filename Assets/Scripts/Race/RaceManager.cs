@@ -359,6 +359,12 @@ namespace LocalFormulaRacing
         RaceParticipant safetyCarQueueLeader;
         float lastIncidentTime = -999f;
         float lastIncidentDistance = -99999f;
+        // Lap distance of the incident that raised the CURRENT yellow flag. Kept
+        // separate from lastIncidentDistance (which is pileup grouping and moves on
+        // every registered incident, flagged or not) so the local yellow speed-cap
+        // and DRS-ban window stays pinned to the actual hazard. See
+        // RaceManager.SpatialHelpers.IsNearLocalYellowIncident.
+        float activeYellowIncidentDistance = -99999f;
 
         // Restart handoff (bug fix): race control keeps convoy autopilot through
         // the Restart hold AND a short green-flag ramp afterward, instead of

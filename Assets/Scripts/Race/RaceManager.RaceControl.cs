@@ -1103,6 +1103,15 @@ namespace LocalFormulaRacing
             bool freshFlag = yellowSectorNumber != sector || yellowSectorClearTimer <= 0f;
             yellowSectorNumber = sector;
             YellowFlagSector = sector;
+            // Latch WHERE the flagged hazard is, at the moment the flag is raised.
+            // IsNearLocalYellowIncident used to read lastIncidentDistance live, but
+            // that is the pileup-grouping variable and every subsequent incident -
+            // including the Minor ones that never raise a flag - overwrote it,
+            // dragging the local speed-cap/DRS-ban window to an unrelated part of
+            // the lap while this yellow was still flying. RegisterIncident has just
+            // stamped lastIncidentDistance for the incident that caused THIS flag,
+            // so capturing it here pins the window to the actual hazard.
+            activeYellowIncidentDistance = lastIncidentDistance;
             // Part 2: shorter default duration (was 10s) - a yellow reads as a
             // brief, localized warning unless the hazard keeps re-registering,
             // which still refreshes this timer (up to the episode cap above).
@@ -1180,6 +1189,18 @@ namespace LocalFormulaRacing
         }
         void ResetRaceControlState()
         {
+            // The overtake highlight reel used to be cleared only from inside
+            // CheckIllegalOvertakesUnderYellow's `StartCountdown > 0f` branch - which
+            // is unreachable, because RaceManager.Update returns during the whole
+            // countdown and never reaches that call. Nothing else cleared it, and
+            // GameBootstrap keeps ONE RaceManager alive for the application lifetime,
+            // so highlights accumulated across every race of the session: race 2's
+            // report listed race 1's passes, with race 1's lap numbers and drivers.
+            // Worse, the retained pair timestamps were compared against a RaceElapsed
+            // that had restarted near zero, so the jitter guard saw a large negative
+            // interval and silently DISCARDED genuine early-race passes.
+            // Session start is the reliable choke point.
+            ResetOvertakeHighlights();
             CurrentRaceControlState = RaceControlState.Green;
             SafetyCarTargetSpeedKph = 150f;
             IsPitLaneOpen = true;
@@ -1221,6 +1242,7 @@ namespace LocalFormulaRacing
             safetyCarQueueLeader = null;
             lastIncidentTime = -999f;
             lastIncidentDistance = -99999f;
+            activeYellowIncidentDistance = -99999f;
             raceControlReferenceDistance = 0f;
             raceControlReferenceSpeedKph = 0f;
             restartRampTimer = 0f;

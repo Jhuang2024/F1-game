@@ -35,6 +35,17 @@ namespace LocalFormulaRacing
         float sectorStartTime;
         bool initialized;
         bool sawSectorTwo;
+        // Once-per-lap latches for the sector timing lines. CrossedSectorLine fires
+        // on ANY forward transition across 1/3 or 2/3, and CompleteSector then
+        // unconditionally restarts the sector clock and banks the elapsed time as a
+        // candidate best. Backing over a sector line and crossing it again - a spin,
+        // a recovery, a rejoin - is not by itself an invalidating event, so the
+        // second crossing recorded a fraction-of-a-second "sector time" that went
+        // straight into the session-best table and made every real sector after it
+        // impossible to beat. The following sector was truncated too, so the three
+        // splits stopped summing to the lap.
+        bool sector1Timed;
+        bool sector2Timed;
         bool sawSectorThree;
         bool awaitingRaceStartLine;
 
@@ -86,12 +97,16 @@ namespace LocalFormulaRacing
             referenceDistance = 0f;
             lastCheckpointIndex = 0;
             checkpointsPassedThisLap = 0;
+            sector1Timed = false;
+            sector2Timed = false;
         }
 
         void ResetCheckpointsFromCurrentPosition()
         {
             lastCheckpointIndex = CheckpointIndexFor(CurrentProgress.normalized);
             checkpointsPassedThisLap = 0;
+            sector1Timed = false;
+            sector2Timed = false;
         }
 
         int CheckpointIndexFor(float normalized)
@@ -124,8 +139,23 @@ namespace LocalFormulaRacing
             }
             else
             {
-                // Teleport, respawn, or reversing: resync without crediting progress.
+                // Teleport, respawn, or reversing. Resync AND surrender the credit
+                // for the bands given up, so the counter measures NET forward
+                // progress rather than "bands crossed forwards at some point".
+                //
+                // It previously resynced without deducting, which made
+                // checkpointsPassedThisLap monotonically non-decreasing regardless
+                // of direction: a car could reverse from the line back to ~0.25,
+                // re-drive those bands forwards, re-accumulate the 12 checkpoints
+                // MinimumCheckpointsForLap asks for, and be credited with a lap it
+                // never completed - gaining a full lap of race progress and jumping
+                // the running order. That is exactly the exploit this checkpoint
+                // system's own comment says it exists to prevent. (sawSectorTwo/
+                // sawSectorThree don't catch it either: they are set by position,
+                // not by a directional crossing.)
+                int backwardDelta = CheckpointCount - forwardDelta;
                 lastCheckpointIndex = checkpoint;
+                checkpointsPassedThisLap = Mathf.Max(0, checkpointsPassedThisLap - backwardDelta);
             }
         }
 
@@ -249,8 +279,9 @@ namespace LocalFormulaRacing
 
             UpdateCheckpoints();
 
-            if (CrossedSectorLine(0.333f))
+            if (!sector1Timed && CrossedSectorLine(0.333f))
             {
+                sector1Timed = true;
                 CompleteSector(1);
             }
 
@@ -259,8 +290,9 @@ namespace LocalFormulaRacing
                 sawSectorTwo = true;
             }
 
-            if (CrossedSectorLine(0.666f))
+            if (!sector2Timed && CrossedSectorLine(0.666f))
             {
+                sector2Timed = true;
                 CompleteSector(2);
             }
 
@@ -286,12 +318,46 @@ namespace LocalFormulaRacing
                     sawSectorTwo = false;
                     sawSectorThree = false;
                     checkpointsPassedThisLap = 0;
+            sector1Timed = false;
+            sector2Timed = false;
                 }
                 else if (sawSectorTwo && sawSectorThree &&
                          checkpointsPassedThisLap >= MinimumCheckpointsForLap &&
                          CurrentLapTime > MinimumValidLapTime())
                 {
                     CompleteLap();
+                }
+                else
+                {
+                    // Rejected crossing (failed the checkpoint/sector/min-time
+                    // guard, e.g. after a recovery or teleport). This used to fall
+                    // through and do NOTHING, which corrupted two things at once:
+                    //
+                    // (a) TotalProgressDistance is CompletedLaps*length + distance
+                    //     + offset. The car's distance has just wrapped from ~length
+                    //     to ~0 while CompletedLaps did not increment, so total
+                    //     progress dropped by a FULL LAP. SortRunningOrder sorts
+                    //     purely on that value, so the car instantly fell to the
+                    //     back as if lapped and never recovered for the rest of the
+                    //     race. Advancing the offset keeps it continuous - the car
+                    //     really did travel that distance; it just doesn't get a lap
+                    //     credited for it.
+                    //
+                    // (b) The lap and sector clocks kept running across the line, so
+                    //     the next completed lap posted roughly two laps' worth of
+                    //     time and its sector 1 was measured from the PREVIOUS lap's
+                    //     2/3 marker - the three splits no longer summed to the lap.
+                    //
+                    // The lap itself is still correctly not counted.
+                    progressDistanceOffset += Track.length;
+                    lapStartTime = Time.time;
+                    sectorStartTime = Time.time;
+                    sawSectorTwo = false;
+                    sawSectorThree = false;
+                    CurrentLapInvalidated = false;
+                    checkpointsPassedThisLap = 0;
+            sector1Timed = false;
+            sector2Timed = false;
                 }
             }
 
@@ -325,6 +391,8 @@ namespace LocalFormulaRacing
                 CurrentLapInvalidated = OutLapFinalCornerCut;
                 referenceDistance = CurrentProgress.distance;
                 checkpointsPassedThisLap = 0;
+            sector1Timed = false;
+            sector2Timed = false;
                 return;
             }
 
@@ -348,6 +416,8 @@ namespace LocalFormulaRacing
             sawSectorThree = false;
             CurrentLapInvalidated = false;
             checkpointsPassedThisLap = 0;
+            sector1Timed = false;
+            sector2Timed = false;
 
             if (CompletedLaps >= RaceLaps)
             {

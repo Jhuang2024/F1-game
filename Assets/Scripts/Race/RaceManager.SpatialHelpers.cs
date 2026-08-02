@@ -43,7 +43,36 @@ namespace LocalFormulaRacing
                 return true;
             }
 
-            return Mathf.Abs(Track.WrapDistance(progress.distance - lastIncidentDistance)) < LocalYellowSpeedCapWindowMeters;
+            // Two fixes here.
+            //
+            // (a) The reference is the FLAGGED incident's location, not
+            // lastIncidentDistance. That field is the pileup-grouping variable and
+            // is overwritten by every incident that registers - including the many
+            // Minor ones that never raise a flag at all - so while a yellow was
+            // active in sector 1, an unrelated scrape in sector 3 moved this 180m
+            // window there. It drives a hard 210 kph cap and the DRS ban, so the
+            // player was abruptly pace-limited at a point on the lap where nothing
+            // had happened, and the affected stretch jumped around the circuit.
+            //
+            // (b) Mathf.Abs on a wrapped distance is a no-op: WrapDistance
+            // normalises into [0, length), never negative. The value is the forward
+            // distance FROM the incident TO the car, so the window only ever caught
+            // cars that had already gone past - never cars approaching it, which is
+            // precisely the case this fallback exists for. Use true circular
+            // distance, the same form SampleCorneringTelemetry already uses.
+            return CircularTrackDistance(progress.distance, activeYellowIncidentDistance) < LocalYellowSpeedCapWindowMeters;
+        }
+
+        /// <summary>Shortest distance between two lap positions, either way round.</summary>
+        float CircularTrackDistance(float a, float b)
+        {
+            if (Track == null || Track.length <= 0f)
+            {
+                return Mathf.Abs(a - b);
+            }
+
+            float delta = Track.WrapDistance(a - b);
+            return Mathf.Min(delta, Track.length - delta);
         }
 
         float LocalHalfWidthAt(float distance)

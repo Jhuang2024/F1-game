@@ -30,7 +30,17 @@ namespace LocalFormulaRacing
             for (int i = 0; i < State.SortedOrder.Count; i++)
             {
                 RaceParticipant participant = State.SortedOrder[i];
-                ApplyMandatoryPitPenalty(participant);
+                // The mandatory-stop rule only applies to cars that reach the flag.
+                // This used to run before the retired check below, and
+                // ShouldApplyMandatoryPitPenalty has no retirement test of its own,
+                // so every DNF was handed a +30s penalty and a reason reading
+                // "DNF Damage, No mandatory stop" - for a stop it obviously could
+                // never have made after retiring on lap 2.
+                if (!participant.retired)
+                {
+                    ApplyMandatoryPitPenalty(participant);
+                }
+
                 participant.finishingPosition = i + 1;
                 RaceResultEntry entry = participant.ToResultEntry();
                 entry.finishingPosition = i + 1;

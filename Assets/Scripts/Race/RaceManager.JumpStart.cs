@@ -20,6 +20,31 @@ namespace LocalFormulaRacing
                 return;
             }
 
+            // A jump start means the car MOVED before lights out - that is the
+            // rulebook's own definition, and it is what Judge(true, ...) asserts
+            // below. A car still pinned in its grid box has not moved and cannot:
+            // VehicleController pins its transform, zeroes its velocity and
+            // discards its throttle for as long as IsHeldOnGrid is set.
+            //
+            // Without this guard the player's call site (PlayerVehicleInput, in the
+            // !CanDrive branch) reported a jump start purely because the throttle
+            // KEY was held during the countdown, while the car sat motionless and
+            // the input was thrown away one line later. Pre-loading the throttle
+            // during the randomised 2.9-4.3s hold - the natural thing to do, and
+            // what the randomised hold invites - therefore meant a guaranteed +5s
+            // on essentially every race start, for zero mechanical gain.
+            //
+            // AI jump starts are unaffected: RaceManager.Update releases a
+            // jumping car with SetGridHold(false) BEFORE calling this, so that car
+            // really is rolling and really is judged.
+            //
+            // Anticipating the lights is still penalised, through the separate and
+            // correctly-modelled reaction-time rule in RecordPlayerLaunchInput.
+            if (participant.vehicle != null && participant.vehicle.IsHeldOnGrid)
+            {
+                return;
+            }
+
             // Judgement + tariff live in the extracted rulebook
             // (StartProcedureRules); this method only supplies the detection.
             StartInfraction infraction = StartProcedureRules.Judge(true, -1f, true);

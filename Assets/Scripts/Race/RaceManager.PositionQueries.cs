@@ -56,7 +56,16 @@ namespace LocalFormulaRacing
             for (int i = 0; i < Participants.Count; i++)
             {
                 RaceParticipant other = Participants[i];
-                if (other == participant || other.lapTracker == null)
+                // Retired and finished cars are NOT traffic. A retired car is
+                // deactivated, so its lapTracker stops ticking and its
+                // TotalProgressDistance is frozen at wherever it stopped - it stays
+                // in this search forever as a permanently parked entry. These two
+                // methods are the "who is next to me" primitive for the whole race
+                // layer (DRS detection gaps, ERS deployment, engineer radio, AI
+                // attack/defend states and AI pit strategy), so a ghost handed out
+                // real DRS for closing on nothing, made AI fight a despawned car,
+                // and produced "you're closing on the car ahead" with clear track.
+                if (other == participant || other.lapTracker == null || other.retired || other.finished)
                 {
                     continue;
                 }
@@ -86,7 +95,16 @@ namespace LocalFormulaRacing
             for (int i = 0; i < Participants.Count; i++)
             {
                 RaceParticipant other = Participants[i];
-                if (other == participant || other.lapTracker == null)
+                // Retired and finished cars are NOT traffic. A retired car is
+                // deactivated, so its lapTracker stops ticking and its
+                // TotalProgressDistance is frozen at wherever it stopped - it stays
+                // in this search forever as a permanently parked entry. These two
+                // methods are the "who is next to me" primitive for the whole race
+                // layer (DRS detection gaps, ERS deployment, engineer radio, AI
+                // attack/defend states and AI pit strategy), so a ghost handed out
+                // real DRS for closing on nothing, made AI fight a despawned car,
+                // and produced "you're closing on the car ahead" with clear track.
+                if (other == participant || other.lapTracker == null || other.retired || other.finished)
                 {
                     continue;
                 }

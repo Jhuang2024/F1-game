@@ -15,6 +15,11 @@ namespace LocalFormulaRacing
         public RaceWeekendSession CurrentSession { get; private set; }
         public int QualifyingPhase { get; private set; } = 1;
         public int FinishedCount { get; private set; } = 0;
+        // Cars that took the chequered flag, excluding retirements. Drives the
+        // provisional finishing position reported at the line (see
+        // OnParticipantFinished); FinishedCount itself counts everything that
+        // stopped racing, retirements included, and must not be used for placings.
+        int classifiedFinishCount;
 
         public void Initialize(RaceWeekendSession session, int qualifyingPhase = 1)
         {
@@ -25,6 +30,7 @@ namespace LocalFormulaRacing
             sectorSnapshots.Clear();
             timingSnapshots.Clear();
             FinishedCount = 0;
+            classifiedFinishCount = 0;
             for (int i = 0; i < 3; i++) overallBestSectors[i] = 0f;
         }
 
@@ -79,6 +85,20 @@ namespace LocalFormulaRacing
                     if (a.retired != b.retired)
                     {
                         return a.retired ? 1 : -1;
+                    }
+
+                    if (a.retired)
+                    {
+                        // Retired cars rank by how far they actually got, which is
+                        // what RaceClassifier's retirement stamp encodes for the
+                        // final results (a lap-19 retirement classifies ahead of a
+                        // lap-1 one). Comparing finishingPosition here meant
+                        // "retired EARLIER ranks higher" - the exact inverse - so
+                        // the live DNF block listed the first crash at the top and
+                        // then flipped the moment the flag fell. Retirements no
+                        // longer carry a finishingPosition at all, so this is also
+                        // the only thing keeping the retired block deterministic.
+                        return GetProgressDistance(b).CompareTo(GetProgressDistance(a));
                     }
 
                     return a.finishingPosition.CompareTo(b.finishingPosition);
@@ -203,7 +223,20 @@ namespace LocalFormulaRacing
 
             participant.finished = true;
             FinishedCount++;
-            participant.finishingPosition = FinishedCount;
+            // Only a car that actually took the flag gets a provisional finishing
+            // position. RetireParticipant routes through here too, so a DNF used to
+            // consume a position slot: the counter conflated "cars that have stopped
+            // racing" with "classified finishing order", and every retirement pushed
+            // the number up for whoever crossed the line next. Winning a race after
+            // two retirements produced "P3 and on the podium!" on the line, with the
+            // results screen a moment later correctly reading P1. Retired cars are
+            // classified properly by RaceClassifier.AssignFinishingOrder at the end.
+            if (!participant.retired)
+            {
+                classifiedFinishCount++;
+                participant.finishingPosition = classifiedFinishCount;
+            }
+
             participant.finishTime = raceElapsed;
         }
 
@@ -236,6 +269,7 @@ namespace LocalFormulaRacing
                 participant.trackLimitEventLog.Clear();
             }
             FinishedCount = 0;
+            classifiedFinishCount = 0;
             SortRunningOrder();
         }
 
