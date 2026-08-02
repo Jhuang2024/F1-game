@@ -431,11 +431,79 @@ namespace LocalFormulaRacing
         // who pressed R a fraction too early - while still tumbling, or before the
         // car had settled - stranded and unable to press it again, which is the exact
         // situation the key exists for.
+        /// <summary>
+        /// Whether the player's car is in a state the R key is meant to rescue:
+        /// off the road, crawling/stopped, pointing the wrong way, or on its side.
+        /// Deliberately generous - being genuinely stuck must never fail this.
+        /// </summary>
+        bool PlayerNeedsRecovery(RaceParticipant participant)
+        {
+            if (participant == null || participant.vehicle == null || Track == null)
+            {
+                return false;
+            }
+
+            float speedKph = participant.vehicle.CurrentSpeedKph;
+            if (speedKph < PlayerRecoverySpeedThresholdKph)
+            {
+                return true;
+            }
+
+            TrackProgress progress = State != null
+                ? State.GetCurrentProgress(participant)
+                : participant.lapTracker.CurrentProgress;
+
+            // Off the road surface (same margin the off-track drag uses).
+            if (Mathf.Abs(progress.lateralDistance) > Track.HalfWidthAt(progress.distance) + 1.6f)
+            {
+                return true;
+            }
+
+            Vector3 trackPoint;
+            Vector3 trackForward;
+            Vector3 trackRight;
+            Track.SampleAtDistance(progress.distance, out trackPoint, out trackForward, out trackRight);
+            Vector3 carForward = participant.vehicle.transform.forward;
+
+            // Facing backwards down the circuit.
+            if (Vector3.Dot(new Vector3(carForward.x, 0f, carForward.z).normalized,
+                            new Vector3(trackForward.x, 0f, trackForward.z).normalized) < 0.1f)
+            {
+                return true;
+            }
+
+            // Rolled / on its roof.
+            return Vector3.Dot(participant.vehicle.transform.up, Vector3.up) < 0.5f;
+        }
+
+        // Below this the car counts as crawling or stopped and R is always allowed.
+        // Set above the slowest genuine racing speed (a first-gear hairpin exit) so
+        // recovery can never be used as a rolling-start boost on the racing line.
+        const float PlayerRecoverySpeedThresholdKph = 42f;
+
         public void ResetPlayerToSafePose(RaceParticipant participant)
         {
             if (participant == null || !participant.isPlayer || participant.vehicle == null || Track == null ||
                 participant.isPitting || participant.pitPhase != PitPhase.None || !CanDrive)
             {
+                return;
+            }
+
+            // The key stays cooldown-free (per the request that removed the 5s
+            // lockout - pressing R a fraction too early must never strand you). What
+            // it now requires instead is that the car actually NEEDS recovering.
+            //
+            // Without this gate, R was a free performance button rather than a
+            // recovery one: it injects a flat 120 kph and 3s of collision immunity
+            // regardless of the car's state, so a player anywhere below 120 kph -
+            // out of a hairpin, stuck in traffic, mid-corner - could tap it to be
+            // placed on the racing line at speed with no time loss, and by tapping
+            // it every 3s could stay permanently non-collidable with the field.
+            // Gating on "off track, crawling, or pointing the wrong way" keeps the
+            // key instantly available in exactly the situations it exists for.
+            if (!PlayerNeedsRecovery(participant))
+            {
+                SessionMessage = "Car is running - recovery not needed";
                 return;
             }
 
@@ -447,9 +515,11 @@ namespace LocalFormulaRacing
 
             // Penalty removed (per request - "pressing R should not give the
             // player a 5 second penalty"): the reset places the car at the road
-            // centre at its CURRENT distance, so it can't gain time; the 5s
-            // reset cooldown above still prevents spamming. The AI get the
-            // identical free recovery (crash/off-track auto-reset in
+            // centre at its CURRENT distance, so it can't gain time, and the
+            // PlayerNeedsRecovery gate above prevents spamming (the old comment
+            // here cited a 5s cooldown that the comment block above it had already
+            // removed - there was in fact no anti-spam guard left at all). The AI
+            // get the identical free recovery (crash/off-track auto-reset in
             // UpdateRaceControl), so this is symmetric.
             if (CurrentSession != RaceWeekendSession.Qualifying && !IsTimeTrial)
             {

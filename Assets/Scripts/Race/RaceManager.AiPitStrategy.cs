@@ -152,14 +152,19 @@ namespace LocalFormulaRacing
             return AiPitStrategyRules.RecommendedPitLap(RaceLaps, wetRace, tyreManagement / 100f, driverJitter01);
         }
 
-        // Off-by-one fix: RecommendedPitLap returns a 1-based DISPLAY lap number
-        // ("pit on lap 3") - CompletedLaps only reaches that number once lap 3 has
-        // already been fully driven (i.e. the car is already on lap 4), so
-        // comparing raw CompletedLaps against it fires a whole lap late. The
-        // player's own auto-pit path already made this exact correction
-        // (UpdatePlayerAutoPitStrategy's currentLapNumber = completedLaps + 1);
-        // this is the single shared version AiVehicleController now calls instead
-        // of re-deriving (and previously getting wrong) the same comparison.
+        // RecommendedPitLap returns a 1-based DISPLAY lap number ("pit on lap 3").
+        // This is the single shared comparison AiVehicleController calls instead of
+        // re-deriving it.
+        //
+        // NOTE on the net condition, which two rounds of edits made confusing: the
+        // `+ 1` on the left (currentLapNumber) and the `+ 1` on the right cancel, so
+        // this is exactly `CompletedLaps >= targetLap`. That is DELIBERATE and is the
+        // later of the two requests - see the "AI was pitting a lap early" note on
+        // the return statement: the car must have fully completed the recommended lap
+        // and be running the one after it. An earlier revision of this header
+        // described the opposite intent (fire as soon as the recommended lap starts);
+        // that description is obsolete and has been removed so the two no longer
+        // contradict each other.
         public bool ShouldAiPitByStrategyLap(RaceParticipant participant)
         {
             if (participant == null || participant.lapTracker == null)

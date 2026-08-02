@@ -251,6 +251,59 @@ namespace LocalFormulaRacing
         // Post-zone hold-open grace, mirroring PlayerVehicleInput.drsAutoHoldTimer.
         float drsAutoHoldTimer;
 
+        // The rival this car is currently attacking. Captured when an attack state
+        // is entered so a "pass completed" transition can be VERIFIED against the
+        // actual target rather than inferred from a proximity query returning null.
+        RaceParticipant overtakeTarget;
+
+        /// <summary>
+        /// True only if the car we were attacking is genuinely behind us now.
+        ///
+        /// The pass state machine used to declare a completed overtake whenever
+        /// FindCarAhead returned null. That query means "no car within N metres of
+        /// progress AHEAD" - which is equally true when the rival PULLS AWAY. From
+        /// SideBySide, a rival edging 13m clear (i.e. this car losing the fight)
+        /// tripped the 12m test and was recorded as a completed pass; the
+        /// gap-opening abort check sits in the later else and was never reached. That
+        /// inflated every AI driver's "overtakes made" with passes they actually
+        /// lost, and armed a 2.5s re-attack cooldown on a car that had just been
+        /// shuffled backwards, suppressing the genuine re-attack.
+        /// </summary>
+        bool OvertakeTargetIsBehind()
+        {
+            if (overtakeTarget == null || overtakeTarget.lapTracker == null ||
+                participant == null || participant.lapTracker == null)
+            {
+                return false;
+            }
+
+            // Driving past a car that retired or took the flag is not an overtake.
+            if (overtakeTarget.retired || overtakeTarget.finished)
+            {
+                return false;
+            }
+
+            return overtakeTarget.lapTracker.TotalProgressDistance < participant.lapTracker.TotalProgressDistance;
+        }
+
+        // The most restrictive SAFETY throttle cap applied this frame - traffic
+        // avoidance (hold-station, proximity, side-by-side, boxed-in) and the blue
+        // flag concession. The ERS "genuine straight" override forces throttle to
+        // 1.0, and because it runs AFTER both of those it used to silently cancel
+        // them: its only guard is `command.brake > 0.05f`, so every throttle-ONLY
+        // safety response - which is all of them, by design - was unprotected. An AI
+        // holding station a couple of car lengths behind another on a straight had
+        // its cap cancelled and closed onto the car ahead, and a lapped AI under a
+        // blue flag went to full throttle on exactly the straights where it is meant
+        // to concede, then collected the 5s "ignoring blue flags" penalty for it.
+        float safetyThrottleCeiling = 1f;
+
+        // Difficulty-tier pace multipliers, as authored in RaceManager.AiProfiles.
+        // Used only to normalise a profile onto a 0..1 tier axis so difficulty can
+        // reach corner speed through a bounded term - see feasibilityCap.
+        const float EasyPaceMultiplier = 1.77f;
+        const float ExpertPaceMultiplier = 2.05f;
+
         // Weather-crossover watch: how long this car has been on the wrong
         // class of rubber for the track state (AiPitStrategyRules decides when
         // that persistence commits the car to the box).
@@ -1389,10 +1442,26 @@ namespace LocalFormulaRacing
             // judgment carries more speed over the apex number and trail-
             // brakes it off inside the corner - time loss on a misjudgment,
             // never a wall (brake saturation + speed-shed catch it).
-            float feasibilityCap = Mathf.Lerp(1.07f, 1.18f, paceNorm);
-            float brakingApexSpeed = Mathf.Min(
-                apexTargetSpeed * driverPaceVariance * profile.paceMultiplier,
-                apexTargetSpeed * feasibilityCap);
+            // The Mathf.Min that used to be here was dead code, and it hid a real
+            // gameplay defect. Its first argument was
+            // apexTargetSpeed * driverPaceVariance * profile.paceMultiplier, whose
+            // smallest possible multiplier is 1.98 * 1.00 * 0.93 * 1.77 = 3.26,
+            // against a feasibilityCap of at most 1.18 - so the cap ALWAYS won and
+            // driverPaceVariance, carPaceVariance and profile.paceMultiplier were
+            // completely inert in the corner-entry target. That is why round after
+            // round of "+2% paceMultiplier" tuning changed nothing, and why picking
+            // a higher difficulty did not make the field corner any faster.
+            //
+            // Difficulty now reaches corner speed through the feasibility cap, which
+            // is the bounded, physically-meaningful lever (a better driver carries
+            // more entry speed over the geometric apex and trail-brakes it off).
+            // Normalised so Expert is exactly 1.0 - i.e. the top tier's corner speed
+            // is unchanged from the tuned behaviour - and only the lower tiers slow
+            // down. Driver-to-driver spread still comes from paceNorm, as before.
+            float tierNorm = Mathf.InverseLerp(EasyPaceMultiplier, ExpertPaceMultiplier, profile.paceMultiplier);
+            float difficultyCornerScale = Mathf.Lerp(0.93f, 1f, tierNorm);
+            float feasibilityCap = Mathf.Lerp(1.07f, 1.18f, paceNorm) * difficultyCornerScale;
+            float brakingApexSpeed = apexTargetSpeed * feasibilityCap;
 
             float damagePercent = vehicle.Damage == null ? 0f : vehicle.Damage.OverallPercent;
             float damageMultiplier = AiDamagePaceMultiplier(damagePercent);
@@ -1464,9 +1533,26 @@ namespace LocalFormulaRacing
 
                 straightTargetSpeed = paceCap;
                 float cappedApexTargetSpeed = Mathf.Min(apexTargetSpeedUnderCap, paceCap);
-                float paceScale = driverPaceVariance * profile.paceMultiplier * damageMultiplier;
-                cruiseTargetSpeed = Mathf.Lerp(straightTargetSpeed, cappedApexTargetSpeed, severityHere) * paceScale;
-                brakingApexSpeed = cappedApexTargetSpeed * paceScale;
+                // Under a race-control cap the target is the CAP - it must never be
+                // scaled back up by the pace multipliers.
+                //
+                // This used to multiply by driverPaceVariance * profile.paceMultiplier,
+                // whose minimum product is ~3.26, so a 190 kph VSC cap became a ~620
+                // kph target. speedGap never approached zero, throttle stayed pinned
+                // at 1.0, and enforcement fell entirely to the physical limiter -
+                // which is deliberately soft under a race-control cap (<=5.5 m/s^2),
+                // taking ~7 seconds to coast down from 330. Meanwhile the player's
+                // throttle is cut to zero and brake applied immediately, and only the
+                // player can collect the "Ignored safety car pace" penalty. Every
+                // caution therefore handed the entire AI field free time over the
+                // player. Note the unlike-for-like with the green-flag branch above:
+                // that one has a feasibility Min, this one had no clamp at all.
+                //
+                // Damage still slows a hurt car, but nothing may exceed the cap.
+                cruiseTargetSpeed = Mathf.Min(
+                    Mathf.Lerp(straightTargetSpeed, cappedApexTargetSpeed, severityHere) * damageMultiplier,
+                    paceCap);
+                brakingApexSpeed = Mathf.Min(cappedApexTargetSpeed * damageMultiplier, paceCap);
                 paceCapRecoveryBoostTimer = PaceCapRecoveryBoostSeconds;
             }
             else if (paceCapRecoveryBoostTimer > 0f)
@@ -3336,6 +3422,7 @@ namespace LocalFormulaRacing
             if (raceManager.IsShownBlueFlag(participant) && severityHere < 0.12f)
             {
                 command.throttle = Mathf.Min(command.throttle, 0.88f);
+                safetyThrottleCeiling = Mathf.Min(safetyThrottleCeiling, 0.88f);
             }
 
             // ERS is a POWER boost, so it helps wherever the car is POWER-limited
@@ -3377,8 +3464,10 @@ namespace LocalFormulaRacing
                                          vehicle.OversteerAmount < 0.4f && vehicle.UndersteerAmount < 0.4f;
             if (command.ers && genuineStraightForErs && !vehicle.PitRequested && !participant.missedPitEntryThisLap)
             {
-                command.throttle = 1f;
-                currentThrottle = 1f;
+                // Never above the safety ceiling set by traffic avoidance / blue
+                // flags this frame - see safetyThrottleCeiling.
+                command.throttle = Mathf.Min(1f, safetyThrottleCeiling);
+                currentThrottle = command.throttle;
             }
 
             // DRS legality is decided entirely by RaceManager; drsUsageQuality only
@@ -3843,7 +3932,14 @@ namespace LocalFormulaRacing
                 return;
             }
 
-            if (damagePercent >= 42f && participant.pitStops == 0)
+            // The final-lap suppression in UpdatePitStrategy claims to override every
+            // trigger, but this method is called AFTER it, so the damage trigger
+            // simply re-armed the request it had just cleared - putting a damaged AI
+            // that still owed its mandatory stop into the pits on the last lap,
+            // throwing away multiple positions for a stop it can never recover.
+            // Re-check the same rule here.
+            if (damagePercent >= 42f && participant.pitStops == 0 &&
+                !AiPitStrategyRules.FinalLapSuppressesNewRequest(participant.lapTracker.CompletedLaps, raceManager.RaceLaps))
             {
                 command.pitRequest = true;
             }
@@ -3865,6 +3961,7 @@ namespace LocalFormulaRacing
         {
             float brakeDemand = 0f;
             float throttleLimit = 1f;
+            safetyThrottleCeiling = 1f;
             float steerAdjust = 0f;
             bool blockedLeft = false;
             bool blockedRight = false;
@@ -4551,6 +4648,7 @@ namespace LocalFormulaRacing
             }
 
             command.throttle = Mathf.Min(command.throttle, throttleLimit);
+            safetyThrottleCeiling = Mathf.Min(safetyThrottleCeiling, throttleLimit);
 
             // Racing-line traffic gate (see lineTrafficNearby field): a car
             // within ~18m ahead or anyone alongside means this car is racing in
@@ -5573,6 +5671,7 @@ namespace LocalFormulaRacing
                                                      overlappedAlongside;
                             if (decisiveAdvantage)
                             {
+                                overtakeTarget = ahead;
                                 overtakeState = attackSide < 0f ? OvertakeState.AttackingOutside : OvertakeState.AttackingInside;
                                 overtakeStateTimer = attackingTimer;
                             }
@@ -5627,6 +5726,7 @@ namespace LocalFormulaRacing
 
                     if (liveAdvantage && !inCornerCommitmentZone)
                     {
+                        overtakeTarget = ahead;
                         overtakeState = attackSide < 0f ? OvertakeState.AttackingOutside : OvertakeState.AttackingInside;
                         overtakeStateTimer = attackingTimer;
                     }
@@ -5636,6 +5736,7 @@ namespace LocalFormulaRacing
                         // still there, no roll.
                         if (stillThere && (isExpert || Random.value < commitment))
                         {
+                            overtakeTarget = ahead;
                             overtakeState = attackSide < 0f ? OvertakeState.AttackingOutside : OvertakeState.AttackingInside;
                             overtakeStateTimer = attackingTimer;
                         }
@@ -5699,7 +5800,7 @@ namespace LocalFormulaRacing
                         overtakeState = OvertakeState.SideBySide;
                         overtakeStateTimer = sideBySideTimer;
                     }
-                    else if (ahead == null)
+                    else if (ahead == null && OvertakeTargetIsBehind())
                     {
                         overtakeState = OvertakeState.CompletingPass;
                         overtakeStateTimer = 1.4f;
@@ -5746,7 +5847,8 @@ namespace LocalFormulaRacing
                     {
                         // hold alongside.
                     }
-                    else if (ahead == null || raceManager.FindCarAhead(participant, 12f) == null)
+                    else if ((ahead == null || raceManager.FindCarAhead(participant, 12f) == null) &&
+                             OvertakeTargetIsBehind())
                     {
                         overtakeState = OvertakeState.CompletingPass;
                         overtakeStateTimer = 1.2f;
