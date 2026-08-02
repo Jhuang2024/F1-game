@@ -104,8 +104,9 @@ namespace LocalFormulaRacing
             if (query != null)
             {
                 int zone = query.DrsZoneAt(progress.distance);
-                // The interface reports -1 for "no zone"; legacy call sites
-                // treat 0 as "no zone" and 1/2 as the zone index.
+                // The interface reports 0 for "no zone" and a 1-based zone index
+                // otherwise (1..3 - circuits carry one, two or three activation
+                // zones). The negative guard is belt and braces.
                 return zone < 0 ? 0 : zone;
             }
 
