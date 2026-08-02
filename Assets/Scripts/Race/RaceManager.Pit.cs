@@ -22,6 +22,30 @@ namespace LocalFormulaRacing
         // and no phase handoff that can strand a car, so there is nothing
         // left for a watchdog to watch.
 
+        /// <summary>
+        /// The teammate currently occupying this car's pit box, or null. Two cars
+        /// share a garage, so only one can be serviced at a time.
+        /// </summary>
+        RaceParticipant FindPitBoxOccupant(RaceParticipant participant)
+        {
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant other = Participants[i];
+                if (other == null || other == participant || other.retired ||
+                    other.pitBoxIndex != participant.pitBoxIndex)
+                {
+                    continue;
+                }
+
+                if (other.pitRailServiceStarted && !other.pitRailServiceDone)
+                {
+                    return other;
+                }
+            }
+
+            return null;
+        }
+
         void HandlePitService(RaceParticipant participant)
         {
             if (participant == null || participant.vehicle == null || participant.lapTracker == null)
@@ -642,6 +666,26 @@ namespace LocalFormulaRacing
             // --- arrival at the box: snap into the bay, start the stop.
             if (!participant.pitRailServiceStarted && participant.pitRailTraveled >= participant.pitRailBoxS - 0.01f)
             {
+                // STACKING. Both of a team's cars share one garage, so if the
+                // teammate is already being serviced this car has to sit in the lane
+                // and wait - the "we're stacking them" call, and one of the biggest
+                // strategic costs of a double stop under a safety car. It could never
+                // happen before because every car owned a private box indexed by its
+                // grid slot.
+                RaceParticipant boxOccupant = FindPitBoxOccupant(participant);
+                if (boxOccupant != null)
+                {
+                    participant.pitLaneHeldByOccupancy = true;
+                    participant.pitPhase = PitPhase.Entry;
+                    participant.vehicle.SetPitLimiter(true);
+                    if (participant.isPlayer)
+                    {
+                        SessionMessage = "Stacked behind " + boxOccupant.driverName + " - hold in the lane";
+                    }
+
+                    return;
+                }
+
                 Vector3 servicePosition;
                 Quaternion serviceRotation;
                 Track.GetPitServicePose(participant.pitBoxIndex, out servicePosition, out serviceRotation);

@@ -1967,8 +1967,14 @@ namespace LocalFormulaRacing
         // Every entrant owns a unique pit box along the service road; the shared
         // single service pose was the reason whole fields stacked onto one spot.
 
-        public const int PitBoxCount = 22;
-        public const float PitBoxSpacing = 10.5f;
+// One pit box per TEAM, not per car. Real F1 has a garage per constructor,
+        // shared by both of its cars - which is the entire reason "we're stacking
+        // them" exists as a strategic problem. The game gave every car a private
+        // box indexed by its GRID slot, so box order changed race to race and two
+        // teammates could never queue behind each other.
+        public const int PitBoxCount = 11;
+        // A team garage houses two cars, so the bays are correspondingly wider.
+        public const float PitBoxSpacing = 20f;
         // How far before the start/finish line the LAST service box sits; the
         // full bay row extends (PitBoxCount-1)*PitBoxSpacing further back from
         // here. Fixed metres, same rationale as the entry/exit boundaries.

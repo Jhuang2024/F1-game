@@ -74,6 +74,41 @@ namespace LocalFormulaRacing
             return fallback;
         }
 
+        /// <summary>
+        /// True when this driver is the SECOND car already spawned for its team, so
+        /// shared-garage spawns can be offset instead of overlapping.
+        /// </summary>
+        bool IsSecondCarOfTeam(string driverId, string teamId)
+        {
+            for (int i = 0; i < Participants.Count; i++)
+            {
+                RaceParticipant other = Participants[i];
+                if (other != null && other.teamId == teamId && other.driverId != driverId)
+                {
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        /// <summary>Pit box index for a team - one garage per constructor.</summary>
+        int ResolvePitBoxIndex(string teamId)
+        {
+            if (Data != null && Data.Teams != null && Data.Teams.teams != null)
+            {
+                for (int i = 0; i < Data.Teams.teams.Count; i++)
+                {
+                    if (Data.Teams.teams[i] != null && Data.Teams.teams[i].id == teamId)
+                    {
+                        return Mathf.Clamp(i, 0, TrackRuntime.PitBoxCount - 1);
+                    }
+                }
+            }
+
+            return 0;
+        }
+
         RaceParticipant SpawnParticipant(
             string driverId,
             string driverName,
@@ -96,8 +131,16 @@ namespace LocalFormulaRacing
             Quaternion spawnRotation = Quaternion.LookRotation(forward, Vector3.up);
             if (CurrentSession == RaceWeekendSession.Qualifying)
             {
-                // Qualifying runs launch from the car's own pit box, not a shared point.
-                Track.GetPitServicePose(Mathf.Clamp(gridIndex, 0, TrackRuntime.PitBoxCount - 1), out spawnPosition, out spawnRotation);
+                // Qualifying runs launch from the TEAM's garage. Boxes are now shared
+                // by both of a team's cars, so the second car is offset back along the
+                // lane rather than spawned inside its teammate.
+                int boxIndex = ResolvePitBoxIndex(teamId);
+                Track.GetPitServicePose(boxIndex, out spawnPosition, out spawnRotation);
+                if (IsSecondCarOfTeam(driverId, teamId))
+                {
+                    spawnPosition -= spawnRotation * Vector3.forward * 6f;
+                }
+
                 spawnPosition += Vector3.up * 0.1f;
             }
 
@@ -115,7 +158,10 @@ namespace LocalFormulaRacing
             RaceParticipant participant = carObject.AddComponent<RaceParticipant>();
             participant.Initialize(driverId, driverName, teamId, teamShort, player, driver, team, car);
             participant.gridPosition = gridIndex + 1;
-            participant.pitBoxIndex = Mathf.Clamp(gridIndex, 0, TrackRuntime.PitBoxCount - 1);
+            // Box is the TEAM's, so both of a team's cars share it and have to
+            // queue for each other. (Real box order is set by the previous season's
+            // constructors' standings; the team-list order stands in for that.)
+            participant.pitBoxIndex = ResolvePitBoxIndex(teamId);
             participant.startReactionDelay = player ? 0f : ResolveAiStartReactionDelay(driver);
             // Rare AI jump start (StartProcedureRules): rolled once here; the
             // countdown loop physically releases the car that early and the
