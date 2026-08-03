@@ -1557,6 +1557,10 @@ namespace LocalFormulaRacing
         // gradually, never as a step.
         float[] curvatureRadius;
 
+        // Arc length either side of a point used to measure its curvature. Long
+        // enough that survey jitter averages out, short enough to resolve a hairpin.
+        const float CurvatureBaselineMeters = 20f;
+
         public void RecalculateHairpinWidening()
         {
             hairpinCenters.Clear();
@@ -1581,6 +1585,47 @@ namespace LocalFormulaRacing
                 curvatureRadius[i] = spacing > 0.25f && angleRad > 0.002f
                     ? Mathf.Clamp(spacing / angleRad, 5f, 9999f)
                     : 9999f;
+                // Fixed-ARC baseline, not the two adjacent points.
+                //
+                // radius = arc / heading-change is spacing-independent in theory and
+                // violently noise-sensitive in practice: at 5 m spacing, half a metre
+                // of survey jitter is 6 degrees of apparent turn, which reads as a
+                // 50 m corner in the middle of a straight. On the real centrelines
+                // that put a phantom corner under 13-34% of every lap, and the AI
+                // brakes off this number - which is why they were braking and turning
+                // at places with no corner, then arriving at the real one unprepared.
+                // Measuring the heading change across a fixed ~20 m of arc either side
+                // averages the jitter out while still resolving a genuine hairpin.
+                Vector3 back = current;
+                Vector3 fwd = current;
+                float backArc = 0f;
+                float fwdArc = 0f;
+                for (int k = 1; k < count && backArc < CurvatureBaselineMeters; k++)
+                {
+                    Vector3 a = centerLine[(i - k + count) % count];
+                    backArc += Vector3.Distance(a, back);
+                    back = a;
+                }
+
+                for (int k = 1; k < count && fwdArc < CurvatureBaselineMeters; k++)
+                {
+                    Vector3 a = centerLine[(i + k) % count];
+                    fwdArc += Vector3.Distance(a, fwd);
+                    fwd = a;
+                }
+
+                Vector3 baseIn = current - back;
+                Vector3 baseOut = fwd - current;
+                baseIn.y = 0f;
+                baseOut.y = 0f;
+                float baseArc = backArc + fwdArc;
+                float baseAngle = Vector3.Angle(baseIn, baseOut) * Mathf.Deg2Rad;
+                if (baseArc > 1f && baseIn.sqrMagnitude > 0.01f && baseOut.sqrMagnitude > 0.01f)
+                {
+                    curvatureRadius[i] = baseAngle > 0.004f
+                        ? Mathf.Clamp(baseArc / baseAngle, 5f, 9999f)
+                        : 9999f;
+                }
             }
 
             for (int pass = 0; pass < 6; pass++)
@@ -2471,6 +2516,7 @@ namespace LocalFormulaRacing
             BuildGround();
             BuildContinuousSafetyFloor();
             BuildRoadMesh();
+            BuildRunoffVerge();
             BuildRoadPaint();
             BuildAsphaltDetail();
             BuildRubberBuildup();
@@ -2884,9 +2930,14 @@ namespace LocalFormulaRacing
                 perimeter += Vector3.Distance(points[i], points[(i + 1) % n]);
             }
 
-            const float TargetSpacing = 12f;
+            // 5 m, not 12. At 12 m a 25 m-radius corner is a 28-degree chord joint -
+            // "a bunch of tiny straight lines rearranged to make a circle" is exactly
+            // what that looks like. It also used to skip entirely for anything already
+            // under 20 m average, which the real surveyed centrelines are, so corners
+            // never got arc-reconstructed at all.
+            const float TargetSpacing = 5f;
             float averageSpacing = perimeter / n;
-            if (perimeter < 500f || averageSpacing < 20f)
+            if (perimeter < 500f || averageSpacing < 5.5f)
             {
                 Debug.Log("[RoadSurfaceDiag] " + runtime.displayName + ": centreline already finely sampled (" +
                           averageSpacing.ToString("0.0") + "m avg spacing) - no subdivision needed.");
@@ -3246,6 +3297,28 @@ namespace LocalFormulaRacing
             // circuits. Only the point count matters.
             if (runtime.centerLine == null || runtime.centerLine.Count < 8)
             {
+                return;
+            }
+
+            // A circuit that already carries REAL elevation does not get invented
+            // elevation stacked on top of it. The authored circuits now hold the
+            // actual profile - Eau Rouge, the Red Bull Ring's climb, COTA's Turn 1 -
+            // and adding a hashed sine wave to that produces neither the real circuit
+            // nor a coherent invented one.
+            float authoredRange = 0f;
+            float lowest = float.MaxValue;
+            float highest = float.MinValue;
+            for (int i = 0; i < runtime.centerLine.Count; i++)
+            {
+                lowest = Mathf.Min(lowest, runtime.centerLine[i].y);
+                highest = Mathf.Max(highest, runtime.centerLine[i].y);
+            }
+
+            authoredRange = highest - lowest;
+            if (authoredRange > 4f)
+            {
+                GameLog.Info("[Track] " + runtime.displayName + " carries " +
+                    authoredRange.ToString("0") + "m of authored elevation - skipping the procedural pass.");
                 return;
             }
 
@@ -5384,6 +5457,117 @@ namespace LocalFormulaRacing
                       " sharedMeshAssigned=" + (collider.sharedMesh == mesh) +
                       " meshVertices=" + mesh.vertexCount +
                       " bounds=" + mesh.bounds);
+        }
+
+        /// <summary>
+        /// Verge either side of the racing surface, out to the barrier line.
+        ///
+        /// Without it the road is a ribbon suspended in the air: the only thing under
+        /// the runoff is the catch floor 2.6 m below, and on a circuit with real
+        /// elevation the terrain slab sits at the LOWEST point of the whole lap - so
+        /// at Spa's Les Combes or the top of the Red Bull Ring, running a metre wide
+        /// meant falling tens of metres. Real elevation is what exposed this; the road
+        /// was always a ribbon, it just used to be a nearly flat one with a barrier
+        /// 5 cm off the white line.
+        ///
+        /// This is the second attempt at the surface. The first sat its inner edge
+        /// exactly ON the road's outer edge at exactly the road's height - coincident,
+        /// coplanar triangles in two separate MeshColliders, which is the classic way
+        /// to drop a rigidbody through a surface, and cars fell into the road. This
+        /// one deliberately does neither: it UNDERLAPS the road by 0.6 m and sits
+        /// 12 cm below it, so the two surfaces overlap without ever being coincident,
+        /// the road always wins the surface query on the racing line, and there is no
+        /// gap at the edge for a wheel to find. Off the road you drop onto a verge a
+        /// hand's width down, which is what a verge is.
+        ///
+        /// Sampled on the road mesh's own schedule so the two follow identical
+        /// elevation, and NOT the track: IsOffTrackSlowdown and the track-limits rules
+        /// are width-based and still treat all of this as off-track.
+        /// </summary>
+        void BuildRunoffVerge()
+        {
+            if (Runtime == null || Runtime.length <= 1f || Runtime.RunoffWidthMeters <= 0.25f)
+            {
+                return;
+            }
+
+            const float RoadMeshStepMeters = 3f;
+            const float UnderlapMeters = 0.6f;
+            const float DropBelowRoadMeters = 0.12f;
+            const float OuterExtraDropMeters = 0.35f;
+            int count = Mathf.Max(Runtime.centerLine.Count, Mathf.CeilToInt(Runtime.length / RoadMeshStepMeters));
+            float step = Runtime.length / count;
+
+            Material vergeMaterial = CreateMaterial("Runtime Runoff Asphalt", new Color(0.36f, 0.36f, 0.38f), 0f, 0.22f);
+
+            for (int side = -1; side <= 1; side += 2)
+            {
+                Mesh mesh = new Mesh();
+                mesh.name = "Runoff verge " + (side < 0 ? "left" : "right");
+                mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
+                Vector3[] vertices = new Vector3[count * 2];
+                Vector2[] uvs = new Vector2[count * 2];
+                int[] triangles = new int[count * 6];
+
+                for (int i = 0; i < count; i++)
+                {
+                    float distance = i * step;
+                    Vector3 point;
+                    Vector3 forward;
+                    Vector3 right;
+                    Runtime.SampleAtDistance(distance, out point, out forward, out right);
+                    float inner = Mathf.Max(0.5f, Runtime.HalfWidthAt(distance) - UnderlapMeters);
+                    float outer = ProtectionLineLateral(distance) + EdgeBarrierClearance;
+                    Vector3 innerLift = Vector3.up * (0.015f - DropBelowRoadMeters);
+                    Vector3 outerLift = Vector3.up * (0.015f - DropBelowRoadMeters - OuterExtraDropMeters);
+                    vertices[i * 2] = point + right * side * inner + innerLift;
+                    vertices[i * 2 + 1] = point + right * side * Mathf.Max(inner + 1f, outer) + outerLift;
+                    float v = distance / 14f;
+                    uvs[i * 2] = new Vector2(0f, v);
+                    uvs[i * 2 + 1] = new Vector2(1f, v);
+
+                    int next = (i + 1) % count;
+                    int tri = i * 6;
+                    if (side < 0)
+                    {
+                        triangles[tri] = i * 2;
+                        triangles[tri + 1] = i * 2 + 1;
+                        triangles[tri + 2] = next * 2;
+                        triangles[tri + 3] = next * 2;
+                        triangles[tri + 4] = i * 2 + 1;
+                        triangles[tri + 5] = next * 2 + 1;
+                    }
+                    else
+                    {
+                        triangles[tri] = i * 2;
+                        triangles[tri + 1] = next * 2;
+                        triangles[tri + 2] = i * 2 + 1;
+                        triangles[tri + 3] = i * 2 + 1;
+                        triangles[tri + 4] = next * 2;
+                        triangles[tri + 5] = next * 2 + 1;
+                    }
+                }
+
+                mesh.vertices = vertices;
+                mesh.uv = uvs;
+                mesh.triangles = triangles;
+                mesh.RecalculateNormals();
+                mesh.RecalculateBounds();
+
+                GameObject verge = new GameObject("Runoff verge " + (side < 0 ? "left" : "right"));
+                verge.transform.SetParent(transform);
+                verge.AddComponent<MeshFilter>().sharedMesh = mesh;
+                MeshRenderer vergeRenderer = verge.AddComponent<MeshRenderer>();
+                vergeRenderer.sharedMaterial = vergeMaterial;
+                vergeRenderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
+                vergeRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+                MeshCollider vergeCollider = verge.AddComponent<MeshCollider>();
+                vergeCollider.sharedMesh = mesh;
+                vergeCollider.convex = false;
+                vergeCollider.isTrigger = false;
+                vergeCollider.sharedMaterial = GetRoadPhysicsMaterial();
+                verge.layer = 0;
+            }
         }
 
         void BuildRoadPaint()

@@ -144,6 +144,35 @@ namespace F1Game.Race.Rules
         /// </summary>
         public static float SessionLapLengthMeters = ReferenceLapLengthMeters;
 
+        /// <summary>
+        /// How much of a FULL grand prix the current race actually is, 0..1. Tyre life
+        /// is compressed by this, so a race of any length gets the same number of
+        /// stints as the real event.
+        ///
+        /// Without it, real tyre life makes short races meaningless: a soft is worth
+        /// 15 laps, so over a 5-lap race nothing wears, there is no stint to plan and
+        /// no reason to manage anything - "the tires actually last like 17-40 laps in
+        /// a 5 lap race". Compressing life by the same factor the DISTANCE was
+        /// compressed by keeps the strategy intact at every setting: at full distance
+        /// this is 1 and life is the real figure; at 5 laps of a 57-lap race it is
+        /// 0.088, so that soft is worth about 1.3 laps - which is a stint, a pit
+        /// window and a decision.
+        /// </summary>
+        public static float RaceDistanceFraction = 1f;
+
+        /// <summary>Sets RaceDistanceFraction from the configured and full lap counts.</summary>
+        public static void SetRaceDistance(int raceLaps, int fullRaceLaps)
+        {
+            if (raceLaps <= 0 || fullRaceLaps <= 0)
+            {
+                RaceDistanceFraction = 1f;
+                return;
+            }
+
+            float f = raceLaps / (float)fullRaceLaps;
+            RaceDistanceFraction = f < 0.02f ? 0.02f : (f > 1f ? 1f : f);
+        }
+
         static float ResolveLapKm(float trackLengthMeters)
         {
             float meters = trackLengthMeters > 500f
@@ -190,7 +219,7 @@ namespace F1Game.Race.Rules
         /// </summary>
         public static float ExpectedStintLapsAtTemp(int compound, float trackTempC, float trackLengthMeters = 0f)
         {
-            return ExpectedStintKmAtTemp(compound, trackTempC) / ResolveLapKm(trackLengthMeters);
+            return ExpectedStintKmAtTemp(compound, trackTempC) / ResolveLapKm(trackLengthMeters) * RaceDistanceFraction;
         }
 
         // Two-segment linear interpolation across the cool/standard/hot anchors,

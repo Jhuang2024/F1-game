@@ -4308,11 +4308,18 @@ namespace LocalFormulaRacing
         // is a DISTANCE - so they have to tell the rules layer which circuit they are
         // talking about, or the laps they print are for a 5 km reference lap instead
         // of this one. Monaco and Spa differ by more than a factor of two.
-        static void ApplySessionLapLength(CalendarEventData raceEvent)
+        void ApplySessionLapLength(CalendarEventData raceEvent)
         {
             if (raceEvent != null && raceEvent.lapLengthMeters > 500f)
             {
                 TyreStrategyRules.SessionLapLengthMeters = raceEvent.lapLengthMeters;
+            }
+
+            if (raceEvent != null && settings != null)
+            {
+                TyreStrategyRules.SetRaceDistance(
+                    Mathf.Max(3, settings.Current.laps),
+                    raceEvent.lapsFull > 0 ? raceEvent.lapsFull : Mathf.Max(3, settings.Current.laps));
             }
         }
 

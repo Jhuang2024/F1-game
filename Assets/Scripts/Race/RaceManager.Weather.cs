@@ -105,6 +105,12 @@ namespace LocalFormulaRacing
             // wear model, the tyre screen - has to know how long a lap of THIS circuit
             // is. Same shared-static pattern, same tick.
             TyreStrategyRules.SessionLapLengthMeters = Mathf.Max(500f, Track.length);
+            // Tyre life is compressed to the fraction of a real grand prix this race
+            // actually is, so a 5-lap race still has stints, a pit window and a
+            // decision instead of tyres that outlast it several times over.
+            TyreStrategyRules.SetRaceDistance(
+                RaceLaps,
+                EventData != null && EventData.lapsFull > 0 ? EventData.lapsFull : RaceLaps);
         }
 
         // Simple dynamic weather: on mixed-forecast races the conditions flip once
