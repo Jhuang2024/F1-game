@@ -145,7 +145,21 @@ namespace F1Game.Track
         // Street circuits keep the walls close (a couple of metres of kerb and
         // apron); permanent circuits get real asphalt/gravel runoff.
         const float StreetRunoffMeters = 2.5f;
-        const float PermanentRunoffMeters = 22f;
+        // Runoff a permanent circuit gets beyond the white line, in metres.
+        //
+        // Started at 22, which is a realistic figure for a high-speed corner but put
+        // the barrier line ~36 m from the centreline - well outside the 26 m catch
+        // floor under the circuit, so barriers stood over a void and a car running
+        // wide fell off the edge of the world. Widening the floor to match walked
+        // straight into the invisible-wall bug that floor's own width exists to
+        // avoid, and papering over it with an apron mesh at road level broke the
+        // track surface itself.
+        //
+        // 8 m is the value that needs none of that: the barrier line lands around
+        // 24 m even on a hairpin-widened section, comfortably INSIDE the untouched
+        // 26 m floor. It is still the difference between "a mistake has somewhere
+        // to go" and the 5 cm this used to be.
+        const float PermanentRunoffMeters = 8f;
 
         public struct LegacyCircuitSpec
         {

@@ -3902,8 +3902,14 @@ namespace LocalFormulaRacing
                 int stops;
                 TyreStrategyRules.FastestDryStrategy(raceLaps, stratTemp, out startCompound, out stops);
                 string startName = StintCompoundNames[Mathf.Clamp(startCompound, 0, 2)];
-                recommendation = "At " + Mathf.RoundToInt(stratTemp) + "°C softs last ~" + softL + ", mediums ~" + medL +
-                    ", hards ~" + hardL + " laps. Fastest: start " + startName + ", " + stops + "-stop.";
+                // On a race shorter than a single stint none of the three compounds is
+                // going to wear out, so quoting their lives is meaningless - say what
+                // actually decides the choice instead.
+                recommendation = softL >= raceLaps
+                    ? "At " + Mathf.RoundToInt(stratTemp) + "°C every compound lasts this " + raceLaps +
+                      "-lap race, so it is a straight pace choice. Fastest: start " + startName + ", " + stops + "-stop."
+                    : "At " + Mathf.RoundToInt(stratTemp) + "°C softs last ~" + softL + ", mediums ~" + medL +
+                      ", hards ~" + hardL + " laps. Fastest: start " + startName + ", " + stops + "-stop.";
             }
 
             Text recommendationText = UiFactory.CreateText(pitList, "Strategy recommendation", recommendation, 13, UiFactory.TextMuted, TextAnchor.UpperLeft);
@@ -3944,22 +3950,37 @@ namespace LocalFormulaRacing
         // gradient in TyreStrategyRules): the same soft that lasts 3 laps on a
         // cool track only lasts 1 on a hot one, so the descriptor states the life
         // AT THIS track's temperature rather than a single fixed number.
-        string TyreShortDescriptor(string tyreName, float trackTempC)
+        // A stint life LONGER THAN THE RACE is a true number that tells the player
+        // nothing and reads as a bug: "~40 laps here" on a five-lap race is noise. What
+        // matters at that point is only whether the tyre reaches the flag, so say that
+        // instead. raceLaps <= 0 means no race context (qualifying), where the raw
+        // stint life is the useful number.
+        static string TyreLifeText(int stintLaps, int raceLaps)
+        {
+            if (raceLaps > 0 && stintLaps >= raceLaps)
+            {
+                return "lasts the full " + raceLaps + " lap" + (raceLaps == 1 ? "" : "s");
+            }
+
+            return "~" + stintLaps + " lap" + (stintLaps == 1 ? "" : "s") + " here";
+        }
+
+        string TyreShortDescriptor(string tyreName, float trackTempC, int raceLaps)
         {
             int softLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Soft, trackTempC);
             int mediumLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Medium, trackTempC);
             int hardLaps = TyreStrategyRules.StintLapsForPlanning(TyreStrategyRules.Compound.Hard, trackTempC);
-            if (tyreName == "Soft") return "Most grip, easiest to steer - ~" + softLaps + " lap" + (softLaps == 1 ? "" : "s") + " here";
-            if (tyreName == "Medium") return "Balanced grip and steering - ~" + mediumLaps + " laps here";
-            if (tyreName == "Hard") return "-30 kph, heaviest to steer - ~" + hardLaps + " laps here";
+            if (tyreName == "Soft") return "Most grip, easiest to steer - " + TyreLifeText(softLaps, raceLaps);
+            if (tyreName == "Medium") return "Balanced grip and steering - " + TyreLifeText(mediumLaps, raceLaps);
+            if (tyreName == "Hard") return "-30 kph, heaviest to steer - " + TyreLifeText(hardLaps, raceLaps);
             // Real lap counts for the rain compounds (per request - "make the
             // intermediates/wets actually say the amount of laps they last,
             // not just that they last the same amount as mediums"): both are
             // physically mapped onto the Medium durability curve (TyreState /
             // TyreStrategyRules), so the honest number IS the medium's count
             // at this temperature - now printed as laps like every slick.
-            if (tyreName == "Intermediate") return "Damp track, light rain - ~" + mediumLaps + " lap" + (mediumLaps == 1 ? "" : "s") + " here";
-            if (tyreName == "Wet") return "Heavy rain, max clearance - ~" + mediumLaps + " lap" + (mediumLaps == 1 ? "" : "s") + " here";
+            if (tyreName == "Intermediate") return "Damp track, light rain - " + TyreLifeText(mediumLaps, raceLaps);
+            if (tyreName == "Wet") return "Heavy rain, max clearance - " + TyreLifeText(mediumLaps, raceLaps);
             return "";
         }
 
@@ -4051,7 +4072,7 @@ namespace LocalFormulaRacing
             nameRect.offsetMin = new Vector2(36f, -30f);
             nameRect.offsetMax = new Vector2(-8f, -10f);
 
-            Text descriptorText = UiFactory.CreateText(card, tyreName + " descriptor", TyreShortDescriptor(tyreName, trackTempC), 13, selected ? new Color(1f, 0.88f, 0.86f) : UiFactory.TextMuted, TextAnchor.UpperLeft);
+            Text descriptorText = UiFactory.CreateText(card, tyreName + " descriptor", TyreShortDescriptor(tyreName, trackTempC, raceLaps), 13, selected ? new Color(1f, 0.88f, 0.86f) : UiFactory.TextMuted, TextAnchor.UpperLeft);
             RectTransform descriptorRect = descriptorText.GetComponent<RectTransform>();
             descriptorRect.anchorMin = new Vector2(0f, 1f);
             descriptorRect.anchorMax = new Vector2(1f, 1f);
@@ -7563,7 +7584,9 @@ namespace LocalFormulaRacing
             int stops;
             TyreStrategyRules.FastestDryStrategy(raceLaps, trackTempC, out startCompound, out stops);
             string best = StintCompoundNames[Mathf.Clamp(startCompound, 0, 2)];
-            string lives = "at " + Mathf.RoundToInt(trackTempC) + "°C: softs ~" + softLaps + ", mediums ~" + mediumLaps + ", hards ~" + hardLaps + " laps";
+            string lives = softLaps >= raceLaps && raceLaps > 0
+                ? "at " + Mathf.RoundToInt(trackTempC) + "°C every compound reaches the flag over " + raceLaps + " laps"
+                : "at " + Mathf.RoundToInt(trackTempC) + "°C: softs ~" + softLaps + ", mediums ~" + mediumLaps + ", hards ~" + hardLaps + " laps";
             return "Soft to qualify, " + best + " + " + stops + "-stop to race (" + lives + ")";
         }
 

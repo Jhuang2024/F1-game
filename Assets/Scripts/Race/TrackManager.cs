@@ -45,7 +45,10 @@ namespace LocalFormulaRacing
         /// Permanent circuits get generous asphalt/gravel runoff; street circuits
         /// keep their walls close, which is what makes them street circuits.
         /// </summary>
-        public float runoffMeters = 18f;
+        // Default runoff for a procedurally generated (non-authored) layout. Must stay
+        // inside the 26 m catch floor together with the road half-width - see
+        // AuthoredCircuitCatalog.PermanentRunoffMeters for why that bound matters.
+        public float runoffMeters = 8f;
 
         public float RunoffWidthMeters
         {
@@ -2468,7 +2471,6 @@ namespace LocalFormulaRacing
             BuildGround();
             BuildContinuousSafetyFloor();
             BuildRoadMesh();
-            BuildRunoffApron();
             BuildRoadPaint();
             BuildAsphaltDetail();
             BuildRubberBuildup();
@@ -5238,17 +5240,14 @@ namespace LocalFormulaRacing
             // road point anywhere near it, so the catch floor can never
             // intrude into another section's driving space - at a crossing the
             // deck's floor simply drops to serve both levels.
-            // Runoff pass: 26 m was written when runoff was effectively zero, so
-            // "road + kerbs + runoff" really meant "road + kerbs". With permanent
-            // circuits now carrying real runoff the barrier line stands at
-            // HalfWidthAt + runoff + clearance - which on a widened section reached
-            // ~36 m, i.e. ten metres OUTSIDE the catch floor. Cars running wide fell
-            // off the end of the slab onto the terrain plate below (a small step on
-            // a flat circuit, a cliff on an elevated one) and the barriers themselves
-            // visibly floated over the drop. The floor now always extends past the
-            // barrier line, with the old 26 m kept as the minimum so flat, runoff-
-            // free layouts are unchanged.
-            float halfWidth = Mathf.Max(26f, MaxProtectionLineLateral() + 6f);
+            // 26 m, and it stays 26 m. This was briefly widened to cover the barrier
+            // line once circuits gained runoff - which walked straight back into the
+            // invisible-wall bug the comment above describes, because a wider slab
+            // reaches further into the airspace of every nearby section. Runoff is
+            // instead kept narrow enough that the barrier line fits INSIDE this slab
+            // (see AuthoredCircuitCatalog.PermanentRunoffMeters), which solves the
+            // same problem without touching the one number that has to stay small.
+            const float halfWidth = 26f;
             const float thickness = 1.4f;
             const float depthBelowRoad = 2.6f;
             float nearbyRadius = halfWidth + 18f;
@@ -5385,130 +5384,6 @@ namespace LocalFormulaRacing
                       " sharedMeshAssigned=" + (collider.sharedMesh == mesh) +
                       " meshVertices=" + mesh.vertexCount +
                       " bounds=" + mesh.bounds);
-        }
-
-        /// <summary>
-        /// Paved runoff either side of the racing surface, out to the barrier line.
-        ///
-        /// Runoff used to be effectively zero, so the road mesh was the only surface
-        /// and everything outside it was the catch floor 2.6 m below. Now that
-        /// permanent circuits carry real runoff, that band has to be something a car
-        /// can actually run onto - otherwise the barriers stand 22 m out over a void
-        /// and going off means dropping off the edge of the world rather than
-        /// scrabbling across asphalt and (maybe) making the corner.
-        ///
-        /// The apron follows the road's own elevation and sits a hair below it, so
-        /// the road mesh always wins the surface query on the racing line. It is NOT
-        /// the track: IsOffTrackSlowdown/PenaltyRules.IsOutsideTrackLimits are width-
-        /// based and still treat every metre of this as off-track, which is the whole
-        /// point - a driver who uses it loses time and can pick up a track-limits
-        /// warning, they just don't fall into a hole.
-        ///
-        /// Width is RunoffWidthAt, which is zero through the pit zone, so the strip
-        /// pinches shut rather than paving over the pit lane.
-        /// </summary>
-        void BuildRunoffApron()
-        {
-            if (Runtime == null || Runtime.length <= 1f || Runtime.RunoffWidthMeters <= 0.25f)
-            {
-                return;
-            }
-
-            // The apron MUST be sampled on exactly the same schedule as the road mesh
-            // (BuildRoadMesh's RoadMeshStepMeters / vertex count), so its inner edge
-            // vertices land on the road's outer edge vertices EXACTLY.
-            //
-            // It was sampled every 4 m against the road's 3 m. On any undulating
-            // section the two ribbons then chord the elevation profile differently, so
-            // between shared points the apron's inner edge could sit ABOVE the road
-            // surface - a lip a couple of centimetres proud, repeating all the way
-            // round the lap, right on the track edge where a car actually races. That
-            // is a wheel-catcher, and it punishes whoever runs closest to the edge.
-            const float RoadMeshStepMeters = 3f;
-            int count = Mathf.Max(Runtime.centerLine.Count, Mathf.CeilToInt(Runtime.length / RoadMeshStepMeters));
-            float step = Runtime.length / count;
-
-            Material apronMaterial = CreateMaterial("Runtime Runoff Asphalt", new Color(0.36f, 0.36f, 0.38f), 0f, 0.22f);
-
-            for (int side = -1; side <= 1; side += 2)
-            {
-                Mesh mesh = new Mesh();
-                mesh.name = "Runoff apron " + (side < 0 ? "left" : "right");
-                mesh.indexFormat = UnityEngine.Rendering.IndexFormat.UInt32;
-                Vector3[] vertices = new Vector3[count * 2];
-                Vector2[] uvs = new Vector2[count * 2];
-                int[] triangles = new int[count * 6];
-
-                for (int i = 0; i < count; i++)
-                {
-                    float distance = i * step;
-                    Vector3 point;
-                    Vector3 forward;
-                    Vector3 right;
-                    Runtime.SampleAtDistance(distance, out point, out forward, out right);
-                    float inner = Runtime.HalfWidthAt(distance);
-                    // ProtectionLineLateral already carries the elevation-crossing
-                    // clamp (see BuildRunoffClampProfile), so the apron, the barriers
-                    // standing at its outer edge and both validators agree by
-                    // construction on where the runoff ends.
-                    float outer = ProtectionLineLateral(distance) + EdgeBarrierClearance;
-
-                    // Inner edge: the road mesh's own outer-edge vertex, to the
-                    // millimetre (BuildRoadMesh lifts by 0.015). Matching it exactly is
-                    // what guarantees the apron can never stand proud of the track. The
-                    // outer edge drops 4 cm so the two surfaces cannot z-fight and a
-                    // surface query on the racing line can only ever hit the road.
-                    Vector3 innerLift = Vector3.up * 0.015f;
-                    Vector3 outerLift = Vector3.up * (0.015f - 0.04f);
-                    vertices[i * 2] = point + right * side * inner + innerLift;
-                    vertices[i * 2 + 1] = point + right * side * Mathf.Max(inner, outer) + outerLift;
-                    float v = distance / 14f;
-                    uvs[i * 2] = new Vector2(0f, v);
-                    uvs[i * 2 + 1] = new Vector2(1f, v);
-
-                    int next = (i + 1) % count;
-                    int tri = i * 6;
-                    // Wind each side so its faces point up.
-                    if (side < 0)
-                    {
-                        triangles[tri] = i * 2;
-                        triangles[tri + 1] = i * 2 + 1;
-                        triangles[tri + 2] = next * 2;
-                        triangles[tri + 3] = next * 2;
-                        triangles[tri + 4] = i * 2 + 1;
-                        triangles[tri + 5] = next * 2 + 1;
-                    }
-                    else
-                    {
-                        triangles[tri] = i * 2;
-                        triangles[tri + 1] = next * 2;
-                        triangles[tri + 2] = i * 2 + 1;
-                        triangles[tri + 3] = i * 2 + 1;
-                        triangles[tri + 4] = next * 2;
-                        triangles[tri + 5] = next * 2 + 1;
-                    }
-                }
-
-                mesh.vertices = vertices;
-                mesh.uv = uvs;
-                mesh.triangles = triangles;
-                mesh.RecalculateNormals();
-                mesh.RecalculateBounds();
-
-                GameObject apron = new GameObject("Runoff apron " + (side < 0 ? "left" : "right"));
-                apron.transform.SetParent(transform);
-                apron.AddComponent<MeshFilter>().sharedMesh = mesh;
-                MeshRenderer apronRenderer = apron.AddComponent<MeshRenderer>();
-                apronRenderer.sharedMaterial = apronMaterial;
-                apronRenderer.reflectionProbeUsage = UnityEngine.Rendering.ReflectionProbeUsage.Off;
-                apronRenderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
-                MeshCollider apronCollider = apron.AddComponent<MeshCollider>();
-                apronCollider.sharedMesh = mesh;
-                apronCollider.convex = false;
-                apronCollider.isTrigger = false;
-                apronCollider.sharedMaterial = GetRoadPhysicsMaterial();
-                apron.layer = 0;
-            }
         }
 
         void BuildRoadPaint()
@@ -6247,28 +6122,6 @@ namespace LocalFormulaRacing
         float ProtectionLineLateral(float distance)
         {
             return Runtime.HalfWidthAt(distance) + RunoffWidthAt(distance);
-        }
-
-        /// <summary>
-        /// Widest protection line anywhere on the lap. Used to size the continuous
-        /// safety floor so the catch slab always reaches past the barriers.
-        /// </summary>
-        float MaxProtectionLineLateral()
-        {
-            if (Runtime == null || Runtime.length <= 1f)
-            {
-                return 0f;
-            }
-
-            // The pit corridor fans out further than any runoff does, and it is
-            // drivable surface that needs catching under it just as much.
-            float widest = PitOuterLateral();
-            for (float d = 0f; d < Runtime.length; d += 12f)
-            {
-                widest = Mathf.Max(widest, ProtectionLineLateral(d));
-            }
-
-            return widest;
         }
 
         // Direct, undiscretized curvature reading at one point (degrees of
@@ -9506,17 +9359,23 @@ namespace LocalFormulaRacing
                 // has none (street circuits, the pit straight) they fall back to the
                 // original tight strip, because there is nowhere else to put them.
                 float band = RunoffWidthAt(exitDistance);
+                float halfWidthHere = Runtime.HalfWidthAt(exitDistance);
                 float lateral;
                 Vector3 patchSize;
                 if (band >= 6f)
                 {
+                    // Backed onto the barrier and working inwards - but NEVER inside
+                    // the paved edge. Working inwards from the protection line without
+                    // that floor put the innermost patch metres inside the white line
+                    // and painted gravel across the racing surface itself.
                     patchSize = new Vector3(4f, 0.05f, 7f);
-                    lateral = turnSign * (ProtectionLineLateral(exitDistance) - 2.5f - p * 4f);
+                    float outerEdge = ProtectionLineLateral(exitDistance) - 2.5f - p * 4f;
+                    lateral = turnSign * Mathf.Max(halfWidthHere + 2.5f, outerEdge);
                 }
                 else
                 {
                     patchSize = new Vector3(1f, 0.05f, 7f);
-                    lateral = turnSign * (Runtime.HalfWidthAt(exitDistance) + 1.5f + p * 0.3f);
+                    lateral = turnSign * (halfWidthHere + 1.5f + p * 0.3f);
                 }
 
                 CreateVisualBox("Gravel trap patch", point + right * lateral + Vector3.up * 0.03f, Quaternion.LookRotation(forward, Vector3.up), patchSize, gravelMaterial);

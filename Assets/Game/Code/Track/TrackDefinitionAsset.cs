@@ -102,7 +102,10 @@ namespace F1Game.Track
         [Tooltip("Lateral distance from centerline where trackside kerbs begin (0 = derive from width).")]
         public float kerbStartOffset;
         /// <summary>Metres of runoff between the paved edge and the barrier line.</summary>
-        public float runoffMeters = 18f;
+        // Default runoff for a procedurally generated (non-authored) layout. Must stay
+        // inside the 26 m catch floor together with the road half-width - see
+        // AuthoredCircuitCatalog.PermanentRunoffMeters for why that bound matters.
+        public float runoffMeters = 8f;
         [Tooltip("Catmull-Rom subdivisions per anchor segment when the world builder smooths this spline (0 = builder default). Converted legacy circuits keep their original smoothing density here.")]
         public int anchorSubdivisions;
 
